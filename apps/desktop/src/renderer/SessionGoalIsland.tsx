@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { liveAgentRows } from './AgentActivityPane';
-import type { GoalSnapshot, Snapshot } from './desktop-types';
+import type { GoalSnapshot, GoalTask, Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { showDesktopToast } from './notifications';
@@ -51,7 +51,8 @@ function goalStatusLabel(goal: GoalSnapshot): string {
   if (status === 'complete') return t('Complete');
   if (status === 'paused') return t('Paused');
   if (status === 'blocked') return t('Blocked');
-  if (status === 'budget_limited') return t('Time limit reached');
+  // A requested duration running out is a normal stop, not a limit breach.
+  if (status === 'duration_reached') return t('Duration reached');
   if (status === 'usage_limited') return t('Usage limited');
   return t('in progress');
 }
@@ -80,7 +81,7 @@ export function goalTimeLabel(goal: GoalSnapshot, clock: number): string {
   if (goal.status === 'complete') {
     return t('{{time}} elapsed', { time: formatGoalDuration(Number(goal.timeUsedMs) || 0) });
   }
-  if (goal.status !== 'active' && goal.status !== 'paused') return '';
+  if (!['active', 'paused', 'duration_reached'].includes(String(goal.status || ''))) return '';
   const total = Math.max(0, Number(goal.timeLimitMs) || 0);
   const elapsed = goalElapsedMs(goal, clock);
   if (total <= 0) {
@@ -94,22 +95,46 @@ export function goalTimeLabel(goal: GoalSnapshot, clock: number): string {
   });
 }
 
+// Observations, never judgements. Turn count and time since the task list last
+// actually changed make a spinning Goal visible, while the decision to stop it
+// stays entirely with the user — no rule here infers "stuck".
+export function goalObservationLabel(goal: GoalSnapshot, clock: number): string {
+  if (goal.status === 'complete') return '';
+  const turns = Math.max(0, Number(goal.turnCount) || 0);
+  const changedAt = Number(goal.tasksUpdatedAt) || 0;
+  const parts: string[] = [];
+  if (turns > 0) parts.push(t('{{count}} turns', { count: turns }));
+  if (changedAt > 0) {
+    parts.push(t('tasks {{time}} ago', {
+      time: formatGoalDuration(Math.max(0, clock - changedAt)),
+    }));
+  }
+  return parts.join(' · ');
+}
+
 // No strokeWidth override: the global pixel-snapped icon rule
 // (`svg.lucide { stroke-width: 1px }`, 02-base.css) outranks presentation
 // attributes anyway, so a per-glyph value is dead weight that would also
 // violate the 1px small-glyph standard if it ever won.
 function GoalGlyph({ status }: { status?: GoalSnapshot['status'] }) {
   if (status === 'complete') return <MxIcon name="check" size={16} />;
-  if (status === 'paused') return <MxIcon name="paused" size={16} />;
-  if (status === 'blocked' || status === 'budget_limited' || status === 'usage_limited') {
+  if (status === 'paused' || status === 'duration_reached') {
+    return <MxIcon name="paused" size={16} />;
+  }
+  if (status === 'blocked' || status === 'usage_limited') {
     return <MxIcon name="warning" size={16} />;
   }
   return <MxIcon name="goal" size={16} />;
 }
 
-function GoalTaskGlyph({ status }: { status?: 'pending' | 'in_progress' | 'completed' }) {
+function GoalTaskGlyph({ status }: { status?: GoalTask['status'] }) {
   const name = status === 'completed' ? 'check'
-    : status === 'in_progress' ? 'in-progress' : 'pending';
+    : status === 'in_progress' ? 'in-progress'
+      // Dropped work is retired, not finished: an X separates it from a check
+      // so a scoped-out row never reads as an accomplishment.
+      : status === 'dropped' ? 'close-small'
+        // Parked on the user, not stalled by us.
+        : status === 'awaiting_approval' ? 'paused' : 'pending';
   return <MxIcon name={name} size={14} />;
 }
 
@@ -135,6 +160,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
 
   const statusLabel = useMemo(() => goal ? goalStatusLabel(goal) : '', [goal]);
   const timeLabel = goal ? goalTimeLabel(goal, clock) : '';
+  const observationLabel = goal ? goalObservationLabel(goal, clock) : '';
   const elapsedLabel = goal ? goalElapsedLabel(goal, clock) : '';
   const completedTimeLabel = goal ? goalCompletedTimeLabel(goal) : '';
   if (!goal) return null;
@@ -193,7 +219,8 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
       <header className={goal.status === 'complete' ? 'has-menu' : undefined}>
         <div>
           <strong title={objective}>{title}</strong>
-          <small>{[statusLabel, timeLabel, completedTimeLabel].filter(Boolean).join(' · ')}</small>
+          <small>{[statusLabel, timeLabel, completedTimeLabel, observationLabel]
+            .filter(Boolean).join(' · ')}</small>
         </div>
         {goal.status === 'complete' ? <details className="session-goal-menu">
           <summary aria-label={t('Actions')}>
@@ -232,10 +259,21 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
           ? <span className="session-goal-complete" role="status">
             <MxIcon name="check" size={14} />{t('Complete')}
           </span>
-          : <button type="button" className="session-goal-stop" disabled={Boolean(workingAction)}
-            onClick={() => void control('clear')}>
-            <MxIcon name="stop" size={12} />{t('Stop goal')}
-          </button>}
+          : <>
+            {/* A stopped Goal had no restart affordance here, so the only way
+                back was typing /goal resume in the composer. */}
+            {goal.status !== 'active'
+              ? <button type="button" className="session-goal-resume"
+                disabled={Boolean(workingAction)}
+                onClick={() => void control('resume')}>
+                <MxIcon name="continue" size={12} />{t('Resume')}
+              </button>
+              : null}
+            <button type="button" className="session-goal-stop" disabled={Boolean(workingAction)}
+              onClick={() => void control('clear')}>
+              <MxIcon name="stop" size={12} />{t('Stop goal')}
+            </button>
+          </>}
       </footer>
     </section> : null}
   </div>;

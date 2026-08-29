@@ -8,7 +8,9 @@ const CRITICAL_CODES = new Set([
   'formula_error_truncated',
   'missing_relationship',
   'package_corrupt',
+  'recent_composition_repeat',
   'render_failed',
+  'repetitive_composition',
   'text_outside_slide',
 ]);
 
@@ -30,6 +32,7 @@ const POLISH_GUIDANCE = Object.freeze({
   meaningful_visual_missing: 'Replace generic text blocks with a chart, table, image, or subject-specific diagram that proves the claim.',
   native_evidence_too_weak: 'Add source-bound native evidence to the slides carrying material claims.',
   repetitive_composition: 'Choose a different semantic layout that matches this slide’s evidence and role.',
+  recent_composition_repeat: 'Recompose the document-level hierarchy and evidence sequence while preserving the Brand kit tokens and facts.',
   card_grid_overuse: 'Replace repeated cards with one dominant hierarchy, comparison, process, chart, or table.',
   number_without_source: 'Add a source note that identifies the workbook cell, range, or external document.',
   generic_takeaway: 'Rewrite the title as a specific conclusion or decision, not a topic label.',

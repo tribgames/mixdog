@@ -18,6 +18,10 @@ import {
     acknowledgePendingDeferredToolDelta,
     snapshotPendingDeferredToolDelta,
 } from '../../../../../session-runtime/deferred-tool-delta.mjs';
+import {
+    acknowledgePendingGoalReminder,
+    snapshotPendingGoalReminder,
+} from '../../../../../session-runtime/goal-reminder.mjs';
 import { recordStandaloneStatusTelemetry } from './status-telemetry.mjs';
 import { normalizeStaleCompactingStage } from './compaction-runner.mjs';
 import { resolveSessionContextMeta, positiveContextWindow } from './context-meta.mjs';
@@ -276,6 +280,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         let _pwstTurnDrained = null;
         let _turnPendingEntries = [];
         let _turnDeferredToolDelta = null;
+        let _turnGoalReminder = null;
         // After the first turn, the next prompt comes from the drained queue.
         // (On the first iteration _pendingTail is empty and `prompt` is the
         // caller's original message.)
@@ -589,11 +594,15 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             }
             const _currentTimeBlock = buildCurrentTimeBlock(prompt);
             _turnDeferredToolDelta = snapshotPendingDeferredToolDelta(session);
+            // Event-driven Goal state: present only after compaction dropped the
+            // Goal's own tool results, never on an ordinary turn.
+            _turnGoalReminder = snapshotPendingGoalReminder(session);
             const _turnReminderBlock = [
                 _currentTimeBlock
                     ? `<system-reminder>\n# Current Time\n${_currentTimeBlock}\n</system-reminder>`
                     : '',
                 _turnDeferredToolDelta?.content || '',
+                _turnGoalReminder?.content || '',
             ].filter(Boolean).join('\n\n');
             const _baseUserTurnContent = prefixUserTurnContent(prompt, _contextBlock);
             const _userTurnContent = prefixSessionStartContent(_baseUserTurnContent, _turnReminderBlock);
@@ -1066,6 +1075,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             }
             if (_turnDeferredToolDelta) {
                 acknowledgePendingDeferredToolDelta(session, _turnDeferredToolDelta.revision);
+            }
+            if (_turnGoalReminder) {
+                acknowledgePendingGoalReminder(session, _turnGoalReminder.revision);
             }
             const terminalResultPreview = {
                 ...result,

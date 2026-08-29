@@ -61,82 +61,40 @@
 }
 /* Schedules interact states stay flat (user: no hover wash). */
 .schedules-page .settings-action:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-bg-base); }
-.schedules-dialog-layer {
-  position: fixed;
-  inset: 0;
-  z-index: 940;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: var(--mx-scrim);
-}
+/* The scrim layer, the card chrome, the header ladder, the footer plate and
+   the button ladder are declared ONCE for every modal in the dialog system
+   (30-dialogs.css). Only what belongs to the rail editors themselves stays
+   here: how wide the card is, and how its scrolling form body is laid out. */
 .schedules-dialog {
-  box-sizing: border-box;
-  /* Chat-composer parity (user decision): the editor card matches the main
-     composer region's width so both surfaces read as the same instrument. */
-  width: min(800px, 100%);
-  max-height: calc(var(--vvh, 100vh) - 48px);
-  /* The CARD never scrolls: header and the Cancel/Save footer stay pinned and
-     only the form body scrolls. Scrolling the whole card pushed the actions
-     past the window edge on a tall workflow (user: 창이 잘린다). */
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border-radius: 14px;
-  color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: var(--mx-floating);
-}
-.schedules-dialog > header {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 20px 20px 0;
-}
-.schedules-dialog > header h2 { margin: 0; flex: 1; font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); letter-spacing: var(--mx-tracking-tight); }
-.schedules-dialog > header button {
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-icon-muted);
-  background: transparent;
-  cursor: pointer;
+  /* ONE width ladder for the rail editors: a card with a Markdown body keeps
+     the chat composer's 800, and the short forms step down through
+     --mx-editor-width so three fields never float in an 800px card. */
+  width: min(var(--mx-editor-width, 800px), 100%);
 }
 .schedules-dialog form {
   min-height: 0;
   flex: 1 1 auto;
   overflow-y: auto;
   display: grid;
+  /* One rhythm down the form: 16px between fields, and the body opens right
+     under the header's own 12px so the title never floats away from field
+     one (user: 정렬이 마음에 들지 않는다). */
   gap: 16px;
-  padding: 16px 20px 20px;
+  padding: 4px 20px 20px;
 }
 .schedules-field { display: grid; gap: 6px; color: var(--mx-text-muted); font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); }
+/* A field title and its note are ONE block: they close to 3px, and only the
+   control opens the next step. */
+.schedules-field > span + small,
+.projects-edit-field > div > span + small { margin-top: -3px; }
 .schedules-field > span,
 .projects-edit-field > div > span {
   color: var(--mx-text);
   font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-ui);
 }
-.schedules-dialog input {
-  box-sizing: border-box;
-  height: 32px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  outline: 1px solid transparent;
-  color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-regular);
-  line-height: 1;
-}
-.schedules-dialog input:focus { box-shadow: inset 0 0 0 .5px var(--mx-border-strong); }
+/* The field plate itself (32px, 8px text inset, hairline, focus ring) is
+   declared once in the dialog system; only the read-only tone lives here. */
 .schedules-dialog input:disabled {
   color: var(--mx-text-muted);
   -webkit-text-fill-color: var(--mx-text-muted);
@@ -153,7 +111,9 @@
 .schedules-composer:focus-within { box-shadow: inset 0 0 0 .5px var(--mx-border-strong); }
 .schedules-composer textarea {
   min-height: 140px;
-  padding: 12px;
+  /* Same 8px text axis as the field plates and the Markdown editors, so every
+     line of typing in this card starts on one vertical line. */
+  padding: 10px 8px;
   border: 0;
   outline: none;
   color: var(--mx-text);
@@ -270,7 +230,9 @@
 .webhook-connection-copy:hover:not(:disabled) { color: var(--mx-text); }
 .webhook-connection-copy:disabled { opacity: var(--mx-op-disabled); }
 .schedules-dialog footer {
-  /* Pinned to the card floor while the form scrolls beneath it. */
+  /* Pinned to the card floor while the form scrolls beneath it, wearing the
+     SAME plate tone and hairline as every other dialog footer. Its inline
+     inset stays the form's 20px, so Save closes on the fields' right edge. */
   position: sticky;
   bottom: -20px;
   z-index: 1;
@@ -280,24 +242,13 @@
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 1px 0 var(--mx-border-muted);
+  border-top: .5px solid var(--mx-border);
+  background: var(--mx-bg-base);
 }
 /* Save-time errors sit inline with Cancel/Save, pushing the buttons right. */
 .schedules-dialog footer .schedules-form-error { flex: 1; min-width: 0; text-align: left; }
-.schedules-dialog footer button {
-  min-height: 32px;
-  padding: 0 16px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-button);
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-regular);
-  cursor: pointer;
-}
-.schedules-dialog footer button[type="submit"] { background: var(--mx-pressed); font-weight: var(--mx-weight-semibold); }
+/* The button ladder (quiet plate, contrast submit, ghost, danger) is the
+   dialog system's; this family only places its destructive action. */
 .schedules-list { display: grid; gap: 8px; }
 /* Common guidance is global rather than a project: preserve the normal page
    rhythm above it, then open a full section break before project rows. */
@@ -524,27 +475,25 @@
   padding-top: 12px;
 }
 .workflows-section-head h2 { margin: 0; }
-.workflows-route-dialog {
-  --workflows-route-dialog-inline: 20px;
-}
-.workflows-route-dialog > header,
-.workflows-route-dialog > form {
-  padding-inline: var(--workflows-route-dialog-inline);
-}
-.workflows-route-dialog footer {
-  margin-inline: calc(-1 * var(--workflows-route-dialog-inline));
-  padding-inline: var(--workflows-route-dialog-inline);
-}
-.workflows-route-dialog .route-editor > .model-trigger {
-  padding-inline: 8px;
-}
-.workflows-dialog-route { display: flex; }
+/* A built-in model row is two read-only lines and one route — it does not
+   need the Markdown editors' 800px card. */
+.workflows-route-dialog { --mx-editor-width: 560px; }
+/* The Model control stays FRAMELESS (user: 모델은 들여쓰기만): it keeps the
+   composer's quiet trigger, and only its indent and row height join the
+   fields above it — first glyph 8px inside the field, on both edges, in a
+   32px row so the label ladder keeps one rhythm. */
+.workflows-dialog-route { min-height: 32px; display: flex; align-items: center; }
 .workflows-dialog-route .workflows-route-controls { margin-left: 0; justify-content: flex-start; }
+/* Symmetric 8px: the trigger's composer geometry closes its right edge at
+   4px, which reads as a tilt once it stands under full-width field plates. */
+.workflows-dialog-route .route-editor > .model-trigger { padding-inline: 8px; }
 .workflows-delete-dialog-body { padding: 16px 20px 4px; color: var(--mx-text-muted); font-size: var(--mx-font-ui); }
 .workflows-delete-dialog-body p { margin: 0 0 10px; line-height: var(--mx-line-ui); }
 .workflows-delete-dialog-body b { color: var(--mx-text); font-weight: var(--mx-weight-semibold); }
 .workflows-delete-dialog-body ul { margin: 0; padding-left: 20px; color: var(--mx-text); }
-.schedules-dialog footer button.danger { margin-right: auto; color: var(--mx-danger); }
+/* The destructive action sits alone on the footer's left edge; its ink and
+   plate come from the shared danger variant. */
+.schedules-dialog footer button.danger { margin-right: auto; }
 .schedules-dialog footer button.danger.confirming { color: var(--mx-grey-50); background: var(--mx-danger); }
 .session-sidebar-panels .schedules-row .session-panel-action.workflows-row-enter {
   width: 16px;
@@ -608,10 +557,10 @@
 }
 .projects-instructions-edit:hover:not(:disabled) { color: var(--mx-text); }
 .projects-instructions-edit:disabled { opacity: var(--mx-op-disabled); cursor: default; }
-.schedules-dialog.projects-add-dialog { width: min(520px, calc(100vw - 32px)); }
+.schedules-dialog.projects-add-dialog { --mx-editor-width: 520px; }
 /* Per-project edit dialog (rename + instructions + remove): the destructive
    action sits alone on the footer's left edge, away from Cancel/Save. */
-.schedules-dialog.projects-edit-dialog { width: min(680px, calc(100vw - 32px)); }
+.schedules-dialog.projects-edit-dialog { --mx-editor-width: 680px; }
 .projects-edit-dialog footer button.danger { margin-right: auto; }
 /* Field note grammar (user: 팝업 제목 아래 설명을 메모리 쪽과 맞춰): every
    dialog field title may carry one muted meta-sized line under it. */
@@ -727,14 +676,21 @@
 .projects-memory-editor .core-memory-copy { grid-column: 1; }
 .projects-memory-editor .core-memory-actions { grid-column: 2; }
 .projects-folder-row { display: flex; align-items: center; gap: 8px; }
+/* The chosen path is a read-only FIELD, so it wears the field plate: same
+   32px box, same 8px text axis and same tone as the Name input above it
+   (it used to sit on a deeper plate, 10px in and two pixels shorter). */
 .projects-folder-row code {
+  box-sizing: border-box;
   min-width: 0;
+  height: 32px;
   flex: 1;
+  display: flex;
+  align-items: center;
   overflow: hidden;
-  padding: 7px 10px;
+  padding: 0 8px;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
-  background: var(--mx-bg-deep);
+  background: var(--mx-bg-base);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
   font-size: var(--mx-font-minor);
   text-overflow: ellipsis;

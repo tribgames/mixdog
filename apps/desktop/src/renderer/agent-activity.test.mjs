@@ -477,9 +477,8 @@ test("Goal completed time and response completion time stay semantically separat
         item: { kind: "turndone", elapsedMs: 450_000, verb: "Wrapped" },
       }));
     });
-    assert.equal(document.querySelector(".turn-status.complete > span")?.textContent, "Response · 7m 30s");
+    assert.equal(document.querySelector(".turn-status.complete > span")?.textContent, "Wrapped for 7m 30s");
     assert.ok(document.querySelector(".turn-status.complete .mx-icon.lucide-check"));
-    assert.doesNotMatch(document.body.textContent, /Wrapped/);
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();

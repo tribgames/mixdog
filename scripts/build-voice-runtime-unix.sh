@@ -41,16 +41,40 @@ curl --fail --location --retry 3 \
   --output "${WORK_ROOT}/source.tar.gz"
 tar -xzf "${WORK_ROOT}/source.tar.gz" -C "${WORK_ROOT}"
 
+# Portability baseline (GGML_NATIVE=OFF + explicit ISA on x86-64).
+#
+# ggml defaults GGML_NATIVE=ON, which tunes the binary to the BUILD machine.
+# CI runners are wider than consumer hardware, so a native build ships
+# instructions the target CPU may not have and aborts with SIGILL /
+# STATUS_ILLEGAL_INSTRUCTION right after backend init — the `--help` smoke
+# below cannot catch it, because on the build machine it passes.
+#
+# x86-64 pins an AVX2/FMA/F16C baseline (Haswell 2013+); AVX-512, AVX-VNNI and
+# BMI2 stay OFF because they are not universal on current consumer CPUs.
+# arm64 needs no ISA pins — NEON is baseline — but must still disable NATIVE.
 CMAKE_ARGS=(
   -S "${SOURCE_ROOT}"
   -B "${BUILD_ROOT}"
   -DCMAKE_BUILD_TYPE=Release
   -DBUILD_SHARED_LIBS=OFF
+  -DGGML_NATIVE=OFF
   -DWHISPER_BUILD_EXAMPLES=ON
   -DWHISPER_BUILD_SERVER=ON
   -DWHISPER_BUILD_TESTS=OFF
   -DWHISPER_SDL2=OFF
 )
+
+if [[ "${TARGET_ARCH}" == "x64" ]]; then
+  CMAKE_ARGS+=(
+    -DGGML_AVX=ON
+    -DGGML_AVX2=ON
+    -DGGML_FMA=ON
+    -DGGML_F16C=ON
+    -DGGML_AVX512=OFF
+    -DGGML_AVX_VNNI=OFF
+    -DGGML_BMI2=OFF
+  )
+fi
 
 case "${BACKEND}" in
   vulkan)

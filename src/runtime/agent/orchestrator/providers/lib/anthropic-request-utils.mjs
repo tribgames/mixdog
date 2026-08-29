@@ -89,7 +89,39 @@ export function resolveAnthropicMessageCacheSlots(systemBlocks, ttls) {
 // root cause of the sporadic COLD-turn cache miss: pre-sanitize markers landed
 // on blocks the sanitizer then rewrote, so the provider-visible breakpoint
 // diverged from the cached one).
-export function toAnthropicMessages(messages) {
+// Optional `availableTools`: the exact tool list this request will ship. A
+// tool_reference whose tool is absent from that list makes the API reject the
+// WHOLE request ("Tool reference '<name>' not found in available tools"), and
+// the dangling block lives in the transcript — so once a loaded tool leaves
+// the deferred catalog (feature toggle, provider/model rebuild, disconnected
+// MCP server) every later turn of that session fails identically. Passing the
+// list lets the lowering drop unresolvable references instead. Omitted =>
+// every reference is kept verbatim.
+function anthropicToolNameSet(availableTools) {
+    if (!Array.isArray(availableTools)) return null;
+    const names = new Set();
+    for (const tool of availableTools) {
+        const name = typeof tool?.name === 'string' ? tool.name.trim() : '';
+        if (name) names.add(name);
+    }
+    return names;
+}
+
+// Replacement content for a tool_result whose references were all dropped.
+// The stored text result (the deferred-load summary) is the natural fallback;
+// an EMPTY tool_result is itself a 400, so a blank result gets a placeholder.
+function toolResultContentWithoutReferences(message, droppedNames) {
+    const normalized = normalizeContentForAnthropic(message.content);
+    if (typeof normalized === 'string' && normalized.trim()) return normalized;
+    if (Array.isArray(normalized) && normalized.length > 0) return normalized;
+    return [{
+        type: 'text',
+        text: `[tool references dropped - no longer available: ${droppedNames.join(', ')}]`,
+    }];
+}
+
+export function toAnthropicMessages(messages, availableTools) {
+    const availableNames = anthropicToolNameSet(availableTools);
     const result = [];
     for (let idx = 0; idx < messages.length; idx++) {
         const m = messages[idx];
@@ -136,12 +168,23 @@ export function toAnthropicMessages(messages) {
                 && Array.isArray(native?.toolReferences)
                 ? native.toolReferences.map((name) => String(name || '').trim()).filter(Boolean)
                 : [];
+            // Keep only references this request can actually back with a
+            // definition; a reference without one is a hard 400 on every turn
+            // that replays it (see anthropicToolNameSet).
+            const usableReferences = availableNames
+                ? references.filter((name) => availableNames.has(name))
+                : references;
+            const droppedReferences = usableReferences.length === references.length
+                ? []
+                : references.filter((name) => !usableReferences.includes(name));
             const block = {
                 type: 'tool_result',
                 tool_use_id: m.toolCallId || '',
-                content: references.length
-                    ? references.map((tool_name) => ({ type: 'tool_reference', tool_name }))
-                    : normalizeContentForAnthropic(m.content),
+                content: usableReferences.length
+                    ? usableReferences.map((tool_name) => ({ type: 'tool_reference', tool_name }))
+                    : (droppedReferences.length
+                        ? toolResultContentWithoutReferences(m, droppedReferences)
+                        : normalizeContentForAnthropic(m.content)),
                 ...((m.toolKind === 'error' || m.isError === true) ? { is_error: true } : {}),
             };
             if (last?.role === 'user' && Array.isArray(last.content)) {

@@ -76,6 +76,19 @@ Invoke-WebRequest -Uri $SourceUrl -OutFile $ArchivePath
 Expand-Archive -LiteralPath $ArchivePath -DestinationPath $WorkRoot
 Move-Item -LiteralPath $ExtractedSourceRoot -Destination $SourceRoot
 
+# Portability baseline (GGML_NATIVE=OFF + explicit ISA).
+#
+# ggml defaults GGML_NATIVE=ON, which tunes the binary to the BUILD machine.
+# GitHub's Windows runners expose AVX-512, so the published asset carried
+# AVX-512 instructions and died with STATUS_ILLEGAL_INSTRUCTION (0xC000001D)
+# on any narrower CPU — observed on Intel Arrow Lake (Core Ultra 7 265KF),
+# which tops out at AVX2. The crash landed right after backend init, so the
+# `--help` smoke below could never catch it: on the build machine it passes.
+#
+# Pin an AVX2/FMA/F16C baseline (Haswell 2013+) so one asset runs on every
+# supported x64 machine. AVX-512 / AVX-VNNI / BMI2 stay OFF: they are not
+# universal on current consumer CPUs and this build leans on Vulkan for the
+# heavy math anyway.
 cmake -S $SourceRoot -B $BuildRoot -G "Visual Studio 17 2022" -A x64 `
   "-DCMAKE_GENERATOR_INSTANCE=$VsInstall" `
   "-DCMAKE_PREFIX_PATH=$env:VULKAN_SDK" `
@@ -83,6 +96,14 @@ cmake -S $SourceRoot -B $BuildRoot -G "Visual Studio 17 2022" -A x64 `
   -DCMAKE_BUILD_TYPE=Release `
   -DBUILD_SHARED_LIBS=ON `
   -DGGML_VULKAN=ON `
+  -DGGML_NATIVE=OFF `
+  -DGGML_AVX=ON `
+  -DGGML_AVX2=ON `
+  -DGGML_FMA=ON `
+  -DGGML_F16C=ON `
+  -DGGML_AVX512=OFF `
+  -DGGML_AVX_VNNI=OFF `
+  -DGGML_BMI2=OFF `
   -DWHISPER_BUILD_EXAMPLES=ON `
   -DWHISPER_BUILD_SERVER=ON `
   -DWHISPER_BUILD_TESTS=OFF `

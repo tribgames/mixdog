@@ -54,19 +54,19 @@ const CATALOG = {
       fields: ['toc', 'page', 'numPages', 'pageBreak', 'sectionBreak'],
       links: ['address', 'subAddress', 'display', 'bookmark'],
       provenance: ['source.document', 'source.target', 'source.label'],
-      design: ['profile', 'intent', 'audience', 'tone', 'density', 'palette', 'typography', 'signature', 'content.packageId', 'content.audience', 'content.objective', 'content.decision', 'content.period', 'content.facts', 'content.claims', 'review'],
+      design: ['profile', 'purpose', 'expressionMode', 'intent', 'audience', 'tone', 'density', 'palette', 'typography', 'signature', 'content.packageId', 'content.audience', 'content.objective', 'content.decision', 'content.period', 'content.facts', 'content.claims', 'review'],
     },
   },
   xlsx: {
     paths: ['/sheet[NAME]', '/sheet[NAME]/cell[A1]', '/sheet[NAME]/range[A1:C10]'],
     operations: {
-      common: ['replace_text', 'set_cell', 'set_formula', 'set_range', 'append_row', 'clear_cell'],
-      office: ['compose_sheet', 'add_sheet', 'copy_sheet', 'delete_sheet', 'rename_sheet', 'set_style', 'add_note', 'delete_note', 'add_image', 'add_table', 'add_chart', 'add_conditional_format', 'delete_conditional_formats', 'add_validation', 'freeze_panes', 'add_pivot_table', 'autofit_range', 'set_page_setup', 'set_sheet_view', 'set_sheet_visibility', 'insert_rows', 'delete_rows', 'insert_columns', 'delete_columns', 'merge_cells', 'unmerge_cells', 'set_autofilter', 'set_hyperlink', 'define_name', 'delete_name', 'protect_sheet', 'unprotect_sheet', 'add_provenance'],
+      common: ['replace_text', 'set_cell', 'set_formula', 'set_range', 'append_row', 'clear_cell', 'compose_sheet', 'add_sheet', 'delete_sheet', 'rename_sheet', 'set_style', 'merge_cells', 'unmerge_cells', 'freeze_panes', 'autofit_range', 'set_page_setup', 'set_sheet_view'],
+      office: ['copy_sheet', 'add_note', 'delete_note', 'add_image', 'add_table', 'add_chart', 'add_conditional_format', 'delete_conditional_formats', 'add_validation', 'add_pivot_table', 'set_sheet_visibility', 'insert_rows', 'delete_rows', 'insert_columns', 'delete_columns', 'set_autofilter', 'set_hyperlink', 'define_name', 'delete_name', 'protect_sheet', 'unprotect_sheet', 'add_provenance'],
       portable: [],
     },
     properties: {
       cellStyle: ['fontName', 'fontSize', 'bold', 'italic', 'color', 'fillColor', 'numberFormat', 'horizontalAlignment', 'verticalAlignment', 'wrapText'],
-      chart: ['chartType', 'left', 'top', 'width', 'height', 'title'],
+      chart: ['chartType', 'left', 'top', 'width', 'height', 'title', 'seriesColors', 'showValues', 'showLegend', 'zeroBaseline', 'valueNumberFormat', 'dataLabelPosition', 'dataLabelColor'],
       table: ['name', 'style'],
       pivot: ['source', 'destination', 'name', 'rows', 'columns', 'values'],
       note: ['text', 'author'],
@@ -77,14 +77,14 @@ const CATALOG = {
       pageSetup: ['printArea', 'orientation', 'fitToPagesWide', 'fitToPagesTall', 'centerHorizontally', 'topMargin', 'bottomMargin', 'leftMargin', 'rightMargin'],
       sheetView: ['showGridlines', 'zoom'],
       provenance: ['source.document', 'source.target', 'source.label'],
-      design: ['profile', 'intent', 'audience', 'tone', 'density', 'palette', 'typography', 'signature', 'content.packageId', 'content.audience', 'content.objective', 'content.decision', 'content.period', 'content.facts', 'content.claims', 'review'],
+      design: ['profile', 'purpose', 'expressionMode', 'intent', 'audience', 'tone', 'density', 'palette', 'typography', 'signature', 'content.packageId', 'content.audience', 'content.objective', 'content.decision', 'content.period', 'content.facts', 'content.claims', 'review'],
     },
   },
   pptx: {
     paths: ['/slide[N]', '/slide[N]/shape[N]'],
     operations: {
-      common: ['replace_text', 'fill_template', 'set_text', 'add_textbox', 'delete_shape'],
-      office: ['compose_slide', 'add_slide', 'delete_slide', 'move_slide', 'duplicate_slide', 'import_slides', 'keep_slides', 'set_notes', 'set_footer', 'set_slide_number', 'add_comment', 'delete_comment', 'add_image', 'replace_image', 'crop_image', 'add_media', 'set_shape', 'group_shapes', 'ungroup_shape', 'set_slide_background', 'set_layout', 'apply_theme', 'set_transition', 'add_animation', 'add_chart', 'fit_text', 'add_shape', 'add_table', 'set_table_data', 'set_chart_data', 'set_chart_series', 'set_chart_axis', 'set_chart_data_labels', 'set_chart_trendline', 'set_chart_error_bars', 'set_hyperlink', 'z_order', 'align_shapes', 'distribute_shapes', 'add_provenance'],
+      common: ['replace_text', 'fill_template', 'set_text', 'add_textbox', 'delete_shape', 'compose_slide', 'add_slide', 'delete_slide', 'move_slide', 'set_notes', 'add_image', 'add_shape', 'add_table', 'set_shape', 'set_slide_background'],
+      office: ['duplicate_slide', 'import_slides', 'keep_slides', 'set_footer', 'set_slide_number', 'add_comment', 'delete_comment', 'replace_image', 'crop_image', 'add_media', 'group_shapes', 'ungroup_shape', 'set_layout', 'apply_theme', 'set_transition', 'add_animation', 'add_chart', 'fit_text', 'set_table_data', 'set_chart_data', 'set_chart_series', 'set_chart_axis', 'set_chart_data_labels', 'set_chart_trendline', 'set_chart_error_bars', 'set_hyperlink', 'z_order', 'align_shapes', 'distribute_shapes', 'add_provenance'],
       portable: [],
     },
     properties: {
@@ -100,7 +100,7 @@ const CATALOG = {
       media: ['kind', 'link', 'embed', 'poster'],
       comment: ['author', 'initials', 'left', 'top'],
       provenance: ['source.document', 'source.target', 'source.label'],
-      design: ['profile', 'intent', 'audience', 'tone', 'density', 'palette', 'typography', 'signature', 'content.packageId', 'content.audience', 'content.objective', 'content.decision', 'content.period', 'content.facts', 'content.claims', 'template', 'deck.backgroundMode', 'deck.dominantColorRole', 'deck.motif', 'deck.spacingScale', 'deck.sectionSlides', 'deck.roles', 'deck.requireSlidePlan', 'deck.templateMode', 'review', 'reviewed', 'reviewToken', 'critique'],
+      design: ['profile', 'purpose', 'expressionMode', 'intent', 'audience', 'tone', 'density', 'palette', 'typography', 'signature', 'content.packageId', 'content.audience', 'content.objective', 'content.decision', 'content.period', 'content.facts', 'content.claims', 'template', 'deck.backgroundMode', 'deck.dominantColorRole', 'deck.motif', 'deck.spacingScale', 'deck.sectionSlides', 'deck.roles', 'deck.requireSlidePlan', 'deck.templateMode', 'review', 'reviewed', 'reviewToken', 'critique'],
     },
   },
   pdf: {
@@ -143,9 +143,9 @@ const COMMON_SIGNATURES = {
 
 const FORMAT_SIGNATURES = {
   docx: {
-    compose_document: signature(['title'], ['claimId', 'subtitle', 'summary', 'meta', 'sections', 'footer', 'orientation', 'pageNumbers'], {
+    compose_document: signature(['title'], ['claimId', 'purpose', 'expressionMode', 'variant', 'subtitle', 'summary', 'meta', 'sections', 'footer', 'orientation', 'pageNumbers'], {
       propertySets: ['design'],
-      notes: 'Semantic create-time composition. Content is mapped to native Word title, heading, paragraph, list, table, section, and footer operations.',
+      notes: 'Purpose-aware native Word composition; variant is optional because content topology selects the default.',
     }),
     append_text: signature(['text'], ['style', 'properties'], {
       propertySets: ['paragraph', 'font', 'paragraphFormat'],
@@ -179,7 +179,7 @@ const FORMAT_SIGNATURES = {
     set_page: signature(['properties'], ['section'], { propertySets: ['page'] }),
     fit_table: signature(['table']),
     insert_toc: signature([], ['paragraph', 'lowerHeadingLevel', 'upperHeadingLevel']),
-    add_page_numbers: signature([], ['section', 'kind', 'prefix', 'separator', 'includeTotal']),
+    add_page_numbers: signature([], ['section', 'kind', 'prefix', 'separator', 'includeTotal', 'alignment']),
     insert_break: signature([], ['paragraph', 'kind']),
     set_list: signature(['paragraph', 'kind'], ['level']),
     add_hyperlink: signature([], ['find', 'paragraph', 'address', 'subAddress', 'display'], {
@@ -190,9 +190,9 @@ const FORMAT_SIGNATURES = {
     add_provenance: signature(['paragraph', 'source'], [], { propertySets: ['provenance'] }),
   },
   xlsx: {
-    compose_sheet: signature(['rows'], ['claimId', 'sheet', 'kind', 'title', 'subtitle', 'source', 'headers', 'metrics', 'insights', 'columnFormats', 'tableName', 'tableStyle', 'chart'], {
+    compose_sheet: signature(['rows'], ['claimId', 'purpose', 'expressionMode', 'variant', 'sheet', 'kind', 'title', 'subtitle', 'source', 'headers', 'metrics', 'insights', 'columnFormats', 'tableName', 'tableStyle', 'chart'], {
       propertySets: ['design'],
-      notes: 'Semantic Excel composition with title hierarchy, native table styling, frozen headers, chart placement, and autofit.',
+      notes: 'Purpose-aware native Excel composition with content-selected dashboard, trend, comparison, scorecard, or analysis layout.',
     }),
     set_cell: signature(['cell', 'value'], ['sheet']),
     set_formula: signature(['cell', 'formula'], ['sheet']),
@@ -211,7 +211,7 @@ const FORMAT_SIGNATURES = {
     delete_note: signature(['cell'], ['sheet']),
     add_image: signature(['path'], ['sheet', 'left', 'top', 'width', 'height']),
     add_table: signature(['range'], ['sheet', 'name', 'style'], { propertySets: ['table'] }),
-    add_chart: signature(['range'], ['sheet', 'chartType', 'title', 'left', 'top', 'width', 'height'], {
+    add_chart: signature(['range'], ['sheet', 'chartType', 'title', 'left', 'top', 'width', 'height', 'seriesColors', 'showValues', 'showLegend', 'zeroBaseline', 'valueNumberFormat', 'dataLabelPosition', 'dataLabelColor'], {
       propertySets: ['chart'],
       notes: 'The first source column supplies categories; remaining columns become series.',
     }),
@@ -223,7 +223,7 @@ const FORMAT_SIGNATURES = {
     autofit_range: signature(['range'], ['sheet', 'rows'], {
       notes: 'Accepts cell, whole-column, or whole-row ranges such as A1:D5, A:D, or 2:8.',
     }),
-    set_page_setup: signature([], ['sheet', 'printArea', 'orientation', 'fitToPagesWide', 'fitToPagesTall', 'centerHorizontally', 'topMargin', 'bottomMargin', 'leftMargin', 'rightMargin'], {
+    set_page_setup: signature([], ['sheet', 'printArea', 'orientation', 'fitToPagesWide', 'fitToPagesTall', 'centerHorizontally', 'centerVertically', 'topMargin', 'bottomMargin', 'leftMargin', 'rightMargin'], {
       propertySets: ['pageSetup'],
     }),
     set_sheet_view: signature([], ['sheet', 'showGridlines', 'zoom'], {
@@ -247,9 +247,9 @@ const FORMAT_SIGNATURES = {
     add_provenance: signature(['cell', 'source'], ['sheet'], { propertySets: ['provenance'] }),
   },
   pptx: {
-    compose_slide: signature(['kind'], ['claimId', 'title', 'subtitle', 'takeaway', 'eyebrow', 'body', 'bullets', 'metrics', 'columns', 'steps', 'chart', 'table', 'image', 'imagePath', 'visualText', 'visualLabel', 'meta', 'notes', 'source', 'background', 'backgroundRole', 'slideRole', 'plan', 'create', 'slide', 'layoutId', 'variant', 'titleSize'], {
+    compose_slide: signature(['kind'], ['claimId', 'purpose', 'expressionMode', 'title', 'subtitle', 'takeaway', 'eyebrow', 'body', 'bullets', 'metrics', 'columns', 'steps', 'chart', 'table', 'image', 'imagePath', 'visualText', 'visualLabel', 'meta', 'notes', 'source', 'background', 'backgroundRole', 'slideRole', 'plan', 'create', 'slide', 'layoutId', 'variant', 'titleSize'], {
       propertySets: ['design'],
-      notes: 'Template-first semantic slide. Use a declarative title as the takeaway, subject-specific evidence, and source notes for material numbers. Approved sample slides preserve native masters/layouts; deck.templateMode:"strict" rejects scratch fallback. Kinds: cover, statement, content, split, comparison, metrics, process, chart, table, closing.',
+      notes: 'Template-first semantic slide; generic content is reclassified from its evidence, while explicit layoutId or variant stays pinned.',
     }),
     set_text: signature(['slide', 'shape', 'text']),
     add_textbox: signature(['slide', 'text'], ['paragraphs', 'left', 'top', 'width', 'height', 'fontName', 'fontSize', 'color', 'properties'], { propertySets: ['shape', 'authoring'] }),

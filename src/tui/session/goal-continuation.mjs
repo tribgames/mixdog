@@ -116,6 +116,13 @@ export function createGoalContinuation({
     archiveCompletedGoalOnUserInput() {
       cancelQueuedGoalContinuations();
       const currentGoal = getState().goal || runtime.goalStatus?.() || null;
+      // The reply a paused Goal was waiting for has arrived. A paused Goal gets
+      // no continuation prompt, so without this one state reminder nothing
+      // would tell the next turn there is a Goal to resume.
+      if (currentGoal?.status === 'paused') {
+        try { runtime.markGoalReminder?.('paused'); }
+        catch { /* best-effort: a reminder must never block user input */ }
+      }
       const archivedGoalId = currentGoal?.status === 'complete' ? clean(currentGoal.id) : '';
       if (archivedGoalId) {
         suppressedCompletedGoalId = archivedGoalId;

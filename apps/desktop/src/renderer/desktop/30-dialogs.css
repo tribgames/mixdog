@@ -63,17 +63,21 @@
   .settings-oauth-dialog,
   .mx-dialog { animation: none; }
 }
-/* Header: one title ladder (15/600) over an optional muted description. */
+/* Header: one title ladder (15/600) over an optional muted description. The
+   title and its trailing controls (status switch, close) share ONE
+   centerline; only a card whose header carries a description under the title
+   keeps them pinned to the first line. */
 .schedules-dialog > header,
 .settings-confirm-dialog > header,
 .settings-oauth-dialog > header,
 .mx-dialog > header {
   flex: 0 0 auto;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
   padding: 18px 20px 12px;
 }
+.settings-oauth-dialog > header { align-items: flex-start; }
 .schedules-dialog > header h2,
 .settings-confirm-dialog > header h3,
 .settings-oauth-dialog > header h3,
@@ -95,8 +99,11 @@
   line-height: var(--mx-line-minor);
 }
 .settings-confirm-dialog > p { margin: 0; padding: 0 20px 18px; }
-/* Close affordance: the same 26px ghost square on every card. */
-.schedules-dialog > header > button,
+/* Close affordance: the same 26px ghost square on every card. The panel
+   editors group it with a status switch, so the close box is matched by
+   DESCENT — a child-only selector skipped every card that has that group and
+   left those buttons on the platform default. */
+.schedules-dialog > header button,
 .settings-confirm-dialog > header > button,
 .settings-oauth-dialog > header > button,
 .mx-dialog > header > button,
@@ -113,7 +120,7 @@
   background: transparent;
   cursor: pointer;
 }
-.schedules-dialog > header > button:hover:not(:disabled),
+.schedules-dialog > header button:hover:not(:disabled),
 .settings-confirm-dialog > header > button:hover:not(:disabled),
 .settings-oauth-dialog > header > button:hover:not(:disabled),
 .mx-dialog > header > button:hover:not(:disabled),
@@ -295,7 +302,7 @@
 }
 /* Dialog chrome buttons answer hover with a wash only — no frame appears on
    hover, and the keyboard ring stays a hairline. */
-.schedules-dialog > header > button:focus-visible,
+.schedules-dialog > header button:focus-visible,
 .settings-confirm-dialog > header > button:focus-visible,
 .settings-oauth-dialog > header > button:focus-visible,
 .mx-dialog > header > button:focus-visible,

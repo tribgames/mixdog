@@ -373,8 +373,9 @@ export function CompletionStatus({
     </div>;
   }
   const elapsed = formatElapsed(item.elapsedMs);
+  const doneVerb = String(item.verb || item.label || "Thought").trim() || "Thought";
   const completionLabel = item.kind === "turndone"
-    ? (elapsed ? `${t("Response")} · ${elapsed}` : t("Response"))
+    ? (elapsed ? t("{{verb}} for {{elapsed}}", { verb: t(doneVerb), elapsed }) : t(doneVerb))
     : label || t("Complete");
   return <div className="turn-status complete" role="status"
     data-animate={animate ? "true" : undefined}>

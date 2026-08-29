@@ -121,10 +121,14 @@ export async function ensureVoiceRuntimeReady({ dataDir = resolvePluginData(), p
   // Every device installs the same standard multilingual Q8 model.
   const modelId = fetcher.selectVoiceModelId(readSection('voice'));
   let runtime = fetcher.resolveVoiceRuntime(dataDir, { modelId });
-  if (runtime.installed) return runtime;
+  if (runtime.installed && !runtime.stale) return runtime;
 
   const onProgress = makeThrottledProgressNotice({ pushNotice, setProgressHint });
-  if (!runtime.binary || !runtime.serverCmd) {
+  // `stale` = a newer manifest version shipped while a working older runtime is
+  // installed. Re-fetch instead of skipping: ensureWhisperRuntime installs the
+  // new version directory and its gcStaleVersions drops the superseded one, so
+  // the upgrade reclaims the old bytes in the same pass.
+  if (!runtime.binary || !runtime.serverCmd || runtime.stale) {
     await fetcher.ensureWhisperRuntime(dataDir, onProgress);
   }
   if (!runtime.model) {
@@ -167,7 +171,19 @@ export async function toggleVoice({ pushNotice, setProgressHint } = {}) {
       pushNotice?.(`Voice OFF failed: ${err?.message || err}`, 'error');
       return { ok: false, error: err?.message || String(err) };
     }
-    pushNotice?.('Voice OFF', 'info');
+    // Install and removal are symmetric: OFF reclaims the whisper runtime and
+    // model weights instead of leaving them resident for good. A failure here
+    // is reported but never fails the toggle — the flag is already off.
+    try {
+      const offFetcher = await loadVoiceRuntimeFetcher();
+      const removed = offFetcher.removeManagedVoiceRuntime?.(dataDir) || [];
+      pushNotice?.(
+        removed.length > 0 ? 'Voice OFF — runtime and model removed' : 'Voice OFF',
+        'info',
+      );
+    } catch (err) {
+      pushNotice?.(`Voice OFF (runtime files kept: ${err?.message || err})`, 'warn');
+    }
     return false;
   }
   if (_voiceInstallBusy) {

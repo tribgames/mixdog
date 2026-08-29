@@ -165,6 +165,17 @@ export function createSessionService({
     ? Number(idleEvictMs)
     : Math.max(60_000, Number(process.env.MIXDOG_SESSION_IDLE_EVICT_MS) || 5 * 60_000);
   const EVICT_SWEEP_MS = Number(evictSweepMs) > 0 ? Number(evictSweepMs) : 30_000;
+  // The wire projection (snapshotCache / itemCache / fieldCache /
+  // publishedSnapshot) is a SECOND full copy of the transcript, held per
+  // WATCHED session. Merely leaving a tab open used to pin that copy for the
+  // daemon's lifetime — with several open sessions it dominated resident
+  // memory. An idle watched session now drops its projection and rebuilds it
+  // as one full frame on the next change. The runtime, its workers and any
+  // background work are untouched: this is a cache reclaim, not an eviction.
+  const PROJECTION_IDLE_MS = Math.max(
+    15_000,
+    Number(process.env.MIXDOG_SESSION_PROJECTION_IDLE_MS) || 90_000,
+  );
   let evictTimer = null;
 
   // ── Cross-client subscriptions ──────────────────────────────────────────────
@@ -184,6 +195,9 @@ export function createSessionService({
     (entry.subscribers ??= new Set()).add(token);
     entry.retainedAt = null;
     entry.headless = false;
+    // A watched session carries a reclaimable projection, so the sweep has to
+    // run even when nothing is retained/unwatched.
+    startEvictionSweep();
     return entry;
   }
 
@@ -296,9 +310,18 @@ export function createSessionService({
     evictTimer = setInterval(() => {
       const now = Date.now();
       for (const entry of [...sessions]) {
+        // A client came back to it: watched session RUNTIMES are never
+        // reclaimed. Their projection still is — an idle watched session keeps
+        // the runtime and drops only the wire clone of its transcript, which
+        // the next publish rebuilds as a full frame.
+        if (entry.subscribers?.size > 0) {
+          entry.retainedAt = null;
+          if (!sessionBusy(entry) && now - (entry.lastPublishedAt || 0) >= PROJECTION_IDLE_MS) {
+            releaseProjection(entry);
+          }
+          continue;
+        }
         if (!entry.retainedAt) continue;
-        // A client came back to it: watched session runtimes are never reclaimed.
-        if (entry.subscribers?.size > 0) { entry.retainedAt = null; continue; }
         if (sessionBusy(entry)) { entry.retainedAt = now; continue; }
         if (now - entry.retainedAt < IDLE_EVICT_MS) continue;
         // Eviction is a MEMORY reclaim, never a user teardown: the runtime's
@@ -316,7 +339,11 @@ export function createSessionService({
   function stopEvictionSweepIfIdle() {
     if (!evictTimer) return;
     for (const entry of sessions) {
-      if (!entry.disposed && entry.retainedAt && (entry.subscribers?.size || 0) === 0) return;
+      if (entry.disposed) continue;
+      const watchers = entry.subscribers?.size || 0;
+      if (entry.retainedAt && watchers === 0) return;
+      // A watched session holding a projection still has memory to reclaim.
+      if (watchers > 0 && (entry.snapshotCache || entry.publishedSnapshot)) return;
     }
     clearInterval(evictTimer);
     evictTimer = null;

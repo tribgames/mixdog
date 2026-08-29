@@ -4,6 +4,12 @@ import {
   normalizeOfficeContentModel,
   summarizeOfficeContentModel,
 } from './content-model.mjs';
+import {
+  planOfficeComposition,
+  resolveOfficeCompositionContext,
+  reviewOfficeCompositionSequence,
+  summarizeOfficeCompositions,
+} from './composition-system.mjs';
 
 const FORMATS = new Set(['docx', 'xlsx', 'pptx', 'pdf', 'csv', 'tsv']);
 const PPTX_BACKGROUND_MODES = new Set(['sandwich', 'light', 'dark', 'custom']);
@@ -286,6 +292,8 @@ function compactDesign(design) {
     audience: design.audience,
     tone: design.tone,
     density: design.density,
+    purpose: design.purpose,
+    expressionMode: design.expressionMode,
     signature: design.signature,
     source: design.source,
     library: design.library,
@@ -322,6 +330,7 @@ function compactLibrary(library) {
       ...(library.coverage ? { coverage: clone(library.coverage) } : {}),
     } : null,
     templateIndexRevision: String(library.templateIndexRevision || ''),
+    recentCompositionCount: Array.isArray(library.recentCompositions) ? library.recentCompositions.length : 0,
     pinned: library.pinned === true,
     warning: String(library.warning || ''),
   };
@@ -378,6 +387,9 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
     ])),
     typography,
   });
+  const composition = resolveOfficeCompositionContext(normalizedFormat, input, {
+    recentCompositions: library?.recentCompositions,
+  });
   const deck = normalizedFormat === 'pptx' ? resolvePptxDeckPlan(input, tokens) : null;
   return {
     profile,
@@ -389,6 +401,9 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
     density: ['light', 'balanced', 'dense'].includes(String(input.density || '').toLowerCase())
       ? String(input.density).toLowerCase()
       : 'balanced',
+    purpose: composition.purpose,
+    expressionMode: composition.expressionMode,
+    recentCompositions: composition.recentCompositions,
     signature: String(input.signature || ''),
     source: String(input.source || library?.source || 'mixdog-starter'),
     content: normalizeOfficeContentModel(input.content),
@@ -400,6 +415,7 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
     ...(normalizedFormat === 'pptx' ? {
       slidePlans: Array.isArray(input.slidePlans) ? clone(input.slidePlans) : [],
     } : {}),
+    compositions: Array.isArray(input.compositions) ? clone(input.compositions) : [],
     review: {
       required: normalizedFormat === 'pptx'
         ? true
@@ -487,11 +503,17 @@ function pptxLayoutFit(layout, operation, design, usage) {
   const densityPenalty = densityDistance(layout.density || design.density, demand.density);
   const textSlots = Math.max(Number(capacity.textSlots) || 0, slots.filter((slot) => slot.type === 'text').length);
   const textSlotShortfall = nativeSample ? Math.max(0, demand.textItems - textSlots) : 0;
+  const plannedVariant = String(operation.__composition?.variant || '').toLowerCase();
+  const purposeFit = !layout.purposes?.length || layout.purposes.includes(design.purpose);
+  const expressionFit = !layout.expressionModes?.length || layout.expressionModes.includes(design.expressionMode);
   const score = (
     (layout.profile === design.profile ? 4 : 0)
     + (layout.density === demand.density ? 7 : 0)
     - densityPenalty * 2
     + (String(operation.variant || '').toLowerCase() && layout.variant === String(operation.variant).toLowerCase() ? 2 : 0)
+    + (plannedVariant && layout.variant === plannedVariant ? 3 : 0)
+    + (purposeFit ? 4 : -6)
+    + (expressionFit ? 2 : -3)
     + demand.capabilities.filter((capability) => layout.capabilities?.includes(capability)).length * 4
     + Math.min(demand.metrics, available.metrics) * 3
     + Math.min(demand.columns, available.columns) * 3
@@ -512,6 +534,8 @@ function pptxLayoutFit(layout, operation, design, usage) {
       textSlots,
       textSlotShortfall,
       nativeSample,
+      purpose: purposeFit,
+      expressionMode: expressionFit,
     },
   };
 }
@@ -743,10 +767,12 @@ function provenanceText(source) {
   return target ? `${document}#${target}` : document;
 }
 
-function expandPptxSlide(operation, design, slide) {
+function expandPptxSlide(operation, design, slide, backend = '') {
+  const portable = backend === 'mixdog-ooxml';
   const colors = design.tokens.colors;
   const type = design.tokens.typography;
   const kind = String(operation.kind || 'content').toLowerCase();
+  const compositionVariant = String(operation.__composition?.variant || '').toLowerCase();
   if (!PPTX_COMPONENTS.includes(kind)) {
     throw new Error(`Unknown compose_slide kind "${kind}". Use one of: ${PPTX_COMPONENTS.join(', ')}`);
   }
@@ -770,16 +796,17 @@ function expandPptxSlide(operation, design, slide) {
   const contentTitleSize = pptTitleSize(title, Number(operation.titleSize) || 34);
 
   if (kind === 'cover') {
+    const minimalFocus = compositionVariant === 'minimal-focus';
     if (eyebrow) output.push(pptText(slide, eyebrow.toUpperCase(), {
       left: 58, top: 58, width: 420, height: 24,
       fontName: type.body, fontSize: 12, bold: true, color: colors.accent,
     }));
     output.push(pptText(slide, title, {
-      left: 58, top: 126, width: 720, height: 170,
-      fontName: type.display, fontSize: pptTitleSize(title, Number(operation.titleSize) || 44), bold: true, color: colors.onInverse,
+      left: 58, top: minimalFocus ? 150 : 126, width: minimalFocus ? 842 : 720, height: 180,
+      fontName: type.display, fontSize: pptTitleSize(title, Number(operation.titleSize) || (minimalFocus ? 48 : 44)), bold: true, color: colors.onInverse,
     }));
     if (subtitle) output.push(pptText(slide, subtitle, {
-      left: 58, top: 326, width: 650, height: 72,
+      left: 58, top: minimalFocus ? 350 : 326, width: minimalFocus ? 760 : 650, height: 72,
       fontName: type.body, fontSize: 18, color: mutedColor,
     }));
     const meta = strings(operation.meta);
@@ -787,39 +814,30 @@ function expandPptxSlide(operation, design, slide) {
       left: 58, top: 474, width: 720, height: 22,
       fontName: type.body, fontSize: 12, color: mutedColor,
     }));
-    output.push(pptShape(slide, 'oval', {
-      left: 734, top: 92, width: 62, height: 62,
-      fillColor: colors.accent, lineColor: colors.accent,
-    }));
-    output.push(pptShape(slide, 'right_arrow', {
-      left: 802, top: 110, width: 46, height: 26,
-      fillColor: colors.accent2, lineColor: colors.accent2,
-    }));
-    output.push(pptShape(slide, 'oval', {
-      left: 854, top: 92, width: 62, height: 62,
-      fillColor: colors.surface2, lineColor: colors.surface2,
-    }));
   } else if (kind === 'statement') {
-    output.push(pptShape(slide, 'oval', {
-      left: 714, top: 154, width: 164, height: 164,
-      fillColor: colors.surface, lineColor: colors.surface,
-    }));
     if (eyebrow) output.push(pptText(slide, eyebrow.toUpperCase(), {
       left: 58, top: 52, width: 420, height: 22,
       fontName: type.body, fontSize: 12, bold: true, color: colors.accent,
     }));
     const metric = operation.metric || operation.metrics?.[0] || {};
-    if (metric.value != null) output.push(pptText(slide, String(metric.value), {
-      left: 674, top: 188, width: 244, height: 92,
-      fontName: type.display, fontSize: 64, bold: true, color: colors.accent, alignment: 'center',
-    }));
-    if (metric.label) output.push(pptText(slide, String(metric.label), {
-      left: 734, top: 286, width: 124, height: 24,
-      fontName: type.body, fontSize: 12, bold: true, color: colors.muted, alignment: 'center',
-    }));
+    const showMetric = metric.value != null && compositionVariant !== 'typographic-statement';
+    if (showMetric) {
+      output.push(pptShape(slide, 'oval', {
+        left: 714, top: 154, width: 164, height: 164,
+        fillColor: colors.surface, lineColor: colors.surface,
+      }));
+      output.push(pptText(slide, metricDisplayValue(metric), {
+        left: 674, top: 188, width: 244, height: 92,
+        fontName: type.display, fontSize: 64, bold: true, color: colors.accent, alignment: 'center',
+      }));
+      if (metric.label) output.push(pptText(slide, String(metric.label), {
+        left: 734, top: 286, width: 124, height: 24,
+        fontName: type.body, fontSize: 12, bold: true, color: colors.muted, alignment: 'center',
+      }));
+    }
     output.push(pptText(slide, title, {
-      left: 58, top: 144, width: metric.value != null ? 560 : 790, height: 150,
-      fontName: type.display, fontSize: pptTitleSize(title, Number(operation.titleSize) || 38), bold: true, color: colors.ink,
+      left: 58, top: showMetric ? 144 : 132, width: showMetric ? 560 : 810, height: showMetric ? 150 : 188,
+      fontName: type.display, fontSize: pptTitleSize(title, Number(operation.titleSize) || (showMetric ? 38 : 44)), bold: true, color: colors.ink,
     }));
     if (subtitle) output.push(pptText(slide, subtitle, {
       left: 58, top: 356, width: 650, height: 76,
@@ -835,51 +853,74 @@ function expandPptxSlide(operation, design, slide) {
       fontName: type.body, fontSize: 15, color: colors.muted,
     }));
     const metrics = Array.isArray(operation.metrics) ? operation.metrics.slice(0, 4) : [];
-    metrics.forEach((metric, index) => {
-      const primary = index === 0;
-      const left = primary ? 58 : 520;
-      const top = primary ? 208 : 192 + ((index - 1) * 118);
-      output.push(pptText(slide, metricDisplayValue(metric), {
-        left, top, width: primary ? 392 : 320, height: primary ? 96 : 62,
-        fontName: type.display, fontSize: primary ? 58 : 40, bold: true,
-        color: primary ? colors.accent : colors.ink,
-      }));
-      output.push(pptText(slide, String(metric.label || ''), {
-        left, top: top + (primary ? 104 : 58), width: primary ? 360 : 320, height: 32,
-        fontName: type.body, fontSize: 13, bold: true, color: colors.muted,
-      }));
-      if (metric.detail) output.push(pptText(slide, String(metric.detail), {
-        left, top: top + (primary ? 148 : 86), width: primary ? 390 : 340, height: 38,
-        fontName: type.body, fontSize: 12, color: colors.muted,
-      }));
-      if (!primary) output.push(pptShape(slide, 'oval', {
-        left: 486, top: top + 16, width: 14, height: 14,
-        fillColor: index === 1 ? colors.accent2 : colors.surface2,
-        lineColor: index === 1 ? colors.accent2 : colors.surface2,
-      }));
-    });
+    if (compositionVariant === 'metric-band') {
+      const metricWidth = 824 / Math.max(1, metrics.length);
+      metrics.forEach((metric, index) => {
+        const left = 58 + (metricWidth * index);
+        output.push(pptText(slide, metricDisplayValue(metric), {
+          left, top: 214, width: metricWidth - 18, height: 88,
+          fontName: type.display, fontSize: metrics.length >= 4 ? 42 : 50, bold: true,
+          color: index === 0 ? colors.accent : colors.ink,
+        }));
+        output.push(pptText(slide, String(metric.label || ''), {
+          left, top: 316, width: metricWidth - 18, height: 34,
+          fontName: type.body, fontSize: 13, bold: true, color: colors.muted,
+        }));
+        if (metric.detail) output.push(pptText(slide, String(metric.detail), {
+          left, top: 360, width: metricWidth - 22, height: 54,
+          fontName: type.body, fontSize: 12, color: colors.muted,
+        }));
+      });
+    } else {
+      metrics.forEach((metric, index) => {
+        const primary = index === 0;
+        const left = primary ? 58 : 520;
+        const top = primary ? 208 : 192 + ((index - 1) * 118);
+        output.push(pptText(slide, metricDisplayValue(metric), {
+          left, top, width: primary ? 392 : 320, height: primary ? 96 : 62,
+          fontName: type.display, fontSize: primary ? 58 : 40, bold: true,
+          color: primary ? colors.accent : colors.ink,
+        }));
+        output.push(pptText(slide, String(metric.label || ''), {
+          left, top: top + (primary ? 104 : 58), width: primary ? 360 : 320, height: 32,
+          fontName: type.body, fontSize: 13, bold: true, color: colors.muted,
+        }));
+        if (metric.detail) output.push(pptText(slide, String(metric.detail), {
+          left, top: top + (primary ? 148 : 86), width: primary ? 390 : 340, height: 38,
+          fontName: type.body, fontSize: 12, color: colors.muted,
+        }));
+        if (!primary) output.push(pptShape(slide, 'oval', {
+          left: 486, top: top + 16, width: 14, height: 14,
+          fillColor: index === 1 ? colors.accent2 : colors.surface2,
+          lineColor: index === 1 ? colors.accent2 : colors.surface2,
+        }));
+      });
+    }
   } else if (kind === 'comparison') {
     output.push(pptText(slide, title, {
       left: 58, top: 42, width: 842, height: 76,
       fontName: type.display, fontSize: contentTitleSize, bold: true, color: colors.ink,
     }));
     const columns = Array.isArray(operation.columns) ? operation.columns.slice(0, 2) : [];
-    const fills = [colors.surface, colors.inverse];
+    const alignedEvidence = compositionVariant === 'aligned-evidence';
+    const fills = alignedEvidence ? [colors.canvas, colors.canvas] : [colors.surface, colors.inverse];
     columns.forEach((column, index) => {
       const left = index === 0 ? 58 : 492;
       const fill = fills[index];
-      const foreground = index === 0 ? colors.ink : colors.onInverse;
-      output.push(pptShape(slide, 'rectangle', {
-        left, top: 142, width: 410, height: 328,
-        fillColor: fill, lineColor: fill,
-      }));
+      const foreground = alignedEvidence ? colors.ink : index === 0 ? colors.ink : colors.onInverse;
+      if (!alignedEvidence) {
+        output.push(pptShape(slide, 'rectangle', {
+          left, top: 142, width: 410, height: 328,
+          fillColor: fill, lineColor: fill,
+        }));
+      }
       output.push(pptText(slide, String(column.title || ''), {
         left: left + 28, top: 174, width: 340, height: 48,
-        fontName: type.display, fontSize: 24, bold: true, color: foreground,
+        fontName: type.display, fontSize: 24, bold: true, color: alignedEvidence ? colors.accent : foreground,
       }));
       const paragraphs = pptBulletParagraphs(column.items || column.body, design, {
         size: 15,
-        color: index === 0 ? colors.muted : colors.surface2,
+        color: alignedEvidence || index === 0 ? colors.muted : colors.surface2,
       });
       output.push(pptText(slide, '', {
         left: left + 28, top: 244, width: 340, height: 176,
@@ -892,33 +933,38 @@ function expandPptxSlide(operation, design, slide) {
     }));
     const steps = Array.isArray(operation.steps) ? operation.steps.slice(0, 5) : [];
     const width = 820 / Math.max(1, steps.length);
+    const staggered = compositionVariant === 'staggered-flow';
     steps.forEach((step, index) => {
       const left = 58 + (width * index);
+      const top = staggered ? (index % 2 === 0 ? 160 : 236) : 172;
       output.push(pptShape(slide, 'oval', {
-        left, top: 172, width: 58, height: 58,
+        left, top, width: 58, height: 58,
         fillColor: index === 0 ? colors.accent : colors.surface2,
         lineColor: index === 0 ? colors.accent : colors.surface2,
       }));
       output.push(pptText(slide, String(index + 1).padStart(2, '0'), {
-        left, top: 187, width: 58, height: 30,
+        left, top: top + 15, width: 58, height: 30,
         fontName: type.data, fontSize: 22, bold: true,
         color: index === 0 ? colors.onAccent : colors.muted,
         alignment: 'center',
       }));
       output.push(pptText(slide, String(step.title || step.label || ''), {
-        left: left - 24, top: 260, width: 106, height: 50,
+        left: left - 24, top: top + 88, width: 106, height: 50,
         fontName: type.body, fontSize: 15, bold: true, color: colors.ink, alignment: 'center',
       }));
       if (step.detail || step.body) output.push(pptText(slide, String(step.detail || step.body), {
-        left: left - 44, top: 324, width: 146, height: 94,
+        left: Math.max(20, left - 40), top: top + 146, width: 150, height: 80,
         fontName: type.body, fontSize: 12, color: colors.muted, alignment: 'center',
       }));
       if (index < steps.length - 1) output.push(pptShape(slide, 'right_arrow', {
-        left: left + width - 78, top: 190, width: 52, height: 20,
+        left: left + width - 78, top: staggered ? 220 : 190, width: 52, height: 20,
         fillColor: colors.accent2, lineColor: colors.accent2,
       }));
     });
   } else if (kind === 'chart' || (kind === 'content' && plainObject(operation.chart))) {
+    if (portable) {
+      throw new Error('compose_slide chart requires Microsoft PowerPoint; use kind "metrics" or "table" for a portable deck');
+    }
     output.push(pptText(slide, title, {
       left: 58, top: 42, width: 842, height: 76,
       fontName: type.display, fontSize: contentTitleSize, bold: true, color: colors.ink,
@@ -930,7 +976,10 @@ function expandPptxSlide(operation, design, slide) {
     const paragraphs = operation.bullets
       ? pptBulletParagraphs(operation.bullets, design, { size: 14 })
       : pptBodyParagraphs(operation.body, design, { size: 14 });
-    if (paragraphs.length) output.push(pptText(slide, '', {
+    const chartLed = compositionVariant === 'chart-led';
+    if (paragraphs.length) output.push(pptText(slide, '', chartLed ? {
+      left: 58, top: 440, width: 842, height: 54,
+    } : {
       left: 58, top: 184, width: 274, height: 238,
     }, paragraphs));
     const chart = operation.chart || {};
@@ -944,12 +993,13 @@ function expandPptxSlide(operation, design, slide) {
         ...entry,
         color: entry?.color || (index === 0 ? colors.accent : index === 1 ? colors.accent2 : colors.muted),
       })) : [],
-      left: paragraphs.length ? 360 : 58,
+      left: chartLed || !paragraphs.length ? 58 : 360,
       top: 176,
-      width: paragraphs.length ? 540 : 842,
-      height: 286,
+      width: chartLed || !paragraphs.length ? 842 : 540,
+      height: chartLed && paragraphs.length ? 244 : 286,
     });
   } else if (kind === 'table' || (kind === 'content' && (Array.isArray(operation.table) || plainObject(operation.table)))) {
+    const tableCallout = compositionVariant === 'table-callout';
     output.push(pptText(slide, title, {
       left: 58, top: 42, width: 842, height: 76,
       fontName: type.display, fontSize: contentTitleSize, bold: true, color: colors.ink,
@@ -968,17 +1018,17 @@ function expandPptxSlide(operation, design, slide) {
       op: 'add_table',
       slide,
       values: Array.isArray(values) ? values : [],
-      left: 58,
-      top: 174,
-      width: 842,
+      left: tableCallout ? 116 : 58,
+      top: tableCallout ? 184 : 174,
+      width: tableCallout ? 728 : 842,
       height: tableHeight,
       properties: {
         fontName: type.body,
         fontSize: 13,
         color: colors.ink,
-        headerFillColor: colors.inverse,
-        headerColor: colors.onInverse,
-        bodyFillColor: colors.canvas,
+        headerFillColor: tableCallout ? colors.accent : colors.inverse,
+        headerColor: tableCallout ? colors.onAccent : colors.onInverse,
+        bodyFillColor: tableCallout ? colors.canvas : colors.surface,
         headerRowHeight: 42,
         bodyRowHeight,
       },
@@ -991,8 +1041,9 @@ function expandPptxSlide(operation, design, slide) {
     const paragraphs = operation.bullets
       ? pptBulletParagraphs(operation.bullets, design, { size: 16 })
       : pptBodyParagraphs(operation.body, design, { size: 16 });
+    const visualLeft = compositionVariant === 'visual-left';
     output.push(pptText(slide, '', {
-      left: 58, top: 156, width: 374, height: 280,
+      left: visualLeft ? 526 : 58, top: 156, width: 374, height: 280,
     }, paragraphs));
     const imagePath = operation.image?.path || operation.imagePath;
     if (imagePath) {
@@ -1000,45 +1051,49 @@ function expandPptxSlide(operation, design, slide) {
         op: 'add_image',
         slide,
         path: imagePath,
-        left: 492,
+        left: visualLeft ? 58 : 492,
         top: 142,
         width: 408,
         height: 306,
       });
     } else {
       output.push(pptShape(slide, 'rectangle', {
-        left: 492, top: 142, width: 408, height: 306,
+        left: visualLeft ? 58 : 492, top: 142, width: 408, height: 306,
         fillColor: colors.inverse, lineColor: colors.inverse,
       }));
       output.push(pptText(slide, String(operation.visualText || subtitle || ''), {
-        left: 530, top: 214, width: 330, height: 156,
+        left: visualLeft ? 96 : 530, top: 214, width: 330, height: 156,
         fontName: type.display, fontSize: 30, bold: true, color: colors.onInverse,
       }));
     }
   } else if (kind === 'closing') {
+    const decisionFocus = compositionVariant === 'decision-focus';
     if (eyebrow) output.push(pptText(slide, eyebrow.toUpperCase(), {
-      left: 58, top: 68, width: 420, height: 22,
+      left: decisionFocus ? 220 : 58, top: 68, width: decisionFocus ? 520 : 420, height: 22,
       fontName: type.body, fontSize: 12, bold: true, color: colors.accent,
+      ...(decisionFocus ? { alignment: 'center' } : {}),
     }));
     output.push(pptText(slide, title, {
-      left: 58, top: 156, width: operation.visualText ? 650 : 760, height: 142,
+      left: decisionFocus ? 120 : 58, top: 156, width: decisionFocus ? 720 : operation.visualText ? 410 : 760, height: 142,
       fontName: type.display, fontSize: pptTitleSize(title, 42), bold: true, color: colors.onInverse,
+      ...(decisionFocus ? { alignment: 'center' } : {}),
     }));
     if (subtitle) output.push(pptText(slide, subtitle, {
-      left: 58, top: 330, width: 690, height: 72,
+      left: decisionFocus ? 150 : 58, top: 330, width: decisionFocus ? 660 : 690, height: 72,
       fontName: type.body, fontSize: 17, color: mutedColor,
+      ...(decisionFocus ? { alignment: 'center' } : {}),
     }));
     if (operation.visualText) {
       output.push(pptShape(slide, 'oval', {
-        left: 770, top: 160, width: 126, height: 126,
+        left: decisionFocus ? 417 : 770, top: decisionFocus ? 398 : 160, width: 126, height: 126,
         fillColor: colors.accent, lineColor: colors.accent,
       }));
       output.push(pptText(slide, String(operation.visualText), {
-        left: 770, top: 184, width: 126, height: 54,
+        left: decisionFocus ? 417 : 770, top: decisionFocus ? 422 : 184, width: 126, height: 54,
         fontName: type.display, fontSize: 34, bold: true, color: colors.onAccent, alignment: 'center',
       }));
       if (operation.visualLabel) output.push(pptText(slide, String(operation.visualLabel), {
-        left: 785, top: 246, width: 96, height: 24,
+        left: decisionFocus ? 432 : 785, top: decisionFocus ? 484 : 246, width: 96, height: 24,
         fontName: type.body, fontSize: 12, bold: true, color: colors.onAccent, alignment: 'center',
       }));
     }
@@ -1051,14 +1106,30 @@ function expandPptxSlide(operation, design, slide) {
       left: 58, top: 116, width: 760, height: 38,
       fontName: type.body, fontSize: 14, color: mutedColor,
     }));
-    const paragraphs = operation.bullets
-      ? pptBulletParagraphs(operation.bullets, design)
-      : pptBodyParagraphs(operation.body, design);
-    output.push(pptText(slide, '', {
-      left: 58, top: 178, width: 590, height: 250,
-    }, paragraphs));
     const visualText = String(operation.visualText || '');
-    if (visualText) {
+    const editorialWide = compositionVariant === 'editorial-wide';
+    const body = strings(operation.bullets || operation.body);
+    if (editorialWide) {
+      const lead = visualText || body.shift() || subtitle;
+      if (lead) output.push(pptText(slide, lead, {
+        left: 58, top: 176, width: 804, height: 132,
+        fontName: type.display, fontSize: pptTitleSize(lead, 42), bold: true, color: colors.accent,
+      }));
+      const support = operation.bullets
+        ? pptBulletParagraphs(body, design, { size: 16 })
+        : pptBodyParagraphs(body, design, { size: 16 });
+      if (support.length) output.push(pptText(slide, '', {
+        left: 58, top: 332, width: 760, height: 118,
+      }, support));
+    } else {
+      const paragraphs = operation.bullets
+        ? pptBulletParagraphs(operation.bullets, design)
+        : pptBodyParagraphs(operation.body, design);
+      output.push(pptText(slide, '', {
+        left: 58, top: 178, width: 590, height: 250,
+      }, paragraphs));
+    }
+    if (visualText && !editorialWide) {
       output.push(pptShape(slide, 'rectangle', {
         left: 680, top: 178, width: 220, height: 220,
         fillColor: colors.surface, lineColor: colors.surface,
@@ -1075,20 +1146,31 @@ function expandPptxSlide(operation, design, slide) {
   return output;
 }
 
-function expandDocxDocument(operation, design, state, backend) {
+function expandDocxDocument(operation, design, state, backend, composition) {
   const output = [];
   const colors = design.tokens.colors;
   const type = design.tokens.typography;
   const format = design.format;
+  const compositionId = String(composition?.id || 'decision-brief');
+  const compactMemo = compositionId === 'compact-memo';
+  const editorialReport = compositionId === 'editorial-report';
+  const evidenceBrief = compositionId === 'evidence-brief';
+  const decisionBrief = compositionId === 'decision-brief';
+  const pageMargin = compactMemo
+    ? Math.max(46.8, format.margin * 0.84)
+    : editorialReport
+      ? format.margin * 1.08
+      : format.margin;
+  const bodySize = compactMemo ? Math.max(9.5, format.body - 0.5) : format.body;
   if (backend === 'microsoft-office-com' && operation.page !== false) {
     output.push({
       op: 'set_page',
       properties: {
         orientation: operation.orientation || 'portrait',
-        topMargin: format.margin,
-        bottomMargin: format.margin,
-        leftMargin: format.margin,
-        rightMargin: format.margin,
+        topMargin: pageMargin,
+        bottomMargin: pageMargin,
+        leftMargin: pageMargin,
+        rightMargin: pageMargin,
       },
     });
   }
@@ -1105,73 +1187,72 @@ function expandDocxDocument(operation, design, state, backend) {
   };
   append(operation.title, 'Title', {
     name: type.display,
-    size: Number(operation.titleSize) || format.title,
+    size: Number(operation.titleSize) || format.title + (editorialReport ? 3 : compactMemo ? -1 : 0),
     bold: true,
     color: colors.ink,
     spacingBefore: 0,
-    spacingAfter: 8,
+    spacingAfter: editorialReport ? 12 : compactMemo ? 5 : 8,
     keepWithNext: true,
   });
   append(operation.subtitle, 'Normal', {
     name: type.body,
-    size: format.body,
+    size: bodySize,
     color: colors.muted,
     spacingBefore: 0,
-    spacingAfter: 12,
-    lineSpacing: format.body * 1.35,
+    spacingAfter: compactMemo ? 7 : 12,
+    lineSpacing: bodySize * 1.35,
   });
   const meta = strings(operation.meta);
   if (meta.length) {
     append(meta.join(' · '), 'Normal', {
       name: type.body,
-      size: Math.max(8.5, format.body - 1),
+      size: Math.max(8.5, bodySize - 1),
       color: colors.muted,
       spacingBefore: 0,
-      spacingAfter: 14,
+      spacingAfter: compactMemo ? 8 : 14,
     });
   }
   if (operation.summary) {
     append(strings(operation.summary).join(' '), 'Normal', {
       name: type.display,
-      size: format.body + 1,
+      size: bodySize + (decisionBrief ? 1.5 : 1),
       bold: true,
-      color: colors.accent,
-      spacingBefore: 4,
-      spacingAfter: 14,
-      lineSpacing: (format.body + 1) * 1.35,
+      color: decisionBrief ? colors.accent : colors.ink,
+      spacingBefore: compactMemo ? 2 : 4,
+      spacingAfter: editorialReport ? 18 : compactMemo ? 9 : 14,
+      lineSpacing: (bodySize + 1) * 1.35,
       keepWithNext: true,
-      border: { side: 'left', color: colors.accent },
     });
   }
   for (const section of Array.isArray(operation.sections) ? operation.sections : []) {
     append(section.heading || section.title, Number(section.level) === 2 ? 'Heading 2' : 'Heading 1', {
       name: type.display,
-      size: Number(section.level) === 2 ? format.heading2 : format.heading1,
+      size: (Number(section.level) === 2 ? format.heading2 : format.heading1) + (editorialReport ? 1 : 0),
       bold: true,
-      color: section.accent === false ? colors.ink : colors.accent,
-      spacingBefore: Number(section.level) === 2 ? 9 : 14,
-      spacingAfter: 5,
+      color: section.accent === false || evidenceBrief ? colors.ink : colors.accent,
+      spacingBefore: compactMemo ? (Number(section.level) === 2 ? 6 : 10) : Number(section.level) === 2 ? 9 : 14,
+      spacingAfter: editorialReport ? 7 : 5,
       keepWithNext: true,
       pageBreakBefore: section.pageBreak === true,
     });
     for (const paragraph of strings(section.paragraphs || section.body)) {
       append(paragraph, 'Normal', {
         name: type.body,
-        size: format.body,
+        size: bodySize,
         color: colors.ink,
         spacingBefore: 0,
-        spacingAfter: 6,
-        lineSpacing: format.body * 1.4,
+        spacingAfter: compactMemo ? 4 : editorialReport ? 8 : 6,
+        lineSpacing: bodySize * (compactMemo ? 1.32 : 1.4),
       });
     }
     for (const bullet of strings(section.bullets)) {
       append(bullet, 'Normal', {
         name: type.body,
-        size: format.body,
+        size: bodySize,
         color: colors.ink,
         spacingBefore: 0,
         spacingAfter: 3,
-        lineSpacing: format.body * 1.35,
+        lineSpacing: bodySize * 1.35,
         listKind: 'bullet',
         listLevel: 0,
       });
@@ -1179,12 +1260,12 @@ function expandDocxDocument(operation, design, state, backend) {
     if (section.quote) {
       append(section.quote, 'Quote', {
         name: type.display,
-        size: format.body + 1,
+        size: bodySize + (editorialReport ? 2 : 1),
         italic: true,
         color: colors.accent,
         spacingBefore: 5,
         spacingAfter: 9,
-        lineSpacing: (format.body + 1) * 1.35,
+        lineSpacing: (bodySize + 1) * 1.35,
       });
     }
     if (Array.isArray(section.table) && section.table.length) {
@@ -1196,7 +1277,7 @@ function expandDocxDocument(operation, design, state, backend) {
           style: 'Table Grid',
           textStyle: 'Normal',
           fontName: type.body,
-          fontSize: Math.max(9, format.body - 1),
+          fontSize: Math.max(9, bodySize - 1),
           color: colors.ink,
           spacingAfter: 0,
           borders: true,
@@ -1212,8 +1293,8 @@ function expandDocxDocument(operation, design, state, backend) {
             row: 1,
             col: column,
             properties: {
-              fillColor: colors.inverse,
-              color: colors.onInverse,
+              fillColor: evidenceBrief ? colors.accent : colors.inverse,
+              color: evidenceBrief ? colors.onAccent : colors.onInverse,
               bold: true,
               verticalAlignment: 'center',
             },
@@ -1222,11 +1303,15 @@ function expandDocxDocument(operation, design, state, backend) {
       }
     }
   }
-  if (backend === 'microsoft-office-com' && operation.footer) {
-    output.push({ op: 'set_header_footer', header: false, text: String(operation.footer) });
-  }
   if (backend === 'microsoft-office-com' && operation.pageNumbers === true) {
-    output.push({ op: 'add_page_numbers', includeTotal: true });
+    output.push({
+      op: 'add_page_numbers',
+      includeTotal: true,
+      alignment: 'center',
+      ...(operation.footer ? { prefix: `${String(operation.footer)} · Page ` } : {}),
+    });
+  } else if (backend === 'microsoft-office-com' && operation.footer) {
+    output.push({ op: 'set_header_footer', header: false, text: String(operation.footer) });
   }
   return output;
 }
@@ -1252,11 +1337,17 @@ function isExcelTotalRow(row) {
   return /^(?:(?:grand\s+total|sub\s*total|total)\b|(?:합계|총계|소계)(?:\s|$))/i.test(String(row?.[0] || '').trim());
 }
 
-function expandXlsxSheet(operation, design) {
+function expandXlsxSheet(operation, design, composition, backend = '') {
+  const portable = backend === 'mixdog-ooxml';
   const output = [];
   const colors = design.tokens.colors;
   const type = design.tokens.typography;
   const format = design.format;
+  const compositionId = String(composition?.id || 'monitor-dashboard');
+  const trendDashboard = compositionId === 'trend-dashboard';
+  const comparisonBoard = compositionId === 'comparison-board';
+  const analysisSheet = compositionId === 'analysis-sheet';
+  const narrativeScorecard = compositionId === 'narrative-scorecard';
   const sheet = String(operation.sheet || 'Sheet1');
   const headers = strings(operation.headers);
   const rows = Array.isArray(operation.rows) ? operation.rows : [];
@@ -1285,8 +1376,8 @@ function expandXlsxSheet(operation, design) {
         fontName: type.display,
         fontSize: Number(operation.titleSize) || format.title,
         bold: true,
-        color: colors.onInverse,
-        fillColor: colors.inverse,
+        color: analysisSheet ? colors.ink : narrativeScorecard ? colors.onAccent : colors.onInverse,
+        fillColor: analysisSheet ? colors.surface2 : narrativeScorecard ? colors.accent : colors.inverse,
         verticalAlignment: 'center',
         wrapText: true,
       },
@@ -1336,10 +1427,10 @@ function expandXlsxSheet(operation, design) {
         range: `${start}${valueRow}:${end}${valueRow}`,
         properties: {
           fontName: type.data,
-          fontSize: 22,
+          fontSize: narrativeScorecard ? 25 : comparisonBoard ? 20 : 22,
           bold: true,
-          color: index === 0 ? colors.onAccent : colors.ink,
-          fillColor: index === 0 ? colors.accent : colors.surface,
+          color: index === 0 && !analysisSheet ? colors.onAccent : colors.ink,
+          fillColor: index === 0 && !analysisSheet ? colors.accent : trendDashboard ? colors.canvas : colors.surface,
           numberFormat: metric?.numberFormat || 'General',
           horizontalAlignment: 'center',
           verticalAlignment: 'center',
@@ -1375,8 +1466,8 @@ function expandXlsxSheet(operation, design) {
         fontName: type.body,
         fontSize: format.body,
         bold: true,
-        color: colors.ink,
-        fillColor: colors.surface2,
+        color: narrativeScorecard ? colors.onInverse : colors.ink,
+        fillColor: narrativeScorecard ? colors.inverse : trendDashboard ? colors.surface : colors.surface2,
         wrapText: true,
       },
     });
@@ -1408,13 +1499,15 @@ function expandXlsxSheet(operation, design) {
           wrapText: true,
         },
       });
-      output.push({
-        op: 'add_table',
-        sheet,
-        range: `A${startRow}:${dataLastColumn}${endRow}`,
-        name: safeTableName(operation.tableName || `${sheet}Data`),
-        style: operation.tableStyle || format.tableStyle,
-      });
+      if (!portable) {
+        output.push({
+          op: 'add_table',
+          sheet,
+          range: `A${startRow}:${dataLastColumn}${endRow}`,
+          name: safeTableName(operation.tableName || `${sheet}Data`),
+          style: operation.tableStyle || format.tableStyle,
+        });
+      }
       output.push({ op: 'freeze_panes', sheet, row: startRow + 1, column: 1 });
     }
     output.push({
@@ -1441,31 +1534,68 @@ function expandXlsxSheet(operation, design) {
       });
     }
     if (plainObject(operation.chart)) {
+      if (portable) {
+        throw new Error('compose_sheet chart requires Microsoft Excel; omit chart or create the workbook with Excel installed');
+      }
       let chartRows = rows.length;
       while (chartRows > 0 && isExcelTotalRow(rows[chartRows - 1])) chartRows -= 1;
       const chartEndRow = startRow + (headers.length ? 1 : 0) + chartRows - 1;
       const chartRange = operation.chart.range
         || `A${startRow}:${dataLastColumn}${Math.max(startRow, chartEndRow)}`;
+      const chartType = operation.chart.type || 'column';
+      const showValues = operation.chart.showValues ?? (dashboard && chartRows <= 6);
+      const dataLabelPosition = operation.chart.dataLabelPosition
+        || (showValues && ['column', 'bar'].includes(String(chartType).toLowerCase()) ? 'inside_end' : '');
+      const chartDefaults = trendDashboard
+        ? { left: 360, top: 172, width: 510, height: 286 }
+        : comparisonBoard
+          ? { left: 390, top: 184, width: 480, height: 278 }
+          : analysisSheet
+            ? { left: 520, top: 40, width: 480, height: 280 }
+            : narrativeScorecard
+              ? { left: 430, top: 206, width: 450, height: 258 }
+              : { left: dashboard ? 410 : 520, top: dashboard ? 190 : 40, width: dashboard ? 420 : 480, height: 280 };
       output.push({
         op: 'add_chart',
         sheet,
         range: chartRange,
-        chartType: operation.chart.type || 'column',
+        chartType,
         title: operation.chart.title || '',
-        left: Number(operation.chart.left) || (dashboard ? 390 : 520),
-        top: Number(operation.chart.top) || (dashboard ? 220 : 40),
-        width: Number(operation.chart.width) || (dashboard ? 400 : 480),
-        height: Number(operation.chart.height) || (dashboard ? 260 : 280),
+        left: Number(operation.chart.left) || chartDefaults.left,
+        top: Number(operation.chart.top) || chartDefaults.top,
+        width: Number(operation.chart.width) || chartDefaults.width,
+        height: Number(operation.chart.height) || chartDefaults.height,
+        seriesColors: operation.chart.seriesColors || [colors.accent, colors.accent2, colors.muted],
+        showValues,
+        ...(dataLabelPosition ? { dataLabelPosition } : {}),
+        ...(dataLabelPosition === 'inside_end' ? {
+          dataLabelColor: operation.chart.dataLabelColor || colors.onAccent,
+        } : {}),
+        zeroBaseline: operation.chart.zeroBaseline ?? ['column', 'bar'].includes(String(chartType).toLowerCase()),
+        ...(operation.chart.showLegend == null ? {} : { showLegend: operation.chart.showLegend }),
+        ...(operation.chart.valueNumberFormat ? { valueNumberFormat: operation.chart.valueNumberFormat } : {}),
       });
     }
   }
   if (operation.source) {
-    output.push({
-      op: 'add_note',
-      sheet,
-      cell: 'A1',
-      text: `Source: ${provenanceText(operation.source) || String(operation.source)}`,
-    });
+    const attribution = `Source: ${provenanceText(operation.source) || String(operation.source)}`;
+    if (portable) {
+      const captionRow = Math.max(row, startRow + values.length) + 1;
+      output.push({ op: 'set_cell', sheet, cell: `A${captionRow}`, value: attribution });
+      output.push({
+        op: 'set_style',
+        sheet,
+        range: `A${captionRow}:${dataLastColumn}${captionRow}`,
+        properties: {
+          fontName: type.body,
+          fontSize: 9,
+          italic: true,
+          color: colors.muted,
+        },
+      });
+    } else {
+      output.push({ op: 'add_note', sheet, cell: 'A1', text: attribution });
+    }
   }
   output.push({ op: 'autofit_range', sheet, range: `A:${dataLastColumn}` });
   const printColumns = plainObject(operation.chart) ? Math.max(columns, 14) : columns;
@@ -1477,8 +1607,14 @@ function expandXlsxSheet(operation, design) {
     fitToPagesWide: 1,
     fitToPagesTall: dashboard ? 1 : 0,
     centerHorizontally: true,
+    centerVertically: dashboard && !analysisSheet,
   });
-  output.push({ op: 'set_sheet_view', sheet, showGridlines: false, zoom: dashboard ? 90 : 100 });
+  output.push({
+    op: 'set_sheet_view',
+    sheet,
+    showGridlines: false,
+    zoom: analysisSheet ? 100 : trendDashboard ? 85 : dashboard ? 90 : 100,
+  });
   return output;
 }
 
@@ -1498,35 +1634,56 @@ export function expandOfficeDesignOperations({
   let nextSlide = created && Number(snapshotVersion || 0) === 0 ? 1 : null;
   const docxState = { paragraph: 0, table: 0 };
   const layoutUsage = new Map();
+  const compositionUsage = new Map();
   for (const operation of operations || []) {
     const bound = bindOfficeContent(operation, design.content);
     const contentOperation = bound.operation;
     const name = String(contentOperation?.op || '');
     if (normalizedFormat === 'pptx' && name === 'compose_slide') {
-      const slide = Number(contentOperation.slide) || nextSlide;
+      const composition = planOfficeComposition(normalizedFormat, contentOperation, design, {
+        usage: compositionUsage,
+      });
+      const plannedOperation = {
+        ...contentOperation,
+        kind: composition.kind,
+        __composition: composition,
+      };
+      const slide = Number(plannedOperation.slide) || nextSlide;
       if (!slide) throw new Error('compose_slide requires slide for an existing presentation');
-      const selectedLayout = selectPptxLayout(contentOperation, design, layoutUsage);
+      const selectedLayout = backend === 'mixdog-ooxml'
+        ? null
+        : selectPptxLayout(plannedOperation, design, layoutUsage);
       const layout = selectedLayout?.layout || null;
-      const composed = layout ? merge(layout.defaults || {}, contentOperation) : contentOperation;
-      const backgroundSpec = pptxBackgroundSpec(composed, design, String(contentOperation.kind || 'content').toLowerCase(), slide);
-      const plan = pptxSlidePlan(composed, String(contentOperation.kind || 'content').toLowerCase(), slide);
+      const composed = layout ? merge(layout.defaults || {}, plannedOperation) : plannedOperation;
+      const backgroundSpec = pptxBackgroundSpec(composed, design, composition.kind, slide);
+      const plan = pptxSlidePlan(composed, composition.kind, slide);
       const templateOperations = expandTemplatePptxSlide(composed, layout, slide);
       if (templateOperations) {
         output.push(...templateOperations);
         layoutUsage.set(layout.id, (layoutUsage.get(layout.id) || 0) + 1);
       } else {
         if (design.deck.templateMode === 'strict') {
-          throw new Error(`compose_slide requires an approved native template layout for kind "${operation.kind}" in strict mode`);
+          throw new Error(backend === 'mixdog-ooxml'
+            ? 'compose_slide strict template mode requires Microsoft PowerPoint; use the default template mode for portable decks'
+            : `compose_slide requires an approved native template layout for kind "${operation.kind}" in strict mode`);
         }
-        output.push(...expandPptxSlide(composed, design, slide));
+        output.push(...expandPptxSlide(composed, design, slide, backend));
       }
       semantic.push({
         op: name,
-        kind: String(contentOperation.kind || 'content'),
+        kind: composition.kind,
+        requestedKind: String(contentOperation.kind || 'content'),
         slide,
         slideRole: backgroundSpec.slideRole,
         backgroundRole: backgroundSpec.backgroundRole,
         plan,
+        composition: layout ? {
+          ...composition,
+          id: `${composition.kind}:template:${layout.id}`,
+          family: 'native-template',
+          variant: layout.variant || composition.variant,
+          source: 'native-template',
+        } : composition,
         renderMode: templateOperations ? 'native-template' : 'scratch',
         ...(bound.binding ? { contentBinding: bound.binding } : {}),
         ...(layout ? {
@@ -1545,20 +1702,27 @@ export function expandOfficeDesignOperations({
       continue;
     }
     if (normalizedFormat === 'docx' && name === 'compose_document') {
-      output.push(...expandDocxDocument(contentOperation, design, docxState, backend));
+      const composition = planOfficeComposition(normalizedFormat, contentOperation, design, {
+        usage: compositionUsage,
+      });
+      output.push(...expandDocxDocument(contentOperation, design, docxState, backend, composition));
       semantic.push({
         op: name,
         sections: Array.isArray(contentOperation.sections) ? contentOperation.sections.length : 0,
+        composition,
         ...(bound.binding ? { contentBinding: bound.binding } : {}),
       });
       continue;
     }
     if (normalizedFormat === 'xlsx' && name === 'compose_sheet') {
-      if (backend !== 'microsoft-office-com') throw new Error('compose_sheet requires Microsoft Excel');
-      output.push(...expandXlsxSheet(contentOperation, design));
+      const composition = planOfficeComposition(normalizedFormat, contentOperation, design, {
+        usage: compositionUsage,
+      });
+      output.push(...expandXlsxSheet(contentOperation, design, composition, backend));
       semantic.push({
         op: name,
         sheet: String(contentOperation.sheet || 'Sheet1'),
+        composition,
         ...(bound.binding ? { contentBinding: bound.binding } : {}),
       });
       continue;
@@ -1573,6 +1737,7 @@ export function expandOfficeDesignOperations({
     semantic,
     design: compactDesign(design),
     content: summarizeOfficeContentModel(design.content),
+    composition: summarizeOfficeCompositions(normalizedFormat, semantic),
   };
 }
 
@@ -1931,12 +2096,19 @@ export function reviewOfficeDesign({
 } = {}) {
   const normalizedFormat = String(format || '').toLowerCase();
   const design = resolveOfficeDesign(normalizedFormat, request, { library });
+  const compositionReview = reviewOfficeCompositionSequence({
+    format: normalizedFormat,
+    compositions: design.compositions,
+    recentCompositions: design.recentCompositions,
+    allowRepetition: design.review.allowRepetition,
+  });
   if (!design.review.required) {
     return {
       ok: true,
       status: 'skipped',
       profile: design.profile,
       issues: [],
+      composition: compositionReview.summary,
       requiresVisualInspection: false,
     };
   }
@@ -1948,11 +2120,29 @@ export function reviewOfficeDesign({
   const issues = normalizedFormat === 'pptx'
     ? [...reviewPptx(document, design), ...structureIssues]
     : structureIssues;
+  if (
+    compositionReview.repeated
+    && !issues.some((entry) => entry.code === 'repetitive_composition')
+  ) {
+    issues.push(designIssue(
+      'repetitive_composition',
+      '/',
+      `${compositionReview.repeated.count} of ${compositionReview.repeated.total} semantic compositions reuse ${compositionReview.repeated.id}.`,
+    ));
+  }
+  if (compositionReview.recentMatch) {
+    issues.push(designIssue(
+      'recent_composition_repeat',
+      '/',
+      'The complete composition sequence matches a recent deliverable; recompose the structure while preserving brand constraints.',
+    ));
+  }
   return {
     ok: issues.length === 0,
     status: issues.length ? 'needs-polish' : 'pass',
     profile: design.profile,
     issues,
+    composition: compositionReview.summary,
     requiresVisualInspection: !['csv', 'tsv'].includes(normalizedFormat),
     modelReview: [
       'Inspect every rendered page, not only lint counts.',

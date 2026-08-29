@@ -49,6 +49,7 @@ export interface DesktopService {
   projectEntryPath(projectPath: string, relPath: string): Promise<string>;
   codeGraphQuery(projectPath: string, mode: 'find_symbol' | 'references' | 'symbols', query: string): unknown;
   listSessions(): Promise<DesktopSessionSummary[]>;
+  markSessionRead(sessionId: string, messageCount: number, consumedUnread?: boolean): Promise<boolean>;
   listAgentPool(): Promise<DesktopAgentPoolRow[]>;
   renameSession(sessionId: string, title: string): unknown;
   setSessionArchived(sessionId: string, archived: boolean): unknown;
@@ -126,6 +127,7 @@ export const DESKTOP_SERVICE_METHODS = [
   'projectEntryPath',
   'codeGraphQuery',
   'listSessions',
+  'markSessionRead',
   'listAgentPool',
   'renameSession',
   'setSessionArchived',

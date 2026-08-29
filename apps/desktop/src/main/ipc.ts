@@ -109,6 +109,7 @@ import {
   requiredSubmitOptions,
   requiredTextFileContent,
   requiredTextFileEncoding,
+  requiredSessionMessageCount,
   requiredTranscriptItemLimit,
   requiredToolApprovalDecision,
   requiredWorkspaceFolders,
@@ -140,6 +141,7 @@ export {
   requiredPromptContent,
   requiredString,
   requiredSubmitOptions,
+  requiredSessionMessageCount,
   requiredTranscriptItemLimit,
   requiredToolApprovalDecision,
   requiredWorkspaceSearchLimit,
@@ -179,6 +181,7 @@ interface DesktopIpcDependencies {
     'browserImportSources'
     | 'browserImport'
     | 'browserHistorySearch'
+    | 'setGuestActive'
     | 'browserCredentialSuggestions'
     | 'browserCredentialFill'>;
   /** Settings → Connection pairing card; resolves null while the bridge is off. */
@@ -898,6 +901,16 @@ export function registerDesktopIpc(
     );
   });
   handle(DESKTOP_IPC.listSessions, () => host.listSessions());
+  handle(DESKTOP_IPC.markSessionRead, (_event, sessionId, messageCount, consumedUnread) => {
+    if (consumedUnread !== undefined && typeof consumedUnread !== 'boolean') {
+      throw new TypeError('consumedUnread must be a boolean.');
+    }
+    return host.markSessionRead(
+      requiredSessionId(sessionId),
+      requiredSessionMessageCount(messageCount),
+      consumedUnread === true,
+    );
+  });
   handle(DESKTOP_IPC.listAgentPool, () => host.listAgentPool());
   // Settings → Connection: pairing card (null while the bridge is off).
   handle(DESKTOP_IPC.remoteAccessInfo, () => remoteAccessInfo?.() ?? null);
@@ -1065,6 +1078,17 @@ export function registerDesktopIpc(
       onDesktopSettingsChanged?.(saved);
       return saved;
     });
+  });
+  handle(DESKTOP_IPC.browserSetActiveGuest, (_event, paneId, webContentsId, active) => {
+    if (!browserHost) throw new Error('Browser Use is unavailable in this app surface.');
+    if (typeof paneId !== 'string' || !/^browser_tab_[a-z0-9-]{4,120}$/i.test(paneId)) {
+      throw new TypeError('Browser pane id is invalid.');
+    }
+    if (!Number.isSafeInteger(webContentsId) || Number(webContentsId) <= 0) {
+      throw new TypeError('Browser guest id is invalid.');
+    }
+    if (typeof active !== 'boolean') throw new TypeError('Browser guest activity is invalid.');
+    browserHost.setGuestActive(paneId, Number(webContentsId), active);
   });
   handle(DESKTOP_IPC.browserProfileImportSources, () => {
     if (!browserHost) throw new Error('Browser profile import is unavailable in this app surface.');

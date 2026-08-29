@@ -190,6 +190,8 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener(DESKTOP_IPC.lspStatus, receive);
   },
   listSessions: () => ipcRenderer.invoke(DESKTOP_IPC.listSessions),
+  markSessionRead: (sessionId, messageCount, consumedUnread) =>
+    ipcRenderer.invoke(DESKTOP_IPC.markSessionRead, sessionId, messageCount, consumedUnread),
   subscribeSessions: (listener) => {
     const receive = (_event: Electron.IpcRendererEvent, sessions: DesktopSessionSummary[]): void => {
       listener(sessions);
@@ -533,6 +535,8 @@ const api: DesktopApi = {
     ipcRenderer.on(DESKTOP_IPC.browserOpenRequested, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.browserOpenRequested, receive);
   },
+  browserSetActiveGuest: (paneId, webContentsId, active) =>
+    ipcRenderer.invoke(DESKTOP_IPC.browserSetActiveGuest, paneId, webContentsId, active),
   browserProfileImportSources: () =>
     ipcRenderer.invoke(DESKTOP_IPC.browserProfileImportSources),
   browserProfileImportStart: (request) =>

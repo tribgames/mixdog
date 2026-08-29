@@ -33,6 +33,7 @@ const MAX_TEMPLATE_BYTES = 64 * 1024 * 1024;
 const MAX_TEMPLATE_COUNT = 200;
 const MAX_LOCAL_TEMPLATE_COUNT = 5_000;
 const MAX_SCAN_DEPTH = 8;
+const MAX_COMPOSITION_HISTORY = 48;
 const FORMATS = new Set(['docx', 'xlsx', 'pptx', 'pdf', 'csv', 'tsv']);
 const TEMPLATE_FORMATS = Object.freeze({
   '.docx': 'docx',
@@ -139,6 +140,7 @@ function libraryPaths(dataDir) {
     packs: join(root, 'packs'),
     templates: join(root, 'templates'),
     templateIndex: join(root, 'template-index.json'),
+    compositionHistory: join(root, 'composition-history.json'),
     bindings: join(root, 'bindings'),
   };
 }
@@ -296,6 +298,12 @@ function normalizeLayoutCapacity(value) {
   };
 }
 
+function normalizeDesignTags(value, limit = 16) {
+  return [...new Set((Array.isArray(value) ? value : [])
+    .map((entry) => String(entry || '').trim().toLowerCase())
+    .filter(Boolean))].slice(0, limit);
+}
+
 function normalizeLayouts(value, { templatePath = '' } = {}) {
   if (value == null) return [];
   if (!Array.isArray(value) || value.length > 1_000) throw new Error('Office design layouts must be an array of at most 1000 entries');
@@ -326,6 +334,8 @@ function normalizeLayouts(value, { templatePath = '' } = {}) {
       profile: layout.profile ? safeId(layout.profile, 'layout profile') : '',
       density: String(layout.density || '').toLowerCase(),
       variant: String(layout.variant || '').trim().toLowerCase(),
+      purposes: normalizeDesignTags(layout.purposes),
+      expressionModes: normalizeDesignTags(layout.expressionModes),
       templateId: layout.templateId ? safeId(layout.templateId, 'layout templateId') : '',
       templatePath: templatePath || String(layout.templatePath || ''),
       sourceSlide,
@@ -373,6 +383,8 @@ function normalizeLocalSamples(value) {
       kind: String(sample.kind || '').trim().toLowerCase(),
       density: String(sample.density || '').trim().toLowerCase(),
       variant: String(sample.variant || '').trim().toLowerCase(),
+      purposes: normalizeDesignTags(sample.purposes),
+      expressionModes: normalizeDesignTags(sample.expressionModes),
       priority: Math.max(-100, Math.min(100, Number(sample.priority) || 0)),
       strict: sample.strict === true,
       roles,
@@ -969,16 +981,24 @@ export function officeTemplateCoverage(sampleSlides = []) {
   const samples = Array.isArray(sampleSlides) ? sampleSlides : [];
   const kinds = [...new Set(samples.map((sample) => String(sample.kind || '')).filter(Boolean))].sort();
   const densities = [...new Set(samples.map((sample) => String(sample.density || '')).filter(Boolean))].sort();
+  const purposes = [...new Set(samples.flatMap((sample) => sample.purposes || []))].sort();
+  const expressionModes = [...new Set(samples.flatMap((sample) => sample.expressionModes || []))].sort();
   const capabilities = [...new Set(samples.flatMap((sample) => sample.capabilities || []))].sort();
   const recommendedKinds = ['cover', 'content', 'statement', 'comparison', 'process', 'metrics', 'split', 'closing'];
   const recommendedDensities = ['light', 'balanced', 'dense'];
+  const recommendedPurposes = ['compare', 'decide', 'explain', 'monitor'];
+  const recommendedExpressionModes = ['conservative', 'strong-fit', 'divergent'];
   return {
     sampleCount: samples.length,
     kinds,
     densities,
+    purposes,
+    expressionModes,
     capabilities,
     missingKinds: recommendedKinds.filter((kind) => !kinds.includes(kind)),
     missingDensities: recommendedDensities.filter((density) => !densities.includes(density)),
+    missingPurposes: recommendedPurposes.filter((purpose) => !purposes.includes(purpose)),
+    missingExpressionModes: recommendedExpressionModes.filter((mode) => !expressionModes.includes(mode)),
     nativeObjectCoverage: {
       image: capabilities.includes('image'),
       chart: capabilities.includes('chart'),
@@ -1140,6 +1160,8 @@ export async function indexOfficeTemplates({
         profile: metadata.profile,
         density: sampleMetadata?.density || sample.density,
         variant: sampleMetadata?.variant || 'native',
+        purposes: sampleMetadata?.purposes || [],
+        expressionModes: sampleMetadata?.expressionModes || [],
         templateId: id,
         templatePath: path,
         sourceSlide: sample.slide,
@@ -1178,6 +1200,8 @@ export async function indexOfficeTemplates({
         title: sample.title || titleShape?.text || '',
         kind: layout?.kind || sample.kind,
         density: layout?.density || sample.density,
+        purposes: layout?.purposes || [],
+        expressionModes: layout?.expressionModes || [],
         slots: layout?.slots || sample.slots,
         capacity: layout?.capacity || sample.capacity,
       };
@@ -1389,6 +1413,78 @@ export async function persistOfficeDesignBinding(dataDir, documentPath, binding)
   return record;
 }
 
+function normalizedCompositionRecord(value) {
+  if (!plainObject(value)) return null;
+  const fingerprint = String(value.fingerprint || '');
+  const format = String(value.format || '').toLowerCase();
+  if (!fingerprint || !FORMATS.has(format)) return null;
+  return {
+    fingerprint,
+    format,
+    profile: String(value.profile || ''),
+    purpose: String(value.purpose || ''),
+    expressionMode: String(value.expressionMode || ''),
+    compositionIds: [...new Set((Array.isArray(value.compositionIds) ? value.compositionIds : [])
+      .map((entry) => String(entry || '').trim())
+      .filter(Boolean))].slice(0, 64),
+    documentKey: String(value.documentKey || ''),
+    createdAt: String(value.createdAt || ''),
+  };
+}
+
+export async function readOfficeCompositionHistory(dataDir, {
+  format = '',
+  limit = 24,
+  excludeDocumentPath = '',
+} = {}) {
+  const paths = libraryPaths(dataDir);
+  const store = await readJson(paths.compositionHistory, { records: [] });
+  const normalizedFormat = String(format || '').toLowerCase();
+  const excludedKey = excludeDocumentPath ? sha256(canonicalPath(excludeDocumentPath)) : '';
+  return (Array.isArray(store?.records) ? store.records : [])
+    .map(normalizedCompositionRecord)
+    .filter(Boolean)
+    .filter((entry) => !normalizedFormat || entry.format === normalizedFormat)
+    .filter((entry) => !excludedKey || entry.documentKey !== excludedKey)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+    .slice(0, Math.max(1, Math.min(MAX_COMPOSITION_HISTORY, Number(limit) || 24)));
+}
+
+export async function recordOfficeCompositionHistory(dataDir, {
+  documentPath,
+  format,
+  profile = '',
+  purpose = '',
+  expressionMode = '',
+  fingerprint,
+  compositionIds = [],
+} = {}) {
+  const paths = libraryPaths(dataDir);
+  const documentKey = sha256(canonicalPath(documentPath));
+  const record = normalizedCompositionRecord({
+    documentKey,
+    format,
+    profile,
+    purpose,
+    expressionMode,
+    fingerprint,
+    compositionIds,
+    createdAt: new Date().toISOString(),
+  });
+  if (!record) throw new Error('Office composition history requires a supported format and fingerprint');
+  const store = await readJson(paths.compositionHistory, { records: [] });
+  const existing = (Array.isArray(store?.records) ? store.records : [])
+    .map(normalizedCompositionRecord)
+    .filter(Boolean)
+    .filter((entry) => entry.documentKey !== documentKey);
+  const records = [record, ...existing].slice(0, MAX_COMPOSITION_HISTORY);
+  await writeJsonAtomic(paths.compositionHistory, {
+    schemaVersion: SCHEMA_VERSION,
+    records,
+  });
+  return record;
+}
+
 function findTemplate(templates, selector, format) {
   const wanted = String(selector || '').trim();
   if (!wanted) return null;
@@ -1444,6 +1540,10 @@ export async function resolveOfficeDesignLibrary({
   const normalizedFormat = String(format || '').toLowerCase();
   if (!FORMATS.has(normalizedFormat)) throw new Error(`Unsupported Office design library format: ${format}`);
   const paths = libraryPaths(dataDir);
+  const recentCompositions = await readOfficeCompositionHistory(dataDir, {
+    format: normalizedFormat,
+    excludeDocumentPath: documentPath,
+  });
   const config = await loadConfig(dataDir, configOverride);
   const explicitUpgrade = request?.upgradeLibrary === true;
   const currentBinding = !created && !explicitUpgrade
@@ -1475,6 +1575,7 @@ export async function resolveOfficeDesignLibrary({
       template,
       layouts: layoutCandidates(pack, template, normalizedFormat),
       coverage: template?.coverage || null,
+      recentCompositions,
       templateIndexRevision: index.revision || '',
       warning,
       pinned: true,
@@ -1527,6 +1628,7 @@ export async function resolveOfficeDesignLibrary({
     template,
     layouts: layoutCandidates(pack, template, normalizedFormat),
     coverage: template?.coverage || null,
+    recentCompositions,
     templateIndexRevision: synced.templates.revision || '',
     warning: synced.warning || '',
     pinned: false,

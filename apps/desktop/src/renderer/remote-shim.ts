@@ -1703,6 +1703,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     resolveLocalPaths: (paths) => call('resolveLocalPaths', [paths]),
     readLocalFile: (path) => call('readLocalFile', [path]),
     listSessions: () => call('listSessions'),
+    markSessionRead: (sessionId, messageCount, consumedUnread) =>
+      call<boolean>('markSessionRead', [sessionId, messageCount, consumedUnread]),
     subscribeSessions: (listener) => {
       sessionListeners.add(listener);
       return () => { sessionListeners.delete(listener); };

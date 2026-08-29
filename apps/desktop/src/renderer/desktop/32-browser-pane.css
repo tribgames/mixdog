@@ -12,13 +12,11 @@
   background: var(--mx-workspace-sheet);
 }
 
-/* An Electron <webview> composites ABOVE normal DOM and ignores the
-   visibility:hidden that hides every other inactive pane, so a backgrounded
-   browser tab would keep painting over whatever surface (Studio, editor…)
-   replaced it. display:none is the only thing that detaches that layer, and
-   it keeps the guest WebContents alive — no reload on return. */
+/* Electron guests can stay alive but stop repainting after display:none.
+   Keep the pane mounted; the guest layer itself is parked below at 1px while
+   inactive so it cannot composite over the visible Studio/editor surface. */
 .browser-pane[data-surface-active="false"] {
-  display: none;
+  pointer-events: none;
 }
 
 .browser-pane-toolbar {
@@ -192,6 +190,7 @@
   display: flex;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .browser-pane-webview {
@@ -204,8 +203,59 @@
 
 .browser-pane-webview.is-import-open,
 .browser-pane-webview.is-history-open,
-.browser-pane-webview.is-credential-open {
-  display: none;
+.browser-pane-webview.is-credential-open,
+.browser-pane-webview.is-failed,
+.browser-pane[data-surface-active="false"] .browser-pane-webview {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  width: 1px;
+  height: 1px;
+  min-height: 1px;
+  flex: 0 0 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.browser-pane-failure {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  padding: 24px;
+  background: var(--mx-workspace-sheet);
+  color: var(--mx-text-muted);
+  text-align: center;
+}
+
+.browser-pane-failure > strong {
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+}
+
+.browser-pane-failure > span {
+  max-width: 480px;
+  overflow-wrap: anywhere;
+  font-size: var(--mx-font-meta);
+}
+
+.browser-pane-failure > button {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 0 12px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 7px;
+  background: var(--mx-surface-raised);
+  color: var(--mx-text);
+  cursor: pointer;
 }
 
 .browser-import-backdrop {

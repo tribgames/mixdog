@@ -199,7 +199,8 @@
   flex-direction: column;
   gap: 12px;
   overflow-y: auto;
-  padding: 0 20px 20px;
+  /* Same opening step as the editors' form body under the shared header. */
+  padding: 4px 20px 20px;
 }
 .extensions-dialog-facts { margin: 0; display: grid; gap: 10px; }
 .extensions-dialog-facts > div {
@@ -233,7 +234,7 @@
 
 /* Standard skill editor: the trigger is prose, while instructions retain the
    shared Markdown editor grammar used by workflows and agents. */
-.extensions-skill-dialog { width: min(800px, calc(100vw - 32px)); }
+.extensions-skill-dialog { --mx-editor-width: 800px; }
 .extensions-skill-dialog .extensions-trigger-field textarea {
   min-height: 84px;
   font-family: inherit;
@@ -244,7 +245,7 @@
 .extensions-skill-dialog footer .extensions-skill-toggle { margin-right: auto; }
 
 /* MCP uses transport-specific structured rows instead of exposing JSON. */
-.extensions-mcp-dialog { width: min(760px, calc(100vw - 32px)); }
+.extensions-mcp-dialog { --mx-editor-width: 760px; }
 .extensions-mcp-dialog form {
   display: grid;
   gap: 10px;

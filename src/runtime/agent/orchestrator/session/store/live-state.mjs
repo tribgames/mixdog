@@ -157,7 +157,10 @@ export function _clearLiveSession(id) {
 // in the persisted JSON) stay resident for this long after their last use so
 // multi-turn image recognition keeps working across an idle gap. Beyond the
 // TTL the memory cost wins and the snapshot is reclaimed like any other.
-export const LIVE_MEDIA_RETENTION_MS = 60 * 60 * 1000; // 1h
+export const LIVE_MEDIA_RETENTION_MS = Math.max(
+    60_000,
+    Number(process.env.MIXDOG_LIVE_MEDIA_RETENTION_MS) || 10 * 60 * 1000,
+); // 10m default — raw image bytes are the most expensive thing we retain
 
 export function _messagesCarryLiveMedia(messages) {
     if (!Array.isArray(messages)) return false;

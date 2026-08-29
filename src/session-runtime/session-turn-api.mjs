@@ -15,6 +15,7 @@ import { beginTurnSnapshot, cancelTurnSnapshot, completeTurnSnapshot } from '../
 import { isVisibleStreamProgress } from '../runtime/shared/stream-progress.mjs';
 import { runAbortable, settleWithin, throwIfAborted } from '../runtime/shared/abort-race.mjs';
 import { interruptTaskWaitForSession } from '../runtime/agent/orchestrator/session/task-wait-control.mjs';
+import { markPendingGoalReminder } from './goal-reminder.mjs';
 import { runWithCwdOverride } from '../runtime/shared/user-cwd.mjs';
 
 export function splitToolStatusCounts(rows) {
@@ -494,6 +495,10 @@ export function createSessionTurnApi(deps) {
       try { await session.postCompactHook?.({ trigger: 'manual' }); }
       catch { /* best-effort: PostCompact hook must never break manual compact */ }
       setSession(mgr.getSession(session.id) || session);
+      // Manual /compact drops the Goal's tool results exactly like the
+      // automatic path, so it marks the same one-shot state reminder.
+      try { markPendingGoalReminder(getSession(), 'compaction'); }
+      catch { /* best-effort: a Goal reminder must never break manual compact */ }
       if (options.recoverAgent === true) {
         try { agentTool.recoverWorkers?.({ clientHostPid: getSession()?.clientHostPid || process.pid }); } catch {}
       }

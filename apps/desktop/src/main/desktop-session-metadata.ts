@@ -7,7 +7,11 @@ import {
   generatedSessionTitle,
   isMediaSessionTitlePlaceholder,
 } from '../shared/session-title.mjs';
-import { readSessionMetadata, writeSessionMetadata } from './session-metadata-file';
+import {
+  readSessionMetadata,
+  writeSessionMetadata,
+  type SessionReadCursor,
+} from './session-metadata-file';
 
 const SESSION_ID = /^[A-Za-z0-9_-]+$/;
 
@@ -16,6 +20,7 @@ export class DesktopSessionMetadata {
   private titleMap: Record<string, string> | null = null;
   private nameMap: Record<string, string> | null = null;
   private archivedMap: Record<string, number> | null = null;
+  private readMap: Record<string, SessionReadCursor> | null = null;
   private rewrittenGeneratedTitleIds = new Set<string>();
   private loadRequest: Promise<void> | null = null;
   private pendingWrite: Promise<void> = Promise.resolve();
@@ -31,7 +36,7 @@ export class DesktopSessionMetadata {
 
   /** Whether metadata is already resident and can be updated without I/O. */
   get loaded(): boolean {
-    return Boolean(this.titleMap && this.nameMap && this.archivedMap);
+    return Boolean(this.titleMap && this.nameMap && this.archivedMap && this.readMap);
   }
 
   /** User-assigned names, which always win over a generated title. */
@@ -42,6 +47,11 @@ export class DesktopSessionMetadata {
   /** Archive tombstones, or null while metadata has never been read. */
   get archived(): Record<string, number> | null {
     return this.archivedMap;
+  }
+
+  /** Cross-surface read cursors keyed by session id. */
+  get reads(): Record<string, SessionReadCursor> {
+    return this.readMap || {};
   }
 
   /** The canonical display title: manual name, shared core title, then the
@@ -55,13 +65,14 @@ export class DesktopSessionMetadata {
   }
 
   async load(): Promise<void> {
-    if (this.titleMap && this.nameMap && this.archivedMap) return;
+    if (this.titleMap && this.nameMap && this.archivedMap && this.readMap) return;
     if (this.loadRequest) return await this.loadRequest;
     const request = (async () => {
       const maps = await readSessionMetadata(this.userDataRoot());
       this.titleMap = maps.titles;
       this.nameMap = maps.names;
       this.archivedMap = maps.archived;
+      this.readMap = maps.reads;
       this.rewrittenGeneratedTitleIds = new Set(maps.rewrittenTitleIds);
       // A stored title the current generator would render differently is
       // rewritten in memory; persist it so the next read is stable.
@@ -91,14 +102,40 @@ export class DesktopSessionMetadata {
     return true;
   }
 
+  /** Advance the shared read cursor. `consumedUnread` also records a
+   * completion-only read when the message count did not move. */
+  async markRead(
+    sessionId: string,
+    messageCount: number,
+    consumedUnread: boolean,
+  ): Promise<boolean> {
+    if (!SESSION_ID.test(sessionId)
+      || !Number.isInteger(messageCount) || messageCount < 0 || messageCount > 10_000_000) {
+      throw new TypeError('Session read cursor is invalid.');
+    }
+    await this.load();
+    const map = this.readMap ??= Object.create(null) as Record<string, SessionReadCursor>;
+    const current = map[sessionId];
+    const nextCount = Math.max(current?.messageCount || 0, messageCount);
+    if (current && nextCount === current.messageCount && !consumedUnread) return false;
+    map[sessionId] = {
+      messageCount: nextCount,
+      revision: Math.min(Number.MAX_SAFE_INTEGER, (current?.revision || 0) + 1),
+    };
+    await this.queueWrite();
+    return true;
+  }
+
   /** Drop every record for a deleted session. */
   async forget(sessionId: string): Promise<void> {
     const had = Object.prototype.hasOwnProperty.call(this.titles, sessionId)
       || Object.prototype.hasOwnProperty.call(this.names, sessionId)
-      || Object.prototype.hasOwnProperty.call(this.archivedMap || {}, sessionId);
+      || Object.prototype.hasOwnProperty.call(this.archivedMap || {}, sessionId)
+      || Object.prototype.hasOwnProperty.call(this.readMap || {}, sessionId);
     delete this.titleMap?.[sessionId];
     delete this.nameMap?.[sessionId];
     if (this.archivedMap) delete this.archivedMap[sessionId];
+    if (this.readMap) delete this.readMap[sessionId];
     this.rewrittenGeneratedTitleIds.delete(sessionId);
     if (had) await this.queueWrite();
   }
@@ -154,6 +191,20 @@ export class DesktopSessionMetadata {
     ));
   }
 
+  /** Project shared read cursors into the catalog pushed to every surface. */
+  withReadCursors<T extends { id: string }>(
+    summaries: T[],
+  ): Array<T & { readMessageCount?: number; readRevision?: number }> {
+    const reads = this.readMap;
+    if (!reads) return summaries;
+    return summaries.map((row) => {
+      const cursor = reads[row.id];
+      return cursor
+        ? { ...row, readMessageCount: cursor.messageCount, readRevision: cursor.revision }
+        : row;
+    });
+  }
+
   /** Settle every queued write (teardown). */
   flush(): Promise<void> {
     return this.pendingWrite;
@@ -163,8 +214,9 @@ export class DesktopSessionMetadata {
     const titles = { ...this.titles };
     const names = { ...this.names };
     const archived = { ...(this.archivedMap || {}) };
+    const reads = { ...this.reads };
     this.pendingWrite = this.pendingWrite.then(
-      () => writeSessionMetadata(this.userDataRoot(), { titles, names, archived }),
+      () => writeSessionMetadata(this.userDataRoot(), { titles, names, archived, reads }),
     ).catch((error: unknown) => {
       console.error('Failed to persist desktop session metadata:', error);
     });

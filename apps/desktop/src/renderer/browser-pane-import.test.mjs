@@ -7,6 +7,10 @@ const styles = await readFile(
   new URL('./desktop/32-browser-pane.css', import.meta.url),
   'utf8',
 );
+const persistentSurfaces = await readFile(
+  new URL('./use-app-persistent-pane-surfaces.tsx', import.meta.url),
+  'utf8',
+);
 
 test('browser importer defaults to every supported item and only selected items show progress', () => {
   assert.match(
@@ -54,4 +58,25 @@ test('stored credential UX exposes only masked suggestions and keeps the guest s
   assert.doesNotMatch(pane, /credential\.password|credential\.username/);
   assert.match(styles, /\.browser-pane-credential-menu\s*\{/);
   assert.match(styles, /\.browser-pane-webview\.is-credential-open/);
+});
+
+test('browser guests stay mounted, repaint after parking, and follow the focused pane', () => {
+  assert.doesNotMatch(styles, /display:\s*none\s*;/);
+  assert.match(
+    styles,
+    /\.browser-pane\[data-surface-active="false"\] \.browser-pane-webview/,
+  );
+  assert.match(styles, /width:\s*1px[\s\S]*?height:\s*1px/);
+  assert.match(pane, /getWebContentsId\(\)/);
+  assert.match(pane, /browserSetActiveGuest/);
+  assert.match(persistentSurfaces, /foreground=\{utilityActive && descriptor\.focused\}/);
+});
+
+test('browser pane exposes deterministic load and renderer recovery', () => {
+  assert.match(pane, /did-fail-load/);
+  assert.match(pane, /render-process-gone/);
+  assert.match(pane, /unresponsive/);
+  assert.match(pane, /다시 불러오기/);
+  assert.match(styles, /\.browser-pane-failure\s*\{/);
+  assert.match(styles, /\.browser-pane-webview\.is-failed/);
 });

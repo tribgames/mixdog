@@ -248,7 +248,8 @@ export function useAppPersistentPaneSurfaces({
                 terminalId={utilitySelection.id} active={utilityActive} />
             : utilitySelection.kind === "browser"
               ? <Suspense fallback={null}>
-                  <BrowserPane paneId={utilitySelection.id} active={utilityActive} />
+                  <BrowserPane paneId={utilitySelection.id} active={utilityActive}
+                    foreground={utilityActive && descriptor.focused} />
                 </Suspense>
             : utilitySelection.kind === "folder"
               ? <Suspense fallback={null}>

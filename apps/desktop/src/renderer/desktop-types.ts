@@ -52,7 +52,7 @@ export type Toast = RecordValue & {
 export type GoalTask = {
   id?: string;
   text?: string;
-  status?: 'pending' | 'in_progress' | 'completed';
+  status?: 'pending' | 'in_progress' | 'completed' | 'dropped' | 'awaiting_approval';
   kind?: 'work' | 'verification';
 };
 export type GoalSnapshot = {
@@ -60,10 +60,12 @@ export type GoalSnapshot = {
   sessionId?: string;
   objective?: string;
   title?: string;
-  status?: 'active' | 'paused' | 'blocked' | 'usage_limited' | 'budget_limited' | 'complete';
+  status?: 'active' | 'paused' | 'blocked' | 'usage_limited' | 'duration_reached' | 'complete';
   tasks?: GoalTask[];
   tasksCompleted?: number;
   tasksTotal?: number;
+  turnCount?: number;
+  tasksUpdatedAt?: number | null;
   blocker?: string;
   timeLimitMs?: number;
   timeUsedMs?: number;

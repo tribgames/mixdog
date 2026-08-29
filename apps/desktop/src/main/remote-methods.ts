@@ -39,6 +39,7 @@ import {
   requiredPromptContent,
   requiredString,
   requiredSubmitOptions,
+  requiredSessionMessageCount,
   requiredTranscriptItemLimit,
   requiredToolApprovalDecision,
   sessionDisplayName,
@@ -274,6 +275,16 @@ export function createRemoteMethods(
       );
     },
     listSessions: () => host.listSessions(),
+    markSessionRead: ([sessionId, messageCount, consumedUnread]) => {
+      if (consumedUnread !== undefined && typeof consumedUnread !== 'boolean') {
+        throw new TypeError('consumedUnread must be a boolean.');
+      }
+      return host.markSessionRead(
+        requiredSessionId(sessionId),
+        requiredSessionMessageCount(messageCount),
+        consumedUnread === true,
+      );
+    },
     listAgentPool: () => host.listAgentPool(),
     renameSession: ([sessionId, title]) =>
       host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title)),

@@ -350,7 +350,7 @@ html[data-mixdog-mobile-tabs] .utility-dock-header-actions .row-overflow-trigger
 html[data-mixdog-mobile-tabs] .dock-scm-commit-back,
 html[data-mixdog-mobile-tabs] .mixdog-settings__back,
 html[data-mixdog-mobile-tabs] .mixdog-settings__close,
-html[data-mixdog-mobile-tabs] .schedules-dialog > header > button,
+html[data-mixdog-mobile-tabs] .schedules-dialog > header button,
 html[data-mixdog-mobile-tabs] .settings-confirm-dialog > header > button,
 html[data-mixdog-mobile-tabs] .settings-oauth-dialog > header > button,
 html[data-mixdog-mobile-tabs] .mx-dialog > header > button {

@@ -222,6 +222,7 @@ export class CaptureService implements DesktopService {
   async projectEntryPath(_projectPath: string, relPath: string): Promise<string> { return relPath; }
   async codeGraphQuery(): Promise<unknown> { return null; }
   async listAgentPool(): Promise<DesktopAgentPoolRow[]> { return []; }
+  async markSessionRead(): Promise<boolean> { return true; }
   async renameSession(): Promise<void> {}
   async setSessionArchived(): Promise<void> {}
   async deleteSession(): Promise<SessionSnapshot> { return null; }

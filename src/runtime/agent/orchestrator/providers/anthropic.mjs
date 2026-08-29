@@ -145,12 +145,16 @@ export class AnthropicProvider {
         // Message-tail cache budget (4-BP layout + ANTHROPIC_MSG_SLOTS) is
         // shared with anthropic-oauth — see resolveAnthropicMessageCacheSlots.
         const messageCacheSlots = resolveAnthropicMessageCacheSlots(systemBlocks, ttls);
+        // Tools are resolved BEFORE the messages: the lowering needs the final
+        // tool list to drop tool_reference blocks whose tool no longer ships
+        // in this request (otherwise the API rejects the whole turn).
+        const requestTools = requestAnthropicTools(tools, chatMsgs, opts);
         // Build → sanitize (once, inside toAnthropicMessages) → mark. Markers
         // are applied to the FINAL sanitized array by invariant, so block
         // drops / inserts / reorders performed by the sanitizer can never move
         // or delete a marked block. NEVER sanitize again after this.
         const anthropicMessages = applyAnthropicCacheMarkers(
-            toAnthropicMessages(chatMsgs),
+            toAnthropicMessages(chatMsgs, requestTools),
             messageCacheSlots,
         );
 
@@ -163,7 +167,6 @@ export class AnthropicProvider {
         applyAnthropicServerFallback(params, useModel, {
             enabled: this.config?.disableBetaHeaders !== true && opts.serverFallback !== false,
         });
-        const requestTools = requestAnthropicTools(tools, chatMsgs, opts);
         if (requestTools.length) {
             // No cache_control on tools — the system BP covers tools via
             // Anthropic prefix semantics (order: tools → system → messages).

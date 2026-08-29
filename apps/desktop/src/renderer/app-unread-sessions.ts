@@ -12,6 +12,34 @@ const LEGACY_TIMESTAMP_KEY = "mixdog.desktop.session-last-seen";
 // suppress the dot forever, so absurd values are dropped and re-baselined.
 const MAX_PLAUSIBLE_COUNT = 1e7;
 
+function sharedReadCount(row: DesktopSessionSummary): number {
+  const value = Number(row.readMessageCount);
+  return Number.isInteger(value) && value >= 0 && value <= MAX_PLAUSIBLE_COUNT ? value : 0;
+}
+
+function sharedReadRevision(row: DesktopSessionSummary): number {
+  const value = Number(row.readRevision);
+  return Number.isSafeInteger(value) && value > 0 ? value : 0;
+}
+
+export function sharedReadClearsUnread(
+  row: DesktopSessionSummary,
+  previousRevision: number | undefined,
+): boolean {
+  const revision = sharedReadRevision(row);
+  return previousRevision !== undefined
+    && revision > previousRevision
+    && sharedReadCount(row) >= Math.max(0, Number(row.messageCount) || 0);
+}
+
+export function shouldPublishSessionRead(
+  row: DesktopSessionSummary,
+  messageCount: number,
+  consumedUnread: boolean,
+): boolean {
+  return consumedUnread || messageCount > sharedReadCount(row);
+}
+
 export function resolveUnreadViewedSessionId({
   viewedSessionId,
   requestedSessionId,
@@ -41,9 +69,11 @@ export function useUnreadSessions({
   viewedSessionRef: MutableRefObject<string>;
 }) {
   const [unreadSessionIds, setUnreadSessionIds] = useState<ReadonlySet<string>>(() => new Set());
+  const unreadSessionIdsRef = useRef<ReadonlySet<string>>(new Set());
   // Completion is an activity signal even when a final catalog push races the
   // message-count update: track working -> settled transitions too.
   const previousWorkingSessionIds = useRef<ReadonlySet<string>>(new Set());
+  const sharedReadRevisions = useRef<Map<string, number>>(new Map());
   const sessionLastSeen = useRef<Map<string, number> | null>(null);
 
   const loadSeen = useCallback(() => {
@@ -72,6 +102,28 @@ export function useUnreadSessions({
     }
   }, []);
 
+  const commitUnread = useCallback((next: ReadonlySet<string>) => {
+    const current = unreadSessionIdsRef.current;
+    if (current.size === next.size && [...next].every((id) => current.has(id))) return;
+    unreadSessionIdsRef.current = next;
+    setUnreadSessionIds(next);
+  }, []);
+
+  const publishRead = useCallback((
+    row: DesktopSessionSummary,
+    messageCount: number,
+    consumedUnread: boolean,
+  ) => {
+    const markSessionRead = window.mixdogDesktop?.markSessionRead;
+    if (typeof markSessionRead !== "function"
+      || !shouldPublishSessionRead(row, messageCount, consumedUnread)) return;
+    try {
+      void Promise.resolve(markSessionRead(row.id, messageCount, consumedUnread)).catch(() => undefined);
+    } catch {
+      // The local cursor remains the fallback when the host lane is unavailable.
+    }
+  }, []);
+
   const reconcileUnreadSessions = useCallback((rows: DesktopSessionSummary[]) => {
     const seen = loadSeen();
     const activeId = viewedSessionRef.current;
@@ -89,10 +141,26 @@ export function useUnreadSessions({
       seen.delete(id);
       dirty = true;
     }
+    for (const id of [...sharedReadRevisions.current.keys()]) {
+      if (!liveIds.has(id)) sharedReadRevisions.current.delete(id);
+    }
     const unread = new Set<string>();
+    const remotelyReadIds = new Set<string>();
     for (const row of rows) {
       const count = Math.max(0, Number(row.messageCount) || 0);
-      const last = seen.get(row.id);
+      const priorRevision = sharedReadRevisions.current.get(row.id);
+      const revision = sharedReadRevision(row);
+      if (priorRevision === undefined || revision > priorRevision) {
+        sharedReadRevisions.current.set(row.id, revision);
+      }
+      if (sharedReadClearsUnread(row, priorRevision)) remotelyReadIds.add(row.id);
+      const sharedCount = sharedReadCount(row);
+      let last = seen.get(row.id);
+      if (sharedCount > (last ?? -1)) {
+        seen.set(row.id, sharedCount);
+        last = sharedCount;
+        dirty = true;
+      }
       // Automation fires are BORN in the background (each fire is a fresh
       // session): their first sighting IS the notification, so they skip the
       // read-by-definition baseline until actually viewed.
@@ -106,26 +174,29 @@ export function useUnreadSessions({
           seen.set(row.id, count);
           dirty = true;
         }
+        if (row.id === activeId && engaged) {
+          publishRead(
+            row,
+            count,
+            !remotelyReadIds.has(row.id)
+              && (unreadSessionIdsRef.current.has(row.id) || completedIds.has(row.id)),
+          );
+        }
         continue;
       }
       if (count > last) unread.add(row.id);
     }
     if (dirty) persistSeen(seen);
-    setUnreadSessionIds((current) => {
-      // Preserve completion-only dots across later catalog pushes until the row
-      // is actually viewed: message-count unread stays derivable from `seen`,
-      // but completion unread may be the only signal when save ordering exposes
-      // heartbeat removal before the final assistant count.
-      for (const id of current) {
-        if (liveIds.has(id) && !(id === activeId && engaged)) unread.add(id);
-      }
-      for (const id of completedIds) {
-        if (!(id === activeId && engaged)) unread.add(id);
-      }
-      if (current.size === unread.size && [...unread].every((id) => current.has(id))) return current;
-      return unread;
-    });
-  }, [loadSeen, persistSeen, viewedSessionRef]);
+    // Preserve completion-only dots across later catalog pushes until the row
+    // is viewed on either surface. A shared revision advance consumes them.
+    for (const id of unreadSessionIdsRef.current) {
+      if (liveIds.has(id) && !remotelyReadIds.has(id) && !(id === activeId && engaged)) unread.add(id);
+    }
+    for (const id of completedIds) {
+      if (!remotelyReadIds.has(id) && !(id === activeId && engaged)) unread.add(id);
+    }
+    commitUnread(unread);
+  }, [commitUnread, loadSeen, persistSeen, publishRead, viewedSessionRef]);
 
   // Viewing a session consumes its marker — but only while the window is on
   // screen, so a selected session in a hidden window keeps its dot. The caller
@@ -140,13 +211,15 @@ export function useUnreadSessions({
       seen.set(viewedSessionId, count);
       persistSeen(seen);
     }
-    setUnreadSessionIds((current) => {
-      if (!current.has(viewedSessionId)) return current;
+    const current = unreadSessionIdsRef.current;
+    const consumedUnread = current.has(viewedSessionId);
+    if (row) publishRead(row, count, consumedUnread);
+    if (consumedUnread) {
       const next = new Set(current);
       next.delete(viewedSessionId);
-      return next;
-    });
-  }, [loadSeen, persistSeen]);
+      commitUnread(next);
+    }
+  }, [commitUnread, loadSeen, persistSeen, publishRead]);
 
   return { unreadSessionIds, reconcileUnreadSessions, consumeUnread };
 }

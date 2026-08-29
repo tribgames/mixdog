@@ -240,8 +240,8 @@ export function requestAnthropicTools(tools, messages, opts) {
 // Test-only: expose the lowering so the steering-provenance test can assert
 // the API-key provider keeps steering-tagged user turns distinct (mirrors
 // anthropic-oauth._buildRequestBodyForCacheSmoke coverage).
-export function _toAnthropicMessagesForTest(messages) {
-    return toAnthropicMessages(messages);
+export function _toAnthropicMessagesForTest(messages, availableTools) {
+    return toAnthropicMessages(messages, availableTools);
 }
 
 // Applies cache_control markers to the FINAL, already-sanitized Anthropic

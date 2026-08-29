@@ -1251,11 +1251,13 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
   color: color-mix(in srgb, var(--mx-success) 78%, var(--mx-text-muted));
 }
 .session-goal-island[data-status="blocked"] .session-goal-glyph,
-.session-goal-island[data-status="budget_limited"] .session-goal-glyph,
 .session-goal-island[data-status="usage_limited"] .session-goal-glyph {
   color: color-mix(in srgb, var(--mx-warning) 78%, var(--mx-text-muted));
 }
-.session-goal-island[data-status="paused"] .session-goal-glyph {
+/* A finished duration is a normal stop, so it reads muted like paused rather
+   than as a warning. */
+.session-goal-island[data-status="paused"] .session-goal-glyph,
+.session-goal-island[data-status="duration_reached"] .session-goal-glyph {
   color: var(--mx-text-muted);
 }
 .session-goal-island[data-waiting="true"] .session-goal-glyph {
@@ -1474,6 +1476,12 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
 }
 .session-goal-tasks li[data-status="completed"] > span { color: var(--mx-success); }
 .session-goal-tasks li[data-status="in_progress"] > span { color: var(--mx-text-accent); }
+/* Retired work stays readable but visibly out of the running. Never struck
+   through: a dropped row was abandoned, not accomplished. */
+.session-goal-tasks li[data-status="dropped"] > span { color: var(--mx-text-faint); }
+.session-goal-tasks li[data-status="dropped"] > div { opacity: .58; }
+/* Parked on the user, not stalled by us. */
+.session-goal-tasks li[data-status="awaiting_approval"] > span { color: var(--mx-warning); }
 .session-goal-tasks li > div {
   min-width: 0;
   display: grid;
@@ -1527,6 +1535,9 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
   color: var(--mx-text);
   background: var(--mx-hover);
   box-shadow: inset 0 0 0 .5px var(--mx-border-strong);
+}
+.session-goal-popover > footer button.session-goal-resume svg {
+  color: color-mix(in srgb, var(--mx-text-accent) 78%, var(--mx-icon-muted));
 }
 .session-goal-popover > footer button.session-goal-stop svg {
   color: color-mix(in srgb, var(--mx-danger) 78%, var(--mx-icon-muted));

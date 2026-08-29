@@ -642,6 +642,13 @@ export class DesktopServiceClient implements DesktopService {
     this.cachedSessions = Array.isArray(sessions) ? sessions.slice() : [];
     return this.cachedSessions.slice();
   }
+  markSessionRead(
+    sessionId: string,
+    messageCount: number,
+    consumedUnread = false,
+  ): Promise<boolean> {
+    return this.invoke('markSessionRead', [sessionId, messageCount, consumedUnread]);
+  }
   async listAgentPool(): Promise<DesktopAgentPoolRow[]> {
     await this.start();
     if (this.agentPoolCacheFresh && this.cachedAgentPool) {

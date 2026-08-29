@@ -397,6 +397,68 @@ test('Anthropic native deferred result retains tool_reference history and defer_
     assert.equal(apiKeyCompacted.find((tool) => tool.name === 'mcp__demo__ping')?.deferLoading, true);
 });
 
+test('Anthropic drops tool_reference blocks whose tool no longer ships in the request', () => {
+    const base = [{ name: 'load_tool', description: 'loader', inputSchema: { type: 'object', properties: {} } }];
+    const shell = { name: 'shell', description: 'run', inputSchema: { type: 'object', properties: {} } };
+    // `memory` was loaded earlier but has since left the deferred catalog
+    // (feature toggle / surface rebuild / disconnected server). The reference
+    // survives in history, so without filtering EVERY later turn 400s with
+    // "Tool reference 'memory' not found in available tools".
+    const session = {
+        deferredNativeTools: true,
+        deferredToolCatalog: [...base, shell],
+    };
+    const history = [
+        {
+            role: 'assistant',
+            content: '',
+            toolCalls: [{ id: 'load-stale', name: 'load_tool', arguments: { names: ['memory'] } }],
+        },
+        {
+            role: 'tool',
+            toolCallId: 'load-stale',
+            content: 'Loaded deferred tools: memory',
+            nativeToolSearch: {
+                provider: 'anthropic-oauth',
+                toolReferences: ['memory'],
+                openaiTools: [],
+            },
+        },
+    ];
+    const body = _buildRequestBodyForCacheSmoke(history, 'claude-sonnet-4-6', base, { session });
+    const result = body.messages.flatMap((message) => Array.isArray(message.content) ? message.content : [])
+        .find((block) => block.type === 'tool_result');
+    assert.equal(body.tools.some((tool) => tool.name === 'memory'), false);
+    assert.equal(JSON.stringify(body.messages).includes('tool_reference'), false);
+    assert.equal(JSON.stringify(result.content).includes('Loaded deferred tools: memory'), true);
+
+    // Partial resolution keeps the references the request can still back.
+    const mixed = [
+        history[0],
+        {
+            ...history[1],
+            nativeToolSearch: { ...history[1].nativeToolSearch, toolReferences: ['memory', 'shell'] },
+        },
+    ];
+    const mixedResult = _toAnthropicMessagesForTest(mixed, [...base, { name: 'shell' }])
+        .flatMap((message) => Array.isArray(message.content) ? message.content : [])
+        .find((block) => block.type === 'tool_result');
+    assert.deepEqual(mixedResult.content, [{ type: 'tool_reference', tool_name: 'shell' }]);
+
+    // A blank stored result still needs non-empty tool_result content.
+    const blank = _toAnthropicMessagesForTest([history[0], { ...history[1], content: '' }], base)
+        .flatMap((message) => Array.isArray(message.content) ? message.content : [])
+        .find((block) => block.type === 'tool_result');
+    assert.equal(blank.content[0].type, 'text');
+    assert.match(blank.content[0].text, /memory/);
+
+    // No tool list => every reference is kept verbatim (unchanged callers).
+    const unfiltered = _toAnthropicMessagesForTest(history)
+        .flatMap((message) => Array.isArray(message.content) ? message.content : [])
+        .find((block) => block.type === 'tool_result');
+    assert.deepEqual(unfiltered.content, [{ type: 'tool_reference', tool_name: 'memory' }]);
+});
+
 test('Anthropic API-key and OAuth preserve root properties across compound schemas', () => {
     const properties = {
         pattern: { type: 'string' },

@@ -35,6 +35,7 @@ import {
   validateLibreOfficeReopen,
   validatePortableOoxml,
 } from './portable-ooxml.mjs';
+import { createPortableOoxmlDocument, portableCreateSupported } from './portable-package.mjs';
 import {
   applyPdfBatch,
   createPdf,
@@ -83,10 +84,12 @@ import {
   reviewOfficeDesign,
   reviewPptxVisualCritique,
 } from './design-system.mjs';
+import { summarizeOfficeCompositions } from './composition-system.mjs';
 import {
   createPptxSlideSelection,
   inspectOfficeDesignLibrary,
   persistOfficeDesignBinding,
+  recordOfficeCompositionHistory,
   resolveOfficeDesignLibrary,
 } from './design-library.mjs';
 import {
@@ -901,6 +904,15 @@ async function selectMode(requested, format, source) {
   return { mode: 'portable', backend: 'mixdog-ooxml' };
 }
 
+async function selectCreateMode(requested, format, target) {
+  if (requested === 'portable') return { mode: 'portable', backend: 'mixdog-ooxml' };
+  if (requested !== 'auto') return await selectMode(requested, format, target);
+  const detected = await selectMode('auto', format, target);
+  return detected.backend === 'microsoft-office-com'
+    ? { mode: 'visible', backend: 'microsoft-office-com' }
+    : detected;
+}
+
 async function openSession(args, cwd, dataDir) {
   const source = fullPath(args.path, cwd);
   if (!await exists(source)) throw new Error(`Office document not found: ${source}`);
@@ -947,6 +959,7 @@ async function openSession(args, cwd, dataDir) {
       semanticCount: 0,
       requiresVisualReview: format === 'pptx' && designContext.design.review.required,
       slidePlans: [],
+      compositions: [],
     },
   };
   if (selected.backend === 'microsoft-office-com') {
@@ -1021,7 +1034,7 @@ async function createSession(args, cwd, dataDir) {
       designRequest,
       designLibrary,
       design,
-      designState: { renderedVersion: null, semanticCount: 0, requiresVisualReview: false },
+      designState: { renderedVersion: null, semanticCount: 0, requiresVisualReview: false, compositions: [] },
     };
     await registerOfficeSession(session);
     return session;
@@ -1056,18 +1069,52 @@ async function createSession(args, cwd, dataDir) {
       designRequest,
       designLibrary,
       design,
-      designState: { renderedVersion: null, semanticCount: 0, requiresVisualReview: false },
+      designState: { renderedVersion: null, semanticCount: 0, requiresVisualReview: false, compositions: [] },
     };
     await registerOfficeSession(session);
     return session;
   }
-  const requestedMode = String(args.mode || 'visible').toLowerCase();
-  if (['attach', 'live', 'portable'].includes(requestedMode)) {
-    throw new Error('Office create requires visible or background mode');
+  const requestedMode = String(args.mode || 'auto').toLowerCase();
+  if (['attach', 'live'].includes(requestedMode)) {
+    throw new Error('Office create requires visible, background, or portable mode');
   }
-  const selected = await selectMode(requestedMode === 'auto' ? 'visible' : requestedMode, format, target);
-  if (selected.backend !== 'microsoft-office-com') {
-    throw new Error(`Creating .${format} requires Microsoft Office on Windows`);
+  const selected = await selectCreateMode(requestedMode, format, target);
+  if (selected.backend === 'mixdog-ooxml') {
+    if (!portableCreateSupported(fileKind)) {
+      throw new Error(`Creating .${fileKind} without Microsoft Office is unsupported; open Microsoft Office or choose a docx, xlsx, or pptx target`);
+    }
+    await mkdir(dirname(target), { recursive: true });
+    await createPortableOoxmlDocument(target, {
+      fileKind,
+      title: basename(target, extname(target)),
+    });
+    const session = {
+      id: `office_${randomUUID().replaceAll('-', '').slice(0, 16)}`,
+      source: target,
+      target,
+      fileKind,
+      format,
+      mode: 'portable',
+      backend: 'mixdog-ooxml',
+      openedAt: new Date().toISOString(),
+      dataDir,
+      created: true,
+      ownership: 'owned',
+      visible: false,
+      snapshotVersion: 0,
+      designRequest,
+      designLibrary,
+      design,
+      designState: {
+        renderedVersion: null,
+        semanticCount: 0,
+        requiresVisualReview: format === 'pptx' && design.review.required,
+        slidePlans: [],
+        compositions: [],
+      },
+    };
+    await registerOfficeSession(session);
+    return session;
   }
   const id = `office_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
   const opened = await openMicrosoftOfficeSession({
@@ -1106,6 +1153,7 @@ async function createSession(args, cwd, dataDir) {
       semanticCount: 0,
       requiresVisualReview: format === 'pptx' && design.review.required,
       slidePlans: [],
+      compositions: [],
     },
   };
   await registerOfficeSession(session);
@@ -1270,16 +1318,13 @@ async function applyBatch(session, args) {
   });
   session.designRequest = designRequest;
   session.design = prepared.design;
-  session.designState ||= { renderedVersion: null, semanticCount: 0, requiresVisualReview: false };
-  session.designState.semanticCount += prepared.semantic.length;
-  if (session.format === 'pptx' && session.design.review.required) {
-    session.designState.requiresVisualReview = true;
-    const existingPlans = new Map((session.designState.slidePlans || []).map((plan) => [Number(plan.slide), plan]));
-    for (const semantic of prepared.semantic) {
-      if (semantic?.plan && Number(semantic.slide) > 0) existingPlans.set(Number(semantic.slide), semantic.plan);
-    }
-    session.designState.slidePlans = [...existingPlans.values()].sort((left, right) => left.slide - right.slide);
-  }
+  session.designState ||= {
+    renderedVersion: null,
+    semanticCount: 0,
+    requiresVisualReview: false,
+    slidePlans: [],
+    compositions: [],
+  };
   const pathOperations = new Set(['add_image', 'replace_image', 'stamp_image', 'add_attachment', 'merge_pdf', 'apply_theme', 'import_slides', 'add_media']);
   const operations = Array.isArray(prepared.operations)
     ? prepared.operations.map((operation) => {
@@ -1455,6 +1500,19 @@ async function applyBatch(session, args) {
       }
       transactionResult = transactionView(transaction);
       if (journalWarning) transactionResult.journalWarning = journalWarning;
+    }
+    session.designState.semanticCount += prepared.semantic.length;
+    session.designState.compositions = [
+      ...(session.designState.compositions || []),
+      ...prepared.semantic.map((entry) => entry?.composition).filter(Boolean),
+    ];
+    if (session.format === 'pptx' && session.design.review.required) {
+      session.designState.requiresVisualReview = true;
+      const existingPlans = new Map((session.designState.slidePlans || []).map((plan) => [Number(plan.slide), plan]));
+      for (const semantic of prepared.semantic) {
+        if (semantic?.plan && Number(semantic.slide) > 0) existingPlans.set(Number(semantic.slide), semantic.plan);
+      }
+      session.designState.slidePlans = [...existingPlans.values()].sort((left, right) => left.slide - right.slide);
     }
     session.snapshotVersion = Number(session.snapshotVersion || 0) + 1;
     session.designState.renderedVersion = null;
@@ -1757,6 +1815,7 @@ async function qa(session, args, cwd) {
         ...(session.format === 'pptx' ? {
           slidePlans: session.designState?.slidePlans || [],
         } : {}),
+        compositions: session.designState?.compositions || [],
       },
       library: session.designLibrary,
       auditProfile: args.auditProfile,
@@ -2078,7 +2137,28 @@ async function finalize(session, args, cwd, signal) {
       _images: reviewImages,
     };
   }
+  const composition = summarizeOfficeCompositions(
+    session.format,
+    session.designState?.compositions || [],
+  );
   const closed = await timedStep('close', async () => await closeSession(session, { save: false, signal }));
+  let compositionHistory = null;
+  let compositionHistoryWarning = '';
+  if (session.created && composition.fingerprint) {
+    try {
+      compositionHistory = await recordOfficeCompositionHistory(session.dataDir, {
+        documentPath: session.target,
+        format: session.format,
+        profile: session.design?.profile,
+        purpose: session.design?.purpose,
+        expressionMode: session.design?.expressionMode,
+        fingerprint: composition.fingerprint,
+        compositionIds: composition.compositionIds,
+      });
+    } catch (error) {
+      compositionHistoryWarning = error?.message || String(error);
+    }
+  }
   return {
     ok: true,
     finalized: true,
@@ -2092,6 +2172,9 @@ async function finalize(session, args, cwd, signal) {
     review,
     validation,
     design: session.design,
+    composition,
+    compositionHistory,
+    ...(compositionHistoryWarning ? { compositionHistoryWarning } : {}),
     stepMetrics,
     _images: reviewImages,
   };
@@ -2178,7 +2261,13 @@ export async function executeOfficeTool(args = {}, {
           created: session.created === true,
         });
         Object.assign(session, designContext);
-        session.designState = { renderedVersion: null, semanticCount: 0, requiresVisualReview: false };
+        session.designState = {
+          renderedVersion: null,
+          semanticCount: 0,
+          requiresVisualReview: false,
+          slidePlans: [],
+          compositions: [],
+        };
       } else if (args.design) {
         session.designRequest = mergeOfficeDesignRequest(session.designRequest, args.design);
         session.design = resolveOfficeDesign(session.format, session.designRequest, { library: session.designLibrary });
@@ -2265,7 +2354,13 @@ export async function executeOfficeTool(args = {}, {
         created: session.created === true,
       });
       Object.assign(session, designContext);
-      session.designState = { renderedVersion: null, semanticCount: 0, requiresVisualReview: false };
+      session.designState = {
+        renderedVersion: null,
+        semanticCount: 0,
+        requiresVisualReview: false,
+        slidePlans: [],
+        compositions: [],
+      };
     } else if (args.design) {
       if (args.design.upgradeLibrary === true) {
         const upgraded = await resolveOfficeDesignContext({

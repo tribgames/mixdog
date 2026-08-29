@@ -35,9 +35,23 @@ import "./desktop/32-browser-pane.css";
 const BROWSER_PARTITION = "persist:mixdog-browser";
 
 type WebviewNavigationEvent = Event & { url?: string; isMainFrame?: boolean };
+type WebviewLoadFailureEvent = Event & {
+  errorCode?: number;
+  errorDescription?: string;
+  isMainFrame?: boolean;
+};
+type WebviewRenderProcessGoneEvent = Event & {
+  details?: { reason?: string; exitCode?: number };
+};
+type BrowserPageFailure = {
+  kind: "load" | "renderer" | "unresponsive";
+  title: string;
+  detail: string;
+};
 
 interface WebviewElement extends HTMLElement {
   src: string;
+  getWebContentsId(): number;
   loadURL(url: string): Promise<void>;
   getURL(): string;
   canGoBack(): boolean;
@@ -71,9 +85,11 @@ export function normalizeAddressInput(input: string): string {
 export default function BrowserPane({
   paneId,
   active,
+  foreground,
 }: {
   paneId: string;
   active: boolean;
+  foreground: boolean;
 }) {
   const webviewRef = useRef<WebviewElement | null>(null);
   const addressRef = useRef<HTMLInputElement | null>(null);
@@ -89,6 +105,7 @@ export default function BrowserPane({
   const [credentialMenuOpen, setCredentialMenuOpen] = useState(false);
   const [credentialBusy, setCredentialBusy] = useState(false);
   const [credentialStatus, setCredentialStatus] = useState<"idle" | "success" | "error">("idle");
+  const [pageFailure, setPageFailure] = useState<BrowserPageFailure | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importSources, setImportSources] = useState<DesktopBrowserImportSource[]>([]);
   const [importSourceId, setImportSourceId] = useState("");
@@ -107,6 +124,29 @@ export default function BrowserPane({
     Partial<Record<DesktopBrowserImportItem, DesktopBrowserImportProgress>>
   >({});
   const desktopApi = window.mixdogDesktop;
+
+  useEffect(() => {
+    const view = webviewRef.current;
+    const setGuestActive = desktopApi?.browserSetActiveGuest;
+    if (!view || !setGuestActive) return undefined;
+    let reportedId = 0;
+    const report = () => {
+      try {
+        const webContentsId = view.getWebContentsId();
+        if (!Number.isSafeInteger(webContentsId) || webContentsId <= 0) return;
+        reportedId = webContentsId;
+        void setGuestActive(paneId, webContentsId, foreground).catch(() => {});
+      } catch { /* guest not attached yet; did-attach/dom-ready retries */ }
+    };
+    report();
+    view.addEventListener("did-attach", report);
+    view.addEventListener("dom-ready", report);
+    return () => {
+      view.removeEventListener("did-attach", report);
+      view.removeEventListener("dom-ready", report);
+      if (reportedId) void setGuestActive(paneId, reportedId, false).catch(() => {});
+    };
+  }, [desktopApi, foreground, paneId]);
 
   const refreshCredentialSuggestions = useCallback(() => {
     if (!desktopApi?.browserCredentialSuggestions) {
@@ -141,6 +181,7 @@ export default function BrowserPane({
         return;
       }
       setCurrentUrl(url);
+      setPageFailure(null);
       setCredentialMenuOpen(false);
       setCredentialStatus("idle");
       if (!addressFocused.current) setAddress(url);
@@ -149,6 +190,7 @@ export default function BrowserPane({
     };
     const onStartLoading = () => {
       setLoading(true);
+      setPageFailure(null);
       setCredentialMenuOpen(false);
     };
     const onStopLoading = () => {
@@ -156,15 +198,55 @@ export default function BrowserPane({
       syncNavigationState();
       refreshCredentialSuggestions();
     };
+    const onFinishLoading = () => setPageFailure(null);
+    const onFailLoad = (event: Event) => {
+      const failure = event as WebviewLoadFailureEvent;
+      if (failure.isMainFrame === false || failure.errorCode === -3) return;
+      setLoading(false);
+      setPageFailure({
+        kind: "load",
+        title: "페이지를 불러오지 못했습니다",
+        detail: `${failure.errorDescription || "네트워크 또는 사이트 응답 오류"}`
+          + `${failure.errorCode ? ` (${failure.errorCode})` : ""}`,
+      });
+    };
+    const onRenderProcessGone = (event: Event) => {
+      const details = (event as WebviewRenderProcessGoneEvent).details;
+      setLoading(false);
+      setPageFailure({
+        kind: "renderer",
+        title: "브라우저 화면이 중단되었습니다",
+        detail: details?.reason
+          ? `${details.reason}${details.exitCode ? ` (${details.exitCode})` : ""}`
+          : "페이지 renderer가 종료되었습니다.",
+      });
+    };
+    const onUnresponsive = () => setPageFailure({
+      kind: "unresponsive",
+      title: "페이지가 응답하지 않습니다",
+      detail: "잠시 기다리거나 페이지를 다시 불러오세요.",
+    });
+    const onResponsive = () => setPageFailure((failure) =>
+      failure?.kind === "unresponsive" ? null : failure);
     view.addEventListener("did-navigate", onNavigate);
     view.addEventListener("did-navigate-in-page", onNavigate);
     view.addEventListener("did-start-loading", onStartLoading);
     view.addEventListener("did-stop-loading", onStopLoading);
+    view.addEventListener("did-finish-load", onFinishLoading);
+    view.addEventListener("did-fail-load", onFailLoad);
+    view.addEventListener("render-process-gone", onRenderProcessGone);
+    view.addEventListener("unresponsive", onUnresponsive);
+    view.addEventListener("responsive", onResponsive);
     return () => {
       view.removeEventListener("did-navigate", onNavigate);
       view.removeEventListener("did-navigate-in-page", onNavigate);
       view.removeEventListener("did-start-loading", onStartLoading);
       view.removeEventListener("did-stop-loading", onStopLoading);
+      view.removeEventListener("did-finish-load", onFinishLoading);
+      view.removeEventListener("did-fail-load", onFailLoad);
+      view.removeEventListener("render-process-gone", onRenderProcessGone);
+      view.removeEventListener("unresponsive", onUnresponsive);
+      view.removeEventListener("responsive", onResponsive);
     };
   }, [refreshCredentialSuggestions]);
 
@@ -582,7 +664,7 @@ export default function BrowserPane({
       <webview ref={(element) => {
         webviewRef.current = element as unknown as WebviewElement | null;
       }}
-        className={`browser-pane-webview${importOpen ? " is-import-open" : ""}${historySuggestions.length ? " is-history-open" : ""}${credentialMenuOpen ? " is-credential-open" : ""}`}
+        className={`browser-pane-webview${importOpen ? " is-import-open" : ""}${historySuggestions.length ? " is-history-open" : ""}${credentialMenuOpen ? " is-credential-open" : ""}${pageFailure ? " is-failed" : ""}`}
         src="about:blank"
         partition={BROWSER_PARTITION} />
       {/* about:blank paints Chromium's default white; until a real page is
@@ -590,6 +672,24 @@ export default function BrowserPane({
       {!currentUrl && <div className="browser-pane-empty" aria-hidden="true">
         <Globe size={28} />
         <span>{t("Search or enter address")}</span>
+      </div>}
+      {pageFailure && <div className="browser-pane-failure" role="status" aria-live="polite">
+        <AlertTriangle size={26} />
+        <strong>{pageFailure.title}</strong>
+        <span>{pageFailure.detail}</span>
+        <button type="button" onClick={() => {
+          const view = webviewRef.current;
+          setPageFailure(null);
+          if (!view) return;
+          try {
+            view.reload();
+          } catch {
+            navigate(currentUrl || address);
+          }
+        }}>
+          <RotateCw size={14} />
+          다시 불러오기
+        </button>
       </div>}
     </div>
   </div>;

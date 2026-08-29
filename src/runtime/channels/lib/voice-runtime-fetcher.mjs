@@ -551,6 +551,33 @@ export async function ensureWhisperRuntime(dataDir, onProgress = null) {
   })
 }
 
+// Version-drift guard. `active-version` holds `whisper-<version>-<variantId>`,
+// so an installed runtime falls BEHIND whenever the bundled manifest moves on
+// (observed: a 754 MB cuBLAS-11 bundle superseded by a 17 MB Vulkan build that
+// keeps GPU acceleration). The legacy executable fallback in
+// resolveManagedWhisperCmd still resolves the old layout, which is exactly
+// what made the drift permanent — every caller saw `installed: true`, so the
+// upgrade path never ran and the superseded bytes stayed on disk forever.
+//
+// Reported separately from `installed` on purpose: the old runtime still WORKS,
+// so the transcribe hot path must keep using it (offline, mid-install), while
+// the install path treats this as "re-fetch".
+export function isManagedWhisperStale(dataDir) {
+  const activeFile = join(dataDir, 'voice-runtime', 'active-version')
+  if (!existsSync(activeFile)) return false
+  const activeName = readFileSync(activeFile, 'utf8').trim()
+  if (!activeName) return false
+  if (!existsSync(BUNDLED_MANIFEST_PATH)) return false
+  try {
+    const manifest = JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'))
+    if (!manifest?.version) return false
+    return !activeName.startsWith(`whisper-${manifest.version}-`)
+  } catch {
+    // An unreadable manifest is not evidence of staleness.
+    return false
+  }
+}
+
 // Read-only resolver: returns the cached binary path when the managed runtime
 // is fully installed, null otherwise. Used by the transcribe hot path and the
 // /cli-check endpoint to test installation state without triggering a fetch.
@@ -747,6 +774,9 @@ export function resolveVoiceRuntime(dataDir, { modelId = 'standard' } = {}) {
     kind: 'managed-whisper.cpp',
     label: 'whisper.cpp',
     installed: !!(managedWhisperCmd && serverCmd && managedModelPath && managedFfmpegPath),
+    // Installed, but from an older manifest version — usable now, upgradeable
+    // by the install path. See isManagedWhisperStale.
+    stale: isManagedWhisperStale(dataDir),
     binary: !!managedWhisperCmd,
     model: !!managedModelPath,
     ffmpeg: !!managedFfmpegPath,
@@ -757,6 +787,35 @@ export function resolveVoiceRuntime(dataDir, { modelId = 'standard' } = {}) {
     modelName: managedModelPath ? managedModelPath.split(/[\\/]/).pop() : '',
     ffmpegPath: managedFfmpegPath,
   }
+}
+
+/**
+ * Uninstall counterpart to ensureWhisperRuntime + ensureWhisperModel.
+ *
+ * Voice used to be install-only: turning it OFF flipped a config flag and left
+ * the whisper runtime and model weights (1.5 GB+ on a machine that picked a
+ * GPU variant) resident forever, so "off" was never actually cold. Removes
+ * both; re-enabling re-fetches them through the normal ensure* path.
+ *
+ * The managed ffmpeg runtime is deliberately KEPT — it is shared with non-voice
+ * media paths and is two orders of magnitude smaller.
+ *
+ * @returns {string[]} removed directory labels (empty when nothing was present)
+ */
+export function removeManagedVoiceRuntime(dataDir) {
+  const removed = []
+  for (const parts of [['voice-runtime'], ['voice', 'models']]) {
+    const target = join(dataDir, ...parts)
+    if (!existsSync(target)) continue
+    try {
+      rmSync(target, { recursive: true, force: true })
+      removed.push(parts.join('/'))
+    } catch (err) {
+      // A locked file (transcribe in flight) must not fail the toggle itself.
+      process.stderr.write(`[voice-runtime] uninstall skipped ${parts.join('/')}: ${err?.message || err}\n`)
+    }
+  }
+  return removed
 }
 
 // Single managed location for the whisper model weight file. Idempotent: if

@@ -1,10 +1,17 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import {
+  isMainThread,
+  parentPort,
+  Worker,
+  workerData,
+} from 'node:worker_threads';
+import {
   DOMMatrix,
   ImageData,
   Path2D,
   createCanvas,
+  loadImage,
 } from '@napi-rs/canvas';
 import { resolvedPdfJs } from '../attachments/pdfjs-runtime.mjs';
 
@@ -12,6 +19,54 @@ function installPdfJsCanvasGlobals() {
   globalThis.DOMMatrix ??= DOMMatrix;
   globalThis.ImageData ??= ImageData;
   globalThis.Path2D ??= Path2D;
+}
+
+async function repairBottomPageNumberText(page, viewport, canvas, context, Util) {
+  const content = await page.getTextContent();
+  const base = page.getViewport({ scale: 1 });
+  const bottomItems = content.items.filter((item) => (
+    String(item.str || '').trim()
+    && Number(item.transform?.[5]) < base.height * 0.12
+  ));
+  if (!bottomItems.some((item) => (
+    /(?:\bpage\s*)?\d+\s*(?:of|\/)\s*\d+\b/i.test(String(item.str || ''))
+    || /페이지\s*\d+/i.test(String(item.str || ''))
+  ))) return;
+  const positioned = bottomItems.map((item) => {
+    const transform = Util.transform(viewport.transform, item.transform);
+    return {
+      item,
+      x: transform[4],
+      baseline: transform[5],
+      fontHeight: Math.max(1, Math.hypot(transform[2], transform[3])),
+      width: Math.max(1, Number(item.width || 0) * viewport.scale),
+    };
+  });
+  const bandTop = Math.max(0, Math.floor(Math.min(...positioned.map((entry) => (
+    entry.baseline - entry.fontHeight * 1.7
+  ))) - 2));
+  const bandBottom = Math.min(canvas.height, Math.ceil(Math.max(...positioned.map((entry) => (
+    entry.baseline + entry.fontHeight * 0.8
+  ))) + 2));
+  const sample = context.getImageData(2, Math.min(canvas.height - 1, bandTop + 1), 1, 1).data;
+  if (sample[0] < 245 || sample[1] < 245 || sample[2] < 245) return;
+  context.save();
+  context.fillStyle = `rgb(${sample[0]},${sample[1]},${sample[2]})`;
+  context.fillRect(0, bandTop, canvas.width, Math.max(1, bandBottom - bandTop));
+  context.fillStyle = 'rgb(23,23,23)';
+  context.textBaseline = 'alphabetic';
+  for (const entry of positioned) {
+    const reportedFamily = content.styles[entry.item.fontName]?.fontFamily || 'sans-serif';
+    const family = reportedFamily === 'sans-serif' ? '"Segoe UI"' : reportedFamily;
+    context.font = `${entry.fontHeight}px ${family}`;
+    const measuredWidth = Math.max(1, context.measureText(entry.item.str).width);
+    context.save();
+    context.translate(entry.x, entry.baseline);
+    context.scale(entry.width / measuredWidth, 1);
+    context.fillText(entry.item.str, 0, 0);
+    context.restore();
+  }
+  context.restore();
 }
 
 function requestedPages(pageCount, pages) {
@@ -30,7 +85,79 @@ function requestedPages(pageCount, pages) {
   return unique;
 }
 
-export async function renderPdfPages(path, {
+const PDF_RENDER_WORKER_KIND = 'mixdog-office-pdf-render';
+const PDF_RENDER_PAGE_WORKER_KIND = 'mixdog-office-pdf-render-page';
+
+async function renderPdfPageDirect(path, pageNumber, targetWidth, minimumScale = 0.25) {
+  installPdfJsCanvasGlobals();
+  const { getDocument, Util, VerbosityLevel } = await resolvedPdfJs();
+  const loadingTask = getDocument({
+    data: new Uint8Array(await readFile(path)),
+    disableWorker: true,
+    useSystemFonts: false,
+    isEvalSupported: false,
+    verbosity: VerbosityLevel.ERRORS,
+  });
+  try {
+    const document = await loadingTask.promise;
+    const page = await document.getPage(pageNumber);
+    const base = page.getViewport({ scale: 1 });
+    const scale = Math.min(2, Math.max(minimumScale, Number(targetWidth || 1400) / base.width));
+    const viewport = page.getViewport({ scale });
+    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+    const context = canvas.getContext('2d');
+    await page.render({
+      canvas,
+      canvasContext: context,
+      viewport,
+      background: 'rgb(255,255,255)',
+    }).promise;
+    await repairBottomPageNumberText(page, viewport, canvas, context, Util);
+    return {
+      width: canvas.width,
+      height: canvas.height,
+      data: canvas.toBuffer('image/png').toString('base64'),
+    };
+  } finally {
+    try { await loadingTask.destroy?.(); } catch {}
+  }
+}
+
+async function runPdfRenderWorker(data, signal = null) {
+  const worker = new Worker(new URL(import.meta.url), {
+    execArgv: process.execArgv.filter((argument) => !argument.startsWith('--input-type')),
+    workerData: data,
+  });
+  return await new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener('abort', onAbort);
+      callback(value);
+    };
+    const onAbort = () => {
+      void worker.terminate();
+      finish(reject, new Error('PDF rendering was cancelled'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    worker.once('message', (message) => {
+      if (message?.ok) {
+        finish(resolve, message.value);
+      } else {
+        const error = new Error(message?.error?.message || 'PDF rendering failed');
+        if (message?.error?.stack) error.stack = message.error.stack;
+        finish(reject, error);
+      }
+    });
+    worker.once('error', (error) => finish(reject, error));
+    worker.once('exit', (code) => {
+      if (!settled) finish(reject, new Error(`PDF rendering worker exited with code ${code}`));
+    });
+  });
+}
+
+async function renderPdfPagesDirect(path, {
   pages = null,
   maxWidth = 1400,
   signal = null,
@@ -38,43 +165,45 @@ export async function renderPdfPages(path, {
   if (signal?.aborted) throw new Error('PDF rendering was cancelled');
   installPdfJsCanvasGlobals();
   const { getDocument, VerbosityLevel } = await resolvedPdfJs();
-  const loading = getDocument({
-    data: new Uint8Array(await readFile(path)),
-    disableWorker: true,
-    useSystemFonts: true,
-    isEvalSupported: false,
-    verbosity: VerbosityLevel.ERRORS,
-  });
-  const document = await loading.promise;
+  const pdfData = await readFile(path);
+  const openDocument = async () => {
+    const loadingTask = getDocument({
+      data: Uint8Array.from(pdfData),
+      disableWorker: true,
+      useSystemFonts: false,
+      isEvalSupported: false,
+      verbosity: VerbosityLevel.ERRORS,
+    });
+    try {
+      return { loadingTask, document: await loadingTask.promise };
+    } catch (error) {
+      try { await loadingTask.destroy?.(); } catch {}
+      throw error;
+    }
+  };
+  const { loadingTask, document } = await openDocument();
   try {
     const selected = requestedPages(document.numPages, pages);
     const stem = basename(path, extname(path));
     const output = [];
     const renderPage = async (pageNumber, targetWidth, minimumScale = 0.25) => {
       if (signal?.aborted) throw new Error('PDF rendering was cancelled');
-      const page = await document.getPage(pageNumber);
-      try {
-        const base = page.getViewport({ scale: 1 });
-        const scale = Math.min(2, Math.max(minimumScale, Number(targetWidth || 1400) / base.width));
-        const viewport = page.getViewport({ scale });
-        const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
-        const context = canvas.getContext('2d');
-        await page.render({
-          canvas,
-          canvasContext: context,
-          viewport,
-          background: 'rgb(255,255,255)',
-        }).promise;
-        if (signal?.aborted) throw new Error('PDF rendering was cancelled');
-        return canvas;
-      } finally {
-        try { page.cleanup?.(); } catch {}
-      }
+      const rendered = await runPdfRenderWorker({
+        kind: PDF_RENDER_PAGE_WORKER_KIND,
+        path,
+        pageNumber,
+        targetWidth,
+        minimumScale,
+      }, signal);
+      if (signal?.aborted) throw new Error('PDF rendering was cancelled');
+      return {
+        canvas: { width: rendered.width, height: rendered.height },
+        data: Buffer.from(rendered.data, 'base64'),
+      };
     };
     if (selected.length <= 12) {
       for (const pageNumber of selected) {
-        const canvas = await renderPage(pageNumber, maxWidth);
-        const data = canvas.toBuffer('image/png');
+        const { canvas, data } = await renderPage(pageNumber, maxWidth);
         const imagePath = join(dirname(path), `${stem}-page-${pageNumber}.png`);
         await writeFile(imagePath, data);
         output.push({
@@ -100,12 +229,13 @@ export async function renderPdfPages(path, {
         const cellWidth = Math.max(64, Math.floor((width - (columns + 1) * gap) / columns));
         const thumbnails = [];
         for (const pageNumber of group) {
+          const rendered = await renderPage(pageNumber, cellWidth, 0.05);
           thumbnails.push({
             page: pageNumber,
-            canvas: await renderPage(pageNumber, cellWidth, 0.05),
+            image: await loadImage(rendered.data),
           });
         }
-        const cellHeight = Math.max(...thumbnails.map(({ canvas }) => canvas.height));
+        const cellHeight = Math.max(...thumbnails.map(({ image }) => image.height));
         const sheet = createCanvas(
           width,
           gap + rows * (labelHeight + cellHeight + gap),
@@ -116,7 +246,7 @@ export async function renderPdfPages(path, {
         context.font = '16px sans-serif';
         context.textBaseline = 'middle';
         for (let index = 0; index < thumbnails.length; index += 1) {
-          const { page: pageNumber, canvas } = thumbnails[index];
+          const { page: pageNumber, image } = thumbnails[index];
           const column = index % columns;
           const row = Math.floor(index / columns);
           const x = gap + column * (cellWidth + gap);
@@ -125,9 +255,9 @@ export async function renderPdfPages(path, {
           context.fillText(`Page ${pageNumber}`, x, y + labelHeight / 2);
           context.fillStyle = 'rgb(255,255,255)';
           context.fillRect(x, y + labelHeight, cellWidth, cellHeight);
-          context.drawImage(canvas, x, y + labelHeight);
+          context.drawImage(image, x, y + labelHeight);
           context.strokeStyle = 'rgb(180,185,195)';
-          context.strokeRect(x, y + labelHeight, canvas.width, canvas.height);
+          context.strokeRect(x, y + labelHeight, image.width, image.height);
         }
         const data = sheet.toBuffer('image/png');
         const first = group[0];
@@ -162,6 +292,44 @@ export async function renderPdfPages(path, {
       },
     };
   } finally {
-    try { await document.destroy?.(); } catch {}
+    try { await loadingTask.destroy?.(); } catch {}
+  }
+}
+
+export async function renderPdfPages(path, options = {}) {
+  const signal = options.signal || null;
+  if (signal?.aborted) throw new Error('PDF rendering was cancelled');
+  if (!isMainThread) return await renderPdfPagesDirect(path, options);
+  return await runPdfRenderWorker({
+    kind: PDF_RENDER_WORKER_KIND,
+    path,
+    options: {
+      pages: options.pages ?? null,
+      maxWidth: options.maxWidth ?? 1400,
+    },
+  }, signal);
+}
+
+if (!isMainThread && [PDF_RENDER_WORKER_KIND, PDF_RENDER_PAGE_WORKER_KIND].includes(workerData?.kind)) {
+  try {
+    const value = workerData.kind === PDF_RENDER_PAGE_WORKER_KIND
+      ? await renderPdfPageDirect(
+        workerData.path,
+        workerData.pageNumber,
+        workerData.targetWidth,
+        workerData.minimumScale,
+      )
+      : await renderPdfPagesDirect(workerData.path, workerData.options);
+    parentPort?.postMessage({ ok: true, value });
+  } catch (error) {
+    parentPort?.postMessage({
+      ok: false,
+      error: {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : '',
+      },
+    });
+  } finally {
+    parentPort?.close();
   }
 }

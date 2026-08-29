@@ -101,6 +101,7 @@ function Open-BackgroundDocument($app, [string]$format, [string]$path) {
 }
 
 function Snapshot-Word($doc, $payload) {
+  try { $null = $doc.Repaginate() } catch {}
   $paragraphs = @()
   $paragraphOffset = if ($payload.paged) { [Math]::Max(0, [int]$payload.offset) } else { 0 }
   $paragraphLimit = if ($payload.paged) { [Math]::Max(1, [int]$payload.limit) } else { [int]$doc.Paragraphs.Count }
@@ -135,10 +136,12 @@ function Snapshot-Word($doc, $payload) {
         style = $styleName
         start = [int]$p.Range.Start
         end = [int]$p.Range.End
+        inTable = $(try { [bool]$p.Range.Information(12) } catch { $false })
         pageStart = $(try { [int]$p.Range.Information(3) } catch { 0 })
         pageEnd = $(try {
           $endRange = $p.Range.Duplicate
-          $endRange.Collapse(0)
+          $end = [Math]::Max([int]$endRange.Start, [int]$endRange.End - 1)
+          $endRange.SetRange($end, $end)
           [int]$endRange.Information(3)
         } catch { 0 })
         format = [ordered]@{
@@ -201,19 +204,20 @@ function Snapshot-Word($doc, $payload) {
       } catch { 0 })
       pageEnd = $(try {
         $endRange = $table.Range.Duplicate
-        $endRange.Collapse(0)
+        $end = [Math]::Max([int]$endRange.Start, [int]$endRange.End - 1)
+        $endRange.SetRange($end, $end)
         [int]$endRange.Information(3)
       } catch { 0 })
     }
   }
   $blockOrder = @(
-    @($paragraphs | ForEach-Object {
+    @($paragraphs | Where-Object { -not [bool]$_.inTable } | ForEach-Object {
       [ordered]@{ type = 'paragraph'; index = [int]$_.index; path = [string]$_.path; start = [int]$_.start }
     })
     @($tables | ForEach-Object {
       [ordered]@{ type = 'table'; index = [int]$_.index; path = [string]$_.path; start = [int]$_.start }
     })
-  ) | Sort-Object start
+  ) | Sort-Object { [int]$_['start'] }
   $sections = @()
   for ($sectionIndex = 1; $sectionIndex -le $doc.Sections.Count; $sectionIndex++) {
     $section = $doc.Sections.Item($sectionIndex)
@@ -227,6 +231,7 @@ function Snapshot-Word($doc, $payload) {
         try {
           $collection = if ($location -eq 'header') { $section.Headers } else { $section.Footers }
           $item = $collection.Item([int]$kind.value)
+          if (-not [bool]$item.Exists) { continue }
           $stories += [ordered]@{
             path = "/section[$sectionIndex]/${location}[$($kind.name)]"
             kind = [string]$kind.name
@@ -1452,9 +1457,24 @@ function Apply-WordOperation($doc, $op) {
         $paragraph = $doc.Paragraphs.Add($range)
         $paragraph.Range.Text = "$text`r"
       }
+      $paragraphIndex = if ($reusedInitialParagraph) { 1 } else { [Math]::Max(1, [int]$doc.Paragraphs.Count - 1) }
+      $paragraph = $doc.Paragraphs.Item($paragraphIndex)
+      $props = $op.properties
+      if ($props.listKind) {
+        $kind = ([string]$props.listKind).ToLowerInvariant()
+        if ($kind -eq 'number') {
+          $paragraph.Range.ListFormat.ApplyNumberDefault()
+        } elseif ($kind -ne 'none') {
+          $paragraph.Range.ListFormat.ApplyBulletDefault()
+        } else {
+          $paragraph.Range.ListFormat.RemoveNumbers()
+        }
+        for ($level = 0; $level -lt [int]$props.listLevel; $level++) { $paragraph.Range.ListFormat.ListIndent() }
+      } else {
+        $paragraph.Range.ListFormat.RemoveNumbers()
+      }
       $style = if ($op.style) { [string]$op.style } elseif ($op.properties.style) { [string]$op.properties.style } else { '' }
       if ($style) { $paragraph.Range.Style = Word-StyleValue $style }
-      $props = $op.properties
       if ($props.name) { $paragraph.Range.Font.Name = [string]$props.name }
       if ($props.size) { $paragraph.Range.Font.Size = [single]$props.size }
       if ($null -ne $props.bold) { $paragraph.Range.Font.Bold = if ($props.bold) { -1 } else { 0 } }
@@ -1483,20 +1503,6 @@ function Apply-WordOperation($doc, $op) {
         $border.LineStyle = 1
         if ($props.border.color) { $border.Color = Color-Value ([string]$props.border.color) }
       }
-      if ($props.listKind) {
-        $kind = ([string]$props.listKind).ToLowerInvariant()
-        if ($kind -eq 'number') {
-          $paragraph.Range.ListFormat.ApplyNumberDefault()
-        } elseif ($kind -ne 'none') {
-          $paragraph.Range.ListFormat.ApplyBulletDefault()
-        } else {
-          $paragraph.Range.ListFormat.RemoveNumbers()
-        }
-        for ($level = 0; $level -lt [int]$props.listLevel; $level++) { $paragraph.Range.ListFormat.ListIndent() }
-      } else {
-        $paragraph.Range.ListFormat.RemoveNumbers()
-      }
-      $paragraphIndex = if ($reusedInitialParagraph) { 1 } else { [Math]::Max(1, [int]$doc.Paragraphs.Count - 1) }
       return [ordered]@{ op = 'append_text'; changed = $true; paragraph = $paragraphIndex; path = "/body/p[$paragraphIndex]"; style = $style }
     }
     'set_table_cell' {
@@ -1741,7 +1747,9 @@ function Apply-WordOperation($doc, $op) {
         default { 1 }
       }
       $collection = if ($null -ne $op.header -and -not [bool]$op.header) { $section.Footers } else { $section.Headers }
-      $collection.Item($kind).Range.Text = [string]$op.text
+      $item = $collection.Item($kind)
+      $item.Exists = $true
+      $item.Range.Text = [string]$op.text
       return [ordered]@{ op = 'set_header_footer'; changed = $true; section = $section.Index }
     }
     'track_changes' {
@@ -1780,24 +1788,43 @@ function Apply-WordOperation($doc, $op) {
     }
     'add_page_numbers' {
       $section = $doc.Sections.Item($(if ($op.section) { [int]$op.section } else { 1 }))
+      if (-not $op.kind) {
+        $section.PageSetup.DifferentFirstPageHeaderFooter = 0
+        $section.PageSetup.OddAndEvenPagesHeaderFooter = 0
+      }
       $kind = switch ([string]$op.kind) {
         'first' { 2 }
         'even' { 3 }
         default { 1 }
       }
-      $footer = $section.Footers.Item($kind)
-      $range = $footer.Range
-      $range.Text = $(if ($null -ne $op.prefix) { [string]$op.prefix } else { 'Page ' })
-      $range = $footer.Range
-      $range.Collapse(0)
-      $null = $footer.Range.Fields.Add($range, -1, 'PAGE', $true)
-      if ($null -eq $op.includeTotal -or [bool]$op.includeTotal) {
+      $footerKinds = if ($op.kind) { @($kind) } else { @(1, 2, 3) }
+      foreach ($footerKind in $footerKinds) {
+        $footer = $section.Footers.Item($footerKind)
+        $footer.Exists = $true
+        $range = $footer.Range
+        $range.Text = $(if ($null -ne $op.prefix) { [string]$op.prefix } else { 'Page ' })
         $range = $footer.Range
         $range.Collapse(0)
-        $range.InsertAfter($(if ($null -ne $op.separator) { [string]$op.separator } else { ' of ' }))
-        $range = $footer.Range
-        $range.Collapse(0)
-        $null = $footer.Range.Fields.Add($range, -1, 'NUMPAGES', $true)
+        $null = $footer.Range.Fields.Add($range, -1, 'PAGE', $true)
+        if ($null -eq $op.includeTotal -or [bool]$op.includeTotal) {
+          $range = $footer.Range
+          $range.Collapse(0)
+          $range.InsertAfter($(if ($null -ne $op.separator) { [string]$op.separator } else { ' of ' }))
+          $range = $footer.Range
+          $range.Collapse(0)
+          $null = $footer.Range.Fields.Add($range, -1, 'NUMPAGES', $true)
+        }
+        $footer.Range.ParagraphFormat.Alignment = switch (([string]$op.alignment).ToLowerInvariant()) {
+          'left' { 0 }
+          'right' { 2 }
+          default { 1 }
+        }
+        try {
+          $normalFont = $doc.Styles.Item(-1).Font
+          if ($normalFont.Name) { $footer.Range.Font.Name = [string]$normalFont.Name }
+          if ($normalFont.NameFarEast) { $footer.Range.Font.NameFarEast = [string]$normalFont.NameFarEast }
+          $footer.Range.Font.Size = 9
+        } catch {}
       }
       return [ordered]@{ op = 'add_page_numbers'; changed = $true; section = [int]$section.Index }
     }
@@ -2134,10 +2161,62 @@ function Apply-ExcelOperation($book, $op) {
       $width = if ($op.width) { [single]$op.width } else { [single]480 }
       $height = if ($op.height) { [single]$op.height } else { [single]280 }
       $shape = $sheet.Shapes.AddChart2(-1, $chartType, $left, $top, $width, $height)
-      if ($op.range) { $shape.Chart.SetSourceData($sheet.Range([string]$op.range), 2) }
-      if ($op.title) { $shape.Chart.HasTitle = $true; $shape.Chart.ChartTitle.Text = [string]$op.title }
-      $seriesCount = [int]$shape.Chart.SeriesCollection().Count
-      $pointCount = if ($seriesCount -gt 0) { [int]$shape.Chart.SeriesCollection().Item(1).Points().Count } else { 0 }
+      $chart = $shape.Chart
+      if ($op.range) { $chart.SetSourceData($sheet.Range([string]$op.range), 2) }
+      if ($op.title) { $chart.HasTitle = $true; $chart.ChartTitle.Text = [string]$op.title }
+      $seriesCount = [int]$chart.SeriesCollection().Count
+      $palette = @($op.seriesColors)
+      for ($seriesIndex = 1; $seriesIndex -le $seriesCount; $seriesIndex++) {
+        $series = $chart.SeriesCollection().Item($seriesIndex)
+        if ($palette.Count -gt 0) {
+          $color = Color-Value ([string]$palette[($seriesIndex - 1) % $palette.Count])
+          try { $series.Format.Fill.Solid(); $series.Format.Fill.ForeColor.RGB = $color } catch {}
+          try { $series.Format.Line.ForeColor.RGB = $color } catch {}
+        }
+        if ([bool]$op.showValues) {
+          try {
+            $series.ApplyDataLabels()
+            $labels = $series.DataLabels()
+            $labels.ShowValue = $true
+            $labels.ShowCategoryName = $false
+            if ($op.valueNumberFormat) { $labels.NumberFormat = [string]$op.valueNumberFormat }
+            if ($op.dataLabelPosition) {
+              $labels.Position = switch (([string]$op.dataLabelPosition).ToLowerInvariant()) {
+                'center' { -4108 }
+                'inside_base' { 4 }
+                'inside_end' { 3 }
+                'outside_end' { 2 }
+                default { 5 }
+              }
+            }
+            if ($op.dataLabelColor) { $labels.Font.Color = Color-Value ([string]$op.dataLabelColor) }
+          } catch {}
+        }
+      }
+      $chart.HasLegend = $(if ($null -ne $op.showLegend) { [bool]$op.showLegend } else { $seriesCount -gt 1 })
+      try { $chart.ChartArea.Format.Line.Visible = 0 } catch {}
+      try { $chart.PlotArea.Format.Fill.Visible = 0 } catch {}
+      try {
+        $categoryAxis = $chart.Axes(1, 1)
+        $categoryAxis.CategoryType = 2
+        $categoryAxis.TickLabelPosition = 4
+        $categoryAxis.TickLabels.Orientation = 0
+      } catch {}
+      try {
+        $valueAxis = $chart.Axes(2, 1)
+        if ([bool]$op.zeroBaseline) { $valueAxis.MinimumScale = 0 }
+        if ($op.valueNumberFormat) { $valueAxis.TickLabels.NumberFormat = [string]$op.valueNumberFormat }
+      } catch {}
+      try { $chart.ChartGroups(1).GapWidth = 90 } catch {}
+      if ([bool]$op.showValues -and ([string]$op.dataLabelPosition).ToLowerInvariant() -eq 'inside_end') {
+        try {
+          $currentInsideWidth = [single]$chart.PlotArea.InsideWidth
+          if ($currentInsideWidth -gt 100) {
+            $chart.PlotArea.InsideWidth = [single]($currentInsideWidth - 18)
+          }
+        } catch {}
+      }
+      $pointCount = if ($seriesCount -gt 0) { [int]$chart.SeriesCollection().Item(1).Points().Count } else { 0 }
       return [ordered]@{ op = 'add_chart'; changed = $true; name = [string]$shape.Name; series = $seriesCount; categories = $pointCount }
     }
     'add_conditional_format' {
@@ -2283,6 +2362,7 @@ function Apply-ExcelOperation($book, $op) {
       if ($null -ne $op.fitToPagesWide) { $setup.FitToPagesWide = [int]$op.fitToPagesWide }
       if ($null -ne $op.fitToPagesTall) { $setup.FitToPagesTall = [int]$op.fitToPagesTall }
       if ($null -ne $op.centerHorizontally) { $setup.CenterHorizontally = [bool]$op.centerHorizontally }
+      if ($null -ne $op.centerVertically) { $setup.CenterVertically = [bool]$op.centerVertically }
       if ($null -ne $op.topMargin) { $setup.TopMargin = [double]$op.topMargin }
       if ($null -ne $op.bottomMargin) { $setup.BottomMargin = [double]$op.bottomMargin }
       if ($null -ne $op.leftMargin) { $setup.LeftMargin = [double]$op.leftMargin }
@@ -2360,23 +2440,23 @@ function Set-PowerPointChartData($chart, $categoryValues, $seriesValues) {
     $null = ($source.Value2 = $matrix)
     $collection = $chart.SeriesCollection()
     $placeholderSeriesCount = [int]$collection.Count
-    $categoryArray = New-Object 'object[]' $pointCount
-    for ($pointIndex = 0; $pointIndex -lt $pointCount; $pointIndex++) {
-      $categoryArray[$pointIndex] = if ($pointIndex -lt $categories.Count) { $categories[$pointIndex] } else { "Item $($pointIndex + 1)" }
-    }
+    $sheetName = ([string]$worksheet.Name).Replace("'", "''")
+    $lastRow = $pointCount + 1
     for ($seriesIndex = 1; $seriesIndex -le $specs.Count; $seriesIndex++) {
       $series = $collection.NewSeries()
-      $values = @($specs[$seriesIndex - 1].values)
-      $valueArray = New-Object 'object[]' $pointCount
-      for ($pointIndex = 0; $pointIndex -lt $pointCount; $pointIndex++) {
-        if ($pointIndex -lt $values.Count) { $valueArray[$pointIndex] = $values[$pointIndex] }
-      }
+      $column = Excel-ColumnLabel ($seriesIndex + 1)
       $null = ($series.Name = [string]$specs[$seriesIndex - 1].name)
-      $null = ($series.XValues = $categoryArray)
-      $null = ($series.Values = $valueArray)
+      $null = ($series.XValues = "='$sheetName'!`$A`$2:`$A`$$lastRow")
+      $null = ($series.Values = "='$sheetName'!`$$column`$2:`$$column`$$lastRow")
     }
     for ($seriesIndex = 0; $seriesIndex -lt $placeholderSeriesCount; $seriesIndex++) { $null = $collection.Item(1).Delete() }
     $null = $chart.Refresh()
+    try {
+      $categoryAxis = $chart.Axes(1, 1)
+      $categoryAxis.CategoryType = 2
+      $categoryAxis.TickLabelPosition = 4
+      $categoryAxis.TickLabels.Orientation = 0
+    } catch {}
   } finally {
     if ($null -ne $workbook) { try { $null = $workbook.Close($true) } catch {} }
     if ($null -ne $worksheet) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($worksheet) } catch {} }
@@ -3400,6 +3480,8 @@ function Issues-PowerPoint($presentation, $payload) {
     $shapeIndex = 0
     $textShapeCount = 0
     $visualShapeCount = 0
+    $largeTextShapeCount = 0
+    $dominantTextShapeCount = 0
     foreach ($shape in @($slide.Shapes)) {
       $shapeIndex++
       $path = "/slide[$($slide.SlideIndex)]/shape[$shapeIndex]"
@@ -3422,6 +3504,8 @@ function Issues-PowerPoint($presentation, $payload) {
           $fontIssue = Missing-FontIssue $fonts ([string]$shape.TextFrame.TextRange.Font.Name) $path
           if ($fontIssue) { $issues += $fontIssue }
           $fontSize = [single]$shape.TextFrame.TextRange.Font.Size
+          if ($fontSize -ge 34) { $largeTextShapeCount++ }
+          if ($fontSize -ge 42) { $dominantTextShapeCount++ }
           if ($fontSize -gt 0 -and $fontSize -lt 12) {
             $issues += Office-Issue 'warning' 'small_font' $path "Text uses $fontSize pt; presentation body text should normally be at least 12 pt."
           }
@@ -3481,7 +3565,9 @@ function Issues-PowerPoint($presentation, $payload) {
         } catch {}
       }
     }
-    if ($textShapeCount -gt 0 -and $visualShapeCount -eq 0) {
+    $typographicVisual = $dominantTextShapeCount -gt 0 -or $largeTextShapeCount -ge 2
+    $boundarySlide = [int]$slide.SlideIndex -eq 1 -or [int]$slide.SlideIndex -eq [int]$presentation.Slides.Count
+    if ($textShapeCount -gt 0 -and $visualShapeCount -eq 0 -and -not $typographicVisual -and -not $boundarySlide) {
       $issues += Office-Issue 'warning' 'text_only_slide' "/slide[$($slide.SlideIndex)]" 'Slide contains text but no visual shape, chart, table, diagram, or picture.'
     }
     if ($payload.auditProfile -eq 'model-backed-deck') {

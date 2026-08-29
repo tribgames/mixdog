@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -29,6 +29,40 @@ async function persistRenderImages(raw, value, directory, prefix) {
     files.push(path);
   }
   return files;
+}
+
+async function reviewPersisted({
+  path,
+  format,
+  directory,
+  output,
+  prefix,
+  task,
+  auditProfile = '',
+  design: designRequest = {},
+}) {
+  const reviewPath = join(directory, `.mixdog-review-${prefix}.${format}`);
+  const reopened = await office({
+    action: 'open',
+    path,
+    output: reviewPath,
+    mode: 'background',
+    design: designRequest,
+  }, directory, `reopen ${format} for review`);
+  try {
+    const qa = await office({
+      action: 'qa',
+      session: reopened.value.session,
+      output,
+      task,
+      ...(auditProfile ? { auditProfile } : {}),
+    }, directory, `review ${format}`);
+    const images = await persistRenderImages(qa.raw, qa.value, directory, prefix);
+    return { qa, images };
+  } finally {
+    await office({ action: 'close', session: reopened.value.session }, directory, `close ${format} review`);
+    await rm(reviewPath, { force: true });
+  }
 }
 
 function contentModel() {
@@ -70,9 +104,11 @@ function contentModel() {
   };
 }
 
-function design(content, profile = 'data') {
+function design(content, profile = 'data', purpose = 'explain') {
   return {
     profile,
+    purpose,
+    expressionMode: 'strong-fit',
     audience: content.audience,
     intent: content.objective,
     tone: 'executive',
@@ -84,6 +120,7 @@ function design(content, profile = 'data') {
 
 async function createWorkbook(directory, content) {
   const path = join(directory, '01-dashboard.xlsx');
+  const designRequest = design(content, 'data', 'monitor');
   const operations = [
     { op: 'rename_sheet', sheet: 'Sheet1', name: 'Source' },
     {
@@ -213,17 +250,9 @@ async function createWorkbook(directory, content) {
     path,
     format: 'xlsx',
     mode: 'background',
-    design: design(content, 'data'),
+    design: designRequest,
     operations,
   }, directory, 'create workbook');
-  const qa = await office({
-    action: 'qa',
-    session: created.value.session,
-    output: join(directory, '01-dashboard-preview.pdf'),
-    task: '7월 경영회의 실적 대시보드',
-    auditProfile: 'financial-model',
-  }, directory, 'review workbook');
-  const images = await persistRenderImages(qa.raw, qa.value, directory, '01-dashboard-preview');
   const validation = await office({
     action: 'validate',
     session: created.value.session,
@@ -232,21 +261,32 @@ async function createWorkbook(directory, content) {
       { kind: 'cell-value', sheet: 'Dashboard', cell: 'B13', equals: 5660 },
       { kind: 'cell-value', sheet: 'Dashboard', cell: 'C13', equals: 802 },
       { kind: 'cell-value', sheet: 'Calculation', cell: 'B9', equals: 180 },
-      { kind: 'no-formula-errors' },
+      { kind: 'no-errors' },
     ],
   }, directory, 'validate workbook');
   await office({ action: 'close', session: created.value.session }, directory, 'close workbook');
+  const { qa, images } = await reviewPersisted({
+    path,
+    format: 'xlsx',
+    directory,
+    output: join(directory, '01-dashboard-preview.pdf'),
+    prefix: '01-dashboard-preview',
+    task: '7월 경영회의 실적 대시보드',
+    auditProfile: 'financial-model',
+    design: designRequest,
+  });
   return { path, created: created.value, qa: qa.value, validation: validation.value, images };
 }
 
 async function createDocument(directory, content) {
   const path = join(directory, '02-decision-brief.docx');
+  const designRequest = design(content, 'editorial', 'decide');
   const created = await office({
     action: 'create',
     path,
     format: 'docx',
     mode: 'background',
-    design: design(content, 'editorial'),
+    design: designRequest,
     operations: [{
       op: 'compose_document',
       title: '7월 경영회의 의사결정 브리프',
@@ -280,6 +320,7 @@ async function createDocument(directory, content) {
         },
         {
           heading: '3. 투자 release / stop gate',
+          pageBreak: true,
           paragraphs: ['두 트랙 모두 승인하되, 다음 월말에 정량 기준으로 계속 집행 여부를 다시 결정합니다.'],
           table: [
             ['트랙', 'Release', 'Stop'],
@@ -301,20 +342,30 @@ async function createDocument(directory, content) {
       pageNumbers: true,
     }],
   }, directory, 'create document');
-  const qa = await office({
-    action: 'qa',
-    session: created.value.session,
-    output: join(directory, '02-decision-brief-preview.pdf'),
-    task: '7월 경영회의 의사결정 브리프',
-  }, directory, 'review document');
-  const images = await persistRenderImages(qa.raw, qa.value, directory, '02-decision-brief-preview');
   const validation = await office({ action: 'validate', session: created.value.session }, directory, 'validate document');
   await office({ action: 'close', session: created.value.session }, directory, 'close document');
+  const { qa, images } = await reviewPersisted({
+    path,
+    format: 'docx',
+    directory,
+    output: join(directory, '02-decision-brief-preview.pdf'),
+    prefix: '02-decision-brief-preview',
+    task: '7월 경영회의 의사결정 브리프',
+    design: designRequest,
+  });
   return { path, created: created.value, qa: qa.value, validation: validation.value, images };
 }
 
 async function createPresentation(directory, content) {
   const path = join(directory, '03-executive-deck.pptx');
+  const designRequest = {
+    ...design(content, 'data', 'decide'),
+    deck: {
+      backgroundMode: 'sandwich',
+      templateMode: 'scratch',
+      requireSlidePlan: true,
+    },
+  };
   const operations = [
     {
       op: 'compose_slide',
@@ -385,30 +436,25 @@ async function createPresentation(directory, content) {
     path,
     format: 'pptx',
     mode: 'background',
-    design: {
-      ...design(content, 'data'),
-      deck: {
-        backgroundMode: 'sandwich',
-        templateMode: 'scratch',
-        requireSlidePlan: true,
-      },
-    },
+    design: designRequest,
     operations,
   }, directory, 'create presentation');
-  const qa = await office({
-    action: 'qa',
-    session: created.value.session,
-    output: join(directory, '03-executive-deck-preview.pdf'),
-    task: '7월 경영회의 6장 발표',
-    auditProfile: 'model-backed-deck',
-  }, directory, 'review presentation');
-  const images = await persistRenderImages(qa.raw, qa.value, directory, '03-executive-deck-preview');
   const validation = await office({
     action: 'validate',
     session: created.value.session,
     auditProfile: 'model-backed-deck',
   }, directory, 'validate presentation');
   await office({ action: 'close', session: created.value.session }, directory, 'close presentation');
+  const { qa, images } = await reviewPersisted({
+    path,
+    format: 'pptx',
+    directory,
+    output: join(directory, '03-executive-deck-preview.pdf'),
+    prefix: '03-executive-deck-preview',
+    task: '7월 경영회의 6장 발표',
+    auditProfile: 'model-backed-deck',
+    design: designRequest,
+  });
   return { path, created: created.value, qa: qa.value, validation: validation.value, images };
 }
 

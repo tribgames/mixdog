@@ -253,6 +253,7 @@ import { createToolPolicyRefresh } from './tool-policy-refresh.mjs';
 import { readRuntimeTunables } from './runtime-tunables.mjs';
 import { createSessionTurnApi } from './session-turn-api.mjs';
 import { createGoalRuntime } from './goal-runtime.mjs';
+import { markPendingGoalReminder } from './goal-reminder.mjs';
 import { providerInitCacheKey } from './provider-init-key.mjs';
 import { createRoutePreparationGate } from './route-preparation.mjs';
 import {
@@ -1827,7 +1828,19 @@ export async function createMixdogSessionRuntime({
         sessionId = rt.session?.id || rt.reservedSessionId || null;
       }
       if (!sessionId) throw new Error('goal: session could not be created');
-      return goalRuntime.control(sessionId, args);
+      const result = await goalRuntime.control(sessionId, args);
+      // A user-side objective change is invisible to a model already holding
+      // the old objective: mark one state reminder so the next turn re-aligns
+      // instead of finishing the objective the user just replaced.
+      if (result?.action === 'edit') {
+        try { markPendingGoalReminder(rt.session, 'objective-updated'); }
+        catch { /* best-effort: a reminder must never break Goal control */ }
+      }
+      return result;
+    },
+    markGoalReminder(reason = '') {
+      try { return markPendingGoalReminder(rt.session, reason); }
+      catch { return null; }
     },
     goalContinuation() {
       const sessionId = rt.session?.id || rt.reservedSessionId || null;

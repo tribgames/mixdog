@@ -4,12 +4,27 @@ import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
+import { applyCellStyle } from './portable-sheet-styles.mjs';
+import {
+  backgroundXml,
+  pictureXml,
+  resolveGeometry,
+  shapeXml,
+  solidFillXml,
+  supportedShapeTypes,
+  tableXml,
+  textBodyXml,
+  toEmu,
+} from './portable-slide-shapes.mjs';
 
 const OOXML_REQUIRED = {
   docx: ['[Content_Types].xml', 'word/document.xml'],
   xlsx: ['[Content_Types].xml', 'xl/workbook.xml'],
   pptx: ['[Content_Types].xml', 'ppt/presentation.xml'],
 };
+
+const SPREADSHEET_MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+const OFFICE_RELATIONSHIP_BASE = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 
 function xmlDecode(value = '') {
   return String(value)
@@ -261,6 +276,15 @@ function docxBodyModel(documentXml) {
     }
   }
   return { paragraphs, tables, blocks, body };
+}
+
+function appendDocxBlock(documentXml, block) {
+  const model = docxBodyModel(documentXml);
+  if (!model.body) throw new Error('DOCX document body is missing');
+  const trailingSection = /<w:sectPr(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/w:sectPr>)\s*$/.exec(model.body.inner);
+  const position = trailingSection ? trailingSection.index : model.body.inner.length;
+  const inner = `${model.body.inner.slice(0, position)}${block}${model.body.inner.slice(position)}`;
+  return `${documentXml.slice(0, model.body.start)}${inner}${documentXml.slice(model.body.end)}`;
 }
 
 async function snapshotDocx(zip, options = {}) {
@@ -772,14 +796,20 @@ function parseCellRef(ref) {
   return { col: match[1].toUpperCase(), row: Number(match[2]), ref: `${match[1].toUpperCase()}${match[2]}` };
 }
 
-function cellXml(ref, value, formula = '') {
+function cellXml(ref, value, formula = '', style = '') {
+  const styled = style === '' ? '' : ` s="${style}"`;
   if (formula) {
     const normalized = String(formula).replace(/^=/, '');
-    return `<c r="${ref}"><f>${xmlEncode(normalized)}</f><v></v></c>`;
+    return `<c r="${ref}"${styled}><f>${xmlEncode(normalized)}</f><v></v></c>`;
   }
-  if (typeof value === 'number' && Number.isFinite(value)) return `<c r="${ref}"><v>${value}</v></c>`;
-  if (typeof value === 'boolean') return `<c r="${ref}" t="b"><v>${value ? 1 : 0}</v></c>`;
-  return `<c r="${ref}" t="inlineStr"><is><t${/^\s|\s$/.test(String(value ?? '')) ? ' xml:space="preserve"' : ''}>${xmlEncode(value ?? '')}</t></is></c>`;
+  if (typeof value === 'number' && Number.isFinite(value)) return `<c r="${ref}"${styled}><v>${value}</v></c>`;
+  if (typeof value === 'boolean') return `<c r="${ref}"${styled} t="b"><v>${value ? 1 : 0}</v></c>`;
+  return `<c r="${ref}"${styled} t="inlineStr"><is><t${/^\s|\s$/.test(String(value ?? '')) ? ' xml:space="preserve"' : ''}>${xmlEncode(value ?? '')}</t></is></c>`;
+}
+
+function existingCellStyle(xml, ref) {
+  const match = new RegExp(`<c\\b([^>]*\\br="${ref}"[^>]*?)(?:\\/>|>)`, 'i').exec(xml);
+  return match ? (/\bs="(\d+)"/.exec(match[1])?.[1] || '') : '';
 }
 
 function setXmlAttribute(attributes, name, value) {
@@ -802,24 +832,75 @@ function forceWorkbookRecalculation(xml) {
   return xml.replace(/<\/workbook>/i, '<calcPr calcMode="auto" fullCalcOnLoad="1" forceFullCalc="1"/></workbook>');
 }
 
+function elementSpans(fragment, tag) {
+  const spans = [];
+  const regex = new RegExp(`<${tagPattern(tag)}\\b([^>]*?)(\\/>|>[\\s\\S]*?<\\/${tagPattern(tag)}>)`, 'g');
+  let match;
+  while ((match = regex.exec(fragment))) {
+    spans.push({
+      start: match.index,
+      end: regex.lastIndex,
+      attrs: match[1],
+      xml: match[0],
+    });
+  }
+  return spans;
+}
+
+function containerBody(xml, tag) {
+  if (xml.endsWith('/>')) return '';
+  return xml.slice(xml.indexOf('>') + 1, xml.lastIndexOf(`</${tag}>`));
+}
+
+function setRowCell(rowXml, ref, column, cell) {
+  const attrs = /^<row\b([^>]*?)(?:\/>|>)/.exec(rowXml)?.[1] || '';
+  const body = containerBody(rowXml, 'row');
+  const cells = elementSpans(body, 'c')
+    .map((span) => ({ ...span, ref: (/\br="([A-Za-z]+\d+)"/.exec(span.attrs)?.[1] || '').toUpperCase() }))
+    .filter((span) => span.ref);
+  const existing = cells.find((span) => span.ref === ref);
+  if (existing) {
+    return `<row${attrs}>${body.slice(0, existing.start)}${cell}${body.slice(existing.end)}</row>`;
+  }
+  const following = cells.find((span) => columnNumber(parseCellRef(span.ref).col) > column);
+  const position = following ? following.start : body.length;
+  return `<row${attrs}>${body.slice(0, position)}${cell}${body.slice(position)}</row>`;
+}
+
 function setCellInSheet(xml, ref, value, formula = '') {
   const parsed = parseCellRef(ref);
-  const rowRegex = new RegExp(`<row\\b([^>]*\\br="${parsed.row}"[^>]*)>([\\s\\S]*?)</row>`);
-  const rowMatch = rowRegex.exec(xml);
-  const nextCell = cellXml(parsed.ref, value, formula);
-  if (rowMatch) {
-    const rowBody = rowMatch[2];
-    const cellRegex = new RegExp(`<c\\b[^>]*\\br="${parsed.ref}"[^>]*(?:>[\\s\\S]*?</c>|/>)`, 'i');
-    const nextBody = cellRegex.test(rowBody)
-      ? rowBody.replace(cellRegex, nextCell)
-      : `${rowBody}${nextCell}`;
-    return xml.replace(rowRegex, `<row${rowMatch[1]}>${nextBody}</row>`);
+  return placeCellInSheet(xml, parsed.ref, cellXml(parsed.ref, value, formula, existingCellStyle(xml, parsed.ref)));
+}
+
+function setCellStyleInSheet(xml, ref, styleIndex) {
+  const parsed = parseCellRef(ref);
+  const pattern = new RegExp(`<c\\b([^>]*\\br="${parsed.ref}"[^>]*?)(\\/>|>[\\s\\S]*?<\\/c>)`, 'i');
+  const match = pattern.exec(xml);
+  if (match) {
+    const attrs = setXmlAttribute(match[1], 's', styleIndex);
+    return `${xml.slice(0, match.index)}<c${attrs}${match[2]}${xml.slice(match.index + match[0].length)}`;
   }
-  const sheetDataRegex = /<sheetData(?:\s[^>]*)?>([\s\S]*?)<\/sheetData>/;
-  const dataMatch = sheetDataRegex.exec(xml);
-  if (!dataMatch) throw new Error('Worksheet is missing sheetData');
-  const row = `<row r="${parsed.row}">${nextCell}</row>`;
-  return xml.replace(sheetDataRegex, `<sheetData>${dataMatch[1]}${row}</sheetData>`);
+  return placeCellInSheet(xml, parsed.ref, `<c r="${parsed.ref}" s="${styleIndex}"/>`);
+}
+
+function placeCellInSheet(xml, ref, cell) {
+  const parsed = parseCellRef(ref);
+  const column = columnNumber(parsed.col);
+  const sheetData = /<sheetData(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/sheetData>)/.exec(xml);
+  if (!sheetData) throw new Error('Worksheet is missing sheetData');
+  const inner = containerBody(sheetData[0], 'sheetData');
+  const rows = elementSpans(inner, 'row')
+    .map((span) => ({ ...span, index: Number(/\br="(\d+)"/.exec(span.attrs)?.[1] || 0) }));
+  const existing = rows.find((row) => row.index === parsed.row);
+  let nextInner;
+  if (existing) {
+    nextInner = `${inner.slice(0, existing.start)}${setRowCell(existing.xml, parsed.ref, column, cell)}${inner.slice(existing.end)}`;
+  } else {
+    const following = rows.find((row) => row.index > parsed.row);
+    const position = following ? following.start : inner.length;
+    nextInner = `${inner.slice(0, position)}<row r="${parsed.row}">${cell}</row>${inner.slice(position)}`;
+  }
+  return `${xml.slice(0, sheetData.index)}<sheetData>${nextInner}</sheetData>${xml.slice(sheetData.index + sheetData[0].length)}`;
 }
 
 function columnNumber(label) {
@@ -945,14 +1026,13 @@ async function applyDocx(zip, operations) {
       const font = op.properties || {};
       const runProperties = [
         font.name ? `<w:rFonts w:ascii="${xmlEncode(font.name)}" w:hAnsi="${xmlEncode(font.name)}" w:eastAsia="${xmlEncode(font.name)}"/>` : '',
-        font.size ? `<w:sz w:val="${Math.max(2, Math.round(Number(font.size) * 2))}"/>` : '',
         font.bold === true ? '<w:b/>' : '',
         font.italic === true ? '<w:i/>' : '',
         font.color ? `<w:color w:val="${xmlEncode(String(font.color).replace(/^#/, ''))}"/>` : '',
+        font.size ? `<w:sz w:val="${Math.max(2, Math.round(Number(font.size) * 2))}"/><w:szCs w:val="${Math.max(2, Math.round(Number(font.size) * 2))}"/>` : '',
       ].join('');
       const block = `<w:p>${paragraphProperties}<w:r>${runProperties ? `<w:rPr>${runProperties}</w:rPr>` : ''}<w:t${/^\s|\s$/.test(String(op.text || '')) ? ' xml:space="preserve"' : ''}>${xmlEncode(op.text || '')}</w:t></w:r></w:p>`;
-      if (!/<\/w:body>/.test(current)) throw new Error('DOCX document body is missing');
-      zip.file('word/document.xml', current.replace('</w:body>', `${block}</w:body>`));
+      zip.file('word/document.xml', appendDocxBlock(current, block));
       results.push({ op: op.op, changed: true, style: style || '' });
       continue;
     }
@@ -966,10 +1046,8 @@ async function applyDocx(zip, operations) {
         const position = paragraph.end;
         const nextInner = `${model.body.inner.slice(0, position)}${table}${model.body.inner.slice(position)}`;
         current = `${current.slice(0, model.body.start)}${nextInner}${current.slice(model.body.end)}`;
-      } else if (/<w:sectPr(?:\s[^>]*)?>/.test(current)) {
-        current = current.replace(/<w:sectPr(?:\s[^>]*)?>/, `${table}$&`);
       } else {
-        current = current.replace('</w:body>', `${table}</w:body>`);
+        current = appendDocxBlock(current, table);
       }
       zip.file('word/document.xml', current);
       results.push({ op: op.op, changed: true, table: docxBodyModel(current).blocks.filter((block) => block.name === 'w:tbl').length });
@@ -1102,7 +1180,12 @@ async function applyDocx(zip, operations) {
         ].join('');
         if (runFormat) {
           nextCell = /<w:rPr(?:\s[^>]*)?>/.test(nextCell)
-            ? nextCell.replace(/<w:rPr(?:\s[^>]*)?>/, (open) => `${open}${runFormat}`)
+            ? nextCell.replace(/<w:rPr(?:\s[^>]*)?>([\s\S]*?)<\/w:rPr>/, (_, inner) => {
+              const fonts = /<w:rFonts\b[^>]*\/>/.exec(inner);
+              return fonts
+                ? `<w:rPr>${fonts[0]}${runFormat}${inner.replace(fonts[0], '')}</w:rPr>`
+                : `<w:rPr>${runFormat}${inner}</w:rPr>`;
+            })
             : nextCell.replace(/<w:r(?:\s[^>]*)?>/, (open) => `${open}<w:rPr>${runFormat}</w:rPr>`);
         }
         nextTable = table[0].replace(cell[0], nextCell);
@@ -1150,14 +1233,289 @@ async function applyDocx(zip, operations) {
   return results;
 }
 
+const WORKSHEET_SECTIONS = Object.freeze([
+  'sheetPr', 'dimension', 'sheetViews', 'sheetFormatPr', 'cols', 'sheetData',
+  'sheetCalcPr', 'sheetProtection', 'protectedRanges', 'scenarios', 'autoFilter',
+  'sortState', 'dataConsolidate', 'customSheetViews', 'mergeCells', 'phoneticPr',
+  'conditionalFormatting', 'dataValidations', 'hyperlinks', 'printOptions',
+  'pageMargins', 'pageSetup', 'headerFooter', 'rowBreaks', 'colBreaks',
+  'customProperties', 'cellWatches', 'ignoredErrors', 'smartTags', 'drawing',
+  'legacyDrawing', 'legacyDrawingHF', 'picture', 'oleObjects', 'controls',
+  'webPublishItems', 'tableParts', 'extLst',
+]);
+const WORKSHEET_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml';
+const WORKSHEET_RELATIONSHIP = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet';
+const MAX_STYLED_CELLS = 20_000;
+
+function worksheetSection(xml, name) {
+  return new RegExp(`<${name}\\b[^>]*?(?:\\/>|>[\\s\\S]*?<\\/${name}>)`).exec(xml);
+}
+
+function upsertWorksheetSection(xml, name, element) {
+  const existing = worksheetSection(xml, name);
+  const base = existing
+    ? `${xml.slice(0, existing.index)}${xml.slice(existing.index + existing[0].length)}`
+    : xml;
+  if (!element) return base;
+  const position = WORKSHEET_SECTIONS.indexOf(name);
+  for (const candidate of WORKSHEET_SECTIONS.slice(position + 1)) {
+    const found = worksheetSection(base, candidate);
+    if (found) return `${base.slice(0, found.index)}${element}${base.slice(found.index)}`;
+  }
+  return base.replace(/<\/worksheet>\s*$/, `${element}</worksheet>`);
+}
+
+function mergedRanges(xml) {
+  const section = worksheetSection(xml, 'mergeCells');
+  if (!section) return [];
+  return [...section[0].matchAll(/<mergeCell\b[^>]*\bref="([^"]+)"[^>]*\/>/g)]
+    .map((match) => match[1].toUpperCase());
+}
+
+function writeMergedRanges(xml, ranges) {
+  const unique = [...new Set(ranges)];
+  const element = unique.length
+    ? `<mergeCells count="${unique.length}">${unique.map((ref) => `<mergeCell ref="${ref}"/>`).join('')}</mergeCells>`
+    : '';
+  return upsertWorksheetSection(xml, 'mergeCells', element);
+}
+
+function sheetViewParts(view) {
+  const open = /^<sheetView\b([^>]*?)(\/>|>)/.exec(view);
+  if (!open) throw new Error('Worksheet view is malformed');
+  return {
+    attrs: open[1],
+    body: open[2] === '/>' ? '' : view.slice(open[0].length, view.lastIndexOf('</sheetView>')),
+  };
+}
+
+function composeSheetView(attrs, body) {
+  return body ? `<sheetView${attrs}>${body}</sheetView>` : `<sheetView${attrs}/>`;
+}
+
+function updateSheetView(xml, mutate) {
+  const section = worksheetSection(xml, 'sheetViews');
+  const current = section
+    ? /<sheetView\b[^>]*?(?:\/>|>[\s\S]*?<\/sheetView>)/.exec(section[0])?.[0] || ''
+    : '';
+  const next = mutate(current || '<sheetView workbookViewId="0"/>');
+  return upsertWorksheetSection(xml, 'sheetViews', `<sheetViews>${next}</sheetViews>`);
+}
+
+function freezePaneXml(row, column) {
+  const ySplit = Math.max(0, (Number(row) || 0) - 1);
+  const xSplit = Math.max(0, (Number(column) || 0) - 1);
+  if (!ySplit && !xSplit) return '';
+  const topLeft = `${columnLabel(xSplit + 1)}${ySplit + 1}`;
+  const activePane = ySplit && xSplit ? 'bottomRight' : ySplit ? 'bottomLeft' : 'topRight';
+  return `<pane${xSplit ? ` xSplit="${xSplit}"` : ''}${ySplit ? ` ySplit="${ySplit}"` : ''}`
+    + ` topLeftCell="${topLeft}" activePane="${activePane}" state="frozen"/>`;
+}
+
+function parseAreaRange(range) {
+  const text = String(range || '').trim().toUpperCase();
+  const columns = /^([A-Z]+):([A-Z]+)$/.exec(text);
+  if (columns) {
+    return { startCol: columnNumber(columns[1]), endCol: columnNumber(columns[2]), startRow: 0, endRow: 0 };
+  }
+  const rows = /^(\d+):(\d+)$/.exec(text);
+  if (rows) return { startCol: 0, endCol: 0, startRow: Number(rows[1]), endRow: Number(rows[2]) };
+  const area = /^([A-Z]+\d+):([A-Z]+\d+)$/.exec(text);
+  if (area) {
+    const start = parseCellRef(area[1]);
+    const end = parseCellRef(area[2]);
+    return {
+      startCol: Math.min(columnNumber(start.col), columnNumber(end.col)),
+      endCol: Math.max(columnNumber(start.col), columnNumber(end.col)),
+      startRow: Math.min(start.row, end.row),
+      endRow: Math.max(start.row, end.row),
+    };
+  }
+  if (/^[A-Z]+\d+$/.test(text)) {
+    const single = parseCellRef(text);
+    const column = columnNumber(single.col);
+    return { startCol: column, endCol: column, startRow: single.row, endRow: single.row };
+  }
+  throw new Error(`Unsupported range: ${range}`);
+}
+
+function displayWidth(text) {
+  let width = 0;
+  for (const character of String(text ?? '')) {
+    width += /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(character)
+      ? 2
+      : 1;
+  }
+  return width;
+}
+
+function writeColumnWidths(xml, widths) {
+  if (!widths.size) return xml;
+  const entries = new Map();
+  const existing = worksheetSection(xml, 'cols');
+  if (existing) {
+    for (const match of existing[0].matchAll(/<col\b([^>]*?)\/>/g)) {
+      const min = Number(xmlAttribute(match[1], 'min')) || 0;
+      const max = Number(xmlAttribute(match[1], 'max')) || min;
+      for (let column = min; column >= 1 && column <= max && column - min < 2048; column += 1) {
+        entries.set(column, match[1]);
+      }
+    }
+  }
+  for (const [column, width] of widths) {
+    entries.set(column, ` min="${column}" max="${column}" width="${width}" customWidth="1"`);
+  }
+  const body = [...entries.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .map(([column, attrs]) => `<col${setXmlAttribute(setXmlAttribute(attrs, 'min', column), 'max', column)}/>`)
+    .join('');
+  return upsertWorksheetSection(xml, 'cols', `<cols>${body}</cols>`);
+}
+
+function quoteSheetName(name) {
+  return /^[A-Za-z_][A-Za-z0-9_.]*$/.test(name) ? name : `'${String(name).replace(/'/g, "''")}'`;
+}
+
+function absoluteRange(range) {
+  return String(range)
+    .split(':')
+    .map((part) => part.replace(/^([A-Za-z]+)(\d+)$/, '$$$1$$$2'))
+    .join(':');
+}
+
+function upsertDefinedName(xml, entry, matches) {
+  const section = /<definedNames\b[^>]*?(?:\/>|>[\s\S]*?<\/definedNames>)/.exec(xml);
+  const items = section
+    ? [...section[0].matchAll(/<definedName\b[^>]*?(?:\/>|>[\s\S]*?<\/definedName>)/g)].map((match) => match[0])
+    : [];
+  const kept = items.filter((item) => !matches(item));
+  if (entry) kept.push(entry);
+  const element = kept.length ? `<definedNames>${kept.join('')}</definedNames>` : '';
+  if (section) {
+    return `${xml.slice(0, section.index)}${element}${xml.slice(section.index + section[0].length)}`;
+  }
+  if (!element) return xml;
+  const calculation = /<calcPr\b[^>]*?(?:\/>|>[\s\S]*?<\/calcPr>)/.exec(xml);
+  if (calculation) return `${xml.slice(0, calculation.index)}${element}${xml.slice(calculation.index)}`;
+  return xml.replace(/<\/workbook>\s*$/, `${element}</workbook>`);
+}
+
+function nextRelationshipId(rels) {
+  const ids = [...rels.matchAll(/\bId="rId(\d+)"/g)].map((match) => Number(match[1]));
+  return `rId${Math.max(0, ...ids) + 1}`;
+}
+
+function emptyWorksheetXml() {
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n<worksheet xmlns="${SPREADSHEET_MAIN}" xmlns:r="${OFFICE_RELATIONSHIP_BASE}">`
+    + '<sheetViews><sheetView workbookViewId="0"/></sheetViews>'
+    + '<sheetFormatPr defaultRowHeight="15"/>'
+    + '<sheetData/></worksheet>';
+}
+
+async function addWorksheet(zip, name) {
+  const label = String(name || '').trim();
+  if (!label) throw new Error('add_sheet requires name');
+  if (label.length > 31) throw new Error('Worksheet names are limited to 31 characters');
+  const workbookPath = 'xl/workbook.xml';
+  const workbook = await zipText(zip, workbookPath);
+  if (new RegExp(`<sheet\\b[^>]*\\bname="${tagPattern(xmlEncode(label))}"`, 'i').test(workbook)) {
+    throw new Error(`Worksheet already exists: ${label}`);
+  }
+  let ordinal = 1;
+  while (zip.file(`xl/worksheets/sheet${ordinal}.xml`)) ordinal += 1;
+  const part = `xl/worksheets/sheet${ordinal}.xml`;
+  zip.file(part, emptyWorksheetXml());
+  const relsPath = 'xl/_rels/workbook.xml.rels';
+  const rels = await zipText(zip, relsPath);
+  if (!rels) throw new Error('Workbook relationships are missing');
+  const relationshipId = nextRelationshipId(rels);
+  zip.file(relsPath, rels.replace('</Relationships>', `<Relationship Id="${relationshipId}" Type="${WORKSHEET_RELATIONSHIP}" Target="worksheets/sheet${ordinal}.xml"/></Relationships>`));
+  const sheetIds = [...workbook.matchAll(/<sheet\b[^>]*\bsheetId="(\d+)"/g)].map((match) => Number(match[1]));
+  const sheetId = Math.max(0, ...sheetIds) + 1;
+  const entry = `<sheet name="${xmlEncode(label)}" sheetId="${sheetId}" r:id="${relationshipId}"/>`;
+  const sheetsSection = /<sheets\b[^>]*?(?:\/>|>[\s\S]*?<\/sheets>)/.exec(workbook);
+  if (!sheetsSection) throw new Error('Workbook is missing its sheet list');
+  const next = sheetsSection[0].endsWith('/>')
+    ? `<sheets>${entry}</sheets>`
+    : sheetsSection[0].replace('</sheets>', `${entry}</sheets>`);
+  zip.file(workbookPath, `${workbook.slice(0, sheetsSection.index)}${next}${workbook.slice(sheetsSection.index + sheetsSection[0].length)}`);
+  const types = await zipText(zip, '[Content_Types].xml');
+  if (!types.includes(`PartName="/${part}"`)) {
+    zip.file('[Content_Types].xml', types.replace('</Types>', `<Override PartName="/${part}" ContentType="${WORKSHEET_CONTENT_TYPE}"/></Types>`));
+  }
+  return { name: label, path: part, sheetId };
+}
+
+async function renameWorksheet(zip, sheet, name) {
+  const label = String(name || '').trim();
+  if (!label) throw new Error('rename_sheet requires name');
+  if (label.length > 31) throw new Error('Worksheet names are limited to 31 characters');
+  const workbookPath = 'xl/workbook.xml';
+  const workbook = await zipText(zip, workbookPath);
+  const pattern = new RegExp(`<sheet\\b[^>]*\\bname="${tagPattern(xmlEncode(sheet.name))}"[^>]*\\/>`, 'i');
+  const match = pattern.exec(workbook);
+  if (!match) throw new Error(`Worksheet not found: ${sheet.name}`);
+  const replaced = match[0].replace(/\bname="[^"]*"/, `name="${xmlEncode(label)}"`);
+  zip.file(workbookPath, `${workbook.slice(0, match.index)}${replaced}${workbook.slice(match.index + match[0].length)}`);
+  return { from: sheet.name, to: label };
+}
+
+async function deleteWorksheet(zip, sheets, sheet) {
+  if (sheets.length <= 1) throw new Error('A workbook must keep at least one worksheet');
+  const index = sheets.findIndex((entry) => entry.name === sheet.name);
+  const workbookPath = 'xl/workbook.xml';
+  let workbook = await zipText(zip, workbookPath);
+  const pattern = new RegExp(`<sheet\\b[^>]*\\bname="${tagPattern(xmlEncode(sheet.name))}"[^>]*\\/>`, 'i');
+  const match = pattern.exec(workbook);
+  if (!match) throw new Error(`Worksheet not found: ${sheet.name}`);
+  workbook = `${workbook.slice(0, match.index)}${workbook.slice(match.index + match[0].length)}`;
+  workbook = upsertDefinedName(workbook, '', (item) => Number(xmlAttribute(item, 'localSheetId')) === index);
+  workbook = workbook.replace(/<definedName\b[^>]*?(?:\/>|>[\s\S]*?<\/definedName>)/g, (item) => {
+    const local = Number(xmlAttribute(item, 'localSheetId'));
+    return Number.isFinite(local) && local > index
+      ? item.replace(/\blocalSheetId="\d+"/, `localSheetId="${local - 1}"`)
+      : item;
+  });
+  zip.file(workbookPath, workbook);
+  const relsPath = 'xl/_rels/workbook.xml.rels';
+  const rels = await zipText(zip, relsPath);
+  zip.file(relsPath, rels.replace(new RegExp(`<Relationship\\b[^>]*\\bId="${tagPattern(sheet.rid)}"[^>]*\\/>`), ''));
+  zip.remove(sheet.path);
+  const partRels = `${posix.dirname(sheet.path)}/_rels/${posix.basename(sheet.path)}.rels`;
+  if (zip.file(partRels)) zip.remove(partRels);
+  const types = await zipText(zip, '[Content_Types].xml');
+  zip.file('[Content_Types].xml', types.replace(new RegExp(`<Override\\b[^>]*\\bPartName="/${tagPattern(sheet.path)}"[^>]*\\/>`), ''));
+  return { sheet: sheet.name };
+}
+
 async function applyXlsx(zip, operations) {
-  const sheets = await workbookSheets(zip);
-  const byName = new Map(sheets.map((sheet) => [sheet.name.toLowerCase(), sheet]));
+  let sheets = await workbookSheets(zip);
   const results = [];
   let recalculationRequired = false;
   for (const op of operations) {
-    const sheet = op.sheet ? byName.get(String(op.sheet).toLowerCase()) : sheets[0];
-    if (!sheet) throw new Error(`Worksheet not found: ${op.sheet || '(first sheet)'}`);
+    if (op.op === 'add_sheet') {
+      const created = await addWorksheet(zip, op.name);
+      sheets = await workbookSheets(zip);
+      results.push({ op: op.op, changed: true, sheet: created.name });
+      continue;
+    }
+    const selected = op.sheet
+      ? sheets.find((entry) => entry.name.toLowerCase() === String(op.sheet).toLowerCase())
+      : sheets[0];
+    if (!selected) throw new Error(`Worksheet not found: ${op.sheet || '(first sheet)'}`);
+    if (op.op === 'rename_sheet') {
+      const renamed = await renameWorksheet(zip, selected, op.name);
+      sheets = await workbookSheets(zip);
+      results.push({ op: op.op, changed: true, ...renamed });
+      continue;
+    }
+    if (op.op === 'delete_sheet') {
+      const removed = await deleteWorksheet(zip, sheets, selected);
+      sheets = await workbookSheets(zip);
+      results.push({ op: op.op, changed: true, ...removed });
+      continue;
+    }
+    const sheet = selected;
     let xml = await zipText(zip, sheet.path);
     if (op.op === 'set_cell' || op.op === 'set_formula') {
       xml = setCellInSheet(xml, op.cell, op.value, op.op === 'set_formula' ? op.formula : '');
@@ -1218,6 +1576,147 @@ async function applyXlsx(zip, operations) {
       results.push({ op: op.op, changed: count > 0, count });
       continue;
     }
+    if (op.op === 'set_style') {
+      const target = op.range || op.cell;
+      if (!target) throw new Error('set_style requires cell or range');
+      const area = parseAreaRange(target);
+      if (!area.startRow || !area.startCol) throw new Error('set_style requires a bounded cell or range such as A1 or A1:D5');
+      const covered = (area.endRow - area.startRow + 1) * (area.endCol - area.startCol + 1);
+      if (covered > MAX_STYLED_CELLS) {
+        throw new Error(`set_style covers ${covered} cells; narrow the range to at most ${MAX_STYLED_CELLS}`);
+      }
+      const stylesPath = 'xl/styles.xml';
+      let styles = await zipText(zip, stylesPath);
+      if (!styles) throw new Error('Workbook is missing xl/styles.xml');
+      const resolved = new Map();
+      for (let row = area.startRow; row <= area.endRow; row += 1) {
+        for (let column = area.startCol; column <= area.endCol; column += 1) {
+          const ref = `${columnLabel(column)}${row}`;
+          const base = existingCellStyle(xml, ref);
+          if (!resolved.has(base)) {
+            const applied = applyCellStyle(styles, base, op.properties || {});
+            styles = applied.xml;
+            resolved.set(base, applied.index);
+          }
+          xml = setCellStyleInSheet(xml, ref, resolved.get(base));
+        }
+      }
+      zip.file(stylesPath, styles);
+      zip.file(sheet.path, xml);
+      results.push({ op: op.op, changed: covered > 0, sheet: sheet.name, cells: covered });
+      continue;
+    }
+    if (op.op === 'merge_cells' || op.op === 'unmerge_cells') {
+      const area = parseAreaRange(op.range);
+      if (!area.startRow || !area.startCol) throw new Error(`${op.op} requires a bounded range such as A1:D1`);
+      const ref = `${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`;
+      const current = mergedRanges(xml);
+      const next = op.op === 'merge_cells'
+        ? [...current, ref]
+        : current.filter((entry) => entry !== ref);
+      const changed = new Set(next).size !== new Set(current).size;
+      xml = writeMergedRanges(xml, next);
+      zip.file(sheet.path, xml);
+      results.push({ op: op.op, changed, sheet: sheet.name, range: ref });
+      continue;
+    }
+    if (op.op === 'freeze_panes') {
+      const pane = freezePaneXml(op.row, op.column);
+      xml = updateSheetView(xml, (view) => {
+        const { attrs, body } = sheetViewParts(view);
+        const stripped = body.replace(/<pane\b[^>]*?(?:\/>|>[\s\S]*?<\/pane>)/, '');
+        return composeSheetView(attrs, `${pane}${stripped}`);
+      });
+      zip.file(sheet.path, xml);
+      results.push({ op: op.op, changed: true, sheet: sheet.name, frozen: Boolean(pane) });
+      continue;
+    }
+    if (op.op === 'set_sheet_view') {
+      xml = updateSheetView(xml, (view) => {
+        const { attrs, body } = sheetViewParts(view);
+        let next = attrs;
+        if (op.showGridlines != null) {
+          next = setXmlAttribute(next, 'showGridLines', op.showGridlines === true ? '1' : '0');
+        }
+        if (op.zoom != null) {
+          const zoom = Math.min(400, Math.max(10, Math.round(Number(op.zoom) || 100)));
+          next = setXmlAttribute(next, 'zoomScale', zoom);
+          next = setXmlAttribute(next, 'zoomScaleNormal', zoom);
+        }
+        return composeSheetView(next, body);
+      });
+      zip.file(sheet.path, xml);
+      results.push({ op: op.op, changed: true, sheet: sheet.name });
+      continue;
+    }
+    if (op.op === 'autofit_range') {
+      const area = parseAreaRange(op.range);
+      const records = cellRecords(xml, await sharedStrings(zip));
+      const spans = mergedRanges(xml).map((entry) => parseAreaRange(entry));
+      const measured = new Map();
+      for (const record of records) {
+        const parsed = parseCellRef(record.ref);
+        const column = columnNumber(parsed.col);
+        if (area.startCol && (column < area.startCol || column > area.endCol)) continue;
+        if (area.startRow && (parsed.row < area.startRow || parsed.row > area.endRow)) continue;
+        if (spans.some((span) => span.startCol !== span.endCol
+          && span.startCol <= column && column <= span.endCol
+          && span.startRow <= parsed.row && parsed.row <= span.endRow)) continue;
+        const text = record.formula ? String(record.cachedValue ?? '') : String(record.value ?? '');
+        measured.set(column, Math.max(measured.get(column) || 0, displayWidth(text)));
+      }
+      const widths = new Map([...measured.entries()]
+        .map(([column, width]) => [column, Math.min(80, Math.max(8, Math.round((width + 2) * 10) / 10))]));
+      xml = writeColumnWidths(xml, widths);
+      zip.file(sheet.path, xml);
+      results.push({ op: op.op, changed: widths.size > 0, sheet: sheet.name, columns: widths.size });
+      continue;
+    }
+    if (op.op === 'set_page_setup') {
+      const orientation = String(op.orientation || '').toLowerCase();
+      if (orientation && !['portrait', 'landscape'].includes(orientation)) {
+        throw new Error('set_page_setup orientation must be portrait or landscape');
+      }
+      const fitWide = Number(op.fitToPagesWide) || 0;
+      const fitTall = op.fitToPagesTall == null ? null : Number(op.fitToPagesTall) || 0;
+      if (fitWide || fitTall != null) {
+        const existing = worksheetSection(xml, 'sheetPr');
+        const attrs = existing ? /^<sheetPr\b([^>]*?)(?:\/>|>)/.exec(existing[0])?.[1] || '' : '';
+        const body = existing && !existing[0].endsWith('/>')
+          ? existing[0].slice(existing[0].indexOf('>') + 1, existing[0].lastIndexOf('</sheetPr>'))
+          : '';
+        const cleaned = body.replace(/<pageSetUpPr\b[^>]*?\/>/, '');
+        xml = upsertWorksheetSection(xml, 'sheetPr', `<sheetPr${attrs}>${cleaned}<pageSetUpPr fitToPage="1"/></sheetPr>`);
+      }
+      const centered = `${op.centerHorizontally === true ? ' horizontalCentered="1"' : ''}`
+        + `${op.centerVertically === true ? ' verticalCentered="1"' : ''}`;
+      xml = upsertWorksheetSection(xml, 'printOptions', centered ? `<printOptions${centered}/>` : '');
+      const margin = (value, fallback) => (Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : fallback);
+      xml = upsertWorksheetSection(xml, 'pageMargins', `<pageMargins left="${margin(op.leftMargin, 0.7)}"`
+        + ` right="${margin(op.rightMargin, 0.7)}" top="${margin(op.topMargin, 0.75)}"`
+        + ` bottom="${margin(op.bottomMargin, 0.75)}" header="0.3" footer="0.3"/>`);
+      xml = upsertWorksheetSection(xml, 'pageSetup', `<pageSetup paperSize="9"`
+        + `${orientation ? ` orientation="${orientation}"` : ''}`
+        + `${fitWide ? ` fitToWidth="${fitWide}"` : ''}`
+        + `${fitTall == null ? '' : ` fitToHeight="${fitTall}"`}/>`);
+      zip.file(sheet.path, xml);
+      if (op.printArea) {
+        const area = parseAreaRange(op.printArea);
+        const reference = `${quoteSheetName(sheet.name)}!`
+          + absoluteRange(`${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`);
+        const localSheetId = sheets.findIndex((entry) => entry.name === sheet.name);
+        const workbookPath = 'xl/workbook.xml';
+        const workbook = await zipText(zip, workbookPath);
+        zip.file(workbookPath, upsertDefinedName(
+          workbook,
+          `<definedName name="_xlnm.Print_Area" localSheetId="${localSheetId}">${xmlEncode(reference)}</definedName>`,
+          (item) => xmlAttribute(item, 'name') === '_xlnm.Print_Area'
+            && Number(xmlAttribute(item, 'localSheetId')) === localSheetId,
+        ));
+      }
+      results.push({ op: op.op, changed: true, sheet: sheet.name });
+      continue;
+    }
     throw new Error(`Portable XLSX backend does not support operation: ${op.op}`);
   }
   if (recalculationRequired) {
@@ -1227,14 +1726,388 @@ async function applyXlsx(zip, operations) {
   return results;
 }
 
+const PRESENTATION_NAMESPACES = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
+  + ` xmlns:r="${OFFICE_RELATIONSHIP_BASE}"`
+  + ' xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"';
+const PACKAGE_RELATIONSHIP_NS = 'http://schemas.openxmlformats.org/package/2006/relationships';
+const SLIDE_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.presentationml.slide+xml';
+const NOTES_SLIDE_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml';
+const NOTES_MASTER_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml';
+const IMAGE_CONTENT_TYPES = Object.freeze({
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  bmp: 'image/bmp',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+  svg: 'image/svg+xml',
+  webp: 'image/webp',
+});
+const XML_HEADER = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n';
+
+function emptyGroupShape() {
+  return '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>'
+    + '<p:grpSpPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/>'
+    + '<a:chOff x="0" y="0"/><a:chExt cx="0" cy="0"/></a:xfrm></p:grpSpPr>';
+}
+
+async function presentationSlides(zip) {
+  const presentation = await zipText(zip, 'ppt/presentation.xml');
+  const rels = relationshipMap(await zipText(zip, 'ppt/_rels/presentation.xml.rels'));
+  const slides = [];
+  for (const match of presentation.matchAll(/<p:sldId\b([^>]*?)\/>/g)) {
+    const rid = /\br:id="([^"]+)"/.exec(match[1])?.[1] || '';
+    const target = rid ? rels.get(rid) : '';
+    if (!target) continue;
+    slides.push({
+      id: Number(/\bid="(\d+)"/.exec(match[1])?.[1]) || 0,
+      rid,
+      path: target.startsWith('/') ? target.slice(1) : posix.normalize(posix.join('ppt', target)),
+    });
+  }
+  if (slides.length) return slides;
+  return Object.keys(zip.files)
+    .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+    .sort((left, right) => Number(/(\d+)\.xml$/.exec(left)[1]) - Number(/(\d+)\.xml$/.exec(right)[1]))
+    .map((path) => ({ id: 0, rid: '', path }));
+}
+
+function slidePath(slides, number) {
+  const slide = slides[Number(number) - 1];
+  if (!slide) throw new Error(`PPTX slide ${number} not found`);
+  return slide.path;
+}
+
+async function ensureContentTypeOverride(zip, part, type) {
+  const path = '[Content_Types].xml';
+  const xml = await zipText(zip, path);
+  if (xml.includes(`PartName="${part}"`)) return;
+  zip.file(path, xml.replace('</Types>', `<Override PartName="${part}" ContentType="${type}"/></Types>`));
+}
+
+async function removeContentTypeOverride(zip, part) {
+  const path = '[Content_Types].xml';
+  const xml = await zipText(zip, path);
+  zip.file(path, xml.replace(new RegExp(`<Override\\b[^>]*\\bPartName="${tagPattern(part)}"[^>]*\\/>`), ''));
+}
+
+async function ensureDefaultContentType(zip, extension, type) {
+  const path = '[Content_Types].xml';
+  const xml = await zipText(zip, path);
+  if (new RegExp(`<Default\\b[^>]*\\bExtension="${extension}"`, 'i').test(xml)) return;
+  zip.file(path, xml.replace(/<Types\b[^>]*>/, `$&<Default Extension="${extension}" ContentType="${type}"/>`));
+}
+
+async function addPackageRelationship(zip, relsPath, type, target) {
+  const existing = await zipText(zip, relsPath);
+  const xml = existing || `${XML_HEADER}<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}"></Relationships>`;
+  const id = nextRelationshipId(xml);
+  zip.file(relsPath, xml.replace('</Relationships>', `<Relationship Id="${id}" Type="${type}" Target="${xmlEncode(target)}"/></Relationships>`));
+  return id;
+}
+
+async function removePackageRelationship(zip, relsPath, id) {
+  const xml = await zipText(zip, relsPath);
+  if (!xml) return;
+  zip.file(relsPath, xml.replace(new RegExp(`<Relationship\\b[^>]*\\bId="${tagPattern(id)}"[^>]*\\/>`), ''));
+}
+
+function partRelationshipPath(part) {
+  return `${posix.dirname(part)}/_rels/${posix.basename(part)}.rels`;
+}
+
+async function slideLayoutParts(zip) {
+  const paths = Object.keys(zip.files)
+    .filter((name) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(name))
+    .sort((left, right) => Number(/(\d+)\.xml$/.exec(left)[1]) - Number(/(\d+)\.xml$/.exec(right)[1]));
+  const layouts = [];
+  for (const path of paths) {
+    const xml = await zipText(zip, path);
+    layouts.push({
+      path,
+      name: xmlDecode(/<p:cSld\b[^>]*\bname="([^"]*)"/.exec(xml)?.[1] || ''),
+      type: /<p:sldLayout\b[^>]*\btype="([^"]*)"/.exec(xml)?.[1] || '',
+    });
+  }
+  return layouts;
+}
+
+function selectSlideLayout(layouts, requested) {
+  if (!layouts.length) throw new Error('Presentation has no slide layout for a new slide');
+  const value = String(requested ?? '').trim();
+  if (!value) return layouts.find((layout) => layout.type === 'blank') || layouts[0];
+  if (/^\d+$/.test(value)) {
+    const found = layouts[Number(value) - 1];
+    if (!found) throw new Error(`Slide layout ${value} not found`);
+    return found;
+  }
+  const matched = layouts.find((layout) => layout.name.toLowerCase() === value.toLowerCase())
+    || layouts.find((layout) => layout.type.toLowerCase() === value.toLowerCase());
+  if (!matched) {
+    throw new Error(`Slide layout not found: ${value}. Available: ${layouts.map((layout) => layout.name || layout.type || '(unnamed)').join(', ')}`);
+  }
+  return matched;
+}
+
+function writeSlideIdList(presentation, entries) {
+  const element = `<p:sldIdLst>${entries.join('')}</p:sldIdLst>`;
+  const existing = /<p:sldIdLst\b[^>]*?(?:\/>|>[\s\S]*?<\/p:sldIdLst>)/.exec(presentation);
+  if (existing) {
+    return `${presentation.slice(0, existing.index)}${element}${presentation.slice(existing.index + existing[0].length)}`;
+  }
+  const size = /<p:sldSz\b/.exec(presentation);
+  if (size) return `${presentation.slice(0, size.index)}${element}${presentation.slice(size.index)}`;
+  return presentation.replace('</p:presentation>', `${element}</p:presentation>`);
+}
+
+function slideIdEntries(presentation) {
+  const list = /<p:sldIdLst\b[^>]*?(?:\/>|>[\s\S]*?<\/p:sldIdLst>)/.exec(presentation);
+  return list ? [...list[0].matchAll(/<p:sldId\b[^>]*?\/>/g)].map((match) => match[0]) : [];
+}
+
+async function addPresentationSlide(zip, op) {
+  const layout = selectSlideLayout(await slideLayoutParts(zip), op.layout);
+  let ordinal = 1;
+  while (zip.file(`ppt/slides/slide${ordinal}.xml`)) ordinal += 1;
+  const part = `ppt/slides/slide${ordinal}.xml`;
+  zip.file(part, `${XML_HEADER}<p:sld ${PRESENTATION_NAMESPACES}><p:cSld><p:spTree>${emptyGroupShape()}`
+    + '</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>');
+  zip.file(partRelationshipPath(part), `${XML_HEADER}<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}">`
+    + `<Relationship Id="rId1" Type="${OFFICE_RELATIONSHIP_BASE}/slideLayout" Target="${posix.relative('ppt/slides', layout.path)}"/>`
+    + '</Relationships>');
+  await ensureContentTypeOverride(zip, `/${part}`, SLIDE_CONTENT_TYPE);
+  const relationshipId = await addPackageRelationship(
+    zip,
+    'ppt/_rels/presentation.xml.rels',
+    `${OFFICE_RELATIONSHIP_BASE}/slide`,
+    `slides/slide${ordinal}.xml`,
+  );
+  const presentationPath = 'ppt/presentation.xml';
+  const presentation = await zipText(zip, presentationPath);
+  const entries = slideIdEntries(presentation);
+  const ids = entries.map((entry) => Number(xmlAttribute(entry, 'id')) || 0);
+  const position = Number(op.index) > 0 ? Math.min(Number(op.index) - 1, entries.length) : entries.length;
+  entries.splice(position, 0, `<p:sldId id="${Math.max(255, ...ids) + 1}" r:id="${relationshipId}"/>`);
+  zip.file(presentationPath, writeSlideIdList(presentation, entries));
+  return { part, position: position + 1, layout: layout.name || layout.type || layout.path };
+}
+
+async function deletePresentationSlide(zip, slides, number) {
+  if (slides.length <= 1) throw new Error('A presentation must keep at least one slide');
+  const slide = slides[Number(number) - 1];
+  if (!slide) throw new Error(`PPTX slide ${number} not found`);
+  const presentationPath = 'ppt/presentation.xml';
+  const presentation = await zipText(zip, presentationPath);
+  const entries = slideIdEntries(presentation)
+    .filter((entry) => xmlAttribute(entry, 'r:id') !== slide.rid);
+  zip.file(presentationPath, writeSlideIdList(presentation, entries));
+  await removePackageRelationship(zip, 'ppt/_rels/presentation.xml.rels', slide.rid);
+  const relsPath = partRelationshipPath(slide.path);
+  const rels = await zipText(zip, relsPath);
+  const notes = /<Relationship\b[^>]*\bType="[^"]*\/notesSlide"[^>]*\bTarget="([^"]+)"/.exec(rels)?.[1];
+  if (notes) {
+    const notesPart = posix.normalize(posix.join(posix.dirname(slide.path), notes));
+    zip.remove(notesPart);
+    if (zip.file(partRelationshipPath(notesPart))) zip.remove(partRelationshipPath(notesPart));
+    await removeContentTypeOverride(zip, `/${notesPart}`);
+  }
+  zip.remove(slide.path);
+  if (zip.file(relsPath)) zip.remove(relsPath);
+  await removeContentTypeOverride(zip, `/${slide.path}`);
+}
+
+async function movePresentationSlide(zip, slides, number, index) {
+  const slide = slides[Number(number) - 1];
+  if (!slide) throw new Error(`PPTX slide ${number} not found`);
+  const target = Number(index);
+  if (!Number.isFinite(target) || target < 1 || target > slides.length) {
+    throw new Error(`move_slide index must be between 1 and ${slides.length}`);
+  }
+  const presentationPath = 'ppt/presentation.xml';
+  const presentation = await zipText(zip, presentationPath);
+  const entries = slideIdEntries(presentation);
+  const from = entries.findIndex((entry) => xmlAttribute(entry, 'r:id') === slide.rid);
+  if (from < 0) throw new Error(`PPTX slide ${number} is not listed in the presentation`);
+  const [moved] = entries.splice(from, 1);
+  entries.splice(target - 1, 0, moved);
+  zip.file(presentationPath, writeSlideIdList(presentation, entries));
+}
+
+async function ensureNotesMaster(zip) {
+  const part = 'ppt/notesMasters/notesMaster1.xml';
+  if (zip.file(part)) return part;
+  const theme = Object.keys(zip.files).find((name) => /^ppt\/theme\/theme\d+\.xml$/.test(name));
+  if (!theme) throw new Error('Presentation is missing a theme for the notes master');
+  const colorMap = 'bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2" accent1="accent1" accent2="accent2"'
+    + ' accent3="accent3" accent4="accent4" accent5="accent5" accent6="accent6" hlink="hlink" folHlink="folHlink"';
+  zip.file(part, `${XML_HEADER}<p:notesMaster ${PRESENTATION_NAMESPACES}>`
+    + `<p:cSld><p:spTree>${emptyGroupShape()}</p:spTree></p:cSld>`
+    + `<p:clrMap ${colorMap}/>`
+    + '<p:notesStyle><a:lvl1pPr><a:defRPr sz="1200"/></a:lvl1pPr></p:notesStyle>'
+    + '</p:notesMaster>');
+  zip.file(partRelationshipPath(part), `${XML_HEADER}<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}">`
+    + `<Relationship Id="rId1" Type="${OFFICE_RELATIONSHIP_BASE}/theme" Target="${posix.relative('ppt/notesMasters', theme)}"/>`
+    + '</Relationships>');
+  await ensureContentTypeOverride(zip, `/${part}`, NOTES_MASTER_CONTENT_TYPE);
+  const relationshipId = await addPackageRelationship(
+    zip,
+    'ppt/_rels/presentation.xml.rels',
+    `${OFFICE_RELATIONSHIP_BASE}/notesMaster`,
+    'notesMasters/notesMaster1.xml',
+  );
+  const presentationPath = 'ppt/presentation.xml';
+  const presentation = await zipText(zip, presentationPath);
+  if (!/<p:notesMasterIdLst\b/.test(presentation)) {
+    const element = `<p:notesMasterIdLst><p:notesMasterId r:id="${relationshipId}"/></p:notesMasterIdLst>`;
+    const anchor = /<p:sldIdLst\b/.exec(presentation) || /<p:sldSz\b/.exec(presentation);
+    zip.file(presentationPath, anchor
+      ? `${presentation.slice(0, anchor.index)}${element}${presentation.slice(anchor.index)}`
+      : presentation.replace('</p:presentation>', `${element}</p:presentation>`));
+  }
+  return part;
+}
+
+async function setSlideNotes(zip, slides, number, text) {
+  const slide = slides[Number(number) - 1];
+  if (!slide) throw new Error(`PPTX slide ${number} not found`);
+  await ensureNotesMaster(zip);
+  const slideRelsPath = partRelationshipPath(slide.path);
+  const slideRels = await zipText(zip, slideRelsPath);
+  const linked = /<Relationship\b[^>]*\bType="[^"]*\/notesSlide"[^>]*\bTarget="([^"]+)"/.exec(slideRels)?.[1];
+  const ordinal = Number(/slide(\d+)\.xml$/.exec(slide.path)?.[1]) || Number(number);
+  const part = linked
+    ? posix.normalize(posix.join(posix.dirname(slide.path), linked))
+    : `ppt/notesSlides/notesSlide${ordinal}.xml`;
+  const paragraphs = String(text ?? '').split(/\r?\n/).map((line) => ({ text: line }));
+  const body = textBodyXml({ paragraphs, defaults: { fontSize: 12 } });
+  zip.file(part, `${XML_HEADER}<p:notes ${PRESENTATION_NAMESPACES}><p:cSld><p:spTree>${emptyGroupShape()}`
+    + '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Notes Placeholder"/>'
+    + '<p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr>'
+    + '<p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>'
+    + `<p:spPr/><p:txBody>${body}</p:txBody></p:sp>`
+    + '</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:notes>');
+  if (!zip.file(partRelationshipPath(part))) {
+    zip.file(partRelationshipPath(part), `${XML_HEADER}<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}">`
+      + `<Relationship Id="rId1" Type="${OFFICE_RELATIONSHIP_BASE}/slide" Target="${posix.relative(posix.dirname(part), slide.path)}"/>`
+      + `<Relationship Id="rId2" Type="${OFFICE_RELATIONSHIP_BASE}/notesMaster" Target="${posix.relative(posix.dirname(part), 'ppt/notesMasters/notesMaster1.xml')}"/>`
+      + '</Relationships>');
+  }
+  await ensureContentTypeOverride(zip, `/${part}`, NOTES_SLIDE_CONTENT_TYPE);
+  if (!linked) {
+    await addPackageRelationship(
+      zip,
+      slideRelsPath,
+      `${OFFICE_RELATIONSHIP_BASE}/notesSlide`,
+      posix.relative(posix.dirname(slide.path), part),
+    );
+  }
+}
+
+async function addSlideImage(zip, slidePart, source) {
+  const extension = extname(String(source || '')).replace(/^\./, '').toLowerCase();
+  const contentType = IMAGE_CONTENT_TYPES[extension];
+  if (!contentType) {
+    throw new Error(`Unsupported image type: .${extension || 'unknown'}. Use ${Object.keys(IMAGE_CONTENT_TYPES).join(', ')}`);
+  }
+  const data = await readFile(source);
+  let ordinal = 1;
+  while (zip.file(`ppt/media/image${ordinal}.${extension}`)) ordinal += 1;
+  const part = `ppt/media/image${ordinal}.${extension}`;
+  zip.file(part, data);
+  await ensureDefaultContentType(zip, extension, contentType);
+  const relationshipId = await addPackageRelationship(
+    zip,
+    partRelationshipPath(slidePart),
+    `${OFFICE_RELATIONSHIP_BASE}/image`,
+    posix.relative(posix.dirname(slidePart), part),
+  );
+  return { part, relationshipId };
+}
+
+function appendSlideShape(xml, shape) {
+  if (!/<\/p:spTree>/.test(xml)) throw new Error('PPTX slide shape tree is missing');
+  return xml.replace('</p:spTree>', `${shape}</p:spTree>`);
+}
+
+function setSlideBackground(xml, color) {
+  const background = backgroundXml(color);
+  const existing = /<p:bg\b[^>]*?(?:\/>|>[\s\S]*?<\/p:bg>)/.exec(xml);
+  if (existing) {
+    return `${xml.slice(0, existing.index)}${background}${xml.slice(existing.index + existing[0].length)}`;
+  }
+  const common = /<p:cSld\b[^>]*?>/.exec(xml);
+  if (!common) throw new Error('PPTX slide is missing its common slide data');
+  const position = common.index + common[0].length;
+  return `${xml.slice(0, position)}${background}${xml.slice(position)}`;
+}
+
+function updateShapeGeometry(shape, properties) {
+  let next = shape;
+  if (['left', 'top', 'width', 'height', 'rotation'].some((key) => properties[key] != null)) {
+    const current = /<a:xfrm\b[^>]*?(?:\/>|>[\s\S]*?<\/a:xfrm>)/.exec(next);
+    const offset = current ? /<a:off\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)"/.exec(current[0]) : null;
+    const extent = current ? /<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(current[0]) : null;
+    const rotation = properties.rotation != null
+      ? Math.round(Number(properties.rotation) * 60_000)
+      : Number(current ? xmlAttribute(current[0], 'rot') : 0) || 0;
+    const frame = `<a:xfrm${rotation ? ` rot="${rotation}"` : ''}>`
+      + `<a:off x="${properties.left != null ? toEmu(properties.left) : Number(offset?.[1] || 0)}"`
+      + ` y="${properties.top != null ? toEmu(properties.top) : Number(offset?.[2] || 0)}"/>`
+      + `<a:ext cx="${properties.width != null ? toEmu(properties.width) : Number(extent?.[1] || 1)}"`
+      + ` cy="${properties.height != null ? toEmu(properties.height) : Number(extent?.[2] || 1)}"/></a:xfrm>`;
+    next = current
+      ? `${next.slice(0, current.index)}${frame}${next.slice(current.index + current[0].length)}`
+      : next.replace(/<p:spPr(?:\s[^>]*)?>/, `$&${frame}`);
+  }
+  if (properties.fillColor != null) {
+    const shapeProperties = containerInner(next, 'p:spPr');
+    const fill = solidFillXml(properties.fillColor, properties.fillTransparency);
+    if (shapeProperties && fill) {
+      const cleaned = shapeProperties.inner
+        .replace(/<a:solidFill\b[^>]*?(?:\/>|>[\s\S]*?<\/a:solidFill>)/, '')
+        .replace(/<a:noFill\s*\/>/, '');
+      const geometry = /<a:prstGeom\b[^>]*?(?:\/>|>[\s\S]*?<\/a:prstGeom>)/.exec(cleaned);
+      const position = geometry ? geometry.index + geometry[0].length : cleaned.length;
+      const inner = `${cleaned.slice(0, position)}${fill}${cleaned.slice(position)}`;
+      next = `${next.slice(0, shapeProperties.start)}${inner}${next.slice(shapeProperties.end)}`;
+    }
+  }
+  return next;
+}
+
 function nextShapeId(xml) {
   const ids = [...xml.matchAll(/\bcNvPr\s+id="(\d+)"/g)].map((match) => Number(match[1]));
   return Math.max(1, ...ids) + 1;
 }
 
 async function applyPptx(zip, operations) {
+  let slides = await presentationSlides(zip);
   const results = [];
   for (const op of operations) {
+    if (op.op === 'add_slide') {
+      const created = await addPresentationSlide(zip, op);
+      slides = await presentationSlides(zip);
+      results.push({ op: op.op, changed: true, slide: created.position, layout: created.layout });
+      continue;
+    }
+    if (op.op === 'delete_slide') {
+      await deletePresentationSlide(zip, slides, op.slide);
+      slides = await presentationSlides(zip);
+      results.push({ op: op.op, changed: true, slide: Number(op.slide) });
+      continue;
+    }
+    if (op.op === 'move_slide') {
+      await movePresentationSlide(zip, slides, op.slide, op.index);
+      slides = await presentationSlides(zip);
+      results.push({ op: op.op, changed: true, slide: Number(op.slide), index: Number(op.index) });
+      continue;
+    }
+    if (op.op === 'set_notes') {
+      await setSlideNotes(zip, slides, op.slide, op.text);
+      results.push({ op: op.op, changed: true, slide: Number(op.slide) });
+      continue;
+    }
     if (op.op === 'fill_template') {
       const paths = Object.keys(zip.files).filter((name) => /^ppt\/(slides\/slide\d+|notesSlides\/notesSlide\d+)\.xml$/.test(name));
       results.push(await fillTemplateParts(zip, paths, 'a:t', op));
@@ -1253,9 +2126,8 @@ async function applyPptx(zip, operations) {
       continue;
     }
     if (op.op === 'set_text') {
-      const path = `ppt/slides/slide${Number(op.slide)}.xml`;
+      const path = slidePath(slides, op.slide);
       const current = await zipText(zip, path);
-      if (!current) throw new Error(`PPTX slide ${op.slide} not found`);
       const shapes = [...current.matchAll(/<p:sp(?:\s[^>]*)?>[\s\S]*?<\/p:sp>/g)];
       const shape = shapes[Number(op.shape) - 1];
       if (!shape) throw new Error(`PPTX shape ${op.shape} not found on slide ${op.slide}`);
@@ -1268,26 +2140,56 @@ async function applyPptx(zip, operations) {
       results.push({ op: op.op, changed: true });
       continue;
     }
-    if (op.op === 'add_textbox') {
-      const path = `ppt/slides/slide${Number(op.slide)}.xml`;
+    if (op.op === 'add_textbox' || op.op === 'add_shape') {
+      const path = slidePath(slides, op.slide);
       const current = await zipText(zip, path);
-      if (!current) throw new Error(`PPTX slide ${op.slide} not found`);
       const id = nextShapeId(current);
-      const left = Math.round(Number(op.left ?? 72) * 12700);
-      const top = Math.round(Number(op.top ?? 72) * 12700);
-      const width = Math.round(Number(op.width ?? 360) * 12700);
-      const height = Math.round(Number(op.height ?? 72) * 12700);
-      const size = Math.round(Number(op.properties?.fontSize ?? 18) * 100);
-      const shape = `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="Mixdog TextBox ${id}"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x="${left}" y="${top}"/><a:ext cx="${width}" cy="${height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln></p:spPr><p:txBody><a:bodyPr wrap="square"/><a:lstStyle/><a:p><a:r><a:rPr lang="en-US" sz="${size}"/><a:t>${xmlEncode(op.text ?? '')}</a:t></a:r><a:endParaRPr lang="en-US"/></a:p></p:txBody></p:sp>`;
-      if (!/<\/p:spTree>/.test(current)) throw new Error('PPTX slide shape tree is missing');
-      zip.file(path, current.replace('</p:spTree>', `${shape}</p:spTree>`));
+      const properties = op.properties || {};
+      const textBox = op.op === 'add_textbox';
+      const geometry = textBox ? 'rect' : resolveGeometry(op.shapeType);
+      if (!geometry) {
+        throw new Error(`Unsupported shapeType: ${op.shapeType}. Use one of: ${supportedShapeTypes().join(', ')}`);
+      }
+      const paragraphs = Array.isArray(op.paragraphs) && op.paragraphs.length
+        ? op.paragraphs
+        : [{ text: String(op.text ?? '') }];
+      const shape = shapeXml({
+        id,
+        name: `Mixdog ${textBox ? 'TextBox' : 'Shape'} ${id}`,
+        geometry,
+        left: op.left ?? properties.left ?? 72,
+        top: op.top ?? properties.top ?? 72,
+        width: op.width ?? properties.width ?? 360,
+        height: op.height ?? properties.height ?? 72,
+        properties: {
+          ...properties,
+          ...(op.fillColor == null ? {} : { fillColor: op.fillColor }),
+          ...(op.lineColor === undefined ? {} : { lineColor: op.lineColor }),
+        },
+        textBody: textBodyXml({
+          paragraphs,
+          defaults: {
+            fontName: op.fontName ?? properties.fontName,
+            fontSize: op.fontSize ?? properties.fontSize ?? 18,
+            color: op.color ?? properties.color,
+            bold: properties.bold,
+            italic: properties.italic,
+            align: properties.align,
+            paragraphSpacing: properties.paragraphSpacing,
+          },
+          anchor: properties.anchor || (textBox ? '' : 'center'),
+          margins: properties,
+          autofit: properties.autofit || 'none',
+        }),
+        textBox,
+      });
+      zip.file(path, appendSlideShape(current, shape));
       results.push({ op: op.op, changed: true, shapeId: id });
       continue;
     }
     if (op.op === 'delete_shape') {
-      const path = `ppt/slides/slide${Number(op.slide)}.xml`;
+      const path = slidePath(slides, op.slide);
       const current = await zipText(zip, path);
-      if (!current) throw new Error(`PPTX slide ${op.slide} not found`);
       const tree = containerInner(current, 'p:spTree');
       if (!tree) throw new Error('PPTX slide shape tree is missing');
       const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
@@ -1296,6 +2198,61 @@ async function applyPptx(zip, operations) {
       const nextInner = `${tree.inner.slice(0, shape.start)}${tree.inner.slice(shape.end)}`;
       zip.file(path, `${current.slice(0, tree.start)}${nextInner}${current.slice(tree.end)}`);
       results.push({ op: op.op, changed: true });
+      continue;
+    }
+    if (op.op === 'set_slide_background') {
+      const path = slidePath(slides, op.slide);
+      const current = await zipText(zip, path);
+      zip.file(path, setSlideBackground(current, op.color));
+      results.push({ op: op.op, changed: true, slide: Number(op.slide) });
+      continue;
+    }
+    if (op.op === 'add_table') {
+      const path = slidePath(slides, op.slide);
+      const current = await zipText(zip, path);
+      const id = nextShapeId(current);
+      const table = tableXml({
+        id,
+        values: Array.isArray(op.values) ? op.values : [],
+        left: op.left ?? 72,
+        top: op.top ?? 72,
+        width: op.width ?? 480,
+        height: op.height ?? 120,
+        properties: op.properties || {},
+      });
+      zip.file(path, appendSlideShape(current, table));
+      results.push({ op: op.op, changed: true, shapeId: id });
+      continue;
+    }
+    if (op.op === 'add_image') {
+      const path = slidePath(slides, op.slide);
+      const media = await addSlideImage(zip, path, op.path);
+      const current = await zipText(zip, path);
+      const id = nextShapeId(current);
+      const picture = pictureXml({
+        id,
+        embedId: media.relationshipId,
+        left: op.left ?? 72,
+        top: op.top ?? 72,
+        width: op.width ?? 240,
+        height: op.height ?? 180,
+      });
+      zip.file(path, appendSlideShape(current, picture));
+      results.push({ op: op.op, changed: true, shapeId: id, image: media.part });
+      continue;
+    }
+    if (op.op === 'set_shape') {
+      const path = slidePath(slides, op.slide);
+      const current = await zipText(zip, path);
+      const tree = containerInner(current, 'p:spTree');
+      if (!tree) throw new Error('PPTX slide shape tree is missing');
+      const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
+      const shape = shapes[Number(op.shape) - 1];
+      if (!shape) throw new Error(`PPTX shape ${op.shape} not found on slide ${op.slide}`);
+      const updated = updateShapeGeometry(shape.xml, op.properties || {});
+      const nextInner = `${tree.inner.slice(0, shape.start)}${updated}${tree.inner.slice(shape.end)}`;
+      zip.file(path, `${current.slice(0, tree.start)}${nextInner}${current.slice(tree.end)}`);
+      results.push({ op: op.op, changed: updated !== shape.xml });
       continue;
     }
     throw new Error(`Portable PPTX backend does not support operation: ${op.op}`);

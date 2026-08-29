@@ -53,6 +53,7 @@ export const DESKTOP_IPC = {
   lspStatus: 'mixdog:lsp-status',
   relayPayloadRefused: 'mixdog:relay-payload-refused',
   listSessions: 'mixdog:list-sessions',
+  markSessionRead: 'mixdog:mark-session-read',
   renameSession: 'mixdog:rename-session',
   setSessionArchived: 'mixdog:set-session-archived',
   deleteSession: 'mixdog:delete-session',
@@ -80,6 +81,7 @@ export const DESKTOP_IPC = {
   setZoomFactor: 'mixdog:set-zoom-factor',
   zoomFactorChanged: 'mixdog:zoom-factor-changed',
   browserOpenRequested: 'mixdog:browser-open-requested',
+  browserSetActiveGuest: 'mixdog:browser-set-active-guest',
   browserProfileImportSources: 'mixdog:browser-profile-import-sources',
   browserProfileImportStart: 'mixdog:browser-profile-import-start',
   browserProfileImportProgress: 'mixdog:browser-profile-import-progress',
@@ -289,7 +291,7 @@ export interface DesktopWorkflowState extends Readonly<Record<string, unknown>> 
 export interface DesktopGoalTask extends Readonly<Record<string, unknown>> {
   id?: string;
   text?: string;
-  status?: 'pending' | 'in_progress' | 'completed';
+  status?: 'pending' | 'in_progress' | 'completed' | 'dropped' | 'awaiting_approval';
   kind?: 'work' | 'verification';
 }
 
@@ -298,10 +300,12 @@ export interface DesktopGoalState extends Readonly<Record<string, unknown>> {
   sessionId?: string;
   objective?: string;
   title?: string;
-  status?: 'active' | 'paused' | 'blocked' | 'usage_limited' | 'budget_limited' | 'complete';
+  status?: 'active' | 'paused' | 'blocked' | 'usage_limited' | 'duration_reached' | 'complete';
   tasks?: DesktopGoalTask[];
   tasksCompleted?: number;
   tasksTotal?: number;
+  turnCount?: number;
+  tasksUpdatedAt?: number | null;
   blocker?: string;
   timeLimitMs?: number;
   timeUsedMs?: number;
@@ -944,6 +948,10 @@ export interface DesktopSessionSummary {
   /** User/assistant message count — the unread dot keys off GROWTH here, not
    *  updatedAt, so housekeeping saves never re-dot an already-checked session. */
   messageCount: number;
+  /** Host-persisted read cursor shared by desktop and paired mobile surfaces. */
+  readMessageCount?: number;
+  /** Monotonic cursor revision; advances for completion-only reads too. */
+  readRevision?: number;
   cwd: string;
   classification: DesktopSessionClassification;
   projectPath: string | null;
@@ -1619,6 +1627,13 @@ export interface DesktopApi {
     listener: (detail: { bytes: number | null; limit: number | null }) => void,
   ): () => void;
   listSessions(): Promise<DesktopSessionSummary[]>;
+  /** Persist and fan out a read cursor. `consumedUnread` covers a completion
+   *  marker whose message count did not advance. */
+  markSessionRead?(
+    sessionId: string,
+    messageCount: number,
+    consumedUnread?: boolean,
+  ): Promise<boolean>;
   /** Push channel: fires with a fresh catalog whenever the on-disk session
    *  store changes (any mixdog process). Renderers fall back to their
    *  safety-net poll when the host does not provide it (remote shim). */
@@ -1815,6 +1830,8 @@ export interface DesktopApi {
   /** Agent browser bridge (desktop host only): a `browser` tool call arrived
    *  while no in-app browser webview was live; present a browser surface. */
   onBrowserOpenRequested?(listener: () => void): () => void;
+  /** Keep the main-process Browser Use target aligned with the focused pane. */
+  browserSetActiveGuest?(paneId: string, webContentsId: number, active: boolean): Promise<void>;
   /** Local Chrome profile import into the isolated Browser Use partition.
    *  Secrets stay in main/native processes; renderer receives metadata/counts. */
   browserProfileImportSources?(): Promise<DesktopBrowserImportSource[]>;

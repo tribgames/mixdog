@@ -92,6 +92,21 @@ test('format-specific Office review catches orphan headings, chart totals, and s
     },
   });
   assert.ok(word.some((entry) => entry.code === 'orphan_heading'));
+  const tableCellHeading = reviewOfficeStructure({
+    format: 'docx',
+    document: {
+      paragraphs: [
+        { path: '/body/p[1]', index: 1, text: '결론', style: '제목 1', pageStart: 1, start: 1 },
+        { path: '/body/p[2]', index: 2, text: '표 셀', style: '제목 1', pageStart: 2, start: 20, inTable: true },
+      ],
+      tables: [{ path: '/body/tbl[1]', index: 1, pageStart: 1, pageEnd: 1, rows: [{ cells: [] }], start: 18 }],
+      blockOrder: [
+        { type: 'table', index: 1, path: '/body/tbl[1]', start: 18 },
+        { type: 'paragraph', index: 1, path: '/body/p[1]', start: 1 },
+      ],
+    },
+  });
+  assert.ok(!tableCellHeading.some((entry) => entry.code === 'orphan_heading'));
 
   const excel = reviewOfficeStructure({
     format: 'xlsx',
@@ -167,11 +182,13 @@ test('quality pipeline upgrades critical issues and returns target-specific poli
     issues: [
       { severity: 'warning', code: 'empty_chart', path: '/slide[3]/shape[4]/chart', message: 'empty' },
       { severity: 'warning', code: 'number_without_source', path: '/slide[3]', message: 'source' },
+      { severity: 'warning', code: 'recent_composition_repeat', path: '/', message: 'same sequence' },
     ],
   });
-  assert.equal(plan.criticalCount, 1);
+  assert.equal(plan.criticalCount, 2);
   assert.equal(plan.targets[0].severity, 'error');
-  assert.match(plan.targets[0].actions[0], /embedded workbook/i);
+  assert.ok(plan.targets.some((target) => target.actions.some((action) => /embedded workbook/i.test(action))));
+  assert.ok(plan.targets.some((target) => target.actions.some((action) => /Brand kit/i.test(action))));
   const gate = evaluateOfficeSubmissionGate({
     persisted: true,
     issues: [{ severity: 'warning', code: 'empty_chart', path: '/slide[3]' }],
@@ -289,6 +306,12 @@ test('semantic composers emit editorial rhythm, dashboard print setup, and nativ
   assert.ok(workbook.operations.some((entry) => entry.op === 'set_page_setup' && entry.fitToPagesWide === 1));
   assert.ok(workbook.operations.some((entry) => entry.op === 'set_sheet_view' && entry.showGridlines === false));
   assert.match(workbook.operations.find((entry) => entry.op === 'set_range').range, /^A\d+:B\d+$/);
+  const excelChart = workbook.operations.find((entry) => entry.op === 'add_chart');
+  assert.deepEqual(excelChart.seriesColors, ['287A4B', 'D97706', '66788A']);
+  assert.equal(excelChart.showValues, true);
+  assert.equal(excelChart.dataLabelPosition, 'inside_end');
+  assert.equal(excelChart.dataLabelColor, 'FFFFFF');
+  assert.equal(excelChart.zeroBaseline, true);
   const chart = workbook.operations.find((entry) => entry.op === 'add_chart');
   assert.ok(chart);
   assert.doesNotMatch(chart.range, /12$/);
@@ -333,12 +356,26 @@ test('task checklist blocks pending manual requirements and reports deterministi
 
 test('sample-slide coverage exposes missing Brand kit layouts and native object types', () => {
   const coverage = officeTemplateCoverage([
-    { kind: 'cover', density: 'light', capabilities: [] },
-    { kind: 'metrics', density: 'balanced', capabilities: ['chart'] },
+    {
+      kind: 'cover',
+      density: 'light',
+      purposes: ['decide'],
+      expressionModes: ['conservative'],
+      capabilities: [],
+    },
+    {
+      kind: 'metrics',
+      density: 'balanced',
+      purposes: ['monitor'],
+      expressionModes: ['strong-fit'],
+      capabilities: ['chart'],
+    },
   ]);
   assert.equal(coverage.sampleCount, 2);
   assert.ok(coverage.missingKinds.includes('closing'));
   assert.ok(coverage.missingDensities.includes('dense'));
+  assert.ok(coverage.missingPurposes.includes('compare'));
+  assert.ok(coverage.missingExpressionModes.includes('divergent'));
   assert.equal(coverage.nativeObjectCoverage.chart, true);
   assert.equal(coverage.complete, false);
 });
@@ -365,7 +402,7 @@ test('formula-consistency assertions honor the requested range', () => {
 
 test('Office assurance benchmark covers spreadsheet, slide, document, cross-app, locale, and Brand kit gates', async () => {
   const report = await runOfficeAssuranceBenchmark();
-  assert.equal(report.categories, 9);
+  assert.equal(report.categories, 10);
   assert.equal(report.failed, 0, JSON.stringify(report, null, 2));
   assert.equal(report.passRate, 1);
 });

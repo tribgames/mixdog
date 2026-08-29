@@ -273,7 +273,7 @@ export function createSessionLifecycle({
         ...(rt.desktopSession && typeof rt.desktopSession === 'object' ? { desktopSession: rt.desktopSession } : {}),
         coreMemoryContext,
         workflow,
-        workflowContext: [workflowContext, rt.officeRecoveryContext].filter(Boolean).join('\n\n'),
+        workflowContext,
         fast: rt.route.fast === true,
         modelParameters: rt.route.modelParameters || {},
         contextPercent: rt.route.contextPercent,

@@ -354,21 +354,22 @@ function headingLevel(paragraph) {
 }
 
 function wordBlockOrder(document) {
-  if (Array.isArray(document?.blockOrder) && document.blockOrder.length) return document.blockOrder;
-  const blocks = [
-    ...(document?.paragraphs || []).map((entry) => ({
-      type: 'paragraph',
-      index: entry.index,
-      path: entry.path,
-      start: Number(entry.start),
-    })),
-    ...(document?.tables || []).map((entry) => ({
-      type: 'table',
-      index: entry.index,
-      path: entry.path,
-      start: Number(entry.start),
-    })),
-  ];
+  const blocks = Array.isArray(document?.blockOrder) && document.blockOrder.length
+    ? document.blockOrder.map((entry) => ({ ...entry, start: Number(entry.start) }))
+    : [
+      ...(document?.paragraphs || []).map((entry) => ({
+        type: 'paragraph',
+        index: entry.index,
+        path: entry.path,
+        start: Number(entry.start),
+      })),
+      ...(document?.tables || []).map((entry) => ({
+        type: 'table',
+        index: entry.index,
+        path: entry.path,
+        start: Number(entry.start),
+      })),
+    ];
   if (blocks.every((entry) => Number.isFinite(entry.start))) {
     blocks.sort((left, right) => left.start - right.start);
   }
@@ -379,7 +380,9 @@ function reviewDocxStructure(document) {
   const issues = [];
   const paragraphs = Array.isArray(document?.paragraphs) ? document.paragraphs : [];
   const tables = Array.isArray(document?.tables) ? document.tables : [];
-  const content = paragraphs.filter((paragraph) => String(paragraph.text || '').trim());
+  const content = paragraphs.filter((paragraph) => (
+    paragraph?.inTable !== true && String(paragraph.text || '').trim()
+  ));
   const headings = content
     .map((paragraph) => ({ paragraph, level: headingLevel(paragraph) }))
     .filter((entry) => entry.level !== null);
@@ -408,7 +411,11 @@ function reviewDocxStructure(document) {
     const block = order[index];
     if (block.type !== 'paragraph') continue;
     const paragraph = paragraphsByIndex.get(Number(block.index));
-    if (headingLevel(paragraph) === null || !String(paragraph?.text || '').trim()) continue;
+    if (
+      paragraph?.inTable === true
+      || headingLevel(paragraph) === null
+      || !String(paragraph?.text || '').trim()
+    ) continue;
     const nextBlock = order.slice(index + 1).find((entry) => {
       if (entry.type === 'table') return true;
       return String(paragraphsByIndex.get(Number(entry.index))?.text || '').trim();

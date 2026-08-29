@@ -326,6 +326,71 @@ async function postSaveReleaseGate() {
   };
 }
 
+async function contentAwareCompositionGate() {
+  const content = {
+    packageId: 'composition-gate',
+    audience: 'executive committee',
+    objective: 'approve the operating plan',
+    decision: 'approve the plan',
+    facts: [{ id: 'revenue', label: 'Revenue', value: 120 }],
+    claims: [{ id: 'decision', text: 'Approve the plan', factIds: ['revenue'] }],
+  };
+  const operation = {
+    op: 'compose_document',
+    title: 'Decision brief',
+    summary: 'Approve the plan.',
+    sections: [{
+      heading: 'Evidence',
+      paragraphs: ['Revenue supports the decision.'],
+      table: [['Metric', 'Value'], ['Revenue', 120]],
+    }],
+  };
+  const first = expandOfficeDesignOperations({
+    format: 'docx',
+    backend: 'microsoft-office-com',
+    created: true,
+    design: { purpose: 'decide', expressionMode: 'strong-fit', content },
+    operations: [operation],
+  });
+  const firstId = first.semantic[0].composition.id;
+  const second = expandOfficeDesignOperations({
+    format: 'docx',
+    backend: 'microsoft-office-com',
+    created: true,
+    design: { purpose: 'decide', expressionMode: 'strong-fit', content },
+    library: {
+      source: 'mixdog-starter',
+      recentCompositions: [{
+        fingerprint: first.composition.fingerprint,
+        format: 'docx',
+        compositionIds: [firstId],
+      }],
+    },
+    operations: [operation],
+  });
+  const gate = evaluateOfficeSubmissionGate({
+    persisted: true,
+    issues: [{
+      severity: 'warning',
+      code: 'recent_composition_repeat',
+      path: '/',
+      message: 'same sequence',
+    }],
+  });
+  return {
+    category: 'content-aware-composition-gate',
+    passed: firstId !== second.semantic[0].composition.id
+      && second.semantic[0].composition.historyPenalty === 0
+      && !gate.ok
+      && gate.blocking[0].severity === 'error',
+    evidence: {
+      first: firstId,
+      second: second.semantic[0].composition.id,
+      gate,
+    },
+  };
+}
+
 export async function runOfficeAssuranceBenchmark() {
   const cases = await Promise.all([
     spreadsheetBenchMini(),
@@ -337,10 +402,11 @@ export async function runOfficeAssuranceBenchmark() {
     contentModelCrossApp(),
     semanticDeliverableQuality(),
     postSaveReleaseGate(),
+    contentAwareCompositionGate(),
   ]);
   const passed = cases.filter((entry) => entry.passed).length;
   return {
-    version: 2,
+    version: 3,
     createdAt: new Date().toISOString(),
     measurementKind: 'deterministic-office-assurance',
     categories: cases.length,

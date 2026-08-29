@@ -36,6 +36,7 @@ import { traceAgentCompact, messagePrefixHash } from '../agent-trace.mjs';
 import { invalidateProviderRequestToolsScope } from '../../../../session-runtime/provider-request-tools.mjs';
 import { bumpUsageMetricsEpoch } from './manager.mjs';
 import { resetReadStateAfterCompaction } from './read-dedup.mjs';
+import { markPendingGoalReminder } from '../../../../session-runtime/goal-reminder.mjs';
 
 const RECOVERED_ERROR_MESSAGE_MAX_CHARS = 300;
 const ANSI_ESCAPE_RE = /[\u001B\u009B][[\]()#;?]*(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d/#&.:=?%@~_]+)*)?\u0007|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]))/g;
@@ -590,6 +591,12 @@ export async function runPreSendCompactPass(state) {
                     catch { /* best-effort: PostCompact hook must never break the loop */ }
                 }
             }
+            // Compaction drops the Goal's own tool results, so the durable task
+            // snapshot vanishes mid-objective and the model keeps working
+            // without its checklist. Mark one tail-injected state reminder for
+            // the next turn; it clears when that turn is accepted.
+            try { markPendingGoalReminder(sessionRef, 'compaction'); }
+            catch { /* best-effort: a Goal reminder must never break compaction */ }
         }
     return {
         iterations,

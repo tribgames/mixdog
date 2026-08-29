@@ -799,6 +799,19 @@ export class SessionHost implements DesktopService {
     return Array.isArray(rows) ? rows : [];
   }
 
+  async markSessionRead(
+    sessionId: string,
+    messageCount: number,
+    consumedUnread = false,
+  ): Promise<boolean> {
+    const id = sessionIdOf(sessionId);
+    const changed = await this.sessionMetadata.markRead(id, messageCount, consumedUnread);
+    if (!changed) return false;
+    if (this.sessionCatalogLoaded) this.publishSessionCatalog(this.sessionCatalog());
+    else await this.publishCatalogs();
+    return true;
+  }
+
   async renameSession(sessionId: string, title: string): Promise<void> {
     const id = sessionIdOf(sessionId);
     const normalized = normalizeSessionTitle(title, '');
@@ -1288,11 +1301,13 @@ export class SessionHost implements DesktopService {
   }
 
   private sessionCatalog(): DesktopSessionSummary[] {
-    return this.sessionMetadata.withArchiveFlags(desktopSessionSummaries(
-      this.rawSessionRows,
-      this.sessionMetadata.titles,
-      this.sessionMetadata.names,
-    ));
+    return this.sessionMetadata.withReadCursors(
+      this.sessionMetadata.withArchiveFlags(desktopSessionSummaries(
+        this.rawSessionRows,
+        this.sessionMetadata.titles,
+        this.sessionMetadata.names,
+      )),
+    );
   }
 
   private publishSessionCatalog(sessions: DesktopSessionSummary[]): void {

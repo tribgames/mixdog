@@ -158,6 +158,13 @@ export function requiredTranscriptItemLimit(value: unknown): number {
   return value as number;
 }
 
+export function requiredSessionMessageCount(value: unknown): number {
+  if (!Number.isInteger(value) || (value as number) < 0 || (value as number) > 10_000_000) {
+    throw new TypeError('session message count is invalid.');
+  }
+  return value as number;
+}
+
 export function requiredWorkspaceSearchLimit(value: unknown): number {
   if (value === undefined) return 2_000;
   if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 5_000) {
