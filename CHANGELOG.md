@@ -5,6 +5,14 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- PPTX slide import, image replacement, and table data authoring now run in the
+  portable engine, so those operations no longer require the Office COM host.
+- Office authoring gains portable packaging, composition, sheet-style, and
+  slide-shape modules behind the existing assurance and quality pipeline.
+- Goal tracking gains reminder and text extraction handling for continuations,
+  and the desktop keeps session metadata in sync with a bounded renderer cache
+  budget for unread-session state.
+
 ## v0.9.154 - 2026-08-29
 
 - Computer Use sessions are reclaimed on every exit path instead of depending on
