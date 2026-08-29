@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.156 - 2026-08-29
+
 - Portable Office authoring gains chart rendering and text metrics, so more
   PPTX and XLSX work completes without handing off to the Office COM host.
 - Browser Use and Computer Use tool contracts are revised together with the
