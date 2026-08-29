@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.155 - 2026-08-29
+
 - PPTX slide import, image replacement, and table data authoring now run in the
   portable engine, so those operations no longer require the Office COM host.
 - Office authoring gains portable packaging, composition, sheet-style, and
