@@ -824,7 +824,11 @@ const extraHeadingSummaryMsg = findSummary(extraHeadingResult.messages);
 assert(extraHeadingSummaryMsg, 'extra-heading repair should still insert an anchored summary');
 assert(extraHeadingSummaryMsg.content.includes(EXTRA_HEADING_SENTINEL), 'unrecognized heading body must route into repaired Critical Context');
 
-// Recall fast-track merges prior compacted summary when recallText lacks prior facts.
+// Recall fast-track rebuilds context from Memory instead of chaining summaries.
+// Carrying the prior summary forward nested a <prior-compacted-context> wrapper
+// and re-embedded the same body on every cycle; the Memory digest already owns
+// that history. Mirrors suite-compact-test's "runner-level repeated compaction
+// rebuilds context from Memory without prior-summary carryover".
 const OLD_CRITICAL_CONTEXT = 'OLD_CRITICAL_CONTEXT_from_prior_summary';
 const priorRecallSummary = `${SUMMARY_PREFIX}\nmessages=2 sha256=def roles=user:1\n## Critical Context\n- ${OLD_CRITICAL_CONTEXT}\n`;
 const priorSummaryMessages = [
@@ -842,7 +846,20 @@ const priorMergedRecall = recallFastTrackCompactMessages(priorSummaryMessages, 8
 });
 const priorMergedSummary = findSummary(priorMergedRecall.messages);
 assert(priorMergedSummary, 'recall fast-track should still insert summary');
-assert(priorMergedSummary.content.includes(OLD_CRITICAL_CONTEXT), 'merged recall summary must retain prior compacted critical context');
+assert(
+  !priorMergedSummary.content.includes('<prior-compacted-context>'),
+  'recall fast-track must not chain a prior-summary wrapper; Memory rebuilds that history',
+);
+assert(
+  !priorMergedSummary.content.includes(OLD_CRITICAL_CONTEXT),
+  'prior summary body must not be re-embedded verbatim by the next compaction',
+);
+assert(
+  priorMergedRecall.messages.filter(
+    (m) => typeof m?.content === 'string' && m.content.startsWith(SUMMARY_PREFIX),
+  ).length === 1,
+  'exactly one anchored summary should survive repeated recall compaction',
+);
 
 // Semantic oversized latest turn: huge sentinel summarized away, budget respected when reducible.
 const HUGE_SENTINEL = 'HUGE_SENTINEL_' + 'z'.repeat(120_000);
@@ -945,7 +962,9 @@ assert(
 );
 assert(!recallHugeUserResult.messages.some((m) => m?.role === 'assistant' && m.content === 'latest recall assistant ack' && recallHugeTailUsers.length === 0), 'recall fast-track must not emit assistant-only tail without latest user');
 
-// Prior recall summary must survive huge recallText fitting.
+// Huge recallText must still fit into one well-formed summary. Prior summaries
+// are no longer carried forward (Memory rebuilds that history), so the
+// invariant here is budget-safe fitting, not prior-sentinel survival.
 const PRIOR_FIT_SENTINEL = 'PRIOR_FIT_SENTINEL_keep_me';
 const priorFitSummary = `${SUMMARY_PREFIX}\nmessages=1 sha256=prior roles=user:1\n## Critical Context\n- ${PRIOR_FIT_SENTINEL}\n`;
 const priorFitMessages = [
@@ -964,7 +983,14 @@ const priorFitRecall = recallFastTrackCompactMessages(priorFitMessages, 9_000, {
 });
 const priorFitSummaryMsg = findSummary(priorFitRecall.messages);
 assert(priorFitSummaryMsg, 'prior-fit recall should insert summary');
-assert(priorFitSummaryMsg.content.includes(PRIOR_FIT_SENTINEL), 'prior compacted sentinel must survive huge recallText fitting');
+assert(
+  !priorFitSummaryMsg.content.includes('<prior-compacted-context>'),
+  'huge-recall fitting must not resurrect prior-summary carryover',
+);
+assert(
+  priorFitSummaryMsg.content.length < hugeRecallText.length,
+  'huge recallText must be fitted down, not embedded whole',
+);
 
 // Very small recall tail cap still yields user anchor with explicit truncation marker.
 const tinyCapMessages = [

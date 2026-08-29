@@ -27,7 +27,6 @@ import {
     _intraTurnSig,
 } from './loop/tool-classify.mjs';
 import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
-import { runRecallFastTrackCompact } from './loop/recall-fasttrack.mjs';
 import { executeTool, _scopedCacheOutcomeForCall, resolveLiveToolCwd } from './loop/tool-exec.mjs';
 
 // classifyResultKind is imported from result-classification.mjs at the top of

@@ -50,6 +50,74 @@ function isAbortLikeError(err, signal) {
     return /\babort(ed|ing)?\b|\bcancel(l?ed|ling)?\b/.test(msg);
 }
 
+// A stalled memory call must NEVER wedge compaction. Every recall-fasttrack
+// memory call is bounded here — the default path included — so the protection
+// no longer depends on which caller happened to wire a bounded search in.
+export const RECALL_MEMORY_CALL_TIMEOUT_MS = Math.max(
+    250,
+    Number(process.env.MIXDOG_AGENT_COMPACT_RECALL_TIMEOUT_MS) || 4000,
+);
+// Cold-start allowance: a booting memory runtime can miss the tight first bound
+// (waitForPort + first-RPC warmup ~2-10s). On a timeout we retry ONCE with a
+// longer bound before honoring the bail contract, so a rebooting runtime
+// succeeds instead of instantly failing. 15s keeps the clear path's worst case
+// (2 retried memory calls + 120s semantic) under the TUI watchdog (180s).
+export const RECALL_COLD_START_TIMEOUT_MS = 15_000;
+
+export function recallMemoryTimeoutMs(session) {
+    const configured = Number(session?.compaction?.recallMemoryTimeoutMs);
+    // Clamp ALL sources (session config included) to the 250ms floor so a
+    // misconfigured tiny value can't turn the bound into a busy no-wait.
+    return Math.max(250, Number.isFinite(configured) && configured > 0
+        ? Math.floor(configured)
+        : RECALL_MEMORY_CALL_TIMEOUT_MS);
+}
+
+function isTimeoutError(err) {
+    return typeof err?.message === 'string' && err.message.includes('timed out after');
+}
+
+export async function callMemoryBounded(args, callerCtx, timeoutMs, executeMemory = executeInternalTool) {
+    const ac = new AbortController();
+    const outer = callerCtx?.signal;
+    const onOuterAbort = () => { try { ac.abort(); } catch {} };
+    if (outer) {
+        if (outer.aborted) ac.abort();
+        else { try { outer.addEventListener?.('abort', onOuterAbort, { once: true }); } catch {} }
+    }
+    let timer = null;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+            try { ac.abort(); } catch {}
+            reject(new Error(`memory ${args?.action || 'call'} timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        try { timer.unref?.(); } catch {}
+    });
+    try {
+        return await Promise.race([
+            executeMemory('memory', args, { ...callerCtx, signal: ac.signal }),
+            timeout,
+        ]);
+    } finally {
+        if (timer) clearTimeout(timer);
+        // Drop the chained-abort listener when the call settles first, so a
+        // later outer abort can't fire into a dead controller / leak.
+        try { outer?.removeEventListener?.('abort', onOuterAbort); } catch {}
+    }
+}
+
+export async function callMemoryColdStart(args, callerCtx, timeoutMs, executeMemory) {
+    try {
+        return await callMemoryBounded(args, callerCtx, timeoutMs, executeMemory);
+    } catch (err) {
+        if (!isTimeoutError(err) || callerCtx?.signal?.aborted) throw err;
+        const coldMs = Math.max(timeoutMs, RECALL_COLD_START_TIMEOUT_MS);
+        if (coldMs <= timeoutMs) throw err;
+        try { process.stderr.write(`[session] recall-fasttrack ${args?.action || 'call'} cold-start retry (${timeoutMs}ms -> ${coldMs}ms)\n`); } catch {}
+        return await callMemoryBounded(args, callerCtx, coldMs, executeMemory);
+    }
+}
+
 export function isUsableRecallDigestText(value) {
     const text = typeof value === 'string' ? value : String(value?.text ?? value ?? '');
     const trimmed = text.trim();
@@ -69,21 +137,12 @@ export async function runRecallFastTrackCompact({
 }) {
     if (!sessionId) throw new Error('recall-fasttrack requires a session id');
     const startedAt = Date.now();
+    // Digest mode only: the full-dump pipeline's per-cycle counters were
+    // removed with it in 2026-07 and had been logging fixed nulls since.
     const diagnostics = {
         memorySource: 'existing-session',
         searchMs: null,
         searchError: null,
-        initialDumpMs: null,
-        initialDumpBytes: null,
-        initialDumpChars: null,
-        initialRawPending: null,
-        cycle1Ms: null,
-        cycle1Skipped: false,
-        cycle1SkipReason: null,
-        cycle1Passes: null,
-        cycle1RawRemaining: null,
-        cycle1TextBytes: null,
-        cycle1Error: null,
         finalRecallBytes: null,
         finalRecallChars: null,
         totalMs: null,
@@ -97,7 +156,6 @@ export async function runRecallFastTrackCompact({
         clientHostPid: sessionRef?.clientHostPid,
         signal: signal || null,
     };
-    let t0 = Date.now();
     let searchFailed = false;
     let searchErr = null;
     // Build the compact handoff from the session rows the always-on transcript
@@ -105,11 +163,19 @@ export async function runRecallFastTrackCompact({
     // the memory RPC: that duplicates canonical history and can exceed the
     // bounded HTTP request body before compaction gets a chance to run.
     let digestBody = '';
-    t0 = Date.now();
+    const t0 = Date.now();
     try {
+        // The default path is bounded exactly like the caller-supplied one: an
+        // unbounded memory call here would hang the pre-send compaction that
+        // runs between the user's prompt and the provider request.
         const searchMemory = typeof executeMemorySearch === 'function'
             ? executeMemorySearch
-            : (args, ctx) => executeInternalTool('memory', args, ctx);
+            : (args, ctx) => callMemoryColdStart(
+                args,
+                ctx,
+                recallMemoryTimeoutMs(sessionRef),
+                executeInternalTool,
+            );
         const browsed = await searchMemory({
             action: 'search',
             sessionId,
@@ -128,10 +194,6 @@ export async function runRecallFastTrackCompact({
         try { process.stderr.write(`[loop] recall-digest browse failed (sess=${sessionId || 'unknown'}): ${err?.message || err}\n`); } catch {}
     }
     diagnostics.searchMs = Date.now() - t0;
-    diagnostics.initialDumpMs = diagnostics.searchMs;
-    diagnostics.cycle1Skipped = true;
-    diagnostics.cycle1SkipReason = 'digest mode';
-    diagnostics.cycle1Passes = 0;
     // Fail-safe: an unavailable or empty stored session cannot support a
     // truthful recall handoff. Preserve the live head and let the caller use
     // the semantic fallback instead of silently dropping history.

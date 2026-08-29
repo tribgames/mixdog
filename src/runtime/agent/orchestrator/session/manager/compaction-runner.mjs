@@ -16,6 +16,8 @@ import {
 import { estimateMessagesTokens, estimateRequestReserveTokens, estimateTranscriptContextUsage, resolveCompactBufferRatio } from '../context-utils.mjs';
 import { executeInternalTool } from '../../internal-tools.mjs';
 import {
+    callMemoryColdStart,
+    recallMemoryTimeoutMs,
     runRecallFastTrackCompact,
 } from '../loop/recall-fasttrack.mjs';
 import {
@@ -88,44 +90,9 @@ function addCompactUsageToSession(session, usage) {
     session.totalUncachedInputTokens = (session.totalUncachedInputTokens || 0) + uncachedInputTokens;
     session.tokensCumulative = (session.tokensCumulative || 0) + inputTokens + outputTokens;
 }
-// A stalled memory call must NEVER wedge the
-// compact//clear path. Bound every recall-fasttrack memory call with a short
-// local timeout: on timeout we abort (best-effort cancel via a chained signal)
-// and treat it exactly like an RPC failure, so compaction proceeds WITHOUT
-// recall-fasttrack instead of hanging.
-const RECALL_MEMORY_CALL_TIMEOUT_MS = Math.max(
-    250,
-    Number(process.env.MIXDOG_AGENT_COMPACT_RECALL_TIMEOUT_MS) || 4000,
-);
-function recallMemoryTimeoutMs(session) {
-    const configured = positiveContextWindow(session?.compaction?.recallMemoryTimeoutMs);
-    // Clamp ALL sources (session-config included) to the 250ms floor so a
-    // misconfigured tiny value can't turn the bound into a busy no-wait.
-    return Math.max(250, configured || RECALL_MEMORY_CALL_TIMEOUT_MS);
-}
-// Cold-start allowance (clear/manual path only): a booting memory runtime can
-// miss the tight first bound (waitForPort + first-RPC warmup ~2-10s). On a
-// timeout we retry ONCE with a longer bound before honoring the bail-to-
-// semantic contract, so a rebooting runtime succeeds instead of instantly
-// failing. Non-timeout errors and outer aborts propagate immediately.
-// 15s: memory boot is ~2-4s warm-cache / ~10s worst since the PG fast-start
-// fix; keeping this tight bounds the clear path's worst case (2 memory calls
-// retried + 120s semantic) under the TUI auto-clear watchdog (180s).
-const RECALL_COLD_START_TIMEOUT_MS = 15_000;
-function isTimeoutError(err) {
-    return typeof err?.message === 'string' && err.message.includes('timed out after');
-}
-async function callMemoryColdStart(args, callerCtx, timeoutMs, executeMemory) {
-    try {
-        return await callMemoryBounded(args, callerCtx, timeoutMs, executeMemory);
-    } catch (err) {
-        if (!isTimeoutError(err) || callerCtx?.signal?.aborted) throw err;
-        const coldMs = Math.max(timeoutMs, RECALL_COLD_START_TIMEOUT_MS);
-        if (coldMs <= timeoutMs) throw err;
-        try { process.stderr.write(`[session] recall-fasttrack ${args?.action || 'call'} cold-start retry (${timeoutMs}ms -> ${coldMs}ms)\n`); } catch {}
-        return await callMemoryBounded(args, callerCtx, coldMs, executeMemory);
-    }
-}
+// Recall-fasttrack memory bounds live with the pipeline itself
+// (loop/recall-fasttrack.mjs) so every caller — this one and the pre-send
+// compaction — shares one timeout contract instead of each wiring its own.
 // Semantic-compact timeout scales with transcript size (clear/manual path):
 // default max(30s, ~10s per 25k estimated message tokens) capped at 120s, so a
 // large (~100k-token) transcript no longer dies on a fixed 30s bound.
@@ -135,34 +102,6 @@ function semanticCompactTimeoutMs(session, messageTokens) {
     if (override) return override;
     const scaled = Math.ceil((messageTokens || 0) / 25_000) * 10_000;
     return Math.min(120_000, Math.max(30_000, scaled));
-}
-async function callMemoryBounded(args, callerCtx, timeoutMs, executeMemory = executeInternalTool) {
-    const ac = new AbortController();
-    const outer = callerCtx?.signal;
-    const onOuterAbort = () => { try { ac.abort(); } catch {} };
-    if (outer) {
-        if (outer.aborted) ac.abort();
-        else { try { outer.addEventListener?.('abort', onOuterAbort, { once: true }); } catch {} }
-    }
-    let timer = null;
-    const timeout = new Promise((_, reject) => {
-        timer = setTimeout(() => {
-            try { ac.abort(); } catch {}
-            reject(new Error(`memory ${args?.action || 'call'} timed out after ${timeoutMs}ms`));
-        }, timeoutMs);
-        try { timer.unref?.(); } catch {}
-    });
-    try {
-        return await Promise.race([
-            executeMemory('memory', args, { ...callerCtx, signal: ac.signal }),
-            timeout,
-        ]);
-    } finally {
-        if (timer) clearTimeout(timer);
-        // Drop the chained-abort listener when the call settles first, so a
-        // later outer abort can't fire into a dead controller / leak.
-        try { outer?.removeEventListener?.('abort', onOuterAbort); } catch {}
-    }
 }
 // Element-identity change detection (same approach as loop.mjs messagesArrayChanged): two
 // arrays are "unchanged" only when same length AND every slot is the same object
