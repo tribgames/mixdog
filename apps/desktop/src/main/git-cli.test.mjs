@@ -513,7 +513,10 @@ test("remote actions fetch, pull, and sync without terminal prompts", async () =
   const remote = await mkdtemp(join(tmpdir(), "mixdog-git-remote-"));
   const peer = await mkdtemp(join(tmpdir(), "mixdog-git-peer-"));
   try {
-    await git(remote, ["init", "--bare"]);
+    // Without -b the bare HEAD follows the host's init.defaultBranch, so a
+    // clone of a repository that only has `main` lands on a branch that does
+    // not exist and the peer's push never reaches the fetching side.
+    await git(remote, ["init", "--bare", "-b", "main"]);
     await commit(cwd, "remote.txt", "one\n", "Initial");
     await git(cwd, ["remote", "add", "origin", remote]);
     await git(cwd, ["push", "-u", "origin", "main"]);
@@ -542,7 +545,10 @@ test("branch operations cover local and remote checkout without losing work", as
   const remote = await mkdtemp(join(tmpdir(), "mixdog-git-branch-remote-"));
   const peer = await mkdtemp(join(tmpdir(), "mixdog-git-branch-peer-"));
   try {
-    await git(remote, ["init", "--bare"]);
+    // Without -b the bare HEAD follows the host's init.defaultBranch, so a
+    // clone of a repository that only has `main` lands on a branch that does
+    // not exist and the peer's push never reaches the fetching side.
+    await git(remote, ["init", "--bare", "-b", "main"]);
     await commit(cwd, "branch.txt", "main\n", "Initial");
     await git(cwd, ["remote", "add", "origin", remote]);
     await git(cwd, ["push", "-u", "origin", "main"]);
@@ -993,6 +999,10 @@ async function writeHook(cwd, name, body) {
   await mkdir(join(cwd, ".git", "hooks"), { recursive: true });
   const path = join(cwd, ".git", "hooks", name);
   await writeFile(path, body, "utf8");
+  // posix git silently skips a hook without the execute bit, so a suite that
+  // only ever ran on win32 (where the mode is ignored) proved nothing about the
+  // hook paths it claims to cover.
+  await chmod(path, 0o755);
   return path;
 }
 
