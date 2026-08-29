@@ -6,7 +6,7 @@
 import { execFile } from 'node:child_process';
 import { cp, mkdir, readdir, readFile, rename, stat, statfs, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve, sep, win32 } from 'node:path';
 
 import { localFileMimeTypeForPath } from '../shared/local-files';
 
@@ -37,7 +37,9 @@ export function windowsExplorerHiddenNames(output: string): Set<string> {
     const pathIndex = line.search(/(?:[A-Za-z]:\\|\\\\)/);
     if (pathIndex < 0 || !/[HS]/.test(line.slice(0, pathIndex))) continue;
     const path = line.slice(pathIndex).trimEnd();
-    if (path) hidden.add(basename(path).toLowerCase());
+    // attrib.exe always emits Windows paths, so the split must be win32 even
+    // when this parser is exercised on another platform.
+    if (path) hidden.add(win32.basename(path).toLowerCase());
   }
   return hidden;
 }

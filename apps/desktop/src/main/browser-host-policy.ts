@@ -21,6 +21,25 @@ export interface BrowserSnapshotExpressionOptions {
   viewportOnly?: boolean;
 }
 
+export interface BrowserGuestCandidate {
+  id: number;
+  isDestroyed(): boolean;
+}
+
+export function selectActiveBrowserGuest<T extends BrowserGuestCandidate>(
+  guests: Iterable<T>,
+  current: T | null,
+  webContentsId: number,
+  active: boolean,
+): T | null {
+  const liveCurrent = current && !current.isDestroyed() ? current : null;
+  const guest = [...guests].find((candidate) =>
+    !candidate.isDestroyed() && candidate.id === webContentsId);
+  if (!guest) return liveCurrent;
+  if (active) return guest;
+  return liveCurrent === guest ? null : liveCurrent;
+}
+
 export function normalizeBackgroundTabName(raw: string, options: { required?: boolean } = {}): string {
   const name = String(raw || '').trim();
   if (!name) {

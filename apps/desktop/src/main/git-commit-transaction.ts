@@ -270,9 +270,21 @@ export function cacheHookRunnerSupport(
  */
 export const hookRunnerSupport: HookRunnerCache = { value: null };
 
+function probeHookRunner(cwd: string, extra: string[]): Promise<string> {
+  return run(cwd, ['hook', 'run', '--ignore-missing', ...extra, 'mixdog-hook-probe'], undefined, true);
+}
+
 function hookRunnerAvailable(cwd: string): Promise<boolean> {
   return cacheHookRunnerSupport(
-    () => run(cwd, ['hook', 'run', '--ignore-missing', 'mixdog-hook-probe'], undefined, true),
+    // The probe name is deliberately non-native so a repository's own hook can
+    // never be executed by it. Some git versions accept such a name outright
+    // and reject --allow-unknown-hook-name as an unknown option; others demand
+    // that flag. Try the plain form and add the flag only when git asks for it.
+    () => probeHookRunner(cwd, []).catch((error: unknown) => {
+      const message = String((error as Error)?.message || '');
+      if (!/allow-unknown-hook-name|unknown hook event/i.test(message)) throw error;
+      return probeHookRunner(cwd, ['--allow-unknown-hook-name']);
+    }),
     hookRunnerSupport,
   );
 }
