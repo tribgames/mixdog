@@ -2025,6 +2025,57 @@ async function addSlideImage(zip, slidePart, source) {
   return { part, relationshipId };
 }
 
+function setTableCellText(cell, text) {
+  const value = String(text ?? '');
+  const nodes = textNodes(cell, 'a:t');
+  if (nodes.length) {
+    nodes[0].text = value;
+    for (let index = 1; index < nodes.length; index += 1) nodes[index].text = '';
+    return rebuildTextNodes(cell, 'a:t', nodes);
+  }
+  const run = `<a:r><a:rPr lang="en-US" dirty="0"/>`
+    + `<a:t${/^\s|\s$/.test(value) ? ' xml:space="preserve"' : ''}>${xmlEncode(value)}</a:t></a:r>`;
+  const paragraph = /<a:p(?:\s[^>]*)?>[\s\S]*?<\/a:p>/.exec(cell);
+  if (paragraph) {
+    const replaced = paragraph[0].replace(/<\/a:p>$/, `${run}</a:p>`);
+    return `${cell.slice(0, paragraph.index)}${replaced}${cell.slice(paragraph.index + paragraph[0].length)}`;
+  }
+  if (!/<\/a:txBody>/.test(cell)) throw new Error('PPTX table cell has no text body');
+  return cell.replace('</a:txBody>', `<a:p>${run}</a:p></a:txBody>`);
+}
+
+function setTableValues(shapeXml, values) {
+  const table = containerInner(shapeXml, 'a:tbl');
+  if (!table) throw new Error('PPTX shape does not contain a table');
+  const rows = elementSpans(table.inner, 'a:tr');
+  if (!rows.length) throw new Error('PPTX table has no rows');
+  let inner = table.inner;
+  let filledRows = 0;
+  let filledCells = 0;
+  for (let rowIndex = rows.length - 1; rowIndex >= 0; rowIndex -= 1) {
+    const source = values[rowIndex];
+    if (!Array.isArray(source)) continue;
+    const row = rows[rowIndex];
+    const cells = elementSpans(containerBody(row.xml, 'a:tr'), 'a:tc');
+    let body = containerBody(row.xml, 'a:tr');
+    for (let cellIndex = cells.length - 1; cellIndex >= 0; cellIndex -= 1) {
+      if (cellIndex >= source.length) continue;
+      const cell = cells[cellIndex];
+      body = `${body.slice(0, cell.start)}${setTableCellText(cell.xml, source[cellIndex])}${body.slice(cell.end)}`;
+      filledCells += 1;
+    }
+    const attrs = /^<a:tr\b([^>]*?)(?:\/>|>)/.exec(row.xml)?.[1] || '';
+    inner = `${inner.slice(0, row.start)}<a:tr${attrs}>${body}</a:tr>${inner.slice(row.end)}`;
+    filledRows += 1;
+  }
+  return {
+    xml: `${shapeXml.slice(0, table.start)}${inner}${shapeXml.slice(table.end)}`,
+    rows: filledRows,
+    cells: filledCells,
+    capacity: rows.length,
+  };
+}
+
 function appendSlideShape(xml, shape) {
   if (!/<\/p:spTree>/.test(xml)) throw new Error('PPTX slide shape tree is missing');
   return xml.replace('</p:spTree>', `${shape}</p:spTree>`);
@@ -2200,6 +2251,9 @@ async function applyPptx(zip, operations) {
       results.push({ op: op.op, changed: true });
       continue;
     }
+    if (op.op === 'import_slides') {
+      throw new Error('Portable import_slides seeds a deck only as the first operation of a newly created presentation; run it in the create batch or use Microsoft PowerPoint');
+    }
     if (op.op === 'set_slide_background') {
       const path = slidePath(slides, op.slide);
       const current = await zipText(zip, path);
@@ -2239,6 +2293,38 @@ async function applyPptx(zip, operations) {
       });
       zip.file(path, appendSlideShape(current, picture));
       results.push({ op: op.op, changed: true, shapeId: id, image: media.part });
+      continue;
+    }
+    if (op.op === 'set_table_data' || op.op === 'replace_image') {
+      const path = slidePath(slides, op.slide);
+      const current = await zipText(zip, path);
+      const tree = containerInner(current, 'p:spTree');
+      if (!tree) throw new Error('PPTX slide shape tree is missing');
+      const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
+      const shape = shapes[Number(op.shape) - 1];
+      if (!shape) throw new Error(`PPTX shape ${op.shape} not found on slide ${op.slide}`);
+      let updated;
+      let detail = {};
+      if (op.op === 'set_table_data') {
+        const values = Array.isArray(op.values) ? op.values.filter((row) => Array.isArray(row)) : [];
+        if (!values.length) throw new Error('set_table_data requires values as an array of rows');
+        const filled = setTableValues(shape.xml, values);
+        updated = filled.xml;
+        detail = { rows: filled.rows, cells: filled.cells, capacity: filled.capacity };
+        if (values.length > filled.capacity) {
+          detail.droppedRows = values.length - filled.capacity;
+        }
+      } else {
+        if (shape.name !== 'p:pic') throw new Error(`PPTX shape ${op.shape} on slide ${op.slide} is not a picture`);
+        const media = await addSlideImage(zip, path, op.path);
+        const embed = /<a:blip\b[^>]*\br:embed="[^"]*"/.exec(shape.xml);
+        if (!embed) throw new Error(`PPTX picture ${op.shape} on slide ${op.slide} has no image reference`);
+        updated = shape.xml.replace(/(<a:blip\b[^>]*\br:embed=")[^"]*(")/, `$1${media.relationshipId}$2`);
+        detail = { image: media.part };
+      }
+      const nextInner = `${tree.inner.slice(0, shape.start)}${updated}${tree.inner.slice(shape.end)}`;
+      zip.file(path, `${current.slice(0, tree.start)}${nextInner}${current.slice(tree.end)}`);
+      results.push({ op: op.op, changed: updated !== shape.xml, slide: Number(op.slide), ...detail });
       continue;
     }
     if (op.op === 'set_shape') {

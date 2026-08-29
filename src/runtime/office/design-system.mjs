@@ -596,7 +596,7 @@ function templateSlotText(operation, role) {
   return undefined;
 }
 
-function expandTemplatePptxSlide(operation, layout, slide) {
+function expandTemplatePptxSlide(operation, layout, slide, backend = '') {
   if (
     operation.create === false
     || !layout?.templatePath
@@ -635,6 +635,9 @@ function expandTemplatePptxSlide(operation, layout, slide) {
         path: imagePath,
       });
     } else if (slot.type === 'chart' && plainObject(operation.chart)) {
+      if (backend === 'mixdog-ooxml') {
+        throw new Error('compose_slide chart requires Microsoft PowerPoint; omit chart or create the deck with PowerPoint installed');
+      }
       output.push({
         op: 'set_chart_data',
         slide,
@@ -1650,22 +1653,18 @@ export function expandOfficeDesignOperations({
       };
       const slide = Number(plannedOperation.slide) || nextSlide;
       if (!slide) throw new Error('compose_slide requires slide for an existing presentation');
-      const selectedLayout = backend === 'mixdog-ooxml'
-        ? null
-        : selectPptxLayout(plannedOperation, design, layoutUsage);
+      const selectedLayout = selectPptxLayout(plannedOperation, design, layoutUsage);
       const layout = selectedLayout?.layout || null;
       const composed = layout ? merge(layout.defaults || {}, plannedOperation) : plannedOperation;
       const backgroundSpec = pptxBackgroundSpec(composed, design, composition.kind, slide);
       const plan = pptxSlidePlan(composed, composition.kind, slide);
-      const templateOperations = expandTemplatePptxSlide(composed, layout, slide);
+      const templateOperations = expandTemplatePptxSlide(composed, layout, slide, backend);
       if (templateOperations) {
         output.push(...templateOperations);
         layoutUsage.set(layout.id, (layoutUsage.get(layout.id) || 0) + 1);
       } else {
         if (design.deck.templateMode === 'strict') {
-          throw new Error(backend === 'mixdog-ooxml'
-            ? 'compose_slide strict template mode requires Microsoft PowerPoint; use the default template mode for portable decks'
-            : `compose_slide requires an approved native template layout for kind "${operation.kind}" in strict mode`);
+          throw new Error(`compose_slide requires an approved native template layout for kind "${operation.kind}" in strict mode`);
         }
         output.push(...expandPptxSlide(composed, design, slide, backend));
       }

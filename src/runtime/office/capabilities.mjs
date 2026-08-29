@@ -83,8 +83,8 @@ const CATALOG = {
   pptx: {
     paths: ['/slide[N]', '/slide[N]/shape[N]'],
     operations: {
-      common: ['replace_text', 'fill_template', 'set_text', 'add_textbox', 'delete_shape', 'compose_slide', 'add_slide', 'delete_slide', 'move_slide', 'set_notes', 'add_image', 'add_shape', 'add_table', 'set_shape', 'set_slide_background'],
-      office: ['duplicate_slide', 'import_slides', 'keep_slides', 'set_footer', 'set_slide_number', 'add_comment', 'delete_comment', 'replace_image', 'crop_image', 'add_media', 'group_shapes', 'ungroup_shape', 'set_layout', 'apply_theme', 'set_transition', 'add_animation', 'add_chart', 'fit_text', 'set_table_data', 'set_chart_data', 'set_chart_series', 'set_chart_axis', 'set_chart_data_labels', 'set_chart_trendline', 'set_chart_error_bars', 'set_hyperlink', 'z_order', 'align_shapes', 'distribute_shapes', 'add_provenance'],
+      common: ['replace_text', 'fill_template', 'set_text', 'add_textbox', 'delete_shape', 'compose_slide', 'add_slide', 'delete_slide', 'move_slide', 'set_notes', 'add_image', 'add_shape', 'add_table', 'set_shape', 'set_slide_background', 'import_slides', 'replace_image', 'set_table_data'],
+      office: ['duplicate_slide', 'keep_slides', 'set_footer', 'set_slide_number', 'add_comment', 'delete_comment', 'crop_image', 'add_media', 'group_shapes', 'ungroup_shape', 'set_layout', 'apply_theme', 'set_transition', 'add_animation', 'add_chart', 'fit_text', 'set_chart_data', 'set_chart_series', 'set_chart_axis', 'set_chart_data_labels', 'set_chart_trendline', 'set_chart_error_bars', 'set_hyperlink', 'z_order', 'align_shapes', 'distribute_shapes', 'add_provenance'],
       portable: [],
     },
     properties: {
