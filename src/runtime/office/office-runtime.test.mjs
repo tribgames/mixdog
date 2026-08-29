@@ -42,6 +42,7 @@ import {
   reviewOfficeDesign,
   reviewPptxVisualCritique,
 } from './design-system.mjs';
+import { summarizeOfficeCompositions } from './composition-system.mjs';
 import {
   canonicalOfficeDesignPack,
   createPptxSlideSelection,
@@ -49,6 +50,8 @@ import {
   indexOfficeTemplates,
   inspectOfficeTemplate,
   persistOfficeDesignBinding,
+  readOfficeCompositionHistory,
+  recordOfficeCompositionHistory,
   resolveOfficeDesignLibrary,
   syncOfficeDesignLibrary,
 } from './design-library.mjs';
@@ -178,6 +181,159 @@ test('Office design profiles expose semantic composition without decorative defa
     const height = Number(operation.properties?.height) || 0;
     return (width <= 14 && height >= 180) || (height <= 7 && width >= 320);
   }), false);
+});
+
+test('purpose-aware composition varies structure from content topology and recent output history', () => {
+  const content = {
+    packageId: 'composition-review',
+    audience: 'executive committee',
+    objective: 'decide the next investment',
+    decision: 'approve the evidence-backed plan',
+    facts: [{ id: 'revenue', label: 'Revenue', value: 120 }],
+    claims: [{ id: 'decision', text: 'Approve the plan', factIds: ['revenue'] }],
+  };
+  const request = {
+    purpose: 'decide',
+    expressionMode: 'strong-fit',
+    content,
+  };
+  const operation = {
+    op: 'compose_document',
+    title: 'Decision brief',
+    summary: 'Approve the plan.',
+    sections: [{
+      heading: 'Evidence',
+      paragraphs: ['Revenue supports the decision.'],
+      table: [['Metric', 'Value'], ['Revenue', 120]],
+    }],
+  };
+  const first = expandOfficeDesignOperations({
+    format: 'docx',
+    backend: 'microsoft-office-com',
+    created: true,
+    design: request,
+    operations: [operation],
+  });
+  const firstId = first.semantic[0].composition.id;
+  const second = expandOfficeDesignOperations({
+    format: 'docx',
+    backend: 'microsoft-office-com',
+    created: true,
+    design: request,
+    library: {
+      source: 'mixdog-starter',
+      recentCompositions: [{
+        fingerprint: 'recent',
+        format: 'docx',
+        compositionIds: [firstId],
+      }],
+    },
+    operations: [operation],
+  });
+  assert.notEqual(second.semantic[0].composition.id, firstId);
+  assert.equal(first.design.purpose, 'decide');
+  assert.equal(first.design.expressionMode, 'strong-fit');
+  assert.equal(first.operations.some((entry) => entry.properties?.border?.side === 'left'), false);
+
+  const deck = expandOfficeDesignOperations({
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    created: true,
+    design: { purpose: 'monitor', expressionMode: 'strong-fit' },
+    operations: [{
+      op: 'compose_slide',
+      kind: 'content',
+      title: 'Revenue is accelerating',
+      chart: {
+        categories: ['May', 'June', 'July'],
+        series: [{ name: 'Revenue', values: [100, 110, 120] }],
+      },
+    }],
+  });
+  assert.equal(deck.semantic[0].requestedKind, 'content');
+  assert.equal(deck.semantic[0].kind, 'chart');
+  assert.equal(deck.semantic[0].composition.variant, 'chart-led');
+  assert.equal(deck.operations.find((entry) => entry.op === 'add_chart').width, 842);
+
+  const workbook = expandOfficeDesignOperations({
+    format: 'xlsx',
+    backend: 'microsoft-office-com',
+    created: true,
+    design: { purpose: 'monitor' },
+    operations: [{
+      op: 'compose_sheet',
+      variant: 'trend-dashboard',
+      title: 'Monthly trend',
+      headers: ['Month', 'Revenue'],
+      rows: [['May', 100], ['June', 110], ['July', 120]],
+      chart: { title: 'Revenue' },
+    }],
+  });
+  assert.equal(workbook.semantic[0].composition.id, 'trend-dashboard');
+  assert.equal(workbook.operations.find((entry) => entry.op === 'add_chart').left, 360);
+});
+
+test('composition review blocks repeated and recently duplicated document structures', () => {
+  const compositions = Array.from({ length: 4 }, () => ({
+    id: 'content:evidence-right',
+    family: 'evidence',
+    kind: 'content',
+    purpose: 'decide',
+    topology: { signature: 'pptx|m:0|c:0|s:0|r:0|p:few|e:visual' },
+  }));
+  const summary = summarizeOfficeCompositions('pptx', compositions);
+  const review = reviewOfficeDesign({
+    format: 'pptx',
+    document: { slides: [] },
+    design: {
+      purpose: 'decide',
+      compositions,
+      review: { allowTextOnly: true, allowSyntheticVisuals: true },
+    },
+    library: {
+      source: 'mixdog-starter',
+      recentCompositions: [{
+        ...summary,
+        purpose: 'decide',
+        expressionMode: 'strong-fit',
+      }],
+    },
+  });
+  assert.ok(review.issues.some((entry) => entry.code === 'repetitive_composition'));
+  assert.ok(review.issues.some((entry) => entry.code === 'recent_composition_repeat'));
+  assert.equal(review.composition.fingerprint, summary.fingerprint);
+});
+
+test('Office composition history is bounded, replaces a document record, and excludes the active path', async (t) => {
+  const cwd = await workspace(t);
+  const dataDir = join(cwd, 'data');
+  const documentPath = join(cwd, 'brief.docx');
+  await recordOfficeCompositionHistory(dataDir, {
+    documentPath,
+    format: 'docx',
+    profile: 'editorial',
+    purpose: 'decide',
+    expressionMode: 'strong-fit',
+    fingerprint: 'first',
+    compositionIds: ['decision-brief'],
+  });
+  await recordOfficeCompositionHistory(dataDir, {
+    documentPath,
+    format: 'docx',
+    profile: 'editorial',
+    purpose: 'decide',
+    expressionMode: 'divergent',
+    fingerprint: 'second',
+    compositionIds: ['evidence-brief'],
+  });
+  const history = await readOfficeCompositionHistory(dataDir, { format: 'docx' });
+  assert.equal(history.length, 1);
+  assert.equal(history[0].fingerprint, 'second');
+  assert.deepEqual(history[0].compositionIds, ['evidence-brief']);
+  assert.deepEqual(
+    await readOfficeCompositionHistory(dataDir, { format: 'docx', excludeDocumentPath: documentPath }),
+    [],
+  );
 });
 
 test('native Office templates expose sample-slide slots and drive strict template-first composition', async (t) => {
@@ -722,12 +878,19 @@ test('Office design composition maps Word, Excel, and PDF to native structures',
         bullets: ['Preserve native styles.'],
         table: [['Owner', 'Status'], ['Mixdog', 'Ready']],
       }],
+      footer: 'Source: operating model',
       pageNumbers: true,
     }],
   });
   assert.ok(word.operations.some((operation) => operation.op === 'set_page'));
   assert.ok(word.operations.some((operation) => operation.op === 'append_text' && operation.properties.listKind === 'bullet'));
   assert.ok(word.operations.some((operation) => operation.op === 'set_table_cell_style'));
+  assert.ok(word.operations.some((operation) => (
+    operation.op === 'add_page_numbers'
+    && operation.alignment === 'center'
+    && operation.prefix === 'Source: operating model · Page '
+  )));
+  assert.ok(!word.operations.some((operation) => operation.op === 'set_header_footer'));
   const workbook = expandOfficeDesignOperations({
     format: 'xlsx',
     backend: 'microsoft-office-com',
@@ -778,41 +941,6 @@ test('XLSX autofit accepts bounded cell, whole-column, and whole-row selectors',
   assert.deepEqual(parseXlsxAutofitRange('A:D'), { type: 'columns', start: 1, end: 4 });
   assert.deepEqual(parseXlsxAutofitRange('2:8'), { type: 'rows', start: 2, end: 8 });
   assert.throws(() => parseXlsxAutofitRange('D:A'), /Invalid XLSX column range/);
-});
-
-test('Office COM authoring keeps paragraph structure, no-op gates, and render state stable', async () => {
-  const source = await readFile(new URL('./office-com-host.ps1', import.meta.url), 'utf8');
-  const sessionSource = await readFile(new URL('./office-com-session-host.ps1', import.meta.url), 'utf8');
-  assert.match(source, /Paragraphs\.Add\(\$range\)/);
-  assert.match(source, /produced no change/);
-  assert.match(source, /SetSourceData\(\$sheet\.Range\(\[string]\$op\.range\), 2\)/);
-  assert.match(source, /\$chart\.ChartData/);
-  assert.match(source, /\$source\.Value2 = \$matrix/);
-  assert.match(source, /\$placeholderSeriesCount = \[int\]\$collection\.Count/);
-  assert.match(source, /tablegrid = -155/);
-  assert.match(source, /function Color-Hex/);
-  assert.match(source, /followMaster = \$followMasterBackground/);
-  assert.match(source, /\$series\.Values = \$valueArray/);
-  assert.doesNotMatch(source, /\$series\.Formula\b/);
-  assert.match(source, /\$pageSetup\.FitToPagesWide = 1/);
-  assert.match(source, /\$state\.PageSetup\.FitToPagesWide = \$state\.FitToPagesWide/);
-  assert.match(source, /SaveCopyAs\(\$output, 32\)/);
-  assert.match(sessionSource, /\$wasSaved = \[bool]\$document\.Saved/);
-  assert.match(sessionSource, /inspectIssues/);
-  assert.match(sessionSource, /post_save_validate/);
-  assert.match(sessionSource, /Reopen-BackgroundPowerPointSession \$state/);
-  assert.match(sessionSource, /Repair-ExcelPageSetupDpi/);
-  assert.match(sessionSource, /WaitForExit\(250\)/);
-  assert.match(sessionSource, /FinalReleaseComObject/);
-  assert.match(sessionSource, /SetForegroundWindow/);
-  assert.match(sessionSource, /AttachThreadInput/);
-  assert.match(sessionSource, /\[DllImport\("kernel32\.dll"\)\]/);
-  assert.match(sessionSource, /\$mode -eq 'visible' -and \$format -eq 'pptx'/);
-  assert.match(sessionSource, /\$document\.Windows\.Item\(1\)\.HWND/);
-  assert.match(sessionSource, /FindWindowByClassAndTitle\('PPTFrameClass'/);
-  assert.match(sessionSource, /-not \$hWnd -and \$attempt -lt 20/);
-  assert.match(sessionSource, /foregroundActivated = \$state\.ForegroundActivated/);
-  assert.match(sessionSource, /\$process\.Kill\(\)/);
 });
 
 test('create initial operations and finalize collapse a portable workflow into one call', async (t) => {
@@ -993,7 +1121,21 @@ test('describe returns compact operation contracts and actionable input errors',
   assert.ok(chart.operation.input.optional.includes('chartType'));
   assert.equal(chart.operation.supported, true);
   assert.deepEqual(chart.operation.supportedBackends, ['microsoft-office-com']);
-  assert.deepEqual(chart.operation.properties.chart, ['chartType', 'left', 'top', 'width', 'height', 'title']);
+  assert.deepEqual(chart.operation.properties.chart, [
+    'chartType',
+    'left',
+    'top',
+    'width',
+    'height',
+    'title',
+    'seriesColors',
+    'showValues',
+    'showLegend',
+    'zeroBaseline',
+    'valueNumberFormat',
+    'dataLabelPosition',
+    'dataLabelColor',
+  ]);
 
   const portableComment = value(await executeOfficeTool({
     action: 'describe',

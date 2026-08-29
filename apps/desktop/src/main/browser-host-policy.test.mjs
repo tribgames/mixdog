@@ -14,6 +14,7 @@ import {
   normalizePageUrl,
   normalizeBackgroundTabName,
   redactBrowserText,
+  selectActiveBrowserGuest,
 } from './browser-host-policy.ts';
 import { BROWSER_CREDENTIAL_AUTOFILL_FUNCTION } from './browser-credential-autofill.ts';
 
@@ -36,6 +37,25 @@ test('background browser pages become reclaimable only after the idle deadline',
   const lastUsedAt = 1_000;
   assert.equal(backgroundPageIdle(lastUsedAt, lastUsedAt + BACKGROUND_PAGE_IDLE_MS - 1), false);
   assert.equal(backgroundPageIdle(lastUsedAt, lastUsedAt + BACKGROUND_PAGE_IDLE_MS), true);
+});
+
+test('focused browser guest selection follows explicit activity without arbitrary fallback', () => {
+  const alpha = { id: 1, destroyed: false, isDestroyed() { return this.destroyed; } };
+  const beta = { id: 2, destroyed: false, isDestroyed() { return this.destroyed; } };
+  const guests = new Set([alpha, beta]);
+  let current = selectActiveBrowserGuest(guests, null, alpha.id, true);
+  assert.equal(current, alpha);
+  current = selectActiveBrowserGuest(guests, current, beta.id, false);
+  assert.equal(current, alpha);
+  current = selectActiveBrowserGuest(guests, current, beta.id, true);
+  assert.equal(current, beta);
+  current = selectActiveBrowserGuest(guests, current, beta.id, false);
+  assert.equal(current, null);
+  current = selectActiveBrowserGuest(guests, current, 999, true);
+  assert.equal(current, null);
+  alpha.destroyed = true;
+  current = selectActiveBrowserGuest(guests, alpha, beta.id, false);
+  assert.equal(current, null);
 });
 
 function refPointHarness() {

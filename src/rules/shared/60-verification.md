@@ -9,6 +9,8 @@
   buildability invariants. Treat mutable behavior, UX, exact text, snapshots,
   and implementation shape as advisory specifications; update them when the
   requested behavior changes instead of preserving obsolete behavior.
+- A new test asserts observable behavior, never source text or implementation
+  shape, and never re-asserts a contract another test already owns.
 - A check runs at the strictness the task requires; never raise a tool's own
   severity beyond it.
 - If verification fails, collect all failures, leave Verification, complete all
