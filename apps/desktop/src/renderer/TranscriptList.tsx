@@ -437,16 +437,15 @@ export function TranscriptList({
   // motion, so virtual-core's own corrective scroll does not block the next
   // idle measurement in a settling burst.
   // The end-anchor (wasAtEnd) total-size delta bypasses this predicate by
-  // design; shouldDeferScrollAdjustment below plus the core's own
-  // isScrolling deferral hold that write too until motion is idle, so the
-  // bottom pin can no longer cancel a live wheel ramp (the "tears and snaps
-  // back at the bottom" writer confirmed via CDP scrollTop-setter traces).
+  // design. The vendored core also consulted a shouldDeferScrollAdjustment
+  // hook to hold THAT write until motion was idle; upstream virtual-core has
+  // no such hook and never reads it, so only the core's own isScrolling
+  // deferral guards the bottom pin now. Watch for the "tears and snaps back at
+  // the bottom" symptom if the end anchor starts fighting a live wheel ramp.
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
     if (shouldDeferTranscriptScrollAdjustment(hasScrollGestureRef.current())) return false;
     return item.end <= logicalScrollOffset(instance);
   };
-  virtualizer.shouldDeferScrollAdjustment = () =>
-    shouldDeferTranscriptScrollAdjustment(hasScrollGestureRef.current());
   const measureRow = useCallback((element: HTMLDivElement | null) => {
     if (!element) return;
     // The FIRST measurement of a row rides the SAME commit that appended it.
