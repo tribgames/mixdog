@@ -45,6 +45,7 @@ import { PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug
 import { setChannelNotifySink } from '../runtime/channels/lib/parent-bridge.mjs';
 import { setOwnerContext } from '../runtime/channels/lib/runtime-paths.mjs';
 import { safeIpcSend } from '../runtime/shared/safe-ipc-send.mjs';
+import { releaseAllComputerSessions } from '../runtime/computer-bridge/client.mjs';
 import { resourceAdmission } from '../runtime/shared/resource-admission.mjs';
 import { snapshot as childSpawnSnapshot } from '../runtime/shared/child-spawn-gate.mjs';
 import { toolWorkloadSnapshot } from '../runtime/shared/tool-workload-gates.mjs';
@@ -276,6 +277,10 @@ function eventLoopStatus() {
   };
 }
 
+/** Ceiling for the whole teardown sequence, above the slowest individual stop
+ *  (channels/memory) so a healthy shutdown always finishes on its own. */
+const SHUTDOWN_BUDGET_MS = 15_000;
+
 async function shutdown(reason, code = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
@@ -284,9 +289,21 @@ async function shutdown(reason, code = 0) {
     shutdownRecheckTimer = null;
   }
   log(`shutting down (${reason})`);
+  // Backstop: one wedged stop step must never keep the daemon — and with it the
+  // listening port, singleton claim and discovery file — alive. Unref'd so the
+  // clean path still exits the moment teardown finishes.
+  const forcedExit = setTimeout(() => {
+    log('shutdown budget exceeded, forcing exit');
+    process.exit(code);
+  }, SHUTDOWN_BUDGET_MS);
+  forcedExit.unref?.();
   try { setChannelNotifySink(null); } catch {}
   try { await sessionService?.stop?.(reason); } catch (e) { log(`session service stop failed: ${e?.message || e}`); }
   try { await sessionRuntimeHost?.close?.(reason); } catch (e) { log(`session runtime host stop failed: ${e?.message || e}`); }
+  // Host-side Computer Use workers and target claims are reaped only on an
+  // explicit release; the runtime's deferred timer is unref'd and never fires
+  // once this process exits.
+  try { await releaseAllComputerSessions(); } catch (e) { log(`computer session release failed: ${e?.message || e}`); }
   try { await localSessionBridge?.close?.(reason); } catch (e) { log(`local session bridge.close failed: ${e?.message || e}`); }
   try { await sessionTransport?.stop?.(); } catch (e) { log(`session transport stop failed: ${e?.message || e}`); }
   try { await channels?.stop?.(); } catch (e) { log(`channels.stop failed: ${e?.message || e}`); }

@@ -280,7 +280,6 @@ import {
   computerBridgeAvailableSync,
   deferComputerSessionRelease,
   executeComputerTool,
-  releaseComputerSession,
 } from '../runtime/computer-bridge/client.mjs';
 import { TOOL_DEFS as COMPUTER_BRIDGE_TOOL_DEFS } from '../runtime/computer-bridge/tool-defs.mjs';
 import {
@@ -370,10 +369,12 @@ export async function createMixdogSessionRuntime({
     rootDir: STANDALONE_ROOT,
     dataDir: STANDALONE_DATA_DIR,
   });
-  const pendingOfficeTransactions = await initializeOfficeTransactions(STANDALONE_DATA_DIR).catch(() => []);
-  rt.officeRecoveryContext = pendingOfficeTransactions.length
-    ? `<office-recovery>\n${pendingOfficeTransactions.length} unfinished Office transaction journal(s) were found after startup. Do not overwrite them. Use office action=transactions, show the diff/preview to the user, then recover with explicit commit, rollback, or discard approval.\n${pendingOfficeTransactions.slice(0, 10).map((item) => `- ${item.id} ${item.format} ${item.phase} ${item.output}`).join('\n')}\n</office-recovery>`
-    : '';
+  // Office journals exist only for cross-process crash recovery, so startup just
+  // prunes expired ones in the background. Surfacing them as session context made
+  // every new session (agents included) re-announce unrelated leftovers for the
+  // full 30-day retention window; recovery stays reachable on demand through
+  // office action=transactions / action=recover.
+  initializeOfficeTransactions(STANDALONE_DATA_DIR).catch(() => {});
   bootProfile('standalone-env:ready', { ms: (performance.now() - standaloneStartedAt).toFixed(1) });
   const keychainPrewarmPromise = keychain.prewarmSecrets();
   rt.keychainPrewarmWaitDone = false;

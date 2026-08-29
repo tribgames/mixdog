@@ -20,6 +20,7 @@ import { getEventListeners } from 'node:events';
 import { safeIpcSend } from '../runtime/shared/safe-ipc-send.mjs';
 import { sanitizeForWire } from './session-service.mjs';
 import { disposeSessionRuntimeRecord } from './session-runtime-record.mjs';
+import { releaseAllComputerSessions } from '../runtime/computer-bridge/client.mjs';
 import { diffSessionState } from './session-state-patch.mjs';
 import {
   applyProviderCooldown,
@@ -564,6 +565,9 @@ async function stopAll(reason = 'session runtime worker shutdown') {
     } catch {}
   }
   records.clear();
+  // Backstop for sessions whose runtime never reached a clean dispose: the host
+  // keeps their workers and target claims until it is told to release them.
+  try { await releaseAllComputerSessions(); } catch { /* best-effort shutdown */ }
 }
 
 process.on('message', (message) => {

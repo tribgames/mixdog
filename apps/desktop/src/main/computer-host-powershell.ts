@@ -3376,6 +3376,11 @@ export function createPowerShellComputerHost(
   const sessionAbortEpochs = new Map<string, number>();
   const sessionRecoveryBySession = new Map<string, InputRecoveryState>();
   const TARGET_CLAIM_STALE_MS = 10 * 60_000;
+  // A resident worker holds a PowerShell process plus its window claims. A
+  // runtime that dies without releasing its session would pin both forever, so
+  // idle workers expire on the same clock as the claims they hold.
+  const WORKER_IDLE_STALE_MS = TARGET_CLAIM_STALE_MS;
+  const workerLastUsedAt = new Map<string, number>();
 
   function sessionIdFor(command: ComputerCommand): string {
     return String(command.session_id || 'default');
@@ -3388,6 +3393,19 @@ export function createPowerShellComputerHost(
       const sessionTargets = targetsBySession.get(claim.sessionId);
       sessionTargets?.delete(windowId);
       if (sessionTargets?.size === 0) targetsBySession.delete(claim.sessionId);
+    }
+  }
+
+  function reapIdleSessionWorkers(now = Date.now()): void {
+    for (const [sessionId, child] of powerShellBySession) {
+      if (activeExecutionsBySession.has(sessionId)) continue;
+      if (now - (workerLastUsedAt.get(sessionId) || 0) < WORKER_IDLE_STALE_MS) continue;
+      framesBySession.delete(sessionId);
+      elementTargetsBySession.delete(sessionId);
+      observedWindowBySession.delete(sessionId);
+      sessionRecoveryBySession.delete(sessionId);
+      releaseTargetClaims(sessionId);
+      retirePowerShell(child, new Error('computer session worker reclaimed after idle timeout'));
     }
   }
 
@@ -3708,6 +3726,7 @@ export function createPowerShellComputerHost(
   }
 
   function ensurePowerShell(sessionId: string): ChildProcessWithoutNullStreams {
+    workerLastUsedAt.set(sessionId, Date.now());
     const existing = powerShellBySession.get(sessionId);
     if (existing && !existing.killed) return existing;
     // The program runs from a temp .ps1 via -File, NOT piped through -Command -:
@@ -3738,7 +3757,10 @@ export function createPowerShellComputerHost(
     });
     child.stderr.on('data', () => { /* diagnostics ignored; errors ride responses */ });
     child.once('exit', () => {
-      if (powerShellBySession.get(sessionId) === child) powerShellBySession.delete(sessionId);
+      if (powerShellBySession.get(sessionId) === child) {
+        powerShellBySession.delete(sessionId);
+        workerLastUsedAt.delete(sessionId);
+      }
       for (const [id, entry] of pending) {
         if (entry.child !== child) continue;
         clearTimeout(entry.timer);
@@ -3752,7 +3774,9 @@ export function createPowerShellComputerHost(
 
   function retirePowerShell(child: ChildProcessWithoutNullStreams, error: Error): void {
     for (const [sessionId, activeChild] of powerShellBySession) {
-      if (activeChild === child) powerShellBySession.delete(sessionId);
+      if (activeChild !== child) continue;
+      powerShellBySession.delete(sessionId);
+      workerLastUsedAt.delete(sessionId);
     }
     for (const [id, entry] of pending) {
       if (entry.child !== child) continue;
@@ -6753,13 +6777,32 @@ try {
           respond(response, 400, { ok: false, error: `invalid request: ${(error as Error).message}` });
           return;
         }
+        // A dropped connection is the only cancellation signal left when the
+        // runtime dies before it can send session_abort. Without this the queued
+        // input keeps driving the user's desktop until the command timeout.
+        let clientGone = false;
+        const abortOnDisconnect = (): void => {
+          if (clientGone) return;
+          clientGone = true;
+          const pendingAction = String(command.action || '');
+          if (pendingAction === 'session_abort' || pendingAction === 'session_release') return;
+          void abortComputerSession(command).catch(() => { /* host already idle */ });
+        };
+        request.once('aborted', abortOnDisconnect);
+        response.once('close', () => {
+          if (!response.writableEnded) abortOnDisconnect();
+        });
         try {
           const value = command.action === 'session_abort'
             ? await abortComputerSession(command)
             : await executeSerialized(command);
-          respond(response, 200, { ok: true, value });
+          if (!clientGone) respond(response, 200, { ok: true, value });
         } catch (error) {
-          respond(response, 200, { ok: false, error: (error as Error).message || String(error) });
+          if (!clientGone) {
+            respond(response, 200, { ok: false, error: (error as Error).message || String(error) });
+          }
+        } finally {
+          request.removeListener('aborted', abortOnDisconnect);
         }
       })().catch(() => {
         try { response.destroy(); } catch { /* already gone */ }
@@ -6783,7 +6826,10 @@ try {
         try {
           writeDiscovery(port, activeToken);
           heartbeat = setInterval(
-            () => heartbeatDiscovery(port, activeToken),
+            () => {
+              heartbeatDiscovery(port, activeToken);
+              reapIdleSessionWorkers();
+            },
             HEARTBEAT_MS,
           );
           heartbeat.unref?.();

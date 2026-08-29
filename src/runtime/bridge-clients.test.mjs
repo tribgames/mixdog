@@ -24,6 +24,7 @@ import {
   computerBridgeAvailableSync,
   deferComputerSessionRelease,
   executeComputerTool,
+  releaseAllComputerSessions,
   releaseComputerSession,
 } from './computer-bridge/client.mjs';
 import {
@@ -817,6 +818,136 @@ test('browser client propagates caller cancellation and budget identity', {
       session_id: 'browser-cancel-session',
       turn_id: 9,
     });
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('computer client retries once against a republished bridge endpoint', {
+  timeout: 10_000,
+}, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-computer-retry-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = directory;
+  const seen = [];
+  let staleRequestSeen;
+  let releaseStale;
+  const staleHit = new Promise((resolve) => { staleRequestSeen = resolve; });
+  const staleReleased = new Promise((resolve) => { releaseStale = resolve; });
+  // The endpoint discovery still points at: it accepts the connection and drops
+  // it, exactly like a bridge whose app restarted mid-flight. The drop waits for
+  // the republished discovery so the retry has a live endpoint to find.
+  const staleServer = createServer((request) => {
+    staleRequestSeen();
+    void staleReleased.then(() => request.destroy());
+  });
+  const liveServer = createServer((request, response) => {
+    const chunks = [];
+    request.on('data', (chunk) => chunks.push(chunk));
+    request.on('end', () => {
+      seen.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      const payload = JSON.stringify({ ok: true, value: { text: 'ok' } });
+      response.writeHead(200, {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload),
+      });
+      response.end(payload);
+    });
+  });
+  const discoveryFile = join(directory, 'computer-bridge.json');
+  const publish = async (port, token) => {
+    await writeFile(discoveryFile, `${JSON.stringify({ version: 1, port, token })}\n`);
+  };
+  try {
+    for (const server of [staleServer, liveServer]) {
+      await new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', resolve);
+      });
+    }
+    await publish(staleServer.address().port, 'stale-token');
+    const execution = executeComputerTool(
+      { action: 'list', input: { kind: 'windows' } },
+      { sessionId: 'retry-session' },
+    );
+    await staleHit;
+    await publish(liveServer.address().port, 'live-token');
+    releaseStale();
+    const result = await execution;
+    assert.equal(result.isError, undefined);
+    assert.deepEqual(seen, [{ action: 'list_windows', session_id: 'retry-session' }]);
+  } finally {
+    for (const server of [staleServer, liveServer]) {
+      server.closeAllConnections?.();
+      await new Promise((resolve) => server.close(resolve));
+    }
+    await releaseAllComputerSessions(1_000);
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('computer client releases every host-bound session on shutdown', {
+  timeout: 10_000,
+}, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-computer-shutdown-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = directory;
+  const seen = [];
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on('data', (chunk) => chunks.push(chunk));
+    request.on('end', () => {
+      seen.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      const payload = JSON.stringify({ ok: true, value: { text: 'ok' } });
+      response.writeHead(200, {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload),
+      });
+      response.end(payload);
+    });
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    await writeFile(join(directory, 'computer-bridge.json'), `${JSON.stringify({
+      version: 1,
+      port: address.port,
+      token: 'computer-token',
+    })}\n`);
+    // A read-only observation still owns a host worker, so shutdown must
+    // release it even though it never entered the write-active set.
+    await executeComputerTool(
+      { action: 'list', input: { kind: 'windows' } },
+      { sessionId: 'shutdown-read-session' },
+    );
+    await executeComputerTool(
+      { action: 'click', input: { window_id: 'hwnd:0x123', ref: 'ref:1' } },
+      { sessionId: 'shutdown-write-session' },
+    );
+    // The deferred timer is unref'd and would never fire on the exit path.
+    assert.equal(deferComputerSessionRelease('shutdown-write-session', 60_000), true);
+    assert.ok(await releaseAllComputerSessions(2_000) >= 2);
+    const released = seen
+      .filter((body) => body.action === 'session_release')
+      .map((body) => body.session_id);
+    assert.ok(released.includes('shutdown-read-session'));
+    assert.ok(released.includes('shutdown-write-session'));
+    // Idempotent: a second shutdown pass has nothing left to release.
+    assert.equal(await releaseAllComputerSessions(2_000), 0);
+    assert.equal(
+      seen.filter((body) => body.action === 'session_release').length,
+      released.length,
+    );
   } finally {
     server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));

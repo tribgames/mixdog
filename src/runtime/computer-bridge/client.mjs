@@ -24,12 +24,19 @@ const REQUEST_TIMEOUT_MS = 150_000;
 const SESSION_ABORT_TIMEOUT_MS = 8_000;
 const SESSION_RELEASE_TIMEOUT_MS = 60_000;
 const DEFERRED_SESSION_RELEASE_MS = 2 * 60_000;
+// Shutdown stays bounded: an unresponsive host must not hold the exit path open
+// for the full per-session release budget.
+const SHUTDOWN_SESSION_RELEASE_TIMEOUT_MS = 5_000;
 const READ_ONLY_ACTIONS = new Set([
   'list_windows', 'list_apps', 'diagnose', 'capture', 'snapshot', 'find', 'clipboard_read', 'wait',
   'window_bounds', 'screenshot', 'zoom',
 ]);
 const activeComputerSessions = new Set();
 const deferredComputerSessionReleases = new Map();
+// Every session that reached the host owns a worker there, including read-only
+// ones that never enter activeComputerSessions. The host reaps those only on an
+// explicit release, so shutdown needs the full set.
+const hostBoundComputerSessions = new Set();
 
 const BRIDGE_UNAVAILABLE_MESSAGE =
   'computer use is unavailable; open the Mixdog desktop app and enable Computer Use in settings';
@@ -98,39 +105,59 @@ export async function executeComputerTool(args, context = {}) {
   const sessionId = context?.sessionId ? String(context.sessionId) : '';
   cancelDeferredComputerSessionRelease(sessionId);
   const action = String(command?.action || '');
+  if (sessionId) hostBoundComputerSessions.add(sessionId);
   if (sessionId && !READ_ONLY_ACTIONS.has(action) && command?.read_only !== true) {
     activeComputerSessions.add(sessionId);
   }
-  try {
-    const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
-    const requestSignal = context?.signal
-      ? AbortSignal.any([timeoutSignal, context.signal])
-      : timeoutSignal;
-    response = await fetch(`http://127.0.0.1:${discovery.port}/command`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${discovery.token}`,
-      },
-      body: JSON.stringify({
-        ...command,
-        ...(context?.sessionId ? { session_id: String(context.sessionId) } : {}),
-      }),
-      signal: requestSignal,
-    });
-  } catch (error) {
-    const externallyAborted = context?.signal?.aborted === true;
-    const abortConfirmed = externallyAborted && sessionId
-      ? await abortComputerSession(sessionId)
-      : false;
-    const reason = error?.name === 'TimeoutError'
-      ? 'computer bridge timed out'
-      : externallyAborted
-        ? (abortConfirmed
-            ? 'computer command aborted; input state and session resources were released'
-            : 'computer command aborted; host cleanup could not be confirmed')
-        : BRIDGE_UNAVAILABLE_MESSAGE;
-    return { content: [{ type: 'text', text: `Error: ${reason}` }], isError: true };
+  let bridge = discovery;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+      const requestSignal = context?.signal
+        ? AbortSignal.any([timeoutSignal, context.signal])
+        : timeoutSignal;
+      response = await fetch(`http://127.0.0.1:${bridge.port}/command`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${bridge.token}`,
+        },
+        body: JSON.stringify({
+          ...command,
+          ...(context?.sessionId ? { session_id: String(context.sessionId) } : {}),
+        }),
+        signal: requestSignal,
+      });
+      break;
+    } catch (error) {
+      const externallyAborted = context?.signal?.aborted === true;
+      const timedOut = error?.name === 'TimeoutError';
+      // The desktop app republishes the bridge with a fresh port/token when it
+      // restarts. Retry once against the new endpoint instead of reporting the
+      // whole capability unavailable.
+      if (attempt === 0 && !externallyAborted && !timedOut) {
+        const replacement = readDiscovery();
+        if (replacement
+          && (replacement.port !== bridge.port || replacement.token !== bridge.token)) {
+          bridge = replacement;
+          continue;
+        }
+      }
+      const abortConfirmed = externallyAborted && sessionId
+        ? await abortComputerSession(sessionId)
+        : false;
+      const reason = timedOut
+        ? 'computer bridge timed out'
+        : externallyAborted
+          ? (abortConfirmed
+              ? 'computer command aborted; input state and session resources were released'
+              : 'computer command aborted; host cleanup could not be confirmed')
+          : BRIDGE_UNAVAILABLE_MESSAGE;
+      return { content: [{ type: 'text', text: `Error: ${reason}` }], isError: true };
+    }
+  }
+  if (!response) {
+    return { content: [{ type: 'text', text: `Error: ${BRIDGE_UNAVAILABLE_MESSAGE}` }], isError: true };
   }
   let body;
   try {
@@ -188,7 +215,10 @@ async function abortComputerSession(sessionId) {
   if (!id) return false;
   cancelDeferredComputerSessionRelease(id);
   const aborted = await sendComputerSessionControl(id, 'session_abort', SESSION_ABORT_TIMEOUT_MS);
-  if (aborted) activeComputerSessions.delete(id);
+  if (aborted) {
+    activeComputerSessions.delete(id);
+    hostBoundComputerSessions.delete(id);
+  }
   return aborted;
 }
 
@@ -226,6 +256,29 @@ export async function releaseComputerSession(sessionId) {
   cancelDeferredComputerSessionRelease(id);
   activeComputerSessions.delete(id);
   const released = await sendComputerSessionControl(id, 'session_release', SESSION_RELEASE_TIMEOUT_MS);
-  if (!released) activeComputerSessions.add(id);
+  if (released) hostBoundComputerSessions.delete(id);
+  else activeComputerSessions.add(id);
   return released;
+}
+
+/** Process-shutdown backstop. The deferred release timer is unref'd, so a
+ * runtime that exits first would leave host session workers and target claims
+ * pinned until they go stale. Entry points call this on the way out; with no
+ * bridge on disk it costs nothing. Returns the released session count. */
+export async function releaseAllComputerSessions(timeoutMs = SHUTDOWN_SESSION_RELEASE_TIMEOUT_MS) {
+  for (const id of [...deferredComputerSessionReleases.keys()]) {
+    cancelDeferredComputerSessionRelease(id);
+  }
+  const ids = [...new Set([...hostBoundComputerSessions, ...activeComputerSessions])];
+  if (ids.length === 0) return 0;
+  const timeout = Math.max(1, Number(timeoutMs) || SHUTDOWN_SESSION_RELEASE_TIMEOUT_MS);
+  const outcomes = await Promise.all(ids.map(async (id) => {
+    const released = await sendComputerSessionControl(id, 'session_release', timeout);
+    if (released) {
+      hostBoundComputerSessions.delete(id);
+      activeComputerSessions.delete(id);
+    }
+    return released;
+  }));
+  return outcomes.filter(Boolean).length;
 }

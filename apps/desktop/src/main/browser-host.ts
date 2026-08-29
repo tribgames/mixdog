@@ -74,6 +74,7 @@ import {
   normalizePageUrl,
   redactBrowserText,
   redactBrowserUrl,
+  selectActiveBrowserGuest,
 } from './browser-host-policy';
 import {
   describeBrowserPostcondition,
@@ -389,6 +390,7 @@ export interface BrowserHost {
    *  it down (server, discovery file, agent offscreen pages). The browser
    *  pane infrastructure stays live either way. */
   setBridgeEnabled(enabled: boolean): void;
+  setGuestActive(paneId: string, webContentsId: number, active: boolean): void;
   browserImportSources(): Promise<BrowserImportSource[]>;
   browserImport(request: BrowserImportRequest): Promise<BrowserImportResult>;
   browserHistorySearch(query: string): Promise<BrowserHistoryEntry[]>;
@@ -461,10 +463,31 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     return `${stablePageId(guest)}-s${generation}`;
   }
 
+  // Renderer death leaves a live WebContents whose document is gone: CDP calls
+  // and every ref bound to that document fail until the page reloads.
+  const crashedGuests = new WeakSet<WebContents>();
+
   function invalidateInteractionState(guest: WebContents): void {
     accessibilityRefsByGuest.delete(guest);
     latestRefSetsByGuest.delete(guest);
     visualGroundingByGuest.delete(guest);
+  }
+
+  /** Recover a crashed page on the next command instead of failing it. The
+   *  reloaded document carries none of the dead page's refs, so callers get a
+   *  live surface and a fresh snapshot rather than an unusable one. */
+  async function recoverCrashedGuest(guest: WebContents, signal?: AbortSignal): Promise<void> {
+    if (!crashedGuests.has(guest)) return;
+    crashedGuests.delete(guest);
+    if (guest.isDestroyed()) throw new Error('browser page is unavailable');
+    invalidateInteractionState(guest);
+    try {
+      guest.reload();
+      await waitForLoadSettle(guest, NAVIGATE_SETTLE_TIMEOUT_MS, signal);
+      diagnosticsFor(guest).fault = '';
+    } catch (error) {
+      diagnosticsFor(guest).fault = `page recovery failed: ${(error as Error).message}`;
+    }
   }
 
   function redactGuestText(guest: WebContents, value: unknown): string {
@@ -665,6 +688,8 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     });
     guest.on('render-process-gone', (_event, details) => {
       diagnosticsFor(guest).fault = `renderer ${details.reason}${details.exitCode ? ` (exit ${details.exitCode})` : ''}`;
+      crashedGuests.add(guest);
+      invalidateInteractionState(guest);
     });
     guest.on('unresponsive', () => {
       diagnosticsFor(guest).fault = 'page became unresponsive';
@@ -684,27 +709,30 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     }
   }
 
+  function notifyAttachWaiters(guest: WebContents): void {
+    const waiters = attachWaiters;
+    attachWaiters = [];
+    for (const resolve of waiters) resolve(guest);
+  }
+
   window.webContents.on('did-attach-webview', (_event, guest) => {
     if (guest.session !== browserPartitionSession) return;
     initializeGuest(guest);
     guests.add(guest);
-    currentGuest = guest;
     guest.on('focus', () => {
       currentGuest = guest;
     });
     guest.once('destroyed', () => {
       guests.delete(guest);
-      if (currentGuest === guest) currentGuest = [...guests].at(-1) ?? null;
+      if (currentGuest === guest) currentGuest = null;
     });
-    const waiters = attachWaiters;
-    attachWaiters = [];
-    for (const resolve of waiters) resolve(guest);
+    notifyAttachWaiters(guest);
   });
 
   function liveGuest(): WebContents | null {
     if (currentGuest && !currentGuest.isDestroyed()) return currentGuest;
-    currentGuest = [...guests].find((guest) => !guest.isDestroyed()) ?? null;
-    return currentGuest;
+    currentGuest = null;
+    return null;
   }
 
   /** Visible pane guests in stable attach order (list_tabs "v1", "v2", …). */
@@ -1175,6 +1203,8 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
         }
         if (name === 'Inspector.targetCrashed' || name === 'Target.targetCrashed') {
           diagnostics.fault = 'page target crashed';
+          crashedGuests.add(guest);
+          invalidateInteractionState(guest);
         }
       };
       debuggerListeners.set(guest, onMessage);
@@ -3098,6 +3128,7 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     if (action === 'close_tab') return closeBackgroundTab(tab);
     const target = resolveTargetGuest(background, tab);
     const guest = target?.guest ?? await ensureGuest();
+    await recoverCrashedGuest(guest, signal);
     const targetIsBackground = target?.background === true;
     const refRecovery: BrowserRefRecoveryContext = {
       source: latestRefSetsByGuest.get(guest),
@@ -3798,6 +3829,10 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
       bridgeWanted = enabled;
       if (enabled) startBridge();
       else void stopBridge().catch(() => {});
+    },
+    setGuestActive(_paneId: string, webContentsId: number, active: boolean): void {
+      currentGuest = selectActiveBrowserGuest(guests, currentGuest, webContentsId, active);
+      if (active && currentGuest?.id === webContentsId) notifyAttachWaiters(currentGuest);
     },
     async browserImportSources(): Promise<BrowserImportSource[]> {
       return await browserProfileImporter.sources();

@@ -20,6 +20,7 @@ import {
   listSessionHeartbeatMtimes,
 } from '../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs';
 import { SessionClosedError } from '../runtime/agent/orchestrator/session/manager/session-errors.mjs';
+import { releaseComputerSession } from '../runtime/computer-bridge/client.mjs';
 import { saveSession } from '../runtime/agent/orchestrator/session/store.mjs';
 
 export function resolveResumeCwd(session, currentCwd) {
@@ -386,11 +387,18 @@ export function createLifecycleApi(deps) {
           .then(() => closeNativeToolTransports?.(reason))
           .catch(() => {})
         : null;
+      // Computer Use pins a host-side worker plus window claims for the closing
+      // session, and the runtime's deferred release timer is unref'd. A real
+      // teardown releases them here; a keepBackgroundWork eviction leaves the
+      // lease to that timer so a re-materialized session keeps its refs.
+      const computerStop = teardownReapsWork && closingSessionId
+        ? Promise.resolve(releaseComputerSession(closingSessionId)).catch(() => false)
+        : null;
       if (detach) {
         try { await withTeardownDeadline(channelStop, 300, false); } catch {}
         try { await withTeardownDeadline(shellJobsStop, 300, false); } catch {}
         try { await withTeardownDeadline(memoryStop, 1500, false); } catch {}
-        for (const stop of [mcpStop, openaiWsStop, patchStop, nativeToolStop]) {
+        for (const stop of [mcpStop, openaiWsStop, patchStop, nativeToolStop, computerStop]) {
           Promise.resolve(stop).catch(() => {});
         }
         onProcessExit();
@@ -404,6 +412,7 @@ export function createLifecycleApi(deps) {
         withTeardownDeadline(memoryStop, 5500, false),
         withTeardownDeadline(shellJobsStop, 1500, false),
         withTeardownDeadline(nativeToolStop, 1500, false),
+        withTeardownDeadline(computerStop, 1500, false),
       ]);
       onProcessExit();
       return ok;
