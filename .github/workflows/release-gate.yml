@@ -209,11 +209,17 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             apps/desktop/package-lock.json
-      - name: Install dependencies
+      # computer-host imports only node builtins and a local .ts module, so it
+      # skips the heavy root install (sharp/onnxruntime/tesseract) the other
+      # suites need — the slowest step on the slowest runner. test-env.mjs
+      # treats a missing root tree as "nothing to compare", not an error.
+      - name: Install root dependencies
+        if: matrix.suite != 'computer-host'
         shell: bash
-        run: |
-          npm ci --prefer-offline --no-audit --no-fund
-          npm ci --prefix apps/desktop --prefer-offline --no-audit --no-fund
+        run: npm ci --prefer-offline --no-audit --no-fund
+      - name: Install desktop dependencies
+        shell: bash
+        run: npm ci --prefix apps/desktop --prefer-offline --no-audit --no-fund
       - name: Run desktop ${{ matrix.suite }} suite
         shell: bash
         run: npm run test:${{ matrix.suite }} --prefix apps/desktop
