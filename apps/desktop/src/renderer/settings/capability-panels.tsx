@@ -1599,23 +1599,33 @@ function DesktopAgentControlGroup({
   description,
   toggleTitle,
   hidden = false,
+  narrowKey,
+  narrowTitle,
 }: {
   settingKey: Extract<DesktopSettingKey, 'computerControl' | 'browserControl'>;
   title: string;
   description: string;
   toggleTitle: string;
   hidden?: boolean;
+  // Optional second switch that narrows the capability instead of turning it
+  // off, shown only while the capability itself is on.
+  narrowKey?: Extract<DesktopSettingKey, 'computerObserveOnly'>;
+  narrowTitle?: string;
 }) {
   const api = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
+  const [narrowed, setNarrowed] = useState(false);
+  const [savingNarrow, setSavingNarrow] = useState(false);
   useEffect(() => {
     let live = true;
     void api?.readSettings?.().then((settings) => {
-      if (live) setEnabled(settings[settingKey] === true);
+      if (!live) return;
+      setEnabled(settings[settingKey] === true);
+      if (narrowKey) setNarrowed(settings[narrowKey] === true);
     }).catch(() => {});
     return () => { live = false; };
-  }, [api, settingKey]);
+  }, [api, settingKey, narrowKey]);
   if (hidden || enabled === null || !api?.updateSetting) return null;
   return <Group title={title} description={description}>
     <ToggleRow title={toggleTitle} checked={enabled} disabled={saving}
@@ -1631,6 +1641,21 @@ function DesktopAgentControlGroup({
           showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
         }).finally(() => setSaving(false));
       }} />
+    {narrowKey && narrowTitle && enabled
+      ? <ToggleRow title={narrowTitle} checked={narrowed} disabled={savingNarrow}
+          onChange={(value) => {
+            if (savingNarrow) return;
+            const previous = narrowed;
+            setNarrowed(value);
+            setSavingNarrow(true);
+            void api.updateSetting?.(narrowKey, value).then((settings) => {
+              setNarrowed(settings[narrowKey] === true);
+            }).catch((reason) => {
+              setNarrowed(previous);
+              showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
+            }).finally(() => setSavingNarrow(false));
+          }} />
+      : null}
   </Group>;
 }
 
@@ -1641,6 +1666,8 @@ function DesktopComputerUseGroup() {
   return <DesktopAgentControlGroup settingKey="computerControl" title="Computer Use"
     description="Let agents inspect screens, read UI and clipboard text, and operate real windows with the mouse and keyboard. Windows only."
     toggleTitle="Enable Computer Use"
+    narrowKey="computerObserveOnly"
+    narrowTitle="Observation only (no mouse or keyboard input)"
     hidden={!navigator.userAgent.includes('Windows')} />;
 }
 

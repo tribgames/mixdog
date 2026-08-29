@@ -217,6 +217,147 @@
   pointer-events: none;
 }
 
+/* Progress strip: one plain sentence about what the agent is doing to the
+   page, so watching it never means reading tool calls. */
+.browser-pane-activity {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--mx-border-muted);
+  background: var(--mx-workspace-sheet);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+
+.browser-pane-activity > em {
+  color: var(--mx-text-faint);
+  font-style: normal;
+}
+
+.browser-pane-activity-spin {
+  flex: none;
+  animation: mixdog-browser-activity-spin 1s linear infinite;
+}
+
+@keyframes mixdog-browser-activity-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .browser-pane-activity-spin {
+    animation: none;
+  }
+}
+
+/* Goal bar: plain-language entry point under the page, shaped like a composer
+   so the browser pane reads as a place you can ask for work. */
+.browser-pane-goal {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--mx-border-muted);
+  background: var(--mx-workspace-sheet);
+  color: var(--mx-text-faint);
+}
+
+.browser-pane-goal > input {
+  min-width: 0;
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  outline: none;
+}
+
+.browser-pane-goal > button {
+  display: inline-flex;
+  height: 26px;
+  flex: none;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 7px;
+  background: var(--mx-surface-raised);
+  color: var(--mx-text);
+  cursor: pointer;
+  font-size: var(--mx-font-meta);
+}
+
+.browser-pane-goal > button:disabled {
+  color: var(--mx-text-faint);
+  cursor: default;
+  opacity: .6;
+}
+
+/* Human handoff: the agent parked on a captcha, a 2FA prompt, or an identity
+   check. The banner is a strip ABOVE the guest, never a cover — hiding the
+   page would hide the very challenge the user has to clear. */
+.browser-pane-handoff {
+  position: absolute;
+  z-index: 3;
+  top: 10px;
+  right: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 10px;
+  background: var(--mx-surface-raised);
+  box-shadow: 0 10px 28px rgb(0 0 0 / 26%);
+  color: var(--mx-text);
+}
+
+.browser-pane-handoff-icon {
+  flex: none;
+  color: var(--mx-accent, var(--mx-text));
+}
+
+.browser-pane-handoff-body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.browser-pane-handoff-body > strong {
+  font-size: var(--mx-font-ui);
+}
+
+.browser-pane-handoff-body > span {
+  overflow-wrap: anywhere;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+
+.browser-pane-handoff button {
+  display: inline-flex;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 7px;
+  background: var(--mx-surface-sunken, transparent);
+  color: var(--mx-text);
+  cursor: pointer;
+  font-size: var(--mx-font-meta);
+}
+
+.browser-pane-handoff button.is-primary {
+  border-color: transparent;
+  background: var(--mx-accent, var(--mx-text));
+  color: var(--mx-on-accent, var(--mx-workspace-sheet));
+}
+
 .browser-pane-failure {
   position: absolute;
   inset: 0;

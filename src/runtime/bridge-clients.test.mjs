@@ -17,6 +17,7 @@ import {
 } from './browser-bridge/client.mjs';
 import {
   BROWSER_ACTIONS,
+  SEQUENCE_STEP_ACTIONS,
   validateBrowserToolArgs,
 } from './browser-bridge/action-schema.mjs';
 import { TOOL_DEFS as BROWSER_TOOL_DEFS } from './browser-bridge/tool-defs.mjs';
@@ -59,7 +60,12 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   assert.deepEqual(Object.keys(schema.properties), ['action', 'input']);
   assert.deepEqual(schema.properties.action.enum, BROWSER_ACTIONS);
   assert.ok(input.description.includes('navigate url'));
-  assert.ok(Buffer.byteLength(JSON.stringify(BROWSER_TOOL_DEFS[0])) <= 12_000);
+  // Token budget: this schema rides every request, so it only grows when the
+  // addition pays for itself. `sequence` costs ~800 bytes once and removes up
+  // to five whole request round-trips per form, each of which would have
+  // carried this very schema again; handoff and extract raised the floor
+  // before it, and the surrounding descriptions were compacted to absorb them.
+  assert.ok(Buffer.byteLength(JSON.stringify(BROWSER_TOOL_DEFS[0])) <= 13_400);
   assert.deepEqual(propertyFor('fill', 'fields').items.required, ['ref']);
   assert.equal(propertyFor('fill', 'fields').items.additionalProperties, false);
   assert.equal(propertyFor('fill', 'fields').items.properties.values.minItems, 1);
@@ -77,7 +83,10 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   ]) {
     assert.equal(schema.properties.action.enum.includes(removed), false, removed);
   }
-  assert.equal(schema.properties.action.enum.length, 30);
+  assert.equal(schema.properties.action.enum.length, 33);
+  for (const added of ['handoff', 'extract', 'sequence']) {
+    assert.ok(schema.properties.action.enum.includes(added), added);
+  }
   assert.ok(propertyFor('click', 'ref').description.includes('p1-s3-e12'));
   assert.ok(propertyFor('click', 'snapshotId'));
   assert.deepEqual(propertyFor('snapshot', 'mode').enum, ['semantic', 'visual', 'both']);
@@ -223,11 +232,111 @@ test('browser action contract validates compact flat-schema calls', () => {
   );
 });
 
+test('browser sequence chains only deterministic same-page gestures', () => {
+  assert.equal(validateBrowserToolArgs({
+    action: 'sequence',
+    input: {
+      steps: [
+        { action: 'fill', ref: 'p1-s1-e1', text: 'ada@example.com' },
+        { action: 'fill', ref: 'p1-s1-e2', text: 'secret' },
+        { action: 'click', ref: 'p1-s1-e3' },
+      ],
+      expect: { text: 'Welcome' },
+    },
+  }).ok, true);
+  assert.match(
+    validateBrowserToolArgs({
+      action: 'sequence',
+      input: { steps: [{ action: 'click', ref: 'p1-s1-e1' }] },
+    }).error,
+    /2 to 6 steps/,
+  );
+  // Navigation and uploads keep their own fresh snapshot before the next call.
+  assert.match(
+    validateBrowserToolArgs({
+      action: 'sequence',
+      input: {
+        steps: [
+          { action: 'navigate', url: 'https://example.com' },
+          { action: 'click', ref: 'p1-s1-e1' },
+        ],
+      },
+    }).error,
+    /action must be one of/,
+  );
+  // Coordinates bind to a snapshot the earlier steps invalidate.
+  assert.match(
+    validateBrowserToolArgs({
+      action: 'sequence',
+      input: {
+        steps: [
+          { action: 'click', ref: 'p1-s1-e1', x: 10 },
+          { action: 'click', ref: 'p1-s1-e2' },
+        ],
+      },
+    }).error,
+    /does not accept field\(s\): x/,
+  );
+  assert.match(
+    validateBrowserToolArgs({
+      action: 'sequence',
+      input: {
+        steps: [
+          { action: 'fill', ref: 'p1-s1-e1' },
+          { action: 'click', ref: 'p1-s1-e2' },
+        ],
+      },
+    }).error,
+    /requires ref\+text/,
+  );
+});
+
+test('browser handoff and extract contracts guard their own inputs', () => {
+  assert.equal(validateBrowserToolArgs({
+    action: 'handoff',
+    input: { reason: 'Solve the captcha' },
+  }).ok, true);
+  assert.match(
+    validateBrowserToolArgs({ action: 'handoff', input: { reason: '   ' } }).error,
+    /non-empty input\.reason/,
+  );
+  assert.match(
+    validateBrowserToolArgs({ action: 'handoff', input: { reason: 'x'.repeat(201) } }).error,
+    /200 characters/,
+  );
+  // Nobody can clear a challenge on an offscreen page.
+  assert.match(
+    validateBrowserToolArgs({
+      action: 'handoff',
+      input: { reason: 'Finish verification', background: true },
+    }).error,
+    /does not accept input field\(s\): background/,
+  );
+  assert.equal(validateBrowserToolArgs({
+    action: 'extract',
+    input: { selector: 'li.product', attributes: ['href', 'data-price'], limit: 20 },
+  }).ok, true);
+  assert.match(
+    validateBrowserToolArgs({ action: 'extract', input: {} }).error,
+    /requires input\.selector/,
+  );
+  assert.match(
+    validateBrowserToolArgs({ action: 'extract', input: { selector: 'li', attributes: [] } }).error,
+    /1 to 12 attribute names/,
+  );
+});
+
 test('browser runtime manifest stays in parity with host command handlers', async () => {
   const hostSource = await readFile(
     new URL('../../apps/desktop/src/main/browser-host.ts', import.meta.url),
     'utf8',
   );
+  const hostStepActions = hostSource.match(
+    /const SEQUENCE_STEP_ACTIONS = new Set\(\[([\s\S]*?)\]\)/,
+  )?.[1] || '';
+  for (const step of SEQUENCE_STEP_ACTIONS) {
+    assert.ok(hostStepActions.includes(`'${step}'`), `host sequence step: ${step}`);
+  }
   for (const action of BROWSER_ACTIONS) {
     const handled = hostSource.includes(`case '${action}'`)
       || hostSource.includes(`action === '${action}'`);
@@ -239,6 +348,118 @@ test('browser runtime manifest stays in parity with host command handlers', asyn
     assert.equal(hostSource.includes(`case '${removed}'`), false, removed);
     assert.equal(hostSource.includes(`action === '${removed}'`), false, removed);
   }
+});
+
+test('computer runtime manifest stays in parity with host command handlers', async () => {
+  const hostSource = await readFile(
+    new URL('../../apps/desktop/src/main/computer-host-powershell.ts', import.meta.url),
+    'utf8',
+  );
+  // Every schema action, including the button/operation/kind variants that
+  // select a different host command, so no mapped command can lose its handler.
+  const calls = [
+    { action: 'list', input: { kind: 'windows' } },
+    { action: 'list', input: { kind: 'apps' } },
+    { action: 'diagnose', input: { window_id: 'hwnd:0x1' } },
+    { action: 'capture', input: { window_id: 'hwnd:0x1' } },
+    { action: 'capture', input: { mode: 'zoom', frame_id: 'frame:1', region: [0, 0, 4, 4] } },
+    { action: 'click', input: { window_id: 'hwnd:0x1', ref: 'ref:1' } },
+    { action: 'click', input: { window_id: 'hwnd:0x1', element: 1, button: 'left' } },
+    { action: 'click', input: { window_id: 'hwnd:0x1', element: 1, button: 'right' } },
+    { action: 'click', input: { window_id: 'hwnd:0x1', element: 1, button: 'middle' } },
+    { action: 'double_click', input: { window_id: 'hwnd:0x1', element: 1 } },
+    { action: 'mouse_move', input: { window_id: 'hwnd:0x1', element: 1 } },
+    { action: 'drag', input: { window_id: 'hwnd:0x1', ref: 'ref:1', to: 'ref:2' } },
+    { action: 'type', input: { window_id: 'hwnd:0x1', text: 'value' } },
+    { action: 'key', input: { window_id: 'hwnd:0x1', keys: '^s' } },
+    { action: 'scroll', input: { window_id: 'hwnd:0x1', direction: 'down' } },
+    { action: 'wait', input: { duration: 1 } },
+    {
+      action: 'sequence',
+      input: {
+        window_id: 'hwnd:0x1',
+        steps: [
+          { action: 'click', ref: 'ref:1' },
+          { action: 'type', text: 'value' },
+        ],
+      },
+    },
+    {
+      action: 'sequence',
+      input: {
+        window_id: 'hwnd:0x1',
+        steps: [
+          { action: 'click', element: 1, button: 'right' },
+          { action: 'key', keys: '{ENTER}' },
+        ],
+      },
+    },
+    ...['focus', 'minimize', 'maximize', 'restore', 'close'].map((operation) => ({
+      action: 'window',
+      input: { window_id: 'hwnd:0x1', operation },
+    })),
+    { action: 'window', input: { window_id: 'hwnd:0x1', operation: 'move', x: 10 } },
+    { action: 'clipboard', input: { operation: 'read' } },
+    { action: 'clipboard', input: { operation: 'write', text: 'value' } },
+    { action: 'launch', input: { app: 'notepad.exe' } },
+    { action: 'type', input: { window_id: 'hwnd:0x1', ref: 'ref:1', text: 'value', mode: 'set' } },
+    { action: 'menu', input: { window_id: 'hwnd:0x1', path: ['File', 'Save As'] } },
+    { action: 'verify', input: { window_id: 'hwnd:0x1', expect: [{ present: 'Saved' }] } },
+  ];
+  const hostActions = new Set();
+  for (const args of calls) {
+    assert.equal(validateComputerToolArgs(args), null, JSON.stringify(args));
+    const command = toComputerHostCommand(args);
+    hostActions.add(String(command.action));
+    for (const step of command.steps || []) hostActions.add(String(step.action));
+  }
+  // The TypeScript host answers some commands itself and forwards the rest to
+  // the PowerShell dispatch switch, so a handler is either form.
+  for (const action of hostActions) {
+    const handled = hostSource.includes(`action === '${action}'`)
+      || hostSource.includes(`case '${action}'`)
+      || new RegExp(`'${action}'\\s*\\{`).test(hostSource);
+    assert.equal(handled, true, `host handler missing for ${action}`);
+  }
+  // Observation is one action: the removed generation must stay unreachable.
+  for (const removed of ['snapshot', 'find', 'screenshot', 'window_bounds']) {
+    assert.equal(hostActions.has(removed), false, removed);
+  }
+});
+
+test('computer window targets take one exact window_id or one app fallback', () => {
+  assert.equal(validateComputerToolArgs({
+    action: 'click',
+    input: { app: 'Notepad', ref: 'ref:1' },
+  }), null);
+  assert.equal(validateComputerToolArgs({
+    action: 'sequence',
+    input: {
+      app: 'Notepad',
+      steps: [{ action: 'click', ref: 'ref:1' }, { action: 'type', text: 'value' }],
+    },
+  }), null);
+  // Neither target, both targets, and an empty app are all refused up front.
+  assert.match(
+    validateComputerToolArgs({ action: 'click', input: { ref: 'ref:1' } }),
+    /exactly one of window_id or app/,
+  );
+  assert.match(
+    validateComputerToolArgs({
+      action: 'type',
+      input: { window_id: 'hwnd:0x1', app: 'Notepad', text: 'value' },
+    }),
+    /exactly one of window_id or app/,
+  );
+  assert.match(
+    validateComputerToolArgs({ action: 'window', input: { app: '   ', operation: 'focus' } }),
+    /app must not be empty/,
+  );
+  // The host resolves the label, so the app target travels through unchanged.
+  assert.deepEqual(toComputerHostCommand({
+    action: 'type',
+    input: { app: 'Notepad', text: 'value' },
+  }), { app: 'Notepad', text: 'value', action: 'type' });
 });
 
 test('computer tool contract exposes stable targets, frames, and explicit delivery', () => {
@@ -260,10 +481,19 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
   const window = inputFor('window');
   const clipboard = inputFor('clipboard');
   assert.deepEqual(schema.properties.action.enum, [
-    'list', 'diagnose', 'capture',
+    'list', 'diagnose', 'capture', 'verify',
     'click', 'double_click', 'mouse_move', 'drag', 'type', 'key', 'scroll', 'wait',
-    'sequence', 'window', 'clipboard', 'launch',
+    'sequence', 'window', 'menu', 'clipboard', 'launch',
   ]);
+  // verify waits on state without pixels; menu resolves an exact label path.
+  assert.deepEqual(
+    Object.keys(inputFor('verify').properties.expect.items.properties),
+    ['present', 'absent', 'title_contains', 'window_exists'],
+  );
+  assert.equal(inputFor('verify').properties.expect.maxItems, 8);
+  assert.equal(inputFor('verify').properties.stable_samples.maximum, 5);
+  assert.equal(inputFor('menu').properties.path.maxItems, 8);
+  assert.deepEqual(inputFor('type').properties.mode.enum, ['literal', 'set']);
   assert.deepEqual(list.properties.kind.enum, ['windows', 'apps']);
   assert.ok(diagnose.properties.ocr_language);
   assert.ok(capture.properties.window_id);
@@ -513,7 +743,9 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     'focus_window', 'move_window', 'window_state',
     'window_state', 'window_state', 'close_window',
   ]);
-  assert.ok(Buffer.byteLength(JSON.stringify(COMPUTER_TOOL_DEFS[0])) <= 16_000);
+  // 17 actions with one strict input shape each. The budget bounds what every
+  // request pays for the tool definition, so it moves only with a new action.
+  assert.ok(Buffer.byteLength(JSON.stringify(COMPUTER_TOOL_DEFS[0])) <= 18_000);
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('list targets first'));
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('instead of recapturing by default'));
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('pixel_unavailable'));

@@ -332,6 +332,9 @@ let browserHost: BrowserHost | null = null;
 let browserControlEnabled = false;
 let computerHost: ComputerHost | null = null;
 let computerControlEnabled = false;
+// Observation-only opt-in travels with the host the same way, so a toggle made
+// before the window exists still reaches the bridge when it starts.
+let computerObserveOnly = false;
 let removeIpc: (() => void) | null = null;
 let pendingPrimaryActivation = false;
 function activatePrimaryWindow(): void {
@@ -394,6 +397,7 @@ let unsubscribeServiceSettings: (() => void) | null = null;
 const applyDesktopSettings = (settings: DesktopSettings): void => {
   awakeService.setEnabled(settings.keepAwake !== false);
   applyComputerControlSetting(settings.computerControl === true);
+  applyComputerObserveOnlySetting(settings.computerObserveOnly === true);
   browserControlEnabled = settings.browserControl === true;
   browserHost?.setBridgeEnabled(browserControlEnabled);
 };
@@ -403,6 +407,12 @@ const applyDesktopSettings = (settings: DesktopSettings): void => {
 function applyComputerControlSetting(enabled: boolean): void {
   computerControlEnabled = enabled && process.platform === 'win32';
   computerHost?.setBridgeEnabled(computerControlEnabled);
+}
+// Observation only: the bridge keeps serving reads while every input action is
+// refused by the host, so a running agent turn is narrowed the moment it flips.
+function applyComputerObserveOnlySetting(enabled: boolean): void {
+  computerObserveOnly = enabled === true;
+  computerHost?.setObserveOnly(computerObserveOnly);
 }
 unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value }) => {
   if (name === 'desktop-settings-changed' && value && typeof value === 'object') {
@@ -761,8 +771,9 @@ async function createWindow(): Promise<void> {
   windowState = persistWindowState(window, statePath);
   mainWindow = window;
   if (process.platform === 'win32' && !computerHost) {
-    computerHost = createComputerHost({ bridgeEnabled: false });
+    computerHost = createComputerHost({ bridgeEnabled: false, observeOnly: computerObserveOnly });
   }
+  computerHost?.setObserveOnly(computerObserveOnly);
   computerHost?.setBridgeEnabled(computerControlEnabled);
   // Browser pane host: registers this window's browser-pane webviews. The
   // agent bridge (the runtime's `browser` tool) is opt-in and only serves

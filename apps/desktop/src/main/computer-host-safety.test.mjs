@@ -33,6 +33,114 @@ function windowRecord(id, overrides = {}) {
   };
 }
 
+test('focus recovery falls back to the owner when the action closed its window', () => {
+  // The owner is recorded while the window still exists: a destroyed handle can
+  // no longer name it, and that is exactly the case this fallback exists for.
+  assert.match(hostSource, /restore_owner_window_id = \$restoreOwnerId/);
+  const start = hostSource.indexOf('function Restore-InputRecoveryState($req)');
+  assert.ok(start > 0);
+  const body = hostSource.slice(start, start + 1_200);
+  assert.ok(body.includes("$restoredTarget = 'owner'"));
+  assert.ok(body.includes('input recovery restore window is stale or invalid'));
+  // Landing anywhere else still counts as a miss.
+  assert.match(hostSource, /restoredTarget === 'owner'\s*\n\s*&& inputRecovery\.restoreOwnerWindowId !== ''/);
+});
+
+test('waiting on a condition never invalidates the refs the caller holds', () => {
+  const start = hostSource.indexOf('function Get-WindowPredicates($req)');
+  const end = hostSource.indexOf('function Get-MenuCandidates($root, $name)');
+  assert.ok(start > 0 && end > start);
+  const body = hostSource.slice(start, end);
+  // Snapshot-Window bumps the generation and clears the map; a predicate read
+  // must do neither, or a bounded wait would kill the caller's refs.
+  assert.equal(body.includes('$state.Map.Clear()'), false);
+  assert.equal(body.includes('$state.Generation'), false);
+  assert.match(hostSource, /'window_predicates'\{ return Get-WindowPredicates \$req \}/);
+  // Read classification on both sides of the host, so a wait stays read-only.
+  assert.equal(hostSource.split("'window_predicates'").length - 1 >= 4, true);
+});
+
+test('menu invocation resolves live levels and fails closed', () => {
+  const start = hostSource.indexOf('function Do-InvokeMenu($req)');
+  assert.ok(start > 0);
+  const body = hostSource.slice(start, start + 3_000);
+  for (const refusal of [
+    'menu_path_not_found', 'menu_path_ambiguous', 'menu_item_disabled',
+    'menu_expand_unavailable', 'menu_item_not_invokable',
+  ]) {
+    assert.ok(body.includes(refusal), refusal);
+  }
+  // Accessibility only: a menu never degrades into blind pixel clicking.
+  assert.equal(/Do-ClickFamily|SendInput|mouse_event/.test(body), false);
+});
+
+test('a spare host worker warms startup and never outlives its bridge', () => {
+  assert.match(hostSource, /function ensureSpareHostWorker\(\)/);
+  // A new session adopts the warm worker; spawning is the fallback, not the rule.
+  assert.match(hostSource, /else child = spawnHostWorker\(\);/);
+  const stop = hostSource.indexOf('async function stopBridge(');
+  assert.ok(stop > 0);
+  assert.ok(hostSource.slice(stop, stop + 600).includes('spareHostWorker'));
+});
+
+test('host types load from a per-build assembly cache with an inline fallback', () => {
+  assert.match(hostSource, /MIXDOG_COMPUTER_HOST_CACHE/);
+  assert.match(hostSource, /mixdog-computer-host-/);
+  // Exactly two compile sites: publish to the cache, and compile in-process
+  // when the cache is unavailable or its assembly cannot be loaded.
+  assert.equal(hostSource.split('-TypeDefinition $MixdogHostSource').length - 1, 2);
+});
+
+test('the direct window grab runs only while the target is fully visible', () => {
+  assert.match(hostSource, /NATIVE_CAPTURE_VISIBLE_SAMPLES = 5/);
+  assert.match(hostSource, /tryNativeWindowCapture\(true\)/);
+  // The composited path stays as the fallback for anything partially covered.
+  assert.match(hostSource, /tryNativeWindowCapture\(false\)/);
+});
+
+test('post-mutation settle waits out its budget instead of exiting on a transition start', () => {
+  const settle = hostSource.indexOf('if (settleDelayMs > 0) await new Promise');
+  assert.ok(settle > 0);
+  // A window opening or closing is where the move begins: the successor still
+  // needs this budget to build its tree, and cutting it returned empty trees.
+  const block = hostSource.slice(Math.max(0, settle - 500), settle + 500);
+  assert.equal(/opened_windows\.length/.test(block), false);
+  assert.equal(/closed_windows\.length/.test(block), false);
+});
+
+test('observation-only mode refuses input before any dispatch path', () => {
+  const runCommand = hostSource.indexOf('async function runCommand(');
+  const gate = hostSource.indexOf('observation_only:', runCommand);
+  const firstDispatch = hostSource.indexOf('runBoundedSequence(command)', runCommand);
+  assert.ok(runCommand > 0 && gate > runCommand);
+  // Sequences and every other early return must sit behind the gate.
+  assert.ok(gate < firstDispatch);
+  assert.match(hostSource, /OBSERVE_ONLY_ALLOWED_ACTIONS = new Set\(\[[\s\S]*?'capture'/);
+  assert.match(hostSource, /setObserveOnly\(enabled: boolean\): void \{/);
+});
+
+test('run history records verdicts without typed text, keys, or pixels', () => {
+  const start = hostSource.indexOf('function computerRunRecord(');
+  const end = hostSource.indexOf('function electronWindowForNativeId(');
+  assert.ok(start > 0 && end > start);
+  const body = hostSource.slice(start, end);
+  for (const secret of ['command.text', 'command.keys', 'clipboard', 'image']) {
+    assert.equal(body.includes(secret), false, secret);
+  }
+  assert.match(hostSource, /RUN_LOG_MAX_FILES = \d+/);
+  assert.match(hostSource, /RUN_LOG_MAX_BYTES = /);
+});
+
+test('capture change summary survives the invalidation a mutation performs', () => {
+  assert.match(hostSource, /baseline: 'previous_capture_of_same_window'/);
+  // Refs and frames die with a mutation; the capture baseline must not, or the
+  // fresh capture that follows would have nothing to compare against.
+  const invalidation = hostSource.indexOf('if (OBSERVATION_BOUND_INPUT_ACTIONS.has(action)) {');
+  assert.ok(invalidation > 0);
+  const block = hostSource.slice(invalidation - 400, invalidation + 200);
+  assert.equal(block.includes('lastCaptureBySession'), false);
+});
+
 test('computer window transition selects one deterministic successor', () => {
   const main = windowRecord('hwnd:0x1', { title: 'main', focused: true });
   const chat = windowRecord('hwnd:0x2', { title: 'chat', focused: true });

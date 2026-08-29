@@ -349,6 +349,50 @@ function pptxPackage({ title, fileKind }) {
   ]);
 }
 
+function columnLabel(index) {
+  let value = Math.max(1, Math.trunc(index));
+  let label = '';
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    label = `${String.fromCharCode(65 + remainder)}${label}`;
+    value = Math.trunc((value - 1) / 26);
+  }
+  return label;
+}
+
+function worksheetWithRows(rows) {
+  const body = rows.map((row, rowIndex) => {
+    const cells = (Array.isArray(row) ? row : []).map((value, columnIndex) => {
+      if (value == null || value === '') return '';
+      const reference = `${columnLabel(columnIndex + 1)}${rowIndex + 1}`;
+      const numeric = Number(value);
+      if (typeof value === 'number' && Number.isFinite(numeric)) {
+        return `<c r="${reference}"><v>${numeric}</v></c>`;
+      }
+      return `<c r="${reference}" t="inlineStr"><is><t>${encode(value)}</t></is></c>`;
+    }).join('');
+    return cells ? `<row r="${rowIndex + 1}">${cells}</row>` : '';
+  }).join('');
+  return document(`<worksheet xmlns="${SHEET_MAIN}" xmlns:r="${OFFICE_RELATIONSHIPS}">`
+    + '<sheetViews><sheetView workbookViewId="0"/></sheetViews>'
+    + '<sheetFormatPr defaultRowHeight="15"/>'
+    + `<sheetData>${body}</sheetData>`
+    + '</worksheet>');
+}
+
+export async function createPortableChartWorkbook(rows = [], { sheetName = 'Sheet1' } = {}) {
+  const parts = xlsxPackage({ title: 'Chart data', fileKind: 'xlsx', sheetName });
+  parts.set('xl/worksheets/sheet1.xml', worksheetWithRows(rows));
+  const zip = new JSZip();
+  for (const [name, content] of parts) zip.file(name, content);
+  return await zip.generateAsync({
+    type: 'nodebuffer',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 6 },
+    platform: 'DOS',
+  });
+}
+
 const BUILDERS = Object.freeze({
   docx: docxPackage,
   xlsx: xlsxPackage,

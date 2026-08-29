@@ -14,6 +14,7 @@ import { applyDeferredToolSurface } from './tool-catalog.mjs';
 import { writeStatuslineRoute } from './statusline-route.mjs';
 import { createWarmupSchedulers } from './warmup-schedulers.mjs';
 import { warmCatalogsInBackground } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
+import { providerCachedModelMetadataSync } from '../runtime/agent/orchestrator/providers/provider-catalog-cache.mjs';
 import { envFlag } from './env.mjs';
 import { createPrewarmSchedulers } from './prewarm.mjs';
 import { hasActiveAutomation } from '../standalone/channel-admin.mjs';
@@ -44,9 +45,37 @@ export function resolveRouteEffortState(targetRoute = {}, modelMeta = null) {
   return { effectiveEffort, fastCapable, metadataResolved };
 }
 
-export function resolveRouteContextState(targetRoute = {}, modelMeta = null) {
-  const defaultWindow = Math.max(0, Number(modelMeta?.contextWindow) || 0);
-  const maxWindow = Math.max(defaultWindow, Number(modelMeta?.maxContextWindow) || 0);
+// The persisted provider model rows are the SAME source the picker sized its
+// slider against, so they carry both windows (openai-oauth: 272k default /
+// 1M max). Reading them keeps a percentage saved against the picker's scale
+// meaningful; anything that only knows a single window would silently rescale
+// it (30% of 272k instead of 30% of 1M).
+function cachedRouteWindows(provider, model) {
+  const row = providerCachedModelMetadataSync(provider, model)?.rawProviderModel || null;
+  if (!row) return null;
+  const contextWindow = Number(row.contextWindow ?? row.context_window ?? row.max_input_tokens) || 0;
+  const maxContextWindow = Number(row.maxContextWindow ?? row.max_context_window) || 0;
+  return contextWindow > 0 || maxContextWindow > 0 ? { contextWindow, maxContextWindow } : null;
+}
+
+export function resolveRouteContextState(
+  targetRoute = {},
+  modelMeta = null,
+  windowLookup = cachedRouteWindows,
+) {
+  // Only providers that implement getCachedModelInfo (openai-oauth, cursor,
+  // openai-compat, opencode-go) hand lookupModelMeta a window; every other one
+  // (anthropic-oauth, grok-oauth, gemini, …) gets the bare `{ id, provider }`
+  // placeholder. Reading the window from that alone yields 0, which dropped the
+  // saved context percentage for the entire session — while resolveSessionContextMeta
+  // went on to size that session from the provider/catalog window (Claude Opus 5:
+  // a full 1M rather than the selected 500k). Read the cached provider row here so
+  // the percentage and the session boundary cannot disagree.
+  const windowMeta = Number(modelMeta?.contextWindow) > 0 || Number(modelMeta?.maxContextWindow) > 0
+    ? modelMeta
+    : (windowLookup?.(clean(targetRoute?.provider), clean(targetRoute?.model)) || modelMeta);
+  const defaultWindow = Math.max(0, Number(windowMeta?.contextWindow) || 0);
+  const maxWindow = Math.max(defaultWindow, Number(windowMeta?.maxContextWindow) || 0);
   if (!maxWindow) {
     return { contextPercent: undefined, contextDefaultPercent: undefined, selectedContextWindow: undefined };
   }

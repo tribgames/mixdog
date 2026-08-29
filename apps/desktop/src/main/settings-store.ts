@@ -60,6 +60,7 @@ export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
     keepAwake: desktop.keepAwake !== false,
     usagePinned: desktop.usagePinned === true,
     computerControl: desktop.computerControl === true,
+    computerObserveOnly: desktop.computerObserveOnly === true,
     browserControl: desktop.browserControl === true,
   };
 }
@@ -133,6 +134,8 @@ export class DesktopSettingsStore {
         next.desktop = { ...record(next.desktop), usagePinned: enabled };
       } else if (key === 'computerControl') {
         next.desktop = { ...record(next.desktop), computerControl: enabled };
+      } else if (key === 'computerObserveOnly') {
+        next.desktop = { ...record(next.desktop), computerObserveOnly: enabled };
       } else if (key === 'browserControl') {
         next.desktop = { ...record(next.desktop), browserControl: enabled };
       }

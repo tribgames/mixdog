@@ -77,6 +77,26 @@ function validateRangeMatrix(operation, area) {
   }
 }
 
+const PREFIXED_FUNCTIONS = Object.freeze(['TEXTJOIN', 'CONCAT', 'IFS', 'SWITCH', 'MAXIFS', 'MINIFS']);
+const SPILLING_FUNCTIONS = Object.freeze([
+  'XLOOKUP', 'XMATCH', 'SORTBY', 'SORT', 'FILTER', 'UNIQUE', 'SEQUENCE', 'RANDARRAY',
+]);
+
+export function normalizeXlsxFormula(formula, { backend = '' } = {}) {
+  const text = String(formula ?? '').replace(/^=/, '');
+  if (!text) throw new Error('XLSX formula must not be empty');
+  if (backend === 'mixdog-ooxml') {
+    const spilling = new RegExp(`(?:^|[^A-Za-z0-9_.])(${SPILLING_FUNCTIONS.join('|')})\\s*\\(`, 'i').exec(text);
+    if (spilling) {
+      throw new Error(`XLSX formula uses ${spilling[1].toUpperCase()}, which the portable recalculation engine cannot evaluate and would bake in as #NAME?; use INDEX/MATCH or precompute the values`);
+    }
+  }
+  return text.replace(
+    new RegExp(`(^|[^A-Za-z0-9_.])(${PREFIXED_FUNCTIONS.join('|')})\\s*\\(`, 'gi'),
+    (_match, lead, name) => `${lead}_xlfn.${name.toUpperCase()}(`,
+  );
+}
+
 export function validateXlsxOperations(operations) {
   for (const operation of operations || []) {
     if (!operation || typeof operation !== 'object') throw new Error('XLSX operation must be an object');

@@ -96,8 +96,8 @@ function localizedToolActivityCategory(category: string): string {
   if (category === "Agent") return t("Agents");
   if (category === "Task") return t("Tasks");
   if (category === "Setup") return t("Setup");
-  if (category === "Browser") return t("Browser control");
-  if (category === "Computer") return t("Computer control");
+  if (category === "Browser") return t("Browser Use");
+  if (category === "Computer") return t("Computer Use");
   if (category === "Office") return t("Document work");
   return t("External tools");
 }

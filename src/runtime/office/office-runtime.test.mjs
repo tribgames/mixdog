@@ -1120,7 +1120,7 @@ test('describe returns compact operation contracts and actionable input errors',
   assert.deepEqual(chart.operation.input.required, ['op', 'range']);
   assert.ok(chart.operation.input.optional.includes('chartType'));
   assert.equal(chart.operation.supported, true);
-  assert.deepEqual(chart.operation.supportedBackends, ['microsoft-office-com']);
+  assert.deepEqual(chart.operation.supportedBackends, ['microsoft-office-com', 'mixdog-ooxml']);
   assert.deepEqual(chart.operation.properties.chart, [
     'chartType',
     'left',
@@ -1139,9 +1139,9 @@ test('describe returns compact operation contracts and actionable input errors',
 
   const portableComment = value(await executeOfficeTool({
     action: 'describe',
-    format: 'docx',
+    format: 'pptx',
     backend: 'mixdog-ooxml',
-    operation: 'add_comment',
+    operation: 'add_animation',
   }));
   assert.equal(portableComment.operation.supported, false);
   assert.deepEqual(portableComment.operation.supportedBackends, ['microsoft-office-com']);
@@ -1347,7 +1347,7 @@ test('portable DOCX preserves the package while replacing split runs and appendi
   assert.ok(described.operations.includes('set_paragraph_style'));
   assert.ok(described.operations.includes('fill_template'));
   assert.ok(!described.unsupportedInBackend.includes('set_paragraph_style'));
-  assert.ok(described.unsupportedInBackend.includes('add_comment'));
+  assert.deepEqual(described.unsupportedInBackend, []);
 
   const begun = value(await executeOfficeTool({
     action: 'begin',
@@ -1511,7 +1511,7 @@ test('portable DOCX authors professional tables and paragraph layout', async (t)
         values: [['Metric', 'Value'], ['Revenue', '120']],
         properties: {
           style: 'TableGrid',
-          columnWidths: [2400, 1200],
+          columnWidths: [120, 60],
           borders: { style: 'single', color: '808080', size: 4 },
         },
       },
@@ -1524,7 +1524,7 @@ test('portable DOCX authors professional tables and paragraph layout', async (t)
           alignment: 'center',
           spacingAfter: 120,
           border: { side: 'bottom', style: 'single', color: '2F5597', size: 8 },
-          tabStops: [{ position: 7200, alignment: 'right', leader: 'dot' }],
+          tabStops: [{ position: 360, alignment: 'right', leader: 'dot' }],
         },
       },
     ],
@@ -1536,7 +1536,8 @@ test('portable DOCX authors professional tables and paragraph layout', async (t)
   const xml = await (await JSZip.loadAsync(await readFile(output))).file('word/document.xml').async('string');
   assert.match(xml, /<w:tblStyle w:val="TableGrid"\/>/);
   assert.match(xml, /<w:gridSpan w:val="2"\/>/);
-  assert.match(xml, /<w:tab w:val="right" w:pos="7200" w:leader="dot"\/>/);
+  assert.match(xml, /<w:gridCol w:w="2400"\/><w:gridCol w:w="1200"\/>/, 'point widths convert to twips');
+  assert.match(xml, /<w:tab w:val="right" w:pos="7200" w:leader="dot"\/>/, '360pt lands on the 5in tab stop');
 });
 
 test('DOCX redlining audit rejects untracked text edits', async (t) => {

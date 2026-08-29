@@ -17,7 +17,17 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { chmodSync, mkdirSync, readFileSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  chmodSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -65,6 +75,17 @@ const LAUNCH_SUCCESSOR_TIMEOUT_MS = 4_000;
 const LAUNCH_POLL_INTERVAL_MS = 100;
 const OWNED_CAPTURE_TIMEOUT_MS = 750;
 const DESKTOP_CAPTURE_TIMEOUT_MS = 2_000;
+const CAPTURE_CHANGE_SAMPLE = 8;
+// Compiled host types live next to the script so only the first worker of a
+// build pays the C# compile; every later worker loads the cached assembly.
+const HOST_ASSEMBLY_CACHE_DIRECTORY = 'host-cache';
+const HOST_WARMUP_SESSION_ID = '__computer_host_warmup__';
+// All five probe points must belong to the target before a direct screen-region
+// grab can stand in for a composited window capture.
+const NATIVE_CAPTURE_VISIBLE_SAMPLES = 5;
+// Below this an "unchanged" tree means the surface is pixel-only, so its image
+// stays even when the semantic diff is empty.
+const CAPTURE_IMAGE_SKIP_MIN_ELEMENTS = 3;
 const suppressedSequenceCaptures = new WeakSet<object>();
 const trustedSequenceContinuations = new WeakSet<object>();
 
@@ -109,8 +130,12 @@ const OBSERVATION_BOUND_INPUT_ACTIONS = new Set([
 ]);
 const AUTO_CAPTURE_ACTIONS = new Set([
   ...OBSERVATION_BOUND_INPUT_ACTIONS,
-  'focus_window', 'move_window', 'window_state', 'close_window', 'launch',
+  'focus_window', 'move_window', 'window_state', 'close_window', 'launch', 'invoke_menu',
 ]);
+const DEFAULT_VERIFY_TIMEOUT_MS = 5_000;
+const MAX_VERIFY_TIMEOUT_MS = 30_000;
+const DEFAULT_VERIFY_STABLE_SAMPLES = 2;
+const VERIFY_POLL_INTERVAL_MS = 250;
 const ABORT_CLEANUP_PROGRAM = String.raw`
 $ErrorActionPreference = 'SilentlyContinue'
 Add-Type @"
@@ -204,6 +229,12 @@ interface ComputerCommand {
   read_only?: boolean;
   /** wait: seconds to pause (0..30). */
   duration?: number;
+  /** verify: predicates, bounded wait, and consecutive satisfied samples. */
+  expect?: Array<Record<string, unknown>>;
+  timeout_ms?: number;
+  stable_samples?: number;
+  /** invoke_menu: exact menu labels from the bar down. */
+  path?: string[];
   /** zoom: [x0, y0, x1, y1] region in frame pixels. */
   region?: number[];
   /** screenshot display index (0-based) for multi-monitor setups. */
@@ -341,6 +372,8 @@ interface OcrWordRecord {
 interface InputRecoveryState {
   targetWindowId: string;
   restoreWindowId: string;
+  /** Owner of the restore window, recorded while it still exists. */
+  restoreOwnerWindowId: string;
   cursorX: number;
   cursorY: number;
 }
@@ -393,6 +426,82 @@ function assertSafeComputerInput(command: ComputerCommand): void {
   }
 }
 
+// ── Run history ────────────────────────────────────────────────────────────
+// One JSONL line per executed command so a failed run can be reconstructed
+// afterwards. Actions, targets, timings, and verdicts only: typed text,
+// clipboard contents, and pixels never reach this file.
+const RUN_LOG_DIRECTORY = 'computer-runs';
+const RUN_LOG_MAX_BYTES = 256 * 1_024;
+const RUN_LOG_MAX_FILES = 20;
+const runLogBytesBySession = new Map<string, number>();
+
+function runLogFileName(sessionId: string): string {
+  return `${sessionId.replace(/[^\w.-]+/g, '_').slice(0, 80) || 'session'}.jsonl`;
+}
+
+function pruneComputerRunLogs(directory: string): void {
+  const files = readdirSync(directory)
+    .filter((name) => name.endsWith('.jsonl'))
+    .map((name) => {
+      const path = join(directory, name);
+      let modifiedAt = 0;
+      try { modifiedAt = statSync(path).mtimeMs; } catch { modifiedAt = 0; }
+      return { path, modifiedAt };
+    })
+    .sort((left, right) => right.modifiedAt - left.modifiedAt);
+  for (const stale of files.slice(RUN_LOG_MAX_FILES)) {
+    try { unlinkSync(stale.path); } catch { /* another run already removed it */ }
+  }
+}
+
+function appendComputerRunRecord(sessionId: string, record: Record<string, unknown>): void {
+  const id = String(sessionId || '').trim();
+  if (!id) return;
+  try {
+    const directory = join(mixdogDataDirectory(), RUN_LOG_DIRECTORY);
+    if (!runLogBytesBySession.has(id)) {
+      mkdirSync(directory, { recursive: true });
+      pruneComputerRunLogs(directory);
+      runLogBytesBySession.set(id, 0);
+    }
+    const written = runLogBytesBySession.get(id) || 0;
+    if (written >= RUN_LOG_MAX_BYTES) return;
+    const line = `${JSON.stringify({ at: new Date().toISOString(), session: id, ...record })}\n`;
+    appendFileSync(join(directory, runLogFileName(id)), line, 'utf8');
+    runLogBytesBySession.set(id, written + Buffer.byteLength(line));
+  } catch {
+    // History is diagnostic only: a command never fails because of it.
+  }
+}
+
+function computerRunRecord(
+  command: ComputerCommand,
+  startedAt: number,
+  result?: ComputerCommandResult,
+): Record<string, unknown> {
+  const record: Record<string, unknown> = {
+    action: String(command.action || ''),
+    ...(command.window_id ? { window_id: String(command.window_id) } : {}),
+    ...(command.app ? { app: String(command.app) } : {}),
+    ...(command.ref ? { ref: String(command.ref) } : {}),
+    ...(command.delivery ? { delivery: String(command.delivery) } : {}),
+    ms: Math.round(elapsedMs(startedAt)),
+  };
+  if (!result) return record;
+  record.ok = true;
+  record.bytes = result.text.length;
+  try {
+    const payload = JSON.parse(result.text) as Record<string, unknown>;
+    for (const key of ['effect', 'verified', 'code', 'verdict', 'window_id', 'pixel_status']) {
+      const value = payload[key];
+      if (value !== undefined && (typeof value !== 'object' || value === null)) record[key] = value;
+    }
+  } catch {
+    // Plain-text discovery results carry no structured verdict.
+  }
+  return record;
+}
+
 function electronWindowForNativeId(windowId: string | undefined): BrowserWindow | null {
   const raw = String(windowId || '')
     .trim()
@@ -436,7 +545,7 @@ Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $AccessibilityAssemblyPath = [Accessibility.IAccessible].Assembly.Location
-Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',$AccessibilityAssemblyPath) -TypeDefinition @"
+$MixdogHostSource = @"
 using System;
 using Accessibility;
 using System.Collections.Generic;
@@ -1464,6 +1573,38 @@ public class MixWin32 {
   }
 }
 "@
+$MixdogHostRefs = @('System.dll','System.Core.dll','System.Drawing.dll',$AccessibilityAssemblyPath)
+$MixdogHostCacheDir = [string]$env:MIXDOG_COMPUTER_HOST_CACHE
+$MixdogHostBuild = [string]$env:MIXDOG_COMPUTER_HOST_BUILD
+$MixdogHostAssembly = ''
+if ($MixdogHostCacheDir -and $MixdogHostBuild) {
+  $MixdogHostAssembly = Join-Path $MixdogHostCacheDir ('mixdog-computer-host-' + $MixdogHostBuild + '.dll')
+}
+$MixdogHostLoaded = $false
+# Loading the cached assembly skips the C# compile that every new worker would
+# otherwise repeat; a miss compiles once and publishes it for the next worker.
+if ($MixdogHostAssembly -and (Test-Path -LiteralPath $MixdogHostAssembly)) {
+  try { Add-Type -Path $MixdogHostAssembly; $MixdogHostLoaded = $true } catch { $MixdogHostLoaded = $false }
+}
+if (-not $MixdogHostLoaded -and $MixdogHostAssembly) {
+  try {
+    New-Item -ItemType Directory -Force -Path $MixdogHostCacheDir | Out-Null
+    $MixdogHostStaging = $MixdogHostAssembly + '.' + [string]$PID + '.tmp'
+    Add-Type -ReferencedAssemblies $MixdogHostRefs -TypeDefinition $MixdogHostSource -OutputAssembly $MixdogHostStaging
+    # A concurrent worker may publish the same build first; either file works.
+    Move-Item -LiteralPath $MixdogHostStaging -Destination $MixdogHostAssembly -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $MixdogHostStaging) {
+      Remove-Item -LiteralPath $MixdogHostStaging -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path -LiteralPath $MixdogHostAssembly) {
+      Add-Type -Path $MixdogHostAssembly
+      $MixdogHostLoaded = $true
+    }
+  } catch { $MixdogHostLoaded = $false }
+}
+if (-not $MixdogHostLoaded) {
+  Add-Type -ReferencedAssemblies $MixdogHostRefs -TypeDefinition $MixdogHostSource
+}
 [void][MixWin32]::MakeDpiAware()
 $AE = [System.Windows.Automation.AutomationElement]
 $TS = [System.Windows.Automation.TreeScope]
@@ -2709,6 +2850,143 @@ function Get-WindowBounds($req) {
   }
 }
 
+# Read-only predicate state. Deliberately does NOT touch the session ref map or
+# generation: waiting for a condition must never invalidate the refs the caller
+# is holding from its last capture.
+function Get-WindowPredicates($req) {
+  $info = Resolve-WindowInfo $req.window $req.window_id
+  $win = Find-Window $req.window $req.window_id
+  $max = if ($null -ne $req.max_elements) { [int]$req.max_elements } else { 400 }
+  if ($max -lt 1 -or $max -gt 1000) { throw 'max_elements must be 1..1000' }
+  $ctTypes = @('Button','Edit','CheckBox','RadioButton','ComboBox','List','ListItem','MenuItem',
+    'TabItem','Hyperlink','TreeItem','Slider','Document','Spinner','SplitButton','Text',
+    'StatusBar','ProgressBar')
+  $conds = foreach ($t in $ctTypes) {
+    New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::$t)
+  }
+  $cond = New-Object System.Windows.Automation.OrCondition([System.Windows.Automation.Condition[]]$conds)
+  $cr = New-Object System.Windows.Automation.CacheRequest
+  [void]$cr.Add($AE::NameProperty)
+  [void]$cr.Add($AE::ControlTypeProperty)
+  [void]$cr.Add($AE::IsEnabledProperty)
+  [void]$cr.Add($AE::IsOffscreenProperty)
+  $act = $cr.Activate()
+  try { $els = $win.FindAll($TS::Descendants, $cond) } finally { $act.Dispose() }
+  $observations = New-Object System.Collections.ArrayList
+  foreach ($el in $els) {
+    if ($observations.Count -ge $max) { break }
+    if ($el.Cached.IsOffscreen) { continue }
+    $ct = $el.Cached.ControlType.ProgrammaticName -replace 'ControlType\.',''
+    $name = ''
+    try { $name = [string]$el.Cached.Name } catch {}
+    $value = ''
+    if (@('Edit','ComboBox','Document','Spinner') -contains $ct) {
+      $pat = $null
+      try {
+        if ($el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pat)) {
+          $value = [string]$pat.Current.Value
+        }
+      } catch {}
+    }
+    [void]$observations.Add([ordered]@{
+      role = [string]$ct
+      name = (Format-ObservationValue $name 200)
+      value = (Format-ObservationValue $value 200)
+      enabled = [bool]$el.Cached.IsEnabled
+    })
+  }
+  return @{
+    text = ('window predicate state: ' + $info.Title)
+    window_id = $info.Id
+    title = [string]$info.Title
+    exists = $true
+    returned = $observations.Count
+    elements = @($observations)
+  }
+}
+
+# Menu entries by exact label, with the accelerator ampersand removed. Menus are
+# resolved one live level at a time and never fall back to pixels.
+function Get-MenuCandidates($root, $name) {
+  $wanted = (([string]$name) -replace '&','').Trim().ToLower()
+  $types = @('MenuItem','Button','SplitButton','ListItem')
+  $conds = foreach ($t in $types) {
+    New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::$t)
+  }
+  $cond = New-Object System.Windows.Automation.OrCondition([System.Windows.Automation.Condition[]]$conds)
+  $found = New-Object System.Collections.ArrayList
+  foreach ($el in $root.FindAll($TS::Descendants, $cond)) {
+    $label = ''
+    try { $label = [string]$el.Current.Name } catch {}
+    if ((($label -replace '&','').Trim().ToLower()) -eq $wanted) { [void]$found.Add($el) }
+  }
+  return @($found)
+}
+
+function Expand-MenuElement($el) {
+  $pat = $null
+  if ($el.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pat)) {
+    if ([string]$pat.Current.ExpandCollapseState -ne 'Expanded') { $pat.Expand() }
+    return $true
+  }
+  $pat = $null
+  if ($el.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pat)) {
+    $pat.Invoke()
+    return $true
+  }
+  return $false
+}
+
+function Do-InvokeMenu($req) {
+  $info = Resolve-WindowInfo $req.window $req.window_id
+  $win = Find-Window $req.window $req.window_id
+  $path = @(@($req.path) | ForEach-Object { [string]$_ } | Where-Object { $_.Trim().Length -gt 0 })
+  if ($path.Count -lt 1 -or $path.Count -gt 8) { throw 'menu path must have 1..8 segments' }
+  $root = $win
+  $walked = @()
+  for ($i = 0; $i -lt $path.Count; $i++) {
+    $segment = $path[$i]
+    $candidates = Get-MenuCandidates $root $segment
+    if ($candidates.Count -eq 0 -and $i -gt 0) {
+      # An opened submenu is often a popup window owned by the app rather than a
+      # child of the item that opened it. Only one menu can be open at a time.
+      $candidates = Get-MenuCandidates ($AE::RootElement) $segment
+    }
+    if ($candidates.Count -eq 0) {
+      throw "menu_path_not_found: no enabled menu entry named '$segment' after $($walked -join ' > ')"
+    }
+    if ($candidates.Count -gt 1) {
+      throw "menu_path_ambiguous: '$segment' matched $($candidates.Count) entries; use a more exact path"
+    }
+    $el = $candidates[0]
+    $enabled = $true
+    try { $enabled = [bool]$el.Current.IsEnabled } catch {}
+    if (-not $enabled) { throw "menu_item_disabled: '$segment' is disabled" }
+    $walked += $segment
+    if ($i -eq $path.Count - 1) {
+      $pat = $null
+      if ($el.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pat)) {
+        $pat.Invoke()
+        return New-ActionResult 'invoke_menu' 'uia_menu' 'unverifiable' $false ('invoked menu path: ' + ($walked -join ' > ')) $null 'background' $info.Id
+      }
+      $pat = $null
+      if ($el.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$pat)) {
+        $before = [string]$pat.Current.ToggleState
+        $pat.Toggle()
+        $after = [string]$pat.Current.ToggleState
+        $verified = $before -ne $after
+        return New-ActionResult 'invoke_menu' 'uia_menu_toggle' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified ('toggled menu path: ' + ($walked -join ' > ') + " from $before to $after") $null 'background' $info.Id
+      }
+      throw "menu_item_not_invokable: '$segment' exposes no menu action"
+    }
+    if (-not (Expand-MenuElement $el)) {
+      throw "menu_expand_unavailable: '$segment' cannot be opened through accessibility"
+    }
+    Start-Sleep -Milliseconds 120
+    $root = $el
+  }
+}
+
 function Get-WindowCapture($req) {
   $info = Resolve-WindowInfo $req.window $req.window_id
   try {
@@ -2765,11 +3043,19 @@ function Get-InputRecoveryState($req) {
     $foreground
   }
   $cursor = [MixWin32]::Cursor()
+  # Recorded now, while the window still exists: an action can close exactly the
+  # window that held focus, and a destroyed handle can no longer name its owner.
+  $restoreOwnerId = ''
+  if ([MixWin32]::IsWindowHandle($restore)) {
+    $restoreInfo = [MixWin32]::Info($restore)
+    if ($null -ne $restoreInfo) { $restoreOwnerId = [string]$restoreInfo.OwnerId }
+  }
   return @{
     text = 'foreground input recovery state captured'
     target_window_id = [MixWin32]::WindowId($target)
     foreground_window_id = $(if ([MixWin32]::IsWindowHandle($foreground)) { [MixWin32]::WindowId($foreground) } else { '' })
     restore_window_id = $(if ([MixWin32]::IsWindowHandle($restore)) { [MixWin32]::WindowId($restore) } else { '' })
+    restore_owner_window_id = $restoreOwnerId
     cursor_x = $cursor.x
     cursor_y = $cursor.y
   }
@@ -2777,8 +3063,16 @@ function Get-InputRecoveryState($req) {
 
 function Restore-InputRecoveryState($req) {
   $restore = [MixWin32]::ParseWindowId([string]$req.restore_window_id)
+  $restoredTarget = 'original'
   if (-not [MixWin32]::IsWindowHandle($restore)) {
-    throw 'input recovery restore window is stale or invalid'
+    # The action can close the very window that held focus. Its owner is the
+    # truthful next home for focus instead of wherever Windows happened to land.
+    $owner = [MixWin32]::ParseWindowId([string]$req.restore_owner_window_id)
+    if (-not [MixWin32]::IsWindowHandle($owner)) {
+      throw 'input recovery restore window is stale or invalid'
+    }
+    $restore = $owner
+    $restoredTarget = 'owner'
   }
   if ([MixWin32]::Foreground() -ne $restore) {
     [void][MixWin32]::Focus($restore)
@@ -2790,6 +3084,7 @@ function Restore-InputRecoveryState($req) {
   $cursor = [MixWin32]::Cursor()
   return @{
     foreground_window_id = $(if ([MixWin32]::IsWindowHandle($foreground)) { [MixWin32]::WindowId($foreground) } else { '' })
+    restored_target = $restoredTarget
     cursor_x = $cursor.x
     cursor_y = $cursor.y
   }
@@ -3232,7 +3527,7 @@ function Release-SessionState {
 }
 
 function Invalidate-RefsForRequest($req) {
-  $readActions = @('list_windows','window_snapshot','related_windows','snapshot','find','clipboard_read','wait','window_bounds','window_capture','window_integrity','input_recovery_state','ocr_image','ocr_status','release_session')
+  $readActions = @('list_windows','window_snapshot','related_windows','snapshot','find','clipboard_read','wait','window_bounds','window_capture','window_predicates','window_integrity','input_recovery_state','ocr_image','ocr_status','release_session')
   if ($null -ne $req -and -not ($readActions -contains [string]$req.action)) {
     $state = Get-CurrentSession
     $state.Map.Clear()
@@ -3242,7 +3537,7 @@ function Invalidate-RefsForRequest($req) {
 
 function Handle($req) {
   $script:CurrentSession = Get-SessionState $req.session_id
-  $readActions = @('list_windows','window_snapshot','related_windows','snapshot','find','clipboard_read','wait','window_bounds','window_capture','window_integrity','input_recovery_state','ocr_image','ocr_status')
+  $readActions = @('list_windows','window_snapshot','related_windows','snapshot','find','clipboard_read','wait','window_bounds','window_capture','window_predicates','window_integrity','input_recovery_state','ocr_image','ocr_status')
   if ($req.read_only -and -not ($readActions -contains [string]$req.action)) {
     throw "read_only run: '$($req.action)' is a mutation"
   }
@@ -3267,6 +3562,8 @@ function Handle($req) {
     'focus_window' { return Do-Focus $req }
     'window_bounds'{ return Get-WindowBounds $req }
     'window_capture'{ return Get-WindowCapture $req }
+    'window_predicates'{ return Get-WindowPredicates $req }
+    'invoke_menu'  { return Do-InvokeMenu $req }
     'window_integrity'{ return Get-WindowIntegrity $req }
     'input_recovery_state' { return Get-InputRecoveryState $req }
     'restore_input_state' { return Restore-InputRecoveryState $req }
@@ -3319,8 +3616,20 @@ export interface ChromeRemoteDebuggingSetup extends ChromeRemoteDebuggingTarget 
   enabledByMixdog: boolean;
 }
 
+// Observation-only mode keeps every state read available and refuses anything
+// that could change the desktop, before the command reaches a dispatch path.
+const OBSERVE_ONLY_ALLOWED_ACTIONS = new Set([
+  'list_windows', 'list_apps', 'diagnose', 'capture', 'zoom', 'clipboard_read', 'wait',
+  'verify', 'window_predicates',
+  'snapshot', 'find', 'screenshot', 'window_bounds', 'window_snapshot', 'related_windows',
+  'window_capture', 'window_integrity', 'input_recovery_state', 'ocr_image', 'ocr_status',
+  'session_release', 'session_abort',
+]);
+
 export interface PowerShellComputerHost {
   setBridgeEnabled(enabled: boolean): void;
+  /** Observation-only opt-in: reads stay available, input is refused. */
+  setObserveOnly(enabled: boolean): void;
   inspectChromeRemoteDebuggingTarget(): Promise<ChromeRemoteDebuggingTarget>;
   prepareChromeRemoteDebugging(
     target: ChromeRemoteDebuggingTarget,
@@ -3335,19 +3644,23 @@ export interface PowerShellComputerHost {
 }
 
 export function createPowerShellComputerHost(
-  options: { bridgeEnabled?: boolean } = {},
+  options: { bridgeEnabled?: boolean; observeOnly?: boolean } = {},
 ): PowerShellComputerHost {
   let token = randomBytes(24).toString('base64url');
   let heartbeat: NodeJS.Timeout | null = null;
   let server: Server | null = null;
   let discoveryPath: string | null = null;
   let bridgeWanted = options.bridgeEnabled !== false;
+  let observeOnly = options.observeOnly === true;
   let bridgeGeneration = 0;
   let disposed = false;
 
   // Agent-scoped resident PowerShell workers + their shared pending-request table.
   const powerShellBySession = new Map<string, ChildProcessWithoutNullStreams>();
   let hostScriptPath: string | null = null;
+  let hostScriptBuild = '';
+  // One warm worker waiting to be adopted by the next session that needs one.
+  let spareHostWorker: ChildProcessWithoutNullStreams | null = null;
   let nextId = 1;
   const pending = new Map<number, {
     resolve: (r: PowerShellResponse) => void;
@@ -3361,6 +3674,13 @@ export function createPowerShellComputerHost(
   const framesBySession = new Map<string, Map<string, CaptureFrame>>();
   const elementTargetsBySession = new Map<string, Map<number, ElementAliasTarget>>();
   const observedWindowBySession = new Map<string, ObservedWindowScope>();
+  // Last semantic capture per session. It outlives the ref/frame invalidation a
+  // mutation triggers, so the fresh capture that follows can report what
+  // changed instead of making the model re-read the whole tree.
+  const lastCaptureBySession = new Map<string, {
+    windowId: string;
+    elements: Map<string, string>;
+  }>();
   const targetClaims = new Map<string, { sessionId: string; lastUsedAt: number }>();
   const targetsBySession = new Map<string, Set<string>>();
   const activeExecutionsBySession = new Map<string, {
@@ -3403,6 +3723,7 @@ export function createPowerShellComputerHost(
       framesBySession.delete(sessionId);
       elementTargetsBySession.delete(sessionId);
       observedWindowBySession.delete(sessionId);
+      lastCaptureBySession.delete(sessionId);
       sessionRecoveryBySession.delete(sessionId);
       releaseTargetClaims(sessionId);
       retirePowerShell(child, new Error('computer session worker reclaimed after idle timeout'));
@@ -3471,6 +3792,7 @@ export function createPowerShellComputerHost(
       framesBySession.delete(sessionId);
       elementTargetsBySession.delete(sessionId);
       observedWindowBySession.delete(sessionId);
+      lastCaptureBySession.delete(sessionId);
       sessionRecoveryBySession.delete(sessionId);
       releaseTargetClaims(sessionId);
     }
@@ -3528,6 +3850,7 @@ export function createPowerShellComputerHost(
     framesBySession.delete(sessionId);
     elementTargetsBySession.delete(sessionId);
     observedWindowBySession.delete(sessionId);
+    lastCaptureBySession.delete(sessionId);
     sessionRecoveryBySession.delete(sessionId);
     releaseTargetClaims(sessionId);
     await runForegroundExclusive(() => cleanupAbortedInput(recovery));
@@ -3725,22 +4048,41 @@ export function createPowerShellComputerHost(
     };
   }
 
-  function ensurePowerShell(sessionId: string): ChildProcessWithoutNullStreams {
-    workerLastUsedAt.set(sessionId, Date.now());
-    const existing = powerShellBySession.get(sessionId);
-    if (existing && !existing.killed) return existing;
+  /** Write the host program once and point the workers at a per-build native
+   *  assembly cache, so only the first worker of a build pays the C# compile. */
+  function ensureHostScript(): string {
+    if (hostScriptPath) return hostScriptPath;
+    const directory = mixdogDataDirectory();
+    mkdirSync(directory, { recursive: true });
+    const program = powershellHostProgram();
+    hostScriptBuild = createHash('sha256').update(program).digest('hex').slice(0, 16);
+    hostScriptPath = join(directory, 'computer-host.ps1');
+    writeFileSync(hostScriptPath, program);
+    try {
+      const cacheDirectory = join(directory, HOST_ASSEMBLY_CACHE_DIRECTORY);
+      mkdirSync(cacheDirectory, { recursive: true });
+      const current = `mixdog-computer-host-${hostScriptBuild}.dll`;
+      for (const name of readdirSync(cacheDirectory)) {
+        if (name === current) continue;
+        try { unlinkSync(join(cacheDirectory, name)); } catch { /* a live worker holds it */ }
+      }
+    } catch { /* the cache is an optimization, never a requirement */ }
+    return hostScriptPath;
+  }
+
+  function spawnHostWorker(): ChildProcessWithoutNullStreams {
     // The program runs from a temp .ps1 via -File, NOT piped through -Command -:
     // with -Command - PowerShell consumes stdin as the command text, colliding
     // with the per-command JSON we also write to stdin. -File leaves stdin
     // dedicated to runtime commands.
-    if (!hostScriptPath) {
-      const directory = mixdogDataDirectory();
-      mkdirSync(directory, { recursive: true });
-      hostScriptPath = join(directory, 'computer-host.ps1');
-      writeFileSync(hostScriptPath, powershellHostProgram());
-    }
-    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', hostScriptPath], {
+    const scriptPath = ensureHostScript();
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
       windowsHide: true,
+      env: {
+        ...process.env,
+        MIXDOG_COMPUTER_HOST_CACHE: join(mixdogDataDirectory(), HOST_ASSEMBLY_CACHE_DIRECTORY),
+        MIXDOG_COMPUTER_HOST_BUILD: hostScriptBuild,
+      },
     });
     let childBuffer = '';
     child.stdout.setEncoding('utf8');
@@ -3757,9 +4099,13 @@ export function createPowerShellComputerHost(
     });
     child.stderr.on('data', () => { /* diagnostics ignored; errors ride responses */ });
     child.once('exit', () => {
-      if (powerShellBySession.get(sessionId) === child) {
-        powerShellBySession.delete(sessionId);
-        workerLastUsedAt.delete(sessionId);
+      if (spareHostWorker === child) spareHostWorker = null;
+      // A worker can be adopted by a session after it spawned, so its identity
+      // is looked up rather than captured.
+      for (const [id, activeChild] of powerShellBySession) {
+        if (activeChild !== child) continue;
+        powerShellBySession.delete(id);
+        workerLastUsedAt.delete(id);
       }
       for (const [id, entry] of pending) {
         if (entry.child !== child) continue;
@@ -3768,6 +4114,29 @@ export function createPowerShellComputerHost(
         pending.delete(id);
       }
     });
+    return child;
+  }
+
+  /** Keep one worker warm so a new session never waits for PowerShell startup
+   *  and the host type load on its first command. */
+  function ensureSpareHostWorker(): void {
+    if (disposed || !bridgeWanted || (spareHostWorker && !spareHostWorker.killed)) return;
+    try {
+      spareHostWorker = spawnHostWorker();
+    } catch {
+      spareHostWorker = null;
+    }
+  }
+
+  function ensurePowerShell(sessionId: string): ChildProcessWithoutNullStreams {
+    workerLastUsedAt.set(sessionId, Date.now());
+    const existing = powerShellBySession.get(sessionId);
+    if (existing && !existing.killed) return existing;
+    let child = spareHostWorker && !spareHostWorker.killed ? spareHostWorker : null;
+    if (child) spareHostWorker = null;
+    else child = spawnHostWorker();
+    const refill = setTimeout(() => ensureSpareHostWorker(), 0);
+    refill.unref?.();
     powerShellBySession.set(sessionId, child);
     return child;
   }
@@ -4114,7 +4483,7 @@ try {
           || window.title.toLowerCase().includes(requested)
           || window.className.toLowerCase().includes(requested));
     if (matches.length === 0) {
-      throw new Error(`no visible window matched app "${command.app}"`);
+      throw new Error(`window_target_not_found: no visible window matched app "${command.app}"`);
     }
     if (matches.length === 1) return matches[0].id;
     const focused = matches.filter((window) => window.focused);
@@ -4123,7 +4492,7 @@ try {
       .slice(0, 12)
       .map((window) => `${window.id} "${window.title || '<untitled>'}"`)
       .join(' | ');
-    throw new Error(`app target is ambiguous: ${command.app} (${candidates}); use window_id`);
+    throw new Error(`ambiguous_window_target: app "${command.app}" matched ${matches.length} windows (${candidates}); retry with one exact window_id`);
   }
 
   async function resolveForegroundWindowId(command: ComputerCommand): Promise<string> {
@@ -4280,6 +4649,7 @@ try {
           semantic_accessibility: accessibility,
           ocr,
           delivery_modes: ['background', 'foreground'],
+          input_mode: observeOnly ? 'observation_only' : 'enabled',
           focus_cursor_restore: true,
           app_owned_electron_text: true,
           browser_content_route: 'browser_use',
@@ -4452,6 +4822,7 @@ try {
   async function captureVisibleNativeWindow(
     windowId: string,
     sessionId: string,
+    requireFullyVisible = false,
   ): Promise<{
     image: NativeImage;
     sourceId: string;
@@ -4470,6 +4841,12 @@ try {
       });
       const encoded = String(response.result?.image_base64 || '');
       if (!response.ok || !encoded) return null;
+      // A direct grab reads the screen region the window occupies, so it is only
+      // equivalent to the window's own pixels while nothing covers it.
+      if (requireFullyVisible
+        && Number(response.result?.visible_samples || 0) < NATIVE_CAPTURE_VISIBLE_SAMPLES) {
+        return null;
+      }
       const image = nativeImage.createFromBuffer(Buffer.from(encoded, 'base64'));
       const size = image.getSize();
       if (image.isEmpty() || size.width <= 0 || size.height <= 0) return null;
@@ -4616,6 +4993,30 @@ try {
         if (timeout) clearTimeout(timeout);
       }
     }
+    const tryNativeWindowCapture = async (requireFullyVisible: boolean): Promise<boolean> => {
+      if (capturedImage || !targetWindowId) return false;
+      const nativeCapture = await captureVisibleNativeWindow(
+        targetWindowId,
+        sessionIdFor(command),
+        requireFullyVisible,
+      );
+      if (!nativeCapture) return false;
+      const nativeSize = nativeCapture.image.getSize();
+      capturedImage = nativeSize.width > maxWidth
+        ? nativeCapture.image.resize({ width: maxWidth, quality: 'best' })
+        : nativeCapture.image;
+      capturedSourceId = nativeCapture.sourceId;
+      capturedSourceName = nativeCapture.sourceName;
+      originX = nativeCapture.x;
+      originY = nativeCapture.y;
+      physicalWidth = nativeCapture.width;
+      physicalHeight = nativeCapture.height;
+      return true;
+    };
+    // desktopCapturer renders a thumbnail for EVERY window before we pick one,
+    // so its cost grows with the user's open windows. A window that proved fully
+    // visible is grabbed directly; anything partial falls through to compositing.
+    await tryNativeWindowCapture(true);
     if (!capturedImage) {
       const sources = await withTimeout(
         desktopCapturer.getSources({
@@ -4642,24 +5043,7 @@ try {
         capturedSourceId = source.id;
         capturedSourceName = source.name;
       }
-      if (!capturedImage && targetWindowId) {
-        const nativeCapture = await captureVisibleNativeWindow(
-          targetWindowId,
-          sessionIdFor(command),
-        );
-        if (nativeCapture) {
-          const nativeSize = nativeCapture.image.getSize();
-          capturedImage = nativeSize.width > maxWidth
-            ? nativeCapture.image.resize({ width: maxWidth, quality: 'best' })
-            : nativeCapture.image;
-          capturedSourceId = nativeCapture.sourceId;
-          capturedSourceName = nativeCapture.sourceName;
-          originX = nativeCapture.x;
-          originY = nativeCapture.y;
-          physicalWidth = nativeCapture.width;
-          physicalHeight = nativeCapture.height;
-        }
-      }
+      await tryNativeWindowCapture(false);
       if (!capturedImage) {
         if (allowOwnerFallback
           && targetWindowId
@@ -5448,6 +5832,19 @@ try {
         screenshot?.frame?.relatedWindowIds || [observationWindowId],
       );
     }
+    let changes: Record<string, unknown> | undefined;
+    if (mode !== 'vision') {
+      const captureSessionId = sessionIdFor(command);
+      const identities = captureIdentityMap(rawElements);
+      const baseline = lastCaptureBySession.get(captureSessionId);
+      if (baseline && observationWindowId && baseline.windowId === observationWindowId) {
+        changes = summarizeCaptureChanges(baseline.elements, identities);
+      }
+      lastCaptureBySession.set(captureSessionId, {
+        windowId: observationWindowId || '',
+        elements: identities,
+      });
+    }
     const mergedTotalElements = totalElements + ocrElements.length;
     const truncatedAccessibilityElements = Math.max(
       0,
@@ -5466,6 +5863,7 @@ try {
       ...(generation !== null ? { generation } : {}),
       total_elements: mergedTotalElements,
       returned_elements: elements.length,
+      ...(changes ? { changes } : {}),
       ...(ocrElements.length ? {
         total_accessibility_elements: totalElements,
         ocr_elements: ocrElements.length,
@@ -5517,6 +5915,76 @@ try {
     };
   }
 
+  /** Identity that survives a recapture: refs and marks are frame-scoped, so a
+   *  stable element is its role + name, numbered when a name repeats. */
+  function captureIdentityMap(elements: ComputerElementRecord[]): Map<string, string> {
+    const identities = new Map<string, string>();
+    const occurrences = new Map<string, number>();
+    for (const element of elements) {
+      if (element.source === 'ocr') continue;
+      const base = `${element.role || ''}|${element.name || ''}`;
+      const occurrence = (occurrences.get(base) || 0) + 1;
+      occurrences.set(base, occurrence);
+      identities.set(
+        occurrence > 1 ? `${base}#${occurrence}` : base,
+        `${element.value ?? ''}\u0000${element.state ?? ''}\u0000${element.enabled === false ? 'disabled' : 'enabled'}`,
+      );
+    }
+    return identities;
+  }
+
+  /** A fresh screenshot proves nothing when a healthy semantic tree came back
+   *  identical: the change summary already says the action moved nothing. Empty
+   *  trees, OCR, and pixel modes always keep their image. */
+  function captureAfterImageIsRedundant(
+    command: ComputerCommand,
+    metadata: Record<string, unknown>,
+  ): boolean {
+    if (command.include_ocr || command.capture_after_include_ocr) return false;
+    if (metadata.pixel_status !== 'available') return false;
+    const mode = String(metadata.mode || 'state');
+    if (mode !== 'state') return false;
+    if (Number(metadata.returned_elements || 0) < CAPTURE_IMAGE_SKIP_MIN_ELEMENTS) return false;
+    const changes = metadata.changes as {
+      added?: { count?: number };
+      removed?: { count?: number };
+      updated?: { count?: number };
+    } | undefined;
+    if (!changes) return false;
+    return Number(changes.added?.count || 0) === 0
+      && Number(changes.removed?.count || 0) === 0
+      && Number(changes.updated?.count || 0) === 0;
+  }
+
+  function summarizeCaptureChanges(
+    previous: Map<string, string>,
+    current: Map<string, string>,
+  ): Record<string, unknown> {
+    const added: string[] = [];
+    const removed: string[] = [];
+    const updated: string[] = [];
+    let unchanged = 0;
+    for (const [identity, signature] of current) {
+      if (!previous.has(identity)) added.push(identity);
+      else if (previous.get(identity) !== signature) updated.push(identity);
+      else unchanged += 1;
+    }
+    for (const identity of previous.keys()) {
+      if (!current.has(identity)) removed.push(identity);
+    }
+    const group = (values: string[]) => ({
+      count: values.length,
+      ...(values.length ? { sample: values.slice(0, CAPTURE_CHANGE_SAMPLE) } : {}),
+    });
+    return {
+      baseline: 'previous_capture_of_same_window',
+      added: group(added),
+      removed: group(removed),
+      updated: group(updated),
+      unchanged,
+    };
+  }
+
   function assertExecutionNotAborted(): void {
     if (executionContext.getStore()?.aborted) {
       throw new Error('computer_session_aborted: command stopped by session cancellation');
@@ -5541,6 +6009,7 @@ try {
     const recovery: InputRecoveryState = {
       targetWindowId: String(result.target_window_id || ''),
       restoreWindowId: String(result.restore_window_id || result.foreground_window_id || ''),
+      restoreOwnerWindowId: String(result.restore_owner_window_id || ''),
       cursorX: Number(result.cursor_x),
       cursorY: Number(result.cursor_y),
     };
@@ -5711,6 +6180,124 @@ try {
     };
   }
 
+  type VerifyStatus = 'satisfied' | 'unsatisfied' | 'unknown';
+
+  /** One predicate against one observed window state. Absence is only proven
+   *  when the observation itself succeeded; anything else stays unknown, and
+   *  unknown never counts as success. */
+  function evaluateVerifyPredicate(
+    predicate: Record<string, unknown>,
+    observation: { ok: boolean; exists: boolean; title: string; haystack: string },
+  ): VerifyStatus {
+    if (typeof predicate.window_exists === 'boolean') {
+      return observation.exists === predicate.window_exists ? 'satisfied' : 'unsatisfied';
+    }
+    if (!observation.ok) return 'unknown';
+    if (typeof predicate.present === 'string') {
+      return observation.haystack.includes(predicate.present.toLowerCase())
+        ? 'satisfied'
+        : 'unsatisfied';
+    }
+    if (typeof predicate.absent === 'string') {
+      return observation.haystack.includes(predicate.absent.toLowerCase())
+        ? 'unsatisfied'
+        : 'satisfied';
+    }
+    if (typeof predicate.title_contains === 'string') {
+      return observation.title.toLowerCase().includes(predicate.title_contains.toLowerCase())
+        ? 'satisfied'
+        : 'unsatisfied';
+    }
+    return 'unknown';
+  }
+
+  /** Bounded wait for a window condition. It reads predicate state only, so it
+   *  never invalidates the refs the caller holds and never returns pixels. */
+  async function verifyWindowState(command: ComputerCommand): Promise<ComputerCommandResult> {
+    const startedAt = performance.now();
+    const predicates = (Array.isArray(command.expect) ? command.expect : [])
+      .filter((entry) => entry && typeof entry === 'object' && !Array.isArray(entry));
+    if (predicates.length < 1 || predicates.length > 8) {
+      throw new Error('verify requires 1..8 predicates');
+    }
+    const timeoutMs = screenshotInteger(
+      command.timeout_ms,
+      DEFAULT_VERIFY_TIMEOUT_MS,
+      0,
+      MAX_VERIFY_TIMEOUT_MS,
+      'timeout_ms',
+    );
+    const stableSamples = screenshotInteger(
+      command.stable_samples,
+      DEFAULT_VERIFY_STABLE_SAMPLES,
+      1,
+      5,
+      'stable_samples',
+    );
+    const deadline = startedAt + timeoutMs;
+    let samples = 0;
+    let consecutive = 0;
+    let statuses: VerifyStatus[] = predicates.map(() => 'unknown');
+    let title = '';
+    let observedElements = 0;
+    for (;;) {
+      assertExecutionNotAborted();
+      const response = await callPowerShell({
+        action: 'window_predicates',
+        window: command.window ?? null,
+        window_id: command.window_id ?? null,
+        max_elements: 400,
+        session_id: sessionIdFor(command),
+        read_only: true,
+      });
+      samples += 1;
+      const elements = (Array.isArray(response.result?.elements)
+        ? response.result.elements
+        : []) as Array<Record<string, unknown>>;
+      observedElements = elements.length;
+      title = String(response.result?.title || title);
+      const observation = {
+        ok: response.ok === true,
+        exists: response.ok === true,
+        title,
+        haystack: elements
+          .map((element) => `${String(element.name || '')} ${String(element.value || '')}`)
+          .join('\n')
+          .toLowerCase(),
+      };
+      statuses = predicates.map(
+        (predicate) => evaluateVerifyPredicate(predicate as Record<string, unknown>, observation),
+      );
+      consecutive = statuses.every((status) => status === 'satisfied') ? consecutive + 1 : 0;
+      if (consecutive >= stableSamples) break;
+      if (performance.now() >= deadline) break;
+      await new Promise((resolve) => setTimeout(
+        resolve,
+        Math.min(VERIFY_POLL_INTERVAL_MS, Math.max(1, deadline - performance.now())),
+      ));
+    }
+    const decision: VerifyStatus = consecutive >= stableSamples
+      ? 'satisfied'
+      : statuses.some((status) => status === 'unknown') ? 'unknown' : 'unsatisfied';
+    return {
+      text: JSON.stringify({
+        ok: decision === 'satisfied',
+        action: 'verify',
+        decision,
+        ...(command.window_id ? { window_id: String(command.window_id) } : {}),
+        ...(title ? { title } : {}),
+        samples,
+        stable_samples: stableSamples,
+        observed_elements: observedElements,
+        results: predicates.map((predicate, index) => ({
+          predicate,
+          status: statuses[index],
+        })),
+        timings_ms: { total_ms: elapsedMs(startedAt) },
+      }),
+    };
+  }
+
   async function runCommand(command: ComputerCommand): Promise<ComputerCommandResult> {
     const commandStartedAt = performance.now();
     const actionTimings: Record<string, number> = {};
@@ -5720,12 +6307,19 @@ try {
     if (process.platform !== 'win32') {
       throw new Error('computer use is currently supported on Windows only');
     }
+    // Checked before every early return, so a bounded sequence cannot slip past
+    // it. The app's own Browser Use setup flow keeps its internal session.
+    if (observeOnly
+      && !OBSERVE_ONLY_ALLOWED_ACTIONS.has(action)
+      && sessionIdFor(command) !== CHROME_SETUP_SESSION_ID) {
+      throw new Error(`observation_only: Computer Use is observing only, so '${action}' input is blocked. Turn off "Observation only" in Settings to allow input.`);
+    }
     if (action === 'session_release') return await releaseComputerSession(command);
     if (action === 'diagnose') return await diagnoseComputer(command);
     if (action === 'sequence') return await runBoundedSequence(command);
     const readActions = new Set([
       'list_windows', 'list_apps', 'snapshot', 'find', 'capture', 'clipboard_read', 'wait',
-      'window_bounds', 'screenshot', 'zoom',
+      'window_bounds', 'screenshot', 'zoom', 'verify', 'window_predicates',
     ]);
     const isMutation = !readActions.has(action);
     const shouldCaptureAfter = isMutation
@@ -5781,6 +6375,7 @@ try {
     }
     command = resolveElementAliases(command);
     assertSafeComputerInput(command);
+    if (action === 'verify') return await verifyWindowState(command);
     if (action === 'list_apps') return await listComputerApps(command);
     if (action === 'capture') {
       const capture = await captureComputer(command);
@@ -6015,6 +6610,7 @@ try {
     if (inputRecovery) {
       let current: InputRecoveryState | undefined;
       let reasserted = false;
+      let restoredTarget = '';
       let readbackError = '';
       try {
         current = await readInputRecovery(command, targetWindowId, false);
@@ -6030,21 +6626,29 @@ try {
           const restored = await callPowerShell({
             action: 'restore_input_state',
             restore_window_id: inputRecovery.restoreWindowId,
+            restore_owner_window_id: inputRecovery.restoreOwnerWindowId,
             cursor_x: inputRecovery.cursorX,
             cursor_y: inputRecovery.cursorY,
             session_id: sessionIdFor(command),
           });
           actionTimings.input_recovery_ms = elapsedMs(recoveryStartedAt);
           if (!restored.ok) throw new Error(restored.error || 'input recovery reassertion failed');
+          restoredTarget = String(restored.result?.restored_target || '');
           current = {
             targetWindowId: inputRecovery.targetWindowId,
             restoreWindowId: String(restored.result?.foreground_window_id || ''),
+            restoreOwnerWindowId: inputRecovery.restoreOwnerWindowId,
             cursorX: Number(restored.result?.cursor_x),
             cursorY: Number(restored.result?.cursor_y),
           };
           reasserted = true;
         }
-        const focusRestored = current.restoreWindowId === inputRecovery.restoreWindowId;
+        // Landing on the owner is the honest outcome when the action closed the
+        // window that held focus; any other destination is still a miss.
+        const focusRestored = current.restoreWindowId === inputRecovery.restoreWindowId
+          || (restoredTarget === 'owner'
+            && inputRecovery.restoreOwnerWindowId !== ''
+            && current.restoreWindowId === inputRecovery.restoreOwnerWindowId);
         const cursorRestored = current.cursorX === inputRecovery.cursorX
           && current.cursorY === inputRecovery.cursorY;
         inputRecoveryVerification = {
@@ -6056,6 +6660,7 @@ try {
           expected_cursor: [inputRecovery.cursorX, inputRecovery.cursorY],
           actual_cursor: [current.cursorX, current.cursorY],
           reasserted,
+          ...(restoredTarget === 'owner' ? { restored_target: 'owner_after_close' } : {}),
           ...(readbackError ? { readback_error: readbackError } : {}),
         };
       } catch (error) {
@@ -6119,6 +6724,10 @@ try {
         } while (!launchSuccessorReady && performance.now() < deadline);
         settleDelayMs = Math.round(performance.now() - settleStartedAt);
       } else {
+        // The settle budget is not shortened by watching for the transition to
+        // START: a window closing or opening is the beginning of the move, and
+        // the successor surface still needs this window to build its tree.
+        // Measured: exiting on that signal returned empty parent trees.
         if (settleDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, settleDelayMs));
         assertExecutionNotAborted();
         const transitionStartedAt = performance.now();
@@ -6233,7 +6842,12 @@ try {
             verdict.recommended = 'recapture';
             payload.escalation = 'recapture';
           }
-          image = capture.image;
+          if (capture.image && captureAfterImageIsRedundant(command, capture.metadata)) {
+            (payload.capture_after as Record<string, unknown>).image_omitted =
+              'unchanged_semantic_state';
+          } else {
+            image = capture.image;
+          }
         }
       }
       actionTimings.total_ms = elapsedMs(commandStartedAt);
@@ -6341,11 +6955,21 @@ try {
         : beginComputerOperation();
       const execution = { sessionId, aborted: false };
       activeExecutionsBySession.set(sessionId, execution);
+      const recordStartedAt = performance.now();
       try {
         const operation = () => executionContext.run(execution, () => runCommand(command));
-        return requiresForegroundLane(command)
+        const outcome = requiresForegroundLane(command)
           ? await runForegroundExclusive(operation)
           : await operation();
+        appendComputerRunRecord(sessionId, computerRunRecord(command, recordStartedAt, outcome));
+        return outcome;
+      } catch (error) {
+        appendComputerRunRecord(sessionId, {
+          ...computerRunRecord(command, recordStartedAt),
+          ok: false,
+          error: String((error as Error)?.message || error).slice(0, 300),
+        });
+        throw error;
       } finally {
         if (activeExecutionsBySession.get(sessionId) === execution) {
           activeExecutionsBySession.delete(sessionId);
@@ -6741,6 +7365,11 @@ try {
 
   async function stopBridge(): Promise<void> {
     bridgeGeneration += 1;
+    // An idle spare has no reason to outlive the bridge that would use it.
+    if (spareHostWorker && !spareHostWorker.killed) {
+      try { spareHostWorker.kill(); } catch { /* already gone */ }
+    }
+    spareHostWorker = null;
     if (heartbeat) clearInterval(heartbeat);
     heartbeat = null;
     const activeToken = token;
@@ -6819,10 +7448,20 @@ try {
       void callPowerShell({
         action: 'wait',
         duration: 0,
-        session_id: '__computer_host_warmup__',
+        session_id: HOST_WARMUP_SESSION_ID,
         read_only: true,
       }).then(() => {
         if (disposed || !bridgeWanted || server !== created || bridgeGeneration !== generation) return;
+        // The warm-up worker already paid startup, so it becomes the spare the
+        // first real session adopts instead of being reaped and respawned.
+        const warmed = powerShellBySession.get(HOST_WARMUP_SESSION_ID);
+        if (warmed && !warmed.killed && !spareHostWorker) {
+          powerShellBySession.delete(HOST_WARMUP_SESSION_ID);
+          workerLastUsedAt.delete(HOST_WARMUP_SESSION_ID);
+          spareHostWorker = warmed;
+        } else {
+          ensureSpareHostWorker();
+        }
         try {
           writeDiscovery(port, activeToken);
           heartbeat = setInterval(
@@ -6850,6 +7489,9 @@ try {
       bridgeWanted = enabled;
       if (enabled) startBridge();
       else void stopBridge().catch(() => {});
+    },
+    setObserveOnly(enabled: boolean): void {
+      observeOnly = enabled === true;
     },
     inspectChromeRemoteDebuggingTarget,
     prepareChromeRemoteDebugging,

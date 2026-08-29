@@ -33,6 +33,7 @@ test('desktop settings read the canonical agent section and desktop defaults', (
     keepAwake: true,
     usagePinned: false,
     computerControl: false,
+    computerObserveOnly: false,
     browserControl: false,
   });
   assert.deepEqual(desktopSettingsFromConfig({
@@ -47,6 +48,7 @@ test('desktop settings read the canonical agent section and desktop defaults', (
     keepAwake: false,
     usagePinned: false,
     computerControl: false,
+    computerObserveOnly: false,
     browserControl: false,
   });
 });
@@ -117,6 +119,7 @@ test('writes are atomic core updates that retain unrelated config and nested fie
     keepAwake: false,
     usagePinned: false,
     computerControl: false,
+    computerObserveOnly: false,
     browserControl: false,
   });
   assert.deepEqual(value.providers, { openai: { enabled: true } });
@@ -136,6 +139,7 @@ test('IPC accepts only the runtime-backed setting keys', () => {
   assert.equal(requiredDesktopSettingKey('autoCompact'), 'autoCompact');
   assert.equal(requiredDesktopSettingKey('keepAwake'), 'keepAwake');
   assert.equal(requiredDesktopSettingKey('computerControl'), 'computerControl');
+  assert.equal(requiredDesktopSettingKey('computerObserveOnly'), 'computerObserveOnly');
   assert.equal(requiredDesktopSettingKey('browserControl'), 'browserControl');
   assert.throws(() => requiredDesktopSettingKey('homeAccess'), /invalid/);
   assert.throws(() => requiredDesktopSettingKey('updates'), /invalid/);

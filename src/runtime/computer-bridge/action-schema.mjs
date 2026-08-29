@@ -1,13 +1,20 @@
 const ACTIONS = [
-  'list', 'diagnose', 'capture',
+  'list', 'diagnose', 'capture', 'verify',
   'click', 'double_click', 'mouse_move', 'drag', 'type', 'key', 'scroll', 'wait',
-  'sequence', 'window', 'clipboard', 'launch',
+  'sequence', 'window', 'menu', 'clipboard', 'launch',
 ];
 
 const windowTarget = {
   window_id: {
     type: 'string',
     description: 'Exact id returned by list(kind="windows"), e.g. hwnd:0x123ABC.',
+  },
+};
+
+const appTarget = {
+  app: {
+    type: 'string',
+    description: 'Resolves to one exact window when no window_id is known; ambiguous matches are refused.',
   },
 };
 
@@ -145,6 +152,7 @@ const captureProperties = {
 
 const pointerProperties = {
   ...windowTarget,
+  ...appTarget,
   ...elementTarget,
   ...framePoint,
   modifiers: {
@@ -238,11 +246,12 @@ export const COMPUTER_INPUT_SCHEMA = {
         enum: ['left', 'right', 'middle'],
         description: 'Left + ref uses semantic activate/toggle. Left + element/frame and right/middle use pointer input.',
       },
-    }, ['window_id'])),
-    branch('double_click', input(pointerProperties, ['window_id'])),
-    branch('mouse_move', input(pointerProperties, ['window_id'])),
+    })),
+    branch('double_click', input(pointerProperties)),
+    branch('mouse_move', input(pointerProperties)),
     branch('drag', input({
       ...windowTarget,
+      ...appTarget,
       ...elementTarget,
       to: { type: 'string', description: 'Destination semantic ref.' },
       to_element: { type: 'integer', minimum: 1 },
@@ -251,25 +260,33 @@ export const COMPUTER_INPUT_SCHEMA = {
       to_y: { type: 'integer' },
       modifiers: { type: 'string' },
       ...delivery,
-    }, ['window_id'])),
+    })),
     branch('type', input({
       ...windowTarget,
+      ...appTarget,
       ...elementTarget,
       ...framePoint,
       text: { type: 'string' },
+      mode: {
+        type: 'string',
+        enum: ['literal', 'set'],
+        description: 'literal (default) types text; set writes the value into a ref target with no focus. Web inputs ignore set.',
+      },
       ...delivery,
-    }, ['window_id', 'text'])),
+    }, ['text'])),
     branch('key', input({
       ...windowTarget,
+      ...appTarget,
       ...elementTarget,
       keys: {
         type: 'string',
         description: 'SendKeys syntax, e.g. "^s", "%{F4}", or "Hello{ENTER}". Modifiers and groups require delivery="foreground".',
       },
       ...delivery,
-    }, ['window_id', 'keys'])),
+    }, ['keys'])),
     branch('scroll', input({
       ...windowTarget,
+      ...appTarget,
       ...elementTarget,
       ...framePoint,
       direction: {
@@ -282,7 +299,7 @@ export const COMPUTER_INPUT_SCHEMA = {
         maximum: 100,
       },
       ...delivery,
-    }, ['window_id', 'direction'])),
+    }, ['direction'])),
     branch('wait', input({
       duration: {
         type: 'number',
@@ -292,6 +309,7 @@ export const COMPUTER_INPUT_SCHEMA = {
     }, ['duration'])),
     branch('sequence', input({
       ...windowTarget,
+      ...appTarget,
       steps: {
         type: 'array',
         items: sequenceStep,
@@ -300,9 +318,10 @@ export const COMPUTER_INPUT_SCHEMA = {
         description: 'Prefer this over separate calls for a deterministic same-window focus chain. A transition-capable step must be final; execution stops on failure or target transition.',
       },
       ...delivery,
-    }, ['window_id', 'steps'])),
+    }, ['steps'])),
     branch('window', input({
       ...windowTarget,
+      ...appTarget,
       operation: {
         type: 'string',
         enum: ['focus', 'move', 'minimize', 'maximize', 'restore', 'close'],
@@ -311,7 +330,45 @@ export const COMPUTER_INPUT_SCHEMA = {
       y: { type: 'integer' },
       width: { type: 'integer' },
       height: { type: 'integer' },
-    }, ['window_id', 'operation'])),
+    }, ['operation'])),
+    branch('menu', input({
+      ...windowTarget,
+      ...appTarget,
+      path: {
+        type: 'array',
+        items: { type: 'string' },
+        minItems: 1,
+        maxItems: 8,
+        description: 'Exact labels from the bar down, e.g. ["File","Save As"]. Missing, ambiguous, or disabled entries fail closed.',
+      },
+    }, ['path'])),
+    branch('verify', input({
+      ...windowTarget,
+      ...appTarget,
+      expect: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 8,
+        description: 'AND-combined predicates. Reads state only: no pixels, and prior refs stay valid.',
+        items: {
+          type: 'object',
+          properties: {
+            present: { type: 'string', description: 'Text an element name or value must contain.' },
+            absent: { type: 'string' },
+            title_contains: { type: 'string' },
+            window_exists: { type: 'boolean' },
+          },
+          additionalProperties: false,
+        },
+      },
+      timeout_ms: { type: 'integer', minimum: 0, maximum: 30000 },
+      stable_samples: {
+        type: 'integer',
+        minimum: 1,
+        maximum: 5,
+        description: 'Consecutive satisfied samples required. Default 2.',
+      },
+    }, ['expect'])),
     branch('clipboard', input({
       operation: { type: 'string', enum: ['read', 'write'] },
       text: { type: 'string', description: 'Required for operation="write".' },
@@ -334,7 +391,15 @@ for (const actionBranch of COMPUTER_INPUT_SCHEMA.oneOf) {
 
 const CAPTURE_AFTER_ACTIONS = new Set([
   'click', 'double_click', 'mouse_move', 'drag', 'type', 'key', 'scroll',
-  'sequence', 'window', 'launch',
+  'sequence', 'window', 'menu', 'launch',
+]);
+
+// Actions that drive one exact window. They carry exactly one window target:
+// the exact window_id, or an app label the host resolves to one window and
+// refuses when it matches more than one.
+const WINDOW_TARGET_ACTIONS = new Set([
+  'click', 'double_click', 'mouse_move', 'drag', 'type', 'key', 'scroll',
+  'sequence', 'window', 'menu', 'verify',
 ]);
 
 function hasOwn(value, key) {
@@ -436,6 +501,15 @@ export function validateComputerToolArgs(args) {
   }
 
   const inputObject = inputValue || {};
+  if (WINDOW_TARGET_ACTIONS.has(name)) {
+    const windowTargets = ['window_id', 'app'].filter((key) => hasOwn(inputObject, key));
+    if (windowTargets.length !== 1) {
+      return `Computer Use ${name} requires exactly one of window_id or app`;
+    }
+    if (hasOwn(inputObject, 'app') && !String(inputObject.app || '').trim()) {
+      return `Computer Use ${name} app must not be empty`;
+    }
+  }
   if (name === 'capture') {
     const mode = inputObject.mode || 'state';
     if (mode === 'zoom' && (!hasOwn(inputObject, 'frame_id') || !hasOwn(inputObject, 'region'))) {
@@ -458,6 +532,33 @@ export function validateComputerToolArgs(args) {
   if (name === 'type') {
     const targetError = validateTargetForm(name, inputObject, { required: false });
     if (targetError) return `Computer Use ${targetError}`;
+    if (inputObject.mode === 'set' && !hasOwn(inputObject, 'ref')) {
+      return 'Computer Use type mode="set" requires a semantic ref target';
+    }
+  }
+  if (name === 'menu') {
+    const segments = inputObject.path || [];
+    if (segments.some((segment) => typeof segment !== 'string' || !segment.trim())) {
+      return 'Computer Use menu path segments must be non-empty labels';
+    }
+  }
+  if (name === 'verify') {
+    const allowed = ['present', 'absent', 'title_contains', 'window_exists'];
+    const expectations = inputObject.expect || [];
+    for (let index = 0; index < expectations.length; index += 1) {
+      const predicate = expectations[index];
+      if (!predicate || typeof predicate !== 'object' || Array.isArray(predicate)) {
+        return `Computer Use verify predicate ${index + 1} must be an object`;
+      }
+      const keys = Object.keys(predicate);
+      const extras = keys.filter((key) => !allowed.includes(key));
+      if (extras.length) {
+        return `Computer Use verify predicate ${index + 1} does not accept field(s): ${extras.join(', ')}`;
+      }
+      if (keys.length !== 1) {
+        return `Computer Use verify predicate ${index + 1} takes exactly one condition`;
+      }
+    }
   }
   if (name === 'key') {
     const targetError = validateTargetForm(name, inputObject, { required: false });
@@ -597,6 +698,14 @@ export function toComputerHostCommand(args) {
             ? 'invoke'
             : 'click';
       delete command.button;
+      break;
+    case 'type':
+      // A set writes the value straight into the element; literal keeps typing.
+      command.action = inputValue.mode === 'set' ? 'set_value' : 'type';
+      delete command.mode;
+      break;
+    case 'menu':
+      command.action = 'invoke_menu';
       break;
     case 'sequence':
       command.action = 'sequence';

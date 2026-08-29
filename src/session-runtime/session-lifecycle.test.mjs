@@ -90,6 +90,51 @@ test('context percentage uses a model default and ten-point steps', () => {
   });
 });
 
+test('a placeholder model meta still resolves the selected window from the catalog', () => {
+  // anthropic-oauth/grok-oauth/gemini have no getCachedModelInfo, so a cold
+  // route only ever sees `{ id, provider }`. The saved percentage must survive
+  // that instead of leaving the session on the model's full window.
+  const windowLookup = (provider, model) => {
+    if (provider === 'anthropic-oauth' && model === 'claude-opus-5') {
+      return { contextWindow: 1_000_000, maxContextWindow: 0 };
+    }
+    if (provider === 'openai-oauth' && model === 'gpt-5.6-sol') {
+      return { contextWindow: 272_000, maxContextWindow: 1_000_000 };
+    }
+    return null;
+  };
+  assert.deepEqual(resolveRouteContextState({
+    provider: 'anthropic-oauth',
+    model: 'claude-opus-5',
+    contextPercent: 50,
+  }, { id: 'claude-opus-5', provider: 'anthropic-oauth' }, windowLookup), {
+    contextPercent: 50,
+    contextDefaultPercent: 100,
+    selectedContextWindow: 500_000,
+  });
+  // A cached row that knows both windows keeps the picker's own scale, so a
+  // cold placeholder can never rescale a saved percentage downward.
+  assert.deepEqual(resolveRouteContextState({
+    provider: 'openai-oauth',
+    model: 'gpt-5.6-sol',
+    contextPercent: 30,
+  }, { id: 'gpt-5.6-sol', provider: 'openai-oauth' }, windowLookup), {
+    contextPercent: 30,
+    contextDefaultPercent: 30,
+    selectedContextWindow: 272_000,
+  });
+  // An uncached model keeps the model-default intent.
+  assert.deepEqual(resolveRouteContextState({
+    provider: 'anthropic-oauth',
+    model: 'unknown-model',
+    contextPercent: 50,
+  }, { id: 'unknown-model', provider: 'anthropic-oauth' }, windowLookup), {
+    contextPercent: undefined,
+    contextDefaultPercent: undefined,
+    selectedContextWindow: undefined,
+  });
+});
+
 test('route config treats a cleared context percentage as model-default intent', () => {
   const resolveRoute = makeResolveRoute(() => 'cursor-oauth');
   assert.equal(resolveRoute({

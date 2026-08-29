@@ -17,7 +17,7 @@ export type {
 export type ComputerHost = PowerShellComputerHost;
 
 export function createComputerHost(
-  options: { bridgeEnabled?: boolean } = {},
+  options: { bridgeEnabled?: boolean; observeOnly?: boolean } = {},
 ): ComputerHost {
   return createPowerShellComputerHost(options);
 }

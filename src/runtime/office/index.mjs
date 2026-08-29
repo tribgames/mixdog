@@ -28,6 +28,7 @@ import {
 } from './com-adapter.mjs';
 import {
   applyPortableOoxmlBatch,
+  clearPortablePresentationSlides,
   issuesPortableOoxml,
   recalculateLibreOfficeWorkbook,
   renderPortableOoxml,
@@ -904,19 +905,6 @@ async function selectMode(requested, format, source) {
   return { mode: 'portable', backend: 'mixdog-ooxml' };
 }
 
-async function seedPortableDeck(source, slides, target) {
-  const selected = Array.isArray(slides) ? slides.map(Number).filter(Number.isInteger) : [];
-  if (selected.length) {
-    const selection = await createPptxSlideSelection(source, selected, target);
-    return { count: selection.count };
-  }
-  await copyFile(source, target);
-  const zip = await JSZip.loadAsync(await readFile(target));
-  return {
-    count: Object.keys(zip.files).filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name)).length,
-  };
-}
-
 async function selectCreateMode(requested, format, target) {
   if (requested === 'portable') return { mode: 'portable', backend: 'mixdog-ooxml' };
   if (requested !== 'auto') return await selectMode(requested, format, target);
@@ -1385,13 +1373,13 @@ async function applyBatch(session, args) {
     && operations[0].op === 'import_slides'
     && Number(operations[0].after || 0) === 0
     && extname(operations[0].path).toLowerCase() === extname(target).toLowerCase();
-  const portableDeckSeed = session.backend === 'mixdog-ooxml'
+  const portableTemplateSeed = session.backend === 'mixdog-ooxml'
     && session.format === 'pptx'
     && session.created === true
     && Number(session.snapshotVersion || 0) === 0
-    && operations[0].op === 'import_slides'
-    && Number(operations[0].after || 0) === 0
-    && extname(operations[0].path).toLowerCase() === extname(target).toLowerCase();
+    && operations.some((operation) => operation.op === 'import_slides')
+    ? operations.find((operation) => operation.op === 'import_slides').path
+    : '';
   const needsComCheckpoint = isMicrosoftOfficeSession(session)
     && session.mode === 'background'
     && operations.some((operation) => operation.op === 'import_slides');
@@ -1494,20 +1482,10 @@ async function applyBatch(session, args) {
       });
     } else if (TABULAR_FORMATS.has(session.format)) {
       results = await applyTabularBatch(target, session.format, operations);
-    } else if (portableDeckSeed) {
-      const operation = operations[0];
-      const seeded = await seedPortableDeck(operation.path, operation.slides, target);
-      const remaining = operations.slice(1);
-      results = [
-        {
-          op: 'import_slides',
-          changed: true,
-          count: seeded.count,
-          source: operation.path,
-          seeded: true,
-        },
-        ...(remaining.length ? await applyPortableOoxmlBatch(target, session.format, remaining) : []),
-      ];
+    } else if (portableTemplateSeed) {
+      await copyFile(portableTemplateSeed, target);
+      await clearPortablePresentationSlides(target);
+      results = await applyPortableOoxmlBatch(target, session.format, operations);
     } else {
       results = await applyPortableOoxmlBatch(target, session.format, operations);
     }

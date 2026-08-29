@@ -88,6 +88,9 @@ export const DESKTOP_IPC = {
   browserHistorySearch: 'mixdog:browser-history-search',
   browserCredentialSuggestions: 'mixdog:browser-credential-suggestions',
   browserCredentialFill: 'mixdog:browser-credential-fill',
+  browserHandoffChanged: 'mixdog:browser-handoff-changed',
+  browserActivityChanged: 'mixdog:browser-activity-changed',
+  browserHandoffResolve: 'mixdog:browser-handoff-resolve',
   applyTitleBarTheme: 'mixdog:apply-titlebar-theme',
   setTitleBarDim: 'mixdog:set-titlebar-dim',
   invokeCapability: 'mixdog:invoke-capability',
@@ -769,7 +772,8 @@ export interface DesktopCapabilityResult<T = unknown> {
   snapshot: SessionSnapshot;
 }
 
-export type DesktopSettingKey = 'autoClear' | 'autoCompact' | 'keepAwake' | 'usagePinned' | 'computerControl' | 'browserControl';
+export type DesktopSettingKey = 'autoClear' | 'autoCompact' | 'keepAwake' | 'usagePinned'
+  | 'computerControl' | 'computerObserveOnly' | 'browserControl';
 
 export interface DesktopSettings {
   autoClear: boolean;
@@ -781,9 +785,29 @@ export interface DesktopSettings {
   /** Opt-in: expose the agent `computer` tool that controls the local desktop
    *  (Windows). Default off — full-PC control is high risk. */
   computerControl: boolean;
+  /** Computer Use observes only: screen, UI, and clipboard reads stay
+   *  available while every input action is refused. Default off. */
+  computerObserveOnly: boolean;
   /** Opt-in: expose the agent `browser` tool over the in-app browser bridge.
    *  Default off; the browser pane itself stays available either way. */
   browserControl: boolean;
+}
+
+/** An agent Browser Use command parked on the user: a captcha, a 2FA prompt,
+ *  or an identity check only the person at the keyboard can clear. */
+export interface DesktopBrowserHandoffRequest {
+  id: string;
+  reason: string;
+  url: string;
+  expiresAt: number;
+}
+
+/** What the agent's browser tool is doing right now. The pane states this in
+ *  plain language so watching the page never means reading tool calls. */
+export interface DesktopBrowserActivity {
+  action: string;
+  background: boolean;
+  at: number;
 }
 
 export type DesktopBrowserImportItem = 'passwords' | 'cookies' | 'history';
@@ -1845,6 +1869,15 @@ export interface DesktopApi {
   /** Current visible Browser Use page only. Passwords never cross this API. */
   browserCredentialSuggestions?(): Promise<DesktopBrowserCredentialSuggestion[]>;
   browserCredentialFill?(credentialId: string): Promise<DesktopBrowserCredentialFillResult>;
+  /** Agent handoff banner: null clears the current request. */
+  onBrowserHandoffChanged?(
+    listener: (request: DesktopBrowserHandoffRequest | null) => void,
+  ): () => void;
+  browserHandoffResolve?(handoffId: string, completed: boolean): Promise<boolean>;
+  /** Live agent browser activity; null once nothing is running. */
+  onBrowserActivityChanged?(
+    listener: (activity: DesktopBrowserActivity | null) => void,
+  ): () => void;
   /** systemPreference keeps DWM on 'system' so OS theme tracking survives. */
   applyTitleBarTheme(theme: string, systemPreference?: boolean): Promise<void>;
   /** Scrim-composited WCO caption colors while a fullscreen modal is open;

@@ -185,6 +185,16 @@
       "strict": true,
       "defaults": { "background": "16191D", "backgroundRole": "inverse", "slideRole": "closing" },
       "roles": { "1": "eyebrow", "2": "title", "3": "subtitle", "5": "visual-text", "6": "meta" }
+    },
+    {
+      "slide": 19,
+      "id": "executive-comparison-table",
+      "kind": "table",
+      "density": "balanced",
+      "variant": "grid",
+      "priority": 16,
+      "strict": true,
+      "roles": { "1": "title", "2": "subtitle", "3": "table" }
     }
   ]
 }

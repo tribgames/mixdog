@@ -13,16 +13,20 @@ import {
   Download,
   ExternalLink,
   Globe,
+  Hand,
   History,
   KeyRound,
   LoaderCircle,
   RotateCw,
+  Sparkles,
   X,
 } from "lucide-react";
 
 import { t } from "./i18n";
 import type {
+  DesktopBrowserActivity,
   DesktopBrowserCredentialSuggestion,
+  DesktopBrowserHandoffRequest,
   DesktopBrowserHistoryEntry,
   DesktopBrowserImportItem,
   DesktopBrowserImportProgress,
@@ -82,6 +86,36 @@ export function normalizeAddressInput(input: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(text)}`;
 }
 
+/** Progress strip wording. A general user watching the page should never have
+ *  to read tool calls, so every action collapses into one plain sentence. */
+function browserActivityLabel(action: string): string {
+  switch (action) {
+    case "navigate":
+    case "back":
+    case "forward":
+      return t("Opening a page");
+    case "wait":
+      return t("Waiting for the page");
+    case "upload":
+      return t("Uploading a file");
+    case "handoff":
+      return t("Waiting for you");
+    case "snapshot":
+    case "read":
+    case "extract":
+    case "locate":
+    case "status":
+    case "console":
+    case "network":
+    case "list_tabs":
+    case "downloads":
+    case "performance":
+      return t("Reading the page");
+    default:
+      return t("Acting on the page");
+  }
+}
+
 export default function BrowserPane({
   paneId,
   active,
@@ -123,7 +157,36 @@ export default function BrowserPane({
   const [importProgress, setImportProgress] = useState<
     Partial<Record<DesktopBrowserImportItem, DesktopBrowserImportProgress>>
   >({});
+  const [activity, setActivity] = useState<DesktopBrowserActivity | null>(null);
+  const [goal, setGoal] = useState("");
+  const [handoff, setHandoff] = useState<DesktopBrowserHandoffRequest | null>(null);
+  const [handoffBusy, setHandoffBusy] = useState(false);
   const desktopApi = window.mixdogDesktop;
+
+  // Agent handoff: the browser tool parked on a captcha, a 2FA prompt, or an
+  // identity check. Main clears the request by publishing null.
+  useEffect(() => {
+    const subscribe = desktopApi?.onBrowserHandoffChanged;
+    if (!subscribe) return undefined;
+    return subscribe((request) => {
+      setHandoff(request);
+      setHandoffBusy(false);
+    });
+  }, [desktopApi]);
+
+  // Progress strip: main publishes null as soon as the last command settles.
+  useEffect(() => {
+    const subscribe = desktopApi?.onBrowserActivityChanged;
+    if (!subscribe) return undefined;
+    return subscribe(setActivity);
+  }, [desktopApi]);
+
+  const resolveHandoff = useCallback((completed: boolean) => {
+    const resolve = desktopApi?.browserHandoffResolve;
+    if (!handoff || !resolve || handoffBusy) return;
+    setHandoffBusy(true);
+    void resolve(handoff.id, completed).catch(() => setHandoffBusy(false));
+  }, [desktopApi, handoff, handoffBusy]);
 
   useEffect(() => {
     const view = webviewRef.current;
@@ -673,6 +736,21 @@ export default function BrowserPane({
         <Globe size={28} />
         <span>{t("Search or enter address")}</span>
       </div>}
+      {handoff && <div className="browser-pane-handoff" role="status" aria-live="polite">
+        <Hand className="browser-pane-handoff-icon" size={18} aria-hidden="true" />
+        <div className="browser-pane-handoff-body">
+          <strong>{t("The agent needs you to continue here")}</strong>
+          <span>{handoff.reason}</span>
+        </div>
+        <button type="button" onClick={() => resolveHandoff(false)} disabled={handoffBusy}>
+          {t("Cancel")}
+        </button>
+        <button type="button" className="is-primary"
+          onClick={() => resolveHandoff(true)} disabled={handoffBusy}>
+          <Check size={14} aria-hidden="true" />
+          {t("Done")}
+        </button>
+      </div>}
       {pageFailure && <div className="browser-pane-failure" role="status" aria-live="polite">
         <AlertTriangle size={26} />
         <strong>{pageFailure.title}</strong>
@@ -692,5 +770,29 @@ export default function BrowserPane({
         </button>
       </div>}
     </div>
+    {activity && <div className="browser-pane-activity" role="status" aria-live="polite">
+      <LoaderCircle className="browser-pane-activity-spin" size={13} aria-hidden="true" />
+      <span>{browserActivityLabel(activity.action)}</span>
+      {activity.background && <em>{t("in a background tab")}</em>}
+    </div>}
+    {/* Goal bar: the plain-language entry point. App owns what happens next —
+        the pane only reports the errand and the page it was stated on. */}
+    <form className="browser-pane-goal"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const text = goal.trim();
+        if (!text) return;
+        window.dispatchEvent(new CustomEvent("mixdog:browser-task", {
+          detail: { text, url: currentUrl },
+        }));
+        setGoal("");
+      }}>
+      <Sparkles size={15} aria-hidden="true" />
+      <input type="text" value={goal} spellCheck={false}
+        placeholder={t("Ask the agent to do something with this page")}
+        aria-label={t("Ask the agent to do something with this page")}
+        onChange={(event) => setGoal(event.target.value)} />
+      <button type="submit" disabled={!goal.trim()}>{t("Start")}</button>
+    </form>
   </div>;
 }

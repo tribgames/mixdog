@@ -576,9 +576,10 @@ function templateSlotText(operation, role) {
     return match ? values[Number(match[2]) - 1]?.[match[1]] : undefined;
   };
   if (role === 'title') return operation.title;
-  if (role === 'subtitle') return operation.subtitle;
+  if (role === 'subtitle') return operation.subtitle ?? operation.takeaway;
+  if (role === 'takeaway') return operation.takeaway ?? operation.subtitle;
   if (role === 'eyebrow') return operation.eyebrow;
-  if (role === 'body') return strings(operation.body || operation.bullets).join('\r');
+  if (role === 'body') return strings(operation.body || operation.bullets).join('\r') || operation.takeaway;
   if (role === 'visual-text') return operation.visualText;
   if (role === 'meta') return strings(operation.meta).join(' · ');
   let value = indexed(/^metric-(value|label|detail)-(\d+)$/, metrics);
@@ -617,17 +618,25 @@ function expandTemplatePptxSlide(operation, layout, slide, backend = '') {
     });
   }
   const imagePath = operation.image?.path || operation.imagePath;
+  const vacantShapes = [];
   for (const slot of layout.slots || []) {
     if (slot.type === 'text') {
       const value = templateSlotText(operation, slot.role);
+      if (value == null || String(value) === '') {
+        vacantShapes.push(Number(slot.shape));
+        continue;
+      }
       output.push({
         op: 'set_text',
         slide,
         shape: Number(slot.shape),
-        text: String(value ?? ''),
-        ...(value == null || value === '' ? { allowNoChange: true } : {}),
+        text: String(value),
       });
-    } else if (slot.type === 'image' && imagePath) {
+    } else if (slot.type === 'image') {
+      if (!imagePath) {
+        vacantShapes.push(Number(slot.shape));
+        continue;
+      }
       output.push({
         op: 'replace_image',
         slide,
@@ -635,9 +644,6 @@ function expandTemplatePptxSlide(operation, layout, slide, backend = '') {
         path: imagePath,
       });
     } else if (slot.type === 'chart' && plainObject(operation.chart)) {
-      if (backend === 'mixdog-ooxml') {
-        throw new Error('compose_slide chart requires Microsoft PowerPoint; omit chart or create the deck with PowerPoint installed');
-      }
       output.push({
         op: 'set_chart_data',
         slide,
@@ -659,6 +665,9 @@ function expandTemplatePptxSlide(operation, layout, slide, backend = '') {
         });
       }
     }
+  }
+  for (const shape of [...new Set(vacantShapes)].sort((left, right) => right - left)) {
+    output.push({ op: 'delete_shape', slide, shape });
   }
   if (operation.notes) output.push({ op: 'set_notes', slide, text: String(operation.notes) });
   return output;
@@ -770,8 +779,7 @@ function provenanceText(source) {
   return target ? `${document}#${target}` : document;
 }
 
-function expandPptxSlide(operation, design, slide, backend = '') {
-  const portable = backend === 'mixdog-ooxml';
+function expandPptxSlide(operation, design, slide) {
   const colors = design.tokens.colors;
   const type = design.tokens.typography;
   const kind = String(operation.kind || 'content').toLowerCase();
@@ -846,6 +854,14 @@ function expandPptxSlide(operation, design, slide, backend = '') {
       left: 58, top: 356, width: 650, height: 76,
       fontName: type.body, fontSize: 17, color: colors.muted,
     }));
+    const statementDetail = operation.bullets
+      ? pptBulletParagraphs(operation.bullets, design, { size: 15 })
+      : pptBodyParagraphs(operation.body, design, { size: 15 });
+    if (statementDetail.length) {
+      output.push(pptText(slide, '', {
+        left: 58, top: subtitle ? 424 : 366, width: 650, height: 96,
+      }, statementDetail));
+    }
   } else if (kind === 'metrics') {
     output.push(pptText(slide, title, {
       left: 58, top: 42, width: 842, height: 76,
@@ -965,9 +981,6 @@ function expandPptxSlide(operation, design, slide, backend = '') {
       }));
     });
   } else if (kind === 'chart' || (kind === 'content' && plainObject(operation.chart))) {
-    if (portable) {
-      throw new Error('compose_slide chart requires Microsoft PowerPoint; use kind "metrics" or "table" for a portable deck');
-    }
     output.push(pptText(slide, title, {
       left: 58, top: 42, width: 842, height: 76,
       fontName: type.display, fontSize: contentTitleSize, bold: true, color: colors.ink,
@@ -1165,7 +1178,7 @@ function expandDocxDocument(operation, design, state, backend, composition) {
       ? format.margin * 1.08
       : format.margin;
   const bodySize = compactMemo ? Math.max(9.5, format.body - 0.5) : format.body;
-  if (backend === 'microsoft-office-com' && operation.page !== false) {
+  if (operation.page !== false) {
     output.push({
       op: 'set_page',
       properties: {
@@ -1286,7 +1299,7 @@ function expandDocxDocument(operation, design, state, backend, composition) {
           borders: true,
         },
       });
-      if (backend === 'microsoft-office-com') {
+      {
         output.push({ op: 'fit_table', table: state.table });
         const columns = Math.max(1, ...section.table.map((row) => Array.isArray(row) ? row.length : 1));
         for (let column = 1; column <= columns; column += 1) {
@@ -1306,14 +1319,14 @@ function expandDocxDocument(operation, design, state, backend, composition) {
       }
     }
   }
-  if (backend === 'microsoft-office-com' && operation.pageNumbers === true) {
+  if (operation.pageNumbers === true) {
     output.push({
       op: 'add_page_numbers',
       includeTotal: true,
       alignment: 'center',
       ...(operation.footer ? { prefix: `${String(operation.footer)} · Page ` } : {}),
     });
-  } else if (backend === 'microsoft-office-com' && operation.footer) {
+  } else if (operation.footer) {
     output.push({ op: 'set_header_footer', header: false, text: String(operation.footer) });
   }
   return output;
@@ -1340,8 +1353,7 @@ function isExcelTotalRow(row) {
   return /^(?:(?:grand\s+total|sub\s*total|total)\b|(?:합계|총계|소계)(?:\s|$))/i.test(String(row?.[0] || '').trim());
 }
 
-function expandXlsxSheet(operation, design, composition, backend = '') {
-  const portable = backend === 'mixdog-ooxml';
+function expandXlsxSheet(operation, design, composition) {
   const output = [];
   const colors = design.tokens.colors;
   const type = design.tokens.typography;
@@ -1502,15 +1514,13 @@ function expandXlsxSheet(operation, design, composition, backend = '') {
           wrapText: true,
         },
       });
-      if (!portable) {
-        output.push({
-          op: 'add_table',
-          sheet,
-          range: `A${startRow}:${dataLastColumn}${endRow}`,
-          name: safeTableName(operation.tableName || `${sheet}Data`),
-          style: operation.tableStyle || format.tableStyle,
-        });
-      }
+      output.push({
+        op: 'add_table',
+        sheet,
+        range: `A${startRow}:${dataLastColumn}${endRow}`,
+        name: safeTableName(operation.tableName || `${sheet}Data`),
+        style: operation.tableStyle || format.tableStyle,
+      });
       output.push({ op: 'freeze_panes', sheet, row: startRow + 1, column: 1 });
     }
     output.push({
@@ -1537,9 +1547,6 @@ function expandXlsxSheet(operation, design, composition, backend = '') {
       });
     }
     if (plainObject(operation.chart)) {
-      if (portable) {
-        throw new Error('compose_sheet chart requires Microsoft Excel; omit chart or create the workbook with Excel installed');
-      }
       let chartRows = rows.length;
       while (chartRows > 0 && isExcelTotalRow(rows[chartRows - 1])) chartRows -= 1;
       const chartEndRow = startRow + (headers.length ? 1 : 0) + chartRows - 1;
@@ -1581,24 +1588,12 @@ function expandXlsxSheet(operation, design, composition, backend = '') {
     }
   }
   if (operation.source) {
-    const attribution = `Source: ${provenanceText(operation.source) || String(operation.source)}`;
-    if (portable) {
-      const captionRow = Math.max(row, startRow + values.length) + 1;
-      output.push({ op: 'set_cell', sheet, cell: `A${captionRow}`, value: attribution });
-      output.push({
-        op: 'set_style',
-        sheet,
-        range: `A${captionRow}:${dataLastColumn}${captionRow}`,
-        properties: {
-          fontName: type.body,
-          fontSize: 9,
-          italic: true,
-          color: colors.muted,
-        },
-      });
-    } else {
-      output.push({ op: 'add_note', sheet, cell: 'A1', text: attribution });
-    }
+    output.push({
+      op: 'add_note',
+      sheet,
+      cell: 'A1',
+      text: `Source: ${provenanceText(operation.source) || String(operation.source)}`,
+    });
   }
   output.push({ op: 'autofit_range', sheet, range: `A:${dataLastColumn}` });
   const printColumns = plainObject(operation.chart) ? Math.max(columns, 14) : columns;
@@ -1666,7 +1661,7 @@ export function expandOfficeDesignOperations({
         if (design.deck.templateMode === 'strict') {
           throw new Error(`compose_slide requires an approved native template layout for kind "${operation.kind}" in strict mode`);
         }
-        output.push(...expandPptxSlide(composed, design, slide, backend));
+        output.push(...expandPptxSlide(composed, design, slide));
       }
       semantic.push({
         op: name,
@@ -1717,7 +1712,7 @@ export function expandOfficeDesignOperations({
       const composition = planOfficeComposition(normalizedFormat, contentOperation, design, {
         usage: compositionUsage,
       });
-      output.push(...expandXlsxSheet(contentOperation, design, composition, backend));
+      output.push(...expandXlsxSheet(contentOperation, design, composition));
       semantic.push({
         op: name,
         sheet: String(contentOperation.sheet || 'Sheet1'),

@@ -1241,6 +1241,30 @@ export function App() {
   // panel and catalog changes. Conversation is the expensive persistent tree:
   // stable event facades let React.memo retain it while each callback still
   // dispatches through the latest render state.
+  // Browser pane goal bar: the user states an errand next to the page and it
+  // becomes a task tab in the same pane group. The browser surface returns to
+  // the front on its own the moment the agent calls the browser tool, so the
+  // page the user was looking at is never lost behind the new tab.
+  const startBrowserTaskRef = useRef((_text: string, _url: string) => {});
+  startBrowserTaskRef.current = (text: string, url: string) => {
+    const draft = newDraftSelection();
+    const leafId = paneWorkspace.focusedLeafId;
+    startTask(draft, false);
+    if (draft.kind !== "new") return;
+    void paneDraftSubmitFor(draft, leafId)(
+      url ? `${text}\n\nBrowser Use pane is currently on: ${url}` : text,
+    );
+  };
+  useEffect(() => {
+    const onBrowserTask = (event: Event) => {
+      const detail = (event as CustomEvent<{ text?: string; url?: string }>).detail;
+      const text = String(detail?.text || "").trim();
+      if (!text) return;
+      startBrowserTaskRef.current(text, String(detail?.url || "").trim());
+    };
+    window.addEventListener("mixdog:browser-task", onBrowserTask);
+    return () => window.removeEventListener("mixdog:browser-task", onBrowserTask);
+  }, []);
   const conversationNewTask = useStableEvent(() => startTask());
   const conversationClearToNewTask = useStableEvent(clearSessionToNewTask);
   const conversationClearProject = useStableEvent(() => stageNewTaskProject(""));

@@ -244,8 +244,8 @@ test('desktop activity uses concrete control, MCP server, and skill names', () =
   ]);
 
   assert.deepEqual(groups.map(({ unitKey, category, label, count }) => ({ unitKey, category, label, count })), [
-    { unitKey: 'Browser', category: 'Browser', label: 'Browser control', count: 1 },
-    { unitKey: 'Computer', category: 'Computer', label: 'Computer control', count: 1 },
+    { unitKey: 'Browser', category: 'Browser', label: 'Browser Use', count: 1 },
+    { unitKey: 'Computer', category: 'Computer', label: 'Computer Use', count: 1 },
     { unitKey: 'Office', category: 'Office', label: 'Document work', count: 1 },
     { unitKey: 'MCP|UnityMCP', category: 'MCP', label: 'UnityMCP', count: 1 },
     { unitKey: 'Skill|gamerscroll-article', category: 'Skill', label: 'gamerscroll-article', count: 1 },
@@ -257,7 +257,7 @@ test('desktop activity uses concrete control, MCP server, and skill names', () =
     name: 'browser',
     args: { action: 'open' },
     result: 'ok',
-  }).title, 'Browser control');
+  }).title, 'Browser Use');
   assert.equal(desktopToolActivityItemPresentation({
     kind: 'tool',
     id: 'skill-item',

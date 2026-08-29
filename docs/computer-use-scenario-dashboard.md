@@ -40,10 +40,10 @@ Official provider references:
 - https://platform.claude.com/docs/en/agents-and-tools/tool-use/computer-use-tool
 - https://ai.google.dev/gemini-api/docs/computer-use
 
-Mixdog therefore exposes one `computer` tool with 15 actions:
-`list`, `diagnose`, `capture`, `click`, `double_click`, `mouse_move`, `drag`,
-`type`, `key`, `scroll`, `wait`, `sequence`, `window`, `clipboard`, and
-`launch`.
+Mixdog therefore exposes one `computer` tool with 17 actions:
+`list`, `diagnose`, `capture`, `verify`, `click`, `double_click`, `mouse_move`,
+`drag`, `type`, `key`, `scroll`, `wait`, `sequence`, `window`, `menu`,
+`clipboard`, and `launch`.
 
 - `list(kind)` owns window/app discovery.
 - `capture(mode)` owns structured state, SOM, pixels, accessibility search, and
@@ -53,6 +53,17 @@ Mixdog therefore exposes one `computer` tool with 15 actions:
   because all native references treat it as a distinct motor intent.
 - `window(operation)` owns focus, move, minimize, maximize, restore, and close.
 - `clipboard(operation)` owns read and write.
+- `verify(expect)` waits for a bounded window condition — AND-combined
+  predicates, consecutive satisfied samples, and a timeout. It reads predicate
+  state only: no pixels, no ref invalidation, and `unknown` never counts as
+  success. It replaces the recapture loop a model would otherwise run, where
+  every pass costs a whole turn.
+- `menu(path)` invokes an exact application-menu path through accessibility,
+  resolving one live level at a time. Missing, ambiguous, or disabled segments
+  fail closed; it never degrades into a blind pixel click.
+- `type(mode)` chooses between typing literal text and writing the value
+  straight into a `ref` target, which needs no focus. Web inputs ignore the
+  write, so the escalation ladder reports it and literal typing remains.
 - `diagnose` probes Windows window enumeration, target UIA, installed OCR
   languages, displays, delivery modes, and permission constraints without
   returning screen pixels.
@@ -62,13 +73,20 @@ Mixdog therefore exposes one `computer` tool with 15 actions:
   end.
 - `capture_after` is one shared optional object instead of six fields repeated
   across every mutation branch.
+- Every window-driving action carries exactly one target: the exact `window_id`,
+  or an `app` label the host resolves to one window and otherwise refuses with
+  `ambiguous_window_target` and its candidates.
+- `capture` reports `changes` against the previous capture of the same window in
+  that session — added, removed, updated, and unchanged counts with samples — so
+  verifying a mutation no longer requires re-reading the whole tree.
 - There is no model-facing approval field. User-requested actions dispatch
   directly, while dangerous key chords, shell payloads, and script-host
   launches remain hard-blocked.
 
 The model-facing usage contract is:
 
-1. List targets only when an exact `window_id` is not already known.
+1. Pass `app` when no exact `window_id` is known and one window is expected;
+   list targets when the label could match more than one.
 2. Capture the exact target before input.
 3. Prefer a fresh semantic `ref`: a left click activates its native semantic
    pattern, including toggle controls. SOM/OCR `element` marks and frame
@@ -85,12 +103,52 @@ The model-facing usage contract is:
 8. Use Browser Use for page content and Computer Use for OS chrome/native apps.
 
 No legacy or flat model-call fallback remains. The bridge accepts only the
-15-action nested contract and translates it one way into private host commands.
+17-action nested contract and translates it one way into private host commands.
 Host results are translated back to the canonical action and operation names.
 The runtime also enforces call cardinality before eager execution: if a
 provider emits multiple `computer` calls in one assistant turn, only the first
 is dispatched. Every later call receives an explicit error result instructing
 the model to inspect the first call's fresh state before continuing.
+
+## Host performance
+
+Measured on the same 30-scenario matrix, before and after the host optimization
+pass (identical machine and display layout):
+
+| Phase | Before | After |
+| --- | ---: | ---: |
+| Suite wall time | 37.2 s | 26.3 s |
+| Accessibility (wall) | 13.9 s | 6.6 s |
+| Screenshot | 6.8 s | 5.3 s |
+| Scenarios passed | 22 / 30 | 23 / 30 |
+
+Three changes produced it, and one candidate was rejected by measurement:
+
+- A spare PowerShell worker stays warm and is adopted by the next session that
+  needs one, so no session waits for startup on its first command. The bridge's
+  own warm-up worker becomes that spare instead of being reaped, so the process
+  count is unchanged. Cold startup measured 700–764 ms.
+- The host's inline C# compiles once per build into a cached assembly under
+  `host-cache/`; later workers load the DLL. A cache miss or an unloadable
+  assembly still compiles in-process, so startup can never depend on the cache.
+- A window that proved fully visible is grabbed directly instead of through
+  `desktopCapturer`, which renders a thumbnail for every window before one is
+  chosen and therefore scales with the user's open windows. Partial visibility
+  and unusable pixels fall back to the composited path. This also fixed the
+  running-Electron capture scenario. The direct grab is sharper, which costs
+  about 3 KB per JPEG.
+- Ending the post-mutation settle wait early on an observed window transition
+  was implemented and then reverted: a window opening or closing marks where the
+  move begins, so the successor surface had not built its accessibility tree yet
+  and captures came back empty. The fixed budget stays.
+
+Two desktop-side controls sit outside the model contract. Observation only
+(Settings → Computer Use) keeps every read available and refuses every input
+action at the host before dispatch, including bounded sequences. Run history
+appends one JSONL line per executed command under `computer-runs/` in the data
+directory — action, target, timings, and verdict only, never typed text,
+clipboard contents, or pixels — capped per session and pruned to the newest
+runs.
 
 An installed-app smoke test caught one additional contract boundary: a
 background pointer message to a dialog's semantic button could be accepted

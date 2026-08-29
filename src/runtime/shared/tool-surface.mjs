@@ -191,6 +191,26 @@ export function displayToolName(name, args = {}) {
   }
 }
 
+// The bridge tools (`browser`, `computer`) carry their fields in a nested
+// `input` object, so the tool-level action stays at the argument root while
+// `parseToolArgs` hands back the unwrapped input. Resolve both halves straight
+// from the raw arguments, which may still arrive as a JSON string.
+function bridgeToolCall(args) {
+  let root = args;
+  if (typeof root === 'string') {
+    try {
+      root = JSON.parse(root);
+    } catch {
+      root = null;
+    }
+  }
+  if (!root || typeof root !== 'object' || Array.isArray(root)) return { action: '', input: {} };
+  const input = root.input && typeof root.input === 'object' && !Array.isArray(root.input)
+    ? root.input
+    : root;
+  return { action: String(root.action || input.action || ''), input };
+}
+
 export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}) {
   const a = parseToolArgs(args);
   if (!a || typeof a !== 'object') return '';
@@ -281,16 +301,30 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         return formatCountedUnit(collectionCount(a.url, a.uri), 'URL', 'URLs');
       }
       return truncateToolText(a.url || a.uri || '', max);
-    case 'browser':
+    case 'browser': {
+      const call = bridgeToolCall(args);
       return compactParts([
-        String(a.action || ''),
-        a.url ? truncateToolText(a.url, max) : a.ref ? String(a.ref) : '',
+        call.action,
+        call.input.url
+          ? truncateToolText(call.input.url, max)
+          : call.input.ref ? String(call.input.ref) : '',
       ]);
-    case 'computer':
+    }
+    case 'computer': {
+      const call = bridgeToolCall(args);
+      // One target per action: window/clipboard name their operation, list its
+      // kind, and input actions their semantic ref, exact window, or app.
       return compactParts([
-        String(a.action || ''),
-        a.window ? truncateToolText(a.window, max) : a.ref ? String(a.ref) : a.app ? truncateToolText(a.app, max) : '',
+        call.action,
+        truncateToolText(firstText(
+          call.input.operation,
+          call.input.kind,
+          call.input.ref,
+          call.input.window_id,
+          call.input.app,
+        ), max),
       ]);
+    }
     case 'office':
       return compactParts([
         String(a.action || ''),

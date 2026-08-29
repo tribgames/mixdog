@@ -27,9 +27,11 @@ const DEFERRED_SESSION_RELEASE_MS = 2 * 60_000;
 // Shutdown stays bounded: an unresponsive host must not hold the exit path open
 // for the full per-session release budget.
 const SHUTDOWN_SESSION_RELEASE_TIMEOUT_MS = 5_000;
+// Host-level action names, matching what toComputerHostCommand emits: the tool
+// schema can produce no other observation action, and anything unlisted is
+// treated as a mutation that owns a write-active session.
 const READ_ONLY_ACTIONS = new Set([
-  'list_windows', 'list_apps', 'diagnose', 'capture', 'snapshot', 'find', 'clipboard_read', 'wait',
-  'window_bounds', 'screenshot', 'zoom',
+  'list_windows', 'list_apps', 'diagnose', 'capture', 'clipboard_read', 'wait', 'zoom',
 ]);
 const activeComputerSessions = new Set();
 const deferredComputerSessionReleases = new Map();

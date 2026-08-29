@@ -58,14 +58,20 @@ export function formatToolStartProgress(name, args = {}) {
             return Array.isArray(a.query) ? `searching web (${_plural(a.query.length, 'query', 'queries')})` : `searching web for ${_t(a.query || a.keywords)}`;
         case 'web_fetch':
             return Array.isArray(a.url) ? `fetching ${_plural(a.url.length, 'URL')}` : `fetching ${_t(a.url)}`;
-        case 'browser':
-            return a.action === 'navigate' && a.url
-                ? `browsing ${_t(a.url)}`
+        // Bridge tools nest their fields under `input`; the action stays at the root.
+        case 'browser': {
+            const bi = a.input && typeof a.input === 'object' ? a.input : a;
+            return a.action === 'navigate' && bi.url
+                ? `browsing ${_t(bi.url)}`
                 : `browser ${_t(a.action || 'command')}`;
-        case 'computer':
-            return a.action === 'snapshot' && a.window
-                ? `reading ${_t(a.window)}`
+        }
+        case 'computer': {
+            const ci = a.input && typeof a.input === 'object' ? a.input : a;
+            const target = ci.operation || ci.kind || ci.ref || ci.window_id || ci.app || '';
+            return target
+                ? `computer ${_t(a.action || 'command')} ${_t(target, 40)}`
                 : `computer ${_t(a.action || 'command')}`;
+        }
         case 'office':
             return a.path
                 ? `office ${_t(a.action || 'command')} ${_t(a.path)}`

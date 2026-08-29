@@ -189,6 +189,19 @@ async function run(): Promise<void> {
         <button id="hover-target" onmouseenter="document.querySelector('#state').textContent = 'Semantic hovered'">Hover target</button>
         <button id="drag-source" style="position:fixed;left:600px;top:200px" onmousedown="window.fixtureDragging=true">Drag source</button>
         <button id="drag-target" style="position:fixed;left:820px;top:200px" onmousemove="if (event.buttons === 1 && window.fixtureDragging) document.querySelector('#state').textContent = 'Mouse dragged'" onmouseup="window.fixtureDragging=false">Drag target</button>
+        <div id="city-combo">
+          <button id="city-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="city-list"
+            onclick="const open = this.getAttribute('aria-expanded') === 'true'; this.setAttribute('aria-expanded', String(!open)); document.querySelector('#city-list').style.display = open ? 'none' : 'block'">Choose city</button>
+          <ul id="city-list" role="listbox" style="display:none">
+            <li role="option" data-value="seoul" onclick="document.querySelector('#state').textContent = 'City Seoul'">Seoul</li>
+            <li role="option" data-value="busan" onclick="document.querySelector('#state').textContent = 'City Busan'">Busan</li>
+          </ul>
+        </div>
+        <ul id="products">
+          <li class="product" data-price="1200">Widget one</li>
+          <li class="product" data-price="3400">Widget two</li>
+          <li class="product" data-price="5600">Widget three</li>
+        </ul>
         <p id="visual-state">Visual idle</p>
         <div aria-hidden="true" onmouseenter="document.querySelector('#visual-state').textContent = 'Visual hovered'"
           onclick="const state = document.querySelector('#visual-state'); const count = Number(state.dataset.count || 0) + 1; state.dataset.count = count; state.textContent = 'Visual clicked ' + count"
@@ -303,6 +316,16 @@ async function run(): Promise<void> {
     parent = new BrowserWindow({ show: false });
     host = createBrowserHost(parent);
     host.setBridgeEnabled(true);
+    // Progress-strip evidence: the pane learns what the agent is doing only
+    // from these events, so record them at the window boundary.
+    const activityEvents: Array<{ action?: string; background?: boolean } | null> = [];
+    const originalSend = parent.webContents.send.bind(parent.webContents);
+    parent.webContents.send = ((channel: string, ...args: unknown[]) => {
+      if (channel === 'mixdog:browser-activity-changed') {
+        activityEvents.push(args[0] as { action?: string; background?: boolean } | null);
+      }
+      return originalSend(channel, ...args);
+    }) as typeof parent.webContents.send;
     const discovery = await readDiscovery(join(dataDirectory, 'browser-bridge.json'));
     progress('browser bridge discovered');
     let turnId = 1;
@@ -483,6 +506,143 @@ async function run(): Promise<void> {
     assert.match(alpha.text, /value="Lovelace"/);
     assert.match(alpha.text, /value="Engineer"/);
     assert.match(alpha.text, /checkbox "Default checkbox" checked=true/);
+
+    // One call, several gestures on the same page: every step must land, the
+    // whole chain must cost ONE snapshot and ONE budget unit, and a step that
+    // fails must report exactly how far the chain got.
+    // Every block owns its own turn: 20-25 and 30-32 are already spoken for,
+    // and each of them fills its per-turn budget on its own.
+    turnId = 26;
+    // Every step addresses the SAME snapshot: steps take none of their own, so
+    // one generation drives the whole chain.
+    const sequenceFirstNameRef = refNamed(alpha.text, 'First name');
+    const sequenceLastNameRef = refNamed(alpha.text, 'Last name');
+    const sequenceRoleRef = refNamed(alpha.text, 'Preferred role');
+    const sequenced = await command({
+      action: 'sequence',
+      steps: [
+        { action: 'fill', ref: sequenceFirstNameRef, text: 'Grace' },
+        { action: 'fill', ref: sequenceLastNameRef, text: 'Hopper' },
+        { action: 'select', ref: sequenceRoleRef, values: ['designer'] },
+      ],
+      expect: { text: 'Role designer', timeoutMs: 2_000 },
+      tab: 'alpha',
+    });
+    assert.match(sequenced.text, /Sequence completed 3 steps \(1:fill, 2:fill, 3:select\)/);
+    assert.match(sequenced.text, /value="Grace"/);
+    assert.match(sequenced.text, /value="Hopper"/);
+    assert.match(sequenced.text, /value="Designer"/);
+    assert.match(sequenced.text, /Postcondition met/);
+    await assert.rejects(
+      command({
+        action: 'sequence',
+        steps: [
+          { action: 'fill', ref: refNamed(sequenced.text, 'First name'), text: 'Ada' },
+          { action: 'click', ref: 'p1-s1-e9999' },
+        ],
+        tab: 'alpha',
+      }),
+      /Sequence stopped at step 2 \(click\)[\s\S]*completed 1:fill/,
+    );
+    alpha = await command({ action: 'snapshot', tab: 'alpha' });
+    assert.match(alpha.text, /value="Ada"/);
+    await assert.rejects(
+      command({
+        action: 'sequence',
+        steps: [{ action: 'navigate', url: `${origin}/secondary` }, { action: 'press', key: 'Enter' }],
+        tab: 'alpha',
+      }),
+      /is not chainable/,
+    );
+    progress('sequence chaining complete');
+
+    // Custom (non-native) dropdown: the page owns the popup, so select has to
+    // open the trigger and activate the matching option instead of assigning.
+    turnId = 28;
+    alpha = await command({ action: 'snapshot', tab: 'alpha' });
+    const cityRef = refNamed(alpha.text, 'Choose city');
+    const citySelected = await command({
+      action: 'select',
+      ref: cityRef,
+      values: ['Busan'],
+      expect: { text: 'City Busan', timeoutMs: 2_000 },
+      tab: 'alpha',
+    });
+    assert.match(citySelected.text, /City Busan/);
+    assert.match(citySelected.text, /Postcondition met/);
+    // An open list with no match is a real failure, and it reports what IS on
+    // offer instead of silently waiting.
+    await assert.rejects(
+      command({
+        action: 'select',
+        ref: refNamed(citySelected.text, 'Choose city'),
+        values: ['Atlantis'],
+        tab: 'alpha',
+      }),
+      /no open option matched[\s\S]*Seoul/,
+    );
+
+    const products = await command({
+      action: 'extract',
+      selector: 'li.product',
+      attributes: ['data-price'],
+      tab: 'alpha',
+    });
+    assert.match(products.text, /Extracted 3 match\(es\)/);
+    assert.match(products.text, /1\. Widget one \{data-price="1200"\}/);
+    assert.match(products.text, /3\. Widget three \{data-price="5600"\}/);
+    const limitedProducts = await command({
+      action: 'extract',
+      selector: 'li.product',
+      limit: 1,
+      tab: 'alpha',
+    });
+    assert.match(limitedProducts.text, /showing 1 of 3 matches/);
+    await assert.rejects(
+      command({ action: 'extract', selector: 'li..broken', tab: 'alpha' }),
+      /not a valid CSS selector/,
+    );
+    progress('custom dropdown and extraction complete');
+
+    // Human handoff needs a page the user can actually look at. This harness
+    // runs entirely on offscreen pages, so the reachable guarantee here is the
+    // refusal itself; the resolve path is exercised through the pane.
+    turnId = 29;
+    await assert.rejects(
+      command({ action: 'handoff', reason: 'Solve the fixture captcha', tab: 'alpha' }),
+      /needs a page the user can see/,
+    );
+    // Nothing is pending, so an answer cannot invent a request to resolve.
+    assert.equal(host?.resolveBrowserHandoff('h1', true), false);
+    assert.ok(
+      activityEvents.some((entry) => entry?.action === 'extract'),
+      'browser activity was never published',
+    );
+    assert.ok(
+      activityEvents.some((entry) => entry?.background === true),
+      'background work was never reported as background',
+    );
+    assert.equal(activityEvents.at(-1), null);
+    progress('handoff surface guard and activity publishing complete');
+
+    // Read-only commands overlap: serialized, two 400ms waits could not both
+    // finish inside one 400ms window plus overhead.
+    turnId = 33;
+    const overlapStartedAt = Date.now();
+    const overlapped = await Promise.allSettled([
+      command({ action: 'wait', text: 'never-appears-a', timeoutMs: 400, tab: 'alpha' }),
+      command({ action: 'wait', text: 'never-appears-b', timeoutMs: 400, tab: 'alpha' }),
+    ]);
+    const overlapElapsed = Date.now() - overlapStartedAt;
+    assert.equal(overlapped.every((entry) => entry.status === 'rejected'), true);
+    assert.ok(overlapElapsed < 800, `read-only commands did not overlap: ${overlapElapsed}ms`);
+    progress('read concurrency complete');
+
+    // A fresh turn: the interaction block below already fills the per-turn
+    // budget on its own, and the sequence checks above must not eat into it.
+    turnId = 27;
+    // The blocks above advanced the ref generation several times.
+    alpha = await command({ action: 'snapshot', tab: 'alpha' });
     const mouseOptionsRef = refNamed(alpha.text, 'Mouse options');
     alpha = await command({
       action: 'click',

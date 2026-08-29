@@ -70,8 +70,15 @@ const CONTRACT_ROWS = [
     ...POST_ACTION_SNAPSHOT, 'ref', 'snapshotId', 'x', 'y', 'dx', 'dy',
   ]),
   contract(['back', 'forward'], POST_ACTION_SNAPSHOT),
+  // One call, several gestures on the SAME page. Steps address elements by ref
+  // only: coordinates are bound to a snapshot the earlier steps invalidate.
+  contract('sequence', [...POST_ACTION_SNAPSHOT, 'steps'], ['steps']),
   contract('read', [...PAGE_TARGET, 'query', 'maxChars', 'offset']),
+  contract('extract', [...PAGE_TARGET, 'selector', 'attributes', 'limit', 'maxChars'], ['selector']),
   contract('wait', [...PAGE_TARGET, ...SNAPSHOT_FILTERS, 'text', 'textGone', 'url', 'timeoutMs']),
+  // Human handoff always runs on a page the user can actually see, so it takes
+  // no background target: an offscreen page cannot be handed to anyone.
+  contract('handoff', ['tab', ...SNAPSHOT_FILTERS, 'reason', 'timeoutMs'], ['reason']),
   contract('status', PAGE_TARGET),
   contract('console', [...PAGE_TARGET, 'level', 'query', 'limit']),
   contract('network', [
@@ -82,6 +89,66 @@ const CONTRACT_ROWS = [
   contract('downloads', ['downloadId', 'wait', 'attach', 'timeoutMs']),
   contract('open', PAGE_TARGET),
 ];
+
+/** Steps a sequence may run. Everything here is deterministic on one page;
+ *  navigation, uploads, dialogs, and handoff stay single calls so their fresh
+ *  snapshot is always inspected before the next decision. */
+const SEQUENCE_STEP_FIELDS = Object.freeze({
+  click: ['ref'],
+  fill: ['ref', 'text', 'submit'],
+  type: ['ref', 'text', 'submit'],
+  select: ['ref', 'values'],
+  check: ['ref', 'checked'],
+  hover: ['ref'],
+  press: ['key'],
+  scroll: ['ref', 'dx', 'dy'],
+  wait: ['text', 'textGone', 'url', 'timeoutMs'],
+});
+const SEQUENCE_STEP_REQUIRED = Object.freeze({
+  click: [['ref']],
+  fill: [['ref', 'text']],
+  type: [['ref', 'text']],
+  select: [['ref', 'values']],
+  check: [['ref']],
+  hover: [['ref']],
+  press: [['key']],
+  scroll: [],
+  wait: [['text'], ['textGone'], ['url']],
+});
+export const SEQUENCE_STEP_ACTIONS = Object.freeze(Object.keys(SEQUENCE_STEP_FIELDS));
+
+function validateSequenceSteps(steps) {
+  if (!Array.isArray(steps) || steps.length < 2 || steps.length > 6) {
+    return 'browser action "sequence" input.steps requires 2 to 6 steps';
+  }
+  for (let index = 0; index < steps.length; index += 1) {
+    const step = steps[index];
+    const at = `browser action "sequence" input.steps[${index}]`;
+    if (!step || typeof step !== 'object' || Array.isArray(step)) return `${at} must be an object`;
+    const stepAction = String(step.action || '').trim();
+    const allowed = SEQUENCE_STEP_FIELDS[stepAction];
+    if (!allowed) {
+      return `${at} action must be one of ${SEQUENCE_STEP_ACTIONS.join(', ')}`;
+    }
+    const unsupported = Object.keys(step)
+      .filter((name) => name !== 'action' && !allowed.includes(name));
+    if (unsupported.length) {
+      return `${at} does not accept field(s): ${unsupported.join(', ')}`;
+    }
+    const present = (name) => Object.hasOwn(step, name)
+      && step[name] !== undefined && step[name] !== null;
+    const requirements = SEQUENCE_STEP_REQUIRED[stepAction];
+    if (requirements.length && !requirements.some((names) => names.every(present))) {
+      return `${at} requires ${requirements.map((names) => names.join('+')).join(' or ')}`;
+    }
+    if (stepAction === 'select'
+      && (!Array.isArray(step.values) || !step.values.length
+        || !step.values.every((value) => typeof value === 'string'))) {
+      return `${at} values must be a non-empty array of strings`;
+    }
+  }
+  return '';
+}
 
 export const BROWSER_ACTIONS = Object.freeze(CONTRACT_ROWS.flatMap(({ actions }) => actions));
 const CONTRACT_BY_ACTION = new Map(
@@ -246,6 +313,34 @@ export function validateBrowserToolArgs(args) {
   }
   if (action === 'upload' && input.confirm !== true) {
     return { ok: false, error: 'browser action "upload" requires input.confirm=true after path approval' };
+  }
+  if (action === 'sequence') {
+    const error = validateSequenceSteps(input.steps);
+    if (error) return { ok: false, error };
+  }
+  if (action === 'handoff') {
+    const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
+    if (!reason) {
+      return { ok: false, error: 'browser action "handoff" requires a non-empty input.reason' };
+    }
+    if (reason.length > 200) {
+      return { ok: false, error: 'browser action "handoff" input.reason may not exceed 200 characters' };
+    }
+  }
+  if (action === 'extract') {
+    if (typeof input.selector !== 'string' || !input.selector.trim()) {
+      return { ok: false, error: 'browser action "extract" requires a non-empty input.selector' };
+    }
+    if (Object.hasOwn(input, 'attributes')) {
+      const names = input.attributes;
+      if (!Array.isArray(names) || !names.length || names.length > 12
+        || !names.every((name) => typeof name === 'string' && name.trim() && name.length <= 60)) {
+        return {
+          ok: false,
+          error: 'browser action "extract" input.attributes requires 1 to 12 attribute names',
+        };
+      }
+    }
   }
   return { ok: true, action, input };
 }

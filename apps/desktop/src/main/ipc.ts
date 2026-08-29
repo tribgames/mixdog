@@ -183,7 +183,8 @@ interface DesktopIpcDependencies {
     | 'browserHistorySearch'
     | 'setGuestActive'
     | 'browserCredentialSuggestions'
-    | 'browserCredentialFill'>;
+    | 'browserCredentialFill'
+    | 'resolveBrowserHandoff'>;
   /** Settings → Connection pairing card; resolves null while the bridge is off. */
   remoteAccessInfo?: () => Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection: mint a new pairing token (revokes paired phones). */
@@ -1141,6 +1142,14 @@ export function registerDesktopIpc(
       throw new TypeError('Stored browser credential id is invalid.');
     }
     return browserHost.browserCredentialFill(credentialId);
+  });
+  handle(DESKTOP_IPC.browserHandoffResolve, (_event, handoffId, completed) => {
+    if (!browserHost) throw new Error('Browser Use is unavailable in this app surface.');
+    if (typeof handoffId !== 'string' || !/^h\d{1,9}$/.test(handoffId)) {
+      throw new TypeError('Browser handoff id is invalid.');
+    }
+    if (typeof completed !== 'boolean') throw new TypeError('Browser handoff answer is invalid.');
+    return browserHost.resolveBrowserHandoff(handoffId, completed);
   });
   handle(DESKTOP_IPC.readGitPreferences, () =>
     settingsStore?.readGitPreferences() ?? invokeDesktopOperation('readGitPreferences', []));

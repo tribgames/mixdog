@@ -36,8 +36,8 @@ const CATALOG = {
   docx: {
     paths: ['/body/p[N]', '/body/p[N]/run[N]', '/body/tbl[N]/row[N]/cell[N]', '/body/comment[N]', '/body/comment-thread[N]', '/body/revision[N]', '/body/footnote[N]', '/body/endnote[N]', '/body/content-control[N]'],
     operations: {
-      common: ['replace_text', 'fill_template', 'compose_document', 'append_text', 'set_paragraph_text', 'set_run_text', 'set_table_cell', 'remove_paragraph', 'move_paragraph', 'add_table', 'set_table_style', 'merge_table_cells', 'set_table_cell_style', 'set_paragraph_format'],
-      office: ['set_paragraph_style', 'set_font', 'add_image', 'add_comment', 'add_comment_reply', 'delete_comment', 'set_comment_resolved', 'insert_table_row', 'delete_table_row', 'insert_table_column', 'delete_table_column', 'set_header_footer', 'track_changes', 'resolve_revision', 'resolve_revisions', 'set_page', 'fit_table', 'insert_toc', 'add_page_numbers', 'insert_break', 'set_list', 'add_hyperlink', 'add_bookmark', 'add_provenance'],
+      common: ['replace_text', 'fill_template', 'compose_document', 'append_text', 'set_paragraph_text', 'set_run_text', 'set_table_cell', 'remove_paragraph', 'move_paragraph', 'add_table', 'set_table_style', 'merge_table_cells', 'set_table_cell_style', 'set_paragraph_format', 'set_font', 'add_image', 'set_header_footer', 'set_page', 'add_page_numbers', 'insert_break', 'set_list', 'add_hyperlink', 'insert_table_row', 'delete_table_row', 'insert_table_column', 'delete_table_column', 'insert_toc', 'add_bookmark', 'add_comment', 'delete_comment', 'add_provenance', 'fit_table', 'resolve_revision', 'resolve_revisions', 'track_changes', 'add_comment_reply', 'set_comment_resolved'],
+      office: ['set_paragraph_style'],
       portable: ['set_paragraph_style'],
     },
     properties: {
@@ -60,8 +60,8 @@ const CATALOG = {
   xlsx: {
     paths: ['/sheet[NAME]', '/sheet[NAME]/cell[A1]', '/sheet[NAME]/range[A1:C10]'],
     operations: {
-      common: ['replace_text', 'set_cell', 'set_formula', 'set_range', 'append_row', 'clear_cell', 'compose_sheet', 'add_sheet', 'delete_sheet', 'rename_sheet', 'set_style', 'merge_cells', 'unmerge_cells', 'freeze_panes', 'autofit_range', 'set_page_setup', 'set_sheet_view'],
-      office: ['copy_sheet', 'add_note', 'delete_note', 'add_image', 'add_table', 'add_chart', 'add_conditional_format', 'delete_conditional_formats', 'add_validation', 'add_pivot_table', 'set_sheet_visibility', 'insert_rows', 'delete_rows', 'insert_columns', 'delete_columns', 'set_autofilter', 'set_hyperlink', 'define_name', 'delete_name', 'protect_sheet', 'unprotect_sheet', 'add_provenance'],
+      common: ['replace_text', 'set_cell', 'set_formula', 'set_range', 'append_row', 'clear_cell', 'compose_sheet', 'add_sheet', 'delete_sheet', 'rename_sheet', 'set_style', 'merge_cells', 'unmerge_cells', 'freeze_panes', 'autofit_range', 'set_page_setup', 'set_sheet_view', 'add_chart', 'add_table', 'insert_rows', 'delete_rows', 'insert_columns', 'delete_columns', 'set_autofilter', 'set_sheet_visibility', 'define_name', 'delete_name', 'copy_sheet', 'add_image', 'set_hyperlink', 'protect_sheet', 'unprotect_sheet', 'add_validation', 'add_conditional_format', 'delete_conditional_formats', 'add_note', 'delete_note', 'add_provenance'],
+      office: ['add_pivot_table'],
       portable: [],
     },
     properties: {
@@ -83,8 +83,8 @@ const CATALOG = {
   pptx: {
     paths: ['/slide[N]', '/slide[N]/shape[N]'],
     operations: {
-      common: ['replace_text', 'fill_template', 'set_text', 'add_textbox', 'delete_shape', 'compose_slide', 'add_slide', 'delete_slide', 'move_slide', 'set_notes', 'add_image', 'add_shape', 'add_table', 'set_shape', 'set_slide_background', 'import_slides', 'replace_image', 'set_table_data'],
-      office: ['duplicate_slide', 'keep_slides', 'set_footer', 'set_slide_number', 'add_comment', 'delete_comment', 'crop_image', 'add_media', 'group_shapes', 'ungroup_shape', 'set_layout', 'apply_theme', 'set_transition', 'add_animation', 'add_chart', 'fit_text', 'set_chart_data', 'set_chart_series', 'set_chart_axis', 'set_chart_data_labels', 'set_chart_trendline', 'set_chart_error_bars', 'set_hyperlink', 'z_order', 'align_shapes', 'distribute_shapes', 'add_provenance'],
+      common: ['replace_text', 'fill_template', 'set_text', 'add_textbox', 'delete_shape', 'compose_slide', 'add_slide', 'delete_slide', 'move_slide', 'set_notes', 'add_image', 'add_shape', 'add_table', 'set_shape', 'set_slide_background', 'import_slides', 'replace_image', 'set_table_data', 'fit_text', 'add_chart', 'set_chart_data', 'duplicate_slide', 'z_order', 'align_shapes', 'distribute_shapes', 'keep_slides', 'set_hyperlink', 'add_provenance', 'set_layout', 'crop_image', 'set_transition', 'set_footer', 'set_slide_number', 'set_chart_axis', 'set_chart_data_labels', 'group_shapes', 'ungroup_shape', 'set_chart_trendline', 'set_chart_error_bars', 'set_chart_series', 'add_comment', 'delete_comment', 'apply_theme', 'add_media'],
+      office: ['add_animation'],
       portable: [],
     },
     properties: {

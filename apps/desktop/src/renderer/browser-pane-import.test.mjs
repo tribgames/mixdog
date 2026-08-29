@@ -72,6 +72,34 @@ test('browser guests stay mounted, repaint after parking, and follow the focused
   assert.match(persistentSurfaces, /foreground=\{utilityActive && descriptor\.focused\}/);
 });
 
+test('browser pane hands the page back to the user without hiding the challenge', () => {
+  assert.match(pane, /onBrowserHandoffChanged/);
+  assert.match(pane, /browserHandoffResolve/);
+  assert.match(pane, /resolve\(handoff\.id, completed\)/);
+  assert.match(pane, /className="browser-pane-handoff"/);
+  assert.match(styles, /\.browser-pane-handoff\s*\{[\s\S]*?top:\s*10px/);
+  // Covering the guest would hide the captcha the user has to solve.
+  assert.doesNotMatch(styles, /\.browser-pane-handoff\s*\{[^}]*inset:\s*0/);
+});
+
+test('browser pane states agent progress in plain language, not tool calls', () => {
+  assert.match(pane, /onBrowserActivityChanged/);
+  assert.match(pane, /function browserActivityLabel/);
+  assert.match(pane, /t\("Reading the page"\)/);
+  assert.match(pane, /t\("in a background tab"\)/);
+  assert.match(styles, /\.browser-pane-activity\s*\{/);
+  assert.match(
+    styles,
+    /prefers-reduced-motion[\s\S]*?\.browser-pane-activity-spin[\s\S]*?animation:\s*none/,
+  );
+});
+
+test('browser pane offers a plain-language goal bar that delegates to the app', () => {
+  assert.match(pane, /mixdog:browser-task/);
+  assert.match(pane, /detail:\s*\{\s*text,\s*url:\s*currentUrl\s*\}/);
+  assert.match(styles, /\.browser-pane-goal\s*\{/);
+});
+
 test('browser pane exposes deterministic load and renderer recovery', () => {
   assert.match(pane, /did-fail-load/);
   assert.match(pane, /render-process-gone/);
