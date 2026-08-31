@@ -6,7 +6,7 @@
 
 $ErrorActionPreference = 'Stop'
 
-$Tag         = if ($env:TAG)                { $env:TAG }  else { 'runtime-v0.4.0' }
+$Tag         = if ($env:TAG)                { $env:TAG }  else { 'runtime-v0.4.1' }
 $Os          = if ($env:OS)                 { $env:OS }   else { 'win32' }
 $Arch        = if ($env:ARCH)               { $env:ARCH } else { 'x64' }
 $ReleaseRepo = if ($env:RUNTIME_RELEASE_REPOSITORY) { $env:RUNTIME_RELEASE_REPOSITORY } else { 'tribgames/mixdog' }
@@ -82,7 +82,9 @@ try {
             if ($LASTEXITCODE -ne 0) { throw "FAIL: CREATE EXTENSION" }
             $ExtV = & "$PgBin\psql.exe" -h 127.0.0.1 -p $Port -U postgres -d postgres -tAc "SELECT extversion FROM pg_extension WHERE extname='vector';"
             if ($ExtV.Trim() -ne $PgvectorVer) { throw "FAIL: extversion='$ExtV' expected='$PgvectorVer'" }
-            Write-Host "  PASS: fresh-extract boot + vector extension"
+            & "$PgBin\psql.exe" -h 127.0.0.1 -p $Port -U postgres -d postgres -c "CREATE EXTENSION pg_trgm;" | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "FAIL: CREATE EXTENSION pg_trgm" }
+            Write-Host "  PASS: fresh-extract boot + vector + pg_trgm extensions"
         } finally {
             & "$PgBin\pg_ctl.exe" -D $Data -m fast stop 2>$null | Out-Null
         }

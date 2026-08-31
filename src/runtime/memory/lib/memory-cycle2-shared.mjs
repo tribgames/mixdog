@@ -2,7 +2,6 @@
 // memory-cycle2.mjs). Logging shim, abort check, and resource-dir resolution.
 // No cycle2 business logic; safe to import from any cycle2 sub-module.
 import { fileURLToPath } from 'url'
-import { join } from 'path'
 
 import { __mixdogMemoryLog } from './memory-log.mjs'
 export { __mixdogMemoryLog }
@@ -82,8 +81,11 @@ export function isStoreFault(err) {
   return err.isMemoryStoreFault === true && err.code === MEMORY_STORE_FAULT_CODE
 }
 
+// MIXDOG_ROOT already points at the package resource root (the src/ dir) —
+// the same contract as mixdogRoot() in runtime/shared/plugin-paths.mjs.
+// Joining another 'src' here sent every packaged run to <pkg>/src/src/... so
+// cycle2/cycle3 prompt and rules-digest loads all failed in desktop installs.
 export function resourceDir() {
   return process.env.MIXDOG_ROOT
-    ? join(process.env.MIXDOG_ROOT, 'src')
-    : fileURLToPath(new URL('../../..', import.meta.url))
+    || fileURLToPath(new URL('../../..', import.meta.url))
 }

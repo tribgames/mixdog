@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-TAG="${TAG:-runtime-v0.4.0}"
+TAG="${TAG:-runtime-v0.4.1}"
 OS="${OS:-$(uname -s | tr '[:upper:]' '[:lower:]')}"
 ARCH="${ARCH:-$(uname -m | sed 's/x86_64/x64/')}"
 PG_VER="16.4"
@@ -76,7 +76,8 @@ echo "==> ldd vector.so (under env -i):"
 "${RUN_AS[@]}" env -i HOME="$WORK/fresh" PATH=/usr/bin:/bin "$PG_BIN/psql" -h 127.0.0.1 -p "$PORT" -U postgres -d postgres -c "CREATE EXTENSION vector;" > /dev/null
 EXTV="$("${RUN_AS[@]}" env -i HOME="$WORK/fresh" PATH=/usr/bin:/bin "$PG_BIN/psql" -h 127.0.0.1 -p "$PORT" -U postgres -d postgres -tAc "SELECT extversion FROM pg_extension WHERE extname='vector';")"
 [[ "$EXTV" == "$PGVECTOR_VER" ]] || { echo "FAIL: extversion=$EXTV"; exit 1; }
-echo "  PASS: fresh-extract boot + vector extension"
+"${RUN_AS[@]}" env -i HOME="$WORK/fresh" PATH=/usr/bin:/bin "$PG_BIN/psql" -h 127.0.0.1 -p "$PORT" -U postgres -d postgres -c "CREATE EXTENSION pg_trgm;" > /dev/null
+echo "  PASS: fresh-extract boot + vector + pg_trgm extensions"
 
 echo "==> Test 5: same tarball extracted twice → second initdb refuses (data-dir already initialized)"
 mkdir -p "$WORK/twice"

@@ -78,6 +78,7 @@ else
   make -j"$(nproc)"
   make install
   make -C contrib/pgcrypto install
+  make -C contrib/pg_trgm install
 fi
 
 PG_CONFIG="$STAGE_DIR/bin/pg_config"
@@ -255,6 +256,10 @@ for attempt in 1 2 3; do
     echo "  vector extension version: $EXTV"
     echo "  distance query result:    $DIST"
     [[ "$EXTV" == "$PGVECTOR_VERSION" ]] || { echo "FAIL: extversion=$EXTV expected=$PGVECTOR_VERSION"; exit 1; }
+    "${RUN_AS[@]}" "$RUNTIME_DIR/bin/psql" -h 127.0.0.1 -p "$SMOKE_PORT" -U postgres -d postgres -c "CREATE EXTENSION pg_trgm;" > /dev/null
+    SIM="$("${RUN_AS[@]}" "$RUNTIME_DIR/bin/psql" -h 127.0.0.1 -p "$SMOKE_PORT" -U postgres -d postgres -tAc "SELECT similarity('mixdog','mixdig') > 0;")"
+    echo "  pg_trgm similarity probe: $SIM"
+    [[ "$SIM" == "t" ]] || { echo "FAIL: pg_trgm similarity=$SIM"; exit 1; }
     "${RUN_AS[@]}" "$RUNTIME_DIR/bin/pg_ctl" -D "$SMOKE_DATA" -m fast stop > /dev/null
   )
   attempt_rc=$?
@@ -323,6 +328,8 @@ for attempt in 1 2 3; do
       "$EXTRACT_DIR/bin/psql" -h 127.0.0.1 -p "$EXTRACT_PORT" -U postgres -d postgres -tAc \
       "SELECT extversion FROM pg_extension WHERE extname='vector';")"
     [[ "$EXTV2" == "$PGVECTOR_VERSION" ]] || { echo "FAIL: extracted-smoke extversion=$EXTV2"; exit 1; }
+    "${RUN_AS[@]}" env -i HOME="$EXTRACT_DIR" PATH="/usr/bin:/bin" \
+      "$EXTRACT_DIR/bin/psql" -h 127.0.0.1 -p "$EXTRACT_PORT" -U postgres -d postgres -c "CREATE EXTENSION pg_trgm;" > /dev/null
     "${RUN_AS[@]}" env -i HOME="$EXTRACT_DIR" PATH="/usr/bin:/bin" \
       "$EXTRACT_DIR/bin/pg_ctl" -D "$EXTRACT_DATA" -m fast stop > /dev/null
   )

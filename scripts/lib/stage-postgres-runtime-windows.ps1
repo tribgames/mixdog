@@ -64,6 +64,7 @@ function Stage-MixdogWindowsPgRuntime {
     )
     $ModuleSources = [ordered]@{
         'dict_snowball.dll' = Join-Path $PgRoot 'lib\dict_snowball.dll'
+        'pg_trgm.dll'       = Join-Path $PgRoot 'lib\pg_trgm.dll'
         'plpgsql.dll'       = Join-Path $PgRoot 'lib\plpgsql.dll'
         'vector.dll'        = $VectorDll
     }
@@ -137,6 +138,15 @@ function Stage-MixdogWindowsPgRuntime {
     }
     $PlpgsqlAssets | Copy-Item -Destination $RuntimeExtensionDir -Force
 
+    # pg_trgm ships with the runtime: memory recall's hybrid trigram CTEs and
+    # transcript inserts depend on it (runtime-v0.4.0 omitted it and every
+    # memory write/recall failed with 'could not access file "$libdir/pg_trgm"').
+    $PgTrgmAssets = @(Get-ChildItem -Path "$SourceShare\extension\pg_trgm*" -File)
+    if ($PgTrgmAssets.Count -eq 0) {
+        throw "Required pg_trgm extension assets not found under $SourceShare\extension"
+    }
+    $PgTrgmAssets | Copy-Item -Destination $RuntimeExtensionDir -Force
+
     $RuntimeBytes = (
         Get-ChildItem -LiteralPath $RuntimeDir -File -Recurse |
             Measure-Object -Property Length -Sum
@@ -174,7 +184,7 @@ function Assert-MixdogWindowsPgRuntime {
         throw "Unexpected PostgreSQL executable set: $($ActualExecutables -join ', ')"
     }
 
-    $ExpectedModules = @('dict_snowball.dll', 'plpgsql.dll', 'vector.dll')
+    $ExpectedModules = @('dict_snowball.dll', 'pg_trgm.dll', 'plpgsql.dll', 'vector.dll')
     $ActualModules = @(
         Get-ChildItem -LiteralPath "$RuntimeDir\lib" -File -Filter '*.dll' |
             ForEach-Object Name |
@@ -195,7 +205,7 @@ function Assert-MixdogWindowsPgRuntime {
 
     $UnexpectedExtensionAssets = @(
         Get-ChildItem -LiteralPath "$RuntimeDir\share\extension" -Force |
-            Where-Object { $_.Name -notlike 'plpgsql*' -and $_.Name -notlike 'vector*' }
+            Where-Object { $_.Name -notlike 'pg_trgm*' -and $_.Name -notlike 'plpgsql*' -and $_.Name -notlike 'vector*' }
     )
     if ($UnexpectedExtensionAssets.Count -gt 0) {
         throw "Unexpected extension assets leaked into runtime: $($UnexpectedExtensionAssets.Count)"
@@ -205,6 +215,7 @@ function Assert-MixdogWindowsPgRuntime {
         "$RuntimeDir\share\extension\vector.control",
         "$RuntimeDir\share\extension\vector--$PgVectorVersion.sql",
         "$RuntimeDir\share\extension\plpgsql.control",
+        "$RuntimeDir\share\extension\pg_trgm.control",
         "$RuntimeDir\share\postgres.bki"
     )
     foreach ($Path in $RequiredPaths) {

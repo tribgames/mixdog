@@ -36,11 +36,11 @@ const CYCLE3_RELATED_PER_CORE = 6
 const CYCLE3_RELATED_PER_CORE_MAX = 8
 const CYCLE3_PROMPT_MAX_BYTES = 160_000
 
-// resourceDir comes from memory-cycle2-shared.mjs: prompts live under
-// <package>/src/defaults, and the local variant here resolved MIXDOG_ROOT
-// (the package root in standalone/desktop runs) WITHOUT the 'src' join, so
-// packaged installs looked for <pkg>/defaults/cycle3-review-prompt.md and
-// every cycle3 review failed with "prompt file missing".
+// resourceDir comes from memory-cycle2-shared.mjs and returns the package
+// resource root (the src/ dir — mixdogRoot() contract), so prompts resolve at
+// <resourceDir>/defaults. Past variants both dropped and double-added a 'src'
+// segment and packaged installs failed with "prompt file missing"; keep all
+// prompt path resolution on the shared helper only.
 
 async function invokeLlm(prompt, mode, preset, timeout, llmCall = callAgentDispatch, signal = null) {
   return await llmCall({

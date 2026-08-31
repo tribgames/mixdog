@@ -4,7 +4,7 @@
 # packaging bug that linked pgvector against PG 14 ABI.
 # Builds pgvector from source via MSVC/nmake, then assembles a self-contained
 # runtime tree (bin + lib + share at root). Final smoke: initdb + CREATE
-# EXTENSION vector + distance query.
+# EXTENSION vector + pg_trgm + distance/similarity queries.
 # Produces: dist\mixdog-runtime-win32-x64-pg{pgver}-pgvector{vecver}.tar.gz
 
 $ErrorActionPreference = 'Stop'
@@ -164,6 +164,8 @@ if ($LASTEXITCODE -ne 0) { Write-Error "FAIL: pg_ctl start (see $SmokeLog)"; Get
 try {
     & "$RuntimeDir\bin\psql.exe" -h 127.0.0.1 -p $SmokePort -U postgres -d postgres -c "CREATE EXTENSION vector;" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "CREATE EXTENSION vector failed" }
+    & "$RuntimeDir\bin\psql.exe" -h 127.0.0.1 -p $SmokePort -U postgres -d postgres -c "CREATE EXTENSION pg_trgm;" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "CREATE EXTENSION pg_trgm failed" }
     $ExtV = & "$RuntimeDir\bin\psql.exe" -h 127.0.0.1 -p $SmokePort -U postgres -d postgres -tAc "SELECT extversion FROM pg_extension WHERE extname='vector';"
     $Dist = & "$RuntimeDir\bin\psql.exe" -h 127.0.0.1 -p $SmokePort -U postgres -d postgres -tAc "SELECT '[1,2,3]'::vector <-> '[1,2,4]'::vector;"
     Write-Host "  vector extension version: $ExtV"
@@ -172,7 +174,9 @@ try {
         Write-Error "FAIL: extversion='$ExtV' expected='$PGVECTOR_VERSION'"
         exit 1
     }
-    Write-Host "  PASS smoke (extension load + vector distance)"
+    $Sim = & "$RuntimeDir\bin\psql.exe" -h 127.0.0.1 -p $SmokePort -U postgres -d postgres -tAc "SELECT similarity('mixdog','mixdig') > 0;"
+    if ($Sim.Trim() -ne 't') { Write-Error "FAIL: pg_trgm similarity probe returned '$Sim'"; exit 1 }
+    Write-Host "  PASS smoke (vector distance + pg_trgm similarity)"
 }
 finally {
     & "$RuntimeDir\bin\pg_ctl.exe" -D $SmokeData -m fast stop 2>$null | Out-Null
@@ -230,6 +234,8 @@ try {
     try {
         & "$ExtractDir\bin\psql.exe" -h 127.0.0.1 -p $ExtractPort -U postgres -d postgres -c "CREATE EXTENSION vector;" | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "FAIL: CREATE EXTENSION vector under hostile env" }
+        & "$ExtractDir\bin\psql.exe" -h 127.0.0.1 -p $ExtractPort -U postgres -d postgres -c "CREATE EXTENSION pg_trgm;" | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "FAIL: CREATE EXTENSION pg_trgm under hostile env" }
         $ExtV2 = & "$ExtractDir\bin\psql.exe" -h 127.0.0.1 -p $ExtractPort -U postgres -d postgres -tAc "SELECT extversion FROM pg_extension WHERE extname='vector';"
         if ($ExtV2.Trim() -ne $PGVECTOR_VERSION) { throw "FAIL: extracted-smoke extversion='$ExtV2'" }
         Write-Host "  PASS extracted-tarball smoke (hostile env)"
