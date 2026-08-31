@@ -118,7 +118,7 @@ jobs:
 
       - name: Install Windows FFmpeg build tools
         if: matrix.os == 'win32'
-        uses: msys2/setup-msys2@76ae6769a3fb24de40de399348f85fd024ef6199 # main
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2
         with:
           msystem: MINGW64
           update: true
