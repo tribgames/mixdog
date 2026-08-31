@@ -725,12 +725,20 @@ export class OpenAIOAuthProvider {
             // generate:false response is retained by the WS transport and
             // anchors the first real request.
             //
-            // ON by default. Without it every session's first call reports
-            // chain reason `no_anchor` — there is nothing to chain from — and
-            // pays a cold prefix; 973 of the recorded no_anchor rows are
-            // exactly that. Every prewarmed call on record (72/72) kept its
-            // chain continuous. MIXDOG_OPENAI_OAUTH_WS_WARMUP=0 disables it.
-            warmupBody: _envFlag('MIXDOG_OPENAI_OAUTH_WS_WARMUP', true)
+            // OFF by default: the prewarm cannot win on tokens. It pays the
+            // FULL input price for the stable prefix in order to save at most
+            // 90% of that same prefix on the first real call — and the first
+            // real call would have created the identical cache entry anyway.
+            // The trade only pays off if the prewarm itself hits a warm node,
+            // which measured 0 of 445 sessions (full TB run 2026-08-26): our
+            // prefix is Mixdog-specific, so unlike the reference client's
+            // globally-shared one it is never warm on arrival.
+            // A/B on the 8-task suite (2026-08-31, 3 runs on / 3 off): 8/8
+            // pass either way, input spend $0.748 -> $0.630 (-15.8%), wall
+            // 198s -> 195s. Chain continuity is not lost — the first real
+            // request simply anchors on its own full frame.
+            // MIXDOG_OPENAI_OAUTH_WS_WARMUP=1 re-enables it.
+            warmupBody: _envFlag('MIXDOG_OPENAI_OAUTH_WS_WARMUP', false)
                 ? buildCodexStartupPrewarmBody(body)
                 : null,
                 _carriedWarmup: carriedWarmup,
@@ -871,9 +879,13 @@ export class OpenAIOAuthProvider {
             ? opts.tools
             : (Array.isArray(session?.tools) ? session.tools : []);
         const model = opts.model || session?.model || null;
+        // Same default as the per-send gate: no billed prompt prewarm unless
+        // explicitly enabled. The connection-only reservation below still
+        // runs, so the socket handshake stays off the first turn's critical
+        // path (measured 371ms connection-only vs 1869ms with the prompt).
         const promptWarmup = !!(messages
             && model
-            && _envFlag('MIXDOG_OPENAI_OAUTH_WS_WARMUP', true));
+            && _envFlag('MIXDOG_OPENAI_OAUTH_WS_WARMUP', false));
         // A connection-only reservation (session create, before the prompt is
         // materialized) must not satisfy the first turn's prompt prewarm.
         const readyHandle = this._startupPrewarmReadyByPoolKey.get(poolKey) || null;

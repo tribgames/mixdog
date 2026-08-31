@@ -2,6 +2,10 @@ param(
     [string]$Preset = "",
     [string]$JobsDir = "",
     [string]$ResumeFrom = "",
+    # KEY=VALUE agent-process environment overrides forwarded to harbor (--ae).
+    # Not part of the fingerprint: an A/B pair must stay comparable in history,
+    # so the switch under test is recorded in the manifest instead.
+    [string[]]$AgentEnv = @(),
     [switch]$DryRun,
     [switch]$Status
 )
@@ -215,6 +219,16 @@ $runnerArgs = @{
 if (-not [string]::IsNullOrWhiteSpace($ResumeFrom)) {
     $runnerArgs.ResumeFrom = $ResumeFrom
 }
+$agentEnvEntries = @(
+    foreach ($item in $AgentEnv) {
+        foreach ($entry in ($item -split ",")) {
+            if (-not [string]::IsNullOrWhiteSpace($entry)) { $entry }
+        }
+    }
+)
+if ($agentEnvEntries.Count -gt 0) {
+    $runnerArgs.AgentEnv = [string[]]$agentEnvEntries
+}
 
 if ($DryRun) {
     & $runnerPath @runnerArgs
@@ -270,6 +284,14 @@ $manifest = [ordered]@{
     contract = $contract
     startedAt = (Get-Date).ToUniversalTime().ToString("o")
     definition = $definition
+    # Provenance for env-switch A/B runs. Only MIXDOG_* switches are recorded
+    # verbatim; anything else could carry a credential, so its value is masked.
+    agentEnv = @(
+        foreach ($entry in $agentEnvEntries) {
+            $name = $entry.Split("=", 2)[0]
+            if ($name -like "MIXDOG_*") { $entry } else { "$name=***" }
+        }
+    )
     comparison = $comparison
 }
 Write-JsonAtomic $manifest $manifestPath
