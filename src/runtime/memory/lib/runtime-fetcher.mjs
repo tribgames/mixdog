@@ -265,7 +265,12 @@ export function _extractRuntimeTarGz(tarPath, destDir, stagingBase) {
   const details = (detailResult.stdout?.toString() || '').split('\n').filter(Boolean)
   _validateRuntimeTarEntries(entries, details, stagingBase)
 
-  const r = spawnSync('tar', ['-xzf', tarName, '-C', resolve(destDir)], tarOptions)
+  const resolvedDestDir = resolve(destDir)
+  const extractionArchive = relative(resolvedDestDir, resolvedTarPath)
+  const r = spawnSync('tar', ['-xzf', extractionArchive], {
+    ...tarOptions,
+    cwd: resolvedDestDir,
+  })
   if (r.status !== 0) {
     throw new Error(`[runtime-fetcher] tar extraction failed: ${r.stderr?.toString() || 'unknown error'}`)
   }
