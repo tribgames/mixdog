@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.157 - 2026-08-31
+
 - Browser Use gains a smaller, more reliable host split across tabs, downloads,
   interception, permissions, snapshots, dialog reporting, and page lifecycle.
   Chromium profile import now includes offline App-Bound v20 cookie decryption
