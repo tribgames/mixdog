@@ -1,5 +1,5 @@
 {
-  "version": "1.9.3",
+  "version": "1.10.0",
   "source": "ggml-org/whisper.cpp@306c88f4d1286aec1bf96e544632897886af5501",
   "model": {
     "id": "large-v3-turbo-q8_0",
@@ -18,41 +18,41 @@
     }
   },
   "ffmpeg": {
-    "version": "b6.1.1",
-    "source": "eugeneware/ffmpeg-static official release",
+    "version": "6.1.1-mixdog.1",
+    "source": "FFmpeg n6.1.1 minimal audio-transcode build",
     "platforms": {
       "win32-x64": {
-        "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-win32-x64.gz",
-        "sha256": "8883a3dffbd0a16cf4ef95206ea05283f78908dbfb118f73c83f4951dcc06d77",
-        "size": 29581307,
+        "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.10.0/ffmpeg-win32-x64.gz",
+        "sha256": "990d15e01552045eb5f1b86a824886fad62a3a707a1faeb1f2b911c0cfc7f92a",
+        "size": 1238563,
         "format": "gz",
         "executable": "ffmpeg.exe"
       },
-      "darwin-arm64": {
-        "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-darwin-arm64.gz",
-        "sha256": "8923876afa8db5585022d7860ec7e589af192f441c56793971276d450ed3bbfa",
-        "size": 19246198,
-        "format": "gz",
-        "executable": "ffmpeg"
-      },
-      "darwin-x64": {
-        "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-darwin-x64.gz",
-        "sha256": "929b375c1182d956c51f7ac25e0b2b0411fb01f6f407aa15c9758efeb4242106",
-        "size": 25296431,
-        "format": "gz",
-        "executable": "ffmpeg"
-      },
       "linux-x64": {
-        "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-linux-x64.gz",
-        "sha256": "bfe8a8fc511530457b528c48d77b5737527b504a3797a9bc4866aeca69c2dffa",
-        "size": 29354986,
+        "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.10.0/ffmpeg-linux-x64.gz",
+        "sha256": "3277193e77007cd6906c6bbb8296001d102de2b51f1f8ebf9dd1931c4a7e83af",
+        "size": 1242154,
         "format": "gz",
         "executable": "ffmpeg"
       },
       "linux-arm64": {
-        "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-linux-arm64.gz",
-        "sha256": "754a678672298bc68156adff58aa7385a592c2b30b1d0ae8750c45c915c4bac0",
-        "size": 25568691,
+        "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.10.0/ffmpeg-linux-arm64.gz",
+        "sha256": "5d4b9a3a7806c871f421555aed9e253a5315111cdb6dc22b93cdc1ef0464aec8",
+        "size": 1192238,
+        "format": "gz",
+        "executable": "ffmpeg"
+      },
+      "darwin-arm64": {
+        "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.10.0/ffmpeg-darwin-arm64.gz",
+        "sha256": "3118e99db2db80b45e5a1c32d6d7eddb6f81f3f7f72b2a817b63cd6b3d68f52f",
+        "size": 1190138,
+        "format": "gz",
+        "executable": "ffmpeg"
+      },
+      "darwin-x64": {
+        "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.10.0/ffmpeg-darwin-x64.gz",
+        "sha256": "757dab51df93ffe320bcc9eada0a4c6aa90e849b29066ce36e98ef815f1a6d41",
+        "size": 1307544,
         "format": "gz",
         "executable": "ffmpeg"
       }
@@ -64,9 +64,9 @@
         {
           "id": "vulkan",
           "requires": null,
-          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.9.3/whisper-server-win32-x64-vulkan.zip",
-          "sha256": "a80997f6841decf08421ab261084fa365ba879932221ba53de98bc3710c9dced",
-          "size": 16733128,
+          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.10.0/whisper-server-win32-x64-vulkan.zip",
+          "sha256": "6619746957fee5cd82a38540fa557eaff227c60bb87b1166db1e1bd44c13136b",
+          "size": 16733120,
           "format": "zip",
           "executable": "whisper-server.exe"
         }
@@ -77,8 +77,8 @@
         {
           "id": "vulkan",
           "requires": null,
-          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.9.3/whisper-server-linux-x64-vulkan.zip",
-          "sha256": "b4614d11e13f383be33a278003d66401e6a5a94024e9124ea9ada615177d4897",
+          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.10.0/whisper-server-linux-x64-vulkan.zip",
+          "sha256": "e807c20f2eaed0da127ec87b84fdc7f5171c30b269cc9ce070fa47ea5cd7cc43",
           "size": 14333249,
           "format": "zip",
           "executable": "whisper-server"
@@ -90,8 +90,8 @@
         {
           "id": "vulkan",
           "requires": null,
-          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.9.3/whisper-server-linux-arm64-vulkan.zip",
-          "sha256": "b267e322e66df8d46b2fccd3812d4dcba57de9781baf40ebecb9fe43c477b10b",
+          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.10.0/whisper-server-linux-arm64-vulkan.zip",
+          "sha256": "38e9c04fb90cb7545b6c8a7ac1b39f694089ba008b0fbbaf9f0702f4b1c14a25",
           "size": 14229402,
           "format": "zip",
           "executable": "whisper-server"
@@ -103,8 +103,8 @@
         {
           "id": "metal",
           "requires": null,
-          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.9.3/whisper-server-darwin-arm64-metal.zip",
-          "sha256": "6523f7acf18924e87ab80e7c712d76e8558cc09215df98da703b9102c0f5650b",
+          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.10.0/whisper-server-darwin-arm64-metal.zip",
+          "sha256": "d6156be3e64e1deeea0906a4ff82026d223d37db5d18655cb26c588793297920",
           "size": 1350283,
           "format": "zip",
           "executable": "whisper-server"
@@ -116,8 +116,8 @@
         {
           "id": "cpu",
           "requires": null,
-          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.9.3/whisper-server-darwin-x64-cpu.zip",
-          "sha256": "3d76426a0c7ec718b33ff54521a1d29ed09e4ed00ac9e8075f81d6bbe77a5d14",
+          "url": "https://github.com/tribgames/mixdog/releases/download/voice-runtime-v1.10.0/whisper-server-darwin-x64-cpu.zip",
+          "sha256": "f2263547a868e55a4c0d900327b1e72ff14df212b5c6890179f2cdb920c7f672",
           "size": 1333240,
           "format": "zip",
           "executable": "whisper-server"
@@ -125,6 +125,6 @@
       ]
     }
   },
-  "release_tag": "voice-runtime-v1.9.3",
-  "build_hash": "d9a066477feb39afd5bc51cf50453d3ce1a194be5de907357ed7f9c1e9677044"
+  "release_tag": "voice-runtime-v1.10.0",
+  "build_hash": "f962605db7787d7c7ae4c34d5ce4b471b0dd9c64bca1fb9a362c4ea691a5ce6c"
 }
