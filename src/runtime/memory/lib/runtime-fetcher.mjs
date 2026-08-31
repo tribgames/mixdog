@@ -21,7 +21,7 @@ import {
   readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync,
 } from 'fs'
 import { readFile } from 'fs/promises'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { fileURLToPath } from 'url'
 import { pipeline } from 'stream/promises'
 import { spawnSync } from 'child_process'
@@ -243,16 +243,21 @@ export function _validateRuntimeTarEntries(entries, details, stagingBase) {
   }
 }
 
-function extractTarGz(tarPath, destDir, stagingBase) {
+export function _extractRuntimeTarGz(tarPath, destDir, stagingBase) {
   mkdirSync(destDir, { recursive: true })
+  const resolvedTarPath = resolve(tarPath)
+  const tarOptions = { cwd: dirname(resolvedTarPath), stdio: 'pipe', windowsHide: true }
+  const tarName = basename(resolvedTarPath)
 
   // List entries first and validate — reject traversal, external links, and
   // special files before the extractor can materialize archive content.
-  const listResult = spawnSync('tar', ['-tzf', tarPath], { stdio: 'pipe', windowsHide: true })
+  // Keep the archive argument relative to cwd: GNU tar otherwise interprets
+  // an absolute Windows path such as C:\runtime.tar.gz as a remote host path.
+  const listResult = spawnSync('tar', ['-tzf', tarName], tarOptions)
   if (listResult.status !== 0) {
     throw new Error(`[runtime-fetcher] tar list failed: ${listResult.stderr?.toString() || 'unknown'}`)
   }
-  const detailResult = spawnSync('tar', ['-tvzf', tarPath], { stdio: 'pipe', windowsHide: true })
+  const detailResult = spawnSync('tar', ['-tvzf', tarName], tarOptions)
   if (detailResult.status !== 0) {
     throw new Error(`[runtime-fetcher] tar detail list failed: ${detailResult.stderr?.toString() || 'unknown'}`)
   }
@@ -260,7 +265,7 @@ function extractTarGz(tarPath, destDir, stagingBase) {
   const details = (detailResult.stdout?.toString() || '').split('\n').filter(Boolean)
   _validateRuntimeTarEntries(entries, details, stagingBase)
 
-  const r = spawnSync('tar', ['-xzf', tarPath, '-C', destDir], { stdio: 'pipe', windowsHide: true })
+  const r = spawnSync('tar', ['-xzf', tarName, '-C', resolve(destDir)], tarOptions)
   if (r.status !== 0) {
     throw new Error(`[runtime-fetcher] tar extraction failed: ${r.stderr?.toString() || 'unknown error'}`)
   }
@@ -526,7 +531,7 @@ export async function ensureRuntime(dataDir) {
         }
       }
       if (!downloadOk && lastDownloadErr) throw lastDownloadErr
-      extractTarGz(tarPath, stagingDir, stagingDir)
+      _extractRuntimeTarGz(tarPath, stagingDir, stagingDir)
     } finally {
       try { rmSync(tarPath, { force: true }) } catch {}
     }
