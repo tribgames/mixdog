@@ -197,6 +197,18 @@ export function shapeXml({
     + `<p:txBody>${textBody}</p:txBody></p:sp>`;
 }
 
+function cropRectXml(crop) {
+  if (!crop) return '';
+  const values = {
+    l: Math.round(Math.max(0, Math.min(1, Number(crop.left) || 0)) * 100000),
+    t: Math.round(Math.max(0, Math.min(1, Number(crop.top) || 0)) * 100000),
+    r: Math.round(Math.max(0, Math.min(1, Number(crop.right) || 0)) * 100000),
+    b: Math.round(Math.max(0, Math.min(1, Number(crop.bottom) || 0)) * 100000),
+  };
+  if (!Object.values(values).some((value) => value > 0)) return '';
+  return `<a:srcRect l="${values.l}" t="${values.t}" r="${values.r}" b="${values.b}"/>`;
+}
+
 export function pictureXml({
   id,
   name = '',
@@ -205,11 +217,12 @@ export function pictureXml({
   top = 0,
   width = 100,
   height = 100,
+  crop = null,
 }) {
   return '<p:pic><p:nvPicPr>'
     + `<p:cNvPr id="${id}" name="${encodeXml(name || `Picture ${id}`)}"/>`
     + '<p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>'
-    + `<p:blipFill><a:blip r:embed="${embedId}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>`
+    + `<p:blipFill><a:blip r:embed="${embedId}"/>${cropRectXml(crop)}<a:stretch><a:fillRect/></a:stretch></p:blipFill>`
     + `<p:spPr>${frame(left, top, width, height)}<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr>`
     + '</p:pic>';
 }

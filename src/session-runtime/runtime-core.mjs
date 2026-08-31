@@ -144,6 +144,7 @@ import {
   modelSettingsFor,
   normalizeCompactTypeSetting,
 } from './config-helpers.mjs';
+import { builtinFeatureActive, featureDisallowedToolsFor } from './builtin-features.mjs';
 import {
   routeForStatusline,
   writeStatuslineRoute,
@@ -457,21 +458,15 @@ export async function createMixdogSessionRuntime({
   // `memoryTools` gates the model-facing memory/recall tool surface. Headless
   // runs override any toggle per process via MIXDOG_FEATURE_* env values.
   const recapEnabledFn = () => recapEnabled(rt.config, true);
-  const memoryToolsEnabledFn = () => featureEnvOverride('MIXDOG_FEATURE_MEMORY')
-    ?? memoryToolsEnabled(rt.config, true);
-  const webSearchEnabled = () => featureEnvOverride('MIXDOG_FEATURE_WEB_SEARCH')
-    ?? moduleEnabled(rt.config, 'webSearch', true);
+  const memoryToolsEnabledFn = () => builtinFeatureActive(rt.config, 'memory');
+  const webSearchEnabled = () => builtinFeatureActive(rt.config, 'webSearch');
+  const gitToolsEnabledFn = () => builtinFeatureActive(rt.config, 'git');
+  const officeToolsEnabledFn = () => builtinFeatureActive(rt.config, 'office');
   const channelsEnabled = () => moduleEnabled(rt.config, 'channels', true);
-  const browserToolEnabled = () => featureEnvOverride('MIXDOG_FEATURE_BROWSER')
-    ?? browserBridgeAvailableSync();
-  const computerToolEnabled = () => featureEnvOverride('MIXDOG_FEATURE_COMPUTER')
-    ?? computerBridgeAvailableSync();
-  const featureDisallowedTools = () => [
-    ...(webSearchEnabled() ? [] : ['web_search', 'web_fetch']),
-    ...(memoryToolsEnabledFn() ? [] : ['memory', 'recall']),
-    ...(browserToolEnabled() ? [] : ['browser']),
-    ...(computerToolEnabled() ? [] : ['computer']),
-  ];
+  const featureDisallowedTools = () => featureDisallowedToolsFor(rt.config, {
+    browserAvailable: browserBridgeAvailableSync(),
+    computerAvailable: computerBridgeAvailableSync(),
+  });
 
   async function getMemoryModule() {
     const startedAt = performance.now();
@@ -1070,6 +1065,9 @@ export async function createMixdogSessionRuntime({
         });
       }
       if (name === 'office') {
+        if (callerCtx?.invocationSource === 'model-tool' && !officeToolsEnabledFn()) {
+          throw new Error('office is disabled in settings; start a new session to refresh the tool list');
+        }
         return await executeOfficeTool(args, {
           cwd: callerCwd,
           dataDir: STANDALONE_DATA_DIR,
@@ -1526,12 +1524,22 @@ export async function createMixdogSessionRuntime({
     setRecapEnabledInConfig,
     setMemoryToolsEnabledInConfig,
     setModuleEnabledInConfig,
+    // Built-in install adapters. Memory warms the embedding runtime so the
+    // model download happens at install time instead of the first recall;
+    // git/office verification is instant (system probe / bundled engine).
+    prepareBuiltinFeature: async (name) => {
+      if (name !== 'memory') return;
+      const memory = await getMemoryModule().catch(() => null);
+      await memory?.warmup?.().catch?.(() => {});
+    },
     summarizeWorkflowRoutes,
     parseDurationMs,
     formatDurationMs,
     localPackageVersion,
     recapEnabledFn,
     memoryToolsEnabledFn,
+    gitToolsEnabledFn,
+    officeToolsEnabledFn,
     webSearchEnabled,
     channelsEnabled,
     autoUpdateEnabled,

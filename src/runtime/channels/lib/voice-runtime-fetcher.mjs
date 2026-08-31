@@ -802,12 +802,11 @@ export function resolveVoiceRuntime(dataDir, { modelId = 'standard' } = {}) {
 }
 
 /**
- * Uninstall counterpart to ensureWhisperRuntime + ensureWhisperModel.
+ * Explicit uninstall counterpart to ensureWhisperRuntime + ensureWhisperModel.
  *
- * Voice used to be install-only: turning it OFF flipped a config flag and left
- * the whisper runtime and model weights (1.5 GB+ on a machine that picked a
- * GPU variant) resident forever, so "off" was never actually cold. Removes
- * both; re-enabling re-fetches them through the normal ensure* path.
+ * This is deliberately NOT part of the Voice ON/OFF lifecycle: OFF preserves
+ * the runtime and model so a later ON is instant. A future explicit storage
+ * cleanup action may call this helper to remove both.
  *
  * The managed ffmpeg runtime is deliberately KEPT — it is shared with non-voice
  * media paths and is two orders of magnitude smaller.

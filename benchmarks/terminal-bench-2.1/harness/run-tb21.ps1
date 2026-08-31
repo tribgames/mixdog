@@ -26,7 +26,11 @@ param(
     # Render the exact routes and Harbor command without launching Harbor.
     [switch]$DryRun,
     # Agent container KEY=VALUE entries; comma-bearing values are unsupported.
-    [string[]]$AgentEnv = @()
+    [string[]]$AgentEnv = @(),
+    # Where to record what this run actually executed: source commit, whether
+    # the tree matched it, and the digests of the uploaded runtime bundle.
+    # Empty => provenance is not recorded (ad-hoc local run).
+    [string]$ProvenanceOut = ""
 )
 $ErrorActionPreference = "Stop"
 $hasProvider = -not [string]::IsNullOrWhiteSpace($Provider)
@@ -108,6 +112,64 @@ $benchRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $benchRoot
 $env:PYTHONPATH = $benchRoot
 
+# The published npm package is only a dependency shell; the bundle below is
+# the code under measurement. Without this record a report names no source, so
+# nobody can tell which commit produced a score. The bundle archive is built
+# deterministically, so its digest is reproducible from the same files.
+function Get-RuntimeProvenance {
+    param(
+        [object[]]$PreflightOutput,
+        [string]$ManifestPath
+    )
+    $bundle = $null
+    foreach ($line in $PreflightOutput) {
+        $text = [string]$line
+        if ($text.TrimStart().StartsWith("{")) {
+            try { $bundle = $text | ConvertFrom-Json } catch { }
+        }
+    }
+    if ($null -eq $bundle -or [string]::IsNullOrWhiteSpace([string]$bundle.bundleSha256)) {
+        throw "runtime bundle preflight produced no bundle digest"
+    }
+    $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
+    $mixdogVersion = [string]((Get-Content -Raw -LiteralPath (Join-Path $repoRoot "package.json") | ConvertFrom-Json).version)
+    $commit = ""
+    $dirty = $null
+    $dirtyPaths = @()
+    try {
+        $commit = [string](& git -C $repoRoot rev-parse HEAD 2>$null)
+        if ($LASTEXITCODE -ne 0) { $commit = "" }
+    } catch {
+        $commit = ""
+    }
+    if (-not [string]::IsNullOrWhiteSpace($commit)) {
+        # Only the trees that enter the bundle decide whether this run is
+        # attributable to that commit: src/ (overlay) and native/ (spawn).
+        $status = @(& git -C $repoRoot status --porcelain --untracked-files=all -- src native 2>$null)
+        if ($LASTEXITCODE -eq 0) {
+            $dirtyPaths = @(
+                $status |
+                    Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                    ForEach-Object { ([string]$_).Trim() }
+            )
+            $dirty = $dirtyPaths.Count -gt 0
+        }
+    }
+    return [ordered]@{
+        schemaVersion = 1
+        capturedAt = (Get-Date).ToUniversalTime().ToString("o")
+        mixdogVersion = $mixdogVersion
+        sourceCommit = $commit
+        sourceDirty = $dirty
+        sourceDirtyPaths = @($dirtyPaths | Select-Object -First 50)
+        bundleSha256 = [string]$bundle.bundleSha256
+        bundleFileCount = [int]$bundle.fileCount
+        bundleBytes = [int64]$bundle.totalBytes
+        spawnSha256 = [string]$bundle.spawnSha256
+        bundleManifest = [IO.Path]::GetFileName($ManifestPath)
+    }
+}
+
 # Freeze the complete local runtime before Harbor starts. The local build
 # couples current src with its matching Linux native spawn binary; every trial
 # uploads only this immutable bundle.
@@ -116,9 +178,30 @@ $harnessSnapshotRoot = Join-Path ([IO.Path]::GetTempPath()) ("mixdog-tb-harness-
 $harborExitCode = 0
 try {
     if (-not $DryRun) {
-        $overlayPreflight = & python -m harness.src_overlay --output $snapshotRoot 2>&1
+        $overlayArgs = @("-m", "harness.src_overlay", "--output", $snapshotRoot)
+        $bundleManifestPath = ""
+        if (-not [string]::IsNullOrWhiteSpace($ProvenanceOut)) {
+            $provenanceDir = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($ProvenanceOut))
+            New-Item -ItemType Directory -Force -Path $provenanceDir | Out-Null
+            $bundleManifestPath = Join-Path $provenanceDir "runtime-manifest.json"
+            $overlayArgs += @("--manifest", $bundleManifestPath)
+        }
+        $overlayPreflight = & python @overlayArgs 2>&1
         if ($LASTEXITCODE -ne 0) {
             throw "Terminal-Bench runtime bundle preflight failed: $($overlayPreflight -join [Environment]::NewLine)"
+        }
+        if (-not [string]::IsNullOrWhiteSpace($bundleManifestPath)) {
+            $provenance = Get-RuntimeProvenance -PreflightOutput $overlayPreflight -ManifestPath $bundleManifestPath
+            $provenance | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $ProvenanceOut -Encoding utf8
+            $commitLabel = if ($provenance.sourceCommit) { $provenance.sourceCommit.Substring(0, 12) } else { "unknown" }
+            $dirtyLabel = if ($null -eq $provenance.sourceDirty) { "unknown" } else { [string]$provenance.sourceDirty }
+            "runtime source=$commitLabel dirty=$dirtyLabel bundle=$($provenance.bundleSha256.Substring(0, 12)) files=$($provenance.bundleFileCount) mixdog=$($provenance.mixdogVersion)"
+            if ($provenance.sourceDirty) {
+                Write-Warning (
+                    "source tree differs from HEAD in $($provenance.sourceDirtyPaths.Count) path(s) under src/ or native/; " +
+                    "this run cannot be attributed to a published commit — commit before a publishable run"
+                )
+            }
         }
         New-Item -ItemType Directory -Path $harnessSnapshotRoot -ErrorAction Stop | Out-Null
         $harnessManifest = [ordered]@{}

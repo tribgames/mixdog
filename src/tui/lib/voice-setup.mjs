@@ -146,21 +146,25 @@ export async function ensureVoiceRuntimeReady({ dataDir = resolvePluginData(), p
 }
 
 /**
- * Voice toggle entry point. OFF -> immediately flips `voice.enabled` to
- * false and notices "Voice OFF" (no install work, no busy gate — a disable
- * must never be blocked by an in-flight install of a DIFFERENT toggle-on).
+ * Voice state entry point. OFF -> immediately flips `voice.enabled` to
+ * false and notices "Voice OFF" while keeping the installed runtime and model
+ * for an instant re-enable (no install work, no busy gate — a disable must
+ * never be blocked by an in-flight install of a DIFFERENT toggle-on).
  * ON  -> busy-guarded: checks resolveVoiceRuntime, installs only missing
  * components, then persists `voice.enabled: true` and notices "Voice ON —
  * channel voice messages will be transcribed". Any ensure* failure notices the
  * cause and leaves `voice.enabled` untouched (still off).
  *
- * Returns the NEW enabled state (true/false) on success, or null when the
- * toggle could not run (install already in flight) or failed.
+ * `enabled` makes desktop writes idempotent. Omitted keeps the legacy TUI
+ * toggle behavior. Returns the resulting enabled state on success, or null
+ * when installation could not run or failed.
  */
-export async function toggleVoice({ pushNotice, setProgressHint } = {}) {
+export async function toggleVoice({ pushNotice, setProgressHint, enabled } = {}) {
   const dataDir = resolvePluginData();
   const status = await getVoiceStatus({ dataDir });
-  if (status.enabled && status.installed) {
+  const targetEnabled = typeof enabled === 'boolean' ? enabled : !status.enabled;
+  if (!targetEnabled) {
+    if (!status.enabled) return false;
     // The async RMW preserves the shared config lock/ACL protocol without
     // blocking the TUI event loop. It can still throw — a locked/corrupt config,
     // permissions error, etc. Guard it the same way the ON path is guarded and
@@ -171,21 +175,10 @@ export async function toggleVoice({ pushNotice, setProgressHint } = {}) {
       pushNotice?.(`Voice OFF failed: ${err?.message || err}`, 'error');
       return { ok: false, error: err?.message || String(err) };
     }
-    // Install and removal are symmetric: OFF reclaims the whisper runtime and
-    // model weights instead of leaving them resident for good. A failure here
-    // is reported but never fails the toggle — the flag is already off.
-    try {
-      const offFetcher = await loadVoiceRuntimeFetcher();
-      const removed = offFetcher.removeManagedVoiceRuntime?.(dataDir) || [];
-      pushNotice?.(
-        removed.length > 0 ? 'Voice OFF — runtime and model removed' : 'Voice OFF',
-        'info',
-      );
-    } catch (err) {
-      pushNotice?.(`Voice OFF (runtime files kept: ${err?.message || err})`, 'warn');
-    }
+    pushNotice?.('Voice OFF', 'info');
     return false;
   }
+  if (status.enabled && status.installed) return true;
   if (_voiceInstallBusy) {
     pushNotice?.('Voice install is already running', 'warn');
     return null;

@@ -12,16 +12,19 @@ import { providerDisplayName } from '../provider-display';
 import { record } from '../record-utils';
 import type { SettingsCategory } from './settings-items';
 
+export type CapabilityCategory = SettingsCategory | 'builtins';
 
 export type RecordValue = Record<string, unknown>;
 export type CapabilityApi = Partial<Pick<DesktopApi,
   'invokeCapability' | 'readCapabilities' | 'listProviderModels' | 'setModelRoute' | 'setFast' | 'getSnapshot'
   | 'subscribeState' | 'getUpdaterState' | 'subscribeUpdaterState' | 'checkForDesktopUpdate'
-  | 'showDesktopUpdate' | 'getRemoteAccessInfo' | 'rotateRemoteAccess' | 'revokeRemoteAccessClient'>>;
+  | 'showDesktopUpdate' | 'getRemoteAccessInfo' | 'rotateRemoteAccess' | 'revokeRemoteAccessClient'
+  | 'readSettings' | 'updateSetting' | 'gitCliStatus' | 'installGitCli'
+  | 'libreOfficeStatus' | 'installLibreOffice'>>;
 
 export interface CapabilitySettingsProps {
   api: CapabilityApi;
-  category: SettingsCategory;
+  category: CapabilityCategory;
   refreshNonce?: number;
   onCompose?: (text: string) => void;
   onOpenCategory?: (category: SettingsCategory) => void;

@@ -21,6 +21,10 @@ import {
   nativeToolInstalledName,
 } from '../../../scripts/native-tool-download.mjs';
 import { runtimeDependencyCacheIdentity } from '../../../scripts/runtime-dependency-cache-key.mjs';
+import {
+  copyRuntimePackagePayload,
+  runtimePackageSource,
+} from './runtime-package-payload.mjs';
 
 const execFileAsync = promisify(execFile);
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -73,6 +77,9 @@ const optionValue = (name) => {
   const argument = process.argv.find((value) => value.startsWith(prefix));
   return argument ? argument.slice(prefix.length) : '';
 };
+const fastFullMode = optionValue('mode') === 'fast-full';
+const fastRuntimeDependencyHash = optionValue('dependency-hash');
+const fastRuntimeHash = optionValue('runtime-hash');
 const embeddingTarget = embeddingRuntimeTarget({
   platform: optionValue('platform') || undefined,
   arch: optionValue('arch') || undefined,
@@ -144,6 +151,44 @@ async function prepareBrowserImportNativeSource() {
     'browser-import',
     embeddingTarget.key,
   );
+  const sourceRoot = join(rootDir, 'native', 'mixdog-browser-import');
+  const sourceFiles = [];
+  async function collectSourceFiles(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      if (['dist', 'target', 'node_modules'].includes(entry.name)) continue;
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) await collectSourceFiles(path);
+      else if (entry.isFile()) sourceFiles.push(path);
+    }
+  }
+  await collectSourceFiles(sourceRoot);
+  sourceFiles.sort((left, right) => left.localeCompare(right));
+  const sourceHash = createHash('sha256');
+  for (const path of sourceFiles) {
+    sourceHash.update(relative(sourceRoot, path).replaceAll(sep, '/'));
+    sourceHash.update('\0');
+    sourceHash.update(await readFile(path));
+    sourceHash.update('\0');
+  }
+  const cacheIdentity = {
+    schemaVersion: 1,
+    target: embeddingTarget.key,
+    sourceHash: sourceHash.digest('hex'),
+  };
+  const cacheMarker = join(outputDirectory, '.mixdog-browser-import-cache.json');
+  try {
+    const cached = JSON.parse(await readFile(cacheMarker, 'utf8'));
+    if (
+      cached.schemaVersion === cacheIdentity.schemaVersion
+      && cached.target === cacheIdentity.target
+      && cached.sourceHash === cacheIdentity.sourceHash
+    ) {
+      await Promise.all(browserImportNativeFileNames.map((name) => access(join(outputDirectory, name))));
+      return outputDirectory;
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+  }
   const buildScript = join(rootDir, 'native', 'mixdog-browser-import', 'build.ps1');
   await execFileAsync('pwsh', [
     '-NoLogo',
@@ -163,6 +208,7 @@ async function prepareBrowserImportNativeSource() {
     windowsHide: true,
     maxBuffer: 16 * 1024 * 1024,
   });
+  await writeFile(cacheMarker, `${JSON.stringify(cacheIdentity, null, 2)}\n`);
   return outputDirectory;
 }
 
@@ -224,15 +270,6 @@ async function desktopPtyNativeRoot() {
   return join(builderDesktopPtyDir, 'build', 'Release');
 }
 
-function runtimePackageSource(entryPath) {
-  const relativePath = String(entryPath).replaceAll('/', sep);
-  const source = resolve(rootDir, relativePath);
-  if (source !== rootDir && !source.startsWith(`${rootDir}${sep}`)) {
-    throw new Error(`Refusing to package a path outside the Mixdog root: ${entryPath}`);
-  }
-  return { relativePath, source };
-}
-
 async function resolveRuntimePackageManifest() {
   const { stdout } = await runNpm(
     ['pack', '--dry-run', '--json', '--ignore-scripts'],
@@ -253,7 +290,7 @@ async function runtimeInputFingerprint(manifest) {
     String(left.path).localeCompare(String(right.path))
   ));
   for (const entry of sortedEntries) {
-    const { source } = runtimePackageSource(entry.path);
+    const { source } = runtimePackageSource(rootDir, entry.path);
     packageFiles.push({
       path: String(entry.path).replaceAll('\\', '/'),
       sha256: sha256(await readFile(source)),
@@ -501,20 +538,11 @@ async function prepareRuntime(manifest, fingerprint) {
       await timed('dependency-cache-store', () => storeRuntimeDependencies());
     }
 
-    await timed('runtime-package-copy', async () => {
-      await mkdir(runtimePackageDir, { recursive: true });
-      for (const entry of manifest.files) {
-        const { relativePath, source } = runtimePackageSource(entry.path);
-        const destination = join(runtimePackageDir, relativePath);
-        await mkdir(dirname(destination), { recursive: true });
-        await cp(source, destination, { recursive: true });
-      }
-      const officeTemplateDir = join(runtimePackageDir, 'src', 'runtime', 'office', 'templates');
-      const officeTemplates = await readdir(officeTemplateDir, { withFileTypes: true }).catch(() => []);
-      await Promise.all(officeTemplates
-        .filter((entry) => entry.isFile() && /\.mixdog-edit\.[^.]+$/i.test(entry.name))
-        .map((entry) => rm(join(officeTemplateDir, entry.name), { force: true })));
-    });
+    await timed('runtime-package-copy', () => copyRuntimePackagePayload({
+      rootDir,
+      manifest,
+      destination: runtimePackageDir,
+    }));
 
     const runtimePackage = JSON.parse(await readFile(join(stagingDir, 'package.json'), 'utf8'));
     runtimePackage.private = true;
@@ -532,6 +560,29 @@ async function prepareRuntime(manifest, fingerprint) {
       + `; optimized ${((desktopPrune.removedTesseractBytes + desktopPrune.removedPdfBytes) / (1024 ** 2)).toFixed(1)} MiB`
       + ' of unused OCR and PDF variants.',
     );
+
+    if (fastFullMode) {
+      if (!fastRuntimeDependencyHash || !fastRuntimeHash) {
+        throw new Error('Fast runtime dependency and source hashes are required.');
+      }
+      const fastRuntimeDir = join(runtimeDir, 'fast-runtime');
+      await rm(fastRuntimeDir, { recursive: true, force: true });
+      await rename(stagingDir, fastRuntimeDir);
+      await writeFile(
+        join(fastRuntimeDir, '.mixdog-fast-runtime.json'),
+        `${JSON.stringify({
+          schemaVersion: 1,
+          dependencyHash: fastRuntimeDependencyHash,
+          runtimeHash: fastRuntimeHash,
+        }, null, 2)}\n`,
+      );
+      prepared = true;
+      console.log(
+        `Prepared ${embeddingTarget.key} unpacked FastDirect runtime with `
+        + `${manifest.files.length} Mixdog package files.`,
+      );
+      return;
+    }
 
     // NSIS is very slow when it has to create the production dependency tree one
     // file at a time. Electron reads ASARs directly, so install one archive and
@@ -769,7 +820,7 @@ try {
     'input-fingerprint',
     () => runtimeInputFingerprint(manifest),
   );
-  if (await timed('prepared-runtime-check', () => canReusePreparedRuntime(fingerprint))) {
+  if (!fastFullMode && await timed('prepared-runtime-check', () => canReusePreparedRuntime(fingerprint))) {
     console.log(`Reused prepared ${embeddingTarget.key} runtime.asar.`);
   } else {
     await prepareRuntime(manifest, fingerprint);

@@ -36,8 +36,14 @@ $repoRoot = Resolve-Path (Join-Path $desktopDir '../..')
 # them past the 260-character limit that git's own delete still honours.
 $snapshotRoot = Join-Path $env:TEMP ("mxsnap-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
 $linked = [Collections.Generic.List[string]]::new()
+$deployStartedAtUtc = [DateTime]::UtcNow
+$timings = [ordered]@{}
 
 function Write-Step { param([string]$Text) Write-Host "==> $Text" -ForegroundColor Cyan }
+function Save-Timing {
+  param([string]$Name, [Diagnostics.Stopwatch]$Stopwatch)
+  $timings[$Name] = [math]::Round($Stopwatch.Elapsed.TotalMilliseconds)
+}
 
 function New-DirectoryLink {
   param([string]$Link, [string]$Target)
@@ -153,7 +159,9 @@ if ($CleanupOnly) {
 try {
   Push-Location $repoRoot
 
+  $stepTimer = [Diagnostics.Stopwatch]::StartNew()
   $swept = Remove-StaleSnapshots
+  Save-Timing 'staleSnapshotCleanupMs' $stepTimer
   if ($swept) { Write-Step "swept $swept snapshot worktree(s) left by an earlier restart" }
 
   Restore-DependencyTree $repoRoot 'root'
@@ -178,11 +186,17 @@ try {
     # real index nor the working tree is touched.
     $tempIndex = Join-Path $env:TEMP ("mxsnap-index-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
     $snapshot = ''
+    $stepTimer = [Diagnostics.Stopwatch]::StartNew()
     try {
       $env:GIT_INDEX_FILE = $tempIndex
       & git read-tree HEAD
       if ($LASTEXITCODE -ne 0) { throw "git read-tree exited with $LASTEXITCODE" }
-      & git add -A
+      $snapshotPaths = @(
+        '.npmignore', 'package.json', 'package-lock.json', 'README.md', 'NOTICE.md',
+        'LICENSE', 'LICENSES', 'scripts', 'src', 'vendor',
+        'native/mixdog-browser-import', 'apps/desktop'
+      )
+      & git -c core.safecrlf=false add -A -- @snapshotPaths
       if ($LASTEXITCODE -ne 0) { throw "git add exited with $LASTEXITCODE" }
       $tree = (& git write-tree).Trim()
       if ($LASTEXITCODE -ne 0) { throw "git write-tree exited with $LASTEXITCODE" }
@@ -192,15 +206,26 @@ try {
       $env:GIT_INDEX_FILE = $null
       Remove-Item -LiteralPath $tempIndex -Force -ErrorAction SilentlyContinue
     }
+    Save-Timing 'freezeMs' $stepTimer
     Write-Host "  snapshot commit $($snapshot.Substring(0,8)) (uncommitted and untracked files included)"
 
     Write-Step 'checking the snapshot out into a temporary worktree'
-    & git worktree add --detach $snapshotRoot $snapshot | Out-Null
+    $stepTimer = [Diagnostics.Stopwatch]::StartNew()
+    & git worktree add --detach --no-checkout $snapshotRoot $snapshot | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "git worktree add exited with $LASTEXITCODE" }
+    & git -C $snapshotRoot sparse-checkout set --cone `
+      apps/desktop src scripts vendor native/mixdog-browser-import LICENSES | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "git sparse-checkout exited with $LASTEXITCODE" }
+    Save-Timing 'checkoutMs' $stepTimer
 
     Write-Step 'linking dependency trees'
+    $stepTimer = [Diagnostics.Stopwatch]::StartNew()
+    $realDesktopCache = Join-Path $desktopDir '.cache'
+    New-Item -ItemType Directory -Path $realDesktopCache -Force | Out-Null
     New-DirectoryLink (Join-Path $snapshotRoot 'node_modules') (Join-Path $repoRoot 'node_modules')
     New-DirectoryLink (Join-Path $snapshotRoot 'apps\desktop\node_modules') (Join-Path $desktopDir 'node_modules')
+    New-DirectoryLink (Join-Path $snapshotRoot 'apps\desktop\.cache') $realDesktopCache
+    Save-Timing 'linkMs' $stepTimer
     # `out/` is deliberately NOT linked here. electron-builder collects the app
     # files itself and walks past a junction without descending into it, so a
     # linked build directory produced an app.asar with no out/main/index.js in
@@ -209,11 +234,13 @@ try {
     # incremental plan would otherwise have skipped.
 
     Write-Step 'checking the frozen copy compiles'
+    $stepTimer = [Diagnostics.Stopwatch]::StartNew()
     Push-Location (Join-Path $snapshotRoot 'apps\desktop')
     try {
       & npm.cmd run typecheck:node 2>&1 | Out-Null
       $compiles = $LASTEXITCODE -eq 0
     } finally { Pop-Location }
+    Save-Timing 'snapshotTypecheckMs' $stepTimer
     if ($compiles) { break }
     if ($attempt -ge 3) {
       throw 'The working tree did not compile in three snapshots; let the in-flight edit finish and retry.'
@@ -249,6 +276,13 @@ try {
   # flight and fails the very assertion this wrapper exists to satisfy.
   $receiptPath = Join-Path $env:USERPROFILE '.mixdog\data\dev-fast-deploy.json'
   Remove-Item -LiteralPath $receiptPath -Force -ErrorAction SilentlyContinue
+  $timings['snapshotPreparationMs'] = [math]::Round(
+    ([DateTime]::UtcNow - $deployStartedAtUtc).TotalMilliseconds
+  )
+  $env:MIXDOG_FASTDIRECT_STARTED_AT = $deployStartedAtUtc.ToString('o')
+  $env:MIXDOG_FASTDIRECT_SNAPSHOT_TIMINGS = ($timings | ConvertTo-Json -Compress)
+  $env:MIXDOG_RUNTIME_DEPENDENCY_CACHE = Join-Path $realDesktopCache 'runtime-dependencies\win32-x64'
+  $env:MIXDOG_RUNTIME_NPM_CACHE = Join-Path $realDesktopCache 'runtime-npm-cache'
   & powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $deploy @arguments
   if ($LASTEXITCODE -ne 0) { throw "FastDirect deploy exited with $LASTEXITCODE" }
 

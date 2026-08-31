@@ -26,6 +26,16 @@ import {
   reportStudioLoadStage,
 } from './renderer-load-metrics';
 import {
+  readStudioAssetReferences,
+  readStudioDraftMetadata,
+  readStudioDraftReferences,
+  removeStudioAssetReferences,
+  writeStudioAssetReferences,
+  writeStudioDraftMetadata,
+  writeStudioDraftReferences,
+  type StudioReferenceStore,
+} from './studio-draft-cache';
+import {
   assetLabel,
   callCapability,
   DEFAULT_STUDIO_OPTIONS,
@@ -214,6 +224,7 @@ export function StudioPane({
   onToggleSidebar,
   onReady,
   captureVideoPoster = posterFromVideo,
+  referenceStore,
 }: {
   api?: StudioApi;
   active?: boolean;
@@ -221,15 +232,20 @@ export function StudioPane({
   onToggleSidebar?: () => void;
   onReady?: () => void;
   captureVideoPoster?: typeof posterFromVideo;
+  referenceStore?: StudioReferenceStore;
 }) {
   const bootMetricToken = ensureStudioLoad();
   reportStudioLoadStage('module', '', false, bootMetricToken);
+  const [restoredDraft] = useState(() => readStudioDraftMetadata());
   const [lanes, setLanes] = useState<MediaLane[]>([]);
-  const [kind, setKind] = useState<MediaKind>('image');
-  const [laneId, setLaneId] = useState('');
-  const [model, setModel] = useState('');
-  const [options, setOptions] = useState<StudioOptions>(DEFAULT_STUDIO_OPTIONS);
-  const [prompt, setPrompt] = useState('');
+  const [kind, setKind] = useState<MediaKind>(restoredDraft?.kind || 'image');
+  const [laneId, setLaneId] = useState(restoredDraft?.laneId || '');
+  const [model, setModel] = useState(restoredDraft?.model || '');
+  const [options, setOptions] = useState<StudioOptions>(() => ({
+    ...DEFAULT_STUDIO_OPTIONS,
+    ...(restoredDraft?.options || {}),
+  }));
+  const [prompt, setPrompt] = useState(restoredDraft?.prompt || '');
   // Generation is a QUEUE (user): starting a run never blocks the composer, so
   // several jobs can be in flight and each keeps its own tile.
   const [jobs, setJobs] = useState<StudioMediaJob[]>([]);
@@ -241,6 +257,28 @@ export function StudioPane({
   const [selected, setSelected] = useState<MediaAsset | null>(null);
   // ABB: the media detail viewer closes on hardware back.
   useMobileBack(Boolean(selected), () => setSelected(null));
+  useEffect(() => {
+    if (!selected) return undefined;
+    const navigate = (event: KeyboardEvent) => {
+      if ((event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')
+        || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
+        || event.isComposing || event.defaultPrevented) return;
+      const target = event.target;
+      if (target instanceof HTMLInputElement
+        || target instanceof HTMLTextAreaElement
+        || target instanceof HTMLSelectElement
+        || target instanceof HTMLVideoElement
+        || (target instanceof HTMLElement && target.isContentEditable)) return;
+      const index = visibleAssets.findIndex((asset) => asset.id === selected.id);
+      if (index < 0) return;
+      const next = visibleAssets[index + (event.key === 'ArrowRight' ? 1 : -1)];
+      if (!next) return;
+      event.preventDefault();
+      setSelected(next);
+    };
+    window.addEventListener('keydown', navigate);
+    return () => window.removeEventListener('keydown', navigate);
+  }, [selected, visibleAssets]);
   const [previewUrl, setPreviewUrl] = useState('');
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   // A cold local rendition may take longer than the tile's stall threshold.
@@ -281,12 +319,39 @@ export function StudioPane({
   });
   // Reference images for the next generation (edit / image-to-video).
   const [refs, setRefs] = useState<Array<{ base64: string; mime: string; url: string }>>([]);
+  const [refsHydrated, setRefsHydrated] = useState(false);
+  const draggedRefIndex = useRef<number | null>(null);
+  const refDragJustEnded = useRef(false);
+  const [refDrop, setRefDrop] = useState<{
+    source: number;
+    target: number;
+    position: 'before' | 'after';
+  } | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [gallerySettled, setGallerySettled] = useState(false);
   const [catalogSettled, setCatalogSettled] = useState(false);
-  const [firstThumbnailReady, setFirstThumbnailReady] = useState(false);
   const previewToken = useRef(0);
+  useEffect(() => {
+    if (!active) return;
+    writeStudioDraftMetadata({ kind, laneId, model, options, prompt });
+  }, [active, kind, laneId, model, options, prompt]);
+  useEffect(() => {
+    let stopped = false;
+    void readStudioDraftReferences(referenceStore).then((cached) => {
+      if (stopped) return;
+      setRefs((current) => current.length ? current : cached.map((reference) => ({
+        ...reference,
+        url: `data:${reference.mime};base64,${reference.base64}`,
+      })));
+      setRefsHydrated(true);
+    });
+    return () => { stopped = true; };
+  }, [referenceStore]);
+  useEffect(() => {
+    if (!active || !refsHydrated) return;
+    void writeStudioDraftReferences(refs, referenceStore);
+  }, [active, referenceStore, refs, refsHydrated]);
   // Media bytes ride local IPC on the desktop and the LAN bridge / relay in
   // the web app. Only a local host may fall back to shrinking a full-size
   // asset here; remotely that transfer is exactly the cost being removed.
@@ -337,6 +402,7 @@ export function StudioPane({
   const gridRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const studioRootRef = useRef<HTMLDivElement>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
@@ -470,17 +536,30 @@ export function StudioPane({
   useLayoutEffect(() => {
     const element = studioRootRef.current;
     if (!element) return undefined;
+    const dock = dockRef.current;
     const apply = (width: number) => {
       if (width > 0) setNarrowPane(width <= STUDIO_NARROW_PANE);
     };
+    const applyDockHeight = (height: number) => {
+      if (height > 0) {
+        element.style.setProperty('--studio-dock-overlay-height', `${Math.ceil(height)}px`);
+      }
+    };
     apply(element.getBoundingClientRect().width);
+    applyDockHeight(dock?.getBoundingClientRect().height || 0);
     if (typeof ResizeObserver !== 'function') return undefined;
     const observer = new ResizeObserver((entries) => {
-      const entry = entries.find((candidate) => candidate.target === element);
-      apply(entry?.contentRect.width || element.getBoundingClientRect().width);
+      const rootEntry = entries.find((candidate) => candidate.target === element);
+      if (rootEntry) apply(rootEntry.contentRect.width || element.getBoundingClientRect().width);
+      const dockEntry = entries.find((candidate) => candidate.target === dock);
+      if (dockEntry) applyDockHeight(dockEntry.contentRect.height);
     });
     observer.observe(element);
-    return () => observer.disconnect();
+    if (dock) observer.observe(dock);
+    return () => {
+      observer.disconnect();
+      element.style.removeProperty('--studio-dock-overlay-height');
+    };
   }, []);
 
   useEffect(() => {
@@ -605,10 +684,22 @@ export function StudioPane({
             // Fetch first, then commit both snapshots together. The pending
             // frame stays mounted until its indexed asset can replace it with
             // the same requested ratio (image and video).
-            const landedKinds = Array.from(new Set(
-              landed.filter((entry) => entry.status === 'done').map((entry) => entry.kind),
-            ));
-            await Promise.all(landedKinds.map((assetKind) => refreshAssetKind(assetKind)));
+            const completed = landed.filter((entry) => entry.status === 'done');
+            const landedKinds = Array.from(new Set(completed.map((entry) => entry.kind)));
+            const referenceWrites = completed.map((entry) => {
+              const queued = jobsRef.current.find((candidate) => candidate.id === entry.id);
+              return entry.assetId
+                ? writeStudioAssetReferences(
+                  entry.assetId,
+                  queued?.request?.references || [],
+                  referenceStore,
+                )
+                : Promise.resolve();
+            });
+            await Promise.all([
+              ...landedKinds.map((assetKind) => refreshAssetKind(assetKind)),
+              ...referenceWrites,
+            ]);
             if (stopped) return;
           }
           setJobs((current) => current.map((entry) => {
@@ -635,7 +726,7 @@ export function StudioPane({
       stopped = true;
       clearInterval(timer);
     };
-  }, [active, api, refreshAssetKind, runningKey]);
+  }, [active, api, referenceStore, refreshAssetKind, runningKey]);
 
   // A finished run owns its slot only until the indexed asset can take the
   // place over. Keeping the job past that point made the slot re-openable:
@@ -800,6 +891,29 @@ export function StudioPane({
   }, [active, generating]);
   // The model publishes its own reference cap (Veo 1, Gemini 3, Grok 5/7).
   const maxRefs = modelControls(spec, activeModel).maxReferences ?? (kind === 'video' ? 7 : 5);
+  useEffect(() => {
+    if (!lane) return;
+    setRefs((current) => current.length > maxRefs ? current.slice(0, maxRefs) : current);
+  }, [lane, maxRefs]);
+
+  const openReference = async (
+    reference: { base64: string; mime: string; url: string },
+    index: number,
+  ) => {
+    if (refDragJustEnded.current) return;
+    const extension = reference.mime.split('/')[1]?.replace(/[^a-z0-9.+-]/gi, '') || 'png';
+    try {
+      await api?.openAttachmentImage?.(reference.url, `reference-${index + 1}.${extension}`);
+    } catch (reason) {
+      setError(errorText(reason));
+    }
+  };
+
+  const finishReferenceDrag = () => {
+    draggedRefIndex.current = null;
+    setRefDrop(null);
+    window.setTimeout(() => { refDragJustEnded.current = false; }, 0);
+  };
 
   const addFiles = async (files: FileList | File[]) => {
     const picked = [...files].filter((file) => file.type.startsWith('image/')).slice(0, maxRefs - refs.length);
@@ -888,6 +1002,7 @@ export function StudioPane({
     setHoverId('');
     try {
       await callCapability(api, 'deleteMediaAsset', [asset.id]);
+      await removeStudioAssetReferences(asset.id, referenceStore);
       if (selected?.id === asset.id) setSelected(null);
       setAssets((current) => current.filter((entry) => entry.id !== asset.id));
       // The run that produced this asset goes with it. A job left behind would
@@ -911,13 +1026,17 @@ export function StudioPane({
   // viewer, or remove it from the gallery.
   const regenerate = async (asset: MediaAsset) => {
     if (!asset.prompt.trim()) return;
+    const references = (await readStudioAssetReferences(asset.id, referenceStore)).map((reference) => ({
+      ...reference,
+      url: `data:${reference.mime};base64,${reference.base64}`,
+    }));
     const started = await startQueuedRequest({
       lane: asset.lane,
       kind: asset.kind,
       model: asset.model,
       prompt: asset.prompt.trim(),
       options: { ...(asset.options || {}) },
-      references: [],
+      references,
     });
     if (started) {
       setKind(asset.kind);
@@ -925,9 +1044,19 @@ export function StudioPane({
     }
   };
 
+  const openAsset = async (asset: MediaAsset) => {
+    try {
+      if (api?.openMediaAsset) await api.openMediaAsset(asset.id);
+      else await callCapability(api, 'openMediaAsset', [asset.id]);
+    } catch (reason) {
+      setError(errorText(reason));
+    }
+  };
+
   const openAssetFolder = async (asset: MediaAsset) => {
     try {
-      await callCapability(api, 'openMediaFolder', [asset.id]);
+      if (api?.openMediaFolder) await api.openMediaFolder(asset.id);
+      else await callCapability(api, 'openMediaFolder', [asset.id]);
     } catch (reason) {
       setError(errorText(reason));
     }
@@ -1010,14 +1139,15 @@ export function StudioPane({
     (!controls.resolution?.length || controls.resolution.includes(options.resolution))
     && (!controls.aspectRatio?.length || controls.aspectRatio.includes(options.aspectRatio))
   );
+  // Thumbnail bytes are tile-local decoration. A cold, large, or broken first
+  // asset must not hold the opaque Studio cover over an otherwise usable pane.
   const studioSurfaceReady = active
     && gridMotionReady
     && gallerySettled
     && catalogSettled
     && kindSettled
     && routeSettled
-    && optionsSettled
-    && (visibleAssets.length === 0 || firstThumbnailReady);
+    && optionsSettled;
   useEffect(() => {
     if (!studioSurfaceReady) return;
     reportStudioLoadStage('shell', '', false, bootMetricToken);
@@ -1425,8 +1555,6 @@ export function StudioPane({
                   : undefined}
                 onLoad={() => {
                   loadedThumbsRef.current[asset.id] = true;
-                  setFirstThumbnailReady(true);
-                  reportStudioLoadStage('first-thumbnail', `kind=${asset.kind}`);
                   setRatios((current) => {
                     if (current[asset.id]) return current;
                     const next = { ...current, [asset.id]: mediaFrameRatio(asset) };
@@ -1456,15 +1584,68 @@ export function StudioPane({
         </div>
       </div>
       </div>
-      <div className="studio-dock">
+      <div className="studio-dock" ref={dockRef}>
         {/* Progress AND job failures live on the pending tile; the banner is
             only for pane-level errors. */}
         <InlineErrors messages={[error].filter(Boolean)} />
         <div className="studio-composer" data-dropping={dropping ? 'true' : undefined}>
           {refs.length > 0 && <div className="studio-refs" aria-label={t('Reference images')}>
-            {refs.map((ref, index) => <span key={ref.url} className="studio-ref">
-              <img src={ref.url} alt="" />
-              <button type="button" aria-label={t('Remove reference')}
+            {refs.map((ref, index) => <span key={`${ref.url}-${index}`} className="studio-ref"
+              draggable
+              data-dragging={refDrop?.source === index ? 'true' : undefined}
+              data-drop-position={refDrop?.target === index && refDrop.source !== index
+                ? refDrop.position : undefined}
+              onDragStart={(event) => {
+                if ((event.target as HTMLElement).closest('.studio-ref-remove')) {
+                  event.preventDefault();
+                  return;
+                }
+                draggedRefIndex.current = index;
+                refDragJustEnded.current = false;
+                setRefDrop({ source: index, target: index, position: 'before' });
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', String(index));
+              }}
+              onDragOver={(event) => {
+                const source = draggedRefIndex.current;
+                if (source === null || source === index) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+                const bounds = event.currentTarget.getBoundingClientRect();
+                const position = event.clientX < bounds.left + bounds.width / 2
+                  ? 'before' : 'after';
+                setRefDrop({ source, target: index, position });
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const source = draggedRefIndex.current
+                  ?? Number(event.dataTransfer.getData('text/plain'));
+                const bounds = event.currentTarget.getBoundingClientRect();
+                const position = event.clientX < bounds.left + bounds.width / 2
+                  ? 'before' : 'after';
+                if (Number.isInteger(source) && source >= 0 && source < refs.length && source !== index) {
+                  setRefs((current) => {
+                    if (source >= current.length || index >= current.length) return current;
+                    const next = [...current];
+                    const [moved] = next.splice(source, 1);
+                    const target = index - (source < index ? 1 : 0);
+                    next.splice(target + (position === 'after' ? 1 : 0), 0, moved);
+                    return next;
+                  });
+                }
+                refDragJustEnded.current = true;
+                finishReferenceDrag();
+              }}
+              onDragEnd={() => {
+                refDragJustEnded.current = true;
+                finishReferenceDrag();
+              }}>
+              <button type="button" className="studio-ref-open"
+                aria-label={`${t('Open image')} ${index + 1}`}
+                onClick={() => void openReference(ref, index)}>
+                <img src={ref.url} alt="" draggable={false} />
+              </button>
+              <button type="button" className="studio-ref-remove" aria-label={t('Remove reference')}
                 onClick={() => setRefs((current) => current.filter((_, at) => at !== index))}>
                 <X size={12} aria-hidden="true" />
               </button>
@@ -1576,8 +1757,11 @@ export function StudioPane({
               autoPlay={mediaForeground && localTransport} playsInline
               preload={mediaForeground && localTransport ? 'metadata' : 'none'}
               onError={() => markUrlBroken(selected.id, 'original')} />
-            : <img src={assetUrl(selected.id, 'display') || previewUrl || thumbs[selected.id] || ''}
-              alt={selected.prompt} onError={() => markUrlBroken(selected.id, 'display')} />}
+            : <button type="button" className="studio-detail-media-open" title={t('Open image')}
+              aria-label={t('Open image')} onClick={() => void openAsset(selected)}>
+              <img src={assetUrl(selected.id, 'display') || previewUrl || thumbs[selected.id] || ''}
+                alt={selected.prompt} onError={() => markUrlBroken(selected.id, 'display')} />
+            </button>}
           <button type="button" className="studio-detail-stage-close" aria-label={t('Close preview')}
             onClick={() => setSelected(null)}><X size={16} aria-hidden="true" /></button>
         </div>

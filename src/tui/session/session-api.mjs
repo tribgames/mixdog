@@ -350,6 +350,24 @@ export function createSessionApiA(bag) {
         set({ commandBusy: false });
       }
     },
+    setBuiltinToolEnabled: async (name, enabled) => {
+      if (getState().commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        return await runtime.setBuiltinToolEnabled?.(name, enabled);
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    installBuiltinFeature: async (name) => {
+      if (getState().commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        return await runtime.installBuiltinFeature?.(name);
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
     getChannelSettings: (options = {}) => {
       return runtime.getChannelSettings?.(options) || {
         enabled: true,

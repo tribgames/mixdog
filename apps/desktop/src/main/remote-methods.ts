@@ -592,6 +592,10 @@ export function createRemoteMethods(
     // own browser exactly like the desktop does.
     githubStarStatus: () => invokeDesktopOperation('githubStarStatus', []),
     starGithub: () => invokeDesktopOperation('starGithub', []),
+    gitCliStatus: () => invokeDesktopOperation('gitCliStatus', []),
+    installGitCli: () => invokeDesktopOperation('installGitCli', []),
+    libreOfficeStatus: () => invokeDesktopOperation('libreOfficeStatus', []),
+    installLibreOffice: () => invokeDesktopOperation('installLibreOffice', []),
     githubCliStatus: () => invokeDesktopOperation('githubCliStatus', []),
     installGithubCli: () => invokeDesktopOperation('installGithubCli', []),
     githubCliLoginStart: () => invokeDesktopOperation('githubCliLoginStart', []),

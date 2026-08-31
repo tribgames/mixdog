@@ -21,7 +21,7 @@
 
 # Published benchmark artifacts are evidence: keep every byte exactly as the
 # harness wrote it, with no end-of-line normalization on checkout or commit.
-benchmarks/terminal-bench-2.1/raw-runs/** -text
+benchmarks/terminal-bench-2.1/raw-runs/** -text whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab,cr-at-eol conflict-marker-size=1024
 
 # Binary
 *.png binary

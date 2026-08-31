@@ -1,8 +1,9 @@
 import { basename, extname, join, posix } from 'node:path';
+import { resolveImageLayout } from './image-layout.mjs';
 import { shrinkFontSizeToFit } from './text-metrics.mjs';
 import { pictureXml, resolveGeometry, shapeXml, supportedShapeTypes, tableXml, textBodyXml, toEmu } from './portable-slide-shapes.mjs';
 import { readFile } from 'node:fs/promises';
-import { addPackageRelationship, ensureDefaultContentType, partRelationshipPath, removePackageRelationship, zipText } from './portable-opc.mjs';
+import { addPackageRelationship, ensureDefaultContentType, imagePixelSize, partRelationshipPath, removePackageRelationship, zipText } from './portable-opc.mjs';
 import { DRAWING_MAIN_NS, OFFICE_RELATIONSHIP_BASE, containerBody, containerInner, rebuildTextNodes, textNodes, topLevelElements, xmlAttribute, xmlEncode } from './portable-xml.mjs';
 import { addSlideImage, slidePath } from './portable-pptx-package.mjs';
 import { DEFAULT_TEXT_INSETS, appendSlideShape, balancedInner, nextShapeId, presentationSlideSize, selectedShapeSpans, setTableValues, shapeFrame, shapeParagraphs, updateShapeGeometry, writeShapeTree } from './portable-pptx-core.mjs';
@@ -265,19 +266,44 @@ export async function handleAddImage(context, op) {
   const { zip } = context;
   const slides = context.slides;
   const path = slidePath(slides, op.slide);
+  const sourceSize = imagePixelSize(await readFile(op.path));
+  const placement = resolveImageLayout({
+    sourceWidth: sourceSize?.width,
+    sourceHeight: sourceSize?.height,
+    left: op.left ?? 72,
+    top: op.top ?? 72,
+    width: op.width ?? 240,
+    height: op.height ?? 180,
+    fit: op.fit,
+    focusX: op.focusX,
+    focusY: op.focusY,
+  });
   const media = await addSlideImage(zip, path, op.path);
   const current = await zipText(zip, path);
   const id = nextShapeId(current);
   const picture = pictureXml({
     id,
     embedId: media.relationshipId,
-    left: op.left ?? 72,
-    top: op.top ?? 72,
-    width: op.width ?? 240,
-    height: op.height ?? 180,
+    left: placement.left,
+    top: placement.top,
+    width: placement.width,
+    height: placement.height,
+    crop: placement.crop,
   });
   zip.file(path, appendSlideShape(current, picture));
-  return { op: op.op, changed: true, shapeId: id, image: media.part };
+  return {
+    op: op.op,
+    changed: true,
+    shapeId: id,
+    image: media.part,
+    fit: placement.fit,
+    placement: {
+      left: placement.left,
+      top: placement.top,
+      width: placement.width,
+      height: placement.height,
+    },
+  };
 }
 
 

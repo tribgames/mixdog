@@ -13,6 +13,14 @@ import {
     hasCursorOAuthCredentials,
 } from '../src/runtime/agent/orchestrator/providers/cursor-auth.mjs';
 import { __cursorWireInternals } from '../src/runtime/agent/orchestrator/providers/cursor-wire.mjs';
+import {
+    MAX_CONNECT_FRAME_BYTES,
+    MAX_TOOL_TEXT_BYTES,
+    capCursorToolResult,
+    cursorInteractionProgress,
+    prepareCursorToolDefinition,
+    storeCursorBlob,
+} from '../src/runtime/agent/orchestrator/providers/cursor-wire-guards.mjs';
 import { providerDisplayName } from '../src/tui/app/model-options.mjs';
 import { fastCapableFor } from '../src/session-runtime/model-capabilities.mjs';
 import { providerModelCacheRow } from '../src/session-runtime/model-recency.mjs';
@@ -875,7 +883,7 @@ test('Cursor wire codec round-trips the Mixdog-facing protocol subset', () => {
     );
     assert.deepEqual(
         __cursorWireInternals.decodeMessage('AgentServerMessage', Buffer.from('0a026a00', 'hex')),
-        { interactionUpdate: {} },
+        { interactionUpdate: { heartbeat: {} } },
     );
     const samePrompt = [{ role: 'user', content: 'hello' }];
     assert.notEqual(
@@ -1393,4 +1401,234 @@ test('Cursor stream rejects protocol errors instead of rendering them as assista
         key: 'malformed-end-fixture',
     });
     await assert.rejects(malformedEnd.text(), /invalid end-stream frame/);
+});
+
+test('Cursor answers interaction queries, rejects unknown native execs, and accepts turnEnded close', async () => {
+    let dataHandler = null;
+    let closeHandler = null;
+    const bridge = {
+        alive: true,
+        writes: [],
+        onData(handler) { dataHandler = handler; },
+        onClose(handler) { closeHandler = handler; },
+        write(bytes) { this.writes.push(bytes); },
+        close(error = null) {
+            if (!this.alive) return;
+            this.alive = false;
+            closeHandler?.(error);
+        },
+        emit(bytes) { dataHandler?.(bytes); },
+    };
+    const heartbeat = setInterval(() => {}, 10_000);
+    heartbeat.unref?.();
+    const response = __cursorWireInternals.createStreamResponse({
+        bridge,
+        heartbeat,
+        conversation: { blobs: new Map(), checkpoint: null },
+        tools: [],
+        cloudRule: undefined,
+        model: 'auto',
+        key: 'interaction-query-fixture',
+    });
+
+    bridge.emit(__cursorWireInternals.connectFrame(
+        __cursorWireInternals.encodeMessage('AgentServerMessage', {
+            interactionQuery: {
+                id: 7,
+                webSearchRequestQuery: new Uint8Array(),
+            },
+        }),
+    ));
+    const unknownWebFetch = Buffer.from([0x3a, 0x04, 0x08, 0x0b, 0x4a, 0x00]);
+    bridge.emit(__cursorWireInternals.connectFrame(unknownWebFetch));
+    bridge.emit(__cursorWireInternals.connectFrame(
+        __cursorWireInternals.encodeMessage('AgentServerMessage', {
+            execServerMessage: {
+                id: 22,
+                execId: 'exec-computer',
+                computerUseArgs: new Uint8Array(),
+            },
+        }),
+    ));
+
+    const replies = [];
+    for (const write of bridge.writes) {
+        __cursorWireInternals.createFrameParser((bytes) => {
+            replies.push(__cursorWireInternals.decodeMessage('AgentClientMessage', bytes));
+        }, () => {})(write);
+    }
+    assert.match(
+        replies[0].interactionResponse.webSearchRequestResponse.rejected.reason,
+        /Mixdog tools/,
+    );
+    assert.match(
+        replies[1].interactionResponse.webFetchRequestResponse.rejected.reason,
+        /Mixdog tools/,
+    );
+    assert.equal(replies[2].execClientControlMessage.throw.id, 22);
+    assert.match(replies[2].execClientControlMessage.throw.error, /Unsupported Cursor native exec/);
+
+    bridge.emit(__cursorWireInternals.connectFrame(
+        __cursorWireInternals.encodeMessage('AgentServerMessage', {
+            interactionUpdate: { turnEnded: {} },
+        }),
+    ));
+    bridge.close();
+    const text = await response.text();
+    assert.match(text, /data: \[DONE\]/);
+});
+
+test('Cursor resumes a partially visible stream only from a checkpoint', async () => {
+    const bridgeFixture = () => {
+        let dataHandler = null;
+        let closeHandler = null;
+        return {
+            alive: true,
+            onData(handler) { dataHandler = handler; },
+            onClose(handler) { closeHandler = handler; },
+            write() {},
+            close(error = null) {
+                if (!this.alive) return;
+                this.alive = false;
+                closeHandler?.(error);
+            },
+            emit(bytes) { dataHandler?.(bytes); },
+        };
+    };
+    const first = bridgeFixture();
+    const second = bridgeFixture();
+    const conversation = { blobs: new Map(), checkpoint: null };
+    const restarts = [];
+    const response = __cursorWireInternals.createStreamResponse({
+        bridge: first,
+        heartbeat: setInterval(() => {}, 10_000),
+        conversation,
+        tools: [],
+        cloudRule: undefined,
+        model: 'composer-2.5',
+        key: 'checkpoint-retry-fixture',
+        restart(options) {
+            restarts.push(options);
+            return {
+                bridge: second,
+                heartbeat: setInterval(() => {}, 10_000),
+            };
+        },
+    });
+    first.emit(__cursorWireInternals.connectFrame(
+        __cursorWireInternals.encodeMessage('AgentServerMessage', {
+            conversationCheckpointUpdate: __cursorWireInternals.encodeMessage(
+                'ConversationStateStructure',
+                { tokenDetails: { usedTokens: 10 } },
+            ),
+        }),
+    ));
+    first.emit(__cursorWireInternals.connectFrame(
+        __cursorWireInternals.encodeMessage('AgentServerMessage', {
+            interactionUpdate: { textDelta: { text: 'hello ' } },
+        }),
+    ));
+    first.close(new Error('simulated GOAWAY'));
+
+    assert.equal(restarts.length, 1);
+    assert.equal(restarts[0].fromCheckpoint, true);
+    assert.equal(restarts[0].visibleOutput, true);
+    second.emit(__cursorWireInternals.connectFrame(
+        __cursorWireInternals.encodeMessage('AgentServerMessage', {
+            interactionUpdate: { textDelta: { text: 'world' } },
+        }),
+    ));
+    second.emit(__cursorWireInternals.connectFrame(
+        __cursorWireInternals.encodeMessage('AgentServerMessage', {
+            interactionUpdate: { turnEnded: {} },
+        }),
+    ));
+    second.close();
+    const text = await response.text();
+    assert.match(text, /"content":"hello "/);
+    assert.match(text, /"content":"world"/);
+});
+
+test('Cursor never blindly replays a partially visible stream without a checkpoint', async () => {
+    let dataHandler = null;
+    let closeHandler = null;
+    let restartCount = 0;
+    const bridge = {
+        alive: true,
+        onData(handler) { dataHandler = handler; },
+        onClose(handler) { closeHandler = handler; },
+        write() {},
+        close(error = null) {
+            if (!this.alive) return;
+            this.alive = false;
+            closeHandler?.(error);
+        },
+        emit(bytes) { dataHandler?.(bytes); },
+    };
+    const response = __cursorWireInternals.createStreamResponse({
+        bridge,
+        heartbeat: setInterval(() => {}, 10_000),
+        conversation: { blobs: new Map(), checkpoint: null },
+        tools: [],
+        cloudRule: undefined,
+        model: 'auto',
+        key: 'unsafe-replay-fixture',
+        restart() {
+            restartCount += 1;
+            throw new Error('must not restart');
+        },
+    });
+    bridge.emit(__cursorWireInternals.connectFrame(
+        __cursorWireInternals.encodeMessage('AgentServerMessage', {
+            interactionUpdate: { textDelta: { text: 'already visible' } },
+        }),
+    ));
+    bridge.close(new Error('simulated transport loss'));
+    await assert.rejects(response.text(), /simulated transport loss/);
+    assert.equal(restartCount, 0);
+});
+
+test('Cursor wire guards bound schemas, tool payloads, blobs, and frames', () => {
+    const prepared = prepareCursorToolDefinition({
+        function: {
+            name: 'verbose',
+            description: 'A'.repeat(300),
+            parameters: {
+                type: 'object',
+                description: 'schema prose',
+                properties: {
+                    mode: {
+                        type: 'string',
+                        description: 'parameter prose',
+                        enum: ['safe', 'fast'],
+                    },
+                },
+                required: ['mode'],
+            },
+        },
+    });
+    assert.ok(prepared.description.length <= 120);
+    assert.equal(prepared.inputSchema.description, undefined);
+    assert.equal(prepared.inputSchema.properties.mode.description, undefined);
+    assert.deepEqual(prepared.inputSchema.properties.mode.enum, ['safe', 'fast']);
+    assert.deepEqual(prepared.inputSchema.required, ['mode']);
+
+    const capped = capCursorToolResult({
+        content: 'x'.repeat(MAX_TOOL_TEXT_BYTES + 100),
+        media: [],
+    });
+    assert.ok(Buffer.byteLength(capped.content) <= MAX_TOOL_TEXT_BYTES);
+    assert.match(capped.content, /truncated/);
+
+    const blobs = new Map();
+    for (let index = 0; index < 513; index += 1) {
+        storeCursorBlob(blobs, `blob-${index}`, Uint8Array.of(index & 0xff));
+    }
+    assert.equal(blobs.size, 512);
+    assert.equal(blobs.has('blob-0'), false);
+    assert.equal(cursorInteractionProgress({ heartbeat: {} }), 'liveness');
+    assert.throws(
+        () => __cursorWireInternals.connectFrame({ length: MAX_CONNECT_FRAME_BYTES + 1 }),
+        /exceeds 67108864 bytes/,
+    );
 });

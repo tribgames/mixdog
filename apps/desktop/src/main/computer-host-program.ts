@@ -26,6 +26,7 @@ public static class MixdogAbortCleanup {
   [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
   [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int command);
   [DllImport("user32.dll")] static extern bool IsWindow(IntPtr hwnd);
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, IntPtr processId);
   [DllImport("user32.dll")] static extern bool AttachThreadInput(uint from, uint to, bool attach);
   [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
@@ -40,14 +41,15 @@ public static class MixdogAbortCleanup {
   }
   static void Focus(IntPtr hwnd) {
     if (hwnd == IntPtr.Zero || !IsWindow(hwnd)) return;
-    ShowWindow(hwnd, 9);
+    // Restoring a maximized window would resize it; only un-minimize.
+    if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
     if (SetForegroundWindow(hwnd) && GetForegroundWindow() == hwnd) return;
     uint foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), IntPtr.Zero);
     uint currentThread = GetCurrentThreadId();
     bool attached = foregroundThread != 0 && foregroundThread != currentThread
       && AttachThreadInput(foregroundThread, currentThread, true);
     try {
-      ShowWindow(hwnd, 9);
+      if (IsIconic(hwnd)) ShowWindow(hwnd, 9);
       SetForegroundWindow(hwnd);
     } finally {
       if (attached) AttachThreadInput(foregroundThread, currentThread, false);

@@ -18,6 +18,33 @@ function fixture(root, name, fingerprint, start, agentSeconds, options = {}) {
   const jobsDir = join(root, name);
   const runDir = join(jobsDir, '2026-08-15__00-00-00');
   mkdirSync(runDir, { recursive: true });
+  const errorIndex = Number.isInteger(options.errorIndex) ? options.errorIndex : null;
+  // Default shape: one trial per task over tasks a/b, wall clock equal to the
+  // agent phase unless options.wallSeconds stretches it. `options.trials`
+  // instead builds arbitrary per-task trial lists for k>1 pairing scenarios.
+  const trialSpecs = options.trials?.map((spec, index) => ({
+    dirName: `${spec.task}__r${index}`,
+    task: spec.task,
+    index,
+    reward: Object.hasOwn(spec, 'reward') ? spec.reward : 1,
+    agentSeconds: spec.agentSeconds ?? 10,
+    wallSeconds: spec.wallSeconds ?? spec.agentSeconds ?? 10,
+    cost: spec.cost ?? 1,
+    failed: spec.failed === true,
+    usageModel: null,
+    traceRows: null,
+  })) ?? ['a', 'b'].map((task, index) => ({
+    dirName: `${task}__fixture`,
+    task,
+    index,
+    reward: options.rewards && Object.hasOwn(options.rewards, index) ? options.rewards[index] : 1,
+    agentSeconds: agentSeconds[index],
+    wallSeconds: options.wallSeconds?.[index] ?? agentSeconds[index],
+    cost: options.costs?.[index] ?? 1,
+    failed: index === errorIndex,
+    usageModel: options.usageModels?.[index] ?? null,
+    traceRows: index === errorIndex && Array.isArray(options.traceRows) ? options.traceRows : null,
+  }));
   writeFileSync(join(jobsDir, 'preset-run.json'), JSON.stringify({
     schemaVersion: 1,
     preset: 'sol-xhigh',
@@ -27,23 +54,22 @@ function fixture(root, name, fingerprint, start, agentSeconds, options = {}) {
     exitCode: 0,
     definition: {
       suite: 'core',
-      tasks: ['a', 'b'],
+      tasks: [...new Set(trialSpecs.map((spec) => spec.task))],
       routeProfile: 'sol-xhigh',
       routes: { lead: { provider: 'openai-oauth', model: 'gpt-5.6-sol', effort: 'xhigh' } },
       concurrent: 8,
-      attempts: 1,
+      attempts: options.attempts ?? 1,
     },
     comparison: options.comparison ?? null,
     ...(options.contract === false ? {} : { contract: options.contract ?? measuredContract() }),
   }));
-  const errorIndex = Number.isInteger(options.errorIndex) ? options.errorIndex : null;
   writeFileSync(join(runDir, 'result.json'), JSON.stringify({
     started_at: start,
     finished_at: new Date(new Date(start).getTime() + 60_000).toISOString(),
-    n_total_trials: 2,
+    n_total_trials: trialSpecs.length,
     stats: {
-      n_completed_trials: 2,
-      n_errored_trials: errorIndex == null ? 0 : 1,
+      n_completed_trials: trialSpecs.length,
+      n_errored_trials: trialSpecs.filter((spec) => spec.failed).length,
       n_running_trials: 0,
       n_pending_trials: 0,
       n_cancelled_trials: 0,
@@ -53,41 +79,39 @@ function fixture(root, name, fingerprint, start, agentSeconds, options = {}) {
       n_output_tokens: 20,
     },
   }));
-  for (const [index, task] of ['a', 'b'].entries()) {
-    const trialDir = join(runDir, `${task}__fixture`);
+  for (const spec of trialSpecs) {
+    const trialDir = join(runDir, spec.dirName);
     mkdirSync(trialDir);
-    const agentStart = new Date(new Date(start).getTime() + index * 1_000);
-    const agentFinish = new Date(agentStart.getTime() + agentSeconds[index] * 1_000);
-    const failed = index === errorIndex;
-    const reward = options.rewards && Object.hasOwn(options.rewards, index)
-      ? options.rewards[index]
-      : 1;
+    const trialStart = new Date(new Date(start).getTime() + spec.index * 1_000);
+    const agentFinish = new Date(trialStart.getTime() + spec.agentSeconds * 1_000);
     writeFileSync(join(trialDir, 'result.json'), JSON.stringify({
-      task_id: { name: task },
-      ...(reward == null ? {} : { verifier_result: { rewards: { reward } } }),
-      ...(failed ? {
+      task_id: { name: spec.task },
+      started_at: trialStart.toISOString(),
+      finished_at: new Date(trialStart.getTime() + spec.wallSeconds * 1_000).toISOString(),
+      ...(spec.reward == null ? {} : { verifier_result: { rewards: { reward: spec.reward } } }),
+      ...(spec.failed ? {
         exception_info: {
           exception_type: 'AgentTimeoutError',
           exception_message: 'Agent execution timed out after 900.0 seconds',
         },
       } : {}),
       agent_execution: {
-        started_at: agentStart.toISOString(),
+        started_at: trialStart.toISOString(),
         finished_at: agentFinish.toISOString(),
       },
-      ...(!failed ? { agent_result: {
+      ...(!spec.failed ? { agent_result: {
         n_input_tokens: 50,
         n_cache_tokens: 25,
         n_output_tokens: 10,
-        cost_usd: options.costs?.[index] ?? 1,
+        cost_usd: spec.cost,
       } } : {}),
     }));
-    if (options.usageModels?.[index]) {
+    if (spec.usageModel) {
       const agentDir = join(trialDir, 'agent');
       mkdirSync(agentDir, { recursive: true });
       writeFileSync(join(agentDir, 'usage.json'), JSON.stringify({
         sessions: [{
-          models: [options.usageModels[index]],
+          models: [spec.usageModel],
           inputTokens: 50,
           cacheTokens: 25,
           cacheWriteTokens: 0,
@@ -101,12 +125,12 @@ function fixture(root, name, fingerprint, start, agentSeconds, options = {}) {
         },
       }));
     }
-    if (failed && Array.isArray(options.traceRows)) {
+    if (spec.traceRows) {
       const agentDir = join(trialDir, 'agent');
       mkdirSync(agentDir, { recursive: true });
       writeFileSync(
         join(agentDir, 'agent-trace.jsonl'),
-        `${options.traceRows.map((row) => JSON.stringify(row)).join('\n')}\n`,
+        `${spec.traceRows.map((row) => JSON.stringify(row)).join('\n')}\n`,
       );
     }
   }
@@ -340,6 +364,7 @@ test('pairs a full preset with its pinned baseline on settled shared tasks', () 
       bothFail: 0,
     });
     assert.equal(report.pair.ratios.speedup, 1.5);
+    assert.equal(report.pair.ratios.agentSpeedup, 1.5);
     assert.equal(report.pair.ratios.cost, 0.5);
     assert.deepEqual(report.pair.costComparison, {
       comparableTasks: 2,
@@ -385,6 +410,83 @@ test('pair cost ratio uses only tasks priced on both sides and reports partial c
       baselineUsd: 2,
     });
     assert.match(formatReport(report), /1\/2 cost-comparable tasks; partial coverage/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('pair speed is the full trial wall clock, not the agent phase alone', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-tb-pair-wall-'));
+  try {
+    fixture(root, 'jobs-baseline', 'sha256:baseline', '2026-08-15T00:00:00.000Z', [20, 40], {
+      wallSeconds: [30, 50],
+      costs: [2, 2],
+    });
+    const currentDir = fixture(root, 'jobs-current', 'sha256:current', '2026-08-15T00:04:00.000Z', [15, 25], {
+      wallSeconds: [20, 20],
+      costs: [1, 1],
+      comparison: {
+        name: 'fixture-baseline',
+        baseline: { label: 'Fixture baseline', jobsDir: 'jobs-baseline' },
+      },
+    });
+    const report = generateRunReport({ jobsDir: currentDir, historyRoot: root });
+    assert.equal(report.pair.ratios.speedup, 2);
+    assert.equal(report.pair.ratios.agentSpeedup, 1.5);
+    assert.deepEqual(report.pair.timeComparison, { comparableTrials: 2, totalTrials: 2 });
+    assert.equal(report.pair.ours.wallTotalSeconds, 40);
+    assert.equal(report.pair.baseline.wallTotalSeconds, 80);
+    assert.match(formatReport(report), /Wall speedup: \*\*2\.00x\*\* \(agent 1\.50x\)/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('pairs k>1 runs trial for trial and cycles a shorter baseline', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-tb-pair-k-'));
+  try {
+    fixture(root, 'jobs-baseline-k2', 'sha256:base-k2', '2026-08-15T00:00:00.000Z', [], {
+      trials: [
+        { task: 'a', reward: 1, agentSeconds: 10, wallSeconds: 20 },
+        { task: 'a', reward: 0, agentSeconds: 10, wallSeconds: 40 },
+      ],
+    });
+    const equalDir = fixture(root, 'jobs-current-k2', 'sha256:ours-k2', '2026-08-15T00:04:00.000Z', [], {
+      attempts: 2,
+      trials: [
+        { task: 'a', reward: 0, agentSeconds: 10, wallSeconds: 10 },
+        { task: 'a', reward: 1, agentSeconds: 10, wallSeconds: 20 },
+      ],
+      comparison: {
+        name: 'fixture-baseline',
+        baseline: { label: 'Fixture baseline', jobsDir: 'jobs-baseline-k2' },
+      },
+    });
+    const equal = generateRunReport({ jobsDir: equalDir, historyRoot: root });
+    // Pass-first pairing: outcomes equal the per-task overlap, never the
+    // accidental trial order.
+    assert.equal(equal.pair.sharedTasks, 2);
+    assert.deepEqual(equal.pair.outcomes, { oursOnly: 0, baselineOnly: 0, bothPass: 1, bothFail: 1 });
+    assert.equal(equal.pair.ratios.speedup, 2);
+
+    fixture(root, 'jobs-baseline-k1', 'sha256:base-k1', '2026-08-15T00:00:00.000Z', [], {
+      trials: [{ task: 'a', reward: 1, agentSeconds: 10, wallSeconds: 30 }],
+    });
+    const cycledDir = fixture(root, 'jobs-current-cycled', 'sha256:ours-cycled', '2026-08-15T00:08:00.000Z', [], {
+      attempts: 2,
+      trials: [
+        { task: 'a', reward: 1, agentSeconds: 10, wallSeconds: 10 },
+        { task: 'a', reward: 0, agentSeconds: 10, wallSeconds: 20 },
+      ],
+      comparison: {
+        name: 'fixture-baseline',
+        baseline: { label: 'Fixture baseline', jobsDir: 'jobs-baseline-k1' },
+      },
+    });
+    const cycled = generateRunReport({ jobsDir: cycledDir, historyRoot: root });
+    assert.equal(cycled.pair.sharedTasks, 2);
+    assert.deepEqual(cycled.pair.outcomes, { oursOnly: 0, baselineOnly: 1, bothPass: 1, bothFail: 0 });
+    assert.equal(cycled.pair.ratios.speedup, 2);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

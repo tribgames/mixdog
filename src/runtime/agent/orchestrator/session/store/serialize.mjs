@@ -46,7 +46,7 @@ export function _sessionForDisk(session) {
             _providerPrefixGuardState: _dropPPGS,
             ...rest
         } = session;
-        return rest;
+        return _withMidTurnContextAnchor(rest, session);
     }
     const out = _messagesForDisk(messages);
     if (out === messages) {
@@ -57,7 +57,7 @@ export function _sessionForDisk(session) {
             _providerPrefixGuardState: _dropPPGS,
             ...rest
         } = session;
-        return rest;
+        return _withMidTurnContextAnchor(rest, session);
     }
     const {
         liveTurnMessages: _dropLTM,
@@ -65,7 +65,27 @@ export function _sessionForDisk(session) {
         _providerPrefixGuardState: _dropPPGS,
         ...rest
     } = session;
-    return { ...rest, messages: out };
+    return _withMidTurnContextAnchor({ ...rest, messages: out }, session);
+}
+
+/**
+ * A mid-turn save persists the PRE-TURN transcript (`session.messages` is
+ * rewritten only at commit) while the provider baseline was recorded against
+ * the live turn array the loop mutates and compacts. The two describe different
+ * transcripts, so a cold reader that trusted that anchor — or fell back to
+ * estimating the pre-turn copy — reported multiples of the real prompt size
+ * (measured: 599K shown against a 500K window while the provider's own prompt
+ * was 112K). Persist the snapshot as unanchored instead: readers keep the last
+ * actual provider reading, and no cold projection can compact from it.
+ */
+function _withMidTurnContextAnchor(diskSession, session) {
+    const live = session?.liveTurnMessages;
+    if (!Array.isArray(live) || live === session?.messages) return diskSession;
+    return {
+        ...diskSession,
+        contextPressureUnanchoredAfterRestart: true,
+        contextPressureUnanchoredReason: 'mid_turn_snapshot',
+    };
 }
 
 export function _renameWithRetrySync(tmp, target) {

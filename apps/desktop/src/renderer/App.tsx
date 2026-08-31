@@ -64,6 +64,10 @@ import {
 import {
   type SettingsSection as SlashSettingsSection
 } from "./slash-commands";
+import {
+  extensionSectionForSettings,
+  type ExtensionsSection,
+} from "./extension-sections";
 import { TooltipLayer } from "./TooltipLayer";
 import {
   UnsavedChangesDialog,
@@ -350,9 +354,7 @@ export function App() {
   const [activeSideViews, setActiveSideViews] = useState<
     Record<WorkbenchSide, WorkbenchSideViewId | null>
   >(() => initialActiveWorkbenchSideViews(workbenchSideLayout.layout));
-  const [extensionsSection, setExtensionsSection] = useState<
-    "skills" | "mcp" | "plugins"
-  >("skills");
+  const [extensionsSection, setExtensionsSection] = useState<ExtensionsSection>("plugins");
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingReady, setOnboardingReady] = useState(false);
   const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: "disabled" });
@@ -1171,10 +1173,11 @@ export function App() {
     requestSessionRead(sessionId)
   ), []);
   const openSettings = useCallback((section: SlashSettingsSection | null = null) => {
-    if (section === "skills" || section === "mcp" || section === "plugins") {
+    const extensionSection = extensionSectionForSettings(section);
+    if (extensionSection) {
       if (!desktopFeatureEnabled("extensions")) return;
       const side = workbenchSideLayout.sideOf("extensions");
-      setExtensionsSection(section);
+      setExtensionsSection(extensionSection);
       setSettingsOpen(false);
       setCommandSurface(null);
       mountSidebarPanel("extensions");

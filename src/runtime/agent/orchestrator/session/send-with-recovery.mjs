@@ -172,6 +172,48 @@ export async function sendWithRecovery(ctx) {
             });
         } catch { /* progress reporting must never break recovery */ }
     };
+    // Retry visibility (reference parity). codex surfaces EVERY stream retry to
+    // the front-end ("Reconnecting... n/max") precisely so a replayed request
+    // cannot read as ordinary thinking; gemini-cli requires an onRetry hook for
+    // the same reason. Our loop emitted the reconnect stage only for the
+    // backoff wait — the replayed send then reported plain
+    // 'requesting'/'streaming' again, so three stalled retries rendered as ~20
+    // minutes of a normal spinner with nothing to explain it. Hold the
+    // reconnect stage across the whole replay until THIS attempt shows visible
+    // progress.
+    const retryAttemptNumber = Math.max(0, Number(transportRetriesUsed) || 0);
+    const prevOnStageChange = typeof opts?.onStageChange === 'function' ? opts.onStageChange : null;
+    const retryVisibilityActive = retryAttemptNumber > 0 && !!prevOnStageChange;
+    let retryProgressObserved = !retryVisibilityActive;
+    const retryAwareOnStageChange = retryVisibilityActive
+        ? (stage, detail) => {
+            if (!retryProgressObserved && (stage === 'requesting' || stage === 'streaming')) {
+                return prevOnStageChange('reconnecting', {
+                    ...(detail && typeof detail === 'object' ? detail : {}),
+                    attempt: retryAttemptNumber,
+                    max: TRANSPORT_RETRY_MAX,
+                    message: `Reconnecting... ${retryAttemptNumber}/${TRANSPORT_RETRY_MAX}`,
+                });
+            }
+            return prevOnStageChange(stage, detail);
+        }
+        : null;
+    // The replacement stream's first visible delta ends the reconnect display:
+    // from that point the turn is healthy and must read as a normal response.
+    const prevOptsOnStreamDelta = typeof opts?.onStreamDelta === 'function' ? opts.onStreamDelta : null;
+    const retryDeltaBase = timedOpts || opts;
+    const prevOnStreamDeltaForRetry = typeof retryDeltaBase?.onStreamDelta === 'function'
+        ? retryDeltaBase.onStreamDelta
+        : null;
+    const retryAwareOnStreamDelta = retryVisibilityActive
+        ? (kind, ...rest) => {
+            if (!retryProgressObserved && isVisibleStreamProgress(kind)) {
+                retryProgressObserved = true;
+                try { prevOnStageChange('streaming', { recoveredAfterRetry: retryAttemptNumber }); } catch { /* display-only */ }
+            }
+            return prevOnStreamDeltaForRetry?.(kind, ...rest);
+        }
+        : null;
     const prevOnTextDelta = typeof opts?.onTextDelta === 'function' ? opts.onTextDelta : null;
     const prevOnToolCall = typeof opts?.onToolCall === 'function' ? opts.onToolCall : null;
     const witnessedOnTextDelta = prevOnTextDelta
@@ -189,10 +231,14 @@ export async function sendWithRecovery(ctx) {
     if (opts) {
         if (witnessedOnTextDelta) opts.onTextDelta = witnessedOnTextDelta;
         if (witnessedOnToolCall) opts.onToolCall = witnessedOnToolCall;
+        if (retryAwareOnStageChange) opts.onStageChange = retryAwareOnStageChange;
+        if (retryAwareOnStreamDelta) opts.onStreamDelta = retryAwareOnStreamDelta;
     }
     if (timedOpts !== opts && timedOpts) {
         if (witnessedOnTextDelta) timedOpts.onTextDelta = witnessedOnTextDelta;
         if (witnessedOnToolCall) timedOpts.onToolCall = witnessedOnToolCall;
+        if (retryAwareOnStageChange) timedOpts.onStageChange = retryAwareOnStageChange;
+        if (retryAwareOnStreamDelta) timedOpts.onStreamDelta = retryAwareOnStreamDelta;
     }
     try {
         try {
@@ -637,6 +683,20 @@ export async function sendWithRecovery(ctx) {
         if (opts) {
             if (witnessedOnTextDelta && opts.onTextDelta === witnessedOnTextDelta) opts.onTextDelta = prevOnTextDelta;
             if (witnessedOnToolCall && opts.onToolCall === witnessedOnToolCall) opts.onToolCall = prevOnToolCall;
+            if (retryAwareOnStageChange && opts.onStageChange === retryAwareOnStageChange) {
+                opts.onStageChange = prevOnStageChange;
+            }
+            if (retryAwareOnStreamDelta && opts.onStreamDelta === retryAwareOnStreamDelta) {
+                opts.onStreamDelta = prevOptsOnStreamDelta;
+            }
+        }
+        if (timedOpts && timedOpts !== opts) {
+            if (retryAwareOnStageChange && timedOpts.onStageChange === retryAwareOnStageChange) {
+                timedOpts.onStageChange = prevOnStageChange;
+            }
+            if (retryAwareOnStreamDelta && timedOpts.onStreamDelta === retryAwareOnStreamDelta) {
+                timedOpts.onStreamDelta = prevOnStreamDeltaForRetry;
+            }
         }
     }
     return { action: 'proceed', response };

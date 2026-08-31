@@ -1,6 +1,8 @@
 import {
   Check,
   ChevronRight,
+  Plug,
+  Sparkles,
   X,
 } from 'lucide-react';
 import React, { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
@@ -9,7 +11,6 @@ import { createPortal } from 'react-dom';
 import type {
   DesktopApi,
   DesktopRemoteAccessInfo,
-  DesktopSettingKey,
 } from '../../shared/contract';
 import {
   desktopThemeOptions,
@@ -43,24 +44,25 @@ import {
   preloadConnectionInfo,
   setCachedConnectionInfo,
 } from './connection-info';
+import { BuiltInFeaturesPanel } from './built-in-features-panel';
 import { GitPanel } from './git-panel';
 import { PushNotificationToggle } from './push-notification-toggle';
-import type { SettingsCategory } from './settings-items';
 
 import { ActionButton, AutoSaveRow, CompactSwitch, FormRow, Group, ListEmpty, ResourceRow, SelectRow, settingsStatus, ToggleRow } from "./capability-controls";
-import { durationTextInput, formatDuration, label, providerLabel, rows, sectionError, sectionLoaded, type CapabilityApi, type PanelContext, type RecordValue } from "./capability-data";
+import { durationTextInput, formatDuration, label, providerLabel, rows, sectionError, sectionLoaded, type CapabilityApi, type CapabilityCategory, type PanelContext, type RecordValue } from "./capability-data";
 
 export function CategoryPanel({ category, context }: {
-  category: SettingsCategory;
+  category: CapabilityCategory;
   context: PanelContext;
 }) {
+  if (category === 'builtins') return <BuiltInFeaturesPanel {...context} />;
   if (category === 'output-style') return <OutputStylePanel {...context} />;
   if (category === 'providers') return <ProvidersPanel {...context} />;
   if (category === 'git') return <GitPanel />;
   if (category === 'mcp') return <McpPanel {...context} />;
-  if (category === 'plugins') return <PluginsPanel {...context} />;
+  if (category === 'plugins') return <PluginExtensionsPanel {...context} />;
   if (category === 'hooks') return <HooksPanel {...context} />;
-  if (category === 'skills') return <SkillsPanel {...context} />;
+  if (category === 'skills') return <SkillExtensionsPanel {...context} />;
   if (category === 'context') return <ContextPanel {...context} />;
   if (category === 'system') return <SystemPanel {...context} />;
   if (category === 'shortcuts') return <ShortcutsPanel />;
@@ -482,125 +484,13 @@ function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
   </Group>;
 }
 
-type VoiceInstallDialogMode = 'confirm' | 'installing' | 'failed';
-
-function VoiceInstallDialog({ mode, progressText, progressPercent, onClose, onInstall }: {
-  mode: VoiceInstallDialogMode;
-  progressText: string;
-  progressPercent: number | null;
-  onClose(): void;
-  onInstall(): void;
-}) {
-  const closeRef = useRef<HTMLButtonElement>(null);
-  const modeRef = useRef(mode);
-  const onCloseRef = useRef(onClose);
-  modeRef.current = mode;
-  onCloseRef.current = onClose;
-  useEffect(() => {
-    const prior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const releaseTitleBarDim = acquireTitleBarDim();
-    return () => {
-      releaseTitleBarDim();
-      prior?.focus({ preventScroll: true });
-    };
-  }, []);
-  useEffect(() => {
-    if (mode !== 'installing') closeRef.current?.focus();
-  }, [mode]);
-  useEffect(() => {
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape' || modeRef.current === 'installing') return;
-      event.preventDefault();
-      event.stopPropagation();
-      onCloseRef.current();
-    };
-    document.addEventListener('keydown', onKeyDown, true);
-    return () => document.removeEventListener('keydown', onKeyDown, true);
-  }, []);
-  useEffect(() => registerMobileBack(() => {
-    if (modeRef.current !== 'installing') onCloseRef.current();
-  }), []);
-
-  const title = mode === 'confirm'
-    ? t('Install voice transcription?')
-    : mode === 'installing'
-      ? t('Installing…')
-      : `${t('Voice transcription')} · ${t('Failed')}`;
-  const progressStyle = progressPercent === null
-    ? undefined
-    : { width: `${progressPercent}%` };
-  return createPortal(
-    <div className="settings-confirm-layer" onMouseDown={(event) => {
-      if (event.target === event.currentTarget && mode !== 'installing') onClose();
-    }}>
-      <section className="settings-confirm-dialog voice-install-dialog" role="alertdialog" aria-modal="true"
-        aria-labelledby="voice-settings-install-title" aria-describedby="voice-settings-install-description"
-        data-settings-nested-dialog>
-        <header>
-          <h3 id="voice-settings-install-title">{title}</h3>
-          {mode !== 'installing' && <button type="button" aria-label={t('Close confirmation')}
-            data-settings-nested-close onClick={onClose}>
-            <X aria-hidden="true" size={16} />
-          </button>}
-        </header>
-        {mode === 'confirm'
-          ? <p id="voice-settings-install-description">{t('Install & enable')}</p>
-          : mode === 'installing'
-            ? <div id="voice-settings-install-description" className="voice-install-progress">
-              <p role="status">{progressText || t('Installing…')}</p>
-              <span className={`voice-install-progress-bar${progressPercent === null ? ' is-indeterminate' : ''}`}
-                role="progressbar" aria-valuenow={progressPercent ?? undefined}
-                aria-valuemin={0} aria-valuemax={100}
-                aria-valuetext={progressText || t('Installing…')}>
-                <span style={progressStyle} />
-              </span>
-            </div>
-            : <p id="voice-settings-install-description">{t('Failed')}</p>}
-        {mode !== 'installing' && <footer>
-          <button ref={closeRef} type="button" onClick={onClose}>
-            {mode === 'confirm' ? t('Cancel') : t('Close')}
-          </button>
-          <button type="button" className="primary" onClick={onInstall}>
-            {mode === 'confirm' ? t('Install') : t('Retry')}
-          </button>
-        </footer>}
-      </section>
-    </div>,
-    document.body,
-  );
-}
-
-function GeneralPanel({ data, snapshot, pending, run, api }: PanelContext) {
+function GeneralPanel({ data, pending, run, api }: PanelContext) {
   const profile = record(data.profile);
   const toolModules = record(data.toolModules);
-  const recap = record(data.recap);
   const webSearchModule = record(toolModules.webSearch);
-  const memoryModule = record(toolModules.memory);
-  // Voice transcription moved here from the retired Channels page (user:
-  // 음성전사만 일반으로): the managed Whisper runtime powers voice input.
-  const voice = record(data.voice);
-  const voiceProgress = record(record(snapshot).progressHint);
-  const voiceReady = voice.enabled === true && voice.installed === true;
-  const [voiceInstallDialog, setVoiceInstallDialog] = useState<VoiceInstallDialogMode | null>(null);
-  const voiceProgressText = String(voiceProgress.text || '');
-  const fallbackPercent = Number(voiceProgressText.match(/(\d+)%/)?.[1]);
-  const hintedPercent = Number(voiceProgress.percent);
-  const rawPercent = Number.isFinite(hintedPercent) ? hintedPercent : fallbackPercent;
-  const voiceProgressPercent = Number.isFinite(rawPercent)
-    ? Math.max(0, Math.min(100, Math.round(rawPercent)))
-    : null;
   const languageOptions = rows(profile.languages).map((entry) => ({ value: String(entry.id || entry.value || 'system'), label: label(entry) }));
   const experienceLevelOptions = rows(profile.experienceLevels).map((entry) => ({ value: String(entry.id || entry.value || ''), label: label(entry) }));
   const busy = Boolean(pending);
-  const installVoice = async () => {
-    setVoiceInstallDialog('installing');
-    const result = record(await run('toggleVoice', [], 'voice-toggle'));
-    if (result.enabled === true && result.installed === true) {
-      setVoiceInstallDialog(null);
-      return;
-    }
-    setVoiceInstallDialog('failed');
-  };
   return <>
     <Group title="Profile">
       <AutoSaveRow title="Title" name="title" value={String(profile.title || '')}
@@ -615,22 +505,7 @@ function GeneralPanel({ data, snapshot, pending, run, api }: PanelContext) {
       <ToggleRow title="Web search" description={t("Expose web search and web fetch tools to new sessions.")}
         checked={webSearchModule.enabled !== false} disabled={busy}
         onChange={(enabled) => void run('setWebSearchEnabled', [enabled])} />
-      <ToggleRow title="Memory" description={t("Memory and recall tools, core-memory injection, and background memory upkeep.")}
-        checked={memoryModule.enabled !== false && recap.enabled !== false} disabled={busy}
-        onChange={(enabled) => void run('setMemoryToolsEnabled', [enabled])} />
-      <ToggleRow title="Voice transcription" checked={voiceReady} optimistic={false}
-        disabled={busy || voice.busy === true || voiceInstallDialog !== null}
-        onChange={(enabled) => {
-          if (!enabled || voice.installed === true) {
-            void run('toggleVoice', [], 'voice-toggle');
-            return;
-          }
-          setVoiceInstallDialog('confirm');
-        }} />
     </Group>
-    {voiceInstallDialog && <VoiceInstallDialog mode={voiceInstallDialog}
-      progressText={voiceProgressText} progressPercent={voiceProgressPercent}
-      onClose={() => setVoiceInstallDialog(null)} onInstall={() => void installVoice()} />}
     {/* Web app only: it renders nothing where the push API is absent, which is
         every Electron window. */}
     <PushNotificationToggle api={api} />
@@ -840,39 +715,45 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
 
 /** Every extension list row is one drill-in action. Enabled state stays
  *  visible as metadata; its switch lives in the detail surface. */
-function ExtensionRow({ title, description, enabled, busy, onOpen }: {
+function ExtensionRow({ title, description, enabled, busy, onOpen, onToggle }: {
   title: string;
   description: string;
   enabled: boolean;
   busy: boolean;
   onOpen(): void;
+  onToggle(enabled: boolean): void;
 }) {
-  return <button type="button" className="schedules-row utilities-row extensions-row"
-    aria-label={title} disabled={busy} onClick={onOpen}>
-    <span className="schedules-row-copy utilities-row-copy">
+  return <div className="schedules-row utilities-row extensions-row" data-extension-row={title}>
+    <button type="button"
+      className="schedules-row-copy utilities-row-copy projects-row-open extensions-row-open"
+      aria-label={title} disabled={busy} onClick={onOpen}>
       <span className="sidebar-resource-title">
         <b>{title}</b>
-        <span className={`sidebar-resource-state ${enabled ? 'is-enabled' : 'is-disabled'}`}>
-          {t(enabled ? 'Enabled' : 'Disabled')}
-        </span>
       </span>
       <small>{description}</small>
-    </span>
-    <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
-  </button>;
+    </button>
+    <CompactSwitch className="extensions-row-toggle"
+      label={`${title} · ${t('Enabled')}`} checked={enabled}
+      disabled={busy} onChange={onToggle} />
+    <button type="button" className="session-panel-action workflows-row-enter extensions-row-enter"
+      aria-label={t('Edit {{name}}', { name: title })} disabled={busy} onClick={onOpen}>
+      <ChevronRight size={16} aria-hidden="true" />
+    </button>
+  </div>;
 }
 
 /** Skills follow the Workflows row grammar: identity first, short source/status
  *  metadata second, and the full description only in the detail dialog. */
-function SkillRow({ title, description, disabled, busy, onOpen }: {
+function SkillRow({ title, description, disabled, busy, onOpen, onToggle }: {
   title: string;
   description: string;
   disabled: boolean;
   busy: boolean;
   onOpen(): void;
+  onToggle(enabled: boolean): void;
 }) {
   return <ExtensionRow title={title} description={description}
-    enabled={!disabled} busy={busy} onOpen={onOpen} />;
+    enabled={!disabled} busy={busy} onOpen={onOpen} onToggle={onToggle} />;
 }
 
 /** The detail card every section shares: facts, optional content, then the
@@ -1349,6 +1230,55 @@ function PluginInstallDialog({ busy, onClose, onSubmit }: {
   </div>, document.body);
 }
 
+type SkillExtensionCreateKind = 'skill' | 'mcp';
+
+function SkillExtensionCreateDialog({ onClose, onSelect }: {
+  onClose(): void;
+  onSelect(kind: SkillExtensionCreateKind): void;
+}) {
+  useMobileBack(true, onClose);
+  useEffect(() => acquireTitleBarDim(), []);
+  return createPortal(<div className="schedules-dialog-layer"
+    onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+    onKeyDown={(event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }
+    }}>
+    <section className="schedules-dialog extensions-create-dialog" role="dialog" aria-modal="true"
+      aria-labelledby="extensions-create-dialog-title">
+      <header>
+        <h2 id="extensions-create-dialog-title">{t('Add skill or MCP')}</h2>
+        <div className="schedules-dialog-header-actions">
+          <button type="button" aria-label={t('Close')} onClick={onClose}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+      </header>
+      <div className="extensions-create-options">
+        <button type="button" data-extension-create-kind="skill" onClick={() => onSelect('skill')}>
+          <Sparkles size={17} aria-hidden="true" />
+          <span>
+            <b>{t('Skill')}</b>
+            <small>{t('Instructions that define how this skill works.')}</small>
+          </span>
+          <ChevronRight size={16} aria-hidden="true" />
+        </button>
+        <button type="button" data-extension-create-kind="mcp" onClick={() => onSelect('mcp')}>
+          <Plug size={17} aria-hidden="true" />
+          <span>
+            <b>{t('MCP')}</b>
+            <small>{t('How Mixdog connects to this MCP server.')}</small>
+          </span>
+          <ChevronRight size={16} aria-hidden="true" />
+        </button>
+      </div>
+    </section>
+  </div>, document.body);
+}
+
 function McpPanel({ data, pending, run, confirm, createOpen, closeCreate }: PanelContext) {
   const status = record(data.mcp);
   const servers = rows(status, 'servers');
@@ -1369,9 +1299,7 @@ function McpPanel({ data, pending, run, confirm, createOpen, closeCreate }: Pane
     setOpenName('');
     setOpenServer(null);
   };
-  // No section title: the filter tag above already names the resource kind, and
-  // repeating it printed the same word twice under the tabs (user: 이상한데).
-  return <Group>
+  return <Group title="MCP">
     {createOpen && <McpEditorDialog key="new-mcp" server={null} busy={busy}
       onClose={() => closeCreate?.()}
       onSave={(payload) => {
@@ -1384,6 +1312,7 @@ function McpPanel({ data, pending, run, confirm, createOpen, closeCreate }: Pane
       return <ExtensionRow key={name} title={name}
         description={mcpRowDescription(server)}
         enabled={enabled} busy={busy}
+        onToggle={(next) => void run('setMcpServerEnabled', [name, next])}
         onOpen={() => void openEditor(name)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'mcp')
       ? 'No MCP servers configured.' : 'Loading MCP servers…'} />}
@@ -1419,11 +1348,12 @@ function SkillsPanel({ data, pending, run, createOpen, closeCreate }: PanelConte
   // User-global skills are editable. Plugin-provided skills use the same detail
   // surface but remain read-only because their installation owns the files.
   const [detail, setDetail] = useState<{ name: string; content: string } | null>(null);
-  const toggle = (name: string) => {
+  const setEnabled = (name: string, enabled: boolean) => {
     const next = new Set(disabled);
-    if (next.has(name)) next.delete(name); else next.add(name);
+    if (enabled) next.delete(name); else next.add(name);
     void run('setDisabledSkills', [[...next]]);
   };
+  const toggle = (name: string) => setEnabled(name, disabled.has(name));
   const open = detail ? skills.find((skill) => String(skill.name) === detail.name) : undefined;
   const openOff = detail ? disabled.has(detail.name) : false;
   const openDetail = (name: string) => {
@@ -1443,7 +1373,7 @@ function SkillsPanel({ data, pending, run, createOpen, closeCreate }: PanelConte
     closeCreate?.();
     showDesktopToast(`Saved "${String(payload.name || '')}".`, 'success');
   };
-  return <Group>
+  return <Group title="Skills">
     {createOpen && <SkillEditorDialog skill={null} instructions="" disabled={false} busy={busy}
       onClose={() => closeCreate?.()} onSave={(payload) => void save(payload)} />}
     {skills.length ? skills.map((skill) => {
@@ -1451,6 +1381,7 @@ function SkillsPanel({ data, pending, run, createOpen, closeCreate }: PanelConte
       const off = disabled.has(name);
       const description = String(skill.description || '').trim() || t('Skill instructions');
       return <SkillRow key={name} title={name} description={description} disabled={off}
+        onToggle={(enabled) => setEnabled(name, enabled)}
         busy={busy} onOpen={() => openDetail(name)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'skills')
       ? 'No skills found.' : 'Loading skills…'} />}
@@ -1468,7 +1399,7 @@ function PluginsPanel({ data, pending, run, confirm, createOpen, closeCreate }: 
   const busy = Boolean(pending);
   const [openId, setOpenId] = useState('');
   const open = openId ? plugins.find((plugin) => String(plugin.id || plugin.name) === openId) : undefined;
-  return <Group>
+  return <Group title="Plugins">
     {createOpen && <PluginInstallDialog busy={busy}
       onClose={() => closeCreate?.()}
       onSubmit={(source) => void run('addPlugin', [source])} />}
@@ -1482,6 +1413,7 @@ function PluginsPanel({ data, pending, run, confirm, createOpen, closeCreate }: 
       return <ExtensionRow key={id} title={label(plugin)}
         description={description}
         enabled={enabled} busy={busy}
+        onToggle={(next) => void run('setPluginEnabled', [plugin, next])}
         onOpen={() => setOpenId(id)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'plugins')
       ? 'No plugins installed.' : 'Loading plugins…'} />}
@@ -1526,6 +1458,31 @@ function PluginsPanel({ data, pending, run, confirm, createOpen, closeCreate }: 
       </>}
       onClose={() => setOpenId('')} />}
   </Group>;
+}
+
+function PluginExtensionsPanel(context: PanelContext) {
+  return <>
+    <BuiltInFeaturesPanel {...context} />
+    <PluginsPanel {...context} />
+  </>;
+}
+
+function SkillExtensionsPanel(context: PanelContext) {
+  const { createOpen, closeCreate } = context;
+  const [createKind, setCreateKind] = useState<SkillExtensionCreateKind | null>(null);
+  useEffect(() => {
+    if (!createOpen) setCreateKind(null);
+  }, [createOpen]);
+  const closeCreateFlow = () => {
+    setCreateKind(null);
+    closeCreate?.();
+  };
+  return <>
+    {createOpen && !createKind && <SkillExtensionCreateDialog
+      onClose={closeCreateFlow} onSelect={setCreateKind} />}
+    <SkillsPanel {...context} createOpen={createKind === 'skill'} closeCreate={closeCreateFlow} />
+    <McpPanel {...context} createOpen={createKind === 'mcp'} closeCreate={closeCreateFlow} />
+  </>;
 }
 
 function HooksPanel({ data, pending, run }: PanelContext) {
@@ -1597,93 +1554,6 @@ function DesktopPowerGroup() {
   </Group>;
 }
 
-function DesktopAgentControlGroup({
-  settingKey,
-  title,
-  description,
-  toggleTitle,
-  hidden = false,
-  narrowKey,
-  narrowTitle,
-}: {
-  settingKey: Extract<DesktopSettingKey, 'computerControl' | 'browserControl'>;
-  title: string;
-  description: string;
-  toggleTitle: string;
-  hidden?: boolean;
-  // Optional second switch that narrows the capability instead of turning it
-  // off, shown only while the capability itself is on.
-  narrowKey?: Extract<DesktopSettingKey, 'computerObserveOnly'>;
-  narrowTitle?: string;
-}) {
-  const api = (window as unknown as { mixdogDesktop?: Partial<DesktopApi> }).mixdogDesktop;
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [narrowed, setNarrowed] = useState(false);
-  const [savingNarrow, setSavingNarrow] = useState(false);
-  useEffect(() => {
-    let live = true;
-    void api?.readSettings?.().then((settings) => {
-      if (!live) return;
-      setEnabled(settings[settingKey] === true);
-      if (narrowKey) setNarrowed(settings[narrowKey] === true);
-    }).catch(() => {});
-    return () => { live = false; };
-  }, [api, settingKey, narrowKey]);
-  if (hidden || enabled === null || !api?.updateSetting) return null;
-  return <Group title={title} description={description}>
-    <ToggleRow title={toggleTitle} checked={enabled} disabled={saving}
-      onChange={(value) => {
-        if (saving) return;
-        const previous = enabled;
-        setEnabled(value);
-        setSaving(true);
-        void api.updateSetting?.(settingKey, value).then((settings) => {
-          setEnabled(settings[settingKey] === true);
-        }).catch((reason) => {
-          setEnabled(previous);
-          showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
-        }).finally(() => setSaving(false));
-      }} />
-    {narrowKey && narrowTitle && enabled
-      ? <ToggleRow title={narrowTitle} checked={narrowed} disabled={savingNarrow}
-          onChange={(value) => {
-            if (savingNarrow) return;
-            const previous = narrowed;
-            setNarrowed(value);
-            setSavingNarrow(true);
-            void api.updateSetting?.(narrowKey, value).then((settings) => {
-              setNarrowed(settings[narrowKey] === true);
-            }).catch((reason) => {
-              setNarrowed(previous);
-              showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
-            }).finally(() => setSavingNarrow(false));
-          }} />
-      : null}
-  </Group>;
-}
-
-// Desktop-local Computer Use opt-in (Windows only): exposes the agent
-// `computer` tool that reads UI Automation trees and drives real windows.
-// High risk, so default off; the main process starts/stops the bridge live.
-function DesktopComputerUseGroup() {
-  return <DesktopAgentControlGroup settingKey="computerControl" title="Computer Use"
-    description="Let agents inspect screens, read UI and clipboard text, and operate real windows with the mouse and keyboard. Windows only."
-    toggleTitle="Enable Computer Use"
-    narrowKey="computerObserveOnly"
-    narrowTitle="Observation only (no mouse or keyboard input)"
-    hidden={!navigator.userAgent.includes('Windows')} />;
-}
-
-// Browser Use opt-in: exposes the agent `browser` tool that drives the in-app
-// browser. Only the agent bridge starts/stops with this toggle — the browser
-// window itself stays available to the user either way.
-function DesktopBrowserUseGroup() {
-  return <DesktopAgentControlGroup settingKey="browserControl" title="Browser Use"
-    description="Let agents operate the in-app browser or one Chrome tab you explicitly connect."
-    toggleTitle="Enable Browser Use" />;
-}
-
 function SystemPanelBody(context: PanelContext) {
   const { pending, run } = context;
   const busy = Boolean(pending);
@@ -1692,8 +1562,6 @@ function SystemPanelBody(context: PanelContext) {
         a persistent on/off button next to the context indicator. */}
     <UpdatePanel {...context} />
     <DesktopPowerGroup />
-    <DesktopBrowserUseGroup />
-    <DesktopComputerUseGroup />
     <Group title="Doctor">
       <ResourceRow title="Diagnostics" description="Check the runtime, providers, integrations, and local installation."
         actions={<ActionButton disabled={busy} onClick={() => void run('runDoctor')}>Run doctor</ActionButton>} />

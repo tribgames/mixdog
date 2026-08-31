@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, open, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import { test } from 'node:test';
@@ -52,6 +52,24 @@ async function findRuntimeArchives(directory, depth = 0) {
     }
   }
   return archives;
+}
+
+async function streamingFileIdentity(path) {
+  const hash = createHash('sha256');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  const handle = await open(path, 'r');
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+      if (bytesRead === 0) break;
+      hash.update(buffer.subarray(0, bytesRead));
+      bytes += bytesRead;
+    }
+  } finally {
+    await handle.close();
+  }
+  return { bytes, sha256: hash.digest('hex') };
 }
 
 test('packaged preload path matches electron-vite output', async () => {
@@ -333,6 +351,9 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   assert.match(packageJson.scripts['update:dev:fast'], /dev-fast-snapshot\.ps1$/);
   assert.match(fastSnapshot, /'apps\\desktop\\scripts\\dev-update-windows\.ps1'/);
   assert.match(fastSnapshot, /\$arguments = @\(\s*'-FastDirect',/);
+  assert.match(fastSnapshot, /sparse-checkout set --cone/);
+  assert.match(fastSnapshot, /MIXDOG_RUNTIME_DEPENDENCY_CACHE/);
+  assert.match(fastSnapshot, /MIXDOG_FASTDIRECT_SNAPSHOT_TIMINGS/);
   assert.match(packageJson.scripts['update:dev:reinstall'], /dev-update-windows\.ps1$/);
   assert.match(packageJson.scripts['update:dev:plan'], /dev-update-windows\.ps1 -ViaUpdater -DryRun$/);
   assert.match(
@@ -344,9 +365,14 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   assert.match(devUpdate, /fast deploy failed; restoring the previous installation/);
   assert.match(
     devUpdate,
-    /Prepared runtime native tools are missing:[\s\S]*Backup-InstalledArtifact \(Join-Path \$installedResources 'native-tools'\) 'native-tools'[\s\S]*Copy-Item -LiteralPath \$runtimeNativeTools[\s\S]*-Destination \(Join-Path \$installedResources 'native-tools'\) -Recurse -Force/,
+    /Prepared FastDirect runtime is missing:[\s\S]*Backup-InstalledArtifact \$installedFastRuntime 'fast-runtime'[\s\S]*Install-PreparedArtifact \$fastRuntime \$installedFastRuntime/,
+  );
+  assert.match(
+    devUpdate,
+    /if \(\$Plan\.full\)[\s\S]*preparing production runtime\.asar for the complete fallback[\s\S]*--mode=fast-full/,
   );
   assert.match(devUpdate, /FastDirectWorker/);
+  assert.match(devUpdate, /elapsedMs[\s\S]*timeline/);
   assert.match(devUpdate, /Invoke-CimMethod -ClassName Win32_Process -MethodName Create/);
   assert.match(devUpdate, /-WindowStyle Hidden/);
   assert.match(devUpdate, /function Start-DetachedMixdogApp/);
@@ -731,8 +757,8 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
     const stagedNative = join(stagedSidecar, ...parts);
     const builtNative = join(builtResources, 'runtime.asar.unpacked', ...parts);
     assert.deepEqual(
-      await readFile(builtNative),
-      await readFile(stagedNative),
+      await streamingFileIdentity(builtNative),
+      await streamingFileIdentity(stagedNative),
       `${entry} was not emitted unchanged beside the built runtime.asar`,
     );
   }

@@ -3,6 +3,7 @@
 // runRecallFastTrackCompact stays in the loop (it drives the recall pipeline
 // against live session state).
 import {
+    contextMessagesShapeSignature,
     contextMessagesSignature,
     estimateMessagesTokens,
     estimateRequestReserveTokens,
@@ -340,6 +341,10 @@ export function recordProviderContextBaseline(sessionRef, messages, usage, {
     sessionRef.contextPressureBaselineOutputTokens = Math.max(0, Math.round(Number(usage?.mainOutputTokens ?? usage?.outputTokens) || 0));
     sessionRef.contextPressureBaselineMessageCount = messages.length;
     sessionRef.contextPressureBaselinePrefixSignature = contextMessagesSignature(messages);
+    // Second identity for the same prefix, stable across the disk projection's
+    // media placeholders, so a cold reader can still prove this anchor belongs
+    // to the transcript it just loaded.
+    sessionRef.contextPressureBaselineShapeSignature = contextMessagesShapeSignature(messages);
     sessionRef.contextPressureBaselineProvider = sessionRef.provider || null;
     sessionRef.contextPressureBaselineModel = sessionRef.model || null;
     sessionRef.contextPressureBaselineToolSignature = toolSchemaSignature(sendTools);
@@ -368,6 +373,7 @@ export function invalidateProviderContextBaseline(sessionRef) {
     sessionRef.contextPressureBaselineMessageCount = null;
     sessionRef.contextPressureBaselineBoundary = null;
     sessionRef.contextPressureBaselinePrefixSignature = null;
+    sessionRef.contextPressureBaselineShapeSignature = null;
     sessionRef.contextPressureBaselineProvider = null;
     sessionRef.contextPressureBaselineModel = null;
     sessionRef.contextPressureBaselineToolSignature = null;
@@ -386,6 +392,26 @@ export function invalidateProviderContextBaseline(sessionRef) {
 // transcript did NOT grow keeps its baseline regardless of age.
 const BASELINE_MAX_STALE_GROWTH_MS = 30 * 60 * 1000;
 
+/**
+ * Does this anchor still describe this message prefix?
+ *
+ * The exact signature is authoritative when it matches. It cannot match after a
+ * disk round-trip (stored history carries media placeholders instead of inline
+ * payloads), so the shape signature answers that case for anchors recorded with
+ * one. Anchors that predate the shape signature can only be judged by the
+ * identity guards their caller already applied; trusting them while NOTHING has
+ * been appended keeps a real provider reading in charge of a transcript the
+ * provider itself measured, instead of handing the gauge to an estimate.
+ */
+function baselinePrefixMatchesTranscript(sessionRef, messages, count) {
+    const stored = String(sessionRef.contextPressureBaselinePrefixSignature || '');
+    if (!stored) return false;
+    if (stored === contextMessagesSignature(messages, count)) return true;
+    const storedShape = String(sessionRef.contextPressureBaselineShapeSignature || '');
+    if (storedShape) return storedShape === contextMessagesShapeSignature(messages, count);
+    return count === messages.length;
+}
+
 function providerBaselinePressureTokens(messages, sessionRef, policy, {
     includeConfiguredReserve = true,
 } = {}) {
@@ -400,7 +426,7 @@ function providerBaselinePressureTokens(messages, sessionRef, policy, {
         || (compactAt > 0 && baselineAt > 0 && baselineAt < compactAt)
         || sessionRef.contextPressureBaselineProvider !== (sessionRef.provider || null)
         || sessionRef.contextPressureBaselineModel !== (sessionRef.model || null)
-        || sessionRef.contextPressureBaselinePrefixSignature !== contextMessagesSignature(messages, count)) return null;
+        || !baselinePrefixMatchesTranscript(sessionRef, messages, count)) return null;
     const calibration = Number(policy?.tokenCalibration) > 0 ? Number(policy.tokenCalibration) : 1;
     if (sessionRef.contextPressureBaselineToolSignature !== policy?.toolSchemaSignature) {
         const currentRequestReserve = Math.max(
@@ -416,8 +442,6 @@ function providerBaselinePressureTokens(messages, sessionRef, policy, {
             ? Math.max(0, tokens - Math.round(storedRequestReserve) + currentRequestReserve)
             : tokens + currentRequestReserve;
     }
-    if (messages.length > count && baselineAt > 0
-        && (Date.now() - baselineAt) > BASELINE_MAX_STALE_GROWTH_MS) return null;
     if (sessionRef.contextPressureBaselineBoundary === 'request') {
         const assistantOffset = messages.slice(count).findIndex(message => message?.role === 'assistant');
         if (assistantOffset >= 0) {
@@ -430,6 +454,21 @@ function providerBaselinePressureTokens(messages, sessionRef, policy, {
             tokens = Math.max(0, tokens - outputTokens);
         }
     }
+    // Staleness means a baseline that stopped being refreshed WHILE the session
+    // kept working — never age on the wall clock. Measured against `now`, this
+    // discarded the reading of every session that simply sat unopened for a
+    // while (88 of 983 stored sessions), and the whole-transcript estimate that
+    // replaced it was the less accurate number in both directions: 1.12x over
+    // on the median, 0.82x under on a session already past its window.
+    // Comparing against the session's own last activity keeps the rule aimed at
+    // its actual target — a live session whose usage recording is failing while
+    // its transcript grows — and leaves a session at rest on its measurement.
+    const activityAt = Math.max(
+        Number(sessionRef.updatedAt) || 0,
+        Number(sessionRef.lastContextTokensUpdatedAt) || 0,
+    );
+    if (messages.length > count && baselineAt > 0
+        && (activityAt - baselineAt) > BASELINE_MAX_STALE_GROWTH_MS) return null;
     try {
         // Baseline tokens are authoritative provider billing; only the growth
         // after the baseline is a local estimate and needs billing calibration.
@@ -452,11 +491,13 @@ function providerBaselinePressureTokens(messages, sessionRef, policy, {
  * estimate is used only before the first provider reading or after compaction
  * invalidates that reading.
  */
-export function resolveContextTokens(messageTokensEst, policy, { messages, sessionRef } = {}) {
+export function resolveContextTokensWithSource(messageTokensEst, policy, { messages, sessionRef } = {}) {
     const baseline = providerBaselinePressureTokens(messages, sessionRef, policy, {
         includeConfiguredReserve: false,
     });
-    if (baseline !== null && baseline !== undefined) return baseline;
+    if (baseline !== null && baseline !== undefined) {
+        return { tokens: baseline, source: 'provider' };
+    }
     // A crash-recovered transcript whose old provider prefix could not be
     // proven identical keeps the last actual reading for display. It is NOT a
     // proactive-compaction signal: the next real provider response will either
@@ -464,9 +505,16 @@ export function resolveContextTokens(messageTokensEst, policy, { messages, sessi
     if (sessionRef?.contextPressureUnanchoredAfterRestart === true) {
         const lastActual = positiveTokenInt(sessionRef.contextPressureBaselineTokens)
             || positiveTokenInt(sessionRef.lastContextTokens);
-        if (lastActual) return lastActual;
+        if (lastActual) return { tokens: lastActual, source: 'provider_resume' };
     }
-    return currentContextEstimateTokens(messageTokensEst, policy);
+    return {
+        tokens: currentContextEstimateTokens(messageTokensEst, policy),
+        source: 'estimated',
+    };
+}
+
+export function resolveContextTokens(messageTokensEst, policy, options = {}) {
+    return resolveContextTokensWithSource(messageTokensEst, policy, options).tokens;
 }
 
 export function resolveCurrentContextTokens(messageTokensEst, policy, options = {}) {
@@ -539,7 +587,30 @@ export function shouldCompactForSession(messageTokensEst, policy, {
         ? Number(pressureTokens)
         : resolveContextTokens(messageTokensEst, policy, { messages, sessionRef });
     const trigger = policy.triggerTokens || policy.boundaryTokens;
-    return pressure >= trigger;
+    if (pressure < trigger) return false;
+    // The provider's own accounting outranks a local estimate for a transcript
+    // the provider ALREADY measured. When the anchor could not be verified the
+    // pressure above is that estimate, and compacting on it destroyed history
+    // for sessions running at a quarter of their window. This never suppresses
+    // a compaction the growth since that reading could justify: it applies only
+    // while NOTHING has been appended, so the two numbers describe one
+    // transcript. A genuine overflow still enters through forceReactive above.
+    const resolved = resolveContextTokensWithSource(messageTokensEst, policy, { messages, sessionRef });
+    if (resolved.source === 'estimated'
+        && Number(sessionRef?.contextPressureBaselineMessageCount) === (Array.isArray(messages) ? messages.length : -1)
+        && providerReadingBelowTrigger(sessionRef, trigger)) return false;
+    return true;
+}
+
+/** A last actual prompt size that no compaction has invalidated since. */
+function providerReadingBelowTrigger(sessionRef, trigger) {
+    const actual = positiveTokenInt(sessionRef?.lastContextTokens);
+    if (!actual || !trigger || actual >= trigger) return false;
+    if (sessionRef.lastContextTokensStaleAfterCompact === true) return false;
+    const compactAt = Number(sessionRef.compaction?.lastChangedAt || sessionRef.compaction?.lastCompactAt || 0);
+    const usageAt = Number(sessionRef.lastContextTokensUpdatedAt || 0);
+    if (compactAt > 0 && usageAt <= compactAt) return false;
+    return true;
 }
 export function countPrunedToolOutputs(before, after) {
     if (!Array.isArray(before) || !Array.isArray(after)) return 0;

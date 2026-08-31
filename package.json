@@ -72,7 +72,7 @@
     "test:session-transport": "node --test scripts/session-transport-test.mjs scripts/daemon-bootstrap-test.mjs src/runtime/shared/child-spawn-remote.test.mjs src/standalone/session-runtime-agent-control-client.test.mjs src/standalone/session-runtime-dispatch-cancel.test.mjs src/standalone/session-runtime-host-factory.test.mjs src/standalone/session-runtime-inline-host.test.mjs src/standalone/session-runtime-provider-cooldown.test.mjs src/standalone/session-runtime-shard-host.test.mjs src/standalone/session-runtime-shard-router.test.mjs",
     "test:session": "node --test scripts/runtime-turn-contract-test.mjs scripts/session-save-fault-store-test.mjs scripts/turn-review-revert-test.mjs src/runtime/shared/tool-surface.test.mjs src/runtime/bridge-clients.test.mjs",
     "test:quick": "npm run test:session && npm run test:session-transport && npm run test:desktop-main --prefix apps/desktop",
-    "test:office": "node --test scripts/run-office-live-tests.test.mjs src/runtime/office/office-runtime.test.mjs src/runtime/office/office-assurance.test.mjs src/runtime/office/portable-authoring.test.mjs && npm run test:office-approval --prefix apps/desktop",
+    "test:office": "node --test scripts/run-office-live-tests.test.mjs src/runtime/office/office-runtime.test.mjs src/runtime/office/office-assurance.test.mjs src/runtime/office/portable-authoring.test.mjs src/runtime/office/slide-quality.test.mjs && npm run test:office-approval --prefix apps/desktop",
     "test:office:live": "node scripts/run-office-live-tests.mjs",
     "test:media": "node --test src/runtime/media/store.test.mjs src/runtime/media/renditions.test.mjs src/runtime/media/adapters/codex-image.test.mjs",
     "failures": "node scripts/tool-failures.mjs",

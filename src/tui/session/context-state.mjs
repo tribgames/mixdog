@@ -133,7 +133,13 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     if (!allowEstimated && !hasProviderUsage && usedSource !== 'last_api_request') return ctx;
     if (forceEstimated || shouldPublishEstimate) {
       stats.currentEstimatedContextTokens = estimatedTokens;
-      stats.currentContextSource = 'estimated';
+      // The published number is the runtime's canonical gauge value; its
+      // PROVENANCE is whatever produced it (a provider reading, a post-compact
+      // replacement, or a local estimate). Stamping every publication as
+      // `estimated` hid that distinction from every surface downstream.
+      stats.currentContextSource = forceEstimated
+        ? 'estimated'
+        : (usedSource || (estimatedTokens > 0 ? 'estimated' : null));
       stats.currentContextTokens = 0;
     } else if (allowEstimated && (hasProviderUsage || hasApiContextUsage || hasTurnActivity)) {
       stats.currentEstimatedContextTokens = estimatedTokens;

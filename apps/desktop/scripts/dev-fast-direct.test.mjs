@@ -11,8 +11,11 @@ import {
   changedPlanGroups,
   decidePlan,
   fastDirectAsarOptions,
+  fastDirectRuntimeArchive,
   hashBrowserImportNativeTools,
+  installedFastRuntimeReady,
   packagingManifestForFingerprint,
+  runtimePackageFileForFingerprint,
   targetInputs,
 } from './dev-fast-direct.mjs';
 import {
@@ -22,7 +25,7 @@ import {
 } from './dev-renderer-watch-config.mjs';
 
 const groups = Object.fromEntries(
-  ['renderer', 'main', 'preload', 'daemon', 'runtime', 'package'].map((name) => [
+  ['renderer', 'main', 'preload', 'daemon', 'runtime', 'runtimeDependencies', 'package'].map((name) => [
     name,
     { hash: `${name}-same`, newestMtimeMs: 10 },
   ]),
@@ -38,6 +41,13 @@ test('ASAR API paths always use native separators', () => {
   const expected = join('out', 'main', 'daemon.cjs');
   assert.equal(asarPath('out\\main\\daemon.cjs'), expected);
   assert.equal(asarPath('out/main/daemon.cjs'), expected);
+});
+
+test('FastDirect shell integrity keeps the installed production runtime fallback', () => {
+  assert.equal(
+    fastDirectRuntimeArchive(join('C:', 'Mixdog', 'resources')),
+    join('C:', 'Mixdog', 'resources', 'runtime.asar'),
+  );
 });
 
 test('FastDirect fingerprints browser importer source and installed native tools', async (context) => {
@@ -112,12 +122,14 @@ test('unchanged installed build is a no-op', () => {
       targets: [],
       daemon: false,
       runtime: false,
+      runtimeMode: 'none',
       changed: {
         renderer: false,
         main: false,
         preload: false,
         daemon: false,
         runtime: false,
+        runtimeDependencies: false,
         package: false,
       },
     },
@@ -163,11 +175,41 @@ test('runtime and daemon changes do not rebuild desktop targets', () => {
     groups: changedGroups,
     installedMatches: true,
     bootstrapFresh: null,
+    devRuntimeReady: true,
   });
   assert.deepEqual(plan.targets, []);
   assert.equal(plan.daemon, true);
   assert.equal(plan.runtime, true);
+  assert.equal(plan.runtimeMode, 'code');
   assert.equal(plan.full, false);
+});
+
+test('runtime dependency changes rebuild the unpacked FastDirect dependency tree', () => {
+  const changedGroups = structuredClone(groups);
+  changedGroups.runtime.hash = 'runtime-new';
+  changedGroups.runtimeDependencies.hash = 'dependencies-new';
+  const plan = decidePlan({
+    previous,
+    groups: changedGroups,
+    installedMatches: true,
+    bootstrapFresh: null,
+    devRuntimeReady: true,
+  });
+  assert.equal(plan.runtime, true);
+  assert.equal(plan.runtimeMode, 'full');
+});
+
+test('a missing FastDirect dependency tree upgrades a source change to a full runtime stage', () => {
+  const changedGroups = structuredClone(groups);
+  changedGroups.runtime.hash = 'runtime-new';
+  const plan = decidePlan({
+    previous,
+    groups: changedGroups,
+    installedMatches: true,
+    bootstrapFresh: null,
+    devRuntimeReady: false,
+  });
+  assert.equal(plan.runtimeMode, 'full');
 });
 
 test('packaging change falls back to the complete directory build', () => {
@@ -181,6 +223,34 @@ test('packaging change falls back to the complete directory build', () => {
   });
   assert.equal(plan.full, true);
   assert.deepEqual(plan.targets, []);
+});
+
+test('legacy plan migration ignores deploy-script hash drift but keeps newer package inputs', () => {
+  const legacyPrevious = structuredClone(previous);
+  delete legacyPrevious.groups.runtimeDependencies;
+  legacyPrevious.deployedAt = new Date(15).toISOString();
+  const migratedGroups = structuredClone(groups);
+  migratedGroups.package.hash = 'new-package-algorithm';
+  migratedGroups.package.newestMtimeMs = 10;
+  const incremental = decidePlan({
+    previous: legacyPrevious,
+    groups: migratedGroups,
+    installedMatches: true,
+    bootstrapFresh: null,
+    devRuntimeReady: false,
+  });
+  assert.equal(incremental.full, false);
+  assert.equal(incremental.runtimeMode, 'none');
+
+  migratedGroups.package.newestMtimeMs = 20;
+  const fallback = decidePlan({
+    previous: legacyPrevious,
+    groups: migratedGroups,
+    installedMatches: true,
+    bootstrapFresh: null,
+    devRuntimeReady: false,
+  });
+  assert.equal(fallback.full, true);
 });
 
 test('trusted bootstrap uses artifact times and always checks runtime', () => {
@@ -202,6 +272,23 @@ test('trusted bootstrap uses artifact times and always checks runtime', () => {
   assert.equal(plan.bootstrap, true);
   assert.deepEqual(plan.targets, ['renderer']);
   assert.equal(plan.runtime, true);
+  assert.equal(plan.runtimeMode, 'full');
+});
+
+test('installed FastDirect runtime readiness requires the matching dependency marker', async (context) => {
+  const installDir = await mkdtemp(join(tmpdir(), 'mixdog-fast-runtime-ready-'));
+  context.after(() => rm(installDir, { recursive: true, force: true }));
+  const runtimeRoot = join(installDir, 'resources', 'fast-runtime');
+  const entry = join(runtimeRoot, 'node_modules', 'mixdog', 'src', 'standalone');
+  await mkdir(entry, { recursive: true });
+  await writeFile(join(entry, 'session-client.mjs'), 'export {};');
+  await writeFile(join(runtimeRoot, '.mixdog-fast-runtime.json'), JSON.stringify({
+    schemaVersion: 1,
+    dependencyHash: 'dependencies-v1',
+  }));
+
+  assert.equal(await installedFastRuntimeReady(installDir, 'dependencies-v1'), true);
+  assert.equal(await installedFastRuntimeReady(installDir, 'dependencies-v2'), false);
 });
 
 test('developer scripts do not invalidate the packaged application', () => {
@@ -227,4 +314,31 @@ test('runtime package metadata still invalidates the packaged application', () =
     dependencies: { ws: '^9.0.0' },
   });
   assert.deepEqual(normalized, { dependencies: { ws: '^9.0.0' } });
+});
+
+test('runtime fingerprint excludes developer-only package files but keeps build inputs', () => {
+  assert.equal(
+    runtimePackageFileForFingerprint(join(process.cwd(), 'scripts', 'bench', 'trace.mjs')),
+    false,
+  );
+  assert.equal(
+    runtimePackageFileForFingerprint(join(process.cwd(), 'scripts', 'release-gate.mjs')),
+    true,
+  );
+  assert.equal(
+    runtimePackageFileForFingerprint(
+      join(process.cwd(), 'scripts', 'runtime-dependency-cache-key.mjs'),
+    ),
+    true,
+  );
+  assert.equal(
+    runtimePackageFileForFingerprint(
+      join(process.cwd(), 'scripts', 'lib', 'stage-postgres-runtime-windows.ps1'),
+    ),
+    true,
+  );
+  assert.equal(
+    runtimePackageFileForFingerprint(join(process.cwd(), 'scripts', 'local-only.ps1')),
+    false,
+  );
 });

@@ -73,7 +73,7 @@ export function useComposerDictation({
   setDraft,
   invokeResult,
   showNotice,
-  confirmVoiceInstall,
+  requestVoiceInstall,
   onTranscriptSubmit,
 }: {
   transitioningRef: MutableRefObject<boolean>;
@@ -81,7 +81,7 @@ export function useComposerDictation({
   setDraft: Dispatch<SetStateAction<string>>;
   invokeResult<T>(action: () => T | Promise<T>): Promise<T | undefined>;
   showNotice(message: string, durationMs?: number): void;
-  confirmVoiceInstall(): Promise<boolean>;
+  requestVoiceInstall(): void;
   /** Fired when a take ended by `stopDictationAndSend` produced real text. */
   onTranscriptSubmit?(): void;
 }) {
@@ -93,6 +93,33 @@ export function useComposerDictation({
   // Smoothed 0..1 input level, read by the overlay's own animation frame.
   const dictationLevelRef = useRef(0);
   const dictationPreparing = useRef(false);
+  // Mic visibility: the composer shows the mic only once the managed voice
+  // runtime is installed (Extensions → Voice transcription). Installs and
+  // removals made while the composer is mounted arrive over the
+  // voice-runtime-changed event the Extensions panel dispatches.
+  const [dictationInstalled, setDictationInstalled] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const refresh = () => {
+      void Promise.resolve()
+        .then(() => window.mixdogDesktop.invokeCapability<VoiceStatus>({
+          capability: "getVoiceStatus",
+          args: [],
+        }))
+        .then((status) => {
+          if (live) setDictationInstalled(status?.value?.installed === true);
+        })
+        .catch(() => {
+          // A failed probe leaves the mic hidden; the next event retries.
+        });
+    };
+    refresh();
+    window.addEventListener("mixdog:voice-runtime-changed", refresh);
+    return () => {
+      live = false;
+      window.removeEventListener("mixdog:voice-runtime-changed", refresh);
+    };
+  }, []);
   const dictationSession = useRef<{
     recorder: MediaRecorder;
     stream: MediaStream;
@@ -124,16 +151,9 @@ export function useComposerDictation({
         }));
       if (!voiceStatus) return;
       if (voiceStatus.value?.installed !== true) {
-        if (!(await confirmVoiceInstall())) return;
-        const installed = await invokeResult(() =>
-          window.mixdogDesktop.invokeCapability<VoiceStatus>({
-            capability: "toggleVoice",
-            args: [],
-          }));
-        if (installed?.value?.installed !== true) {
-          showNotice("Voice transcription installation did not complete. Open Settings and try again.");
-          return;
-        }
+        requestVoiceInstall();
+        showNotice("Install voice transcription from Extensions first.");
+        return;
       }
       const devices = await navigator.mediaDevices.enumerateDevices();
       if (!devices.some((device) => device.kind === "audioinput")) {
@@ -243,10 +263,10 @@ export function useComposerDictation({
       dictationPreparing.current = false;
     }
   }, [
-    confirmVoiceInstall,
     dictationState,
     invokeResult,
     onTranscriptSubmit,
+    requestVoiceInstall,
     setDraft,
     showNotice,
     textarea,
@@ -333,6 +353,7 @@ export function useComposerDictation({
 
   return {
     dictationState,
+    dictationInstalled,
     toggleDictation,
     stopDictationAndSend,
     cancelDictation,

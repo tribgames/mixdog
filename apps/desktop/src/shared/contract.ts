@@ -11,6 +11,8 @@ export const DESKTOP_IPC = {
   listProjects: 'mixdog:list-projects',
   addProject: 'mixdog:add-project',
   openProjectInExplorer: 'mixdog:open-project-in-explorer',
+  openMediaAsset: 'mixdog:open-media-asset',
+  openMediaFolder: 'mixdog:open-media-folder',
   openExternal: 'mixdog:open-external',
   renameProject: 'mixdog:rename-project',
   removeProject: 'mixdog:remove-project',
@@ -163,6 +165,10 @@ export const DESKTOP_IPC = {
   gitCreateBranchAtCommit: 'mixdog:git-create-branch-at-commit',
   gitReview: 'mixdog:git-review',
   gitReviewDiff: 'mixdog:git-review-diff',
+  gitCliStatus: 'mixdog:git-cli-status',
+  installGitCli: 'mixdog:install-git-cli',
+  libreOfficeStatus: 'mixdog:libreoffice-status',
+  installLibreOffice: 'mixdog:install-libreoffice',
   githubCliStatus: 'mixdog:github-cli-status',
   installGithubCli: 'mixdog:install-github-cli',
   githubCliLoginStart: 'mixdog:github-cli-login-start',
@@ -588,6 +594,8 @@ export const DESKTOP_CAPABILITIES = [
   'getToolModuleSettings',
   'setWebSearchEnabled',
   'setMemoryToolsEnabled',
+  'setBuiltinToolEnabled',
+  'installBuiltinFeature',
   'getVoiceStatus',
   'toggleVoice',
   'agentControl',
@@ -772,7 +780,8 @@ export interface DesktopCapabilityResult<T = unknown> {
 }
 
 export type DesktopSettingKey = 'autoClear' | 'autoCompact' | 'keepAwake' | 'usagePinned'
-  | 'computerControl' | 'computerObserveOnly' | 'browserControl';
+  | 'computerControl' | 'computerObserveOnly' | 'browserControl'
+  | 'computerInstalled' | 'browserInstalled';
 
 export interface DesktopSettings {
   autoClear: boolean;
@@ -790,6 +799,11 @@ export interface DesktopSettings {
   /** Opt-in: expose the agent `browser` tool over the in-app browser bridge.
    *  Default off; the browser pane itself stays available either way. */
   browserControl: boolean;
+  /** Extensions → Built-in install markers: the card presents Install first
+   *  and only shows its toggle after activation. A profile that already had
+   *  the control on is treated as installed (grandfathered). */
+  computerInstalled: boolean;
+  browserInstalled: boolean;
 }
 
 export type DesktopBrowserImportItem = 'passwords' | 'cookies' | 'history';
@@ -885,6 +899,19 @@ export type DesktopRemoteBrowserControl =
     }
   | { type: 'text'; frameId: string; text: string }
   | { type: 'key'; frameId: string; key: string };
+
+/** Extensions → Built-in: system Git dependency used by the first-party tool. */
+export interface DesktopGitCliStatus {
+  installed: boolean;
+  version?: string;
+}
+
+/** Extensions → Office: LibreOffice dependency behind document rendering and
+ *  workbook recalculation, installed by the Office card's Install step. */
+export interface DesktopLibreOfficeStatus {
+  installed: boolean;
+  version?: string;
+}
 
 /** Settings → Git: GitHub CLI presence and auth, probed through gh itself. */
 export interface DesktopGithubCliStatus {
@@ -1560,6 +1587,8 @@ export interface DesktopApi {
   /** Register a folder without entering it (Projects page add dialog). */
   addProject(projectPath: string): Promise<void>;
   openProjectInExplorer(projectPath: string): Promise<void>;
+  openMediaAsset?(assetId: string): Promise<void>;
+  openMediaFolder?(assetId: string): Promise<void>;
   openExternal(url: string): Promise<void>;
   /** Settings → About: gh-CLI star state for the mixdog repo. Desktop-only;
    *  the remote shim omits both and the Star button falls back to the repo
@@ -1568,6 +1597,11 @@ export interface DesktopApi {
   starGithub?(): Promise<{ starred: boolean }>;
   /** Settings → Git: GitHub CLI status, guided install, and device-flow
    *  login/logout. Desktop-only; the remote shim omits the whole family. */
+  gitCliStatus?(): Promise<DesktopGitCliStatus>;
+  installGitCli?(): Promise<DesktopGitCliStatus>;
+  /** Extensions → Office: LibreOffice dependency probe + guided install. */
+  libreOfficeStatus?(): Promise<DesktopLibreOfficeStatus>;
+  installLibreOffice?(): Promise<DesktopLibreOfficeStatus>;
   githubCliStatus?(): Promise<DesktopGithubCliStatus>;
   installGithubCli?(): Promise<DesktopGithubCliStatus>;
   githubCliLoginStart?(): Promise<DesktopGithubCliLoginFlow>;

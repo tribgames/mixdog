@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "note": "Both published mixdog runs predate in-run provenance capture. Each ran the npm-installed dependency shell listed as mixdogVersion with the local source tree overlaid on top, and that tree was committed shortly after the run as sourceCommit. The claim is checkable, not asserted: analysis/verify-source-commit.mjs re-derives the rules, prompt-surface, and tool-contract digests from a clean extract of that commit and compares them to the digests archived with the run. Those digests cover the complete model-facing contract (rule files, tool schemas, delivered prompt), not every byte of src/. Runs recorded after this file was added carry runtime-provenance.json and runtime-manifest.json instead, which pin the commit and the exact bundle digest directly.",
+  "runs": [
+    {
+      "jobsDir": "jobs-full-sol-xhigh-k5-20260825-182921",
+      "label": "mixdog Sol xhigh k=5",
+      "sourceCommit": "09eea819934e130c09a9df20736e14d7620ef612",
+      "commitSubject": "feat: symlink-safe editing, isolated headless runtime, and k=5 benchmark artifacts",
+      "commitDate": "2026-08-26T10:51:58+09:00",
+      "mixdogVersion": "0.9.150",
+      "capturedFromWorkingTree": true,
+      "contractArgs": [
+        "--provider",
+        "openai-oauth",
+        "--model",
+        "gpt-5.6-sol",
+        "--workflow",
+        "headless"
+      ]
+    },
+    {
+      "jobsDir": "jobs-full-opus5-solo-20260825-155233",
+      "label": "mixdog Opus 5 solo",
+      "sourceCommit": "09eea819934e130c09a9df20736e14d7620ef612",
+      "commitSubject": "feat: symlink-safe editing, isolated headless runtime, and k=5 benchmark artifacts",
+      "commitDate": "2026-08-26T10:51:58+09:00",
+      "mixdogVersion": "0.9.150",
+      "capturedFromWorkingTree": true,
+      "contractArgs": [
+        "--provider",
+        "anthropic-oauth",
+        "--model",
+        "claude-opus-5",
+        "--workflow",
+        "headless",
+        "--fallback-provider",
+        "anthropic-oauth",
+        "--fallback-model",
+        "claude-opus-4-8"
+      ]
+    }
+  ]
+}

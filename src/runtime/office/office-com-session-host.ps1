@@ -182,6 +182,18 @@ public static class MixdogOfficeInterop
             if (attachedForeground) AttachThreadInput(currentThread, foregroundThread, false);
         }
     }
+
+    public static bool HideWindow(long hWnd)
+    {
+        IntPtr target = new IntPtr(hWnd);
+        return target != IntPtr.Zero && ShowWindowAsync(target, 0);
+    }
+
+    public static bool WindowVisible(long hWnd)
+    {
+        IntPtr target = new IntPtr(hWnd);
+        return target != IntPtr.Zero && IsWindowVisible(target);
+    }
 }
 '@
 }
@@ -288,7 +300,7 @@ function Create-OwnedDocument($app, [string]$format, [string]$path, [bool]$visib
       $document.SaveAs($path, $saveFormat)
     }
     'pptx' {
-      $document = $app.Presentations.Add()
+      $document = $app.Presentations.Add($visible)
       $document.SaveAs($path, $saveFormat)
     }
   }
@@ -411,6 +423,7 @@ function Open-SessionState($payload) {
       WindowHwnd = $hWnd
       ForegroundActivated = [bool]$foregroundActivated
       ExcelDpiRepairs = 0
+      PptxExports = 0
       DocumentId = "${format}:$($path.ToLowerInvariant())"
     }
   } catch {
@@ -758,7 +771,8 @@ function Invoke-SessionAction($state, $payload) {
         Save-DocumentCopy $document $format $excelCheckpoint
       }
       try {
-        $applied = Apply-Operations $document $format $payload.operations $true ([bool]$payload.requireChanges)
+        $allowUiActivation = $state.Mode -ne 'background'
+        $applied = Apply-Operations $document $format $payload.operations $true ([bool]$payload.requireChanges) $allowUiActivation
         $shouldSave = $state.Mode -eq 'background' -or [bool]$payload.save
         if ($shouldSave) { Save-Document $document $format }
         return Session-Response $state ([ordered]@{
@@ -832,9 +846,22 @@ function Invoke-SessionAction($state, $payload) {
     }
     'render' {
       $output = [System.IO.Path]::GetFullPath([string]$payload.output)
-      $wasSaved = [bool]$document.Saved
-      Render-Document $document $format $output
-      if ($wasSaved -and -not [bool]$document.Saved) { $document.Saved = $true }
+      if ($format -eq 'pptx') {
+        # PowerPoint silently ignores every SaveCopyAs PDF export after the
+        # first one for an open presentation, so repeat renders save the deck
+        # and reopen it to get a fresh export slot.
+        if (-not [bool]$document.Saved) { Save-Document $document $format }
+        if ([int]$state.PptxExports -gt 0 -and $state.Mode -eq 'background' -and $state.Ownership -eq 'owned') {
+          $null = Reopen-BackgroundPowerPointSession $state
+          $document = $state.Document
+        }
+        Render-Document $document $format $output
+        $state.PptxExports = [int]$state.PptxExports + 1
+      } else {
+        $wasSaved = [bool]$document.Saved
+        Render-Document $document $format $output
+        if ($wasSaved -and -not [bool]$document.Saved) { $document.Saved = $true }
+      }
       return Session-Response $state ([ordered]@{ output = $output })
     }
     default { throw "Unsupported Office session action: $($payload.action)" }

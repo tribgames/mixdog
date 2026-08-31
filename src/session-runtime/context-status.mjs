@@ -11,8 +11,8 @@ import {
 import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
 import { hasUserConversationMessage } from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import {
+  resolveContextTokensWithSource,
   resolveContextUsageSnapshot,
-  resolveGaugeContextTokens,
   resolveWorkerCompactPolicy,
 } from '../runtime/agent/orchestrator/session/loop/compact-policy.mjs';
 import {
@@ -279,11 +279,18 @@ export function createContextStatus({
     const usageSnapshot = (!lastContextTokens || lastUsageStale)
       ? resolveContextUsageSnapshot(session, compactPolicy, { messages })
       : null;
-    const usedTokens = usageSnapshot?.usedTokens ?? resolveGaugeContextTokens(
-      messageSummary.estimatedTokens,
-      compactPolicy,
-      { messages, sessionRef: session },
-    );
+    // One resolution owns both the number and its provenance. Deriving the
+    // label from session fields instead let a calibrated whole-transcript
+    // estimate report itself as `provider`, which hid a 4x disagreement with
+    // the provider's own prompt size behind a trustworthy-looking source.
+    const resolvedGauge = usageSnapshot
+      ? { tokens: usageSnapshot.usedTokens, source: 'post_compact' }
+      : resolveContextTokensWithSource(
+        messageSummary.estimatedTokens,
+        compactPolicy,
+        { messages, sessionRef: session },
+      );
+    const usedTokens = resolvedGauge.tokens;
     const freeTokens = displayWindow ? Math.max(0, displayWindow - usedTokens) : 0;
     const compactTriggerTokens = compactPolicy.triggerTokens || 0;
     const compactBufferTokens = Number.isFinite(Number(compactPolicy.bufferTokens))
@@ -303,13 +310,7 @@ export function createContextStatus({
       rawContextWindow: rawWindow || null,
       effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
       usedTokens,
-      usedSource: usageSnapshot
-        ? 'post_compact'
-        : session?.contextPressureUnanchoredAfterRestart === true
-          ? 'provider_resume'
-          : session?.contextPressureBaselineTokens
-            ? 'provider'
-            : 'estimated',
+      usedSource: resolvedGauge.source,
       currentEstimatedTokens: usedTokens,
       lastApiRequestTokens: lastContextTokens || 0,
       lastApiRequestStale: lastUsageStale,

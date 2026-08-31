@@ -1830,6 +1830,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     // phone shows the same code and finishes it in its own browser.
     githubStarStatus: () => call('githubStarStatus'),
     starGithub: () => call('starGithub'),
+    gitCliStatus: () => call('gitCliStatus'),
+    installGitCli: () => call('installGitCli'),
+    libreOfficeStatus: () => call('libreOfficeStatus'),
+    installLibreOffice: () => call('installLibreOffice'),
     githubCliStatus: () => call('githubCliStatus'),
     installGithubCli: () => call('installGithubCli'),
     githubCliLoginStart: () => call('githubCliLoginStart'),

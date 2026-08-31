@@ -1,4 +1,4 @@
-/* Desktop layer 31 — Extensions rail (Skills / MCP / Plugins).
+/* Desktop layer 31 — Extensions rail (Plugin / Skill).
    Imported by ExtensionsView.tsx rather than ../desktop.css: the pane is a lazy
    chunk whose stylesheet Vite resolves before it renders, exactly like layer 29
    (folder pane). It still lands after every layer in that list.
@@ -10,16 +10,25 @@
    so their section heads and list bodies have to drop the dialog card frame and
    join the rail's box line. Nothing here restyles a shared component. */
 
-/* Capability sections stack as rail sections on the shared gap. */
-.extensions-pane .capability-settings-content,
-.extensions-pane .settings-group {
+/* Workflows rail rhythm: category blocks stay content-sized, open a clear
+   section step between one another, then keep the shared 8px list rhythm. */
+.extensions-pane .capability-settings-content {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  align-content: start;
   gap: var(--mx-rail-gap);
 }
-.extensions-pane .capability-settings-content,
-.extensions-pane .settings-group { flex: 1 1 auto; min-height: 0; }
+.extensions-pane .settings-group {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+/* Built-in → Plugins was only the page's 8px list gap, so the second
+   category sat as close as one more card. One extra step opens the
+   section without changing the row rhythm. */
+.extensions-pane .settings-group + .settings-group { margin-top: 8px; }
 
 /* Section head opens on the rail BOX LINE (no inset of its own) and wears the
    rail's category type instead of the settings dialog's group title. */
@@ -60,19 +69,19 @@
 }
 .extensions-pane .settings-group-body:has(> .settings-empty-list) {
   min-width: 0;
-  min-height: 0;
-  flex: 1 1 auto;
+  min-height: 48px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .extensions-pane .settings-empty-list {
+  box-sizing: border-box;
   width: 100%;
-  min-height: 0;
+  min-height: 48px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
+  padding: 12px 0;
 }
 
 /* The capability surface gate is a plain block inside the page column: it must
@@ -99,7 +108,7 @@
   background: transparent;
 }
 
-/* Extensions uses the same equal-third action rhythm and typography as Source
+/* Extensions uses the same equal-width action rhythm and typography as Source
    Control. Selection changes ink only, avoiding a darker plate in the rail. */
 .extensions-section-toolbar {
   box-sizing: border-box;
@@ -108,7 +117,7 @@
   height: 30px;
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
   gap: 0;
   padding: 2px 0 4px;
@@ -170,24 +179,213 @@
 }
 .extensions-row {
   width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: start;
+  column-gap: 10px;
+  row-gap: 3px;
   color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.extensions-row .extensions-row-open:disabled,
+.extensions-row .extensions-row-enter:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+.extensions-row .extensions-row-open {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  min-width: 0;
+  align-self: stretch;
+}
+.extensions-row .extensions-row-toggle {
+  grid-column: 2;
+  grid-row: 1;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  justify-self: end;
+}
+.extensions-row .extensions-row-enter {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: center;
+  justify-self: center;
+  margin: 0;
+}
+
+.built-in-feature-list {
+  min-width: 0;
+  display: grid;
+  gap: var(--mx-rail-gap);
+}
+.built-in-feature-card {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-rail-item-surface);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+}
+.built-in-feature-card > header {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 10px;
+  row-gap: 0;
+}
+.built-in-feature-title { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.built-in-feature-title-icon {
+  flex: 0 0 auto;
+  color: var(--mx-icon-muted);
+}
+.built-in-feature-title b {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.built-in-feature-description {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding: 3px 2px 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.built-in-feature-state {
+  flex: 0 0 auto;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-medium);
+}
+.built-in-feature-state.is-failed,
+.built-in-feature-state.is-unavailable { color: var(--mx-danger); }
+.built-in-feature-control { display: flex; align-items: center; }
+.built-in-feature-control .mixdog-settings__switch span { height: 18px; }
+.built-in-feature-control .mixdog-settings__switch span::after {
+  width: 14px;
+  height: 14px;
+}
+.built-in-feature-control .mixdog-settings__switch input:checked + span::after {
+  transform: translateX(14px);
+}
+.built-in-feature-control-placeholder {
+  width: 32px;
+  height: 18px;
+  display: block;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-bg-layer-3);
+  box-shadow: var(--mx-switch-off);
+  opacity: var(--mx-op-disabled);
+}
+.built-in-feature-control > button {
+  min-width: 62px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  cursor: pointer;
+}
+.built-in-feature-control > button:hover { background: var(--mx-hover); }
+.built-in-feature-control > button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+/* Install progress paints INSIDE the control slot (where the toggle lands
+   after install) — the card never opens a second progress band below. */
+.built-in-feature-slot-progress {
+  width: 72px;
+  display: grid;
+  gap: 3px;
+}
+.built-in-feature-slot-progress > small {
+  justify-self: end;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-micro);
+  line-height: 1;
+}
+.built-in-feature-slot-progress > .built-in-feature-progress-bar { height: 4px; }
+.built-in-feature-error {
+  color: var(--mx-danger);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  overflow-wrap: anywhere;
+}
+.built-in-feature-progress-bar {
+  height: 5px;
+  overflow: hidden;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border);
+}
+.built-in-feature-progress-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--mx-accent);
+  transition: width 160ms ease-out;
+}
+.built-in-feature-progress-bar.is-indeterminate > span {
+  width: 32%;
+  animation: voice-install-indeterminate 1.1s ease-in-out infinite;
+}
+
+.extensions-create-dialog { --mx-editor-width: 480px; }
+.extensions-create-options {
+  min-height: 0;
+  display: grid;
+  gap: 8px;
+  padding: 4px 20px 20px;
+}
+.extensions-create-options > button {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-rail-item-surface);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
-.extensions-row:disabled {
-  opacity: var(--mx-op-disabled);
-  cursor: default;
+.extensions-create-options > button:hover { background: var(--mx-hover); }
+.extensions-create-options > button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: -1px;
 }
-.extensions-row .sidebar-resource-status {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 8px;
-  margin-inline: 4px;
-  border-radius: 50%;
-  background: var(--mx-text-faint);
+.extensions-create-options > button > svg {
+  flex: 0 0 auto;
+  color: var(--mx-icon-muted);
 }
-.extensions-row .sidebar-resource-status.on { background: var(--mx-success); }
+.extensions-create-options > button > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.extensions-create-options b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mx-font-ui);
+}
+.extensions-create-options small {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
 
 /* Detail dialog: the schedules editor card with a facts list where the form
    would be. The body owns the 20px gutter that card's sticky footer assumes in

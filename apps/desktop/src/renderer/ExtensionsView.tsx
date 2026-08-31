@@ -1,28 +1,25 @@
-import { Blocks, Plus, Plug, Sparkles } from "lucide-react";
+import { Blocks, Plus, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import type { ExtensionsSection } from "./extension-sections";
 import { t } from "./i18n";
 import { SidebarPanelAction } from "./session-sidebar";
 import { CapabilitySettings } from "./settings/CapabilitySettings";
 import "./settings/settings.css";
 import "./desktop/31-extensions.css";
 
-export type ExtensionsSection = "skills" | "mcp" | "plugins";
-
 const SECTIONS: ReadonlyArray<{
   id: ExtensionsSection;
   label: string;
   icon: typeof Plus;
 }> = [
-  { id: "skills", label: "Skills", icon: Sparkles },
-  { id: "mcp", label: "MCP", icon: Plug },
-  { id: "plugins", label: "Plugins", icon: Blocks },
+  { id: "plugins", label: "Plugin", icon: Blocks },
+  { id: "skills", label: "Skill", icon: Sparkles },
 ];
 
 const CREATE_LABEL = {
-  skills: "Add skill",
-  mcp: "Add MCP server",
   plugins: "Install plugin",
+  skills: "Add skill or MCP",
 } as const satisfies Record<ExtensionsSection, string>;
 
 export function ExtensionsPane({

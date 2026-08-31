@@ -12,6 +12,7 @@ const OUT = join(ROOT, 'raw-runs');
 
 const RUNS = [
   'jobs-full-sol-xhigh-k5-20260825-182921',
+  'jobs-full-codex-k5-20260831-050151',
   'jobs-full-codex',
   'jobs-full-opus5-solo-20260825-155233',
   'jobs-full-cc-n8',
@@ -34,7 +35,16 @@ const TRIAL_FILES = [
   'agent/claude-code.txt',
 ];
 
-const RUN_FILES = ['report.json', 'report.md', 'preset-run.json'];
+// `runtime-provenance.json` names the source commit and bundle digests the run
+// executed; `runtime-manifest.json` lists every bundled file with its sha256,
+// so the executed tree can be diffed against any commit without a rebuild.
+const RUN_FILES = [
+  'report.json',
+  'report.md',
+  'preset-run.json',
+  'runtime-provenance.json',
+  'runtime-manifest.json',
+];
 
 // A few tasks hand the agent credential-shaped fixture data: sanitize-git-repo
 // asks it to purge leaked keys from a repository, so the raw transcript quotes

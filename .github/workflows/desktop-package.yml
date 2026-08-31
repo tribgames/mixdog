@@ -38,6 +38,8 @@ jobs:
     env:
       ELECTRON_CACHE: ${{ github.workspace }}/.cache/electron
       ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.cache/electron-builder
+      MIXDOG_RUNTIME_DEPENDENCY_CACHE: >-
+        ${{ github.workspace }}/.cache/runtime-dependencies/${{ inputs.platform }}-${{ inputs.arch }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -45,6 +47,23 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
+      - name: Resolve package and runtime cache keys
+        id: runtime-dependencies
+        shell: bash
+        run: |
+          echo "key=$(node scripts/runtime-dependency-cache-key.mjs \
+            --platform=${{ inputs.platform }} --arch=${{ inputs.arch }})" >> "$GITHUB_OUTPUT"
+          echo "npm_key=$(node scripts/dependency-lock-cache-key.mjs \
+            apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
+          echo "manifest_key=$(node scripts/manifest-cache-key.mjs \
+            package.json package-lock.json apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
+          echo "npm_cache=$(npm config get cache)" >> "$GITHUB_OUTPUT"
+      - name: Restore prepared runtime archive
+        id: prepared-runtime
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/desktop/.runtime
+          key: desktop-prepared-runtime-v4-${{ steps.runtime-dependencies.outputs.key }}-${{ steps.runtime-dependencies.outputs.manifest_key }}-${{ hashFiles('README.md', 'NOTICE.md', 'LICENSES/**', 'scripts/**', '!scripts/*-test.mjs', '!scripts/*.test.mjs', '!scripts/*-bench.mjs', 'src/**', '!src/**/*.test.mjs', '!src/**/*.test.jsx', 'vendor/**', 'apps/desktop/scripts/prepare-runtime.mjs', 'apps/desktop/scripts/runtime-package-payload.mjs') }}
       - name: Restore Electron downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -53,31 +72,32 @@ jobs:
             ${{ env.ELECTRON_BUILDER_CACHE }}
           key: desktop-electron-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/desktop/package-lock.json') }}
           restore-keys: desktop-electron-${{ runner.os }}-${{ runner.arch }}-
-      - name: Resolve desktop npm cache key
-        id: desktop-npm
-        shell: bash
-        run: |
-          echo "npm_key=$(node scripts/dependency-lock-cache-key.mjs \
-            apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
-          echo "npm_cache=$(npm config get cache)" >> "$GITHUB_OUTPUT"
       - name: Restore stable desktop npm downloads
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ steps.desktop-npm.outputs.npm_cache }}
-          key: desktop-npm-${{ runner.os }}-${{ runner.arch }}-${{ steps.desktop-npm.outputs.npm_key }}
+          path: ${{ steps.runtime-dependencies.outputs.npm_cache }}
+          key: desktop-npm-${{ runner.os }}-${{ runner.arch }}-${{ steps.runtime-dependencies.outputs.npm_key }}
+      - name: Restore pruned runtime dependencies
+        if: steps.prepared-runtime.outputs.cache-hit != 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.MIXDOG_RUNTIME_DEPENDENCY_CACHE }}
+          key: desktop-${{ steps.runtime-dependencies.outputs.key }}
       - name: Install desktop dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
         working-directory: apps/desktop
+      - name: Prepare platform runtime
+        if: steps.prepared-runtime.outputs.cache-hit != 'true'
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          MIXDOG_RUNTIME_NPM_CACHE="$(npm config get cache)" \
+          npm run prepare:runtime -- --platform=${{ inputs.platform }} --arch=${{ inputs.arch }}
       - name: Download common desktop output
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: desktop-out
           path: apps/desktop/out
-      - name: Download prepared platform runtime
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: desktop-runtime-${{ inputs.platform }}-${{ inputs.arch }}
-          path: apps/desktop/.runtime
       - name: Build Windows installer
         if: inputs.platform == 'win32'
         shell: pwsh
@@ -103,28 +123,36 @@ jobs:
         run: npm run verify:packaging-artifact
         working-directory: apps/desktop
       - name: Smoke packaged desktop memory runtime
+        if: inputs.platform != 'win32'
         run: npm run verify:packaged-runtime
         working-directory: apps/desktop
-      - name: Upload verified Windows assets to hidden draft
+      # The release is still a hidden draft here. Uploading while the packaged
+      # runtime smoke runs is safe: either failure keeps publish blocked, and a
+      # recovery run clobbers the unpublished assets.
+      - name: Smoke and upload verified Windows assets in parallel
         if: inputs.platform == 'win32'
-        timeout-minutes: 6
-        shell: pwsh
+        timeout-minutes: 8
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_ID: ${{ inputs.release_id }}
         run: |
-          $assets = @(
-            'apps/desktop/dist/mixdog-desktop-win-x64.exe',
-            'apps/desktop/dist/mixdog-desktop-win-x64.exe.blockmap',
-            'apps/desktop/dist/latest.yml'
+          set -uo pipefail
+          assets=(
+            apps/desktop/dist/mixdog-desktop-win-x64.exe
+            apps/desktop/dist/mixdog-desktop-win-x64.exe.blockmap
+            apps/desktop/dist/latest.yml
           )
-          foreach ($asset in $assets) {
-            if (-not (Test-Path -LiteralPath $asset -PathType Leaf)) {
-              throw "Missing Windows release asset: $asset"
-            }
-          }
-          gh release upload $env:RELEASE_TAG @assets --clobber
-          if ($LASTEXITCODE -ne 0) { throw "gh release upload exited with $LASTEXITCODE" }
+          for asset in "${assets[@]}"; do test -f "$asset"; done
+          bash .github/scripts/upload-release-assets.sh "${assets[@]}" &
+          upload_pid=$!
+          smoke_status=0
+          npm run verify:packaged-runtime --prefix apps/desktop || smoke_status=$?
+          upload_status=0
+          wait "$upload_pid" || upload_status=$?
+          test "$smoke_status" -eq 0
+          test "$upload_status" -eq 0
       - name: Upload verified macOS assets to hidden draft
         if: inputs.platform == 'darwin'
         timeout-minutes: 7

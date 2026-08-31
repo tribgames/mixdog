@@ -45,31 +45,35 @@ workflow setup.
 
 Terminal-Bench 2.1 — same model, same 89 tasks, same official verifier, with
 only the harness changed. Against the native CLI of each model family, Mixdog
-scores higher while spending less to get there.
+delivers the same results at the same speed — on a fraction of the context,
+for far less cost.
 
 ### GPT-5.6 Sol xhigh — Mixdog vs Codex CLI
 
 ![Terminal-Bench 2.1: Mixdog with GPT-5.6 Sol xhigh versus Codex CLI](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-sol-vs-codex.svg)
 
-- **86.5%** (385/445) vs Codex CLI's **84.3%** (75/89)
-- **42%** lower priced cost — $0.641 vs $1.096 per trial
-- **45%** smaller median final context — 18.5k vs 33.5k tokens
-- **1.11×** faster — 339s vs 378s per trial
+- **39%** lower priced cost — $0.476 vs $0.782 per trial
+- **46%** smaller median final context — 18.5k vs 34.3k tokens
+- **86.5%** (385/445) vs Codex CLI's **86.1%** (383/445) — full `k=5` on both
+  sides, pass@5 **96.6%** vs 95.5%
+- Matched speed — 415s vs 437s wall time per trial
 
 ### Claude Opus 5 — Mixdog vs Claude Code
 
 ![Terminal-Bench 2.1: Mixdog with Claude Opus 5 versus Claude Code](https://raw.githubusercontent.com/tribgames/mixdog/main/benchmarks/terminal-bench-2.1/tb21-opus-vs-claude-code.svg)
 
-- **79/89** vs Claude Code's **77/89**
 - **19%** lower priced cost — $104.29 vs $129.21 per run
 - **28%** smaller median final context — 27.6k vs 38.2k tokens
-- **1.15×** faster
+- **79/89** vs Claude Code's **77/89**
+- **1.16×** faster — 610s vs 708s wall time per trial
 
-Every run uses the official Harbor verifier, fast mode off, a 272k context
-window, and zero retries. The Mixdog Sol run follows the protocol the official
-Terminal-Bench leaderboard requires — all 89 tasks repeated five times (`k=5`,
-445 trials); the Codex CLI baseline and both Opus-side runs are single passes
-(`k=1`, 89 trials each).
+Every run uses the official Harbor verifier, fast mode off, and a 272k context
+window; task failures and agent timeouts are never retried. The Sol comparison
+follows the protocol the official Terminal-Bench leaderboard requires on both
+sides — all 89 tasks repeated five times (`k=5`, 445 trials each); the
+Opus-side runs are single passes (`k=1`, 89 trials each). Speed is the full
+trial wall clock, and cost values both sides at the same current API list
+rates.
 
 The leaderboard is not accepting community submissions, so every run here ships
 its raw artifacts instead — Harbor verdicts, official verifier output, pinned
@@ -88,6 +92,13 @@ the harness, presets, and metric scripts that recompute each number above:
   MCP, skills, hooks, and plugins.
 - **Local memory** — semantic and lexical recall with project-scoped context
   and multilingual retrieval.
+- **Browser Use** — a logged-in Chromium pane the agent can drive: tabs,
+  forms, downloads, and snapshots, with one-time Chrome profile import
+  including cookies and passwords.
+- **Computer Use** — agent control of the Windows desktop through screen
+  capture, accessibility, OCR, and a strict guarded input contract.
+- **Office documents** — author and edit Word, Excel, and PowerPoint files
+  with model-authored design plans, charts, and assurance-checked output.
 - **Encrypted remote access** — pair the installable web app with Desktop and
   use Mixdog from a browser or phone over authenticated E2EE.
 - **Desktop coding app** — agent panes, Monaco editor, Git, terminals, file
@@ -202,14 +213,20 @@ Mixdog Desktop runs the same agent runtime as the CLI:
 - Git staging, commits, branches, and generated commit messages
 - File explorer with previews, thumbnails, search, and drag-and-drop
 - Integrated terminal tabs using the local system shell
+- Browser Use pane with agent control and Chromium profile import
+- Computer Use on Windows with guarded native input
+- Office document authoring with rendered previews
 - Image and video generation Studio with a persistent local gallery
 - Visual workflow, agent, schedule, and webhook editors
 - Voice dictation with an optional local transcription runtime
+- Extensions hub with guided setup for Git, Memory, Browser Use, Computer
+  Use, Office, and voice
 - Provider setup, usage, git identity, and remote pairing settings
 
 The paired remote web app is installable on desktop and mobile browsers. It
 uses an authenticated end-to-end encrypted connection before session state,
-terminal data, files, or operation requests cross the relay.
+terminal data, files, or operation requests cross the relay, and adds mobile
+share-target intake, push notifications, and remote Browser Use.
 
 For desktop development:
 

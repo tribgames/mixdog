@@ -74,11 +74,17 @@ export const GIT_TOOL_DEF = {
         openWorldHint: true,
         compressible: true,
     },
-    description: 'Run one Git command directly, without a shell. Owns repository state, diffs, history, and mutations. Use diff for known targets; otherwise use status alone to discover targets. Shell operators and substitution are rejected. Repository mutations are serialized. Successful output is compacted.',
+    description: 'Run one Git command, or up to 5 read-only Git commands sequentially, directly without a shell. Owns repository state, diffs, history, and mutations. Use diff for known targets; otherwise use status alone to discover targets. Shell operators and substitution are rejected. Arrays reject mutations before running and report each result. Repository mutations are serialized. Successful output is compacted.',
     inputSchema: {
         type: 'object',
         properties: {
-            command: { type: 'string', description: 'Full command beginning with git. Quote arguments as for a shell; shell operators are not allowed.' },
+            command: {
+                anyOf: [
+                    { type: 'string' },
+                    { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 5 },
+                ],
+                description: 'Full command beginning with git, or an array of independent read-only commands. Quote arguments as for a shell; shell operators are not allowed.',
+            },
             output_limit: { type: 'integer', minimum: 1, maximum: GIT_OUTPUT_LIMIT_MAX, description: 'Item/line cap. Default 50; git log defaults to 10.' },
         },
         required: ['command'],
@@ -889,7 +895,7 @@ export async function executeGitStageTool(input, workDir, options = {}) {
     })), { signal });
 }
 
-export async function executeGitTool(input, workDir, options = {}) {
+async function executeSingleGitTool(input, workDir, options = {}) {
     if (!input || typeof input !== 'object' || Array.isArray(input)) return fail('git requires an arguments object');
     const hasCommand = typeof input.command === 'string' && Boolean(input.command.trim());
     if (!hasCommand) return fail('git requires command');
@@ -971,6 +977,46 @@ export async function executeGitTool(input, workDir, options = {}) {
         }
         return ok({ ...mutationData(plan, cleanText(result.stdout), cleanText(result.stderr), limit), status: statusDelta(before, after, limit) });
     })), { signal });
+}
+
+function gitBatchRow(command, raw) {
+    const text = String(raw || '');
+    if (text.startsWith('Error:')) {
+        return { command, ok: false, error: text.slice('Error:'.length).trim() };
+    }
+    try {
+        const data = JSON.parse(text);
+        return { command, ok: data?.ok === true, data };
+    } catch {
+        return { command, ok: false, error: text || 'git returned no result' };
+    }
+}
+
+export async function executeGitTool(input, workDir, options = {}) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return fail('git requires an arguments object');
+    if (!Array.isArray(input.command)) return executeSingleGitTool(input, workDir, options);
+    const commands = input.command;
+    if (commands.length < 1 || commands.length > 5) return fail('git command array requires 1 to 5 commands');
+
+    for (let index = 0; index < commands.length; index += 1) {
+        const command = commands[index];
+        if (typeof command !== 'string' || !command.trim()) {
+            return fail(`git command ${index + 1} must be a non-empty string`);
+        }
+        let plan;
+        try { plan = localizeConfigPlan(parseCommand(command, workDir)); }
+        catch (error) { return fail(`git command ${index + 1}: ${error.message}`); }
+        if (!isReadOnly(plan)) {
+            return fail(`git command arrays accept read-only commands only; command ${index + 1} is '${plan.operation}'`);
+        }
+    }
+
+    const results = [];
+    for (const command of commands) {
+        const raw = await executeSingleGitTool({ ...input, command }, workDir, options);
+        results.push(gitBatchRow(command, raw));
+    }
+    return ok({ batched: true, results });
 }
 
 export const _gitCommandInternals = { creationTarget, failureText, foldProgressFrames, localizeConfigPlan, parseCommand, prepare };

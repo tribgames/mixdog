@@ -1,6 +1,6 @@
 import { dirname, extname, join, posix } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { measureTextBlock, reviewShapeSpacing, reviewTextBoxFit, reviewTextContrast } from './text-metrics.mjs';
+import { measureTextBlock, reviewShapeSpacing, reviewStatLabelProximity, reviewTextBoxFit, reviewTextContrast, reviewVerticalBalance } from './text-metrics.mjs';
 import {
   columnLabel,
   columnNumber,
@@ -499,14 +499,24 @@ async function imageDistortionIssues(zip, format) {
       if (!source?.width || !source?.height) continue;
       const placed = Number(extent[1]) / Number(extent[2]);
       const original = source.width / source.height;
-      if (!Number.isFinite(placed) || !Number.isFinite(original) || original <= 0) continue;
-      const drift = Math.abs(placed - original) / original;
+      const sourceRect = format === 'pptx'
+        ? /<a:srcRect\b([^>]*)\/?>/.exec(picture[0])?.[1]
+        : '';
+      const visibleWidth = sourceRect
+        ? 1 - ((Number(xmlAttribute(sourceRect, 'l')) || 0) + (Number(xmlAttribute(sourceRect, 'r')) || 0)) / 100000
+        : 1;
+      const visibleHeight = sourceRect
+        ? 1 - ((Number(xmlAttribute(sourceRect, 't')) || 0) + (Number(xmlAttribute(sourceRect, 'b')) || 0)) / 100000
+        : 1;
+      const visibleAspect = original * visibleWidth / visibleHeight;
+      if (!Number.isFinite(placed) || !Number.isFinite(visibleAspect) || visibleAspect <= 0) continue;
+      const drift = Math.abs(placed - visibleAspect) / visibleAspect;
       if (drift <= 0.1) continue;
       issues.push({
         severity: 'warning',
         code: 'image_aspect_distorted',
         path: slide ? `/slide[${slide}]/picture[${ordinal}]` : `/body/picture[${ordinal}]`,
-        message: `Image is stretched ${Math.round(drift * 100)}% off its ${source.width}x${source.height} aspect ratio;`
+        message: `Image is stretched ${Math.round(drift * 100)}% off its visible ${source.width}x${source.height} aspect ratio;`
           + ' set only width or height to keep the original proportions.',
         source: 'image-audit',
       });
@@ -617,6 +627,15 @@ export async function issuesPortableOoxml(path, format, options = {}) {
     }
     for (const spacing of reviewShapeSpacing(inspected.boxes)) {
       issues.push({ severity: 'info', source: 'text-metrics', ...spacing });
+    }
+    for (const balance of reviewVerticalBalance(inspected.content, {
+      slideWidth: inspected.slideWidth,
+      slideHeight: inspected.slideHeight,
+    })) {
+      issues.push({ severity: 'warning', source: 'text-metrics', ...balance });
+    }
+    for (const detached of reviewStatLabelProximity(inspected.boxes)) {
+      issues.push({ severity: 'warning', source: 'text-metrics', ...detached });
     }
     for (const overflow of await tableCellOverflowIssues(zip)) issues.push(overflow);
   }

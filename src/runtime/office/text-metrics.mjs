@@ -31,7 +31,12 @@ export function fontAvailable(name) {
     }
   }
   if (!installedFonts.size) return true;
-  return installedFonts.has(family);
+  if (installedFonts.has(family)) return true;
+  // Weight-suffixed families (Malgun Gothic Semilight, Segoe UI Semibold)
+  // often enumerate only under their base family; measure with that base
+  // instead of reporting the whole font missing.
+  const base = family.replace(/\s+(?:semilight|light|semibold|medium|black|thin|extrabold)$/u, '');
+  return base !== family && installedFonts.has(base);
 }
 
 export function measureTextWidth(text, font = {}) {
@@ -204,6 +209,7 @@ export function reviewTextBoxFit(boxes = [], {
   slideWidth = 0,
   slideHeight = 0,
   tolerance = 1.04,
+  isFontAvailable = fontAvailable,
 } = {}) {
   const issues = [];
   for (const box of boxes) {
@@ -219,7 +225,18 @@ export function reviewTextBoxFit(boxes = [], {
     const measured = measureTextBlock(paragraphs, {
       width: box.wrap === false ? 0 : usableWidth,
     });
-    const substituted = paragraphs.some((paragraph) => !fontAvailable(paragraph.fontName));
+    const unavailableFonts = [...new Set(paragraphs
+      .map((paragraph) => String(paragraph.fontName || '').trim())
+      .filter((name) => name && !isFontAvailable(name)))];
+    for (const font of unavailableFonts) {
+      issues.push({
+        code: 'font_unavailable',
+        path: `/slide[${box.slide}]/shape[${box.shape}]`,
+        message: `Font "${font}" is not installed, so PowerPoint may substitute it and change the layout.`,
+        font,
+      });
+    }
+    const substituted = unavailableFonts.length > 0;
     const allowance = substituted ? tolerance * 1.12 : tolerance;
     if (measured.height > usableHeight * allowance) {
       issues.push({
@@ -256,6 +273,83 @@ export function reviewTextBoxFit(boxes = [], {
         code: 'shape_out_of_bounds',
         path: `/slide[${box.slide}]/shape[${box.shape}]`,
         message: 'Shape extends past the slide edge.',
+      });
+    }
+  }
+  return issues;
+}
+
+export function reviewVerticalBalance(bounds = [], { slideWidth = 0, slideHeight = 0 } = {}) {
+  if (!(slideHeight > 0) || !(slideWidth > 0)) return [];
+  const issues = [];
+  const slides = new Map();
+  for (const box of bounds) {
+    if (!slides.has(box.slide)) slides.set(box.slide, []);
+    slides.get(box.slide).push(box);
+  }
+  for (const [slide, shapes] of slides) {
+    const content = shapes.filter((shape) => (
+      Math.max(0, shape.width) * Math.max(0, shape.height) < slideWidth * slideHeight * 0.8
+    ));
+    if (!content.length) continue;
+    const top = Math.min(...content.map((shape) => shape.top));
+    const bottom = Math.max(...content.map((shape) => shape.top + shape.height));
+    const topEmpty = Math.max(0, top);
+    const bottomEmpty = Math.max(0, slideHeight - bottom);
+    const heavyBottom = bottomEmpty > slideHeight * 0.3 && bottomEmpty - topEmpty > slideHeight * 0.24;
+    const heavyTop = topEmpty > slideHeight * 0.3 && topEmpty - bottomEmpty > slideHeight * 0.24;
+    if (!heavyBottom && !heavyTop) continue;
+    issues.push({
+      code: 'vertical_imbalance',
+      path: `/slide[${slide}]`,
+      message: heavyBottom
+        ? `Content ends ${Math.round(bottomEmpty)}pt above the slide bottom while starting ${Math.round(topEmpty)}pt from the top; rebalance the layout or extend content regions downward.`
+        : `Content starts ${Math.round(topEmpty)}pt from the slide top while ending ${Math.round(bottomEmpty)}pt above the bottom; rebalance the layout upward.`,
+      emptyTop: Math.round(topEmpty),
+      emptyBottom: Math.round(bottomEmpty),
+    });
+  }
+  return issues;
+}
+
+export function reviewStatLabelProximity(boxes = [], { maximumGap = 36 } = {}) {
+  const issues = [];
+  const slides = new Map();
+  for (const box of boxes) {
+    if (!slides.has(box.slide)) slides.set(box.slide, []);
+    slides.get(box.slide).push(box);
+  }
+  for (const [slide, shapes] of slides) {
+    for (const box of shapes) {
+      const paragraphs = Array.isArray(box.paragraphs) ? box.paragraphs : [];
+      const text = paragraphs.map((paragraph) => String(paragraph.text ?? '')).join(' ').trim();
+      const size = Math.max(...paragraphs.map((paragraph) => Number(paragraph.fontSize) || 0), 0);
+      if (size < 28 || !text || text.length > 16 || !/\d/.test(text)) continue;
+      const letters = (text.match(/\p{L}/gu) || []).length;
+      if (letters > text.replace(/\s/g, '').length * 0.5) continue;
+      const bottom = box.top + box.height;
+      const nearest = shapes
+        .filter((candidate) => candidate !== box)
+        .filter((candidate) => Math.max(
+          ...(Array.isArray(candidate.paragraphs) ? candidate.paragraphs : [])
+            .map((paragraph) => Number(paragraph.fontSize) || 0),
+          0,
+        ) <= 20)
+        .filter((candidate) => candidate.top >= bottom - 2)
+        .filter((candidate) => {
+          const overlap = Math.min(box.left + box.width, candidate.left + candidate.width)
+            - Math.max(box.left, candidate.left);
+          return overlap >= Math.min(box.width, candidate.width) * 0.4;
+        })
+        .sort((first, second) => first.top - second.top)[0];
+      if (!nearest) continue;
+      const gap = nearest.top - bottom;
+      if (gap <= maximumGap) continue;
+      issues.push({
+        code: 'stat_label_detached',
+        path: `/slide[${slide}]/shape[${box.shape}]`,
+        message: `The stat "${text}" sits ${Math.round(gap)}pt above its nearest label; keep a value and its label within ${maximumGap}pt so they read as one unit.`,
+        gap: Math.round(gap),
       });
     }
   }

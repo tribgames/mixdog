@@ -63,6 +63,7 @@ export async function inspectPptxTextBoxes(zip) {
   const presentation = await zipText(zip, 'ppt/presentation.xml');
   const size = /<p:sldSz\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(presentation);
   const boxes = [];
+  const content = [];
   for (let index = 0; index < slides.length; index += 1) {
     const xml = await zipText(zip, slides[index].path);
     const slideBackground = /<p:bg>[\s\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(xml)?.[1] || '';
@@ -72,7 +73,6 @@ export async function inspectPptxTextBoxes(zip) {
     const painted = [];
     for (let shapeIndex = 0; shapeIndex < shapes.length; shapeIndex += 1) {
       const shape = shapes[shapeIndex];
-      if (shape.name !== 'p:sp') continue;
       const offset = /<a:off\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)"/.exec(shape.xml);
       const extent = /<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(shape.xml);
       if (!offset || !extent) continue;
@@ -82,10 +82,19 @@ export async function inspectPptxTextBoxes(zip) {
         width: Number(extent[1]) / 12_700,
         height: Number(extent[2]) / 12_700,
       };
+      if (shape.name !== 'p:sp') {
+        content.push({ slide: index + 1, shape: shapeIndex + 1, kind: shape.name, ...bounds });
+        continue;
+      }
       const ownFill = /<a:solidFill><a:srgbClr val="([0-9A-Fa-f]{6})"/
         .exec(containerInner(shape.xml, 'p:spPr')?.inner || '')?.[1] || '';
       if (ownFill) painted.push({ ...bounds, color: ownFill });
       const paragraphs = shapeParagraphs(shape.xml);
+      const hasText = Boolean(paragraphs?.length)
+        && paragraphs.some((paragraph) => String(paragraph.text || '').trim());
+      if (ownFill || hasText) {
+        content.push({ slide: index + 1, shape: shapeIndex + 1, kind: 'p:sp', ...bounds });
+      }
       if (!paragraphs?.length) continue;
       const covering = [...painted].reverse().find((entry) => (
         entry.color !== ownFill
@@ -119,6 +128,7 @@ export async function inspectPptxTextBoxes(zip) {
   }
   return {
     boxes,
+    content,
     slideWidth: size ? Number(size[1]) / 12_700 : 0,
     slideHeight: size ? Number(size[2]) / 12_700 : 0,
   };

@@ -258,7 +258,9 @@ test('git and deferred git_stage expose separate compact contracts', () => {
     const properties = GIT_TOOL_DEF.inputSchema.properties;
     assert.deepEqual(Object.keys(properties), ['command', 'output_limit']);
     assert.deepEqual(GIT_TOOL_DEF.inputSchema.required, ['command']);
-    assert.equal(properties.command.minLength, undefined);
+    assert.deepEqual(properties.command.anyOf.map((entry) => entry.type), ['string', 'array']);
+    assert.equal(properties.command.anyOf[1].minItems, 1);
+    assert.equal(properties.command.anyOf[1].maxItems, 5);
     assert.equal(properties.output_limit.maximum, 200);
     const stageProperties = GIT_STAGE_TOOL_DEF.inputSchema.properties;
     assert.deepEqual(Object.keys(stageProperties), ['diff_id', 'change_ids', 'output_limit']);
@@ -269,8 +271,52 @@ test('git and deferred git_stage expose separate compact contracts', () => {
     assert.doesNotMatch(GIT_TOOL_DEF.description, /confirm/i);
     assert.match(GIT_TOOL_DEF.description, /Owns repository state, diffs, history, and mutations/i);
     assert.match(GIT_TOOL_DEF.description, /Use diff for known targets; otherwise use status alone to discover targets/i);
-    assert.match(GIT_TOOL_DEF.description, /Run one Git command directly, without a shell/i);
+    assert.match(GIT_TOOL_DEF.description, /up to 5 read-only Git commands sequentially/i);
     assert.match(GIT_TOOL_DEF.description, /repository mutations are serialized/i);
+});
+
+test('git command arrays preflight read-only policy and report each sequential result', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-git-command-array-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const repo = join(root, 'repo');
+    parseOk(await executeGitTool({ command: `git init ${quote(repo)}` }, root));
+    parseOk(await git(repo, 'config user.name "Mixdog Test"'));
+    parseOk(await git(repo, 'config user.email mixdog@example.invalid'));
+    writeFileSync(join(repo, 'base.txt'), 'base\n');
+    parseOk(await git(repo, 'add --all'));
+    parseOk(await git(repo, 'commit -m base'));
+    writeFileSync(join(repo, 'base.txt'), 'changed\n');
+
+    const batch = parseOk(await executeGitTool({
+        command: [
+            `git -C ${quote(repo)} status --short`,
+            `git -C ${quote(repo)} diff -- base.txt`,
+        ],
+        output_limit: 20,
+    }, repo));
+    assert.equal(batch.batched, true);
+    assert.equal(batch.results.length, 2);
+    assert.equal(batch.results[0].ok, true);
+    assert.equal(batch.results[1].ok, true);
+    assert.match(JSON.stringify(batch.results[1].data), /changed/);
+
+    const rejected = String(await executeGitTool({
+        command: [
+            `git -C ${quote(repo)} status --short`,
+            `git -C ${quote(repo)} add -- base.txt`,
+        ],
+    }, repo));
+    assert.match(rejected, /^Error: git command arrays accept read-only commands only/);
+    assert.equal(parseOk(await git(repo, 'diff --cached --quiet')).changed, false);
+
+    const partial = parseOk(await executeGitTool({
+        command: [
+            `git -C ${quote(repo)} show missing-ref`,
+            `git -C ${quote(repo)} status --short`,
+        ],
+    }, repo));
+    assert.equal(partial.results[0].ok, false);
+    assert.equal(partial.results[1].ok, true);
 });
 
 test('git clamps oversized output requests to 200 lines', async (t) => {

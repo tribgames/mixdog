@@ -149,7 +149,8 @@ export {
 } from './ipc-validation';
 
 const SERVICE_OPERATION_NAMES = [
-  'githubStarStatus', 'starGithub', 'githubCliStatus', 'installGithubCli',
+  'githubStarStatus', 'starGithub', 'gitCliStatus', 'installGitCli',
+  'libreOfficeStatus', 'installLibreOffice', 'githubCliStatus', 'installGithubCli',
   'githubCliLoginStart', 'githubCliLoginStatus', 'cancelGithubCliLogin',
   'githubCliLogout', 'githubCliAccount', 'gitGlobalConfig', 'setGitGlobalConfig',
   'gitAbortOperation', 'gitAmend', 'gitApplyPatch', 'gitBranches',
@@ -253,6 +254,10 @@ export function registerDesktopIpc(
   const {
     githubStarStatus,
     starGithub,
+    gitCliStatus,
+    installGitCli,
+    libreOfficeStatus,
+    installLibreOffice,
     githubCliStatus,
     installGithubCli,
     githubCliLoginStart,
@@ -682,10 +687,34 @@ export function registerDesktopIpc(
     const failure = await shell.openPath(directory);
     if (failure) throw new Error(`Unable to open project folder: ${failure}`);
   });
+  const resolvedMediaAssetPath = async (assetId: unknown): Promise<string> => {
+    const id = requiredString(assetId, 'assetId', 512);
+    const result = await host.invokeCapability<{ available?: unknown; path?: unknown }>(
+      'resolveMediaFile',
+      [id, { variant: 'original' }],
+    );
+    const file = result.value;
+    if (file?.available !== true || typeof file.path !== 'string' || !pathIsAbsolute(file.path)) {
+      throw new Error('Media asset is unavailable.');
+    }
+    return file.path;
+  };
+  handle(DESKTOP_IPC.openMediaAsset, async (_event, assetId) => {
+    const failure = await shell.openPath(await resolvedMediaAssetPath(assetId));
+    if (failure) throw new Error(`Unable to open media asset: ${failure}`);
+  });
+  handle(DESKTOP_IPC.openMediaFolder, async (_event, assetId) => {
+    shell.showItemInFolder(await resolvedMediaAssetPath(assetId));
+  });
   handle(DESKTOP_IPC.openExternal, (_event, url) =>
     shell.openExternal(requiredExternalUrl(url)));
   handle(DESKTOP_IPC.githubStarStatus, () => githubStarStatus());
   handle(DESKTOP_IPC.starGithub, () => starGithub());
+  handle(DESKTOP_IPC.gitCliStatus, () => gitCliStatus());
+  handle(DESKTOP_IPC.installGitCli, () => installGitCli());
+  // Extensions → Office: LibreOffice dependency probe + guided install.
+  handle(DESKTOP_IPC.libreOfficeStatus, () => libreOfficeStatus());
+  handle(DESKTOP_IPC.installLibreOffice, () => installLibreOffice());
   // Settings → Git: GitHub CLI integration + global git identity.
   handle(DESKTOP_IPC.githubCliStatus, () => githubCliStatus());
   handle(DESKTOP_IPC.installGithubCli, () => installGithubCli());

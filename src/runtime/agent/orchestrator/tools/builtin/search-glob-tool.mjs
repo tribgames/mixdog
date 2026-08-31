@@ -4,6 +4,7 @@ import { createHash } from 'crypto';
 import { isAbsolute, resolve } from 'path';
 import { trueCasePath } from './path-utils.mjs';
 import { expandAbsoluteGlobs } from './lib/absolute-glob-expand.mjs';
+import { buildGlobPatternGroups } from './lib/glob-static-prefix.mjs';
 import {
     canonicalizeGlobSlashes,
     coerceReadFamilyPathArg,
@@ -357,20 +358,11 @@ export async function executeGlobTool(args, workDir, options = {}) {
     const extraIgnoreGlobs = Array.isArray(args._extraIgnoreDirs)
         ? args._extraIgnoreDirs.map((name) => `!**/${name}/**`)
         : [];
-    const groups = new Map();
-    function addToGroup(root, rel) {
-        if (!groups.has(root)) groups.set(root, []);
-        const rels = groups.get(root);
-        if (!rels.includes(rel)) rels.push(rel);
-    }
-    for (const p of patterns) {
-        if (isAbsolute(p)) {
-            const { baseDir, relativePattern } = extractGlobBaseDirectory(p);
-            addToGroup(baseDir || baseEntries[0]?.root || '.', relativePattern);
-        } else {
-            for (const e of baseEntries) addToGroup(e.root, e.prefix ? `${e.prefix}/${p}` : p);
-        }
-    }
+    const groups = await buildGlobPatternGroups({
+        patterns,
+        baseEntries,
+        resolveRoot: resolvedForSearchRoot,
+    });
 
     const cacheBasePath = [...groups.keys()]
         .map((root) => normalizeOutputPath(resolvedForSearchRoot(root)))

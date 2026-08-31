@@ -24,8 +24,8 @@
   display: flex;
   flex-direction: column;
 }
-/* Gallery + detail overlay. The composer dock stays a sibling below so a
-   stacked preview cannot bury the prompt. */
+/* Gallery + detail fill the pane. The composer is a floating sibling, so
+   tiles can keep painting to the pane floor behind it. */
 .studio-stage-host {
   position: relative;
   flex: 1;
@@ -84,8 +84,8 @@
   cursor: pointer;
 }
 .studio-folder:hover { color: var(--mx-text); background: var(--mx-hover); }
-/* Studio is a full-height tab surface. Its result list owns the flexible
-   middle while the composer remains pinned to the bottom. */
+/* Studio is a full-height tab surface. Its result list reaches the pane floor
+   while the composer floats over it. */
 .studio-root {
   position: relative;
   flex: 1;
@@ -113,7 +113,8 @@
   min-height: 0;
   flex: 1;
   overflow-y: auto;
-  padding: 16px calc(var(--pane-inset) - var(--mx-scrollbar-gutter)) 8px var(--pane-inset);
+  padding: 16px calc(var(--pane-inset) - var(--mx-scrollbar-gutter))
+    calc(var(--studio-dock-overlay-height, 116px) + 12px) var(--pane-inset);
   /* Same owned-gutter grammar as chat: one track, paid from right padding. */
   scrollbar-gutter: stable;
 }
@@ -481,27 +482,58 @@
 .studio-attach:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
 .studio-attach:disabled { opacity: var(--mx-op-disabled); cursor: default; }
 .studio-refs { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px 0; }
-.studio-ref { position: relative; width: 44px; height: 44px; }
-.studio-ref img { width: 100%; height: 100%; object-fit: cover; border-radius: var(--mx-radius-md); display: block; }
-.studio-ref button {
+.studio-ref { position: relative; width: 44px; height: 44px; cursor: grab; }
+.studio-ref:active { cursor: grabbing; }
+.studio-ref[data-dragging="true"] { opacity: .5; }
+.studio-ref[data-drop-position]::before {
+  content: "";
   position: absolute;
+  z-index: 2;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--mx-accent);
+}
+.studio-ref[data-drop-position="before"]::before { left: -4px; }
+.studio-ref[data-drop-position="after"]::before { right: -4px; }
+.studio-ref-open {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: inherit;
+}
+.studio-ref-open:focus-visible {
+  outline: 1px solid var(--mx-accent);
+  outline-offset: 2px;
+  border-radius: var(--mx-radius-md);
+}
+.studio-ref img { width: 100%; height: 100%; object-fit: cover; border-radius: var(--mx-radius-md); display: block; }
+.studio-ref-remove {
+  position: absolute;
+  z-index: 2;
   top: -5px;
   right: -5px;
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
   border: 0;
   border-radius: 50%;
   color: var(--mx-grey-100);
   background: var(--mx-media-scrim-hover);
+  line-height: 0;
   cursor: pointer;
 }
-/* Bottom dock: same grammar as the session composer — a raised card that owns
-   the prompt, the lane pills, and the send action. */
+/* Floating bottom dock: the gallery keeps the full pane behind this raised
+   composer, matching image-generation canvases that preserve visible tiles
+   around the typing surface. */
 .studio-dock {
   box-sizing: border-box;
-  flex: 0 0 auto;
   /* Studio's gallery stays full-width, but its typing card follows the TASK
      reading column: fluid below 800px, then centered at the same cap. */
   width: min(100%, 800px);
@@ -509,7 +541,9 @@
   /* Same floor gap as .composer-region so a 2×2 split lines the cards up. */
   padding: 0 var(--pane-inset) 16px;
   /* Anchor for the floating density overlay above the composer. */
-  position: relative;
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
   z-index: 5;
   display: grid;
   gap: 6px;
@@ -904,6 +938,24 @@
   min-height: 0;
   overflow: hidden;
   padding: 16px;
+}
+.studio-detail-media-open {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+.studio-detail-media-open:focus-visible {
+  outline: 1px solid var(--mx-accent);
+  outline-offset: -1px;
+  border-radius: var(--mx-radius-md);
 }
 .studio-detail-stage img,
 .studio-detail-stage video {

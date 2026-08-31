@@ -95,11 +95,11 @@
     "name": "codex-gpt56-sol",
     "baseline": {
       "label": "Codex CLI · GPT-5.6 Sol xhigh",
-      "jobsDir": "jobs-full-codex/2026-08-02__12-19-11",
       "harness": "codex",
       "model": "gpt-5.6-sol",
-      "finalContextMedianTokens": 33454,
-      "costLowerBound": false
+      "jobsDir": "jobs-full-codex-k5-20260831-050151/2026-08-31__05-01-53",
+      "costLowerBound": false,
+      "finalContextMedianTokens": 34300
     }
   },
   "completedAt": "2026-08-26T01:06:33.8594991Z",

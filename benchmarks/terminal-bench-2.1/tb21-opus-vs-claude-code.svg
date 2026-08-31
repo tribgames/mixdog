@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600" role="img" aria-labelledby="t d" font-family="Styrene A,Segoe UI Variable Display,Segoe UI,Inter,Helvetica Neue,Arial,sans-serif">
   <title id="t">Terminal-Bench 2.1: mixdog with Claude Opus 5 versus Claude Code</title>
-  <desc id="d">In matched-model solo runs, mixdog scored 88.8 percent over 89 trials versus Claude Code at 86.5 percent over 89 trials, ran at 1.15 times the speed, finished tasks with a 28 percent smaller median context, and cost 19 percent less.</desc>
+  <desc id="d">In matched-model solo runs, mixdog scored 88.8 percent over 89 trials versus Claude Code at 86.5 percent over 89 trials, ran 1.16 times faster by full-trial wall time, finished tasks with a 28 percent smaller median context, and cost 19 percent less.</desc>
   <defs>
     <pattern id="hatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)">
       <rect width="6" height="6" fill="#FBFAF7"/>
@@ -8,7 +8,7 @@
     </pattern>
   </defs>
   <rect width="1200" height="600" fill="#F0EEE6"/>
-  <text x="64" y="62" font-size="11" letter-spacing="2" font-weight="600" fill="#7A776C">TERMINAL-BENCH 2.1 · 89 TASKS · K=1 SELF-REPORTED</text>
+  <text x="64" y="62" font-size="11" letter-spacing="2" font-weight="600" fill="#7A776C">TERMINAL-BENCH 2.1 · 89 TASKS · K=1 VS K=1 · SELF-REPORTED</text>
   <text x="64" y="98" font-size="28" font-weight="650" letter-spacing="-0.3" fill="#191919">mixdog vs Claude Code</text>
   <text x="64" y="124" font-size="13.5" fill="#6E6B60">Claude Opus 5 · same model, same reasoning level · solo loop</text>
   <rect x="922" y="82" width="14" height="14" fill="#D97706"/>
@@ -27,11 +27,11 @@
   <text x="220" y="546" text-anchor="middle" font-size="12" fill="#6E6B60">Claude Code</text>
 
   <text x="340" y="184" font-size="15" font-weight="650" fill="#191919">Speed</text>
-  <text x="340" y="204" font-size="11.5" fill="#8A8779">relative agent elapsed · 1.15&#215; faster</text>
-  <rect x="364" y="250" width="72" height="270" fill="#D97706"/>
-  <text x="400" y="236" text-anchor="middle" font-size="21" font-weight="650" fill="#191919">1.15&#215;</text>
-  <rect x="460" y="286.1" width="72" height="233.9" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
-  <text x="496" y="272.1" text-anchor="middle" font-size="21" font-weight="650" fill="#66635A">1.00&#215;</text>
+  <text x="340" y="204" font-size="11.5" fill="#8A8779">wall time per trial · 1.16&#215; faster</text>
+  <rect x="364" y="287.5" width="72" height="232.5" fill="#D97706"/>
+  <text x="400" y="273.5" text-anchor="middle" font-size="21" font-weight="650" fill="#191919">610s</text>
+  <rect x="460" y="250" width="72" height="270" fill="url(#hatch)" stroke="#B8B4A7" stroke-width="0.8"/>
+  <text x="496" y="236" text-anchor="middle" font-size="21" font-weight="650" fill="#66635A">708s</text>
   <line x1="340" y1="520" x2="572" y2="520" stroke="#A8A499" stroke-width="1.2"/>
   <text x="400" y="546" text-anchor="middle" font-size="12" font-weight="600" fill="#191919">mixdog</text>
   <text x="496" y="546" text-anchor="middle" font-size="12" fill="#6E6B60">Claude Code</text>

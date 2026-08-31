@@ -10,6 +10,7 @@ import * as gh from './gh-cli';
 import * as git from './git-cli';
 import * as github from './github-cli';
 import { LanguageServerManager } from './language-server-manager';
+import * as libreoffice from './libreoffice';
 import * as projectFiles from './project-files';
 import { listShellProfiles, resolveShellProfileSpawn } from './shell-profiles';
 import { DesktopSettingsStore } from './settings-store';
@@ -82,9 +83,13 @@ const STATIC_OPERATIONS = {
   githubCliLoginStatus: github.githubCliLoginStatus,
   githubCliLogout: github.githubCliLogout,
   githubCliStatus: github.githubCliStatus,
+  gitCliStatus: github.gitCliStatus,
   gitGlobalConfig: github.gitGlobalConfig,
+  installGitCli: github.installGitCli,
   installGithubCli: github.installGithubCli,
   setGitGlobalConfig: github.setGitGlobalConfig,
+  installLibreOffice: libreoffice.installLibreOffice,
+  libreOfficeStatus: libreoffice.libreOfficeStatus,
   gitAbortOperation: git.gitAbortOperation,
   gitAmend: git.gitAmend,
   gitApplyPatch: git.gitApplyPatch,

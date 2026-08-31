@@ -7,6 +7,7 @@ import type {
   DesktopSettingKey,
   DesktopSettings,
 } from '../shared/contract';
+import { packagedRuntimeSourceRoot } from './runtime-layout';
 
 export interface MixdogConfigModule {
   readConfig(): unknown;
@@ -43,7 +44,7 @@ export function settingsConfigModuleUrl(
   appPath = process.cwd(),
 ): string {
   const configPath = packaged
-    ? join(resourcesPath, 'runtime.asar', 'node_modules', 'mixdog', 'src', 'runtime', 'shared', 'config.mjs')
+    ? join(packagedRuntimeSourceRoot(resourcesPath), 'runtime', 'shared', 'config.mjs')
     : resolve(appPath, '../../src/runtime/shared/config.mjs');
   return pathToFileURL(configPath).href;
 }
@@ -62,6 +63,9 @@ export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
     computerControl: desktop.computerControl === true,
     computerObserveOnly: desktop.computerObserveOnly === true,
     browserControl: desktop.browserControl === true,
+    // Grandfather: a control that is already on predates the install marker.
+    computerInstalled: desktop.computerInstalled === true || desktop.computerControl === true,
+    browserInstalled: desktop.browserInstalled === true || desktop.browserControl === true,
   };
 }
 
@@ -133,11 +137,28 @@ export class DesktopSettingsStore {
       } else if (key === 'usagePinned') {
         next.desktop = { ...record(next.desktop), usagePinned: enabled };
       } else if (key === 'computerControl') {
-        next.desktop = { ...record(next.desktop), computerControl: enabled };
+        const desktop = { ...record(next.desktop) };
+        // A pre-marker profile is considered installed while its control is
+        // on. Persist that grandfathered fact BEFORE turning it off so OFF
+        // never turns back into Install.
+        if (desktop.computerInstalled === true || desktop.computerControl === true) {
+          desktop.computerInstalled = true;
+        }
+        desktop.computerControl = enabled;
+        next.desktop = desktop;
       } else if (key === 'computerObserveOnly') {
         next.desktop = { ...record(next.desktop), computerObserveOnly: enabled };
       } else if (key === 'browserControl') {
-        next.desktop = { ...record(next.desktop), browserControl: enabled };
+        const desktop = { ...record(next.desktop) };
+        if (desktop.browserInstalled === true || desktop.browserControl === true) {
+          desktop.browserInstalled = true;
+        }
+        desktop.browserControl = enabled;
+        next.desktop = desktop;
+      } else if (key === 'computerInstalled') {
+        next.desktop = { ...record(next.desktop), computerInstalled: enabled };
+      } else if (key === 'browserInstalled') {
+        next.desktop = { ...record(next.desktop), browserInstalled: enabled };
       }
       next.agent = agent;
       return next;

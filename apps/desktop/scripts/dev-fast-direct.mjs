@@ -45,6 +45,10 @@ export function fastDirectAsarOptions() {
   };
 }
 
+export function fastDirectRuntimeArchive(installedResources) {
+  return join(installedResources, 'runtime.asar');
+}
+
 export function changedPlanGroups(planned = {}, current = {}) {
   return Object.keys(current).filter(
     (name) => planned?.[name]?.hash !== current?.[name]?.hash,
@@ -61,6 +65,20 @@ const browserImportNativeFileNames = [
   'bitwarden_chromium_import_helper.exe',
   'LICENSE_GPL.txt',
   'browser-import-NOTICE.txt',
+];
+const runtimeDependencyInputs = [
+  join(repoRoot, 'package.json'),
+  join(repoRoot, 'package-lock.json'),
+  join(desktopDir, 'package-lock.json'),
+  join(repoRoot, 'scripts', 'prune-embedding-runtime.mjs'),
+  join(repoRoot, 'scripts', 'prune-desktop-runtime.mjs'),
+  join(repoRoot, 'scripts', 'native-binary-arch.mjs'),
+  join(repoRoot, 'scripts', 'native-tool-download.mjs'),
+  join(repoRoot, 'scripts', 'runtime-dependency-cache-key.mjs'),
+  join(desktopDir, 'scripts', 'prepare-runtime.mjs'),
+  join(desktopDir, 'scripts', 'prepare-fast-runtime-code.mjs'),
+  join(desktopDir, 'scripts', 'runtime-package-payload.mjs'),
+  join(repoRoot, 'native', 'mixdog-browser-import'),
 ];
 const ignoredSource = /(?:^|[\\/])(?:node_modules|out|dist|target|\.cache|\.runtime)(?:[\\/]|$)|(?:^|[\\/]).*\.(?:test|spec)\.[^.]+$/i;
 const fileContents = new Map();
@@ -94,22 +112,21 @@ export const targetInputs = {
   ],
   runtime: [
     join(repoRoot, 'src'),
+    join(repoRoot, 'scripts'),
+    join(repoRoot, 'vendor'),
+    join(repoRoot, 'LICENSES'),
+    join(repoRoot, 'README.md'),
+    join(repoRoot, 'NOTICE.md'),
     join(repoRoot, 'package.json'),
-    join(repoRoot, 'package-lock.json'),
-    join(desktopDir, 'package-lock.json'),
-    join(repoRoot, 'scripts', 'prune-embedding-runtime.mjs'),
-    join(repoRoot, 'scripts', 'runtime-dependency-cache-key.mjs'),
-    join(desktopDir, 'scripts', 'prepare-runtime.mjs'),
-    join(repoRoot, 'native', 'mixdog-browser-import'),
+    ...runtimeDependencyInputs,
   ],
+  runtimeDependencies: runtimeDependencyInputs,
   package: [
     join(desktopDir, 'package.json'),
     join(desktopDir, 'package-lock.json'),
     join(desktopDir, 'electron-builder.yml'),
     join(desktopDir, 'build'),
     join(desktopDir, 'scripts', 'generate-brand-icons.mjs'),
-    join(desktopDir, 'scripts', 'dev-fast-direct.mjs'),
-    join(desktopDir, 'scripts', 'dev-update-windows.ps1'),
   ],
 };
 
@@ -246,8 +263,11 @@ export async function hashBrowserImportNativeTools(nativeToolsDir) {
 }
 
 async function fingerprint(inputs) {
-  const files = [];
-  for (const input of inputs) files.push(...await filesForInput(input));
+  const fileSet = new Set();
+  for (const input of inputs) {
+    for (const file of await filesForInput(input)) fileSet.add(file);
+  }
+  const files = [...fileSet];
   files.sort((left, right) => left.localeCompare(right));
   const details = new Array(files.length);
   await mapPool(files, 12, async (file, index) => {
@@ -271,11 +291,48 @@ async function fingerprint(inputs) {
   return { hash: hash.digest('hex'), newestMtimeMs, fileCount: files.length };
 }
 
+export function runtimePackageFileForFingerprint(file) {
+  const resolvedFile = resolve(file);
+  if (runtimeDependencyInputs.some((input) => (
+    resolvedFile === resolve(input) || resolvedFile.startsWith(`${resolve(input)}${sep}`)
+  ))) {
+    return true;
+  }
+  const path = relative(repoRoot, resolvedFile).replaceAll(sep, '/');
+  if (path === 'src/tui/dev' || path.startsWith('src/tui/dev/')) return false;
+  if (!path.startsWith('scripts/')) return true;
+  const script = path.slice('scripts/'.length);
+  if (script.startsWith('bench/')) return false;
+  // package.json's scripts/* exclusions apply only to direct children. Nested
+  // build helpers such as scripts/lib/stage-postgres-runtime-windows.ps1 are
+  // published and must invalidate the runtime payload.
+  if (script.includes('/')) return true;
+  return !(
+    /^recall-bench-.*\.txt$/i.test(script)
+    || /(?:-test|\.test|-smoke|-bench)\.mjs$/i.test(script)
+    || /^smoke-loop.*\.mjs$/i.test(script)
+    || /bench-.*\.mjs$/i.test(script)
+    || script === 'verify-embedding-runtime.mjs'
+    || /\.(?:ps1|jsx)$/i.test(script)
+  );
+}
+
+async function runtimeFingerprint(inputs) {
+  const files = new Set();
+  for (const input of inputs) {
+    for (const file of await filesForInput(input)) {
+      if (runtimePackageFileForFingerprint(file)) files.add(file);
+    }
+  }
+  return fingerprint([...files]);
+}
+
 export function decidePlan({
   previous,
   groups,
   installedMatches,
   bootstrapFresh,
+  devRuntimeReady = false,
   forceFull = false,
 }) {
   if (forceFull) {
@@ -293,6 +350,7 @@ export function decidePlan({
       targets: [],
       daemon: false,
       runtime: false,
+      runtimeMode: 'none',
       changed,
     };
   }
@@ -303,7 +361,18 @@ export function decidePlan({
         previous.groups?.[name]?.hash !== groups[name].hash,
       ]),
     );
+    // Schema 2 states created before runtimeDependencies existed used the
+    // developer deploy scripts as package inputs. Migrate that one state by
+    // comparing only real package inputs against the successful deploy time;
+    // a package file changed afterward still takes the complete fallback.
+    if (!previous.groups?.runtimeDependencies && previous.deployedAt) {
+      const deployedAtMs = Date.parse(previous.deployedAt);
+      if (Number.isFinite(deployedAtMs)) {
+        changed.package = groups.package.newestMtimeMs > deployedAtMs;
+      }
+    }
     const full = changed.package;
+    const runtime = !full && changed.runtime;
     return {
       full,
       bootstrap: false,
@@ -311,7 +380,10 @@ export function decidePlan({
         ? []
         : ['main', 'preload', 'renderer'].filter((name) => changed[name]),
       daemon: !full && changed.daemon,
-      runtime: !full && changed.runtime,
+      runtime,
+      runtimeMode: runtime
+        ? (changed.runtimeDependencies || !devRuntimeReady ? 'full' : 'code')
+        : 'none',
       changed,
     };
   }
@@ -323,6 +395,7 @@ export function decidePlan({
       preload: groups.preload.newestMtimeMs > bootstrapFresh.preload,
       daemon: groups.daemon.newestMtimeMs > bootstrapFresh.daemon,
       runtime: true,
+      runtimeDependencies: true,
       package: groups.package.newestMtimeMs > bootstrapFresh.package,
     };
     const full = changed.package;
@@ -334,6 +407,7 @@ export function decidePlan({
         : ['main', 'preload', 'renderer'].filter((name) => changed[name]),
       daemon: !full && changed.daemon,
       runtime: !full,
+      runtimeMode: full ? 'none' : 'full',
       changed,
     };
   }
@@ -344,8 +418,22 @@ export function decidePlan({
     targets: [],
     daemon: false,
     runtime: false,
+    runtimeMode: 'none',
     changed: Object.fromEntries(Object.keys(targetInputs).map((name) => [name, true])),
   };
+}
+
+export async function installedFastRuntimeReady(installDir, dependencyHash) {
+  try {
+    const root = join(installDir, 'resources', 'fast-runtime');
+    const marker = JSON.parse(await readFile(join(root, '.mixdog-fast-runtime.json'), 'utf8'));
+    if (marker.schemaVersion !== 1 || marker.dependencyHash !== dependencyHash) return false;
+    await stat(join(root, 'node_modules', 'mixdog', 'src', 'standalone', 'session-client.mjs'));
+    return true;
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error instanceof SyntaxError) return false;
+    throw error;
+  }
 }
 
 async function currentGroups() {
@@ -353,7 +441,7 @@ async function currentGroups() {
     await Promise.all(
       Object.entries(targetInputs).map(async ([name, inputs]) => [
         name,
-        await fingerprint(inputs),
+        name === 'runtime' ? await runtimeFingerprint(inputs) : await fingerprint(inputs),
       ]),
     ),
   );
@@ -462,11 +550,16 @@ async function createPlan({ installDir, statePath, planPath, forceFull = false }
     && previous.installed?.browserImportNativeTools === hashes.browserImportNativeTools,
   );
   const bootstrap = previous ? null : await bootstrapFreshness(installDir);
+  const devRuntimeReady = await installedFastRuntimeReady(
+    installDir,
+    groups.runtimeDependencies.hash,
+  );
   const decision = decidePlan({
     previous,
     groups,
     installedMatches,
     bootstrapFresh: bootstrap,
+    devRuntimeReady,
     forceFull,
   });
   const plan = {
@@ -475,6 +568,7 @@ async function createPlan({ installDir, statePath, planPath, forceFull = false }
     statePath: resolve(statePath),
     groups,
     prebuilt,
+    devRuntimeReady,
     ...decision,
   };
   await mkdir(dirname(planPath), { recursive: true });
@@ -592,9 +686,10 @@ async function stageShell({ installDir, artifactDir, plan }) {
   }
   const artifactExe = join(artifactDir, 'Mixdog.exe');
   await cp(join(installDir, 'Mixdog.exe'), artifactExe);
-  const runtimeArchive = plan.runtime
-    ? join(desktopDir, '.runtime', 'runtime.asar')
-    : join(installedResources, 'runtime.asar');
+  // Incremental FastDirect runtime updates live in resources/fast-runtime.
+  // The signed shell still carries the production runtime.asar fallback, so
+  // its integrity entry always names the installed archive.
+  const runtimeArchive = fastDirectRuntimeArchive(installedResources);
   await replaceWinAsarIntegrity(artifactExe, {
     'resources/app.asar': await hashAsarHeader(artifactArchive),
     'resources/runtime.asar': await hashAsarHeader(runtimeArchive),

@@ -131,6 +131,8 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'setLocalProvider',
   'setMcpServerEnabled',
   'setMemoryToolsEnabled',
+  'setBuiltinToolEnabled',
+  'installBuiltinFeature',
   'setModel',
   'setOutputStyle',
   'setPluginEnabled',

@@ -539,6 +539,81 @@ export function contextMessagesSignature(messages, count = messages?.length) {
     return signature;
 }
 
+// Storage-form-independent transcript identity.
+//
+// A provider baseline is recorded against the LIVE message objects, while every
+// cold reader sees the same transcript after the disk projection replaced inline
+// media with `[Image omitted from stored history: …]` placeholders. The exact
+// signature above therefore CANNOT survive that round-trip, and treating the
+// difference as a mutated transcript drops the gauge onto the whole-transcript
+// estimate — measured at 1.1x-4.9x the provider's own prompt across real stored
+// sessions. This projection reduces media to a per-message count and collapses
+// whitespace, so both storage forms of one transcript hash identically while any
+// real change to role, tool identity, or text still changes the hash.
+const STORED_MEDIA_PLACEHOLDER_RE = /\[(?:Image|File) omitted from stored history[^\]]*\]/g;
+
+function messageShapeText(message) {
+    let placeholders = 0;
+    const text = messageEstimateText(message).replace(STORED_MEDIA_PLACEHOLDER_RE, () => {
+        placeholders += 1;
+        return ' ';
+    });
+    return { text: text.replace(/\s+/g, ' ').trim(), placeholders };
+}
+
+const contextMessagesShapeSignatureMemo = new WeakMap();
+
+export function contextMessagesShapeSignature(messages, count = messages?.length) {
+    const list = Array.isArray(messages) ? messages : [];
+    const end = Math.max(0, Math.min(list.length, Number.isInteger(count) ? count : list.length));
+    // Same warm-path contract as the exact signature: an unchanged prefix is
+    // answered from the memo instead of re-projecting and re-hashing a whole
+    // transcript on every pressure check.
+    let contributions = null;
+    let signatures = null;
+    if (Array.isArray(messages)) {
+        summarizeContextMessages(messages);
+        contributions = contextTranscriptMemo.get(messages)?.contributions.slice(0, end) || [];
+        signatures = contextMessagesShapeSignatureMemo.get(messages);
+        const previous = signatures?.get(end);
+        if (previous && previous.contributions.length === contributions.length) {
+            let unchanged = true;
+            for (let index = 0; index < contributions.length; index += 1) {
+                if (previous.contributions[index] !== contributions[index]) {
+                    unchanged = false;
+                    break;
+                }
+            }
+            if (unchanged) return previous.signature;
+        }
+    }
+    const hash = createHash('sha256');
+    for (let index = 0; index < end; index += 1) {
+        const message = list[index];
+        const shape = messageShapeText(message);
+        hash.update(JSON.stringify([
+            message?.role || '',
+            message?.toolCallId || '',
+            shape.text,
+            messageImageDescriptors(message).length + shape.placeholders,
+        ]));
+        hash.update('\0');
+    }
+    const signature = hash.digest('hex');
+    if (Array.isArray(messages)) {
+        signatures ||= new Map();
+        if (signatures.has(end)) signatures.delete(end);
+        signatures.set(end, { contributions, signature });
+        while (signatures.size > CONTEXT_SIGNATURE_COUNTS_MAX) {
+            const oldest = signatures.keys().next().value;
+            if (oldest === undefined) break;
+            signatures.delete(oldest);
+        }
+        contextMessagesShapeSignatureMemo.set(messages, signatures);
+    }
+    return signature;
+}
+
 const toolSchemaAnalysisMemo = new WeakMap();
 
 function isDeferredToolSchema(tool) {

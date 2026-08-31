@@ -12,6 +12,7 @@ import {
   pptText,
   pptTitleSize,
 } from './design-pptx-primitives.mjs';
+import { measuredTextHeight, packedTextStack } from './design-pptx-stack.mjs';
 
 const PLAN_UNITS = new Set(['percent', 'points']);
 const PLAN_ROLES = new Set([
@@ -529,14 +530,31 @@ function renderMetricRegion(region, operation, design, slide) {
     colorRole: 'accent',
     bold: true,
   });
-  const labelHeight = label ? clamp(region.height * 0.18, 18, 28) : 0;
-  const detailHeight = detail ? clamp(region.height * 0.2, 18, 32) : 0;
-  const secondaryCount = Number(Boolean(label)) + Number(Boolean(detail));
-  const valueHeight = region.height
-    - labelHeight
-    - detailHeight
-    - (secondaryCount * TEXT_SHAPE_GAP);
-  if (valueHeight < 30) {
+  const labelSize = clamp(region.style?.labelSize || 13, MIN_VISIBLE_FONT_SIZE, 24);
+  const detailSize = clamp(region.style?.detailSize || MIN_VISIBLE_FONT_SIZE, MIN_VISIBLE_FONT_SIZE, 20);
+  const stackFor = (valueSize) => packedTextStack(region, [
+    { id: 'value', text: value, fontName: style.fontName, fontSize: valueSize, bold: style.bold },
+    {
+      id: 'label',
+      text: label,
+      fontName: design.tokens.typography.body,
+      fontSize: labelSize,
+      bold: true,
+    },
+    {
+      id: 'detail',
+      text: detail,
+      fontName: design.tokens.typography.body,
+      fontSize: detailSize,
+    },
+  ], { gap: TEXT_SHAPE_GAP });
+  let valueSize = style.fontSize;
+  let stack = stackFor(valueSize);
+  while (stack.overflow && valueSize > 24) {
+    valueSize = Math.max(24, valueSize - 4);
+    stack = stackFor(valueSize);
+  }
+  if (stack.overflow) {
     throw planError(
       'REGION_TOO_SMALL',
       slide,
@@ -544,46 +562,20 @@ function renderMetricRegion(region, operation, design, slide) {
       { region: region.id },
     );
   }
-  const output = [
+  return [
     ...frame,
-    pptText(slide, value, {
+    ...stack.entries.map((entry) => pptText(slide, entry.text, {
       left: region.left,
-      top: region.top,
+      top: entry.top,
       width: region.width,
-      height: valueHeight,
-      ...style,
-    }),
+      height: Math.ceil(entry.height),
+      fontName: entry.fontName,
+      fontSize: entry.fontSize,
+      bold: entry.bold === true,
+      color: entry.id === 'value' ? style.color : design.tokens.colors.muted,
+      alignment: style.alignment,
+    })),
   ];
-  let cursor = region.top + valueHeight;
-  if (label) {
-    cursor += TEXT_SHAPE_GAP;
-    output.push(pptText(slide, label, {
-    left: region.left,
-    top: cursor,
-    width: region.width,
-    height: labelHeight,
-    fontName: design.tokens.typography.body,
-    fontSize: clamp(region.style?.labelSize || 13, MIN_VISIBLE_FONT_SIZE, 24),
-    bold: true,
-    color: design.tokens.colors.muted,
-    alignment: style.alignment,
-    }));
-    cursor += labelHeight;
-  }
-  if (detail) {
-    cursor += TEXT_SHAPE_GAP;
-    output.push(pptText(slide, detail, {
-    left: region.left,
-    top: cursor,
-    width: region.width,
-    height: detailHeight,
-    fontName: design.tokens.typography.body,
-    fontSize: clamp(region.style?.detailSize || MIN_VISIBLE_FONT_SIZE, MIN_VISIBLE_FONT_SIZE, 20),
-    color: design.tokens.colors.muted,
-    alignment: style.alignment,
-    }));
-  }
-  return output;
 }
 
 function renderMetricsRegion(region, operation, design, slide) {
@@ -596,22 +588,45 @@ function renderMetricsRegion(region, operation, design, slide) {
       ? Math.ceil(Math.sqrt(metrics.length))
       : metrics.length;
   const rows = Math.ceil(metrics.length / columns);
-  const cellWidth = region.width / columns;
-  const cellHeight = region.height / rows;
-  const frame = regionFrame({ ...region, slide }, design);
-  return [
-    ...frame,
-    ...metrics.flatMap((metric, index) => renderMetricRegion({
+  const gutter = clamp(region.style?.gutter ?? 16, 8, 40);
+  const padding = clamp(region.style?.padding ?? 16, 0, 32);
+  const cards = region.style?.cards !== false;
+  const cellWidth = (region.width - (gutter * (columns - 1))) / columns;
+  const cellHeight = (region.height - (gutter * (rows - 1))) / rows;
+  const cardFill = colorValue(
+    region.style?.cardFillRole || region.style?.cardFillColor,
+    design,
+    design.inverse ? design.tokens.colors.onInverse : design.tokens.colors.surface,
+  );
+  const cardTransparency = clamp(region.style?.cardTransparency ?? (design.inverse ? 92 : 0), 0, 100);
+  const output = [...regionFrame({ ...region, slide }, design)];
+  metrics.forEach((metric, index) => {
+    const left = region.left + ((index % columns) * (cellWidth + gutter));
+    const top = region.top + (Math.floor(index / columns) * (cellHeight + gutter));
+    if (cards) {
+      output.push(pptShape(slide, 'rounded_rectangle', {
+        left,
+        top,
+        width: cellWidth,
+        height: cellHeight,
+        fillColor: cardFill,
+        lineColor: cardFill,
+        fillTransparency: cardTransparency,
+        lineTransparency: cardTransparency,
+      }));
+    }
+    output.push(...renderMetricRegion({
       ...region,
       id: `${region.id}-${index + 1}`,
       index,
-      left: region.left + ((index % columns) * cellWidth),
-      top: region.top + (Math.floor(index / columns) * cellHeight),
-      width: cellWidth - 8,
-      height: cellHeight - 6,
+      left: left + padding,
+      top: top + padding,
+      width: cellWidth - (padding * 2),
+      height: cellHeight - (padding * 2),
       style: { ...region.style, fillRole: '', fillColor: '', lineRole: '', lineColor: '' },
-    }, { ...operation, metric }, design, slide)),
-  ];
+    }, { ...operation, metric }, design, slide));
+  });
+  return output;
 }
 
 function renderChartRegion(region, operation, design, slide) {
@@ -684,31 +699,44 @@ function renderVisualRegion(region, operation, design, slide) {
   const frame = regionFrame({ ...region, slide }, design);
   const text = String(region.text ?? operation.visualText ?? '');
   const label = String(region.label ?? operation.visualLabel ?? '');
-  const labelTop = region.top + (region.height * 0.72);
   const style = regionStyle(region, design, {
     fontRole: 'display',
-    fontSize: Math.min(56, Math.max(28, region.height * 0.25)),
+    fontSize: Math.min(72, Math.max(40, region.height * 0.34)),
     colorRole: 'accent',
     bold: true,
   });
-  const output = [...frame];
-  if (text) output.push(pptText(slide, text, {
-    ...regionGeometry(region),
-    height: label ? Math.max(32, labelTop - region.top - TEXT_SHAPE_GAP) : region.height,
-    ...style,
-  }));
-  if (label) output.push(pptText(slide, label, {
-    left: region.left,
-    top: labelTop,
-    width: region.width,
-    height: region.height * 0.24,
-    fontName: design.tokens.typography.body,
-    fontSize: clamp(region.style?.labelSize || MIN_VISIBLE_FONT_SIZE, MIN_VISIBLE_FONT_SIZE, 22),
-    bold: true,
-    color: design.tokens.colors.muted,
-    alignment: style.alignment,
-  }));
-  return output;
+  const alignment = region.style?.align ? style.alignment : 'center';
+  const labelSize = clamp(region.style?.labelSize || MIN_VISIBLE_FONT_SIZE, MIN_VISIBLE_FONT_SIZE, 22);
+  const stackFor = (valueSize) => packedTextStack(region, [
+    { id: 'value', text, fontName: style.fontName, fontSize: valueSize, bold: style.bold },
+    {
+      id: 'label',
+      text: label,
+      fontName: design.tokens.typography.body,
+      fontSize: labelSize,
+      bold: true,
+    },
+  ], { gap: TEXT_SHAPE_GAP });
+  let valueSize = style.fontSize;
+  let stack = stackFor(valueSize);
+  while (stack.overflow && valueSize > 24) {
+    valueSize = Math.max(24, valueSize - 4);
+    stack = stackFor(valueSize);
+  }
+  return [
+    ...frame,
+    ...stack.entries.map((entry) => pptText(slide, entry.text, {
+      left: region.left,
+      top: entry.top,
+      width: region.width,
+      height: Math.ceil(entry.height),
+      fontName: entry.fontName,
+      fontSize: entry.fontSize,
+      bold: entry.bold === true,
+      color: entry.id === 'value' ? style.color : design.tokens.colors.muted,
+      alignment,
+    })),
+  ];
 }
 
 function renderProcessRegion(region, operation, design, slide) {
@@ -716,66 +744,115 @@ function renderProcessRegion(region, operation, design, slide) {
   if (!steps.length) throw planError('MISSING_STEPS', slide, `Region "${region.id}" requires operation.steps.`);
   const direction = String(region.direction || 'row').toLowerCase();
   const horizontal = direction !== 'column';
-  const length = horizontal ? region.width : region.height;
-  const stride = length / steps.length;
+  const stride = (horizontal ? region.width : region.height) / steps.length;
+  const gutter = clamp(region.style?.gutter ?? 24, 12, 48);
+  const bodyFont = design.tokens.typography.body;
+  const stepTitle = (step) => String(step.title || step.label || '');
+  const stepDetail = (step) => String(step.detail || step.body || '');
   const output = [...regionFrame({ ...region, slide }, design)];
-  steps.forEach((step, index) => {
-    const left = horizontal ? region.left + (index * stride) : region.left;
-    const top = horizontal ? region.top : region.top + (index * stride);
-    const marker = Math.min(44, horizontal ? region.height * 0.22 : region.width * 0.16);
+  const pushMarker = (left, top, markerSize, index) => {
     output.push(pptShape(slide, 'oval', {
       left,
       top,
-      width: marker,
-      height: marker,
+      width: markerSize,
+      height: markerSize,
       fillColor: index === 0 ? design.tokens.colors.accent : design.tokens.colors.surface2,
       lineColor: index === 0 ? design.tokens.colors.accent : design.tokens.colors.surface2,
     }));
     output.push(pptText(slide, String(index + 1).padStart(2, '0'), {
       left,
-      top: top + marker * 0.2,
-      width: marker,
-      height: marker * 0.6,
+      top: top + (markerSize * 0.2),
+      width: markerSize,
+      height: markerSize * 0.6,
       fontName: design.tokens.typography.data,
-      fontSize: clamp(marker * 0.34, MIN_VISIBLE_FONT_SIZE, 18),
+      fontSize: clamp(markerSize * 0.34, MIN_VISIBLE_FONT_SIZE, 18),
       bold: true,
-      color: index === 0 ? design.tokens.colors.onAccent : design.tokens.colors.muted,
+      // Later markers sit on a light surface chip in both light and inverse
+      // decks, so the digits use the always-dark inverse token for contrast.
+      color: index === 0 ? design.tokens.colors.onAccent : design.tokens.colors.inverse,
       alignment: 'center',
     }));
-    output.push(pptText(slide, String(step.title || step.label || ''), horizontal ? {
-      left,
-      top: top + marker + 12,
-      width: stride - 10,
-      height: 38,
-      fontName: design.tokens.typography.body,
+  };
+  if (horizontal) {
+    const marker = Math.min(44, region.height * 0.22);
+    const contentWidth = Math.max(60, stride - gutter);
+    const titleBand = Math.ceil(Math.max(18, ...steps.map((step) => measuredTextHeight(stepTitle(step), {
+      fontName: bodyFont,
       fontSize: 14,
       bold: true,
-      color: design.tokens.colors.ink,
-    } : {
-      left: left + marker + 14,
+      width: contentWidth,
+    }))));
+    const detailBand = Math.ceil(Math.max(0, ...steps.map((step) => measuredTextHeight(stepDetail(step), {
+      fontName: bodyFont,
+      fontSize: MIN_VISIBLE_FONT_SIZE,
+      width: contentWidth,
+    }))));
+    const bandHeight = marker + 12 + titleBand + (detailBand ? TEXT_SHAPE_GAP + detailBand : 0);
+    const bandTop = region.top + Math.max(0, (region.height - bandHeight) / 2);
+    steps.forEach((step, index) => {
+      const left = region.left + (index * stride);
+      pushMarker(left, bandTop, marker, index);
+      output.push(pptText(slide, stepTitle(step), {
+        left,
+        top: bandTop + marker + 12,
+        width: contentWidth,
+        height: Math.ceil(titleBand),
+        fontName: bodyFont,
+        fontSize: 14,
+        bold: true,
+        color: design.tokens.colors.ink,
+      }));
+      const detail = stepDetail(step);
+      if (detail) output.push(pptText(slide, detail, {
+        left,
+        top: bandTop + marker + 12 + titleBand + TEXT_SHAPE_GAP,
+        width: contentWidth,
+        height: Math.ceil(detailBand),
+        fontName: bodyFont,
+        fontSize: MIN_VISIBLE_FONT_SIZE,
+        color: design.tokens.colors.muted,
+      }));
+    });
+    return output;
+  }
+  const marker = Math.min(44, region.width * 0.16);
+  const textLeft = region.left + marker + 14;
+  const textWidth = Math.max(60, region.width - marker - 14);
+  steps.forEach((step, index) => {
+    const cellTop = region.top + (index * stride);
+    const titleHeight = Math.ceil(Math.max(18, measuredTextHeight(stepTitle(step), {
+      fontName: bodyFont,
+      fontSize: 14,
+      bold: true,
+      width: textWidth,
+    })));
+    const detail = stepDetail(step);
+    const detailHeight = detail
+      ? Math.ceil(measuredTextHeight(detail, {
+        fontName: bodyFont,
+        fontSize: MIN_VISIBLE_FONT_SIZE,
+        width: textWidth,
+      }))
+      : 0;
+    const contentHeight = Math.max(marker, titleHeight + (detailHeight ? TEXT_SHAPE_GAP + detailHeight : 0));
+    const top = cellTop + Math.max(0, (stride - contentHeight) / 2);
+    pushMarker(region.left, top, marker, index);
+    output.push(pptText(slide, stepTitle(step), {
+      left: textLeft,
       top,
-      width: region.width - marker - 14,
-      height: 28,
-      fontName: design.tokens.typography.body,
+      width: textWidth,
+      height: Math.ceil(titleHeight),
+      fontName: bodyFont,
       fontSize: 14,
       bold: true,
       color: design.tokens.colors.ink,
     }));
-    const detail = String(step.detail || step.body || '');
-    if (detail) output.push(pptText(slide, detail, horizontal ? {
-      left,
-      top: top + marker + 58,
-      width: stride - 10,
-      height: Math.max(32, region.height - marker - 58),
-      fontName: design.tokens.typography.body,
-      fontSize: MIN_VISIBLE_FONT_SIZE,
-      color: design.tokens.colors.muted,
-    } : {
-      left: left + marker + 14,
-      top: top + 36,
-      width: region.width - marker - 14,
-      height: Math.max(24, stride - 42),
-      fontName: design.tokens.typography.body,
+    if (detail) output.push(pptText(slide, detail, {
+      left: textLeft,
+      top: top + titleHeight + TEXT_SHAPE_GAP,
+      width: textWidth,
+      height: Math.ceil(detailHeight),
+      fontName: bodyFont,
       fontSize: MIN_VISIBLE_FONT_SIZE,
       color: design.tokens.colors.muted,
     }));
@@ -786,17 +863,25 @@ function renderProcessRegion(region, operation, design, slide) {
 function renderComparisonRegion(region, operation, design, slide) {
   const columns = Array.isArray(operation.columns) ? operation.columns.slice(0, 4) : [];
   if (!columns.length) throw planError('MISSING_COLUMNS', slide, `Region "${region.id}" requires operation.columns.`);
-  const width = region.width / columns.length;
+  const gutter = clamp(region.style?.gutter ?? 20, 12, 40);
+  const width = (region.width - (gutter * (columns.length - 1))) / columns.length;
+  const titleSize = clamp(region.style?.titleSize || 20, 13, 30);
+  const headerBand = Math.ceil(Math.max(24, ...columns.map((column) => measuredTextHeight(String(column.title || ''), {
+    fontName: design.tokens.typography.display,
+    fontSize: titleSize,
+    bold: true,
+    width,
+  }))));
   const output = [...regionFrame({ ...region, slide }, design)];
   columns.forEach((column, index) => {
-    const left = region.left + (width * index);
+    const left = region.left + ((width + gutter) * index);
     output.push(pptText(slide, String(column.title || ''), {
       left,
       top: region.top,
-      width: width - 12,
-      height: Math.min(44, region.height * 0.22),
+      width,
+      height: Math.ceil(headerBand),
       fontName: design.tokens.typography.display,
-      fontSize: clamp(region.style?.titleSize || 20, 13, 30),
+      fontSize: titleSize,
       bold: true,
       color: index === 0 ? design.tokens.colors.accent : design.tokens.colors.ink,
     }));
@@ -806,9 +891,9 @@ function renderComparisonRegion(region, operation, design, slide) {
     });
     output.push(pptText(slide, '', {
       left,
-      top: region.top + Math.min(52, region.height * 0.24),
-      width: width - 12,
-      height: region.height - Math.min(52, region.height * 0.24),
+      top: region.top + headerBand + 10,
+      width,
+      height: Math.max(24, region.height - headerBand - 10),
     }, paragraphs));
   });
   return output;
@@ -855,6 +940,7 @@ export function expandPptxModelSlide(operation, design, slide, backgroundSpec) {
   const renderDesign = inverseBackground
     ? {
         ...design,
+        inverse: true,
         tokens: {
           ...design.tokens,
           colors: {

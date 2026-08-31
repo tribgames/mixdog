@@ -243,7 +243,7 @@ public class MixWin32 {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
   [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hwnd, int x, int y, int w, int height, bool repaint);
-  [DllImport("user32.dll")] static extern void keybd_event(byte virtualKey, byte scanCode, uint flags, UIntPtr extraInfo);
+  [DllImport("user32.dll", SetLastError = true)] static extern bool SystemParametersInfo(uint action, uint param, IntPtr value, uint winIni);
   [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
   [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hwnd);
   [DllImport("user32.dll")] static extern bool IsZoomed(IntPtr hwnd);
@@ -882,24 +882,53 @@ public class MixWin32 {
     bool attached = foregroundThread != 0 && foregroundThread != currentThread;
     if (attached) AttachThreadInput(currentThread, foregroundThread, true);
     try {
-      ShowWindow(h, 9);
+      RestoreIfMinimized(h);
       SetForegroundWindow(h);
       return GetForegroundWindow() == h;
     } finally {
       if (attached) AttachThreadInput(currentThread, foregroundThread, false);
     }
   }
+  // SW_RESTORE un-maximizes a maximized window, so restore only what is truly
+  // minimized: activation is SetForegroundWindow's job and must never resize
+  // the window the user arranged.
+  static void RestoreIfMinimized(IntPtr h) { if (IsIconic(h)) ShowWindow(h, 9); }
+  const uint SPI_GETFOREGROUNDLOCKTIMEOUT = 0x2000;
+  const uint SPI_SETFOREGROUNDLOCKTIMEOUT = 0x2001;
+  /// The foreground lock is a timeout, not a permission, and a background
+  /// process may drop it for the length of one switch. Synthetic keystrokes
+  /// clear it too, but any dummy virtual key reaches OEM lock-key overlays and
+  /// flashes a NumLock indicator, so move the timeout instead of the keyboard.
+  static bool TryClearForegroundLockTimeout(out uint previous) {
+    previous = 0;
+    IntPtr buffer = Marshal.AllocHGlobal(4);
+    try {
+      if (!SystemParametersInfo(SPI_GETFOREGROUNDLOCKTIMEOUT, 0, buffer, 0)) return false;
+      previous = (uint)Marshal.ReadInt32(buffer);
+    } finally {
+      Marshal.FreeHGlobal(buffer);
+    }
+    if (previous == 0) return false;
+    return SystemParametersInfo(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, IntPtr.Zero, 0);
+  }
+  static void SetForegroundLockTimeout(uint value) {
+    SystemParametersInfo(SPI_SETFOREGROUNDLOCKTIMEOUT, 0, new IntPtr(value), 0);
+  }
   public static bool Focus(IntPtr h) {
     if (h == IntPtr.Zero || !IsWindow(h)) return false;
-    ShowWindow(h, 9);
+    RestoreIfMinimized(h);
     SetForegroundWindow(h);
     if (GetForegroundWindow() == h) return true;
     if (TryFocusAttached(h)) return true;
-    keybd_event(0xFC, 0, 0, UIntPtr.Zero);
-    keybd_event(0xFC, 0, 0x2, UIntPtr.Zero);
-    for (int attempt = 0; attempt < 3; attempt++) {
-      if (TryFocusAttached(h)) return true;
-      System.Threading.Thread.Sleep(25);
+    uint lockTimeout;
+    bool relaxed = TryClearForegroundLockTimeout(out lockTimeout);
+    try {
+      for (int attempt = 0; attempt < 3; attempt++) {
+        if (TryFocusAttached(h)) return true;
+        System.Threading.Thread.Sleep(25);
+      }
+    } finally {
+      if (relaxed) SetForegroundLockTimeout(lockTimeout);
     }
     return false;
   }

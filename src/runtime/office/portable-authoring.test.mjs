@@ -1250,6 +1250,8 @@ test('portable slides flag stretched images but pass proportional ones', async (
   for (const [label, size] of [
     ['proportional', { width: 200, height: 200 }],
     ['stretched', { width: 300, height: 100 }],
+    ['contained', { width: 300, height: 100, fit: 'contain' }],
+    ['covered', { width: 300, height: 100, fit: 'cover' }],
   ]) {
     const created = value(await executeOfficeTool({
       action: 'create',
@@ -1267,6 +1269,8 @@ test('portable slides flag stretched images but pass proportional ones', async (
   assert.equal(outcomes[1].length, 1);
   assert.equal(outcomes[1][0].severity, 'warning');
   assert.match(outcomes[1][0].path, /^\/slide\[1\]\/picture\[1\]$/);
+  assert.equal(outcomes[2].length, 0, 'contain preserves the whole image without stretching');
+  assert.equal(outcomes[3].length, 0, 'cover crops the image without stretching');
 });
 
 test('portable slides number shapes the same way for snapshot and set_text', async (t) => {

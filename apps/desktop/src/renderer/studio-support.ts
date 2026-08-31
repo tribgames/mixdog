@@ -2,7 +2,10 @@ import type { DesktopApi, DesktopCapability } from '../shared/contract';
 
 export type MediaKind = 'image' | 'video';
 export const MEDIA_KINDS: MediaKind[] = ['image', 'video'];
-export type StudioApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'mediaUrl'>>;
+export type StudioApi = Partial<Pick<
+  DesktopApi,
+  'invokeCapability' | 'mediaUrl' | 'openAttachmentImage' | 'openMediaAsset' | 'openMediaFolder'
+>>;
 export type RecordValue = Record<string, unknown>;
 
 export interface MediaModel {

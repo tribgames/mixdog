@@ -41,6 +41,7 @@ const BOOLEAN_FIRST_CAPABILITIES = new Set<DesktopCapability>([
 ]);
 const BOOLEAN_SECOND_CAPABILITIES = new Set<DesktopCapability>([
   'setMcpServerEnabled', 'setPluginEnabled', 'setHookRuleEnabled', 'setScheduleEnabled', 'setWebhookEnabled',
+  'setBuiltinToolEnabled',
 ]);
 const SUBMIT_OPTION_KEYS = new Set([
   'id', 'submittedAt', 'displayText', 'goalCommand', 'priority', 'pastedImages', 'pastedTexts',
@@ -59,6 +60,7 @@ const CAPABILITY_ARITY = {
   runUpdateNow: [0, 0], getUpdateStatus: [0, 0], getProfile: [0, 0], setProfile: [0, 1],
   getCompactionSettings: [0, 0], setCompactionSettings: [0, 1], getRecapSettings: [0, 0],
   setRecapEnabled: [1, 1], getToolModuleSettings: [0, 0], setWebSearchEnabled: [1, 1], setMemoryToolsEnabled: [1, 1],
+  setBuiltinToolEnabled: [2, 2], installBuiltinFeature: [1, 1],
   getVoiceStatus: [0, 0], toggleVoice: [0, 0],
   agentControl: [0, 2], taskControl: [0, 1], goalControl: [0, 1], toolsStatus: [0, 1], selectTools: [1, 1], getSystemShell: [0, 0],
   setSystemShell: [1, 1], mcpStatus: [0, 0], getMcpServerConfig: [1, 1], reconnectMcp: [0, 0], addMcpServer: [1, 1],
@@ -366,6 +368,14 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
   if (BOOLEAN_SECOND_CAPABILITIES.has(capability) && typeof args[1] !== 'boolean') {
     throw new TypeError(`${capability} requires a boolean value.`);
   }
+  if (capability === 'setBuiltinToolEnabled'
+    && args[0] !== 'git' && args[0] !== 'office') {
+    throw new TypeError('setBuiltinToolEnabled requires git or office.');
+  }
+  if (capability === 'installBuiltinFeature'
+    && args[0] !== 'git' && args[0] !== 'memory' && args[0] !== 'office') {
+    throw new TypeError('installBuiltinFeature requires git, memory, or office.');
+  }
   if (capability === 'setModel') requiredString(args[0], 'model selector', 512);
   const validateSecret = (secret: unknown, name: string) => {
     if (typeof secret !== 'string' || !secret.trim() || secret.length > 65_536) {
@@ -634,7 +644,8 @@ export function requiredZoomFactor(value: unknown): number {
 export function requiredDesktopSettingKey(value: unknown): DesktopSettingKey {
   if (value === 'autoClear' || value === 'autoCompact' || value === 'keepAwake'
     || value === 'usagePinned' || value === 'computerControl'
-    || value === 'computerObserveOnly' || value === 'browserControl') return value;
+    || value === 'computerObserveOnly' || value === 'browserControl'
+    || value === 'computerInstalled' || value === 'browserInstalled') return value;
   throw new TypeError('setting key is invalid.');
 }
 

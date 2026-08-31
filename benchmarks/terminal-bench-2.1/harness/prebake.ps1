@@ -22,7 +22,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $packageMount = ""
-$packageSpec = "mixdog@__VERSION__"
+$packageSpec = ""
 if (-not [string]::IsNullOrWhiteSpace($PackageTar)) {
     $resolvedPackageTar = (Resolve-Path -LiteralPath $PackageTar -ErrorAction Stop).Path
     if (-not (Test-Path -LiteralPath $resolvedPackageTar -PathType Leaf)) {
@@ -37,6 +37,9 @@ if ([string]::IsNullOrWhiteSpace($MixdogVersion)) {
 }
 if ([string]::IsNullOrWhiteSpace($MixdogVersion) -or $MixdogVersion -eq "latest") {
     throw "MixdogVersion must be a pinned package version, not latest"
+}
+if (-not $packageMount) {
+    $packageSpec = "mixdog@$MixdogVersion"
 }
 $outDir = Join-Path (Split-Path $PSScriptRoot -Parent) "mixdog-prebake"
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null

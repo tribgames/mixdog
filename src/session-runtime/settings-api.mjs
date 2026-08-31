@@ -6,6 +6,12 @@
 // resolve against the spread target, so cross-member calls (e.g.
 // setProfile -> this.getProfile) keep working when spread into the facade.
 
+import {
+  INSTALLABLE_BUILTIN_IDS,
+  builtinInstalled,
+  setBuiltinInstalledInConfig,
+} from './builtin-features.mjs';
+
 export function createSettingsApi({
   // config accessors / mutable state
   getConfig,
@@ -30,6 +36,9 @@ export function createSettingsApi({
   setRecapEnabledInConfig,
   setMemoryToolsEnabledInConfig,
   setModuleEnabledInConfig,
+  // Built-in install adapter: feature-specific preparation (model
+  // pre-download, component verification) before the installed marker lands.
+  prepareBuiltinFeature,
   summarizeWorkflowRoutes,
   parseDurationMs,
   formatDurationMs,
@@ -37,6 +46,8 @@ export function createSettingsApi({
   // state getters / feature flags
   recapEnabledFn,
   memoryToolsEnabledFn,
+  gitToolsEnabledFn,
+  officeToolsEnabledFn,
   webSearchEnabled,
   channelsEnabled,
   autoUpdateEnabled,
@@ -224,9 +235,12 @@ export function createSettingsApi({
       return this.getRecapSettings();
     },
     getToolModuleSettings() {
+      const config = getConfig();
       return {
         webSearch: { enabled: webSearchEnabled() },
-        memory: { enabled: memoryToolsEnabledFn() },
+        memory: { enabled: memoryToolsEnabledFn(), installed: builtinInstalled(config, 'memory') },
+        git: { enabled: gitToolsEnabledFn(), installed: builtinInstalled(config, 'git') },
+        office: { enabled: officeToolsEnabledFn(), installed: builtinInstalled(config, 'office') },
       };
     },
     async setWebSearchEnabled(enabled) {
@@ -242,12 +256,45 @@ export function createSettingsApi({
       const memoryEnabled = enabled !== false;
       // General → Memory is the user-facing master: model tools, core-memory
       // injection, and background recap cycles move together.
-      const nextConfig = setRecapEnabledInConfig(
+      let nextConfig = setRecapEnabledInConfig(
         setMemoryToolsEnabledInConfig({ ...config }, memoryEnabled),
         memoryEnabled,
       );
+      // Enabling IS activation: an explicit enable marks the feature installed
+      // so the install-first gate never fights a direct toggle (TUI path).
+      if (memoryEnabled) nextConfig = setBuiltinInstalledInConfig(nextConfig, 'memory', true);
       saveConfigAndAdopt(nextConfig);
       invalidateContextStatusCache();
+      await refreshEmptySessionToolPolicy?.();
+      return this.getToolModuleSettings();
+    },
+    async setBuiltinToolEnabled(name, enabled) {
+      if (name !== 'git' && name !== 'office') {
+        throw new TypeError('Built-in tool must be git or office.');
+      }
+      const config = getConfig();
+      let nextConfig = setModuleEnabledInConfig({ ...config }, name, enabled !== false);
+      // Enabling IS activation (see setMemoryToolsEnabled).
+      if (enabled !== false) nextConfig = setBuiltinInstalledInConfig(nextConfig, name, true);
+      saveConfigAndAdopt(nextConfig);
+      await refreshEmptySessionToolPolicy?.();
+      return this.getToolModuleSettings();
+    },
+    /** Extensions → Built-in Install: run the feature's preparation adapter
+     *  (model pre-download, component verification), then mark it installed
+     *  and enabled in one step. New sessions pick up the tool surface. */
+    async installBuiltinFeature(name) {
+      if (!INSTALLABLE_BUILTIN_IDS.includes(name)) {
+        throw new TypeError('Built-in feature must be git, memory, or office.');
+      }
+      await prepareBuiltinFeature?.(name);
+      const config = getConfig();
+      let nextConfig = setBuiltinInstalledInConfig({ ...config }, name, true);
+      nextConfig = name === 'memory'
+        ? setRecapEnabledInConfig(setMemoryToolsEnabledInConfig(nextConfig, true), true)
+        : setModuleEnabledInConfig(nextConfig, name, true);
+      saveConfigAndAdopt(nextConfig);
+      if (name === 'memory') invalidateContextStatusCache();
       await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();
     },

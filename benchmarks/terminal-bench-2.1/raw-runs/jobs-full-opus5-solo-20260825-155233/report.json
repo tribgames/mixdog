@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-08-25T18:29:20.603Z",
+  "generatedAt": "2026-08-31T09:35:23.877Z",
   "preset": {
     "name": "full-opus5-solo",
     "fingerprint": "sha256:a612e5bd4af339b5f820ff8e888b343f92c9d55c5e30d2de706877fd7eb4c826",
@@ -3515,6 +3515,7 @@
       "passed": 79,
       "total": 89,
       "agentTotalSeconds": 46873.04899999999,
+      "wallTotalSeconds": 54294.595,
       "tokens": {
         "input": 4680,
         "cached": 55934744,
@@ -3536,6 +3537,7 @@
       "errors": 9,
       "retries": 0,
       "agentTotalSeconds": 54106.231,
+      "wallTotalSeconds": 63045.906999999985,
       "tokens": {
         "input": 97624027,
         "cached": 94372711,
@@ -3558,8 +3560,13 @@
       "oursUsd": 104.291704,
       "baselineUsd": 129.20988899999998
     },
+    "timeComparison": {
+      "comparableTrials": 89,
+      "totalTrials": 89
+    },
     "ratios": {
-      "speedup": 1.1543143054338114,
+      "speedup": 1.1611820108428839,
+      "agentSpeedup": 1.1543143054338114,
       "cost": 0.8071495518427387,
       "inputTokens": 0.00004793901812716659,
       "finalContextReduction": 0.2758991015532912
@@ -3571,6 +3578,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 702.682,
+          "wallSeconds": 757.333,
           "tokens": {
             "input": 16,
             "cached": 317730,
@@ -3585,6 +3593,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 900.013,
+          "wallSeconds": 998.996,
           "tokens": {
             "input": 1105144,
             "cached": 1040179,
@@ -3603,6 +3612,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 63.999,
+          "wallSeconds": 116.917,
           "tokens": {
             "input": 14,
             "cached": 66646,
@@ -3617,6 +3627,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 111.579,
+          "wallSeconds": 175.347,
           "tokens": {
             "input": 248334,
             "cached": 237375,
@@ -3635,6 +3646,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 108.15,
+          "wallSeconds": 147.688,
           "tokens": {
             "input": 14,
             "cached": 93037,
@@ -3649,6 +3661,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 164.284,
+          "wallSeconds": 205.554,
           "tokens": {
             "input": 160015,
             "cached": 147106,
@@ -3667,6 +3680,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 601.204,
+          "wallSeconds": 632.224,
           "tokens": {
             "input": 134,
             "cached": 3420231,
@@ -3681,6 +3695,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 598.438,
+          "wallSeconds": 644.651,
           "tokens": {
             "input": 3607862,
             "cached": 3528352,
@@ -3699,6 +3714,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 146.34,
+          "wallSeconds": 182.492,
           "tokens": {
             "input": 36,
             "cached": 319567,
@@ -3713,6 +3729,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 160.857,
+          "wallSeconds": 226.532,
           "tokens": {
             "input": 659087,
             "cached": 637255,
@@ -3731,6 +3748,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 372.923,
+          "wallSeconds": 423.568,
           "tokens": {
             "input": 64,
             "cached": 1015716,
@@ -3745,6 +3763,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 512.099,
+          "wallSeconds": 573.933,
           "tokens": {
             "input": 2460021,
             "cached": 2407367,
@@ -3763,6 +3782,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 3003.9,
+          "wallSeconds": 3099.859,
           "tokens": {
             "input": 66,
             "cached": 870724,
@@ -3777,6 +3797,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 2657.255,
+          "wallSeconds": 2797.746,
           "tokens": {
             "input": 1328393,
             "cached": 1292984,
@@ -3795,6 +3816,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 191.094,
+          "wallSeconds": 241.866,
           "tokens": {
             "input": 10,
             "cached": 68092,
@@ -3809,6 +3831,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 136.646,
+          "wallSeconds": 193.78,
           "tokens": {
             "input": 177557,
             "cached": 164928,
@@ -3827,6 +3850,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 81.462,
+          "wallSeconds": 134.496,
           "tokens": {
             "input": 16,
             "cached": 84191,
@@ -3841,6 +3865,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 85.166,
+          "wallSeconds": 136.818,
           "tokens": {
             "input": 222638,
             "cached": 213956,
@@ -3859,6 +3884,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 352.396,
+          "wallSeconds": 393.868,
           "tokens": {
             "input": 14,
             "cached": 168828,
@@ -3873,6 +3899,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 513.507,
+          "wallSeconds": 579.187,
           "tokens": {
             "input": 502973,
             "cached": 465893,
@@ -3891,6 +3918,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 564.32,
+          "wallSeconds": 599.217,
           "tokens": {
             "input": 36,
             "cached": 579588,
@@ -3905,6 +3933,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 558.784,
+          "wallSeconds": 600.33,
           "tokens": {
             "input": 1276047,
             "cached": 1220271,
@@ -3923,6 +3952,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 16.059,
+          "wallSeconds": 49.071,
           "tokens": {
             "input": 6,
             "cached": 26032,
@@ -3937,6 +3967,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 16.68,
+          "wallSeconds": 56.85,
           "tokens": {
             "input": 80697,
             "cached": 76261,
@@ -3955,6 +3986,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 1872.855,
+          "wallSeconds": 1918.353,
           "tokens": {
             "input": 78,
             "cached": 1045628,
@@ -3969,6 +4001,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 1799.383,
+          "wallSeconds": 1867.975,
           "tokens": {
             "input": 789994,
             "cached": 769260,
@@ -3987,6 +4020,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 197.817,
+          "wallSeconds": 242.632,
           "tokens": {
             "input": 30,
             "cached": 184623,
@@ -4001,6 +4035,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 210.785,
+          "wallSeconds": 272.795,
           "tokens": {
             "input": 479808,
             "cached": 466638,
@@ -4019,6 +4054,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 34.051,
+          "wallSeconds": 81.015,
           "tokens": {
             "input": 8,
             "cached": 43636,
@@ -4033,6 +4069,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 61.928,
+          "wallSeconds": 134.337,
           "tokens": {
             "input": 171349,
             "cached": 160801,
@@ -4051,6 +4088,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 103.235,
+          "wallSeconds": 140.294,
           "tokens": {
             "input": 18,
             "cached": 110663,
@@ -4065,6 +4103,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 90.879,
+          "wallSeconds": 132.324,
           "tokens": {
             "input": 189664,
             "cached": 178186,
@@ -4083,6 +4122,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 128.638,
+          "wallSeconds": 172.987,
           "tokens": {
             "input": 34,
             "cached": 179777,
@@ -4097,6 +4137,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 234.753,
+          "wallSeconds": 291.067,
           "tokens": {
             "input": 577972,
             "cached": 558331,
@@ -4115,6 +4156,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 127.663,
+          "wallSeconds": 173.83,
           "tokens": {
             "input": 24,
             "cached": 208817,
@@ -4129,6 +4171,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 116.085,
+          "wallSeconds": 181.099,
           "tokens": {
             "input": 378580,
             "cached": 360471,
@@ -4147,6 +4190,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 81.498,
+          "wallSeconds": 130.431,
           "tokens": {
             "input": 16,
             "cached": 87207,
@@ -4161,6 +4205,7 @@
         "baseline": {
           "passed": false,
           "agentSeconds": 259.506,
+          "wallSeconds": 351.2,
           "tokens": {
             "input": 615545,
             "cached": 587890,
@@ -4179,6 +4224,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 112.001,
+          "wallSeconds": 147.171,
           "tokens": {
             "input": 14,
             "cached": 94204,
@@ -4193,6 +4239,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 147.252,
+          "wallSeconds": 191.962,
           "tokens": {
             "input": 215573,
             "cached": 201261,
@@ -4211,6 +4258,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 272.216,
+          "wallSeconds": 323.249,
           "tokens": {
             "input": 24,
             "cached": 188366,
@@ -4225,6 +4273,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 523.587,
+          "wallSeconds": 595.936,
           "tokens": {
             "input": 1090846,
             "cached": 1032211,
@@ -4243,6 +4292,7 @@
         "ours": {
           "passed": false,
           "agentSeconds": 214.612,
+          "wallSeconds": 267.962,
           "tokens": {
             "input": 30,
             "cached": 314573,
@@ -4257,6 +4307,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 270.081,
+          "wallSeconds": 338.147,
           "tokens": {
             "input": 461107,
             "cached": 429025,
@@ -4275,6 +4326,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 313.107,
+          "wallSeconds": 356.836,
           "tokens": {
             "input": 30,
             "cached": 402106,
@@ -4289,6 +4341,7 @@
         "baseline": {
           "passed": false,
           "agentSeconds": 317.043,
+          "wallSeconds": 372.595,
           "tokens": {
             "input": 352061,
             "cached": 323557,
@@ -4307,6 +4360,7 @@
         "ours": {
           "passed": false,
           "agentSeconds": 1801.952,
+          "wallSeconds": 2044.782,
           "tokens": {
             "input": 102,
             "cached": 2664907,
@@ -4321,6 +4375,7 @@
         "baseline": {
           "passed": false,
           "agentSeconds": 1800.006,
+          "wallSeconds": 1859.867,
           "tokens": {
             "input": 4063973,
             "cached": 3984031,
@@ -4339,6 +4394,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 902.284,
+          "wallSeconds": 994.869,
           "tokens": {
             "input": 54,
             "cached": 935801,
@@ -4353,6 +4409,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 188.13,
+          "wallSeconds": 264.034,
           "tokens": {
             "input": 178349,
             "cached": 163739,
@@ -4371,6 +4428,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 124.308,
+          "wallSeconds": 158.769,
           "tokens": {
             "input": 12,
             "cached": 90834,
@@ -4385,6 +4443,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 149.319,
+          "wallSeconds": 189.367,
           "tokens": {
             "input": 174552,
             "cached": 156243,
@@ -4403,6 +4462,7 @@
         "ours": {
           "passed": false,
           "agentSeconds": 858.398,
+          "wallSeconds": 1061.147,
           "tokens": {
             "input": 30,
             "cached": 860721,
@@ -4417,6 +4477,7 @@
         "baseline": {
           "passed": false,
           "agentSeconds": 1633.389,
+          "wallSeconds": 1850.505,
           "tokens": {
             "input": 5005899,
             "cached": 4888965,
@@ -4435,6 +4496,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 143.059,
+          "wallSeconds": 195.373,
           "tokens": {
             "input": 26,
             "cached": 403198,
@@ -4449,6 +4511,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 88.414,
+          "wallSeconds": 155.153,
           "tokens": {
             "input": 606733,
             "cached": 542893,
@@ -4467,6 +4530,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 58.386,
+          "wallSeconds": 88.107,
           "tokens": {
             "input": 18,
             "cached": 137414,
@@ -4481,6 +4545,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 37.114,
+          "wallSeconds": 71.084,
           "tokens": {
             "input": 130575,
             "cached": 120972,
@@ -4499,6 +4564,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 53.164,
+          "wallSeconds": 83.791,
           "tokens": {
             "input": 24,
             "cached": 150678,
@@ -4513,6 +4579,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 50.191,
+          "wallSeconds": 88.416,
           "tokens": {
             "input": 230469,
             "cached": 218624,
@@ -4531,6 +4598,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 497.554,
+          "wallSeconds": 874.826,
           "tokens": {
             "input": 46,
             "cached": 1026838,
@@ -4545,6 +4613,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 631.312,
+          "wallSeconds": 1055.866,
           "tokens": {
             "input": 1470147,
             "cached": 1403752,
@@ -4563,6 +4632,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 226.828,
+          "wallSeconds": 261.461,
           "tokens": {
             "input": 50,
             "cached": 533275,
@@ -4577,6 +4647,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 271.296,
+          "wallSeconds": 311.465,
           "tokens": {
             "input": 729980,
             "cached": 690566,
@@ -4595,6 +4666,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 54.134,
+          "wallSeconds": 96.171,
           "tokens": {
             "input": 20,
             "cached": 108554,
@@ -4609,6 +4681,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 81.747,
+          "wallSeconds": 146.666,
           "tokens": {
             "input": 243000,
             "cached": 233414,
@@ -4627,6 +4700,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 182.619,
+          "wallSeconds": 328.86,
           "tokens": {
             "input": 46,
             "cached": 350722,
@@ -4641,6 +4715,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 233.686,
+          "wallSeconds": 307.479,
           "tokens": {
             "input": 794798,
             "cached": 776037,
@@ -4659,6 +4734,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 446.39,
+          "wallSeconds": 491.212,
           "tokens": {
             "input": 18,
             "cached": 226220,
@@ -4673,6 +4749,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 900.004,
+          "wallSeconds": 956.343,
           "tokens": {
             "input": 1442168,
             "cached": 1380105,
@@ -4691,6 +4768,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 391.506,
+          "wallSeconds": 437.966,
           "tokens": {
             "input": 46,
             "cached": 581774,
@@ -4705,6 +4783,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 230.649,
+          "wallSeconds": 291.632,
           "tokens": {
             "input": 508687,
             "cached": 491001,
@@ -4723,6 +4802,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 92.003,
+          "wallSeconds": 166.947,
           "tokens": {
             "input": 18,
             "cached": 94892,
@@ -4737,6 +4817,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 142.247,
+          "wallSeconds": 249.516,
           "tokens": {
             "input": 189000,
             "cached": 182708,
@@ -4755,6 +4836,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 2249.589,
+          "wallSeconds": 2326.683,
           "tokens": {
             "input": 202,
             "cached": 7132825,
@@ -4769,6 +4851,7 @@
         "baseline": {
           "passed": false,
           "agentSeconds": 3600.012,
+          "wallSeconds": 3814.02,
           "tokens": {
             "input": 9501531,
             "cached": 9360967,
@@ -4787,6 +4870,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 90.298,
+          "wallSeconds": 121.003,
           "tokens": {
             "input": 26,
             "cached": 148036,
@@ -4801,6 +4885,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 58.041,
+          "wallSeconds": 96.361,
           "tokens": {
             "input": 194456,
             "cached": 190457,
@@ -4819,6 +4904,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 168.254,
+          "wallSeconds": 225.001,
           "tokens": {
             "input": 22,
             "cached": 153626,
@@ -4833,6 +4919,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 375.017,
+          "wallSeconds": 451.481,
           "tokens": {
             "input": 402403,
             "cached": 380109,
@@ -4851,6 +4938,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 645.077,
+          "wallSeconds": 673.514,
           "tokens": {
             "input": 52,
             "cached": 1133507,
@@ -4865,6 +4953,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 900.014,
+          "wallSeconds": 941.575,
           "tokens": {
             "input": 2347348,
             "cached": 2261961,
@@ -4883,6 +4972,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 1800.306,
+          "wallSeconds": 1837.329,
           "tokens": {
             "input": 92,
             "cached": 2504642,
@@ -4897,6 +4987,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 473.645,
+          "wallSeconds": 515.87,
           "tokens": {
             "input": 875821,
             "cached": 810696,
@@ -4915,6 +5006,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 24.024,
+          "wallSeconds": 57.798,
           "tokens": {
             "input": 806,
             "cached": 29230,
@@ -4929,6 +5021,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 46.485,
+          "wallSeconds": 90.57,
           "tokens": {
             "input": 126723,
             "cached": 120699,
@@ -4947,6 +5040,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 704.425,
+          "wallSeconds": 774.302,
           "tokens": {
             "input": 92,
             "cached": 2520798,
@@ -4961,6 +5055,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 724.607,
+          "wallSeconds": 813.595,
           "tokens": {
             "input": 2030792,
             "cached": 1973337,
@@ -4979,6 +5074,7 @@
         "ours": {
           "passed": false,
           "agentSeconds": 900.301,
+          "wallSeconds": 981.146,
           "tokens": {
             "input": 62,
             "cached": 2361866,
@@ -4993,6 +5089,7 @@
         "baseline": {
           "passed": false,
           "agentSeconds": 900.002,
+          "wallSeconds": 1003.224,
           "tokens": {
             "input": 2984997,
             "cached": 2864816,
@@ -5011,6 +5108,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 686.643,
+          "wallSeconds": 739.326,
           "tokens": {
             "input": 46,
             "cached": 1280384,
@@ -5025,6 +5123,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 1542.611,
+          "wallSeconds": 1604.53,
           "tokens": {
             "input": 9645238,
             "cached": 9499489,
@@ -5043,6 +5142,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 250.479,
+          "wallSeconds": 378.637,
           "tokens": {
             "input": 36,
             "cached": 310307,
@@ -5057,6 +5157,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 1800.012,
+          "wallSeconds": 1982.035,
           "tokens": {
             "input": 733378,
             "cached": 685708,
@@ -5075,6 +5176,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 148.395,
+          "wallSeconds": 197.109,
           "tokens": {
             "input": 30,
             "cached": 234716,
@@ -5089,6 +5191,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 142.329,
+          "wallSeconds": 202.994,
           "tokens": {
             "input": 352589,
             "cached": 337969,
@@ -5107,6 +5210,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 142.765,
+          "wallSeconds": 179.028,
           "tokens": {
             "input": 16,
             "cached": 116526,
@@ -5121,6 +5225,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 162.417,
+          "wallSeconds": 223.053,
           "tokens": {
             "input": 264009,
             "cached": 249273,
@@ -5139,6 +5244,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 77.874,
+          "wallSeconds": 116.852,
           "tokens": {
             "input": 12,
             "cached": 73929,
@@ -5153,6 +5259,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 63.967,
+          "wallSeconds": 118.141,
           "tokens": {
             "input": 113719,
             "cached": 104757,
@@ -5171,6 +5278,7 @@
         "ours": {
           "passed": false,
           "agentSeconds": 231.001,
+          "wallSeconds": 275.477,
           "tokens": {
             "input": 14,
             "cached": 85075,
@@ -5185,6 +5293,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 842.163,
+          "wallSeconds": 889.215,
           "tokens": {
             "input": 721048,
             "cached": 691934,
@@ -5203,6 +5312,7 @@
         "ours": {
           "passed": false,
           "agentSeconds": 126.837,
+          "wallSeconds": 380.697,
           "tokens": {
             "input": 22,
             "cached": 122685,
@@ -5217,6 +5327,7 @@
         "baseline": {
           "passed": false,
           "agentSeconds": 150.774,
+          "wallSeconds": 453.665,
           "tokens": {
             "input": 257821,
             "cached": 249533,
@@ -5235,6 +5346,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 63.956,
+          "wallSeconds": 110.562,
           "tokens": {
             "input": 12,
             "cached": 63586,
@@ -5249,6 +5361,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 55.812,
+          "wallSeconds": 111.17,
           "tokens": {
             "input": 109641,
             "cached": 101196,
@@ -5267,6 +5380,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 80.724,
+          "wallSeconds": 114.818,
           "tokens": {
             "input": 16,
             "cached": 89466,
@@ -5281,6 +5395,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 64.105,
+          "wallSeconds": 110.026,
           "tokens": {
             "input": 216248,
             "cached": 208622,
@@ -5299,6 +5414,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 45.733,
+          "wallSeconds": 79.404,
           "tokens": {
             "input": 12,
             "cached": 57362,
@@ -5313,6 +5429,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 80.606,
+          "wallSeconds": 120.49,
           "tokens": {
             "input": 217989,
             "cached": 211625,
@@ -5331,6 +5448,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 222.725,
+          "wallSeconds": 301.441,
           "tokens": {
             "input": 30,
             "cached": 307218,
@@ -5345,6 +5463,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 128.269,
+          "wallSeconds": 222.358,
           "tokens": {
             "input": 330923,
             "cached": 311856,
@@ -5363,6 +5482,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 103.088,
+          "wallSeconds": 147.012,
           "tokens": {
             "input": 20,
             "cached": 135508,
@@ -5377,6 +5497,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 191.379,
+          "wallSeconds": 251.622,
           "tokens": {
             "input": 460608,
             "cached": 436365,
@@ -5395,6 +5516,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 225.211,
+          "wallSeconds": 282.02,
           "tokens": {
             "input": 44,
             "cached": 612816,
@@ -5409,6 +5531,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 238.296,
+          "wallSeconds": 318.028,
           "tokens": {
             "input": 720963,
             "cached": 668840,
@@ -5427,6 +5550,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 438.485,
+          "wallSeconds": 490.574,
           "tokens": {
             "input": 32,
             "cached": 608861,
@@ -5441,6 +5565,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 517.448,
+          "wallSeconds": 576.287,
           "tokens": {
             "input": 1142756,
             "cached": 1040990,
@@ -5459,6 +5584,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 202.044,
+          "wallSeconds": 248.291,
           "tokens": {
             "input": 26,
             "cached": 208047,
@@ -5473,6 +5599,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 212.884,
+          "wallSeconds": 286.809,
           "tokens": {
             "input": 314998,
             "cached": 299671,
@@ -5491,6 +5618,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 131.711,
+          "wallSeconds": 186.654,
           "tokens": {
             "input": 8,
             "cached": 49614,
@@ -5505,6 +5633,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 251.104,
+          "wallSeconds": 311.507,
           "tokens": {
             "input": 322930,
             "cached": 300872,
@@ -5523,6 +5652,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 209.835,
+          "wallSeconds": 275.004,
           "tokens": {
             "input": 22,
             "cached": 219028,
@@ -5537,6 +5667,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 153.721,
+          "wallSeconds": 223.384,
           "tokens": {
             "input": 293981,
             "cached": 275384,
@@ -5555,6 +5686,7 @@
         "ours": {
           "passed": false,
           "agentSeconds": 312.412,
+          "wallSeconds": 349.118,
           "tokens": {
             "input": 28,
             "cached": 294121,
@@ -5569,6 +5701,7 @@
         "baseline": {
           "passed": false,
           "agentSeconds": 533.032,
+          "wallSeconds": 578.195,
           "tokens": {
             "input": 603156,
             "cached": 558000,
@@ -5587,6 +5720,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 30.122,
+          "wallSeconds": 79.776,
           "tokens": {
             "input": 10,
             "cached": 43872,
@@ -5601,6 +5735,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 32.889,
+          "wallSeconds": 88.237,
           "tokens": {
             "input": 120773,
             "cached": 113398,
@@ -5619,6 +5754,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 55.401,
+          "wallSeconds": 93.79,
           "tokens": {
             "input": 16,
             "cached": 79570,
@@ -5633,6 +5769,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 73.424,
+          "wallSeconds": 111.419,
           "tokens": {
             "input": 241364,
             "cached": 236000,
@@ -5651,6 +5788,7 @@
         "ours": {
           "passed": false,
           "agentSeconds": 187.647,
+          "wallSeconds": 337.095,
           "tokens": {
             "input": 24,
             "cached": 156541,
@@ -5665,6 +5803,7 @@
         "baseline": {
           "passed": false,
           "agentSeconds": 288.781,
+          "wallSeconds": 472.633,
           "tokens": {
             "input": 522257,
             "cached": 500799,
@@ -5683,6 +5822,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 900.291,
+          "wallSeconds": 1201.063,
           "tokens": {
             "input": 26,
             "cached": 186731,
@@ -5697,6 +5837,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 111.495,
+          "wallSeconds": 468.948,
           "tokens": {
             "input": 91627,
             "cached": 82780,
@@ -5715,6 +5856,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 438.67,
+          "wallSeconds": 487.905,
           "tokens": {
             "input": 54,
             "cached": 675237,
@@ -5729,6 +5871,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 419.627,
+          "wallSeconds": 470.661,
           "tokens": {
             "input": 930826,
             "cached": 894596,
@@ -5747,6 +5890,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 318.992,
+          "wallSeconds": 366.873,
           "tokens": {
             "input": 32,
             "cached": 288820,
@@ -5761,6 +5905,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 325.432,
+          "wallSeconds": 405.057,
           "tokens": {
             "input": 551078,
             "cached": 529041,
@@ -5779,6 +5924,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 654.695,
+          "wallSeconds": 1217.511,
           "tokens": {
             "input": 60,
             "cached": 876313,
@@ -5793,6 +5939,7 @@
         "baseline": {
           "passed": false,
           "agentSeconds": 309.828,
+          "wallSeconds": 673.758,
           "tokens": {
             "input": 215291,
             "cached": 204639,
@@ -5811,6 +5958,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 675.018,
+          "wallSeconds": 709.266,
           "tokens": {
             "input": 48,
             "cached": 704442,
@@ -5825,6 +5973,7 @@
         "baseline": {
           "passed": false,
           "agentSeconds": 273.239,
+          "wallSeconds": 320.576,
           "tokens": {
             "input": 584608,
             "cached": 559851,
@@ -5843,6 +5992,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 2977.652,
+          "wallSeconds": 3036.344,
           "tokens": {
             "input": 42,
             "cached": 1209644,
@@ -5857,6 +6007,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 2658.742,
+          "wallSeconds": 2830.737,
           "tokens": {
             "input": 2435565,
             "cached": 2368340,
@@ -5875,6 +6026,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 137.178,
+          "wallSeconds": 196.091,
           "tokens": {
             "input": 18,
             "cached": 122009,
@@ -5889,6 +6041,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 118.969,
+          "wallSeconds": 185.946,
           "tokens": {
             "input": 171551,
             "cached": 160473,
@@ -5907,6 +6060,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 766.079,
+          "wallSeconds": 882.152,
           "tokens": {
             "input": 66,
             "cached": 1567848,
@@ -5921,6 +6075,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 1114.694,
+          "wallSeconds": 1286.413,
           "tokens": {
             "input": 1668047,
             "cached": 1620150,
@@ -5939,6 +6094,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 355.827,
+          "wallSeconds": 405.891,
           "tokens": {
             "input": 26,
             "cached": 224188,
@@ -5953,6 +6109,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 622.157,
+          "wallSeconds": 680.68,
           "tokens": {
             "input": 502928,
             "cached": 483645,
@@ -5971,6 +6128,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 2963.101,
+          "wallSeconds": 3164.823,
           "tokens": {
             "input": 106,
             "cached": 3174648,
@@ -5985,6 +6143,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 5187.539,
+          "wallSeconds": 5429.361,
           "tokens": {
             "input": 5518328,
             "cached": 5418050,
@@ -6003,6 +6162,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 89.384,
+          "wallSeconds": 120.505,
           "tokens": {
             "input": 16,
             "cached": 128916,
@@ -6017,6 +6177,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 168.019,
+          "wallSeconds": 216.755,
           "tokens": {
             "input": 602648,
             "cached": 562009,
@@ -6035,6 +6196,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 2400.365,
+          "wallSeconds": 2601.479,
           "tokens": {
             "input": 30,
             "cached": 883375,
@@ -6049,6 +6211,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 2400.01,
+          "wallSeconds": 2493.691,
           "tokens": {
             "input": 3434904,
             "cached": 3311232,
@@ -6067,6 +6230,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 387.735,
+          "wallSeconds": 437.166,
           "tokens": {
             "input": 716,
             "cached": 337536,
@@ -6081,6 +6245,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 127.753,
+          "wallSeconds": 194.123,
           "tokens": {
             "input": 260835,
             "cached": 243061,
@@ -6099,6 +6264,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 106.699,
+          "wallSeconds": 141.921,
           "tokens": {
             "input": 12,
             "cached": 65201,
@@ -6113,6 +6279,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 91.619,
+          "wallSeconds": 137.183,
           "tokens": {
             "input": 158281,
             "cached": 148329,
@@ -6131,6 +6298,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 225.156,
+          "wallSeconds": 276.021,
           "tokens": {
             "input": 30,
             "cached": 231180,
@@ -6145,6 +6313,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 267.099,
+          "wallSeconds": 327.023,
           "tokens": {
             "input": 562666,
             "cached": 546815,
@@ -6163,6 +6332,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 441.821,
+          "wallSeconds": 1082.21,
           "tokens": {
             "input": 20,
             "cached": 218481,
@@ -6177,6 +6347,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 385.438,
+          "wallSeconds": 1213.293,
           "tokens": {
             "input": 612786,
             "cached": 575997,
@@ -6195,6 +6366,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 128.062,
+          "wallSeconds": 411.131,
           "tokens": {
             "input": 10,
             "cached": 55276,
@@ -6209,6 +6381,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 94.942,
+          "wallSeconds": 480.312,
           "tokens": {
             "input": 131264,
             "cached": 124136,
@@ -6227,6 +6400,7 @@
         "ours": {
           "passed": false,
           "agentSeconds": 3603.99,
+          "wallSeconds": 3688.371,
           "tokens": {
             "input": 86,
             "cached": 1176340,
@@ -6241,6 +6415,7 @@
         "baseline": {
           "passed": false,
           "agentSeconds": 3600.006,
+          "wallSeconds": 3926.165,
           "tokens": {
             "input": 634953,
             "cached": 608475,
@@ -6259,6 +6434,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 351.185,
+          "wallSeconds": 393.588,
           "tokens": {
             "input": 36,
             "cached": 410633,
@@ -6273,6 +6449,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 345.205,
+          "wallSeconds": 397.043,
           "tokens": {
             "input": 455547,
             "cached": 432142,
@@ -6291,6 +6468,7 @@
         "ours": {
           "passed": false,
           "agentSeconds": 716.245,
+          "wallSeconds": 780.578,
           "tokens": {
             "input": 76,
             "cached": 1660725,
@@ -6305,6 +6483,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 1251.505,
+          "wallSeconds": 1314.617,
           "tokens": {
             "input": 2695676,
             "cached": 2625246,
@@ -6323,6 +6502,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 82.304,
+          "wallSeconds": 114.888,
           "tokens": {
             "input": 26,
             "cached": 143634,
@@ -6337,6 +6517,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 78.024,
+          "wallSeconds": 121.809,
           "tokens": {
             "input": 257458,
             "cached": 244340,
@@ -6355,6 +6536,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 1870.83,
+          "wallSeconds": 1905.059,
           "tokens": {
             "input": 56,
             "cached": 2272708,
@@ -6369,6 +6551,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 2307.454,
+          "wallSeconds": 2351.986,
           "tokens": {
             "input": 5591206,
             "cached": 5415024,
@@ -6387,6 +6570,7 @@
         "ours": {
           "passed": true,
           "agentSeconds": 231.601,
+          "wallSeconds": 296.658,
           "tokens": {
             "input": 16,
             "cached": 131287,
@@ -6401,6 +6585,7 @@
         "baseline": {
           "passed": true,
           "agentSeconds": 359.495,
+          "wallSeconds": 420.722,
           "tokens": {
             "input": 465897,
             "cached": 436409,

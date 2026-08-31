@@ -12,10 +12,10 @@
 
 ## Pair: Claude Code · Claude Opus 5 high
 
-- Shared tasks: **89**
+- Paired trials: **89**
 - Score: **79/89 vs 77/89**
 - Outcomes: ours-only 5, baseline-only 3, both-pass 74, both-fail 7
-- Agent speedup: **1.15x**
+- Wall speedup: **1.16x** (agent 1.15x)
 - Cost ratio (ours/baseline, 89/89 cost-comparable tasks): **0.81x**
 - Input-token ratio (ours/baseline): **0.00x**
 - Final-context reduction: **27.6%**

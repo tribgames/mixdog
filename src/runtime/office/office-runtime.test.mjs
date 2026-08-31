@@ -1459,6 +1459,7 @@ test('persistent Office validation inspects the open document with bounded Excel
   assert.match(validation, /Issues-SessionDocument \$document/);
   assert.match(source, /Invoke-ExcelComRetry[\s\S]+Excel session snapshot/);
   assert.match(source, /Invoke-ExcelComRetry[\s\S]+Excel session issue inspection/);
+  assert.match(source, /\$app\.Presentations\.Add\(\$visible\)/);
   assert.doesNotMatch(validation, /Validate-NativeDocument/);
 });
 

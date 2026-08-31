@@ -105,12 +105,36 @@ function Write-FastDirectReceipt {
   $parent = Split-Path -Parent $ReceiptPath
   New-Item -ItemType Directory -Path $parent -Force | Out-Null
   $temporary = "$ReceiptPath.$PID.tmp"
-  [ordered]@{
+  $previous = $null
+  if (Test-Path -LiteralPath $ReceiptPath -PathType Leaf) {
+    try { $previous = Get-Content -LiteralPath $ReceiptPath -Raw | ConvertFrom-Json } catch {}
+  }
+  $now = [DateTime]::UtcNow
+  $startedAt = if ($previous -and $previous.startedAt) {
+    [DateTime]::Parse([string]$previous.startedAt).ToUniversalTime()
+  } elseif ($env:MIXDOG_FASTDIRECT_STARTED_AT) {
+    [DateTime]::Parse([string]$env:MIXDOG_FASTDIRECT_STARTED_AT).ToUniversalTime()
+  } else {
+    $now
+  }
+  $timeline = @()
+  if ($previous -and $previous.timeline) { $timeline += @($previous.timeline) }
+  $timeline += [ordered]@{ status = $Status; at = $now.ToString('o'); pid = $PID }
+  $snapshotTimings = $null
+  if ($env:MIXDOG_FASTDIRECT_SNAPSHOT_TIMINGS) {
+    try { $snapshotTimings = $env:MIXDOG_FASTDIRECT_SNAPSHOT_TIMINGS | ConvertFrom-Json } catch {}
+  }
+  $json = [ordered]@{
     status = $Status
     detail = $Detail
     pid = $PID
-    at = [DateTime]::UtcNow.ToString('o')
-  } | ConvertTo-Json -Compress | Set-Content -LiteralPath $temporary -Encoding UTF8
+    at = $now.ToString('o')
+    startedAt = $startedAt.ToString('o')
+    elapsedMs = [math]::Round(($now - $startedAt).TotalMilliseconds)
+    snapshot = $snapshotTimings
+    timeline = $timeline
+  } | ConvertTo-Json -Depth 6 -Compress
+  [IO.File]::WriteAllText($temporary, $json, [Text.UTF8Encoding]::new($false))
   Move-Item -LiteralPath $temporary -Destination $ReceiptPath -Force
 }
 
@@ -665,11 +689,30 @@ function Invoke-FastDirectChangedOutputs {
     [bool]$Plan.runtime
   }
   if ($runtimeChanged) {
-    Write-Step 'preparing changed runtime'
     Push-Location $desktopDir
     try {
-      & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
-      if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
+      if ($Plan.full) {
+        Write-Step 'preparing production runtime.asar for the complete fallback'
+        & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
+        if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
+      } else {
+        $runtimeMode = [string]$Plan.runtimeMode
+        if ([string]::IsNullOrWhiteSpace($runtimeMode) -or $runtimeMode -eq 'none') {
+          $runtimeMode = 'full'
+        }
+        Write-Step "preparing changed FastDirect runtime ($runtimeMode)"
+        if ($runtimeMode -eq 'code') {
+          & node scripts/prepare-fast-runtime-code.mjs `
+            "--dependency-hash=$($Plan.groups.runtimeDependencies.hash)" `
+            "--runtime-hash=$($Plan.groups.runtime.hash)"
+          if ($LASTEXITCODE -ne 0) { throw "prepare-fast-runtime-code exited with $LASTEXITCODE" }
+        } else {
+          & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64 --mode=fast-full `
+            "--dependency-hash=$($Plan.groups.runtimeDependencies.hash)" `
+            "--runtime-hash=$($Plan.groups.runtime.hash)"
+          if ($LASTEXITCODE -ne 0) { throw "prepare:runtime fast-full exited with $LASTEXITCODE" }
+        }
+      }
     } finally {
       Pop-Location
     }
@@ -784,30 +827,49 @@ function Install-IncrementalBuild {
   param([object]$Plan)
   $shellChanged = @($Plan.targets).Count -gt 0 -or $Plan.daemon
   $runtimeChanged = [bool]$Plan.runtime
+  $runtimeMode = if ([string]::IsNullOrWhiteSpace([string]$Plan.runtimeMode)) {
+    'full'
+  } else {
+    [string]$Plan.runtimeMode
+  }
+  $appRestartRequired = $shellChanged -or $runtimeChanged
   $installedResources = Join-Path $InstallDir 'resources'
   $backupDir = Join-Path $env:TEMP ("mixdog-fast-incremental-backup-" + [guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
   $backedUp = [Collections.Generic.List[object]]::new()
   function Backup-InstalledArtifact {
     param([string]$Path, [string]$Name)
+    $backup = $null
     if (Test-Path -LiteralPath $Path) {
-      Move-Item -LiteralPath $Path -Destination (Join-Path $backupDir $Name) -Force
-      [void]$backedUp.Add(
-        [pscustomobject]@{ Path = $Path; Backup = (Join-Path $backupDir $Name) }
-      )
+      $backup = Join-Path $backupDir $Name
+      Move-Item -LiteralPath $Path -Destination $backup -Force
     }
+    [void]$backedUp.Add([pscustomobject]@{ Path = $Path; Backup = $backup })
   }
   function Restore-IncrementalArtifacts {
     foreach ($entry in @($backedUp)) {
       Remove-Item -LiteralPath $entry.Path -Recurse -Force -ErrorAction SilentlyContinue
-      if (Test-Path -LiteralPath $entry.Backup) {
+      if ($entry.Backup -and (Test-Path -LiteralPath $entry.Backup)) {
         Move-Item -LiteralPath $entry.Backup -Destination $entry.Path -Force
       }
     }
   }
+  function Install-PreparedArtifact {
+    param([string]$Source, [string]$Destination)
+    if (Test-Path -LiteralPath $Destination) {
+      throw "Prepared artifact destination already exists: $Destination"
+    }
+    $sourceRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Source))
+    $destinationRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Destination))
+    if ([string]::Equals($sourceRoot, $destinationRoot, [StringComparison]::OrdinalIgnoreCase)) {
+      Move-Item -LiteralPath $Source -Destination $Destination
+    } else {
+      Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force
+    }
+  }
 
   try {
-    if ($shellChanged) {
+    if ($appRestartRequired) {
       Write-Step 'stopping the installed app'
       Stop-MixdogApp
     }
@@ -815,9 +877,11 @@ function Install-IncrementalBuild {
       Write-Step 'stopping the session daemon'
       Stop-Daemon
     }
-    if ($shellChanged) {
+    if ($appRestartRequired) {
       Write-Step 'waiting for every installed Mixdog process to release files'
       Stop-InstalledMixdogProcess
+    }
+    if ($shellChanged) {
       Backup-InstalledArtifact (Join-Path $InstallDir 'Mixdog.exe') 'Mixdog.exe'
       Backup-InstalledArtifact (Join-Path $installedResources 'app.asar') 'app.asar'
       Backup-InstalledArtifact (Join-Path $installedResources 'app.asar.unpacked') 'app.asar.unpacked'
@@ -829,26 +893,39 @@ function Install-IncrementalBuild {
         -Destination (Join-Path $installedResources 'app.asar.unpacked') -Recurse -Force
     }
     if ($runtimeChanged) {
-      $runtimeNativeTools = Join-Path $desktopDir '.runtime\native-tools'
-      if (-not (Test-Path -LiteralPath $runtimeNativeTools -PathType Container)) {
-        throw "Prepared runtime native tools are missing: $runtimeNativeTools"
+      $installedFastRuntime = Join-Path $installedResources 'fast-runtime'
+      if ($runtimeMode -eq 'code') {
+        $runtimeCode = Join-Path $desktopDir '.runtime\fast-runtime-code'
+        if (-not (Test-Path -LiteralPath (Join-Path $runtimeCode 'node_modules\mixdog\src\standalone\session-client.mjs') -PathType Leaf)) {
+          throw "Prepared FastDirect runtime code is missing: $runtimeCode"
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $installedFastRuntime '.mixdog-fast-runtime.json') -PathType Leaf)) {
+          throw "Installed FastDirect dependency runtime is missing: $installedFastRuntime"
+        }
+        Backup-InstalledArtifact (Join-Path $installedFastRuntime 'node_modules\mixdog') 'fast-runtime-mixdog'
+        Backup-InstalledArtifact (Join-Path $installedFastRuntime '.mixdog-fast-runtime.json') 'fast-runtime-marker.json'
+        Install-PreparedArtifact (Join-Path $runtimeCode 'node_modules\mixdog') `
+          (Join-Path $installedFastRuntime 'node_modules\mixdog')
+        Install-PreparedArtifact (Join-Path $runtimeCode '.mixdog-fast-runtime.json') `
+          (Join-Path $installedFastRuntime '.mixdog-fast-runtime.json')
+      } else {
+        $runtimeNativeTools = Join-Path $desktopDir '.runtime\native-tools'
+        $fastRuntime = Join-Path $desktopDir '.runtime\fast-runtime'
+        if (-not (Test-Path -LiteralPath $runtimeNativeTools -PathType Container)) {
+          throw "Prepared runtime native tools are missing: $runtimeNativeTools"
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $fastRuntime 'node_modules\mixdog\src\standalone\session-client.mjs') -PathType Leaf)) {
+          throw "Prepared FastDirect runtime is missing: $fastRuntime"
+        }
+        Backup-InstalledArtifact $installedFastRuntime 'fast-runtime'
+        Backup-InstalledArtifact (Join-Path $installedResources 'native-tools') 'native-tools'
+        Install-PreparedArtifact $fastRuntime $installedFastRuntime
+        Install-PreparedArtifact $runtimeNativeTools (Join-Path $installedResources 'native-tools')
       }
-      Backup-InstalledArtifact (Join-Path $installedResources 'runtime.asar') 'runtime.asar'
-      Backup-InstalledArtifact (Join-Path $installedResources 'runtime.asar.unpacked') 'runtime.asar.unpacked'
-      Backup-InstalledArtifact (Join-Path $installedResources 'native-tools') 'native-tools'
-      Copy-Item -LiteralPath (Join-Path $desktopDir '.runtime\runtime.asar') `
-        -Destination (Join-Path $installedResources 'runtime.asar') -Force
-      $runtimeSidecar = Join-Path $desktopDir '.runtime\runtime.asar.unpacked'
-      if (Test-Path -LiteralPath $runtimeSidecar -PathType Container) {
-        Copy-Item -LiteralPath $runtimeSidecar `
-          -Destination (Join-Path $installedResources 'runtime.asar.unpacked') -Recurse -Force
-      }
-      Copy-Item -LiteralPath $runtimeNativeTools `
-        -Destination (Join-Path $installedResources 'native-tools') -Recurse -Force
     }
 
     if (-not $NoLaunch) {
-      if ($shellChanged -or $appBefore.Count -eq 0) {
+      if ($appRestartRequired -or $appBefore.Count -eq 0) {
         Write-Step 'starting the incrementally deployed app'
         Start-DetachedMixdogApp
       }
@@ -870,7 +947,7 @@ function Install-IncrementalBuild {
   } catch {
     $failure = $_
     Write-Step 'incremental deploy failed; restoring the previous installation'
-    if ($shellChanged) {
+    if ($appRestartRequired) {
       Stop-MixdogApp
       Stop-InstalledMixdogProcess
     }

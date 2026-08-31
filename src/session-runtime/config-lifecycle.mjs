@@ -17,6 +17,8 @@
 
 const CONFIG_SAVE_DEBOUNCE_MS = 150;
 
+import { withGrandfatheredBuiltins } from './builtin-features.mjs';
+
 export function createConfigLifecycle({
   // config mutable-state injection
   getConfig,
@@ -76,7 +78,10 @@ export function createConfigLifecycle({
 
   // --- config adopt -----------------------------------------------------------
   function adoptConfig(nextConfig, { hasSecrets = getConfigHasSecrets() } = {}) {
-    setConfig(nextConfig);
+    // Built-in install markers: stamp a fresh profile's empty section or
+    // grandfather a pre-section profile. Idempotent and deterministic, so a
+    // load that does not persist still re-derives the same state every time.
+    setConfig(withGrandfatheredBuiltins(nextConfig));
     setConfigHasSecrets(hasSecrets === true);
     const config = getConfig();
     setConfiguredShell(normalizeSystemShellConfig(config.shell).command);

@@ -1,7 +1,30 @@
 import { ChevronRight, Files, Globe, Sparkles, SquareTerminal } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { t } from "./i18n";
 import { usePersistedListOrder } from "./use-persisted-list-order";
+
+// Browser Use ships install-first: its Utilities entry appears only once the
+// feature is installed, matching the session tool surface. The settings panel
+// announces marker changes, so an install lands here live without polling.
+function useBrowserFeatureInstalled(): boolean {
+  const [installed, setInstalled] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const refresh = () => {
+      void window.mixdogDesktop?.readSettings?.().then((settings) => {
+        if (live) setInstalled(settings?.browserInstalled !== false);
+      }).catch(() => {});
+    };
+    refresh();
+    window.addEventListener("mixdog:built-in-features-changed", refresh);
+    return () => {
+      live = false;
+      window.removeEventListener("mixdog:built-in-features-changed", refresh);
+    };
+  }, []);
+  return installed;
+}
 
 export function UtilitiesPane({
   active = true,
@@ -46,9 +69,11 @@ export function UtilitiesPane({
     "mixdog.sidebar-order.utilities.v1",
     items.map((item) => item.label),
   );
+  const browserInstalled = useBrowserFeatureInstalled();
   const orderedItems = order.orderedIds
     .map((id) => items.find((item) => item.label === id))
-    .filter((item): item is (typeof items)[number] => Boolean(item));
+    .filter((item): item is (typeof items)[number] => Boolean(item))
+    .filter((item) => item.label !== "Browser" || browserInstalled);
 
   return <div className="schedules-pane utilities-pane stable-surface-preserved stable-takeover-surface"
     data-surface-active={active ? "true" : "false"}

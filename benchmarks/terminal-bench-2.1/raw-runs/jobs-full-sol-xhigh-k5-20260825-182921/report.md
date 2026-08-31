@@ -5,20 +5,20 @@
 - Agent total: **150883.8s** — rank n/a
 - Wall: **23826.4s** — rank n/a
 - Tokens: input 152411357, cached 133353728, output 4076627
-- Cost: $285.04 (445 trials)
+- Cost: $211.71 (445 trials)
 - Final context median: 18509 tokens (445 trials)
 - Reduction: 136455603 bytes saved, 78 artifact reads
 - Contract: rules 85ef48f37438 (18 files), tools 0cc3680e6c9e (13 catalog, 11 active, 11 provider, 1 route)
 
 ## Pair: Codex CLI · GPT-5.6 Sol xhigh
 
-- Shared tasks: **445**
-- Score: **385/445 vs 375/445**
-- Outcomes: ours-only 41, baseline-only 31, both-pass 344, both-fail 29
-- Agent speedup: **1.11x**
-- Cost ratio (ours/baseline, 445/445 cost-comparable tasks): **0.58x**
-- Input-token ratio (ours/baseline): **0.34x**
-- Final-context reduction: **44.7%**
+- Paired trials: **445**
+- Score: **385/445 vs 383/445**
+- Outcomes: ours-only 29, baseline-only 27, both-pass 356, both-fail 33
+- Wall speedup: **1.05x** (agent 0.99x)
+- Cost ratio (ours/baseline, 445/445 cost-comparable tasks): **0.61x**
+- Input-token ratio (ours/baseline): **0.37x**
+- Final-context reduction: **46.0%**
 
 ## Diagnostics
 

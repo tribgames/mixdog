@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import type { DesktopGitPreferences } from '../shared/contract';
 import { isConventionalCommitMessage } from '../shared/commit-message-format';
 import { gitDiff } from './git-cli';
+import { packagedRuntimeSourceRoot } from './runtime-layout';
 
 export interface CommitCompletionModule {
   generateCommitMessage(source: string, options?: { style?: string }): Promise<string>;
@@ -25,7 +26,7 @@ export function commitCompletionModuleUrl(
   appPath = process.cwd(),
 ): string {
   const modulePath = packaged
-    ? join(resourcesPath, 'runtime.asar', 'node_modules', 'mixdog', 'src', 'runtime',
+    ? join(packagedRuntimeSourceRoot(resourcesPath), 'runtime',
       'agent', 'orchestrator', 'agent-runtime', 'commit-message-completion.mjs')
     : resolve(appPath, '../../src/runtime/agent/orchestrator/agent-runtime/commit-message-completion.mjs');
   return pathToFileURL(modulePath).href;

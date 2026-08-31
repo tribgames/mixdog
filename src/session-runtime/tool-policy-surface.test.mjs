@@ -233,18 +233,21 @@ function surfaceFor({
   });
 }
 
-test('modelStandaloneTools hides agent and disabled web-search/memory tools', () => {
+test('modelStandaloneTools hides agent and disabled first-party feature tools', () => {
   const standalone = [
     { name: 'read' },
     { name: 'agent' },
+    { name: 'git' },
+    { name: 'git_stage' },
     { name: 'web_search' },
     { name: 'web_fetch' },
     { name: 'memory' },
     { name: 'recall' },
+    { name: 'office' },
   ];
   const { modelStandaloneTools } = surfaceFor({
     session: { workflow: { id: 'solo', delegatesAgents: false } },
-    denied: ['web_search', 'web_fetch', 'memory', 'recall'],
+    denied: ['git', 'git_stage', 'web_search', 'web_fetch', 'memory', 'recall', 'office'],
     standalone,
   });
   assert.deepEqual(modelStandaloneTools().map((tool) => tool.name), ['read']);

@@ -28,6 +28,7 @@ export function expandOfficeDesignOperations({
   const semantic = [];
   let nextSlide = created && Number(snapshotVersion || 0) === 0 ? 1 : null;
   const docxState = { paragraph: 0, table: 0 };
+  const composedSheets = new Set();
   const layoutUsage = new Map();
   const compositionUsage = new Map();
   for (const operation of operations || []) {
@@ -127,6 +128,15 @@ export function expandOfficeDesignOperations({
       const composition = planOfficeComposition(normalizedFormat, contentOperation, design, {
         usage: compositionUsage,
       });
+      // A fresh workbook only carries one locale-named default sheet, so the
+      // first composed sheet claims it by name and later sheets are created.
+      const sheetName = String(contentOperation.sheet || 'Sheet1');
+      if (created && Number(snapshotVersion || 0) === 0) {
+        const sheetKey = sheetName.toLowerCase();
+        if (!composedSheets.size) output.push({ op: 'rename_sheet', name: sheetName });
+        else if (!composedSheets.has(sheetKey)) output.push({ op: 'add_sheet', name: sheetName });
+        composedSheets.add(sheetKey);
+      }
       output.push(...expandXlsxSheet(contentOperation, design, composition));
       semantic.push({
         op: name,

@@ -3,7 +3,7 @@ import type { DesktopProjectSummary } from "../shared/contract";
 import { SidebarPanelBoundary } from "./sidebar-panel-surface";
 import { SidebarPanelSection } from "./session-sidebar";
 import type { SidebarPanelKey } from "./app-shell-components";
-import type { ExtensionsSection } from "./ExtensionsView";
+import type { ExtensionsSection } from "./extension-sections";
 import type { useAppShellPanels } from "./use-app-shell-panels";
 import { useStableEvent } from "./use-stable-event";
 import type { SidebarViewGroup, SidebarViewPlacement } from "./sidebar-view-layout";

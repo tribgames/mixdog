@@ -2001,7 +2001,15 @@ function Invoke-ExcelComRetry(
 }
 
 function Excel-Sheet($book, $op) {
-  if ($op.sheet) { return $book.Worksheets.Item([string]$op.sheet) }
+  if ($op.sheet) {
+    try {
+      return $book.Worksheets.Item([string]$op.sheet)
+    } catch {
+      $names = @()
+      foreach ($ws in @($book.Worksheets)) { $names += [string]$ws.Name }
+      throw "Worksheet not found: $($op.sheet). Available sheets: $($names -join ', '). Add it with add_sheet or target an existing sheet."
+    }
+  }
   return $book.ActiveSheet
 }
 
@@ -2565,8 +2573,13 @@ function Apply-ExcelOperation($book, $op) {
       elseif ($op.printArea) { $setup.PrintArea = [string]$op.printArea }
       if ($op.orientation) { $setup.Orientation = $(if ([string]$op.orientation -eq 'landscape') { 2 } else { 1 }) }
       if ($null -ne $op.fitToPagesWide -or $null -ne $op.fitToPagesTall) { $setup.Zoom = $false }
-      if ($null -ne $op.fitToPagesWide) { $setup.FitToPagesWide = [int]$op.fitToPagesWide }
-      if ($null -ne $op.fitToPagesTall) { $setup.FitToPagesTall = [int]$op.fitToPagesTall }
+      # Excel expects Variant False for "no page limit"; the integer 0 throws.
+      if ($null -ne $op.fitToPagesWide) {
+        $setup.FitToPagesWide = $(if ([int]$op.fitToPagesWide -gt 0) { [int]$op.fitToPagesWide } else { $false })
+      }
+      if ($null -ne $op.fitToPagesTall) {
+        $setup.FitToPagesTall = $(if ([int]$op.fitToPagesTall -gt 0) { [int]$op.fitToPagesTall } else { $false })
+      }
       if ($null -ne $op.centerHorizontally) { $setup.CenterHorizontally = [bool]$op.centerHorizontally }
       if ($null -ne $op.centerVertically) { $setup.CenterVertically = [bool]$op.centerVertically }
       if ($null -ne $op.topMargin) { $setup.TopMargin = [double]$op.topMargin }
@@ -2600,6 +2613,74 @@ function Apply-ExcelOperation($book, $op) {
 
 function Ppt-Slide($presentation, $op) {
   return $presentation.Slides.Item([int]$op.slide)
+}
+
+function Clamp-Unit([double]$value) {
+  return [Math]::Max(0, [Math]::Min(1, $value))
+}
+
+function Add-PptImage($slide, $op) {
+  $left = if ($null -ne $op.left) { [single]$op.left } else { [single]72 }
+  $top = if ($null -ne $op.top) { [single]$op.top } else { [single]72 }
+  $width = if ($null -ne $op.width) { [single]$op.width } else { [single]320 }
+  $height = if ($null -ne $op.height) { [single]$op.height } else { [single]240 }
+  $fit = ([string]$(if ($op.fit) { $op.fit } else { 'stretch' })).ToLowerInvariant()
+  if ($fit -eq 'stretch') {
+    return $slide.Shapes.AddPicture([string]$op.path, $false, $true, $left, $top, $width, $height)
+  }
+  if (@('contain', 'cover') -notcontains $fit) {
+    throw 'Image fit must be stretch, contain, or cover'
+  }
+
+  $shape = $slide.Shapes.AddPicture([string]$op.path, $false, $true, 0, 0, -1, -1)
+  $sourceWidth = [double]$shape.Width
+  $sourceHeight = [double]$shape.Height
+  if ($sourceWidth -le 0 -or $sourceHeight -le 0) {
+    $shape.Delete()
+    throw "PowerPoint could not read image dimensions: $($op.path)"
+  }
+
+  if ($fit -eq 'contain') {
+    $scale = [Math]::Min([double]$width / $sourceWidth, [double]$height / $sourceHeight)
+    $placedWidth = [single]($sourceWidth * $scale)
+    $placedHeight = [single]($sourceHeight * $scale)
+    $shape.LockAspectRatio = 0
+    $shape.Left = [single]($left + (($width - $placedWidth) / 2))
+    $shape.Top = [single]($top + (($height - $placedHeight) / 2))
+    $shape.Width = $placedWidth
+    $shape.Height = $placedHeight
+    return $shape
+  }
+
+  $sourceRatio = $sourceWidth / $sourceHeight
+  $targetRatio = [double]$width / [double]$height
+  $cropLeft = 0.0
+  $cropTop = 0.0
+  $cropRight = 0.0
+  $cropBottom = 0.0
+  if ($sourceRatio -gt $targetRatio) {
+    $visible = $targetRatio / $sourceRatio
+    $remaining = 1 - $visible
+    $focus = Clamp-Unit $(if ($null -ne $op.focusX) { [double]$op.focusX } else { 0.5 })
+    $cropLeft = [Math]::Max(0, [Math]::Min($remaining, $focus - ($visible / 2)))
+    $cropRight = $remaining - $cropLeft
+  } elseif ($sourceRatio -lt $targetRatio) {
+    $visible = $sourceRatio / $targetRatio
+    $remaining = 1 - $visible
+    $focus = Clamp-Unit $(if ($null -ne $op.focusY) { [double]$op.focusY } else { 0.5 })
+    $cropTop = [Math]::Max(0, [Math]::Min($remaining, $focus - ($visible / 2)))
+    $cropBottom = $remaining - $cropTop
+  }
+  $shape.PictureFormat.CropLeft = [single]($sourceWidth * $cropLeft)
+  $shape.PictureFormat.CropTop = [single]($sourceHeight * $cropTop)
+  $shape.PictureFormat.CropRight = [single]($sourceWidth * $cropRight)
+  $shape.PictureFormat.CropBottom = [single]($sourceHeight * $cropBottom)
+  $shape.LockAspectRatio = 0
+  $shape.Left = $left
+  $shape.Top = $top
+  $shape.Width = $width
+  $shape.Height = $height
+  return $shape
 }
 
 function Invoke-PowerPointComRetry([scriptblock]$operation, [string]$label) {
@@ -2698,7 +2779,12 @@ function Close-PowerPointChartExcelApplications([bool]$quit) {
   return $records.Count
 }
 
-function Set-PowerPointChartData($chart, $categoryValues, $seriesValues) {
+function Set-PowerPointChartData(
+  $chart,
+  $categoryValues,
+  $seriesValues,
+  [bool]$allowUiActivation = $true
+) {
   $specs = @($seriesValues)
   if ($specs.Count -eq 0) { throw 'PowerPoint chart data requires at least one series' }
   $categories = @($categoryValues)
@@ -2740,7 +2826,7 @@ function Set-PowerPointChartData($chart, $categoryValues, $seriesValues) {
   )
   try {
     $chartData = $chart.ChartData
-    $null = $chartData.Activate()
+    if ($allowUiActivation) { $null = $chartData.Activate() }
     for ($attempt = 0; $attempt -lt 50 -and $null -eq $worksheet; $attempt++) {
       $candidateWorkbook = $null
       $candidateWorksheets = $null
@@ -2748,7 +2834,7 @@ function Set-PowerPointChartData($chart, $categoryValues, $seriesValues) {
       $candidateCells = $null
       $candidateSource = $null
       try {
-        if ($attempt -gt 0) { $null = $chartData.Activate() }
+        if ($attempt -gt 0 -and $allowUiActivation) { $null = $chartData.Activate() }
         $candidateWorkbook = $chartData.Workbook
         if ($null -eq $candidateWorkbook) { throw 'Workbook is not ready' }
         $candidateWorksheets = $candidateWorkbook.Worksheets
@@ -2848,7 +2934,49 @@ function Set-PowerPointParagraphs($shape, $paragraphs) {
   return $items.Count
 }
 
-function Apply-PowerPointOperation($presentation, $op, [bool]$live = $false) {
+function Ensure-PowerPointChartWindow($presentation, [bool]$allowUiActivation) {
+  if ([int]$presentation.Windows.Count -gt 0) { return }
+  if ($allowUiActivation) {
+    $window = $presentation.NewWindow()
+    try { $window.WindowState = 2 } catch {}
+    return
+  }
+  $app = $presentation.Application
+  try {
+    $app.Left = -32000
+    $app.Top = -32000
+    $app.WindowState = 2
+  } catch {}
+  $window = $presentation.NewWindow()
+  try {
+    $window.Left = -32000
+    $window.Top = -32000
+    $window.WindowState = 2
+  } catch {}
+  $hWnd = $(try { [long]$window.HWND } catch { 0 })
+  if (-not $hWnd) { $hWnd = $(try { [long]$app.HWND } catch { 0 }) }
+  if (-not $hWnd) { $hWnd = $(try { [long]$app.Hwnd } catch { 0 }) }
+  if (-not $hWnd -or -not ('MixdogOfficeInterop' -as [type])) {
+    try { $window.Close() } catch {}
+    throw 'Background PowerPoint chart creation could not establish a verifiably hidden document window.'
+  }
+  try { $null = [MixdogOfficeInterop]::HideWindow($hWnd) } catch {}
+  for ($attempt = 0; $attempt -lt 20 -and [MixdogOfficeInterop]::WindowVisible($hWnd); $attempt++) {
+    Start-Sleep -Milliseconds 25
+    try { $null = [MixdogOfficeInterop]::HideWindow($hWnd) } catch {}
+  }
+  if ([MixdogOfficeInterop]::WindowVisible($hWnd)) {
+    try { $window.Close() } catch {}
+    throw 'Background PowerPoint chart window remained visible and was closed before chart creation.'
+  }
+}
+
+function Apply-PowerPointOperation(
+  $presentation,
+  $op,
+  [bool]$live = $false,
+  [bool]$allowUiActivation = $true
+) {
   switch ([string]$op.op) {
     'fill_template' { return Fill-PowerPointTemplate $presentation $op }
     'replace_text' {
@@ -2960,6 +3088,10 @@ function Apply-PowerPointOperation($presentation, $op, [bool]$live = $false) {
       $lineColor = Operation-Property $op 'lineColor' $null
       if ($fillColor) { $shape.Fill.Visible = $true; $shape.Fill.ForeColor.RGB = Color-Value ([string]$fillColor) }
       if ($lineColor) { $shape.Line.Visible = $true; $shape.Line.ForeColor.RGB = Color-Value ([string]$lineColor) }
+      $fillTransparency = Operation-Property $op 'fillTransparency' $null
+      if ($null -ne $fillTransparency) { $shape.Fill.Transparency = [single]([double]$fillTransparency / 100) }
+      $lineTransparency = Operation-Property $op 'lineTransparency' $null
+      if ($null -ne $lineTransparency) { $shape.Line.Transparency = [single]([double]$lineTransparency / 100) }
       $paragraphs = $op.PSObject.Properties['paragraphs']
       if ($null -ne $paragraphs -and $null -ne $paragraphs.Value -and @($paragraphs.Value).Count -gt 0) {
         $null = Set-PowerPointParagraphs $shape $paragraphs.Value
@@ -3125,12 +3257,9 @@ function Apply-PowerPointOperation($presentation, $op, [bool]$live = $false) {
     }
     'add_image' {
       $slide = Ppt-Slide $presentation $op
-      $left = if ($op.left) { [single]$op.left } else { [single]72 }
-      $top = if ($op.top) { [single]$op.top } else { [single]72 }
-      $width = if ($op.width) { [single]$op.width } else { [single]320 }
-      $height = if ($op.height) { [single]$op.height } else { [single]240 }
-      $null = $slide.Shapes.AddPicture([string]$op.path, $false, $true, $left, $top, $width, $height)
-      return [ordered]@{ op = 'add_image'; changed = $true }
+      $shape = Add-PptImage $slide $op
+      $fit = ([string]$(if ($op.fit) { $op.fit } else { 'stretch' })).ToLowerInvariant()
+      return [ordered]@{ op = 'add_image'; changed = $true; shape = [string]$shape.Name; fit = $fit }
     }
     'replace_image' {
       $slide = Ppt-Slide $presentation $op
@@ -3292,10 +3421,7 @@ function Apply-PowerPointOperation($presentation, $op, [bool]$live = $false) {
     }
     'add_chart' {
       $slide = Ppt-Slide $presentation $op
-      if ($presentation.Windows.Count -eq 0) {
-        $window = $presentation.NewWindow()
-        try { $window.WindowState = 2 } catch {}
-      }
+      Ensure-PowerPointChartWindow $presentation $allowUiActivation
       $chartTypes = @{ column = 51; bar = 57; line = 4; pie = 5; area = 1; scatter = -4169 }
       $kind = ([string]$op.chartType).ToLowerInvariant()
       $chartType = if ($kind -and $chartTypes.ContainsKey($kind)) { [int]$chartTypes[$kind] } elseif ($op.chartType -as [int]) { [int]$op.chartType } else { 51 }
@@ -3307,7 +3433,7 @@ function Apply-PowerPointOperation($presentation, $op, [bool]$live = $false) {
       $chartResult = $null
       $seriesProperty = $op.PSObject.Properties['series']
       if ($null -ne $seriesProperty -and $null -ne $seriesProperty.Value) {
-        $chartResult = Set-PowerPointChartData $shape.Chart $op.categories $seriesProperty.Value
+        $chartResult = Set-PowerPointChartData $shape.Chart $op.categories $seriesProperty.Value $allowUiActivation
       }
       if ($op.title) { $shape.Chart.HasTitle = $true; $shape.Chart.ChartTitle.Text = [string]$op.title }
       return [ordered]@{
@@ -3416,7 +3542,14 @@ function Apply-PowerPointOperation($presentation, $op, [bool]$live = $false) {
   }
 }
 
-function Apply-Operations($document, [string]$format, $operations, [bool]$live, [bool]$requireChanges = $true) {
+function Apply-Operations(
+  $document,
+  [string]$format,
+  $operations,
+  [bool]$live,
+  [bool]$requireChanges = $true,
+  [bool]$allowUiActivation = $live
+) {
   $results = @()
   $undoUnits = 0
   $wordUndoRecord = $null
@@ -3441,7 +3574,7 @@ function Apply-Operations($document, [string]$format, $operations, [bool]$live, 
       $emitted = @(switch ($format) {
         'docx' { Apply-WordOperation $document $op }
         'xlsx' { Apply-ExcelOperation $document $op }
-        'pptx' { Apply-PowerPointOperation $document $op $live }
+        'pptx' { Apply-PowerPointOperation $document $op $live $allowUiActivation }
       })
       $structured = @($emitted | Where-Object { $_ -is [System.Collections.IDictionary] } | Select-Object -Last 1)
       if ($structured.Count -ne 1) { throw "$($op.op) returned no structured operation result" }
@@ -3489,7 +3622,13 @@ function Installed-OfficeFonts {
   try {
     Add-Type -AssemblyName System.Drawing
     $collection = [System.Drawing.Text.InstalledFontCollection]::new()
-    foreach ($family in @($collection.Families)) { $fonts[[string]$family.Name] = $true }
+    foreach ($family in @($collection.Families)) {
+      # GDI+ reports culture-localized family names (e.g. 맑은 고딕), while
+      # Office documents usually store the invariant English name (Malgun
+      # Gothic). Register both so neither spelling reads as missing.
+      $fonts[[string]$family.Name] = $true
+      try { $fonts[[string]$family.GetName(1033)] = $true } catch {}
+    }
     $collection.Dispose()
   } catch {}
   return $fonts
@@ -4094,8 +4233,25 @@ function Render-Document($document, [string]$format, [string]$output) {
         }
       }
     }
+    # PowerPoint honors only the first SaveCopyAs PDF export per open
+    # presentation and silently ignores later ones, and ExportAsFixedFormat
+    # cannot be dispatched through PowerShell's late binder at all. Session
+    # hosts therefore reopen the presentation before every repeat export.
     'pptx' { $document.SaveCopyAs($output, 32) }
   }
+  # PowerPoint SaveCopyAs can return before the PDF hits disk, so wait for the
+  # exported file to exist with a stable non-zero size before reporting success.
+  $deadline = [DateTime]::UtcNow.AddSeconds(30)
+  $lastSize = -1
+  while ([DateTime]::UtcNow -lt $deadline) {
+    if (Test-Path -LiteralPath $output) {
+      $size = (Get-Item -LiteralPath $output).Length
+      if ($size -gt 0 -and $size -eq $lastSize) { return }
+      $lastSize = $size
+    }
+    Start-Sleep -Milliseconds 150
+  }
+  throw "Rendered PDF did not appear at $output within 30 seconds."
 }
 
 if ($env:MIXDOG_OFFICE_HOST_LIBRARY -eq '1') { return }
@@ -4180,7 +4336,7 @@ try {
         Save-DocumentCopy $document $format $excelCheckpoint
       }
       try {
-        $applied = Apply-Operations $document $format $payload.operations $live ([bool]$payload.requireChanges)
+        $applied = Apply-Operations $document $format $payload.operations $live ([bool]$payload.requireChanges) $live
         if (-not $live -or $payload.save) { Save-Document $document $format }
         Emit-Json ([ordered]@{ ok = $true; backend = 'microsoft-office-com'; mode = $(if ($live) { 'live' } else { 'background' }); saved = (-not $live -or [bool]$payload.save); results = $applied.results; undoUnits = $applied.undoUnits })
       } catch {

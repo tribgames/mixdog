@@ -6,6 +6,7 @@ import type {
   DesktopAgentPoolRow,
   DesktopModelOption,
 } from '../shared/contract';
+import { packagedRuntimeSourceRoot } from './runtime-layout';
 
 export interface DesktopProjectPreferences {
   version: 2;
@@ -158,7 +159,7 @@ export function codeGraphModuleUrl(
   appPath?: string,
 ): string {
   const modulePath = packaged
-    ? join(resourcesPath, 'runtime.asar', 'node_modules', 'mixdog', 'src', 'runtime',
+    ? join(packagedRuntimeSourceRoot(resourcesPath), 'runtime',
       'agent', 'orchestrator', 'tools', 'code-graph', 'dispatch.mjs')
     : resolve(requiredApplicationPath(appPath),
       '../../src/runtime/agent/orchestrator/tools/code-graph/dispatch.mjs');
@@ -174,7 +175,7 @@ export function sessionClientModuleUrl(
   appPath?: string,
 ): string {
   const modulePath = packaged
-    ? join(resourcesPath, 'runtime.asar', 'node_modules', 'mixdog', 'src', 'standalone',
+    ? join(packagedRuntimeSourceRoot(resourcesPath), 'standalone',
       'session-client.mjs')
     : resolve(requiredApplicationPath(appPath), '../../src/standalone/session-client.mjs');
   return pathToFileURL(modulePath).href;

@@ -408,9 +408,10 @@ export function sessionContextSnapshotProjection(session, contextStatus) {
         ? lastApiRequestTokens
         : 0,
       currentEstimatedContextTokens: estimatedTokens,
-      currentContextSource: usedSource === 'last_api_request'
-        ? 'last_api_request'
-        : estimatedTokens > 0 ? 'estimated' : null,
+      // Carry the runtime's own provenance instead of flattening every
+      // projection to `estimated`: a cold pane must be able to tell a measured
+      // prompt from a local guess.
+      currentContextSource: usedSource || (estimatedTokens > 0 ? 'estimated' : null),
       currentContextUpdatedAt: Date.now(),
     },
     contextWindow: Math.max(
@@ -629,8 +630,12 @@ export function createSessionApiB(bag) {
         metadataText: attachment.metadataText || '',
       };
     },
-    toggleVoice: async () => {
-      const result = await toggleVoice({ pushNotice, setProgressHint });
+    toggleVoice: async (enabled) => {
+      const result = await toggleVoice({
+        pushNotice,
+        setProgressHint,
+        enabled: typeof enabled === 'boolean' ? enabled : undefined,
+      });
       return {
         ...(await getVoiceStatus()),
         result: typeof result === 'boolean'

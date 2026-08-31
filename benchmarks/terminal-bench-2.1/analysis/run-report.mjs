@@ -572,20 +572,43 @@ function buildPairComparison({ manifest, historyRoot, current, trials }) {
   const runDir = findRunDir(jobsDir);
   const aggregate = tryReadJson(join(runDir, 'result.json'));
   const baselineTrials = collectTrials(runDir, loadCostDetails(config, historyRoot));
-  const byTask = new Map(baselineTrials.map((trial) => [trial.task, trial]));
-  const pairs = trials
-    .filter((trial) => trial.settled && byTask.has(trial.task))
-    .map((ours) => {
-      const baseline = byTask.get(ours.task);
+  // Trials of one task carry no intrinsic one-to-one correspondence, so each
+  // side's trials are grouped per task and paired index-wise after a
+  // pass-first sort. That keeps the outcome counts deterministic and equal to
+  // the per-task overlap (both-pass per task = min of the two pass counts),
+  // and lets a k=5 run pair against a k=5 baseline trial for trial. A
+  // baseline with fewer trials per task cycles, which reproduces the old
+  // k=1-baseline behavior of repeating it across every one of our trials.
+  const passFirst = (a, b) => Number(b.passed) - Number(a.passed)
+    || String(a.startedAt ?? '').localeCompare(String(b.startedAt ?? ''));
+  const byTask = new Map();
+  for (const trial of baselineTrials) {
+    if (!byTask.has(trial.task)) byTask.set(trial.task, []);
+    byTask.get(trial.task).push(trial);
+  }
+  for (const group of byTask.values()) group.sort(passFirst);
+  const oursByTask = new Map();
+  for (const trial of trials) {
+    if (!trial.settled || !byTask.has(trial.task)) continue;
+    if (!oursByTask.has(trial.task)) oursByTask.set(trial.task, []);
+    oursByTask.get(trial.task).push(trial);
+  }
+  const pairs = [];
+  for (const [task, oursGroup] of oursByTask) {
+    oursGroup.sort(passFirst);
+    const baselineGroup = byTask.get(task);
+    for (const [index, ours] of oursGroup.entries()) {
+      const baseline = baselineGroup[index % baselineGroup.length];
       const outcome = ours.passed
         ? (baseline.passed ? 'both-pass' : 'ours-only')
         : (baseline.passed ? 'baseline-only' : 'both-fail');
-      return {
-        task: ours.task,
+      pairs.push({
+        task,
         outcome,
         ours: {
           passed: ours.passed,
           agentSeconds: ours.agentSeconds,
+          wallSeconds: ours.timing?.totalSeconds ?? null,
           tokens: ours.tokens,
           costUsd: ours.costUsd,
           costUnsupported: ours.costUnsupported,
@@ -595,14 +618,16 @@ function buildPairComparison({ manifest, historyRoot, current, trials }) {
         baseline: {
           passed: baseline.passed,
           agentSeconds: baseline.agentSeconds,
+          wallSeconds: baseline.timing?.totalSeconds ?? null,
           tokens: baseline.tokens,
           costUsd: baseline.costUsd,
           costUnsupported: baseline.costUnsupported,
           finalContextTokens: baseline.finalContextTokens,
           providerRequests: baseline.activity?.providerRequests ?? null,
         },
-      };
-    });
+      });
+    }
+  }
   const oursRows = pairs.map((pair) => ({ ...pair.ours, task: pair.task }));
   const baselineRows = pairs.map((pair) => ({ ...pair.baseline, task: pair.task }));
   const oursCost = knownCost(oursRows);
@@ -616,6 +641,13 @@ function buildPairComparison({ manifest, historyRoot, current, trials }) {
   const comparableBaselineCost = sum(comparableCostPairs, (pair) => pair.baseline.costUsd);
   const oursAgent = sum(oursRows, (row) => row.agentSeconds);
   const baselineAgent = sum(baselineRows, (row) => row.agentSeconds);
+  // Speed is the full trial wall clock — environment build, agent setup, the
+  // agent itself, verifier, teardown: the time a user actually waits for a
+  // trial. Only pairs timed on both sides enter the ratio.
+  const timedPairs = pairs.filter((pair) =>
+    Number.isFinite(pair.ours.wallSeconds) && Number.isFinite(pair.baseline.wallSeconds));
+  const oursWall = sum(timedPairs, (pair) => pair.ours.wallSeconds);
+  const baselineWall = sum(timedPairs, (pair) => pair.baseline.wallSeconds);
   const complete = current.result.total > 0 && current.result.completed === current.result.total;
   const baselineStats = aggregate?.stats ?? {};
   const baselinePassed = baselineTrials.filter((trial) => trial.passed).length;
@@ -643,6 +675,7 @@ function buildPairComparison({ manifest, historyRoot, current, trials }) {
       passed: oursRows.filter((row) => row.passed).length,
       total: pairs.length,
       agentTotalSeconds: oursAgent,
+      wallTotalSeconds: oursWall,
       tokens: tokenTotals(oursRows),
       cost: oursCost,
       finalContextMedianTokens: currentContext,
@@ -655,6 +688,7 @@ function buildPairComparison({ manifest, historyRoot, current, trials }) {
       errors: finite(baselineStats.n_errored_trials),
       retries: finite(baselineStats.n_retries),
       agentTotalSeconds: baselineAgent,
+      wallTotalSeconds: baselineWall,
       tokens: tokenTotals(baselineRows),
       cost: baselineCost,
       fullCostUsd: config.costDetails
@@ -670,8 +704,13 @@ function buildPairComparison({ manifest, historyRoot, current, trials }) {
       oursUsd: comparableCostPairs.length ? comparableOursCost : null,
       baselineUsd: comparableCostPairs.length ? comparableBaselineCost : null,
     },
+    timeComparison: {
+      comparableTrials: timedPairs.length,
+      totalTrials: pairs.length,
+    },
     ratios: {
-      speedup: oursAgent > 0 ? baselineAgent / oursAgent : null,
+      speedup: oursWall > 0 ? baselineWall / oursWall : null,
+      agentSpeedup: oursAgent > 0 ? baselineAgent / oursAgent : null,
       cost: comparableOursCost > 0 && comparableBaselineCost > 0
         ? comparableOursCost / comparableBaselineCost
         : null,
@@ -730,6 +769,10 @@ export function generateRunReport({ jobsDir, historyRoot }) {
       // Rules and tool-schema digests: the fingerprint covers routes only, so
       // this is what tells two runs of one preset apart.
       contract: manifest.contract ?? null,
+      // What the container ran: source commit, whether the tree matched it,
+      // and the digest of the uploaded runtime bundle. Null for runs recorded
+      // before provenance capture existed — see source-provenance.json.
+      runtime: manifest.runtime ?? null,
       suite: manifest?.definition?.suite ?? null,
       routeProfile: manifest?.definition?.routeProfile ?? null,
       provider: lead.provider ?? null,
@@ -870,6 +913,14 @@ export function formatRunReport(report) {
     const routeCount = Object.keys(contract.routeContracts || {}).length || 1;
     lines.push(`- Contract: rules ${short(contract.rulesHash)} (${contract.rulesFiles} files), tools ${short(toolHash)} (${contract.toolCount} catalog, ${activeCount} active, ${providerCount} provider, ${routeCount} route${routeCount === 1 ? '' : 's'})`);
   }
+  const runtime = report.preset.runtime;
+  if (runtime) {
+    const digest = (hash) => String(hash || '').replace(/^sha256:/, '').slice(0, 12) || 'n/a';
+    const dirty = runtime.sourceDirty === null || runtime.sourceDirty === undefined
+      ? 'unknown'
+      : String(runtime.sourceDirty);
+    lines.push(`- Source: commit ${digest(runtime.sourceCommit)} (dirty ${dirty}), bundle ${digest(runtime.bundleSha256)} (${runtime.bundleFileCount ?? 'n/a'} files), mixdog ${runtime.mixdogVersion || 'n/a'}`);
+  }
   if (previous) {
     lines.push(`- Previous delta: agent ${number(previous.deltas.agentTotalSeconds)}s, wall ${number(previous.deltas.wallSeconds)}s, input ${previous.deltas.inputTokens}, output ${previous.deltas.outputTokens}`);
   }
@@ -888,10 +939,10 @@ export function formatRunReport(report) {
       '',
       `## Pair: ${pair.label}${pair.provisional ? ' (provisional)' : ''}`,
       '',
-      `- Shared tasks: **${pair.sharedTasks}**`,
+      `- Paired trials: **${pair.sharedTasks}**`,
       `- Score: **${pair.ours.passed}/${pair.ours.total} vs ${pair.baseline.passed}/${pair.baseline.total}**`,
       `- Outcomes: ours-only ${pair.outcomes.oursOnly}, baseline-only ${pair.outcomes.baselineOnly}, both-pass ${pair.outcomes.bothPass}, both-fail ${pair.outcomes.bothFail}`,
-      `- Agent speedup: **${number(pair.ratios.speedup, 2)}x**`,
+      `- Wall speedup: **${number(pair.ratios.speedup, 2)}x** (agent ${number(pair.ratios.agentSpeedup, 2)}x)`,
       `- Cost ratio (ours/baseline, ${costComparison.comparableTasks}/${costComparison.totalTasks} cost-comparable tasks${costComparison.complete ? '' : '; partial coverage'}): **${number(pair.ratios.cost, 2)}x**`,
       `- Input-token ratio (ours/baseline): **${number(pair.ratios.inputTokens, 2)}x**`,
       `- Final-context reduction: **${percent(pair.ratios.finalContextReduction)}**`,
@@ -973,7 +1024,7 @@ function outputSummary(report, paths = null) {
   if (report.pair?.error) {
     output += `pair error=${report.pair.error}\n`;
   } else if (report.pair) {
-    output += `pair ${report.pair.ours.passed}/${report.pair.ours.total} vs ${report.pair.baseline.passed}/${report.pair.baseline.total} shared=${report.pair.sharedTasks} ours_only=${report.pair.outcomes.oursOnly} baseline_only=${report.pair.outcomes.baselineOnly} speedup=${number(report.pair.ratios.speedup, 2)}x provisional=${report.pair.provisional}\n`;
+    output += `pair ${report.pair.ours.passed}/${report.pair.ours.total} vs ${report.pair.baseline.passed}/${report.pair.baseline.total} shared=${report.pair.sharedTasks} ours_only=${report.pair.outcomes.oursOnly} baseline_only=${report.pair.outcomes.baselineOnly} wall_speedup=${number(report.pair.ratios.speedup, 2)}x agent_speedup=${number(report.pair.ratios.agentSpeedup, 2)}x provisional=${report.pair.provisional}\n`;
   }
   if (paths) output += `report ${paths.jsonPath}\n`;
   process.stdout.write(output);

@@ -2,7 +2,7 @@
 # then calls this workflow with an immutable tag + SHA. The npm package remains
 # staged as an Actions artifact, while verified desktop packages upload directly
 # to one hidden GitHub draft. The draft becomes public only after the exact
-# five-platform asset set succeeds. Deploy is the only release entry point;
+# four-platform asset set succeeds. Deploy is the only release entry point;
 # there is no direct tag-push trigger.
 # Requires the NPM_TOKEN repo secret (npm automation token).
 
@@ -41,7 +41,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  validate:
+  # Only immutable identity gates expensive package work. Bundled-asset,
+  # npm, and smoke validation still block publication, but no longer make every
+  # platform sit idle for more than a minute before it can start.
+  identity:
+    name: validate-release-identity
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -52,9 +56,6 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
-          registry-url: "https://registry.npmjs.org"
-          cache: npm
-          cache-dependency-path: package-lock.json
 
       - name: Verify release tag matches package version
         env:
@@ -78,32 +79,30 @@ jobs:
           console.log(`Verified release identity ${tag}.`);
           NODE
 
-      # Validate every bundled native manifest before install or publish.
+  validate:
+    name: validate-and-stage-npm
+    needs: identity
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # Package jobs may populate only a hidden draft in parallel. Publication
+      # still waits for every bundled native manifest to pass here.
       - name: Verify bundled release assets
         run: node scripts/verify-release-assets.mjs
 
       - name: Install
         run: npm ci --prefer-offline --no-audit --no-fund
-
-      # Smoke's routing corpus exercises the real grep tool, which shells out
-      # to ripgrep; the ubuntu runner image does not ship rg by default.
-      - name: Install ripgrep
-        timeout-minutes: 2
-        shell: bash
-        run: |
-          set -euo pipefail
-          for attempt in 1 2; do
-            if timeout --kill-after=5s 50s bash -c \
-              'sudo apt-get -o Acquire::Retries=2 -o DPkg::Lock::Timeout=15 update &&
-               sudo apt-get -o Acquire::Retries=2 -o DPkg::Lock::Timeout=15 install -y ripgrep'; then
-              exit 0
-            fi
-            if [ "$attempt" -eq 2 ]; then
-              echo "::error::ripgrep install failed or timed out after two attempts"
-              exit 1
-            fi
-            sleep 5
-          done
 
       # src/tui/dist is gitignored; smoke imports it. Build it once, then pack
       # with lifecycle scripts disabled so prepack does not rebuild it.
@@ -136,7 +135,7 @@ jobs:
 
   # main/preload/renderer output is platform-neutral. Build it once, cache it
   # by the exact desktop/shared source inputs, then feed the same verified
-  # artifact to every native packager instead of running Vite five times.
+  # artifact to every native packager instead of running Vite four times.
   desktop-build:
     name: build-desktop-once
     runs-on: ubuntu-22.04
@@ -203,46 +202,12 @@ jobs:
           if-no-files-found: error
           retention-days: 2
 
-  # Each platform has an independent runtime -> package chain. A slow platform
-  # no longer prevents the other three packaging jobs from starting.
-  desktop-runtime-win32-x64:
-    uses: ./.github/workflows/desktop-runtime.yml
-    with:
-      ref: ${{ inputs.ref || github.ref }}
-      runner: windows-2022
-      platform: win32
-      arch: x64
-
-  desktop-runtime-darwin-arm64:
-    uses: ./.github/workflows/desktop-runtime.yml
-    with:
-      ref: ${{ inputs.ref || github.ref }}
-      runner: macos-14
-      platform: darwin
-      arch: arm64
-
-  desktop-runtime-linux-x64:
-    uses: ./.github/workflows/desktop-runtime.yml
-    with:
-      ref: ${{ inputs.ref || github.ref }}
-      runner: ubuntu-22.04
-      platform: linux
-      arch: x64
-
-  desktop-runtime-linux-arm64:
-    uses: ./.github/workflows/desktop-runtime.yml
-    with:
-      ref: ${{ inputs.ref || github.ref }}
-      runner: ubuntu-22.04-arm
-      platform: linux
-      arch: arm64
-
   # Keep partially uploaded platform assets invisible. Every platform writes to
   # this one draft, and the final job publishes it only after the remote asset
   # set and npm package have both been verified.
   prepare-github-release:
     name: prepare-hidden-release
-    needs: [validate]
+    needs: [identity]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -263,7 +228,7 @@ jobs:
   # GitHub release, so a tag without these assets leaves every installed app
   # stranded on its current version ("no update available" forever).
   desktop-windows:
-    needs: [validate, desktop-build, desktop-runtime-win32-x64, prepare-github-release]
+    needs: [desktop-build, prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -278,7 +243,7 @@ jobs:
       target: win
 
   desktop-darwin-arm64:
-    needs: [validate, desktop-build, desktop-runtime-darwin-arm64, prepare-github-release]
+    needs: [desktop-build, prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -293,7 +258,7 @@ jobs:
       target: mac
 
   desktop-linux-x64:
-    needs: [validate, desktop-build, desktop-runtime-linux-x64, prepare-github-release]
+    needs: [desktop-build, prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -308,7 +273,7 @@ jobs:
       target: linux
 
   desktop-linux-arm64:
-    needs: [validate, desktop-build, desktop-runtime-linux-arm64, prepare-github-release]
+    needs: [desktop-build, prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
@@ -437,11 +402,13 @@ jobs:
           }
           NODE
 
-  deploy-relay:
-    name: deploy-production-web-relay
-    needs: [publish, desktop-build]
+  # Renderer staging is deterministic and does not touch production. Do it
+  # while native packages build, then leave only the seven-second atomic remote
+  # activation behind the public release boundary.
+  stage-relay:
+    name: stage-production-web-relay
+    needs: [identity, desktop-build]
     runs-on: ubuntu-22.04
-    environment: production
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -451,8 +418,39 @@ jobs:
         with:
           name: desktop-out
           path: apps/desktop/out
+      - name: Restore renderer precompression cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/relay/.web-precompress
+          key: relay-web-precompress-v1-${{ hashFiles('apps/desktop/out/renderer/**') }}
+          restore-keys: relay-web-precompress-v1-
       - name: Stage release web app
         run: npm run stage:web --prefix apps/relay
+      - name: Stage production relay artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-relay-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            apps/relay/server.mjs
+            apps/relay/package.json
+            apps/relay/package-lock.json
+            apps/relay/lib
+            apps/relay/deploy
+            apps/relay/renderer
+          if-no-files-found: error
+          retention-days: 2
+
+  deploy-relay:
+    name: deploy-production-web-relay
+    needs: [publish, stage-relay]
+    runs-on: ubuntu-22.04
+    environment: production
+    steps:
+      - name: Download staged production relay
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: production-relay-${{ github.run_id }}-${{ github.run_attempt }}
+          path: apps/relay
       - name: Configure pinned production SSH identity
         env:
           RELAY_SSH_KEY: ${{ secrets.RELAY_SSH_KEY }}

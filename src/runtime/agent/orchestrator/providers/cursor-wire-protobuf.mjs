@@ -83,6 +83,7 @@ const SCHEMAS = {
         ['execClientMessage', 2, 'ExecClientMessage'],
         ['kvClientMessage', 3, 'KvClientMessage'],
         ['execClientControlMessage', 5, 'ExecClientControlMessage'],
+        ['interactionResponse', 6, 'InteractionResponse'],
         ['clientHeartbeat', 7, 'ClientHeartbeat'],
     ]),
     TextDeltaUpdate: fields([['text', 1, 'string']]),
@@ -114,25 +115,77 @@ const SCHEMAS = {
         ['modelCallId', 4, 'string'],
     ]),
     ThinkingDeltaUpdate: fields([['text', 1, 'string']]),
+    ThinkingCompletedUpdate: fields([['thinkingDurationMs', 1, 'uint']]),
     TokenDeltaUpdate: fields([['tokens', 1, 'int']]),
+    SummaryUpdate: fields([['summary', 1, 'string']]),
+    SummaryStartedUpdate: fields([]),
+    SummaryCompletedUpdate: fields([]),
+    ShellOutputDeltaUpdate: fields([['data', 1, 'string']]),
+    HeartbeatUpdate: fields([]),
     TurnEndedUpdate: fields([]),
+    StepStartedUpdate: fields([]),
     StepCompletedUpdate: fields([]),
     InteractionUpdate: fields([
         ['textDelta', 1, 'TextDeltaUpdate'],
         ['toolCallStarted', 2, 'ToolCallStartedUpdate'],
         ['toolCallCompleted', 3, 'ToolCallCompletedUpdate'],
         ['thinkingDelta', 4, 'ThinkingDeltaUpdate'],
+        ['thinkingCompleted', 5, 'ThinkingCompletedUpdate'],
         ['partialToolCall', 7, 'PartialToolCallUpdate'],
         ['tokenDelta', 8, 'TokenDeltaUpdate'],
+        ['summary', 9, 'SummaryUpdate'],
+        ['summaryStarted', 10, 'SummaryStartedUpdate'],
+        ['summaryCompleted', 11, 'SummaryCompletedUpdate'],
+        ['shellOutputDelta', 12, 'ShellOutputDeltaUpdate'],
+        ['heartbeat', 13, 'HeartbeatUpdate'],
         ['turnEnded', 14, 'TurnEndedUpdate'],
         ['toolCallDelta', 15, 'ToolCallDeltaUpdate'],
+        ['stepStarted', 16, 'StepStartedUpdate'],
         ['stepCompleted', 17, 'StepCompletedUpdate'],
     ]),
+    InteractionQuery: fields([
+        ['id', 1, 'uint'],
+        ['webSearchRequestQuery', 2, 'raw'],
+        ['askQuestionInteractionQuery', 3, 'raw'],
+        ['switchModeRequestQuery', 4, 'raw'],
+        ['exaSearchRequestQuery', 5, 'raw'],
+        ['exaFetchRequestQuery', 6, 'raw'],
+        ['createPlanRequestQuery', 7, 'raw'],
+        ['setupVmEnvironmentArgs', 8, 'raw'],
+    ]),
+    InteractionRejected: fields([['reason', 1, 'string']]),
+    InteractionApproved: fields([]),
+    ApprovalInteractionResponse: fields([
+        ['approved', 1, 'InteractionApproved'],
+        ['rejected', 2, 'InteractionRejected'],
+    ]),
+    AskQuestionResult: fields([['rejected', 3, 'InteractionRejected']]),
+    AskQuestionInteractionResponse: fields([['result', 1, 'AskQuestionResult']]),
+    CreatePlanError: fields([['error', 1, 'string']]),
+    CreatePlanResult: fields([['error', 2, 'CreatePlanError']]),
+    CreatePlanRequestResponse: fields([['result', 1, 'CreatePlanResult']]),
+    SetupVmEnvironmentSuccess: fields([]),
+    SetupVmEnvironmentResult: fields([['success', 1, 'SetupVmEnvironmentSuccess']]),
+    InteractionResponse: fields([
+        ['id', 1, 'uint'],
+        ['webSearchRequestResponse', 2, 'ApprovalInteractionResponse'],
+        ['askQuestionInteractionResponse', 3, 'AskQuestionInteractionResponse'],
+        ['switchModeRequestResponse', 4, 'ApprovalInteractionResponse'],
+        ['exaSearchRequestResponse', 5, 'ApprovalInteractionResponse'],
+        ['exaFetchRequestResponse', 6, 'ApprovalInteractionResponse'],
+        ['createPlanRequestResponse', 7, 'CreatePlanRequestResponse'],
+        ['setupVmEnvironmentResult', 8, 'SetupVmEnvironmentResult'],
+        ['webFetchRequestResponse', 9, 'ApprovalInteractionResponse'],
+    ]),
+    ExecServerAbort: fields([['id', 1, 'uint']]),
+    ExecServerControlMessage: fields([['abort', 1, 'ExecServerAbort']]),
     AgentServerMessage: fields([
         ['interactionUpdate', 1, 'InteractionUpdate'],
         ['execServerMessage', 2, 'ExecServerMessage'],
         ['conversationCheckpointUpdate', 3, 'raw'],
         ['kvServerMessage', 4, 'KvServerMessage'],
+        ['execServerControlMessage', 5, 'ExecServerControlMessage'],
+        ['interactionQuery', 7, 'InteractionQuery'],
     ]),
     GetUsableModelsResponse: fields([['models', 1, 'ModelDetails', repeated]]),
     AvailableModelsRequest: fields([
@@ -330,7 +383,11 @@ const SCHEMAS = {
         ['shellStreamArgs', 14, 'ShellArgs'],
         ['execId', 15, 'string'],
         ['backgroundShellSpawnArgs', 16, 'BackgroundShellSpawnArgs'],
+        ['listMcpResourcesExecArgs', 17, 'raw'],
+        ['readMcpResourceExecArgs', 18, 'raw'],
         ['fetchArgs', 20, 'FetchArgs'],
+        ['recordScreenArgs', 21, 'raw'],
+        ['computerUseArgs', 22, 'raw'],
         ['writeShellStdinArgs', 23, 'WriteShellStdinArgs'],
     ]),
     RequestContext: fields([
@@ -522,7 +579,17 @@ const SCHEMAS = {
         ['writeShellStdinResult', 23, 'WriteShellStdinResult'],
     ]),
     ExecClientStreamClose: fields([['id', 1, 'uint']]),
-    ExecClientControlMessage: fields([['streamClose', 1, 'ExecClientStreamClose']]),
+    ExecClientThrow: fields([
+        ['id', 1, 'uint'],
+        ['error', 2, 'string'],
+        ['stackTrace', 3, 'string'],
+    ]),
+    ExecClientHeartbeat: fields([['id', 1, 'uint']]),
+    ExecClientControlMessage: fields([
+        ['streamClose', 1, 'ExecClientStreamClose'],
+        ['throw', 2, 'ExecClientThrow'],
+        ['heartbeat', 3, 'ExecClientHeartbeat'],
+    ]),
     GetBlobArgs: fields([['blobId', 1, 'bytes']]),
     SetBlobArgs: fields([
         ['blobId', 1, 'bytes'],
@@ -772,7 +839,14 @@ export function decodeMessage(type, bytes) {
         const wireType = Number(tag & 7n);
         const descriptor = schema[no];
         if (!descriptor) {
+            const start = reader.offset;
             reader.skip(wireType);
+            output.$unknown ||= [];
+            output.$unknown.push({
+                no,
+                wireType,
+                data: new Uint8Array(reader.bytes.subarray(start, reader.offset)),
+            });
             continue;
         }
         if (descriptor.type?.map) {

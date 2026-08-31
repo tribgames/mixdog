@@ -2,50 +2,20 @@
 // install (winget/brew), device-flow login through a PTY (gh insists on a
 // TTY for `auth login`), logout, and the global git identity. Everything in
 // this module is a desktop-only surface executed by the singleton daemon.
-import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { childEnvironment } from './child-environment';
+import { run } from './cli-run';
 
 import type {
   DesktopGithubCliAccount,
   DesktopGithubCliLoginFlow,
   DesktopGithubCliStatus,
+  DesktopGitCliStatus,
   DesktopGitGlobalConfig,
   DesktopGitGlobalConfigKey,
 } from '../shared/contract';
-
-interface RunResult {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
-
-function run(file: string, args: string[], timeout = 15_000): Promise<RunResult> {
-  return new Promise((resolve) => {
-    execFile(file, args, {
-      timeout,
-      windowsHide: true,
-      env: childEnvironment(),
-    }, (error, stdout, stderr) => {
-      if (!error) {
-        resolve({ code: 0, stdout: String(stdout || ''), stderr: String(stderr || '') });
-        return;
-      }
-      const failure = error as NodeJS.ErrnoException;
-      if (failure.code === 'ENOENT') {
-        resolve({ code: -1, stdout: '', stderr: 'ENOENT' });
-        return;
-      }
-      resolve({
-        code: typeof failure.code === 'number' ? failure.code : 1,
-        stdout: String(stdout || ''),
-        stderr: String(stderr || '') || failure.message,
-      });
-    });
-  });
-}
 
 function ghPathCandidates(): string[] {
   if (process.platform === 'win32') {
@@ -61,7 +31,9 @@ function ghPathCandidates(): string[] {
   return ['gh', '/usr/bin/gh', '/usr/local/bin/gh'];
 }
 
+const INSTALL_TIMEOUT_MS = 10 * 60_000;
 let cachedGh: { path: string; version: string } | null | undefined;
+let cachedGit: { path: string; version: string } | null | undefined;
 
 /** Resolve a working gh executable. Known install locations are probed too,
  *  so a just-installed gh is found before a fresh PATH ever reaches this
@@ -102,7 +74,76 @@ export async function githubCliStatus(refresh = false): Promise<DesktopGithubCli
   };
 }
 
-const INSTALL_TIMEOUT_MS = 10 * 60_000;
+function gitPathCandidates(): string[] {
+  if (process.platform === 'win32') {
+    const programFiles = process.env.ProgramFiles || 'C:\\Program Files';
+    const localAppData = process.env.LOCALAPPDATA || '';
+    return [
+      'git',
+      join(programFiles, 'Git', 'cmd', 'git.exe'),
+      ...(localAppData ? [join(localAppData, 'Programs', 'Git', 'cmd', 'git.exe')] : []),
+    ];
+  }
+  if (process.platform === 'darwin') return ['git', '/opt/homebrew/bin/git', '/usr/local/bin/git'];
+  return ['git', '/usr/bin/git', '/usr/local/bin/git'];
+}
+
+async function resolveGit(refresh = false): Promise<{ path: string; version: string } | null> {
+  if (!refresh && cachedGit !== undefined) return cachedGit;
+  for (const candidate of gitPathCandidates()) {
+    if (candidate !== 'git' && !existsSync(candidate)) continue;
+    const probe = await run(candidate, ['--version']);
+    if (probe.code === 0) {
+      cachedGit = {
+        path: candidate,
+        version: /git version (\S+)/i.exec(probe.stdout)?.[1] || '',
+      };
+      return cachedGit;
+    }
+  }
+  cachedGit = null;
+  return null;
+}
+
+export async function gitCliStatus(refresh = false): Promise<DesktopGitCliStatus> {
+  const git = await resolveGit(refresh);
+  return git
+    ? { installed: true, ...(git.version ? { version: git.version } : {}) }
+    : { installed: false };
+}
+
+export async function installGitCli(): Promise<DesktopGitCliStatus> {
+  if (process.platform === 'win32') {
+    const result = await run('winget', [
+      'install', '--id', 'Git.Git', '--exact', '--source', 'winget',
+      '--accept-package-agreements', '--accept-source-agreements',
+      '--disable-interactivity',
+    ], INSTALL_TIMEOUT_MS);
+    if (result.code === -1) {
+      throw new Error('winget is unavailable. Install Git from https://git-scm.com and try again.');
+    }
+    if (result.code !== 0) {
+      const detail = (result.stderr || result.stdout).trim().split('\n').filter(Boolean).pop();
+      throw new Error(`winget could not install Git: ${detail || `exit code ${result.code}`}`);
+    }
+  } else if (process.platform === 'darwin') {
+    const result = await run('brew', ['install', 'git'], INSTALL_TIMEOUT_MS);
+    if (result.code === -1) {
+      throw new Error('Homebrew is unavailable. Install Git from https://git-scm.com and try again.');
+    }
+    if (result.code !== 0) {
+      const detail = (result.stderr || result.stdout).trim().split('\n').filter(Boolean).pop();
+      throw new Error(`brew could not install Git: ${detail || `exit code ${result.code}`}`);
+    }
+  } else {
+    throw new Error('Automatic Git installation is not supported on this platform. Install Git from https://git-scm.com.');
+  }
+  const status = await gitCliStatus(true);
+  if (!status.installed) {
+    throw new Error('Git installed, but the executable was not found yet. Restart Mixdog Desktop to pick it up.');
+  }
+  return status;
+}
 
 export async function installGithubCli(): Promise<DesktopGithubCliStatus> {
   if (process.platform === 'win32') {

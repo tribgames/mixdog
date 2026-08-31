@@ -58,11 +58,13 @@ function panel(spec, subtitle, ours, baseline, baselineLabel) {
 function chart(entry, figures) {
     const { modelLabel, baselineLabel, subtitle } = entry;
     const { score, speed, context, cost } = figures;
-    // A k>1 run is paired against a k=1 baseline by repeating that baseline
-    // across the extra trials, so its scaled pass count (75/89 -> 375/445) is
-    // not a figure anyone actually measured. Quote the baseline's own trial
-    // count instead, and state the gap in points rather than in tasks.
+    // A run paired against a baseline with a different trial count (k>1 vs
+    // k=1) repeats that baseline across the extra trials, so its scaled pass
+    // count (75/89 -> 375/445) is not a figure anyone actually measured.
+    // Quote the baseline's own trial count instead, and state the gap in
+    // points rather than in trials. Equal-k pairs quote both raw counts.
     const scaled = score.baselineTotal !== score.total;
+    const unit = score.k > 1 ? 'trial' : 'task';
     const oursPct = (score.ours / score.total) * 100;
     const basePct = (score.baseline / score.total) * 100;
     const delta = score.ours - score.baseline;
@@ -70,12 +72,12 @@ function chart(entry, figures) {
         ? `${oursPct >= basePct ? '+' : ''}${(oursPct - basePct).toFixed(1)}pp`
         : delta === 0
             ? 'tie'
-            : `${delta > 0 ? '+' : ''}${delta} task${Math.abs(delta) === 1 ? '' : 's'}`;
+            : `${delta > 0 ? '+' : ''}${delta} ${unit}${Math.abs(delta) === 1 ? '' : 's'}`;
     const scoreCounts = scaled
         ? `${score.ours}/${score.total} vs ${score.baselinePassed}/${score.baselineTotal}`
-        : `${score.ours} vs ${score.baseline} of ${score.total} tasks`;
+        : `${score.ours} vs ${score.baseline} of ${score.total} ${unit}s`;
     const title = `Terminal-Bench 2.1: mixdog with ${modelLabel} versus ${baselineLabel}`;
-    const desc = `In matched-model solo runs, mixdog scored ${oursPct.toFixed(1)} percent over ${score.total} trials versus ${baselineLabel} at ${basePct.toFixed(1)} percent over ${score.baselineTotal} trials, ran at ${speed.ratio.toFixed(2)} times the speed, finished tasks with a ${Math.round(context.reduction * 100)} percent smaller median context, and cost ${Math.round(cost.reduction * 100)} percent less.`;
+    const desc = `In matched-model solo runs, mixdog scored ${oursPct.toFixed(1)} percent over ${score.total} trials versus ${baselineLabel} at ${basePct.toFixed(1)} percent over ${score.baselineTotal} trials, ran ${speed.ratio.toFixed(2)} times faster by full-trial wall time, finished tasks with a ${Math.round(context.reduction * 100)} percent smaller median context, and cost ${Math.round(cost.reduction * 100)} percent less.`;
     return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600" role="img" aria-labelledby="t d" font-family="Styrene A,Segoe UI Variable Display,Segoe UI,Inter,Helvetica Neue,Arial,sans-serif">
   <title id="t">${title}</title>
   <desc id="d">${desc}</desc>
@@ -86,7 +88,7 @@ function chart(entry, figures) {
     </pattern>
   </defs>
   <rect width="1200" height="600" fill="#F0EEE6"/>
-  <text x="64" y="62" font-size="11" letter-spacing="2" font-weight="600" fill="#7A776C">TERMINAL-BENCH 2.1 · ${score.total} TASKS · K=1 SELF-REPORTED</text>
+  <text x="64" y="62" font-size="11" letter-spacing="2" font-weight="600" fill="#7A776C">TERMINAL-BENCH 2.1 · ${score.taskCount} TASKS · K=${score.k} VS K=${score.baselineK} · SELF-REPORTED</text>
   <text x="64" y="98" font-size="28" font-weight="650" letter-spacing="-0.3" fill="#191919">mixdog vs ${baselineLabel}</text>
   <text x="64" y="124" font-size="13.5" fill="#6E6B60">${subtitle}</text>
   <rect x="922" y="82" width="14" height="14" fill="#D97706"/>
@@ -104,9 +106,9 @@ ${panel(
 
 ${panel(
         PANELS.speed,
-        `relative agent elapsed · ${speed.ratio.toFixed(2)}&#215; faster`,
-        { value: speed.ratio, text: `${speed.ratio.toFixed(2)}&#215;` },
-        { value: 1, text: '1.00&#215;' },
+        `wall time per trial · ${speed.ratio.toFixed(2)}&#215; faster`,
+        { value: speed.ours, text: `${Math.round(speed.ours)}s` },
+        { value: speed.baseline, text: `${Math.round(speed.baseline)}s` },
         baselineLabel,
     )}
 
@@ -135,10 +137,15 @@ function figuresFor(jobsDir) {
     const pair = report.pair;
     if (!pair || pair.error) throw new Error(`${jobsDir}: report has no usable pair comparison`);
     const costRatio = pair.ratios.cost;
+    const oursK = Math.max(1, Math.round(Number(report.preset.attempts) || 1));
+    const taskCount = Math.max(1, Math.round(pair.sharedTasks / oursK));
+    const baselineTotal = pair.baseline.fullTotal ?? pair.sharedTasks;
+    const timedTrials = pair.timeComparison?.comparableTrials || pair.sharedTasks;
     return {
         preset: report.preset.name,
         startedAt: report.timing.startedAt,
         clean: report.result.clean,
+        runtime: report.preset.runtime ?? null,
         errors: report.result.errors,
         retries: report.result.retries,
         score: {
@@ -146,9 +153,17 @@ function figuresFor(jobsDir) {
             baseline: pair.baseline.passed,
             total: pair.sharedTasks,
             baselinePassed: pair.baseline.fullPassed ?? pair.baseline.passed,
-            baselineTotal: pair.baseline.fullTotal ?? pair.sharedTasks,
+            baselineTotal,
+            k: oursK,
+            baselineK: Math.max(1, Math.round(baselineTotal / taskCount)),
+            taskCount,
         },
-        speed: { ratio: pair.ratios.speedup },
+        speed: {
+            ratio: pair.ratios.speedup,
+            agentRatio: pair.ratios.agentSpeedup,
+            ours: pair.ours.wallTotalSeconds / timedTrials,
+            baseline: pair.baseline.wallTotalSeconds / timedTrials,
+        },
         context: {
             ours: pair.ours.finalContextMedianTokens,
             baseline: pair.baseline.finalContextMedianTokens,
@@ -190,11 +205,26 @@ for (const [key, entry, f] of summary) {
     const delta = f.score.ours - f.score.baseline;
     console.log(`\n=== ${key} · ${f.preset} · ${String(f.startedAt).slice(0, 10)} · ${entry.jobsDir}`);
     console.log(`  score    ${f.score.ours}/${f.score.total} vs ${f.score.baseline}/${f.score.total} (${delta >= 0 ? '+' : ''}${delta})`);
-    console.log(`  speed    ${f.speed.ratio.toFixed(2)}x`);
+    console.log(`  speed    ${f.speed.ratio.toFixed(2)}x wall (${Math.round(f.speed.ours)}s vs ${Math.round(f.speed.baseline)}s per trial; agent ${f.speed.agentRatio.toFixed(2)}x)`);
     console.log(`  context  ${f.context.ours} vs ${f.context.baseline} tokens → ${pct(f.context.reduction)} smaller`);
     console.log(`  cost     $${f.cost.ours.toFixed(2)} vs $${f.cost.baseline.toFixed(2)} → ${pct(f.cost.reduction)} lower`
         + ` (${f.cost.pricedTasks}/${f.score.total} priced, complete=${f.cost.complete}`
         + `${f.cost.baselineLowerBound ? ', baseline is a LOWER BOUND — say "at least"' : ''})`);
     console.log(`  run      clean=${f.clean} (errors ${f.errors}, retries ${f.retries})`);
+    // A published score must name the source it ran. Runs recorded before
+    // provenance capture existed are pinned in source-provenance.json instead.
+    const runtime = f.runtime;
+    const short = (hash) => String(hash || '').replace(/^sha256:/, '').slice(0, 12) || 'n/a';
+    if (runtime) {
+        const dirty = runtime.sourceDirty === null || runtime.sourceDirty === undefined
+            ? 'unknown'
+            : String(runtime.sourceDirty);
+        console.log(`  source   commit ${short(runtime.sourceCommit)} (dirty ${dirty}), bundle ${short(runtime.bundleSha256)}, mixdog ${runtime.mixdogVersion || 'n/a'}`);
+        if (runtime.sourceDirty) {
+            console.log('           WARNING: tree differed from HEAD — this run is NOT attributable to a commit');
+        }
+    } else {
+        console.log('  source   unrecorded in the run — must be pinned in source-provenance.json before publishing');
+    }
 }
 console.log('');

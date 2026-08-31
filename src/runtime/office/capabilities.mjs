@@ -269,7 +269,9 @@ const FORMAT_SIGNATURES = {
     set_slide_number: signature(['slide', 'visible']),
     add_comment: signature(['slide', 'text'], ['author', 'initials', 'left', 'top'], { propertySets: ['comment'] }),
     delete_comment: signature(['slide', 'comment']),
-    add_image: signature(['slide', 'path'], ['left', 'top', 'width', 'height']),
+    add_image: signature(['slide', 'path'], ['left', 'top', 'width', 'height', 'fit', 'focusX', 'focusY'], {
+      notes: 'fit is stretch (legacy), contain (letterbox without distortion), or cover (crop without distortion). focusX/focusY are 0-1 focal points for cover.',
+    }),
     replace_image: signature(['slide', 'shape', 'path']),
     crop_image: signature(['slide', 'shape'], ['left', 'top', 'right', 'bottom']),
     add_media: signature(['slide', 'path'], ['kind', 'link', 'embed', 'poster', 'left', 'top', 'width', 'height'], { propertySets: ['media', 'shape'] }),

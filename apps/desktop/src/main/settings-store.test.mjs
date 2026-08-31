@@ -35,6 +35,8 @@ test('desktop settings read the canonical agent section and desktop defaults', (
     computerControl: false,
     computerObserveOnly: false,
     browserControl: false,
+    computerInstalled: false,
+    browserInstalled: false,
   });
   assert.deepEqual(desktopSettingsFromConfig({
     agent: {
@@ -50,7 +52,45 @@ test('desktop settings read the canonical agent section and desktop defaults', (
     computerControl: false,
     computerObserveOnly: false,
     browserControl: false,
+    computerInstalled: false,
+    browserInstalled: false,
   });
+});
+
+test('a control that is already on grandfathers its install marker', () => {
+  const settings = desktopSettingsFromConfig({
+    desktop: { browserControl: true, computerControl: true },
+  });
+  assert.equal(settings.browserInstalled, true);
+  assert.equal(settings.computerInstalled, true);
+});
+
+test('disabling grandfathered Browser and Computer controls persists their install markers', async () => {
+  let value = {
+    desktop: {
+      browserControl: true,
+      computerControl: true,
+    },
+  };
+  const store = new DesktopSettingsStore({
+    loadConfig: async () => ({
+      readConfig: () => value,
+      updateConfigAsync: async (updater) => {
+        value = updater(value);
+        return value;
+      },
+    }),
+  });
+
+  const browserOff = await store.update('browserControl', false);
+  assert.equal(browserOff.browserControl, false);
+  assert.equal(browserOff.browserInstalled, true);
+  assert.equal(value.desktop.browserInstalled, true);
+
+  const computerOff = await store.update('computerControl', false);
+  assert.equal(computerOff.computerControl, false);
+  assert.equal(computerOff.computerInstalled, true);
+  assert.equal(value.desktop.computerInstalled, true);
 });
 
 test('git preferences migrate the legacy pattern into separate example and AI instructions', () => {
@@ -121,6 +161,8 @@ test('writes are atomic core updates that retain unrelated config and nested fie
     computerControl: false,
     computerObserveOnly: false,
     browserControl: false,
+    computerInstalled: false,
+    browserInstalled: false,
   });
   assert.deepEqual(value.providers, { openai: { enabled: true } });
   assert.deepEqual(value.agent, {
@@ -141,6 +183,8 @@ test('IPC accepts only the runtime-backed setting keys', () => {
   assert.equal(requiredDesktopSettingKey('computerControl'), 'computerControl');
   assert.equal(requiredDesktopSettingKey('computerObserveOnly'), 'computerObserveOnly');
   assert.equal(requiredDesktopSettingKey('browserControl'), 'browserControl');
+  assert.equal(requiredDesktopSettingKey('browserInstalled'), 'browserInstalled');
+  assert.equal(requiredDesktopSettingKey('computerInstalled'), 'computerInstalled');
   assert.throws(() => requiredDesktopSettingKey('homeAccess'), /invalid/);
   assert.throws(() => requiredDesktopSettingKey('updates'), /invalid/);
   assert.throws(() => requiredDesktopSettingKey({}), /invalid/);

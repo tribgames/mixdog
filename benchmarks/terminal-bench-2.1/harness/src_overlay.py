@@ -45,6 +45,11 @@ class SrcOverlayError(RuntimeError):
 class SrcSnapshot:
     archive_path: Path
     members: tuple[str, ...]
+    # Content identity of the exact bytes every trial received. The archive is
+    # built deterministically (sorted entries, zeroed mtime/uid/gid, normalized
+    # modes), so this digest is reproducible from any tree with the same files.
+    bundle_sha256: str = ""
+    files: tuple[dict[str, object], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -62,6 +67,20 @@ def _sha256_file(path: Path) -> str:
         while chunk := source.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+class _DigestReader:
+    """Streams a file into the archive while digesting the same bytes."""
+
+    def __init__(self, source) -> None:
+        self._source = source
+        self.digest = hashlib.sha256()
+
+    def read(self, size: int = -1) -> bytes:
+        chunk = self._source.read(size)
+        if chunk:
+            self.digest.update(chunk)
+        return chunk
 
 
 def _spawn_source_digest(spawn_source: Path) -> str:
@@ -402,6 +421,7 @@ def build_src_snapshot(
         _SourceEntry(spawn_binary.parent, NATIVE_ROOT, 0o755, 0, True),
         _SourceEntry(spawn_binary, SPAWN_MEMBER, 0o755, spawn_info.st_size, False),
     )
+    files: list[dict[str, object]] = []
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("xb") as output:
@@ -416,9 +436,23 @@ def build_src_snapshot(
                         archive.addfile(info)
                     else:
                         with entry.source.open("rb") as source:
-                            archive.addfile(info, source)
+                            reader = _DigestReader(source)
+                            archive.addfile(info, reader)
+                        files.append(
+                            {
+                                "path": entry.archive_name,
+                                "sha256": reader.digest.hexdigest(),
+                                "size": entry.size,
+                                "mode": format(entry.mode, "04o"),
+                            }
+                        )
         output_path.chmod(stat.S_IREAD)
-        return SrcSnapshot(output_path, tuple(entry.archive_name for entry in entries))
+        return SrcSnapshot(
+            output_path,
+            tuple(entry.archive_name for entry in entries),
+            _sha256_file(output_path),
+            tuple(files),
+        )
     except SrcOverlayError:
         raise
     except (OSError, tarfile.TarError) as exc:
@@ -516,10 +550,35 @@ def load_src_snapshot(archive_path: Path) -> SrcSnapshot:
     return SrcSnapshot(archive_path, tuple(ordered_names))
 
 
+def bundle_manifest(snapshot: SrcSnapshot, spawn_sha256: str) -> dict:
+    """File-by-file identity of the runtime that a published run executed.
+
+    Archived with the run so a third party can diff the executed tree against
+    any commit without rebuilding the bundle.
+    """
+    return {
+        "schemaVersion": 1,
+        "bundleSha256": snapshot.bundle_sha256,
+        "spawnSha256": spawn_sha256,
+        "fileCount": len(snapshot.files),
+        "totalBytes": sum(int(entry["size"]) for entry in snapshot.files),
+        "files": [dict(entry) for entry in snapshot.files],
+    }
+
+
+def write_bundle_manifest(path: Path, manifest: dict) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    except OSError as exc:
+        raise SrcOverlayError(f"cannot write runtime bundle manifest: {exc}") from exc
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--spawn-binary", type=Path)
+    parser.add_argument("--manifest", type=Path)
     args = parser.parse_args(argv)
     repo_root = Path(__file__).resolve().parents[3]
     repo_src = repo_root / "src"
@@ -528,6 +587,9 @@ def main(argv: list[str] | None = None) -> int:
             repo_root, Path(__file__).resolve().parents[1] / ".runtime-build"
         )
         snapshot = build_src_snapshot(repo_src, args.output, spawn_binary)
+        manifest = bundle_manifest(snapshot, _sha256_file(spawn_binary))
+        if args.manifest is not None:
+            write_bundle_manifest(args.manifest, manifest)
     except SrcOverlayError as exc:
         print(f"runtime bundle preflight failed: {exc}", file=sys.stderr)
         return 1
@@ -535,7 +597,11 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(
             {
                 "runtimeBundle": str(snapshot.archive_path),
-                "spawnSha256": _sha256_file(spawn_binary),
+                "bundleSha256": manifest["bundleSha256"],
+                "spawnSha256": manifest["spawnSha256"],
+                "fileCount": manifest["fileCount"],
+                "totalBytes": manifest["totalBytes"],
+                "manifest": str(args.manifest) if args.manifest else "",
             },
             separators=(",", ":"),
         )

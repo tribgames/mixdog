@@ -1,7 +1,7 @@
 export type SettingsSection =
   | 'profile' | 'autoclear' | 'autocompact' | 'compact-type' | 'output-style'
   | 'theme' | 'workflow' | 'model' | 'websearch' | 'providers' | 'mcp'
-  | 'plugins' | 'hooks' | 'skills' | 'memory' | 'update';
+  | 'plugins' | 'hooks' | 'skills' | 'memory' | 'voice' | 'update';
 
 export type CommandSurface = 'context' | 'usage' | 'doctor' | 'inherit';
 

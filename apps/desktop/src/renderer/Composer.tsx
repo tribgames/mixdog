@@ -18,7 +18,6 @@ import {
 } from "./slash-commands";
 import { TURN_LOCKED_SLASH_COMMANDS, asRecord, oneLine } from "./text-format";
 import { touchPrimaryPointer } from "./surface-input-focus";
-import { acquireTitleBarDim } from "./titlebar-dim";
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { pastedTextLineCount, shouldFoldPastedText } from "../../../../src/tui/paste-text-policy.mjs";
 
@@ -93,51 +92,6 @@ function DictationProgress() {
     <span className="composer-dictation-progress" aria-hidden="true">
       {DICTATION_BAR_GAINS.map((_, index) => <span key={index} />)}
     </span>
-  );
-}
-
-function VoiceInstallDialog({ onCancel, onConfirm }: {
-  onCancel(): void;
-  onConfirm(): void;
-}) {
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    const prior = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const releaseTitleBarDim = acquireTitleBarDim();
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      onCancel();
-    };
-    cancelRef.current?.focus();
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown, true);
-      releaseTitleBarDim();
-      prior?.focus({ preventScroll: true });
-    };
-  }, [onCancel]);
-  return createPortal(
-    <div className="settings-confirm-layer" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onCancel();
-    }}>
-      <section className="settings-confirm-dialog" role="alertdialog" aria-modal="true"
-        aria-labelledby="voice-install-title" aria-describedby="voice-install-description">
-        <header>
-          <h3 id="voice-install-title">{t("Install voice transcription?")}</h3>
-          <button type="button" aria-label={t("Close confirmation")} onClick={onCancel}>
-            <X aria-hidden="true" size={16} />
-          </button>
-        </header>
-        <p id="voice-install-description">{t("Install & enable")}</p>
-        <footer>
-          <button ref={cancelRef} type="button" onClick={onCancel}>{t("Cancel")}</button>
-          <button type="button" className="primary" onClick={onConfirm}>{t("Install")}</button>
-        </footer>
-      </section>
-    </div>,
-    document.body,
   );
 }
 
@@ -237,8 +191,6 @@ export const Composer = memo(function Composer({
   // idempotency acknowledges it instead of posting a duplicate user message.
   const submissionRetryRef = useRef<{ key: string; id: string } | null>(null);
   const [composerNotice, setComposerNotice] = useState('');
-  const [voiceInstallPromptOpen, setVoiceInstallPromptOpen] = useState(false);
-  const voiceInstallResolver = useRef<((confirmed: boolean) => void) | null>(null);
   // Composer notices are transient helpers (mic errors, etc.): auto-dismiss
   // after a beat instead of pinning to the composer forever (user-flagged).
   const composerNoticeTimer = useRef(0);
@@ -254,29 +206,8 @@ export const Composer = memo(function Composer({
     return () => {
       mountedRef.current = false;
       window.clearTimeout(composerNoticeTimer.current);
-      const resolveVoiceInstall = voiceInstallResolver.current;
-      voiceInstallResolver.current = null;
-      resolveVoiceInstall?.(false);
     };
   }, []);
-  const confirmVoiceInstall = useCallback(() => new Promise<boolean>((resolve) => {
-    voiceInstallResolver.current = resolve;
-    setVoiceInstallPromptOpen(true);
-  }), []);
-  const settleVoiceInstallPrompt = useCallback((confirmed: boolean) => {
-    const resolve = voiceInstallResolver.current;
-    voiceInstallResolver.current = null;
-    setVoiceInstallPromptOpen(false);
-    resolve?.(confirmed);
-  }, []);
-  const cancelVoiceInstallPrompt = useCallback(
-    () => settleVoiceInstallPrompt(false),
-    [settleVoiceInstallPrompt],
-  );
-  const acceptVoiceInstallPrompt = useCallback(
-    () => settleVoiceInstallPrompt(true),
-    [settleVoiceInstallPrompt],
-  );
   const [slashIndex, setSlashIndex] = useState(0);
   const [slashDismissedDraft, setSlashDismissedDraft] = useState('');
   const [composerFocused, setComposerFocused] = useState(false);
@@ -314,6 +245,7 @@ export const Composer = memo(function Composer({
   const voiceSubmitPending = useRef(false);
   const {
     dictationState,
+    dictationInstalled,
     toggleDictation,
     stopDictationAndSend,
     cancelDictation,
@@ -325,7 +257,7 @@ export const Composer = memo(function Composer({
     setDraft,
     invokeResult,
     showNotice: showComposerNotice,
-    confirmVoiceInstall,
+    requestVoiceInstall: useCallback(() => onOpenSettings('voice'), [onOpenSettings]),
     onTranscriptSubmit: useCallback(() => { voiceSubmitPending.current = true; }, []),
   });
   const wasTransitioning = useRef(transitioning);
@@ -1036,9 +968,6 @@ export const Composer = memo(function Composer({
   }, [dictationState, draft, send]);
   return (
     <>
-      {voiceInstallPromptOpen && <VoiceInstallDialog
-        onCancel={cancelVoiceInstallPrompt}
-        onConfirm={acceptVoiceInstallPrompt} />}
       <QueueList queued={visibleQueued} restoring={restoring}
         onEdit={(id) => void restoreQueue(id, 'queue-row')}
         onSteer={(id) => void steerQueuedNow(id)}
@@ -1232,7 +1161,10 @@ export const Composer = memo(function Composer({
           invokeResult={invokeResult} applySnapshot={applySnapshot}
           onOpenSettings={onOpenSettings} onDraftSelection={onDraftModelSelection}
           onRoutePreferenceApplied={onRoutePreferenceApplied} />
-        <button type="button"
+        {/* The mic appears only once the voice runtime is installed
+            (Extensions → Voice transcription): an uninstalled feature never
+            advertises itself in the composer. */}
+        {dictationInstalled && <button type="button"
           className={`composer-tool composer-mic ${dictationState !== 'idle' ? `is-${dictationState}` : ''}`.trim()}
           disabled={transitioning || dictationState === 'transcribing'}
           aria-label={dictationState === 'recording' ? t('Stop dictation') : t('Dictate with voice')}
@@ -1246,7 +1178,7 @@ export const Composer = memo(function Composer({
           {dictationState === 'transcribing' ? <ProgressSpinner className="composer-mic-spinner" size={16} />
             : dictationState === 'recording' ? <MxIcon name="stop" size={16} />
               : <Mic size={16} />}
-        </button>
+        </button>}
         {/* Mid-take the disc ENDS the take and sends what was spoken, instead
             of sitting disabled: the transcript still only reaches the draft
             after the recorder stops, so this press chains stop → transcribe →

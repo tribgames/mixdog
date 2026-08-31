@@ -202,14 +202,29 @@ export function createTurnInterruptionTracker() {
             const value = String(chunk ?? '');
             if (!value) return;
             responseStarted = true;
+            // The replayed attempt has started producing its OWN text, so the
+            // retracted tail it replaces is no longer what the user is looking
+            // at. Dropping it here keeps exactly one copy of the opening
+            // instead of one per retry (a 3-retry stall used to persist four
+            // copies of the same first sentence). Reference agents never
+            // commit a replayed attempt's discarded stream at all; the
+            // tombstone exists only for the window between a retraction and
+            // its replacement.
+            if (tombstonedAssistantContent) {
+                tombstonedAssistantContent = '';
+                tombEpoch += 1;
+            }
             partialAssistantContent += value;
         },
         tombstoneText(chars) {
             const count = Math.max(0, Number(chars) || 0);
             if (!count) return;
             const cutAt = Math.max(0, partialAssistantContent.length - count);
-            tombstonedAssistantContent = partialAssistantContent.slice(cutAt)
-                + tombstonedAssistantContent;
+            // REPLACE, never accumulate: consecutive retractions belong to
+            // successive attempts at the SAME answer, so keeping the earlier
+            // tombstone alongside the newer one is what multiplied the visible
+            // text across retries.
+            tombstonedAssistantContent = partialAssistantContent.slice(cutAt);
             partialAssistantContent = partialAssistantContent.slice(
                 0,
                 cutAt,

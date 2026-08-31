@@ -241,6 +241,12 @@ if ((Test-Path -LiteralPath $resolvedJobsDir) -and
 }
 New-Item -ItemType Directory -Path $resolvedJobsDir -Force | Out-Null
 $manifestPath = Join-Path $resolvedJobsDir "preset-run.json"
+# What actually ran: the runner records the source commit, whether the tree
+# matched it, and the digests of the uploaded runtime bundle. A published score
+# without this names no source, so it is merged into the manifest below and
+# archived with the run.
+$provenancePath = Join-Path $resolvedJobsDir "runtime-provenance.json"
+$runnerArgs.ProvenanceOut = $provenancePath
 # The fingerprint pins dataset and routes only. Capture the prompt surface —
 # rules and tool schemas as the container will see them — before the snapshot
 # is taken, so the report identifies the exact contract under measurement.
@@ -307,6 +313,13 @@ try {
 
 $manifest.completedAt = (Get-Date).ToUniversalTime().ToString("o")
 $manifest.exitCode = $benchmarkExitCode
+if (Test-Path -LiteralPath $provenancePath -PathType Leaf) {
+    try {
+        $manifest.runtime = Get-Content -Raw -LiteralPath $provenancePath | ConvertFrom-Json
+    } catch {
+        Write-Warning "runtime provenance unreadable ($provenancePath): $($_.Exception.Message)"
+    }
+}
 Write-JsonAtomic $manifest $manifestPath
 
 & node $reportPath --jobs-dir $resolvedJobsDir --history-root $benchRoot

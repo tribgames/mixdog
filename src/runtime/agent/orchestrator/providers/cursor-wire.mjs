@@ -14,6 +14,23 @@ import {
     encodeMessage,
     rewriteConversationState,
 } from './cursor-wire-protobuf.mjs';
+import {
+    MAX_CHECKPOINT_BYTES,
+    MAX_CONNECT_FRAME_BYTES,
+    assertCursorUserImages,
+    capCursorToolResult,
+    createCursorByteQueue,
+    createCursorStreamWatchdog,
+    cursorInteractionProgress,
+    isRetryableCursorStreamError,
+    prepareCursorToolDefinition,
+    resolveCursorStreamTuning,
+    storeCursorBlob,
+} from './cursor-wire-guards.mjs';
+import {
+    buildCursorExecThrow,
+    buildCursorInteractionResponse,
+} from './cursor-wire-interactions.mjs';
 
 const API_URL = process.env.CURSOR_API_URL || 'https://api2.cursor.sh';
 const CLIENT_VERSION = process.env.MIXDOG_CURSOR_CLIENT_VERSION || 'cli-2026.08.11-e8db854';
@@ -23,7 +40,7 @@ const AVAILABLE_MODELS_PATH = '/aiserver.v1.AiService/AvailableModels';
 const USAGE_PATH = '/aiserver.v1.DashboardService/GetCurrentPeriodUsage';
 const PLAN_PATH = '/aiserver.v1.DashboardService/GetPlanInfo';
 const END_STREAM_FLAG = 2;
-const MAX_CONNECT_FRAME_BYTES = 64 * 1024 * 1024;
+const H2_PING_INTERVAL_MS = 20_000;
 const SSE_HEADERS = {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -77,15 +94,27 @@ function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }) {
     let retryAfter = null;
     let closeError = null;
     let timeout = setTimeout(() => close(new Error('Cursor connection timed out')), 30_000);
+    const configuredIdle = Number(process.env.MIXDOG_CURSOR_H2_IDLE_TIMEOUT_MS);
+    const idleTimeoutMs = Number.isFinite(configuredIdle) && configuredIdle > 0
+        ? Math.floor(configuredIdle)
+        : 0;
+    const ping = setInterval(() => {
+        if (closed || session.closed || session.destroyed) return;
+        try { session.ping(() => {}); } catch {}
+    }, H2_PING_INTERVAL_MS);
+    ping.unref?.();
 
     const resetTimeout = () => {
         clearTimeout(timeout);
-        timeout = setTimeout(() => close(new Error('Cursor stream timed out')), 120_000);
+        timeout = idleTimeoutMs > 0
+            ? setTimeout(() => close(new Error('Cursor H2 stream timed out')), idleTimeoutMs)
+            : null;
     };
     const finish = (error = null) => {
         if (closed) return;
         closed = true;
         clearTimeout(timeout);
+        clearInterval(ping);
         closeError = error || (status >= 400
             ? cursorError(`Cursor request failed (${status})`, { status, retryAfter })
             : null);
@@ -110,8 +139,12 @@ function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }) {
         dataHandler?.(Buffer.from(chunk));
     });
     request.on('end', () => finish());
+    request.on('aborted', () => finish(cursorError('Cursor stream was aborted', { code: 'stream_aborted' })));
     request.on('error', (error) => finish(error));
     session.on('error', (error) => finish(error));
+    session.on('goaway', (errorCode) => {
+        finish(cursorError(`Cursor GOAWAY (${errorCode})`, { code: 'goaway' }));
+    });
 
     return {
         get alive() { return !closed; },
@@ -166,6 +199,11 @@ async function callCursorUnary({ accessToken, path, body, url = API_URL, timeout
 }
 
 function connectFrame(bytes, flags = 0) {
+    if (bytes.length > MAX_CONNECT_FRAME_BYTES) {
+        throw cursorError(`Cursor frame exceeds ${MAX_CONNECT_FRAME_BYTES} bytes`, {
+            code: 'cursor_payload_too_large',
+        });
+    }
     const frame = Buffer.alloc(5 + bytes.length);
     frame[0] = flags;
     frame.writeUInt32BE(bytes.length, 1);
@@ -174,18 +212,19 @@ function connectFrame(bytes, flags = 0) {
 }
 
 function createFrameParser(onMessage, onEnd) {
-    let pending = Buffer.alloc(0);
+    const pending = createCursorByteQueue();
     const parse = (chunk) => {
-        pending = Buffer.concat([pending, chunk]);
-        while (pending.length >= 5) {
-            const flags = pending[0];
-            const length = pending.readUInt32BE(1);
+        pending.append(chunk);
+        while (pending.byteLength >= 5) {
+            const header = pending.peek(5);
+            const flags = header[0];
+            const length = header.readUInt32BE(1);
             if (length > MAX_CONNECT_FRAME_BYTES) {
                 throw cursorError(`Cursor frame exceeds ${MAX_CONNECT_FRAME_BYTES} bytes`, { code: 'protocol_error' });
             }
-            if (pending.length < length + 5) return;
-            const payload = pending.subarray(5, length + 5);
-            pending = pending.subarray(length + 5);
+            if (pending.byteLength < length + 5) return;
+            pending.read(5);
+            const payload = pending.read(length);
             if (flags & 1) {
                 throw cursorError('Cursor returned an unsupported compressed frame', { code: 'protocol_error' });
             }
@@ -197,11 +236,11 @@ function createFrameParser(onMessage, onEnd) {
         }
     };
     parse.finish = () => {
-        if (pending.length) {
+        if (pending.byteLength) {
             throw cursorError('Cursor stream ended with a truncated frame', { code: 'protocol_error' });
         }
     };
-    parse.bufferedBytes = () => pending.length;
+    parse.bufferedBytes = () => pending.byteLength;
     return parse;
 }
 
@@ -328,17 +367,14 @@ function parseMessages(messages = []) {
 
 function buildToolDefinitions(tools = []) {
     return tools.map((tool) => {
-        const fn = tool.function || tool;
-        const inputSchema = fn.parameters && typeof fn.parameters === 'object'
-            ? fn.parameters
-            : { type: 'object', properties: {} };
+        const prepared = prepareCursorToolDefinition(tool);
         return {
-            name: fn.name,
-            description: fn.description || '',
-            inputSchema: encodeJsonValue(inputSchema),
-            inputSchemaJson: JSON.stringify(inputSchema),
+            name: prepared.name,
+            description: prepared.description,
+            inputSchema: encodeJsonValue(prepared.inputSchema),
+            inputSchemaJson: JSON.stringify(prepared.inputSchema),
             providerIdentifier: 'mixdog',
-            toolName: fn.name,
+            toolName: prepared.name,
         };
     }).filter((tool) => tool.name);
 }
@@ -473,11 +509,12 @@ function getConversation(key) {
 function storeBlob(conversation, bytes) {
     const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     const id = new Uint8Array(createHash('sha256').update(data).digest());
-    conversation.blobs.set(Buffer.from(id).toString('hex'), data);
+    storeCursorBlob(conversation.blobs, Buffer.from(id).toString('hex'), data);
     return id;
 }
 
 function buildRunRequest({ model, modelParameters = [], maxMode = false, systems, history, userText, userImages = [], tools, conversation }) {
+    assertCursorUserImages(userImages);
     const prompts = systems.length ? systems : ['You are a helpful assistant.'];
     const rootPromptMessagesJson = [];
     for (const content of prompts) {
@@ -556,7 +593,7 @@ function handleKvMessage(bridge, message, conversation) {
         });
     } else if (message.setBlobArgs) {
         const { blobId = new Uint8Array(), blobData = new Uint8Array() } = message.setBlobArgs;
-        conversation.blobs.set(Buffer.from(blobId).toString('hex'), blobData);
+        storeCursorBlob(conversation.blobs, Buffer.from(blobId).toString('hex'), blobData);
         sendClientMessage(bridge, { kvClientMessage: { id: message.id, setBlobResult: {} } });
     }
 }
@@ -690,7 +727,8 @@ function handleExecMessage(bridge, exec, tools, cloudRule, onToolCall) {
     } else if (exec.diagnosticsArgs) {
         sendExecResult(bridge, exec, 'diagnosticsResult', {});
     } else {
-        throw new Error('Cursor requested an unsupported native tool');
+        sendClientMessage(bridge, buildCursorExecThrow(exec, 'Unsupported Cursor native exec'));
+        return false;
     }
 }
 
@@ -753,6 +791,7 @@ function parseGrepResult(text, args) {
 }
 
 function sendToolResult(bridge, pending, result, ok) {
+    result = capCursorToolResult(result);
     const { exec, native } = pending;
     const text = String(result?.content ?? '');
     const media = Array.isArray(result?.media) ? result.media : [];
@@ -948,8 +987,13 @@ function createStreamResponse({
     // and tear down the pending batch's bridge/heartbeat.
     sessionId = '',
     sawTurnEnded = false,
+    restart = null,
 }) {
     const id = `chatcmpl-${crypto.randomUUID().replaceAll('-', '').slice(0, 28)}`;
+    let currentBridge = bridge;
+    let currentHeartbeat = heartbeat;
+    let watchdog = null;
+    let cancelled = false;
     const stream = new ReadableStream({
         start(controller) {
             const filter = thinkingFilter();
@@ -964,12 +1008,28 @@ function createStreamResponse({
                 chunkSeq: 0,
                 batchBoundaryChunkSeq: -1,
                 batchBoundaryReady: false,
+                visibleOutput: false,
             };
+            let retryCount = 0;
+            const tuning = resolveCursorStreamTuning();
+            watchdog = createCursorStreamWatchdog({
+                idleTimeoutMs: tuning.idleTimeoutMs,
+                parkTimeoutMs: tuning.parkTimeoutMs,
+                onTimeout: (kind) => {
+                    currentBridge.close(cursorError(
+                        kind === 'park'
+                            ? 'Cursor stream parked on an unanswered server request'
+                            : 'Cursor stream made no forward progress',
+                        { code: kind === 'park' ? 'stream_park_timeout' : 'stream_idle_timeout' },
+                    ));
+                },
+            });
             const send = (event) => {
                 if (!state.closed) controller.enqueue(textEncoder.encode(`data: ${JSON.stringify(event)}\n\n`));
             };
             const finish = (reason = 'stop') => {
                 if (state.closed) return;
+                watchdog.stop();
                 const flushed = filter.flush();
                 if (flushed.reasoning) send(completionChunk(id, model, { reasoning_content: flushed.reasoning }));
                 if (flushed.content) send(completionChunk(id, model, { content: flushed.content }));
@@ -991,14 +1051,15 @@ function createStreamResponse({
             };
             const fail = (error) => {
                 if (state.closed) return;
+                watchdog.stop();
                 state.closed = true;
                 controller.error(error instanceof Error ? error : new Error(String(error)));
             };
             const finishToolBatch = () => {
                 if (state.closed || state.pending.length === 0) return;
                 storeActiveRun(key, {
-                    bridge,
-                    heartbeat,
+                    bridge: currentBridge,
+                    heartbeat: currentHeartbeat,
                     conversation,
                     tools,
                     cloudRule,
@@ -1010,14 +1071,22 @@ function createStreamResponse({
             };
             const processMessage = (bytes) => {
                 const message = decodeMessage('AgentServerMessage', bytes);
+                let progress = 'none';
                 if (message.interactionUpdate) {
                     const update = message.interactionUpdate;
                     if (update.textDelta?.text) {
                         const delta = filter.process(update.textDelta.text);
-                        if (delta.reasoning) send(completionChunk(id, model, { reasoning_content: delta.reasoning }));
-                        if (delta.content) send(completionChunk(id, model, { content: delta.content }));
+                        if (delta.reasoning) {
+                            state.visibleOutput = true;
+                            send(completionChunk(id, model, { reasoning_content: delta.reasoning }));
+                        }
+                        if (delta.content) {
+                            state.visibleOutput = true;
+                            send(completionChunk(id, model, { content: delta.content }));
+                        }
                     }
                     if (update.thinkingDelta?.text) {
+                        state.visibleOutput = true;
                         send(completionChunk(id, model, { reasoning_content: update.thinkingDelta.text }));
                     }
                     if (update.toolCallStarted?.callId) {
@@ -1051,17 +1120,22 @@ function createStreamResponse({
                     }
                     if (update.stepCompleted) state.batchBoundaryChunkSeq = state.chunkSeq;
                     state.outputTokens += update.tokenDelta?.tokens || 0;
+                    progress = cursorInteractionProgress(update);
                 } else if (message.kvServerMessage) {
-                    handleKvMessage(bridge, message.kvServerMessage, conversation);
+                    handleKvMessage(currentBridge, message.kvServerMessage, conversation);
+                    progress = 'work';
                 } else if (message.conversationCheckpointUpdate) {
-                    conversation.checkpoint = message.conversationCheckpointUpdate;
+                    conversation.checkpoint = message.conversationCheckpointUpdate.byteLength <= MAX_CHECKPOINT_BYTES
+                        ? message.conversationCheckpointUpdate
+                        : null;
                     state.batchBoundaryChunkSeq = state.chunkSeq;
                     try {
                         const checkpoint = decodeMessage('ConversationStateStructure', conversation.checkpoint);
                         state.totalTokens = checkpoint.tokenDetails?.usedTokens || state.totalTokens;
                     } catch {}
+                    progress = 'work';
                 } else if (message.execServerMessage) {
-                    handleExecMessage(bridge, message.execServerMessage, tools, cloudRule, (pending) => {
+                    const handled = handleExecMessage(currentBridge, message.execServerMessage, tools, cloudRule, (pending) => {
                         if (state.pending.some((entry) => entry.toolCallId === pending.toolCallId)) return;
                         state.pending.push(pending);
                         const index = state.pending.length - 1;
@@ -1074,82 +1148,137 @@ function createStreamResponse({
                             }],
                         }));
                     });
+                    progress = handled === false ? 'park' : 'work';
+                } else if (message.interactionQuery) {
+                    const outcome = buildCursorInteractionResponse(message.interactionQuery);
+                    if (!outcome.handled) {
+                        throw cursorError(`Unsupported Cursor interaction query: ${outcome.queryCase}`, {
+                            code: 'protocol_drift',
+                            status: 400,
+                        });
+                    }
+                    sendClientMessage(currentBridge, outcome.message);
+                    progress = 'work';
+                } else if (message.execServerControlMessage?.abort) {
+                    throw cursorError('Cursor aborted the active exec', { code: 'exec_aborted', status: 400 });
+                } else if (message.$unknown?.length) {
+                    throw cursorError(
+                        `Unsupported Cursor server message field ${message.$unknown[0].no}`,
+                        { code: 'protocol_drift', status: 400 },
+                    );
+                }
+                return progress;
+            };
+            const recoverOrFail = (error) => {
+                const canRetry = retryCount < tuning.maxRetries
+                    && !cancelled
+                    && typeof restart === 'function'
+                    && isRetryableCursorStreamError(error)
+                    && (!state.visibleOutput || conversation.checkpoint);
+                if (!canRetry) {
+                    fail(error);
+                    return;
+                }
+                retryCount += 1;
+                state.sawEnd = false;
+                state.batchBoundaryReady = false;
+                state.batchBoundaryChunkSeq = -1;
+                try {
+                    const next = restart({
+                        attempt: retryCount,
+                        fromCheckpoint: Boolean(conversation.checkpoint),
+                        visibleOutput: state.visibleOutput,
+                    });
+                    attachBridge(next.bridge, next.heartbeat);
+                } catch (restartError) {
+                    fail(restartError);
                 }
             };
-            const frameParser = createFrameParser(
-                (bytes) => {
-                    try { processMessage(bytes); } catch (error) { fail(error); bridge.close(error); }
-                },
-                (bytes) => {
-                    state.sawEnd = true;
-                    const error = parseEndStream(bytes);
-                    if (error) {
-                        fail(error);
-                        bridge.close(error);
-                    }
-                    else if (state.pending.length > 0) {
-                        // Match Cursor's batch protocol: a clean Connect
-                        // end-stream is also a final batch delimiter. The live
-                        // bridge may close immediately afterward, but the
-                        // emitted tool batch can continue from transcript via
-                        // a fresh resumeAction request.
-                        state.batchBoundaryReady = true;
-                    }
-                    else if (state.pending.length === 0) {
-                        if (!state.sawTurnEnded) {
-                            const incomplete = cursorError('Cursor stream ended before turnEnded', {
+            const attachBridge = (nextBridge, nextHeartbeat) => {
+                currentBridge = nextBridge;
+                currentHeartbeat = nextHeartbeat;
+                const ownedBridge = nextBridge;
+                const ownedHeartbeat = nextHeartbeat;
+                const frameParser = createFrameParser(
+                    (bytes) => {
+                        const progress = processMessage(bytes);
+                        watchdog.progress(progress);
+                    },
+                    (bytes) => {
+                        state.sawEnd = true;
+                        const error = parseEndStream(bytes);
+                        if (error) {
+                            ownedBridge.close(error);
+                        } else if (state.pending.length > 0) {
+                            // A clean end-stream is also a final tool batch delimiter.
+                            state.batchBoundaryReady = true;
+                        } else if (!state.sawTurnEnded) {
+                            ownedBridge.close(cursorError('Cursor stream ended before turnEnded', {
                                 code: 'incomplete_stream',
-                            });
-                            fail(incomplete);
-                            bridge.close(incomplete);
+                            }));
                         } else {
                             finish();
-                            bridge.close();
+                            ownedBridge.close();
                         }
+                    },
+                );
+                ownedBridge.onData((chunk) => {
+                    if (currentBridge !== ownedBridge || state.closed) return;
+                    state.chunkSeq += 1;
+                    try {
+                        frameParser(chunk);
+                        if (state.pending.length > 0 && state.batchBoundaryChunkSeq === state.chunkSeq) {
+                            state.batchBoundaryReady = true;
+                        }
+                        // Never hand a partial Connect frame to the next response parser.
+                        if (state.batchBoundaryReady && frameParser.bufferedBytes() === 0) {
+                            finishToolBatch();
+                        }
+                    } catch (error) {
+                        ownedBridge.close(error);
                     }
-                },
-            );
-            bridge.onData((chunk) => {
-                state.chunkSeq += 1;
-                try {
-                    frameParser(chunk);
-                    if (state.pending.length > 0 && state.batchBoundaryChunkSeq === state.chunkSeq) {
-                        state.batchBoundaryReady = true;
-                    }
-                    // A continuation replaces the bridge's data handler with a
-                    // fresh response/parser. Never hand off while this parser
-                    // owns a partial Connect frame: the next parser would read
-                    // payload bytes as a header and report a bogus huge frame.
-                    if (state.batchBoundaryReady && frameParser.bufferedBytes() === 0) {
-                        finishToolBatch();
-                    }
-                } catch (error) {
-                    fail(error);
-                    bridge.close(error);
-                }
-            });
-            bridge.onClose((error) => {
-                clearInterval(heartbeat);
-                const active = activeRuns.get(key);
-                if (active?.bridge === bridge) forgetActiveRun(key, active);
-                if (!state.closed) {
+                });
+                ownedBridge.onClose((error) => {
+                    clearInterval(ownedHeartbeat);
+                    const active = activeRuns.get(key);
+                    if (active?.bridge === ownedBridge) forgetActiveRun(key, active);
+                    if (cancelled) return;
+                    if (state.closed || currentBridge !== ownedBridge) return;
                     let closeError = error;
                     if (!closeError) {
                         try { frameParser.finish(); } catch (frameError) { closeError = frameError; }
                     }
-                    if (!closeError && !state.sawEnd) {
-                        closeError = cursorError('Cursor stream closed before its end frame', { code: 'protocol_error' });
+                    // Cursor commonly closes HTTP/2 immediately after turnEnded without
+                    // a separate Connect end frame. The turn is already complete.
+                    if (state.sawTurnEnded) {
+                        finish();
+                        return;
                     }
-                    if (closeError) fail(closeError);
+                    // Tool calls already emitted to the caller remain actionable even if
+                    // the parked transport vanished. The next request rebuilds/resumes.
+                    if (state.pending.length > 0) {
+                        finish('tool_calls');
+                        return;
+                    }
+                    if (!closeError && !state.sawEnd) {
+                        closeError = cursorError('Cursor stream closed before its end frame', {
+                            code: 'protocol_error',
+                        });
+                    }
+                    if (closeError) recoverOrFail(closeError);
                     else finish();
-                }
-            });
+                });
+                watchdog.start();
+            };
+            attachBridge(bridge, heartbeat);
         },
         cancel(reason) {
-            clearInterval(heartbeat);
+            cancelled = true;
+            watchdog?.stop();
+            clearInterval(currentHeartbeat);
             const active = activeRuns.get(key);
-            if (active?.bridge === bridge) forgetActiveRun(key, active);
-            bridge.close(reason instanceof Error ? reason : new Error('Cursor stream cancelled'));
+            if (active?.bridge === currentBridge) forgetActiveRun(key, active);
+            currentBridge.close(reason instanceof Error ? reason : new Error('Cursor stream cancelled'));
         },
     });
     return new Response(stream, { headers: SSE_HEADERS });
@@ -1157,7 +1286,12 @@ function createStreamResponse({
 
 function startRun(accessToken, requestBytes) {
     const bridge = openCursorStream({ accessToken });
-    bridge.write(connectFrame(requestBytes));
+    try {
+        bridge.write(connectFrame(requestBytes));
+    } catch (error) {
+        bridge.close(error);
+        throw error;
+    }
     const heartbeat = setInterval(() => bridge.write(heartbeatFrame()), 5_000);
     heartbeat.unref?.();
     return { bridge, heartbeat };
@@ -1219,7 +1353,7 @@ export async function handleChatCompletion(body, accessToken) {
     const conversation = getConversation(convKey);
     const selectedTools = selectToolsForChoice(body.tools, body.tool_choice);
     const toolDefinitions = buildToolDefinitions(selectedTools);
-    const requestBytes = buildRunRequest({
+    const runInput = {
         model,
         modelParameters,
         maxMode,
@@ -1229,7 +1363,8 @@ export async function handleChatCompletion(body, accessToken) {
         userImages: parsed.userImages,
         tools: toolDefinitions,
         conversation,
-    });
+    };
+    const requestBytes = buildRunRequest(runInput);
     const { bridge, heartbeat } = startRun(accessToken, requestBytes);
     return createStreamResponse({
         bridge,
@@ -1243,6 +1378,12 @@ export async function handleChatCompletion(body, accessToken) {
         model,
         key,
         sessionId,
+        restart: ({ fromCheckpoint }) => startRun(
+            accessToken,
+            fromCheckpoint
+                ? buildRunRequest({ ...runInput, userText: '', userImages: [] })
+                : requestBytes,
+        ),
     });
 }
 
