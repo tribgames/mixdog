@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.158 - 2026-08-31
+
 - The Extensions hub now gives Git, Memory, Browser Use, Computer Use, Office,
   and voice a consistent install, progress, enable, and disable flow. Optional
   runtimes are prepared on demand, Office can install LibreOffice through the
