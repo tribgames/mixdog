@@ -10,7 +10,10 @@
 import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { validateBrowserToolArgs } from './action-schema.mjs';
+import {
+  BROWSER_OBSERVATION_ACTIONS,
+  validateBrowserToolArgs,
+} from './action-schema.mjs';
 
 const DISCOVERY_FILE = 'browser-bridge.json';
 const DISCOVERY_VERSION = 1;
@@ -20,6 +23,15 @@ const DISCOVERY_MAX_AGE_MS = 5 * 60_000;
 /** Ceiling above the bridge's own per-action timeouts (navigation settle,
  *  surface auto-open), so the bridge's specific error wins over a bare abort. */
 const REQUEST_TIMEOUT_MS = 45_000;
+const MAX_REQUEST_BYTES = 256 * 1024;
+const MAX_RESPONSE_BYTES = 150 * 1024 * 1024;
+const MAX_TEXT_CHARS = 250_000;
+const MAX_IMAGE_BASE64_CHARS = Math.ceil(100 * 1024 * 1024 * 4 / 3) + 4;
+const MAX_FILE_BASE64_CHARS = Math.ceil(8 * 1024 * 1024 * 4 / 3) + 4;
+const SAFE_RASTER_IMAGE_TYPES = new Set([
+  'image/gif', 'image/jpeg', 'image/png', 'image/webp',
+]);
+const RETRYABLE_ACTIONS = new Set(BROWSER_OBSERVATION_ACTIONS);
 
 const BRIDGE_UNAVAILABLE_MESSAGE =
   'browser use is unavailable; open the Mixdog desktop app (the browser tool drives its Utilities → Browser Use pane)';
@@ -52,16 +64,50 @@ function readDiscovery() {
   return { port, token };
 }
 
+class BrowserBridgeResponseError extends Error {}
+
+async function requestBridge(discovery, encodedPayload, signal) {
+  const response = await fetch(`http://127.0.0.1:${discovery.port}/command`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${discovery.token}`,
+    },
+    body: encodedPayload,
+    signal,
+  });
+  const contentLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
+    await response.body?.cancel().catch(() => {});
+    throw new BrowserBridgeResponseError(
+      `browser bridge response exceeds ${MAX_RESPONSE_BYTES} bytes`,
+    );
+  }
+  try {
+    return { body: await response.json(), status: response.status };
+  } catch {
+    throw new BrowserBridgeResponseError(
+      `browser bridge returned an invalid response (HTTP ${response.status})`,
+    );
+  }
+}
+
+function uncertainMutation(message) {
+  return {
+    content: [{
+      type: 'text',
+      text: `Error: ${message}; the action may have executed and was not replayed`,
+    }],
+    isError: true,
+  };
+}
+
 /** Execute one `browser` tool call. Returns MCP-shaped content so the
  *  internal-tools normalizer forwards text and screenshot images as-is. */
 export async function executeBrowserTool(args, options = {}) {
   const validated = validateBrowserToolArgs(args);
   if (!validated.ok) {
     return { content: [{ type: 'text', text: `Error: ${validated.error}` }], isError: true };
-  }
-  let discovery = readDiscovery();
-  if (!discovery) {
-    return { content: [{ type: 'text', text: `Error: ${BRIDGE_UNAVAILABLE_MESSAGE}` }], isError: true };
   }
   const payload = {
     action: validated.action,
@@ -71,80 +117,118 @@ export async function executeBrowserTool(args, options = {}) {
       ? { turn_id: Math.trunc(Number(options.turnId)) }
       : {}),
   };
-  let response;
+  const encodedPayload = JSON.stringify(payload);
+  if (Buffer.byteLength(encodedPayload) > MAX_REQUEST_BYTES) {
+    return {
+      content: [{ type: 'text', text: `Error: browser command exceeds ${MAX_REQUEST_BYTES} bytes` }],
+      isError: true,
+    };
+  }
+  let discovery = readDiscovery();
+  if (!discovery) {
+    return { content: [{ type: 'text', text: `Error: ${BRIDGE_UNAVAILABLE_MESSAGE}` }], isError: true };
+  }
+  let bridgeResult;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      response = await fetch(`http://127.0.0.1:${discovery.port}/command`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${discovery.token}`,
-        },
-        body: JSON.stringify(payload),
-        signal: options.signal
+      bridgeResult = await requestBridge(
+        discovery,
+        encodedPayload,
+        options.signal
           ? AbortSignal.any([AbortSignal.timeout(REQUEST_TIMEOUT_MS), options.signal])
           : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
+      );
       break;
     } catch (error) {
       if (error?.name === 'TimeoutError') {
-        return { content: [{ type: 'text', text: 'Error: browser bridge timed out and cancelled the active command' }], isError: true };
+        return RETRYABLE_ACTIONS.has(validated.action)
+          ? { content: [{ type: 'text', text: 'Error: browser bridge timed out and cancelled the active command' }], isError: true }
+          : uncertainMutation('browser bridge timed out and cancelled the active command');
       }
       if (options.signal?.aborted) {
-        return { content: [{ type: 'text', text: 'Error: browser command cancelled' }], isError: true };
+        return RETRYABLE_ACTIONS.has(validated.action)
+          ? { content: [{ type: 'text', text: 'Error: browser command cancelled' }], isError: true }
+          : uncertainMutation('browser command cancelled');
       }
       const replacement = readDiscovery();
       const changed = replacement
         && (replacement.port !== discovery.port || replacement.token !== discovery.token);
       if (attempt === 0 && changed) {
-        discovery = replacement;
-        continue;
+        if (RETRYABLE_ACTIONS.has(validated.action)) {
+          discovery = replacement;
+          continue;
+        }
+        return uncertainMutation('browser bridge was replaced after command dispatch');
+      }
+      if (!RETRYABLE_ACTIONS.has(validated.action)) {
+        const message = error instanceof BrowserBridgeResponseError
+          ? error.message
+          : 'browser bridge connection failed after command dispatch';
+        return uncertainMutation(message);
+      }
+      if (error instanceof BrowserBridgeResponseError) {
+        return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
       }
       return { content: [{ type: 'text', text: `Error: ${BRIDGE_UNAVAILABLE_MESSAGE}` }], isError: true };
     }
   }
-  if (!response) {
+  if (!bridgeResult) {
     return { content: [{ type: 'text', text: `Error: ${BRIDGE_UNAVAILABLE_MESSAGE}` }], isError: true };
   }
-  let body;
-  try {
-    body = await response.json();
-  } catch {
-    return { content: [{ type: 'text', text: `Error: browser bridge returned an invalid response (HTTP ${response.status})` }], isError: true };
-  }
+  const { body, status } = bridgeResult;
   if (!body?.ok) {
-    const message = String(body?.error || `browser bridge request failed (HTTP ${response.status})`);
+    const message = String(body?.error || `browser bridge request failed (HTTP ${status})`);
     return { content: [{ type: 'text', text: message.startsWith('Error:') ? message : `Error: ${message}` }], isError: true };
   }
-  const value = body.value || {};
-  const content = [{ type: 'text', text: String(value.text || 'OK') }];
+  const value = body.value && typeof body.value === 'object' && !Array.isArray(body.value)
+    ? body.value
+    : {};
+  const text = String(value.text || 'OK');
+  if (text.length > MAX_TEXT_CHARS) {
+    return { content: [{ type: 'text', text: 'Error: browser bridge returned oversized text' }], isError: true };
+  }
+  const content = [{ type: 'text', text }];
   if (value.image?.data && value.image?.mimeType) {
+    const mimeType = String(value.image.mimeType);
+    const data = String(value.image.data);
+    if (!['image/jpeg', 'image/png'].includes(mimeType)
+      || data.length > MAX_IMAGE_BASE64_CHARS) {
+      return { content: [{ type: 'text', text: 'Error: browser bridge returned an invalid image' }], isError: true };
+    }
     content.push({
       type: 'image',
       source: {
         type: 'base64',
-        media_type: String(value.image.mimeType),
-        data: String(value.image.data),
+        media_type: mimeType,
+        data,
       },
     });
   }
   if (value.file?.data && value.file?.mimeType) {
     const mimeType = String(value.file.mimeType);
-    if (mimeType.startsWith('image/')) {
+    const data = String(value.file.data);
+    const filename = String(value.file.name || 'download');
+    if (!/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(mimeType)
+      || filename.length > 255
+      || /[\u0000-\u001f/\\]/.test(filename)
+      || data.length > MAX_FILE_BASE64_CHARS) {
+      return { content: [{ type: 'text', text: 'Error: browser bridge returned an invalid file' }], isError: true };
+    }
+    if (SAFE_RASTER_IMAGE_TYPES.has(mimeType.toLowerCase())) {
       content.push({
         type: 'image',
         source: {
           type: 'base64',
           media_type: mimeType,
-          data: String(value.file.data),
+          data,
         },
       });
     } else {
       content.push({
         type: 'file',
-        data: String(value.file.data),
+        data,
         mimeType,
-        filename: String(value.file.name || 'download'),
+        filename,
       });
     }
   }

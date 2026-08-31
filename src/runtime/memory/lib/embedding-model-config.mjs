@@ -1,16 +1,15 @@
-const DEFAULT_MODEL_ID = 'onnx-community/harrier-oss-v1-270m-ONNX'
-const HARRIER_QUERY_PREFIX = 'Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery: '
+const DEFAULT_MODEL_ID = 'Xenova/multilingual-e5-small'
 
 const MODEL_PROFILES = Object.freeze({
   [DEFAULT_MODEL_ID]: Object.freeze({
-    dims: 640,
-    defaultDtype: 'q4',
+    dims: 384,
+    defaultDtype: 'q8',
     defaultDevice: 'cpu',
-    modelFileName: 'model',
-    outputName: 'sentence_embedding',
-    pooling: 'last_token',
-    queryPrefix: HARRIER_QUERY_PREFIX,
-    supportedDtypes: Object.freeze(['fp32', 'fp16', 'q8', 'q4']),
+    outputName: '',
+    pooling: 'mean',
+    queryPrefix: 'query: ',
+    documentPrefix: 'passage: ',
+    supportedDtypes: Object.freeze(['q8']),
   }),
   'ibm-granite/granite-embedding-97m-multilingual-r2': Object.freeze({
     dims: 384,
@@ -18,8 +17,9 @@ const MODEL_PROFILES = Object.freeze({
     defaultDevice: 'cpu',
     modelFileName: 'model_quint8_avx2',
     outputName: '',
-    pooling: 'mean',
+    pooling: 'cls',
     queryPrefix: '',
+    documentPrefix: '',
     supportedDtypes: Object.freeze(['fp32']),
   }),
   'Xenova/bge-m3': Object.freeze({
@@ -29,6 +29,7 @@ const MODEL_PROFILES = Object.freeze({
     outputName: '',
     pooling: 'mean',
     queryPrefix: '',
+    documentPrefix: '',
     supportedDtypes: Object.freeze(['fp32', 'fp16', 'q8', 'q4']),
   }),
 })
@@ -85,7 +86,10 @@ export function normalizeEmbeddingInputType(inputType) {
 
 export function prepareEmbeddingInput(text, inputType = 'document', modelId = getConfiguredEmbeddingModelId()) {
   const cleanText = clean(text)
-  if (!cleanText || normalizeEmbeddingInputType(inputType) !== 'query') return cleanText
-  const prefix = getEmbeddingModelProfile(modelId)?.queryPrefix || ''
+  if (!cleanText) return cleanText
+  const profile = getEmbeddingModelProfile(modelId)
+  const prefix = normalizeEmbeddingInputType(inputType) === 'query'
+    ? profile?.queryPrefix || ''
+    : profile?.documentPrefix || ''
   return `${prefix}${cleanText}`
 }

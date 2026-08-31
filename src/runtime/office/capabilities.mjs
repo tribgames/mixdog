@@ -36,16 +36,20 @@ const CATALOG = {
   docx: {
     paths: ['/body/p[N]', '/body/p[N]/run[N]', '/body/tbl[N]/row[N]/cell[N]', '/body/comment[N]', '/body/comment-thread[N]', '/body/revision[N]', '/body/footnote[N]', '/body/endnote[N]', '/body/content-control[N]'],
     operations: {
-      common: ['replace_text', 'fill_template', 'compose_document', 'append_text', 'set_paragraph_text', 'set_run_text', 'set_table_cell', 'remove_paragraph', 'move_paragraph', 'add_table', 'set_table_style', 'merge_table_cells', 'set_table_cell_style', 'set_paragraph_format', 'set_font', 'add_image', 'set_header_footer', 'set_page', 'add_page_numbers', 'insert_break', 'set_list', 'add_hyperlink', 'insert_table_row', 'delete_table_row', 'insert_table_column', 'delete_table_column', 'insert_toc', 'add_bookmark', 'add_comment', 'delete_comment', 'add_provenance', 'fit_table', 'resolve_revision', 'resolve_revisions', 'track_changes', 'add_comment_reply', 'set_comment_resolved'],
+      common: ['replace_text', 'fill_template', 'compose_document', 'append_text', 'set_paragraph_text', 'set_table_cell', 'remove_paragraph', 'move_paragraph', 'add_table', 'set_table_style', 'merge_table_cells', 'set_table_cell_style', 'set_paragraph_format', 'set_font', 'add_image', 'set_header_footer', 'set_page', 'add_page_numbers', 'insert_break', 'set_list', 'add_hyperlink', 'insert_table_row', 'delete_table_row', 'insert_table_column', 'delete_table_column', 'insert_toc', 'add_bookmark', 'add_comment', 'delete_comment', 'add_provenance', 'fit_table', 'resolve_revision', 'resolve_revisions', 'track_changes', 'add_comment_reply', 'set_comment_resolved'],
       office: ['set_paragraph_style'],
-      portable: ['set_paragraph_style'],
+      // set_run_text addresses OOXML runs. Word exposes no run object, so the
+      // Office backend could only edit the Nth word instead, silently rewriting
+      // different text for the same index. It stays portable-only rather than
+      // meaning two different things.
+      portable: ['set_paragraph_style', 'set_run_text'],
     },
     properties: {
       paragraph: ['style'],
       font: ['name', 'size', 'bold', 'italic', 'color'],
       page: ['orientation', 'topMargin', 'bottomMargin', 'leftMargin', 'rightMargin'],
       headerFooter: ['section', 'kind', 'header', 'text'],
-      table: ['style', 'textStyle', 'fontName', 'fontSize', 'color', 'spacingAfter', 'columnWidths', 'borders', 'shading', 'alignment'],
+      table: ['style', 'textStyle', 'fontName', 'fontSize', 'color', 'spacingAfter', 'columnWidths', 'rowHeights', 'borders', 'shading', 'alignment'],
       tableCell: ['fillColor', 'verticalAlignment', 'width', 'fontName', 'fontSize', 'bold', 'italic', 'color'],
       paragraphFormat: ['alignment', 'spacingBefore', 'spacingAfter', 'lineSpacing', 'keepWithNext', 'pageBreakBefore', 'border', 'tabStops', 'listKind', 'listLevel'],
       comment: ['author', 'initials', 'date', 'text', 'anchoredText', 'resolved', 'replies'],
@@ -60,8 +64,8 @@ const CATALOG = {
   xlsx: {
     paths: ['/sheet[NAME]', '/sheet[NAME]/cell[A1]', '/sheet[NAME]/range[A1:C10]'],
     operations: {
-      common: ['replace_text', 'set_cell', 'set_formula', 'set_range', 'append_row', 'clear_cell', 'compose_sheet', 'add_sheet', 'delete_sheet', 'rename_sheet', 'set_style', 'merge_cells', 'unmerge_cells', 'freeze_panes', 'autofit_range', 'set_page_setup', 'set_sheet_view', 'add_chart', 'add_table', 'insert_rows', 'delete_rows', 'insert_columns', 'delete_columns', 'set_autofilter', 'set_sheet_visibility', 'define_name', 'delete_name', 'copy_sheet', 'add_image', 'set_hyperlink', 'protect_sheet', 'unprotect_sheet', 'add_validation', 'add_conditional_format', 'delete_conditional_formats', 'add_note', 'delete_note', 'add_provenance'],
-      office: ['add_pivot_table'],
+      common: ['replace_text', 'set_cell', 'set_formula', 'set_range', 'append_row', 'clear_cell', 'compose_sheet', 'add_sheet', 'delete_sheet', 'rename_sheet', 'set_style', 'merge_cells', 'unmerge_cells', 'freeze_panes', 'autofit_range', 'set_page_setup', 'set_sheet_view', 'add_chart', 'add_table', 'insert_rows', 'delete_rows', 'insert_columns', 'delete_columns', 'set_autofilter', 'set_sheet_visibility', 'define_name', 'delete_name', 'copy_sheet', 'add_image', 'set_hyperlink', 'protect_sheet', 'unprotect_sheet', 'add_validation', 'add_conditional_format', 'delete_conditional_formats', 'add_note', 'delete_note', 'add_provenance', 'add_pivot_table'],
+      office: [],
       portable: [],
     },
     properties: {
@@ -74,7 +78,7 @@ const CATALOG = {
       links: ['address', 'text'],
       protection: ['password', 'allowFormattingCells', 'allowSorting', 'allowFiltering'],
       audit: ['conditionalFormats', 'formulaLineage', 'checksSheet', 'hardcodeSource', 'rogueHardcode'],
-      pageSetup: ['printArea', 'orientation', 'fitToPagesWide', 'fitToPagesTall', 'centerHorizontally', 'topMargin', 'bottomMargin', 'leftMargin', 'rightMargin'],
+      pageSetup: ['printArea', 'fitToContent', 'orientation', 'fitToPagesWide', 'fitToPagesTall', 'centerHorizontally', 'centerVertically', 'topMargin', 'bottomMargin', 'leftMargin', 'rightMargin'],
       sheetView: ['showGridlines', 'zoom'],
       provenance: ['source.document', 'source.target', 'source.label'],
       design: ['profile', 'purpose', 'expressionMode', 'intent', 'audience', 'tone', 'density', 'palette', 'typography', 'signature', 'content.packageId', 'content.audience', 'content.objective', 'content.decision', 'content.period', 'content.facts', 'content.claims', 'review'],
@@ -83,8 +87,8 @@ const CATALOG = {
   pptx: {
     paths: ['/slide[N]', '/slide[N]/shape[N]'],
     operations: {
-      common: ['replace_text', 'fill_template', 'set_text', 'add_textbox', 'delete_shape', 'compose_slide', 'add_slide', 'delete_slide', 'move_slide', 'set_notes', 'add_image', 'add_shape', 'add_table', 'set_shape', 'set_slide_background', 'import_slides', 'replace_image', 'set_table_data', 'fit_text', 'add_chart', 'set_chart_data', 'duplicate_slide', 'z_order', 'align_shapes', 'distribute_shapes', 'keep_slides', 'set_hyperlink', 'add_provenance', 'set_layout', 'crop_image', 'set_transition', 'set_footer', 'set_slide_number', 'set_chart_axis', 'set_chart_data_labels', 'group_shapes', 'ungroup_shape', 'set_chart_trendline', 'set_chart_error_bars', 'set_chart_series', 'add_comment', 'delete_comment', 'apply_theme', 'add_media'],
-      office: ['add_animation'],
+      common: ['replace_text', 'fill_template', 'set_text', 'add_textbox', 'delete_shape', 'compose_slide', 'add_slide', 'delete_slide', 'move_slide', 'set_notes', 'add_image', 'add_shape', 'add_table', 'set_shape', 'set_slide_background', 'import_slides', 'replace_image', 'set_table_data', 'fit_text', 'add_chart', 'set_chart_data', 'duplicate_slide', 'z_order', 'align_shapes', 'distribute_shapes', 'keep_slides', 'set_hyperlink', 'add_provenance', 'set_layout', 'crop_image', 'set_transition', 'set_footer', 'set_slide_number', 'set_chart_axis', 'set_chart_data_labels', 'group_shapes', 'ungroup_shape', 'set_chart_trendline', 'set_chart_error_bars', 'set_chart_series', 'add_comment', 'delete_comment', 'apply_theme', 'add_media', 'add_animation'],
+      office: [],
       portable: [],
     },
     properties: {
@@ -143,7 +147,7 @@ const COMMON_SIGNATURES = {
 
 const FORMAT_SIGNATURES = {
   docx: {
-    compose_document: signature(['title'], ['claimId', 'purpose', 'expressionMode', 'variant', 'subtitle', 'summary', 'meta', 'sections', 'footer', 'orientation', 'pageNumbers'], {
+    compose_document: signature(['title'], ['claimId', 'purpose', 'expressionMode', 'variant', 'subtitle', 'summary', 'summaryLabel', 'meta', 'sections', 'footer', 'orientation', 'pageNumbers'], {
       propertySets: ['design'],
       notes: 'Purpose-aware native Word composition; variant is optional because content topology selects the default.',
     }),
@@ -190,7 +194,7 @@ const FORMAT_SIGNATURES = {
     add_provenance: signature(['paragraph', 'source'], [], { propertySets: ['provenance'] }),
   },
   xlsx: {
-    compose_sheet: signature(['rows'], ['claimId', 'purpose', 'expressionMode', 'variant', 'sheet', 'kind', 'title', 'subtitle', 'source', 'headers', 'metrics', 'insights', 'columnFormats', 'tableName', 'tableStyle', 'chart'], {
+    compose_sheet: signature(['rows'], ['claimId', 'purpose', 'expressionMode', 'variant', 'sheet', 'kind', 'title', 'subtitle', 'source', 'headers', 'metrics', 'insights', 'decision', 'gates', 'actions', 'columnFormats', 'tableName', 'tableStyle', 'chart'], {
       propertySets: ['design'],
       notes: 'Purpose-aware native Excel composition with content-selected dashboard, trend, comparison, scorecard, or analysis layout.',
     }),
@@ -223,7 +227,7 @@ const FORMAT_SIGNATURES = {
     autofit_range: signature(['range'], ['sheet', 'rows'], {
       notes: 'Accepts cell, whole-column, or whole-row ranges such as A1:D5, A:D, or 2:8.',
     }),
-    set_page_setup: signature([], ['sheet', 'printArea', 'orientation', 'fitToPagesWide', 'fitToPagesTall', 'centerHorizontally', 'centerVertically', 'topMargin', 'bottomMargin', 'leftMargin', 'rightMargin'], {
+    set_page_setup: signature([], ['sheet', 'printArea', 'fitToContent', 'orientation', 'fitToPagesWide', 'fitToPagesTall', 'centerHorizontally', 'centerVertically', 'topMargin', 'bottomMargin', 'leftMargin', 'rightMargin'], {
       propertySets: ['pageSetup'],
     }),
     set_sheet_view: signature([], ['sheet', 'showGridlines', 'zoom'], {
@@ -249,7 +253,7 @@ const FORMAT_SIGNATURES = {
   pptx: {
     compose_slide: signature(['kind'], ['claimId', 'purpose', 'expressionMode', 'title', 'subtitle', 'takeaway', 'eyebrow', 'body', 'bullets', 'metrics', 'columns', 'steps', 'chart', 'table', 'image', 'imagePath', 'visualText', 'visualLabel', 'meta', 'notes', 'source', 'background', 'backgroundRole', 'slideRole', 'plan', 'create', 'slide', 'layoutId', 'variant', 'titleSize'], {
       propertySets: ['design'],
-      notes: 'Template-first semantic slide; generic content is reclassified from its evidence, while explicit layoutId or variant stays pinned.',
+      notes: 'Model-first semantic slide. New scratch slides require plan.regions with 0-100 x/y/w/h boxes and roles: eyebrow, title, subtitle, meta, body, bullets, metric, metrics, chart, table, image, visual, process, comparison, shape, source. The renderer repairs safe bounds and small collisions; invalid plans fail for replanning and never fall back to a template. Native templates run only when layoutId or design.deck.templateMode prefer/strict is explicitly requested.',
     }),
     set_text: signature(['slide', 'shape', 'text']),
     add_textbox: signature(['slide', 'text'], ['paragraphs', 'left', 'top', 'width', 'height', 'fontName', 'fontSize', 'color', 'properties'], { propertySets: ['shape', 'authoring'] }),

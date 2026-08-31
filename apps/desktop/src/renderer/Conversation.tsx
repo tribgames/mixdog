@@ -1213,6 +1213,7 @@ export function Conversation({
           onOpenProjects={composerOnOpenProjects}
           onOpenSettings={composerOnOpenSettings}
           onOpenCommandSurface={composerOnOpenCommandSurface}
+          paneActive={reviewActive}
           dropTargetRef={conversation} />
       </div>}
     </section>

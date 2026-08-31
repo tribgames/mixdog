@@ -120,6 +120,7 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
     assert.deepEqual(errors, []);
     assert.equal(runtimeOptions[0].approvalMode, 'implicit');
     assert.equal(runtimeOptions[0].disallowDelegation, true);
+    assert.equal(runtimeOptions[0].toolProfile, 'headless');
     assert.deepEqual(runtimeOptions[0].initialConfig.workflow, { active: 'headless' });
     assert.equal(runtimeOptions[0].autoWakeCompletions, false);
     assert.equal(runtimeOptions[0].toolMode, 'full');
@@ -393,6 +394,7 @@ test('headless exec emits a timestamped JSONL lifecycle and exact tool count', a
     const events = output.join('').trim().split('\n').map((line) => JSON.parse(line));
     assert.equal(events[0].type, 'thread.started');
     assert.equal(events[1].type, 'turn.started');
+    assert.equal(Object.hasOwn(events[0].session, 'memory'), false);
     assert.ok(events.every((event) => event.schema_version === 1 && event.timestamp));
     const toolStarted = events.find(
       (event) => event.type === 'item.started' && event.item?.type === 'tool_call',
@@ -536,4 +538,16 @@ test('headless exec rejects workflow selection', () => {
   ]);
   assert.equal(invocation.kind, 'error');
   assert.equal(invocation.error, 'option --workflow is not supported for mixdog exec');
+});
+
+test('headless exec rejects memory because pristine state is discarded', () => {
+  const invocation = classifyCliInvocation([
+    'exec',
+    '--provider', 'openai-oauth',
+    '--model', 'gpt-test',
+    '--memory',
+    'fix it',
+  ]);
+  assert.equal(invocation.kind, 'error');
+  assert.equal(invocation.error, 'option --memory is not supported for mixdog exec');
 });

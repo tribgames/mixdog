@@ -106,6 +106,9 @@ export function createContextStatus({
       contextPressureBaselineModel: session?.contextPressureBaselineModel || null,
       contextPressureBaselineToolSignature: session?.contextPressureBaselineToolSignature || null,
       contextPressureBaselinePrefixSignature: session?.contextPressureBaselinePrefixSignature || null,
+      contextPressureBaselineSource: session?.contextPressureBaselineSource || null,
+      contextPressureUnanchoredAfterRestart: session?.contextPressureUnanchoredAfterRestart === true,
+      contextPressureUnanchoredReason: session?.contextPressureUnanchoredReason || null,
       totalInputTokens: Number(session?.totalInputTokens || 0),
       totalUncachedInputTokens: Number(session?.totalUncachedInputTokens || 0),
       totalOutputTokens: Number(session?.totalOutputTokens || 0),
@@ -300,7 +303,13 @@ export function createContextStatus({
       rawContextWindow: rawWindow || null,
       effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
       usedTokens,
-      usedSource: 'estimated',
+      usedSource: usageSnapshot
+        ? 'post_compact'
+        : session?.contextPressureUnanchoredAfterRestart === true
+          ? 'provider_resume'
+          : session?.contextPressureBaselineTokens
+            ? 'provider'
+            : 'estimated',
       currentEstimatedTokens: usedTokens,
       lastApiRequestTokens: lastContextTokens || 0,
       lastApiRequestStale: lastUsageStale,

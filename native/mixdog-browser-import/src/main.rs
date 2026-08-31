@@ -6,6 +6,10 @@ use chromium_importer::chromium::{import_logins, LoginImportResult};
 use serde::Serialize;
 use zeroize::Zeroize;
 
+mod abe_client;
+mod cookies;
+mod keys;
+
 const MAX_KEY_INPUT_BYTES: u64 = 256;
 
 #[derive(Serialize)]
@@ -62,8 +66,8 @@ fn read_transport_key() -> Result<[u8; 32], ()> {
     Ok(key)
 }
 
-fn seal_credentials(mut key: [u8; 32], credentials: &[Credential]) -> Result<String, ()> {
-    let mut plaintext = serde_json::to_vec(credentials).map_err(|_| ())?;
+fn seal<T: Serialize>(mut key: [u8; 32], value: &T) -> Result<String, ()> {
+    let mut plaintext = serde_json::to_vec(value).map_err(|_| ())?;
     let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| ())?;
     let nonce = rand::random::<[u8; 12]>();
     let ciphertext = cipher
@@ -87,13 +91,20 @@ fn fail(message: &str, code: i32) -> ! {
 #[tokio::main]
 async fn main() {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    let profile = argument(&args, "--profile");
-    let upstream_browser = argument(&args, "--browser")
+    match args.first().map(String::as_str) {
+        Some("import-passwords") => run_import_passwords(&args).await,
+        Some("import-cookies") => run_import_cookies(&args).await,
+        _ => fail("Invalid importer command.", 2),
+    }
+}
+
+/// Validate the shared argument shape and return the requested profile id.
+fn parse_common(args: &[String], command: &str) -> String {
+    let profile = argument(args, "--profile");
+    let upstream_browser = argument(args, "--browser")
         .as_deref()
         .and_then(upstream_browser_name);
-    let valid = args
-        .first()
-        .is_some_and(|value| value == "import-passwords")
+    let valid = args.first().is_some_and(|value| value == command)
         && upstream_browser.is_some()
         && args.iter().any(|value| value == "--json")
         && profile.as_ref().is_some_and(|value| {
@@ -102,15 +113,15 @@ async fn main() {
     if !valid {
         fail("Invalid importer arguments.", 2);
     }
+    profile.unwrap_or_default()
+}
 
+async fn run_import_passwords(args: &[String]) -> ! {
+    let profile = parse_common(args, "import-passwords");
     let key = read_transport_key().unwrap_or_else(|_| fail("Invalid importer transport key.", 2));
-    let results = import_logins(
-        upstream_browser.unwrap_or_default(),
-        profile.as_deref().unwrap_or_default(),
-        false,
-    )
-    .await
-    .unwrap_or_else(|_| fail("Chrome password import failed.", 1));
+    let results = import_logins("Chrome", &profile, false)
+        .await
+        .unwrap_or_else(|_| fail("Chrome password import failed.", 1));
 
     let mut failures = 0_usize;
     let credentials = results
@@ -132,9 +143,22 @@ async fn main() {
         fail("Chrome password decryption failed.", 1);
     }
 
-    let envelope = seal_credentials(key, &credentials)
+    let envelope = seal(key, &credentials)
         .unwrap_or_else(|_| fail("Chrome password import encryption failed.", 1));
     print!("{envelope}");
+    std::process::exit(0);
+}
+
+async fn run_import_cookies(args: &[String]) -> ! {
+    let profile = parse_common(args, "import-cookies");
+    let key = read_transport_key().unwrap_or_else(|_| fail("Invalid importer transport key.", 2));
+    let cookies = cookies::import_chrome_cookies(&profile)
+        .await
+        .unwrap_or_else(|error| fail(&format!("Chrome cookie import failed: {error}"), 1));
+    let envelope =
+        seal(key, &cookies).unwrap_or_else(|_| fail("Chrome cookie import encryption failed.", 1));
+    print!("{envelope}");
+    std::process::exit(0);
 }
 
 #[cfg(test)]
@@ -157,7 +181,7 @@ mod tests {
             password: "fixture-secret".to_string(),
             note: String::new(),
         }];
-        let output = seal_credentials(key, &credentials).expect("seal");
+        let output = seal(key, &credentials).expect("seal");
         assert!(!output.contains("fixture-secret"));
         let envelope: serde_json::Value = serde_json::from_str(&output).expect("json");
         let nonce: [u8; 12] = BASE64_STANDARD

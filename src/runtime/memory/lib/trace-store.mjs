@@ -6,6 +6,7 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
 
 import { ensurePgInstance, checkedConnect, closePgInstance } from './pg/adapter.mjs'
 import { resolve } from 'path'
+import { cleanupTraceWhenDisabled, traceEnabled } from './trace-mode.mjs'
 
 const dbs = new Map()
 const opening = new Map()
@@ -270,7 +271,7 @@ function _capToolArgsSync(args) {
 }
 
 export async function insertAgentCalls(db, events) {
-  if (!Array.isArray(events) || events.length === 0) return { calls: 0, llm: 0 }
+  if (!db || !Array.isArray(events) || events.length === 0) return { calls: 0, llm: 0 }
   const toolRows = []
   const llmRows  = []
   for (const ev of events) {
@@ -493,32 +494,25 @@ async function ensureCurrentAndNextMonthPartitions(client) {
   `)
 }
 
-// Trace retention: drop named monthly partitions older than the configured
-// window. Trace is regenerable observability data, so aging out old months is
-// non-destructive to durable state. Config via MIXDOG_TRACE_RETENTION_MONTHS
-// (default 1); set to 0 to disable. Only DROPs partitions strictly older than
-// the cutoff month; the default catch-all partition is never dropped.
-// Default rationale: a personal-machine audit found trace partitions at 76%
-// of the 1.5 GB memory DB (July alone 787 MB) while durable entries were
-// 207 MB. Monthly partitions mean retention 1 always keeps the current +
-// previous month (30-60 days of full-resolution diagnostics) while bounding
-// the DB to a rolling ceiling instead of unbounded growth.
-const TRACE_RETENTION_MONTHS = (() => {
-  const raw = process.env.MIXDOG_TRACE_RETENTION_MONTHS
-  if (raw == null || raw === '') return 1
+// Full trace is personal developer diagnostics. Keep a short rolling window so
+// opting in never turns the shared memory database into an unbounded event log.
+const TRACE_RETENTION_DAYS = (() => {
+  const raw = process.env.MIXDOG_TRACE_RETENTION_DAYS
+  if (raw == null || raw === '') return 7
   const n = Number(raw)
-  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 1
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 7
 })()
+const TRACE_RETENTION_DELETE_BATCH = 5000
 
 async function dropAgedTracePartitions(client) {
-  if (TRACE_RETENTION_MONTHS <= 0) return
-  // DO blocks take no bind params, so compute the cutoff month in SQL and pass
-  // the retention count as a literal (validated integer above — no injection).
-  const months = TRACE_RETENTION_MONTHS
+  if (TRACE_RETENTION_DAYS <= 0) return
+  // Whole old partitions reclaim disk immediately. The active cutoff month is
+  // row-pruned below because it can contain both retained and expired days.
+  const days = TRACE_RETENTION_DAYS
   await client.query(`
     DO $$
     DECLARE
-      cutoff   TEXT := to_char(now() - interval '${months} months', 'YYYY_MM');
+      cutoff   TEXT := to_char(now() - interval '${days} days', 'YYYY_MM');
       part     RECORD;
     BEGIN
       FOR part IN
@@ -535,19 +529,57 @@ async function dropAgedTracePartitions(client) {
   `)
 }
 
-// Row-level ageing for the non-partitioned trace side tables. agent_calls and
-// agent_llm grew unbounded (284 MB observed) because only trace_events had a
-// retention path. Same window, same regenerable-diagnostics rationale; space
-// is reclaimed by autovacuum row reuse rather than immediate disk shrink.
-async function deleteAgedTraceRows(client) {
-  if (TRACE_RETENTION_MONTHS <= 0) return
-  const months = TRACE_RETENTION_MONTHS
-  for (const table of ['agent_calls', 'agent_llm', 'bridge_calls', 'bridge_llm']) {
+// Delete in small transactions so first boot after an update never holds one
+// giant lock or allocates a single huge WAL transaction. Autovacuum reuses the
+// reclaimed pages; old whole-month partitions are dropped above.
+export async function pruneAgedTraceRows(client, nowMs = Date.now()) {
+  if (TRACE_RETENTION_DAYS <= 0) return
+  const cutoffMs = nowMs - TRACE_RETENTION_DAYS * 86_400_000
+  const plans = [
+    {
+      table: 'trace_events',
+      sql: `WITH doomed AS (
+              SELECT tableoid, ctid FROM trace_events
+               WHERE ts < $1 LIMIT $2
+            )
+            DELETE FROM trace_events target USING doomed
+             WHERE target.tableoid = doomed.tableoid AND target.ctid = doomed.ctid`,
+    },
+    ...['agent_calls', 'agent_llm', 'bridge_calls', 'bridge_llm'].map((table) => ({
+      table,
+      sql: `DELETE FROM ${table}
+             WHERE id = ANY(ARRAY(
+               SELECT id FROM ${table}
+                WHERE ts < to_timestamp($1 / 1000.0) LIMIT $2
+             ))`,
+    })),
+  ]
+  for (const plan of plans) {
     try {
-      await client.query(`DELETE FROM ${table} WHERE ts < now() - interval '${months} months'`)
+      let guard = 0
+      while (guard++ < 10_000) {
+        const result = await client.query(plan.sql, [cutoffMs, TRACE_RETENTION_DELETE_BATCH])
+        if (Number(result.rowCount ?? 0) < TRACE_RETENTION_DELETE_BATCH) break
+        await new Promise((resolvePromise) => setImmediate(resolvePromise))
+      }
     } catch (err) {
-      __mixdogMemoryLog(`[trace-store] aged-row delete skipped for ${table}: ${err?.message ?? err}\n`)
+      __mixdogMemoryLog(`[trace-store] aged-row delete skipped for ${plan.table}: ${err?.message ?? err}\n`)
     }
+  }
+}
+
+async function runTraceRetention(db) {
+  let client
+  try {
+    client = await db._pool.connect()
+    await client.query(`SET search_path = trace, public`)
+    await ensureCurrentAndNextMonthPartitions(client)
+    await dropAgedTracePartitions(client)
+    await pruneAgedTraceRows(client)
+  } catch (err) {
+    __mixdogMemoryLog(`[trace-store] retention failed: ${err?.message ?? err}\n`)
+  } finally {
+    client?.release()
   }
 }
 
@@ -604,6 +636,14 @@ const BOOTSTRAP_LOCK_KEY = `hashtext('mixdog.trace_bootstrap')`
 // ---------------------------------------------------------------------------
 
 export async function openTraceDatabase(dataDir) {
+  if (!traceEnabled(dataDir)) {
+    const cleanup = await cleanupTraceWhenDisabled(dataDir)
+    if (cleanup.dropped) {
+      __mixdogMemoryLog('[trace-store] disabled; removed existing trace diagnostics\n')
+    }
+    return null
+  }
+
   const key = resolve(dataDir)
 
   if (dbs.get(key)) return dbs.get(key)
@@ -666,22 +706,13 @@ export async function openTraceDatabase(dataDir) {
     }
 
     dbs.set(key, db)
+    void runTraceRetention(db)
 
     // Periodically ensure current + next-month partitions exist so a
     // long-running process never hits the default catch-all partition at
     // month rollover. Fires every 12 h — well ahead of any boundary.
     const _partitionEnsureInterval = setInterval(async () => {
-      const c = await db._pool.connect()
-      try {
-        await c.query(`SET search_path = trace, public`)
-        await ensureCurrentAndNextMonthPartitions(c)
-        await dropAgedTracePartitions(c)
-        await deleteAgedTraceRows(c)
-      } catch (err) {
-        __mixdogMemoryLog(`[trace-store] periodic partition ensure failed: ${err?.message ?? err}\n`)
-      } finally {
-        c.release()
-      }
+      await runTraceRetention(db)
     }, 12 * 60 * 60 * 1000)
     _partitionEnsureInterval.unref?.()
     partitionTimers.set(key, _partitionEnsureInterval)
@@ -862,6 +893,7 @@ function unregisterTraceExitDrain(db) {
 }
 
 export function registerTraceExitDrain(db) {
+  if (!db) return
   if (_registeredExitDbs.has(db)) return
 
   async function drainOnExit() {
@@ -908,7 +940,7 @@ export async function closeTraceDatabase(dataDir) {
  * Callers that need a synchronous result should use insertTraceEvents directly.
  */
 export function enqueueTraceEvents(db, events) {
-  if (!Array.isArray(events) || events.length === 0) return
+  if (!db || !Array.isArray(events) || events.length === 0) return
   const q = _getQueue(db)
   q.pending.push({ events: [...events], attempts: 0 })
   // Row cap counts pending EVENTS, not wrappers — a single wrapper with
@@ -944,7 +976,7 @@ async function _insertTraceEventBatches(db, events, onBatchInserted) {
 }
 
 export async function insertTraceEvents(db, events) {
-  if (!Array.isArray(events) || events.length === 0) return { inserted: 0 }
+  if (!db || !Array.isArray(events) || events.length === 0) return { inserted: 0 }
 
   const valuePlaceholders = []
   const params = []

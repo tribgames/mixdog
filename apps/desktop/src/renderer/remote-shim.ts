@@ -1615,6 +1615,19 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     chooseProject: () => Promise.resolve(null),
     chooseFile: () => Promise.resolve(null),
     chooseFiles: () => Promise.resolve(null),
+    // Web Push: the desktop mints the key, this browser subscribes with it and
+    // sends the endpoint straight back through the encrypted socket, so the
+    // relay never learns which device asked to be notified.
+    pushPublicKey: () => call<string>('pushPublicKey'),
+    registerPushSubscription: async (input) => {
+      const profile = await browserProfile();
+      return await call<boolean>('registerPushSubscription', [{
+        ...input,
+        clientId: browserId,
+        label: [profile.browser, profile.platform].filter(Boolean).join(' · '),
+      }]);
+    },
+    removePushSubscription: (endpoint) => call<boolean>('removePushSubscription', [endpoint]),
     startProject: (projectPath) => call('startProject', [projectPath]),
     startProjectTask: (projectPath) => call('startProjectTask', [projectPath]),
     startTask: () => call('startTask'),
@@ -1627,6 +1640,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       try { window.open(target, '_blank', 'noopener'); } catch { /* popup blocked */ }
       return Promise.resolve();
     },
+    remoteBrowserFrame: (previousFrameId) =>
+      call('browserRemoteFrame', [previousFrameId ?? '']),
+    remoteBrowserControl: (input) => call('browserRemoteControl', [input]),
     renameProject: (projectPath, alias) => call('renameProject', [projectPath, alias]),
     removeProject: (projectPath) => call('removeProject', [projectPath]),
     listProjectDir: (projectPath, relDir) => call('listProjectDir', [projectPath, relDir]),
@@ -1634,6 +1650,13 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       call('readProjectFile', [projectPath, relPath, accessToken ?? null]),
     statProjectFile: (projectPath, relPath, accessToken) =>
       call('statProjectFile', [projectPath, relPath, accessToken ?? null]),
+    // No previewDocumentFile here on purpose: its answer is an Electron
+    // protocol URL, which resolves to nothing in a browser. Pages are what a
+    // phone can actually display, and they ride the encrypted lane.
+    previewDocumentPages: (projectPath, relPath, accessToken, options) =>
+      call('previewDocumentPages', [
+        projectPath, relPath, accessToken ?? null, options ?? null,
+      ]),
     writeProjectFile: (projectPath, relPath, content, expectedContent, accessToken, encoding) =>
       call('writeProjectFile', [
         projectPath, relPath, content, expectedContent, accessToken ?? null, encoding ?? null,

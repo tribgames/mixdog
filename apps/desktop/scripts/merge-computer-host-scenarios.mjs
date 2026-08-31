@@ -21,8 +21,15 @@ const reports = await Promise.all(
   sources.map(async (source) => JSON.parse(await readFile(source, 'utf8'))),
 );
 const byId = new Map();
-for (const report of reports) {
-  for (const result of report.results || []) byId.set(result.id, { ...result });
+for (const [reportIndex, report] of reports.entries()) {
+  for (const result of report.results || []) {
+    if (byId.has(result.id)) {
+      throw new Error(
+        `duplicate scenario ${result.id} in ${sources[reportIndex]}; shard inputs must be disjoint`,
+      );
+    }
+    byId.set(result.id, { ...result });
+  }
 }
 for (const id of passOverrides) {
   const result = byId.get(id);

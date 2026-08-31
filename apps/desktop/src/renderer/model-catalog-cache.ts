@@ -1,4 +1,4 @@
-import type { DesktopModelOption } from '../shared/contract';
+import type { DesktopApi, DesktopModelOption } from '../shared/contract';
 
 const MODEL_CATALOG_STORAGE_KEY = 'mixdog.desktop-model-catalog.v2';
 const MODEL_CATALOG_LIMIT = 1_000;
@@ -141,4 +141,66 @@ export function writeCachedModelCatalog(models: DesktopModelOption[]): CachedMod
     // The live catalog remains usable when browser storage is unavailable.
   }
   return catalog;
+}
+
+// ---------------------------------------------------------------------------
+// Shared live request
+// ---------------------------------------------------------------------------
+// Every mounted route control reads the SAME catalog fetch: panes, sessions
+// and remounts must not each hit the daemon for a list that changes daily.
+// The share therefore lives a full day — which is exactly why a FAILED
+// request may never join it. A stored rejection replays the same error to
+// every later caller, so one transient daemon hiccup would pin "Model
+// catalog unavailable" onto a surface that never reloads (the mobile PWA)
+// long after the daemon recovered.
+
+export type SharedModelCatalogRequest = {
+  api: DesktopApi;
+  startedAt: number;
+  full: Promise<DesktopModelOption[]>;
+  setup: Promise<unknown>;
+};
+
+export const SHARED_MODEL_CATALOG_MAX_AGE_MS = 24 * 60 * 60_000;
+let sharedModelCatalogRequest: SharedModelCatalogRequest | null = null;
+
+/** Forgets the shared request, so the next caller fetches again. Guarded by
+ *  identity: a newer request must survive an older one's late failure. */
+function dropSharedModelCatalogRequest(request: SharedModelCatalogRequest): void {
+  if (sharedModelCatalogRequest === request) sharedModelCatalogRequest = null;
+}
+
+/** Drops the shared request unconditionally (provider edits, tests). */
+export function invalidateSharedModelCatalogRequest(): void {
+  sharedModelCatalogRequest = null;
+}
+
+export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest {
+  const current = sharedModelCatalogRequest;
+  if (current
+    && current.api === api
+    && Date.now() - current.startedAt < SHARED_MODEL_CATALOG_MAX_AGE_MS) {
+    return current;
+  }
+  const full = Promise.resolve().then(() =>
+    api.listProviderModels?.({ quick: false }) ?? [])
+    .then((models) => writeCachedModelCatalog(Array.isArray(models) ? models : []).models);
+  const setup = api.invokeCapability
+    ? Promise.resolve().then(() => api.invokeCapability<unknown>({
+        capability: 'getProviderSetup',
+        args: [],
+      })).then((result) => result.value)
+    : Promise.resolve(null);
+  const request: SharedModelCatalogRequest = {
+    api,
+    startedAt: Date.now(),
+    full,
+    setup,
+  };
+  sharedModelCatalogRequest = request;
+  // Eviction rides a DERIVED promise: the caller still receives the original
+  // rejection, and the derived one is handled so nothing reports unhandled.
+  void full.catch(() => dropSharedModelCatalogRequest(request));
+  void setup.catch(() => dropSharedModelCatalogRequest(request));
+  return request;
 }

@@ -180,4 +180,3 @@ export function bindOfficeContent(operation, model) {
     },
   };
 }
-

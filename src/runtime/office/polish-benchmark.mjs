@@ -49,11 +49,12 @@ async function runScenario({
   operations,
   pages,
   auditProfile,
+  visualCritique,
   assertCreated,
   assertFinalized,
 }) {
   const path = join(root, `optimized-${name}.${format}`);
-  const finalized = resultValue(await executeOfficeTool({
+  const initial = resultValue(await executeOfficeTool({
     action: 'create',
     path,
     format,
@@ -67,9 +68,30 @@ async function runScenario({
     ...(auditProfile ? { auditProfile } : {}),
     maxWidth: 900,
   }, { cwd: root }));
-  assert.equal(finalized.batch.changeSummary.noChange, 0);
-  assert.equal(finalized.batch.changeSummary.changed, operations.length);
-  assertCreated(finalized);
+  assert.equal(initial.batch.changeSummary.noChange, 0);
+  assert.equal(initial.batch.changeSummary.changed, operations.length);
+  assertCreated(initial);
+  let finalized = initial;
+  let calls = 1;
+  if (Array.isArray(visualCritique) && visualCritique.length) {
+    assert.equal(initial.reason, 'visual_review_required', JSON.stringify(initial));
+    assert.ok(initial.reviewToken);
+    finalized = resultValue(await executeOfficeTool({
+      action: 'finalize',
+      session: initial.session,
+      failOn: 'warning',
+      autoFix: true,
+      ...(pages ? { pages } : {}),
+      ...(auditProfile ? { auditProfile } : {}),
+      maxWidth: 900,
+      design: {
+        reviewed: true,
+        reviewToken: initial.reviewToken,
+        critique: visualCritique,
+      },
+    }, { cwd: root }));
+    calls += 1;
+  }
   assert.equal(finalized.ok, true, JSON.stringify(finalized));
   assert.equal(finalized.finalized, true);
   assert.equal(finalized.validation.ok, true);
@@ -79,10 +101,10 @@ async function runScenario({
   return {
     name,
     format,
-    calls: 1,
+    calls,
     retries: 0,
     accurate: true,
-    durationMs: duration(finalized),
+    durationMs: duration(initial) + (calls > 1 ? duration(finalized) : 0),
     completionDurationMs: duration(finalized),
     issueCount: finalized.review?.issuesAfter?.length || 0,
     finalizeSteps: finalized.stepMetrics,
@@ -124,6 +146,7 @@ export async function runOfficePolishBenchmark({ keep = false } = {}) {
         { op: 'add_chart', sheet: 'Sheet1', range: 'A1:D5', chartType: 'column', title: '분기별 실적', left: 360, top: 20, width: 420, height: 260 },
         { op: 'freeze_panes', sheet: 'Sheet1', row: 2, column: 1 },
         { op: 'autofit_range', sheet: 'Sheet1', range: 'A:D' },
+        { op: 'set_page_setup', sheet: 'Sheet1', printArea: 'A1:Q20', orientation: 'landscape', fitToPagesWide: 1, fitToPagesTall: 1, centerHorizontally: true, centerVertically: true },
       ],
       assertCreated(created) {
         const chart = created.batch.results.find((entry) => entry.op === 'add_chart');
@@ -141,22 +164,47 @@ export async function runOfficePolishBenchmark({ keep = false } = {}) {
       format: 'pptx',
       operations: [
         { op: 'add_slide' },
-        { op: 'set_slide_background', slide: 1, color: 'F4F7FB' },
-        { op: 'add_textbox', slide: 1, text: 'Office Use 성능 개선', properties: { left: 54, top: 120, width: 620, height: 80, fontName: '맑은 고딕', fontSize: 32, bold: true, color: '17365D' } },
-        { op: 'add_textbox', slide: 1, text: '속도 · 적은 호출 · 정확한 결과', properties: { left: 58, top: 220, width: 560, height: 44, fontName: '맑은 고딕', fontSize: 18, color: '4F6478' } },
-        { op: 'add_shape', slide: 1, shapeType: 'rectangle', properties: { left: 58, top: 285, width: 120, height: 6, fillColor: '2F75B5', lineColor: '2F75B5' } },
+        { op: 'set_slide_background', slide: 1, color: '151515' },
+        { op: 'add_textbox', slide: 1, text: 'Office Use 성능 개선', properties: { left: 54, top: 120, width: 620, height: 80, fontName: '맑은 고딕', fontSize: 32, bold: true, color: 'FFFFFF' } },
+        { op: 'add_textbox', slide: 1, text: '속도 · 적은 호출 · 정확한 결과', properties: { left: 58, top: 220, width: 560, height: 44, fontName: '맑은 고딕', fontSize: 18, color: 'E7E9EC' } },
+        { op: 'add_shape', slide: 1, shapeType: 'rectangle', properties: { left: 58, top: 285, width: 120, height: 6, fillColor: 'C43E2F', lineColor: 'C43E2F' } },
         { op: 'add_slide' },
         { op: 'set_slide_background', slide: 2, color: 'FFFFFF' },
-        { op: 'add_textbox', slide: 2, text: '개선 목표', properties: { left: 48, top: 32, width: 620, height: 52, fontName: '맑은 고딕', fontSize: 26, bold: true, color: '17365D' } },
-        { op: 'add_shape', slide: 2, shapeType: 'rounded_rectangle', paragraphs: [{ text: '처리 시간', fontName: '맑은 고딕', fontSize: 15, color: '17365D' }, { text: '−30%', fontName: '맑은 고딕', fontSize: 28, bold: true, color: '17365D' }], properties: { left: 48, top: 130, width: 190, height: 150, fillColor: 'D9EAF7', lineColor: '9DC3E6' } },
-        { op: 'add_shape', slide: 2, shapeType: 'rounded_rectangle', paragraphs: [{ text: 'Office 호출', fontName: '맑은 고딕', fontSize: 15, color: '17365D' }, { text: '−40%', fontName: '맑은 고딕', fontSize: 28, bold: true, color: '17365D' }], properties: { left: 265, top: 130, width: 190, height: 150, fillColor: 'E2F0D9', lineColor: 'A9D18E' } },
-        { op: 'add_shape', slide: 2, shapeType: 'rounded_rectangle', paragraphs: [{ text: 'silent no-op', fontName: '맑은 고딕', fontSize: 15, color: '7F6000' }, { text: '0건', fontName: '맑은 고딕', fontSize: 28, bold: true, color: '7F6000' }], properties: { left: 482, top: 130, width: 190, height: 150, fillColor: 'FFF2CC', lineColor: 'FFD966' } },
+        { op: 'add_textbox', slide: 2, text: '개선 후 남는 작업량', properties: { left: 48, top: 32, width: 620, height: 52, fontName: '맑은 고딕', fontSize: 26, bold: true, color: '171717' } },
+        { op: 'add_chart', slide: 2, chartType: 'bar', title: '기준선 대비 잔여 지수', categories: ['처리 시간', 'Office 호출', 'silent no-op'], series: [{ name: '잔여 지수', values: [70, 60, 0] }], left: 72, top: 112, width: 570, height: 250 },
         { op: 'set_notes', slide: 2, text: 'Source: Office Use polishing benchmark' },
       ],
       pages: [1, 2],
       auditProfile: 'model-backed-deck',
+      visualCritique: [
+        {
+          slide: 1,
+          verdict: 'pass',
+          hierarchy: 5,
+          balance: 4,
+          legibility: 5,
+          cohesion: 5,
+          evidence: 4,
+          note: '표지의 제목과 부제가 명확한 우선순위를 이루며 어두운 배경과 강조선이 전체 덱의 편집 방향을 일관되게 제시합니다.',
+          fixes: [],
+        },
+        {
+          slide: 2,
+          verdict: 'pass',
+          hierarchy: 4,
+          balance: 4,
+          legibility: 4,
+          cohesion: 5,
+          evidence: 5,
+          note: '잔여 작업량 chart가 세 개선 지표를 직접 비교하며 제목, plot, source notes가 한 장 안에서 근거 흐름을 완성합니다.',
+          fixes: [],
+        },
+      ],
       assertCreated(created) {
-        assert.equal(created.batch.changeSummary.changed, 12);
+        assert.equal(created.batch.changeSummary.changed, 10);
+        const chart = created.batch.results.find((entry) => entry.op === 'add_chart');
+        assert.equal(chart.categories, 3);
+        assert.equal(chart.series, 1);
       },
     }));
 

@@ -1002,7 +1002,7 @@ test("Agents order sessions by last idle moment and flag unseen completions", as
     const done = document.querySelector('[data-agent-session-id="newest-idle"]')
       .querySelector(".agent-activity-elapsed");
     assert.equal(done.getAttribute("data-state"), "done");
-    assert.equal(done.textContent, "Completed");
+    assert.equal(done.textContent, "Task complete");
     const idle = document.querySelector('[data-agent-session-id="older-idle"]')
       .querySelector(".agent-activity-elapsed");
     assert.equal(idle.getAttribute("data-state"), "idle");
@@ -1507,7 +1507,7 @@ test("the Agent window renders the Parent-Child tree and folds every generation"
     assert.match(rowAt("grand-a").querySelector(".agent-activity-elapsed").textContent, /^\d/);
     const unreadIdle = rowAt("great-a").querySelector(".agent-activity-elapsed");
     assert.equal(unreadIdle.getAttribute("data-state"), "done");
-    assert.equal(unreadIdle.textContent, "Completed");
+    assert.equal(unreadIdle.textContent, "Task complete");
 
     const heading = document.querySelector('[data-lead-session-id="lead-a"]');
     await act(async () => heading.click());

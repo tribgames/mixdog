@@ -153,6 +153,15 @@ export function sendDeviceManifest(request, response, target, deviceId) {
     manifest.id = base;
     manifest.start_url = base;
     manifest.scope = base;
+    // An installer ignores a share_target whose action falls outside the
+    // manifest scope, so the share sheet entry follows the device route
+    // exactly like start_url does.
+    if (manifest.share_target && typeof manifest.share_target.action === 'string') {
+      manifest.share_target = {
+        ...manifest.share_target,
+        action: `${base}${manifest.share_target.action.replace(/^\/+/, '')}`,
+      };
+    }
     body = JSON.stringify(manifest);
   } catch {
     return false;

@@ -214,6 +214,10 @@ import {
   LEAD_DISALLOWED_TOOLS,
   applyStandaloneToolDefaults,
 } from './tool-defs.mjs';
+import {
+  modelToolSchemaAllowlist,
+  normalizeToolProfile,
+} from './tool-profile.mjs';
 import { ONBOARDING_VERSION, QUICK_WEB_SEARCH_MODELS } from './quick-web-search-models.mjs';
 import {
   sortProviderModels as sortProviderModelsRaw,
@@ -341,6 +345,7 @@ export async function createMixdogSessionRuntime({
   modelParameters,
   cwd = process.cwd(),
   toolMode = 'full',
+  toolProfile = 'interactive',
   approvalMode = null,
   disallowDelegation = false,
   autoWakeCompletions = true,
@@ -353,6 +358,7 @@ export async function createMixdogSessionRuntime({
   // Shared mutable runtime state, promoted from closure `let`s so extracted
   // modules can read/write live values through one reference.
   const rt = {};
+  rt.toolProfile = normalizeToolProfile(toolProfile);
   rt.approvalMode = approvalMode === 'implicit' ? 'implicit' : null;
   rt.disallowDelegation = disallowDelegation === true;
   rt.mcpScopeId = randomUUID();
@@ -999,6 +1005,7 @@ export async function createMixdogSessionRuntime({
     getSession: () => rt.session,
     getRoute: () => rt.route,
     getConfig: () => rt.config,
+    getToolProfile: () => rt.toolProfile,
     getMcpScopeId: () => rt.mcpScopeId,
     cfgMod,
     loadWorkflowPack,
@@ -1409,6 +1416,7 @@ export async function createMixdogSessionRuntime({
     hookCommonPayload,
     mcpClient,
     modelStandaloneTools,
+    schemaAllowedTools: modelToolSchemaAllowlist(rt.toolProfile),
     featureDisallowedTools,
     applyPreSessionToolSelection,
     statusRoutes,

@@ -26,14 +26,6 @@ export const SPAWN_PLATFORMS = {
   'win32-x64': 'mixdog-spawn-win32-x64.exe',
 };
 
-export const TOKEN_PLATFORMS = {
-  'darwin-arm64': 'mixdog-token-darwin-arm64.node',
-  'darwin-x64': 'mixdog-token-darwin-x64.node',
-  'linux-arm64': 'mixdog-token-linux-arm64.node',
-  'linux-x64': 'mixdog-token-linux-x64.node',
-  'win32-x64': 'mixdog-token-win32-x64.node',
-};
-
 const RUNTIME_PLATFORMS = [
   'linux-x64',
   'linux-arm64',
@@ -51,8 +43,6 @@ const RUNTIME_MANIFEST_PATH = 'src/runtime/memory/data/runtime-manifest.json';
 const GRAPH_MANIFEST_PATH = 'src/runtime/agent/orchestrator/tools/graph-manifest.json';
 const SPAWN_MANIFEST_PATH = 'src/runtime/agent/orchestrator/tools/spawn-manifest.json';
 const SPAWN_CARGO_PATH = 'native/mixdog-spawn/Cargo.toml';
-const TOKEN_MANIFEST_PATH = 'src/runtime/agent/orchestrator/tools/token-manifest.json';
-const TOKEN_CARGO_PATH = 'native/mixdog-token/Cargo.toml';
 const PACKAGE_PATH = 'package.json';
 
 function assertPlainObject(value, label) {
@@ -258,50 +248,6 @@ export function validateSpawnManifest(manifest, cargoToml) {
   return manifest;
 }
 
-export function validateTokenManifest(manifest, cargoToml) {
-  assertPlainObject(manifest, 'Token manifest');
-  assertExactKeys(manifest, ['version', '_comment', 'assets'], 'Token manifest');
-  if (typeof manifest.version !== 'string' || !STRICT_VERSION.test(manifest.version)) {
-    throw new Error(`Token manifest version is not strict MAJOR.MINOR.PATCH: ${manifest.version}`);
-  }
-  if (typeof manifest._comment !== 'string' || !manifest._comment) {
-    throw new Error('Token manifest _comment must be a non-empty string');
-  }
-  let inPackage = false;
-  let cargoVersion;
-  for (const line of String(cargoToml).split(/\r?\n/)) {
-    const section = line.match(/^\s*\[([^\]]+)\]\s*$/)?.[1];
-    if (section) {
-      inPackage = section === 'package';
-      continue;
-    }
-    if (inPackage) {
-      const version = line.match(/^\s*version\s*=\s*"([^"]+)"\s*$/)?.[1];
-      if (version) {
-        cargoVersion = version;
-        break;
-      }
-    }
-  }
-  if (!cargoVersion) throw new Error('Could not read [package] version from native/mixdog-token/Cargo.toml');
-  if (cargoVersion !== manifest.version) {
-    throw new Error(`Token Cargo version ${cargoVersion} does not match manifest version ${manifest.version}`);
-  }
-  assertPlainObject(manifest.assets, 'Token manifest assets');
-  assertExactKeys(manifest.assets, Object.keys(TOKEN_PLATFORMS), 'Token manifest assets');
-  for (const [platform, filename] of Object.entries(TOKEN_PLATFORMS)) {
-    const asset = manifest.assets[platform];
-    assertPlainObject(asset, `Token asset ${platform}`);
-    assertExactKeys(asset, ['url', 'sha256'], `Token asset ${platform}`);
-    const expected = `https://github.com/tribgames/mixdog/releases/download/token-v${manifest.version}/${filename}`;
-    if (asset.url !== expected) throw new Error(`${platform}: token asset URL must be ${expected}`);
-    if (typeof asset.sha256 !== 'string' || !SHA256.test(asset.sha256)) {
-      throw new Error(`${platform}: invalid token asset sha256`);
-    }
-  }
-  return manifest;
-}
-
 async function downloadAndVerify(label, asset, fetchImpl, timeoutMs, maxAssetBytes) {
   console.log(`Downloading and verifying ${label}`);
   const controller = new AbortController();
@@ -390,8 +336,6 @@ export async function verifyReleaseAssets({
   graphManifestPath = GRAPH_MANIFEST_PATH,
   spawnManifestPath = SPAWN_MANIFEST_PATH,
   spawnCargoPath = SPAWN_CARGO_PATH,
-  tokenManifestPath = TOKEN_MANIFEST_PATH,
-  tokenCargoPath = TOKEN_CARGO_PATH,
   packagePath = PACKAGE_PATH,
   downloadOptions,
 } = {}) {
@@ -402,8 +346,6 @@ export async function verifyReleaseAssets({
     graphSource,
     spawnSource,
     spawnCargo,
-    tokenSource,
-    tokenCargo,
     packageSource,
   ] = await Promise.all([
     readFile(patchManifestPath, 'utf8'),
@@ -412,15 +354,12 @@ export async function verifyReleaseAssets({
     readFile(graphManifestPath, 'utf8'),
     readFile(spawnManifestPath, 'utf8'),
     readFile(spawnCargoPath, 'utf8'),
-    readFile(tokenManifestPath, 'utf8'),
-    readFile(tokenCargoPath, 'utf8'),
     readFile(packagePath, 'utf8'),
   ]);
   const patchManifest = validatePatchManifest(JSON.parse(patchSource), cargoToml);
   const runtimeManifest = validateRuntimeManifest(JSON.parse(runtimeSource));
   const graphManifest = validateGraphManifest(JSON.parse(graphSource), JSON.parse(packageSource));
   const spawnManifest = validateSpawnManifest(JSON.parse(spawnSource), spawnCargo);
-  const tokenManifest = validateTokenManifest(JSON.parse(tokenSource), tokenCargo);
   await verifyAssetDownloads(patchManifest.assets, downloadOptions);
   console.log(`Verified all bundled patch assets for patch-v${patchManifest.version}.`);
   await verifyAssetDownloads(runtimeManifest.assets, downloadOptions);
@@ -429,8 +368,6 @@ export async function verifyReleaseAssets({
   console.log(`Verified all bundled graph assets for graph-v${graphManifest.version}.`);
   await verifyAssetDownloads(spawnManifest.assets, downloadOptions);
   console.log(`Verified all bundled spawn assets for spawn-v${spawnManifest.version}.`);
-  await verifyAssetDownloads(tokenManifest.assets, downloadOptions);
-  console.log(`Verified all bundled token assets for token-v${tokenManifest.version}.`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

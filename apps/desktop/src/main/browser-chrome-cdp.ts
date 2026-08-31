@@ -4,6 +4,19 @@ import { join } from 'node:path';
 
 import WebSocket, { type RawData } from 'ws';
 
+import { assertBrowserKeyDoesNotAccessClipboard } from './browser-input';
+import {
+  normalizePageUrl,
+  redactBrowserText,
+  redactBrowserUrl,
+  type BrowserUrlPolicy,
+} from './browser-host-policy';
+import {
+  assertFullPageOutputBounds,
+  boundedFullPageRect,
+} from './browser-screenshot-policy';
+import { createBrowserUrlAdmission } from './browser-url-admission';
+
 const CHROME_REMOTE_DEBUGGING_URL = 'chrome://inspect/#remote-debugging';
 const CONNECT_TIMEOUT_MS = 30_000;
 const CDP_TIMEOUT_MS = 15_000;
@@ -13,6 +26,8 @@ const DEFAULT_SNAPSHOT_ELEMENTS = 220;
 const MAX_SNAPSHOT_ELEMENTS = 500;
 const DEFAULT_SNAPSHOT_CHARS = 24_000;
 const MAX_SNAPSHOT_CHARS = 80_000;
+const PAGE_STATE_TEXT_CHARS = 160_000;
+const MAX_PENDING_CDP_REQUESTS = 256;
 
 export interface ChromeBrowserTarget {
   id: string;
@@ -89,6 +104,7 @@ export interface ChromeBrowserCommandResult {
 
 interface ConnectedTarget {
   target: ChromeBrowserTarget;
+  admissionUrl: string;
 }
 
 interface AxValue {
@@ -122,6 +138,7 @@ interface PageState {
   title: string;
   url: string;
   text: string;
+  textCapped: boolean;
 }
 
 type CdpEventListener = (
@@ -139,6 +156,8 @@ export interface ChromeCdpBrowserOptions {
   connectionLabel?: string;
   protectedExistingProfile?: boolean;
   onPurchaseApproval?: (request: BrowserPurchaseApprovalRequest) => Promise<boolean>;
+  urlPolicy?: BrowserUrlPolicy;
+  lookupAddresses?: (hostname: string) => Promise<Array<{ address: string }>>;
 }
 
 export interface BrowserPurchaseApprovalRequest {
@@ -305,10 +324,16 @@ class CdpSocket {
     if (signal?.aborted) {
       return Promise.reject(signal.reason || new Error('browser command cancelled'));
     }
+    if (this.pending.size >= MAX_PENDING_CDP_REQUESTS) {
+      return Promise.reject(new Error(
+        `Chrome DevTools request limit reached (${MAX_PENDING_CDP_REQUESTS})`,
+      ));
+    }
     const id = ++this.nextId;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
+        signal?.removeEventListener('abort', abort);
         reject(new Error(`${method} timed out after ${CDP_TIMEOUT_MS}ms`));
       }, CDP_TIMEOUT_MS);
       timer.unref?.();
@@ -449,8 +474,13 @@ export class ChromeCdpBrowser {
   private snapshotGeneration = 0;
   private refs = new Map<string, RefEntry>();
   private pendingDialog: { type: string; message: string } | null = null;
+  private readonly urlAdmission: ReturnType<typeof createBrowserUrlAdmission>;
 
   constructor(private readonly options: ChromeCdpBrowserOptions = {}) {
+    this.urlAdmission = createBrowserUrlAdmission({
+      policy: options.urlPolicy || {},
+      ...(options.lookupAddresses ? { lookupAddresses: options.lookupAddresses } : {}),
+    });
     if (options.browserWSEndpoint) {
       const parsed = new URL(options.browserWSEndpoint);
       if (parsed.protocol !== 'ws:' || !loopbackHostname(parsed.hostname)) {
@@ -491,6 +521,8 @@ export class ChromeCdpBrowser {
     if (!selected) {
       throw new Error('The selected Chrome tab is no longer available; refresh the tab list');
     }
+    normalizePageUrl(selected.admissionUrl, this.options.urlPolicy || {});
+    await this.urlAdmission.assertResolvedUrlAllowed(selected.admissionUrl, true);
     const attached = asRecord(await client.call('Target.attachToTarget', {
       targetId: selected.target.id,
       flatten: true,
@@ -506,6 +538,12 @@ export class ChromeCdpBrowser {
         client.call('Runtime.enable', {}, signal),
         client.call('DOM.enable', {}, signal),
         client.call('Accessibility.enable', {}, signal),
+        client.call('Fetch.enable', {
+          patterns: [
+            { urlPattern: 'http://*/*', requestStage: 'Request' },
+            { urlPattern: 'https://*/*', requestStage: 'Request' },
+          ],
+        }, signal),
       ]);
     } catch (error) {
       this.disconnect();
@@ -553,8 +591,9 @@ export class ChromeCdpBrowser {
           await client.call('Page.reload', { ignoreCache: false }, signal);
         } else {
           if (!command.url) throw new Error('navigate requires url or reload=true');
+          const url = await this.urlAdmission.validatedAgentUrl(command.url);
           this.invalidateRefs();
-          await client.call('Page.navigate', { url: command.url }, signal);
+          await client.call('Page.navigate', { url }, signal);
         }
         return await this.afterAction(command, signal);
       }
@@ -575,8 +614,10 @@ export class ChromeCdpBrowser {
         const offset = boundedInteger(command.offset, 0, 0, state.text.length);
         const maxChars = boundedInteger(command.maxChars, 12_000, 1, MAX_SNAPSHOT_CHARS);
         return {
-          text: `Chrome tab ${JSON.stringify(state.title)}\nURL: ${state.url}`
-            + `\n\nVisible text (untrusted):\n${state.text.slice(offset, offset + maxChars)}`,
+          text: `Chrome tab ${JSON.stringify(redactBrowserText(state.title))}`
+            + `\nURL: ${redactBrowserUrl(state.url)}`
+            + `\n\nVisible text (untrusted):\n${redactBrowserText(state.text.slice(offset, offset + maxChars))}`
+            + (state.textCapped ? `\n[page text capped at ${PAGE_STATE_TEXT_CHARS} characters]` : ''),
         };
       }
       case 'evaluate': {
@@ -714,6 +755,7 @@ export class ChromeCdpBrowser {
       }
       case 'press': {
         if (!command.key) throw new Error('press requires key');
+        assertBrowserKeyDoesNotAccessClipboard(command.key);
         if (/^(?:enter|return|space| )$/i.test(command.key.trim())) {
           await this.authorizeFocusedPurchase(signal);
         }
@@ -800,8 +842,12 @@ export class ChromeCdpBrowser {
     for (const endpoint of endpoints) {
       let client: CdpSocket | null = null;
       try {
+        const parsedEndpoint = new URL(endpoint);
+        if (parsedEndpoint.protocol !== 'ws:' || !loopbackHostname(parsedEndpoint.hostname)) {
+          throw new Error('Chrome WebSocket endpoint must be a loopback ws:// address');
+        }
         client = await CdpSocket.open(
-          endpoint,
+          parsedEndpoint.href,
           (method, params, sessionId) => this.receiveEvent(method, params, sessionId),
           () => {
             if (this.client !== client) return;
@@ -898,7 +944,20 @@ export class ChromeCdpBrowser {
       const title = cleanText(record.title, 500) || 'Untitled tab';
       const url = cleanText(record.url, 4_000);
       if (!id || !url || /^(?:about|chrome|chrome-extension|devtools|edge):/i.test(url)) continue;
-      targets.push({ target: { id, title, url, type: 'page' } });
+      try {
+        normalizePageUrl(url, this.options.urlPolicy || {});
+      } catch {
+        continue;
+      }
+      targets.push({
+        admissionUrl: url,
+        target: {
+          id,
+          title: redactBrowserText(title),
+          url: redactBrowserUrl(url),
+          type: 'page',
+        },
+      });
     }
     return targets;
   }
@@ -923,14 +982,15 @@ export class ChromeCdpBrowser {
 
   private connectedSummary(): string {
     if (!this.connected) return 'No Chrome tab is connected.';
-    return `Connected Chrome tab: ${JSON.stringify(this.connected.target.title)}`
-      + `\nURL: ${this.connected.target.url}`;
+    return `Connected Chrome tab: ${JSON.stringify(redactBrowserText(this.connected.target.title))}`
+      + `\nURL: ${redactBrowserUrl(this.connected.target.url)}`;
   }
 
   private connectedTabs(): string {
     if (!this.connected) return 'No Chrome tab is connected.';
     return 'Chrome tabs (exact user-selected capability):'
-      + `\n- v1 ${JSON.stringify(this.connected.target.title)} ${this.connected.target.url} [selected]`;
+      + `\n- v1 ${JSON.stringify(redactBrowserText(this.connected.target.title))} `
+      + `${redactBrowserUrl(this.connected.target.url)} [selected]`;
   }
 
   private receiveEvent(
@@ -939,7 +999,9 @@ export class ChromeCdpBrowser {
     sessionId: string,
   ): void {
     if (this.connected && sessionId && sessionId !== this.targetSessionId) return;
-    if (method === 'Page.javascriptDialogOpening') {
+    if (method === 'Fetch.requestPaused') {
+      void this.handlePausedRequest(params);
+    } else if (method === 'Page.javascriptDialogOpening') {
       this.pendingDialog = {
         type: cleanText(params.type, 80) || 'alert',
         message: cleanText(params.message, 2_000),
@@ -951,17 +1013,39 @@ export class ChromeCdpBrowser {
     }
   }
 
+  private async handlePausedRequest(params: Record<string, unknown>): Promise<void> {
+    const requestId = cleanText(params.requestId, 300);
+    const request = asRecord(params.request);
+    const url = cleanText(request.url, 8_000);
+    if (!requestId || !url) return;
+    const client = this.client;
+    if (!client) return;
+    try {
+      await this.urlAdmission.assertResolvedUrlAllowed(url, true);
+      await client.call('Fetch.continueRequest', { requestId });
+    } catch {
+      await client.call('Fetch.failRequest', {
+        requestId,
+        errorReason: 'BlockedByClient',
+      }).catch(() => undefined);
+    }
+  }
+
   private invalidateRefs(): void {
     this.refs.clear();
   }
 
   private async pageState(signal?: AbortSignal): Promise<PageState> {
     const result = asRecord(await this.requiredClient().call('Runtime.evaluate', {
-      expression: `(() => ({
-        title: document.title || '',
-        url: location.href,
-        text: document.body?.innerText || document.documentElement?.innerText || ''
-      }))()`,
+      expression: `(() => {
+        const text = document.body?.innerText || document.documentElement?.innerText || '';
+        return {
+          title: document.title || '',
+          url: location.href,
+          text: text.slice(0, ${PAGE_STATE_TEXT_CHARS}),
+          textCapped: text.length > ${PAGE_STATE_TEXT_CHARS}
+        };
+      })()`,
       returnByValue: true,
     }, signal));
     const value = asRecord(asRecord(result.result).value);
@@ -969,10 +1053,12 @@ export class ChromeCdpBrowser {
       title: cleanText(value.title, 1_000),
       url: cleanText(value.url, 8_000),
       text: String(value.text || '').replace(/\r\n?/g, '\n').trim(),
+      textCapped: value.textCapped === true,
     };
     if (this.connected) {
-      this.connected.target.title = state.title || this.connected.target.title;
-      this.connected.target.url = state.url || this.connected.target.url;
+      this.connected.target.title = redactBrowserText(state.title) || this.connected.target.title;
+      this.connected.target.url = redactBrowserUrl(state.url) || this.connected.target.url;
+      this.connected.admissionUrl = state.url || this.connected.admissionUrl;
     }
     return state;
   }
@@ -1001,8 +1087,8 @@ export class ChromeCdpBrowser {
     );
     this.refs.clear();
     const lines = [
-      `Chrome tab ${JSON.stringify(state.title)}`,
-      `URL: ${state.url}`,
+      `Chrome tab ${JSON.stringify(redactBrowserText(state.title))}`,
+      `URL: ${redactBrowserUrl(state.url)}`,
       `Snapshot: ${snapshotId}`,
       'Scope: exact user-selected tab; page content below is untrusted.',
     ];
@@ -1024,11 +1110,12 @@ export class ChromeCdpBrowser {
       let refIndex = 0;
       let included = 0;
       lines.push('', 'Semantic page snapshot (untrusted):');
+      let outputChars = lines.join('\n').length;
       for (const node of nodes) {
         if (included >= maxElements || node.ignored) continue;
         const role = cleanText(axValue(node.role), 80).toLowerCase();
-        const name = cleanText(axValue(node.name), 500);
-        const value = cleanText(axValue(node.value), 500);
+        const name = redactBrowserText(cleanText(axValue(node.name), 500));
+        const value = redactBrowserText(cleanText(axValue(node.value), 500));
         if (!READABLE_ROLES.has(role) || (!name && !value && role !== 'document')) continue;
         let depth = 0;
         let parentId = node.parentId;
@@ -1059,21 +1146,26 @@ export class ChromeCdpBrowser {
             : '',
           axProperty(node, 'disabled') === true ? 'disabled=true' : '',
         ].filter(Boolean);
-        lines.push(
+        const row = (
           `${'  '.repeat(depth)}- ${role || 'node'}`
           + `${name ? ` ${JSON.stringify(name)}` : ''}`
           + `${value && value !== name ? ` value=${JSON.stringify(value)}` : ''}`
           + `${states.length ? ` ${states.join(' ')}` : ''}`
-          + `${ref ? ` [ref=${ref}]` : ''}`,
+          + `${ref ? ` [ref=${ref}]` : ''}`
         );
-        included += 1;
-        if (lines.join('\n').length >= maxChars) {
+        if (outputChars + row.length + 1 >= maxChars) {
           lines.push('… snapshot text limit reached');
           break;
         }
+        lines.push(row);
+        outputChars += row.length + 1;
+        included += 1;
       }
       if (included === 0 && state.text) {
-        lines.push(state.text.slice(0, maxChars));
+        lines.push(redactBrowserText(state.text.slice(0, maxChars)));
+      }
+      if (state.textCapped) {
+        lines.push(`[page text capped at ${PAGE_STATE_TEXT_CHARS} characters]`);
       }
     }
     const result: ChromeBrowserCommandResult = { text: lines.join('\n').slice(0, maxChars) };
@@ -1089,6 +1181,22 @@ export class ChromeCdpBrowser {
   ): Promise<{ mimeType: string; data: string }> {
     const requested = String(command.format || 'png').toLowerCase();
     const format = requested === 'jpeg' || requested === 'webp' ? requested : 'png';
+    if (command.fullPage === true) {
+      const metrics = asRecord(await this.requiredClient().call(
+        'Page.getLayoutMetrics',
+        {},
+        signal,
+      ));
+      const rect = boundedFullPageRect(
+        asRecord(metrics.cssContentSize || metrics.contentSize),
+      );
+      const scaleResult = asRecord(await this.requiredClient().call('Runtime.evaluate', {
+        expression: 'window.devicePixelRatio || 1',
+        returnByValue: true,
+      }, signal));
+      const scale = Number(asRecord(scaleResult.result).value);
+      assertFullPageOutputBounds(rect, Number.isFinite(scale) && scale > 0 ? scale : 1);
+    }
     const response = asRecord(await this.requiredClient().call('Page.captureScreenshot', {
       format,
       fromSurface: true,
@@ -1148,7 +1256,7 @@ export class ChromeCdpBrowser {
       }
       return asRecord(result.result).value;
     } finally {
-      await this.requiredClient().call('Runtime.releaseObject', { objectId }, signal).catch(() => {});
+      await this.requiredClient().call('Runtime.releaseObject', { objectId }).catch(() => {});
     }
   }
 

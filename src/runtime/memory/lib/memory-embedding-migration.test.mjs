@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import { resetEmbeddingColumnsForModel } from './memory.mjs'
 
-function mockDb({ entriesDims = 640, coreDims = 640, identityMatches = true } = {}) {
+function mockDb({ entriesDims = 384, coreDims = 384, identityMatches = true } = {}) {
   const execs = []
   const queries = []
   return {
@@ -25,17 +25,17 @@ function mockDb({ entriesDims = 640, coreDims = 640, identityMatches = true } = 
   }
 }
 
-const identity = { model: 'onnx-community/harrier-oss-v1-270m-ONNX', dtype: 'q4' }
+const identity = { model: 'Xenova/multilingual-e5-small', dtype: 'q8' }
 
 test('matching embedding dimensions and identity keep stored vectors', async () => {
   const db = mockDb()
-  assert.equal(await resetEmbeddingColumnsForModel(db, 640, identity), false)
+  assert.equal(await resetEmbeddingColumnsForModel(db, 384, identity), false)
   assert.deepEqual(db.execs, [])
 })
 
 test('a model identity change invalidates vectors even at the same dimensions', async () => {
   const db = mockDb({ identityMatches: false })
-  assert.equal(await resetEmbeddingColumnsForModel(db, 640, identity), true)
+  assert.equal(await resetEmbeddingColumnsForModel(db, 384, identity), true)
   assert.ok(db.execs.some((sql) => sql.includes('UPDATE entries SET embedding = NULL')))
   assert.ok(db.execs.some((sql) => sql.includes('UPDATE core_entries SET embedding = NULL')))
   assert.ok(db.execs.some((sql) => sql.includes('DROP TABLE IF EXISTS memory.embedding_cache')))
@@ -43,8 +43,8 @@ test('a model identity change invalidates vectors even at the same dimensions', 
 })
 
 test('a dimension change rebuilds both halfvec columns', async () => {
-  const db = mockDb({ entriesDims: 384, coreDims: 384 })
-  assert.equal(await resetEmbeddingColumnsForModel(db, 640, identity), true)
-  assert.ok(db.execs.some((sql) => sql.includes('ALTER TABLE entries ALTER COLUMN embedding TYPE halfvec(640)')))
-  assert.ok(db.execs.some((sql) => sql.includes('ALTER TABLE core_entries ALTER COLUMN embedding TYPE halfvec(640)')))
+  const db = mockDb({ entriesDims: 640, coreDims: 640 })
+  assert.equal(await resetEmbeddingColumnsForModel(db, 384, identity), true)
+  assert.ok(db.execs.some((sql) => sql.includes('ALTER TABLE entries ALTER COLUMN embedding TYPE halfvec(384)')))
+  assert.ok(db.execs.some((sql) => sql.includes('ALTER TABLE core_entries ALTER COLUMN embedding TYPE halfvec(384)')))
 })

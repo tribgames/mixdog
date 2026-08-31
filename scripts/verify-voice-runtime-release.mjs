@@ -6,6 +6,7 @@ import {
   VOICE_RUNTIME_CONFIG,
   VOICE_RUNTIME_TAG,
   assertVoiceRuntimeManifestIdentity,
+  buildVoiceFfmpegPlatforms,
   buildVoiceRuntimePlatforms,
   downloadReleaseAsset,
   fetchGithubRelease,
@@ -26,9 +27,14 @@ async function verifyOnce(manifestPath, repository, token) {
   for (const platform of VOICE_RUNTIME_CONFIG.platforms) {
     expectedNames.add(platform.asset)
     expectedNames.add(`${platform.asset}.sha256`)
+    const ffmpegAsset = `ffmpeg-${platform.os}-${platform.arch}.gz`
+    expectedNames.add(ffmpegAsset)
+    expectedNames.add(`${ffmpegAsset}.sha256`)
   }
   const voiceAssets = (release.assets || []).filter((asset) =>
-    asset.name === 'voice-runtime-manifest.json' || asset.name.startsWith('whisper-server-'))
+    asset.name === 'voice-runtime-manifest.json'
+    || asset.name.startsWith('whisper-server-')
+    || asset.name.startsWith('ffmpeg-'))
   const unexpected = voiceAssets.filter((asset) => !expectedNames.has(asset.name))
   if (unexpected.length > 0) {
     throw new Error(`release has unexpected voice assets: ${unexpected.map((asset) => asset.name).join(', ')}`)
@@ -46,6 +52,13 @@ async function verifyOnce(manifestPath, repository, token) {
   if (JSON.stringify(generatedPlatforms) !== JSON.stringify(manifest.platforms)) {
     throw new Error('released runtime assets do not match the generated manifest')
   }
+  const generatedFfmpeg = buildVoiceFfmpegPlatforms(release.assets, {
+    repository,
+    tag: VOICE_RUNTIME_TAG,
+  })
+  if (JSON.stringify(generatedFfmpeg) !== JSON.stringify(manifest.ffmpeg)) {
+    throw new Error('released FFmpeg assets do not match the generated manifest')
+  }
 
   const manifestAsset = voiceAssets.find((asset) => asset.name === 'voice-runtime-manifest.json')
   const localManifestHash = createHash('sha256').update(manifestBytes).digest('hex')
@@ -55,13 +68,18 @@ async function verifyOnce(manifestPath, repository, token) {
   }
 
   for (const platform of VOICE_RUNTIME_CONFIG.platforms) {
-    const archive = voiceAssets.find((asset) => asset.name === platform.asset)
-    const sidecar = voiceAssets.find((asset) => asset.name === `${platform.asset}.sha256`)
-    const sidecarText = (await downloadReleaseAsset(sidecar, token)).toString('utf8').trim()
-    const declaredHash = /^([a-f0-9]{64})\s+/i.exec(sidecarText)?.[1]?.toLowerCase()
-    const archiveHash = releaseAssetSha256(archive)
-    if (declaredHash !== archiveHash) {
-      throw new Error(`${sidecar.name} does not match ${archive.name}`)
+    for (const assetName of [
+      platform.asset,
+      `ffmpeg-${platform.os}-${platform.arch}.gz`,
+    ]) {
+      const archive = voiceAssets.find((asset) => asset.name === assetName)
+      const sidecar = voiceAssets.find((asset) => asset.name === `${assetName}.sha256`)
+      const sidecarText = (await downloadReleaseAsset(sidecar, token)).toString('utf8').trim()
+      const declaredHash = /^([a-f0-9]{64})\s+/i.exec(sidecarText)?.[1]?.toLowerCase()
+      const archiveHash = releaseAssetSha256(archive)
+      if (declaredHash !== archiveHash) {
+        throw new Error(`${sidecar.name} does not match ${archive.name}`)
+      }
     }
   }
 }

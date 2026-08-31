@@ -87,7 +87,6 @@ export async function run(argv = [], classifiedInvocation = null) {
       effort: opts.effort,
       fast: opts.fast,
       webSearch: opts.webSearch,
-      memory: opts.memory,
       json: opts.json,
       cwd: process.cwd(),
     });

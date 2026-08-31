@@ -90,7 +90,7 @@ fn main() {
 $wrapperDestination = Join-Path $nativeRoot 'mixdog_browser_import_cli'
 New-Item -ItemType Directory -Force -Path (Join-Path $wrapperDestination 'src') | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Cargo.toml') -Destination $wrapperDestination -Force
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'src\main.rs') -Destination (Join-Path $wrapperDestination 'src\main.rs') -Force
+Copy-Item -Path (Join-Path $PSScriptRoot 'src\*') -Destination (Join-Path $wrapperDestination 'src') -Recurse -Force
 
 $cargoArgs = @('build')
 if ($isRelease) { $cargoArgs += '--release' }

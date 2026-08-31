@@ -655,6 +655,13 @@ async function renderedPageMetric(image) {
   let minY = canvas.height;
   let maxX = -1;
   let maxY = -1;
+  let bodyInk = 0;
+  let lowerBodyInk = 0;
+  let bodyMinY = canvas.height;
+  let bodyMaxY = -1;
+  const bodyTop = canvas.height * 0.08;
+  const bodyBottom = canvas.height * 0.9;
+  const lowerBodyTop = canvas.height * 0.52;
   for (let y = 0; y < canvas.height; y += step) {
     for (let x = 0; x < canvas.width; x += step) {
       const offset = (y * canvas.width + x) * 4;
@@ -668,10 +675,21 @@ async function renderedPageMetric(image) {
       minY = Math.min(minY, y);
       maxX = Math.max(maxX, x);
       maxY = Math.max(maxY, y);
+      if (y >= bodyTop && y <= bodyBottom) {
+        bodyInk += 1;
+        bodyMinY = Math.min(bodyMinY, y);
+        bodyMaxY = Math.max(bodyMaxY, y);
+        if (y >= lowerBodyTop) lowerBodyInk += 1;
+      }
     }
   }
   const horizontalSpan = maxX >= minX ? (maxX - minX + step) / canvas.width : 0;
   const verticalSpan = maxY >= minY ? (maxY - minY + step) / canvas.height : 0;
+  const leftMargin = maxX >= minX ? minX / canvas.width : 1;
+  const rightMargin = maxX >= minX ? Math.max(0, canvas.width - maxX - step) / canvas.width : 1;
+  const bodyVerticalSpan = bodyMaxY >= bodyMinY
+    ? (bodyMaxY - bodyMinY + step) / (bodyBottom - bodyTop)
+    : 0;
   return {
     page: imagePages(image)[0],
     width: canvas.width,
@@ -679,6 +697,10 @@ async function renderedPageMetric(image) {
     inkCoverage: sampled ? Number((ink / sampled).toFixed(4)) : 0,
     horizontalSpan: Number(horizontalSpan.toFixed(4)),
     verticalSpan: Number(verticalSpan.toFixed(4)),
+    bodyVerticalSpan: Number(bodyVerticalSpan.toFixed(4)),
+    lowerBodyInkRatio: bodyInk ? Number((lowerBodyInk / bodyInk).toFixed(4)) : 0,
+    leftMargin: Number(leftMargin.toFixed(4)),
+    rightMargin: Number(rightMargin.toFixed(4)),
   };
 }
 
@@ -703,10 +725,26 @@ export async function reviewRenderedOfficePages(images = [], {
       continue;
     }
     if (
+      normalized === 'docx'
+      && (metric.leftMargin < 0.002 || metric.rightMargin < 0.002)
+    ) {
+      issues.push(issue(
+        'content_touches_page_edge',
+        `/page[${metric.page}]`,
+        'Rendered document content touches a horizontal page edge and may be clipped.',
+        'render-review',
+      ));
+    }
+    if (
       ['docx', 'pdf'].includes(normalized)
       && metric.page > 1
-      && metric.inkCoverage < 0.025
-      && metric.verticalSpan < 0.22
+      && (
+        (metric.inkCoverage < 0.025 && metric.verticalSpan < 0.22)
+        || (
+          metric.bodyVerticalSpan < 0.34
+          && metric.lowerBodyInkRatio < 0.08
+        )
+      )
     ) {
       issues.push(issue(
         'sparse_page',
@@ -717,9 +755,11 @@ export async function reviewRenderedOfficePages(images = [], {
     }
     if (
       normalized === 'xlsx'
-      && metric.inkCoverage < 0.08
-      && metric.horizontalSpan < 0.55
-      && metric.verticalSpan < 0.35
+      && metric.inkCoverage < 0.095
+      && (
+        (metric.horizontalSpan < 0.7 && metric.verticalSpan < 0.5)
+        || (metric.height > metric.width * 1.2 && metric.verticalSpan < 0.3)
+      )
     ) {
       issues.push(issue(
         'worksheet_print_too_small',

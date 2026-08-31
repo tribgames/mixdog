@@ -275,14 +275,19 @@ async function benchmarkDocument(path, outputDirectory, {
         total = Math.max(total, Number(pagination.total || 0));
         finalLimit = Number(pagination.limit || finalLimit);
         cursor = pagination.nextCursor || null;
+        // scanned counts spreadsheet cells and only Excel reports it. Word and
+        // PowerPoint report returned units, so a bare scanned printed 0 progress
+        // for them however far the walk had actually gone.
+        const covered = scanned || returned;
         if (calls === 1 || calls % 25 === 0 || !cursor) {
           onProgress?.({
             phase: 'snapshot',
             path,
             calls,
             scanned,
+            returned,
             total,
-            message: `snapshot ${basename(path)}: ${scanned}/${total || '?'} units in ${calls} call(s)`,
+            message: `snapshot ${basename(path)}: ${covered}/${total || '?'} units in ${calls} call(s)`,
           });
         }
       } while (cursor && calls < 10_000);

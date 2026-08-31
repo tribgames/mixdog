@@ -1,6 +1,6 @@
 import { existsSync, statSync } from 'node:fs';
 import * as nodeModule from 'node:module';
-import { constants as osConstants, freemem, setPriority, totalmem } from 'node:os';
+import { constants as osConstants, freemem, homedir, setPriority, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -29,6 +29,7 @@ import { desktopPermissionAllowed } from './permission-policy';
 import { installNativeMenu } from './menu';
 import { DesktopSettingsStore } from './settings-store';
 import { desktopUpdater, startAutoUpdater } from './updater';
+import { gcSupersededNativeToolCaches } from './native-runtime-cache-gc.mjs';
 import type { RemoteAccessDescriptor } from './remote-access-window';
 import {
   DESKTOP_WINDOW_OPTIONS,
@@ -39,6 +40,7 @@ import {
 import {
   DESKTOP_IPC,
   type DesktopRemoteAccessInfo,
+  type DesktopRemoteBrowserControl,
   type DesktopSettings,
 } from '../shared/contract';
 import { persistWindowState, readWindowState } from './window-state';
@@ -108,16 +110,26 @@ if (app.isPackaged) {
   const nativeToolsDir = join(process.resourcesPath, 'native-tools');
   const executableSuffix = process.platform === 'win32' ? '.exe' : '';
   const graphPath = join(nativeToolsDir, `mixdog-graph${executableSuffix}`);
-  const nativeOverrides = {
-    MIXDOG_GRAPH_BIN: graphPath,
-    MIXDOG_SEARCH_SERVER_BIN: graphPath,
-    MIXDOG_PATCH_NATIVE_BIN: join(nativeToolsDir, `mixdog-patch${executableSuffix}`),
-    MIXDOG_SPAWN_SERVER_BIN: join(nativeToolsDir, `mixdog-spawn${executableSuffix}`),
-    MIXDOG_TOKEN_NATIVE_BIN: join(nativeToolsDir, 'mixdog-token.node'),
-  };
-  for (const [name, path] of Object.entries(nativeOverrides)) {
-    if (!process.env[name] && existsSync(path)) process.env[name] = path;
+  const nativeOverrides = [
+    { kind: 'graph', names: ['MIXDOG_GRAPH_BIN', 'MIXDOG_SEARCH_SERVER_BIN'], path: graphPath },
+    { kind: 'patch', names: ['MIXDOG_PATCH_NATIVE_BIN'], path: join(nativeToolsDir, `mixdog-patch${executableSuffix}`) },
+    { kind: 'spawn', names: ['MIXDOG_SPAWN_SERVER_BIN'], path: join(nativeToolsDir, `mixdog-spawn${executableSuffix}`) },
+  ];
+  const bundledKinds = [];
+  for (const { kind, names, path } of nativeOverrides) {
+    if (!existsSync(path)) continue;
+    for (const name of names) {
+      if (!process.env[name]) process.env[name] = path;
+    }
+    if (names.every((name) => process.env[name] === path)) bundledKinds.push(kind);
   }
+  const mixdogHome = process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
+  const dataDir = process.env.MIXDOG_DATA_DIR || join(mixdogHome, 'data');
+  void gcSupersededNativeToolCaches(dataDir, bundledKinds).then(({ failed }) => {
+    for (const { kind, error } of failed) {
+      console.warn(`Could not remove superseded ${kind} runtime cache:`, error);
+    }
+  });
 }
 
 const gpuFallbackEnvironment: GpuFallbackEnvironment = {
@@ -415,6 +427,35 @@ function applyComputerObserveOnlySetting(enabled: boolean): void {
   computerHost?.setObserveOnly(computerObserveOnly);
 }
 unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value }) => {
+  if (name === 'browser-remote-request') {
+    const request = value && typeof value === 'object'
+      ? value as { id?: unknown; method?: unknown; args?: unknown }
+      : {};
+    const id = typeof request.id === 'string' ? request.id : '';
+    const method = request.method === 'frame' || request.method === 'control'
+      ? request.method
+      : '';
+    const args = Array.isArray(request.args) ? request.args : [];
+    if (!id || !method) return;
+    void (async () => {
+      try {
+        if (!browserHost) throw new Error('Desktop Browser Use is unavailable.');
+        const result = method === 'frame'
+          ? await browserHost.remoteBrowserFrame(typeof args[0] === 'string' ? args[0] : '')
+          : await browserHost.remoteBrowserControl(args[0] as DesktopRemoteBrowserControl);
+        await serviceClient.invokeDesktopOperation(
+          'browserRemoteResolve',
+          [id, true, result ?? null, null],
+        );
+      } catch (error) {
+        await serviceClient.invokeDesktopOperation(
+          'browserRemoteResolve',
+          [id, false, null, error instanceof Error ? error.message : String(error)],
+        ).catch(() => {});
+      }
+    })();
+    return;
+  }
   if (name === 'desktop-settings-changed' && value && typeof value === 'object') {
     applyDesktopSettings(value as DesktopSettings);
   }

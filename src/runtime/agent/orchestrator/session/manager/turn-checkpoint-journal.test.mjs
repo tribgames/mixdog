@@ -178,7 +178,7 @@ test('crash recovery matches the live finalize path (text reset, tool pairing)',
         messages: [{ role: 'system', content: 'sys' }, { role: 'user', content: prompt }],
         activeTurnCheckpoint: { turnToken: `tok-${sessionId}` },
         _providerPrefixGuardState: { messageHashes: ['stale'], requestPrefixHash: 'stale' },
-        contextPressureBaselineTokens: 300_000,
+        contextPressureBaselineTokens: 132_000,
         contextPressureBaselineOutputTokens: 0,
         contextPressureBaselineMessageCount: 2,
         contextPressureBaselinePrefixSignature: 'stale-prefix',
@@ -199,12 +199,13 @@ test('crash recovery matches the live finalize path (text reset, tool pairing)',
     // Keep the saved reading so a matching durable prefix can still use it.
     // This deliberately stale signature must instead be rejected by pressure
     // resolution without mutating the persisted provider snapshot.
-    assert.equal(session.contextPressureBaselineTokens, 300_000);
+    assert.equal(session.contextPressureBaselineTokens, 132_000);
     assert.equal(session.contextPressureBaselineMessageCount, 2);
     assert.equal(session.contextPressureBaselinePrefixSignature, 'stale-prefix');
     assert.equal(session.contextPressureBaselineToolSignature, 'stale-tools');
     assert.equal(session.contextPressureBaselineUpdatedAt, staleBaselineUpdatedAt);
     assert.equal(session.lastContextTokensStaleAfterCompact, false);
+    assert.equal(session.contextPressureUnanchoredAfterRestart, true);
     const expected = finalizeTurnInterruptionSnapshot({
         turnOutgoing: checkpoint.turnMessages,
         currentUserContent: checkpoint.currentUserContent,

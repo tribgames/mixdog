@@ -10,13 +10,28 @@ test('browser bridge authenticates commands and removes its discovery file', asy
   const dataDirectory = mkdtempSync(join(tmpdir(), 'mixdog-browser-bridge-'));
   const discoveryPath = join(dataDirectory, 'browser-bridge.json');
   let ready;
+  let releaseHeld;
+  let announceHeld;
   const readyPromise = new Promise((resolve) => {
     ready = resolve;
+  });
+  const held = new Promise((resolve) => {
+    announceHeld = resolve;
+  });
+  const heldRelease = new Promise((resolve) => {
+    releaseHeld = resolve;
   });
   const server = new BrowserBridgeServer({
     dataDirectory,
     redactError: String,
-    execute: async (command) => ({ echoed: command.action }),
+    maxConcurrentRequests: 1,
+    execute: async (command) => {
+      if (command.action === 'hold') {
+        announceHeld();
+        await heldRelease;
+      }
+      return { echoed: command.action };
+    },
     onReady: ready,
   });
 
@@ -41,6 +56,28 @@ test('browser bridge authenticates commands and removes its discovery file', asy
       ok: true,
       value: { echoed: 'status' },
     });
+
+    const heldRequest = fetch(url, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${discovery.token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ action: 'hold' }),
+    });
+    await held;
+    const overloaded = await fetch(url, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${discovery.token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ action: 'status' }),
+    });
+    assert.equal(overloaded.status, 429);
+    assert.match((await overloaded.json()).error, /too many concurrent browser commands/);
+    releaseHeld();
+    assert.equal((await heldRequest).status, 200);
 
     await server.stop();
     assert.equal(existsSync(discoveryPath), false);

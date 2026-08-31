@@ -84,6 +84,7 @@ const NON_ACTIONABLE_FOCUSABLE_ROLES = new Set([
 const CROSS_FRAME_TEXT_ROLES = new Set([
   'statictext', 'paragraph', 'heading', 'listitem', 'cell', 'rowheader', 'columnheader', 'note',
 ]);
+const MAX_ACCESSIBILITY_SCAN = 20_000;
 
 function axProperty(node: AccessibilityNode, name: string): unknown {
   return node.properties?.find((property) => property.name === name)?.value?.value;
@@ -115,6 +116,7 @@ export function buildAccessibilitySnapshot(options: {
   const warnings: string[] = [];
   const crossFrameText: string[] = [];
   const seenCrossFrameText = new Set<string>();
+  let crossFrameTextChars = 0;
   const candidates: Array<{
     backendNodeId: number;
     sessionId?: string;
@@ -132,23 +134,31 @@ export function buildAccessibilitySnapshot(options: {
   }> = [];
   let scanned = 0;
 
-  for (const target of options.targets) {
-    if (target.error) warnings.push(`Accessibility target unavailable: ${target.error}`);
-    if (target.layoutError) warnings.push(`Layout metadata unavailable: ${target.layoutError}`);
-    const byId = new Map(
-      target.nodes
-        .filter((node) => node.nodeId)
-        .map((node) => [String(node.nodeId), node]),
-    );
-    for (const node of target.nodes) {
+  targetLoop: for (const target of options.targets) {
+    if (target.error) warnings.push(`Accessibility target unavailable: ${target.error.slice(0, 500)}`);
+    if (target.layoutError) {
+      warnings.push(`Layout metadata unavailable: ${target.layoutError.slice(0, 500)}`);
+    }
+    const nodes = target.nodes.slice(0, Math.max(0, MAX_ACCESSIBILITY_SCAN - scanned));
+    const byId = new Map<string, AccessibilityNode>();
+    for (const node of nodes) {
+      if (node.nodeId) byId.set(String(node.nodeId), node);
+    }
+    for (const node of nodes) {
       scanned += 1;
       if (node.ignored) continue;
       const role = String(node.role?.value || '').trim().toLowerCase();
-      const name = String(node.name?.value || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+      const name = String(node.name?.value || '').slice(0, 640)
+        .replace(/\s+/g, ' ').trim().slice(0, 160);
       if (role === 'heading' && name && headings.length < 30) headings.push(`heading ${name}`);
-      if (target.sessionId && CROSS_FRAME_TEXT_ROLES.has(role) && name && !seenCrossFrameText.has(name)) {
+      if (target.sessionId
+        && CROSS_FRAME_TEXT_ROLES.has(role)
+        && name
+        && !seenCrossFrameText.has(name)
+        && crossFrameTextChars < options.textChars * 2) {
         seenCrossFrameText.add(name);
         crossFrameText.push(name);
+        crossFrameTextChars += name.length;
       }
       const backendNodeId = Number(node.backendDOMNodeId);
       const focusable = axProperty(node, 'focusable') === true;
@@ -158,14 +168,19 @@ export function buildAccessibilitySnapshot(options: {
       const sensitive = axProperty(node, 'protected') === true;
       const value = sensitive
         ? ''
-        : String(node.value?.value ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
+        : String(node.value?.value ?? '').slice(0, 480)
+          .replace(/\s+/g, ' ').trim().slice(0, 120);
       const href = String(axProperty(node, 'url') || '').slice(0, 240);
       const states: string[] = [];
       for (const property of ['disabled', 'checked', 'selected', 'expanded', 'pressed', 'required', 'readonly', 'focused']) {
         const state = axProperty(node, property);
         if (state === true) states.push(property);
         else if (state === false && property === 'checked') states.push('unchecked');
-        else if (state !== undefined && state !== false && state !== '') states.push(`${property}=${String(state)}`);
+        else if (state !== undefined && state !== false && state !== '') {
+          const compactState = String(state).slice(0, 320)
+            .replace(/\s+/g, ' ').trim().slice(0, 80);
+          states.push(`${property}=${compactState}`);
+        }
       }
       const box = target.bounds.get(backendNodeId);
       const inViewport = box
@@ -195,6 +210,7 @@ export function buildAccessibilitySnapshot(options: {
         matchScore: match?.score || 0,
       });
     }
+    if (scanned >= MAX_ACCESSIBILITY_SCAN) break targetLoop;
   }
 
   candidates.sort(
@@ -243,7 +259,8 @@ export function buildAccessibilitySnapshot(options: {
       elements,
       totalElements: candidates.length,
       scanned,
-      scanCapped: false,
+      scanCapped: options.targets.some((target) => target.nodes.length > 0)
+        && options.targets.reduce((total, target) => total + target.nodes.length, 0) > scanned,
       crossOriginFrames: Math.max(0, options.targets.filter((target) => target.sessionId).length),
       headings,
       text,

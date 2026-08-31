@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { join } from 'node:path';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
@@ -8,6 +8,10 @@ const RELAY_PORT = 18_795;
 const REQUEST_TIMEOUT_MS = 15_000;
 const KEEPALIVE_MS = 20_000;
 const PAIRING_FILE = 'browser-extension-relay.json';
+const MAX_WEBSOCKET_PAYLOAD_BYTES = 16 * 1024 * 1024;
+const MAX_INTERNAL_CLIENTS = 8;
+const MAX_INTERNAL_SESSIONS = 64;
+const MAX_PENDING_REQUESTS = 256;
 
 interface RelayOptions {
   userDataDirectory: string;
@@ -62,7 +66,10 @@ function readOrCreatePairingToken(userDataDirectory: string): string {
   try {
     const saved = record(JSON.parse(readFileSync(path, 'utf8')));
     const token = String(saved.pairingToken || '');
-    if (/^[a-f0-9]{64}$/i.test(token)) return token;
+    if (/^[a-f0-9]{64}$/i.test(token)) {
+      try { chmodSync(path, 0o600); } catch { /* Windows userData ACL */ }
+      return token;
+    }
   } catch {
     // Create the file below.
   }
@@ -72,13 +79,17 @@ function readOrCreatePairingToken(userDataDirectory: string): string {
     encoding: 'utf8',
     mode: 0o600,
   });
+  try { chmodSync(path, 0o600); } catch { /* Windows userData ACL */ }
   return pairingToken;
 }
 
 export class BrowserExtensionRelay {
   private readonly pairingToken: string;
   private readonly internalToken = randomBytes(32).toString('hex');
-  private readonly websocketServer = new WebSocketServer({ noServer: true });
+  private readonly websocketServer = new WebSocketServer({
+    noServer: true,
+    maxPayload: MAX_WEBSOCKET_PAYLOAD_BYTES,
+  });
   private port: number;
   private server: Server | null = null;
   private startPromise: Promise<void> | null = null;
@@ -117,6 +128,10 @@ export class BrowserExtensionRelay {
         });
         response.end('Mixdog Browser Extension Relay');
       });
+      server.maxConnections = MAX_INTERNAL_CLIENTS + 2;
+      server.headersTimeout = 10_000;
+      server.requestTimeout = 30_000;
+      server.keepAliveTimeout = 5_000;
       this.server = server;
       server.on('upgrade', (request, socket, head) => {
         this.upgrade(request, socket, head);
@@ -153,7 +168,10 @@ export class BrowserExtensionRelay {
     const server = this.server;
     this.server = null;
     if (server) {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections?.();
+      });
     }
   }
 
@@ -182,6 +200,13 @@ export class BrowserExtensionRelay {
       socket.destroy();
       return;
     }
+    const internalClients = [...this.websocketServer.clients]
+      .filter((client) => client !== this.extensionSocket).length;
+    if (internalRequest && internalClients >= MAX_INTERNAL_CLIENTS) {
+      socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     this.websocketServer.handleUpgrade(request, socket, head, (websocket) => {
       if (extensionRequest) this.attachExtension(websocket);
       else this.attachInternalClient(websocket);
@@ -195,6 +220,8 @@ export class BrowserExtensionRelay {
     socket.once('close', () => {
       if (this.extensionSocket !== socket) return;
       this.extensionSocket = null;
+      if (this.keepalive) clearInterval(this.keepalive);
+      this.keepalive = null;
       for (const pending of this.pending.values()) {
         clearTimeout(pending.timer);
         pending.reject(new Error('Mixdog Chrome extension disconnected'));
@@ -267,6 +294,9 @@ export class BrowserExtensionRelay {
     if (method === 'Target.attachToTarget') {
       const targetId = String(params.targetId || '');
       if (!targetId) throw new Error('Target id is required');
+      if (this.sessions.size >= MAX_INTERNAL_SESSIONS) {
+        throw new Error(`Chrome extension relay session limit reached (${MAX_INTERNAL_SESSIONS})`);
+      }
       await this.extensionRequest('attachTarget', { targetId });
       const createdSessionId = `mixdog-extension-${randomBytes(12).toString('hex')}`;
       this.sessions.set(createdSessionId, { socket, targetId });
@@ -325,6 +355,9 @@ export class BrowserExtensionRelay {
       throw new Error(
         'Mixdog Chrome extension is not connected. Load the extension, enter the pairing token, and allow a tab.',
       );
+    }
+    if (this.pending.size >= MAX_PENDING_REQUESTS) {
+      throw new Error(`Chrome extension relay request limit reached (${MAX_PENDING_REQUESTS})`);
     }
     const requestId = `relay-${++this.nextRequestId}`;
     return new Promise((resolve, reject) => {

@@ -17,6 +17,7 @@ import {
 } from './browser-bridge/client.mjs';
 import {
   BROWSER_ACTIONS,
+  BROWSER_OBSERVATION_ACTIONS,
   SEQUENCE_STEP_ACTIONS,
   validateBrowserToolArgs,
 } from './browser-bridge/action-schema.mjs';
@@ -25,10 +26,12 @@ import {
   computerBridgeAvailableSync,
   deferComputerSessionRelease,
   executeComputerTool,
+  isReplaySafeComputerCommand,
   releaseAllComputerSessions,
   releaseComputerSession,
 } from './computer-bridge/client.mjs';
 import {
+  COMPUTER_OBSERVATION_ACTIONS,
   toComputerHostCommand,
   validateComputerToolArgs,
 } from './computer-bridge/action-schema.mjs';
@@ -65,7 +68,10 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   // to five whole request round-trips per form, each of which would have
   // carried this very schema again; handoff and extract raised the floor
   // before it, and the surrounding descriptions were compacted to absorb them.
-  assert.ok(Buffer.byteLength(JSON.stringify(BROWSER_TOOL_DEFS[0])) <= 13_400);
+  // `intercept` and `init_script` cost ~1.4 KB together and buy states the
+  // page could not otherwise be put into at all: a mocked or refused request,
+  // and code running before the document boots.
+  assert.ok(Buffer.byteLength(JSON.stringify(BROWSER_TOOL_DEFS[0])) <= 15_000);
   assert.deepEqual(propertyFor('fill', 'fields').items.required, ['ref']);
   assert.equal(propertyFor('fill', 'fields').items.additionalProperties, false);
   assert.equal(propertyFor('fill', 'fields').items.properties.values.minItems, 1);
@@ -83,8 +89,8 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   ]) {
     assert.equal(schema.properties.action.enum.includes(removed), false, removed);
   }
-  assert.equal(schema.properties.action.enum.length, 33);
-  for (const added of ['handoff', 'extract', 'sequence']) {
+  assert.equal(schema.properties.action.enum.length, 34);
+  for (const added of ['extract', 'sequence']) {
     assert.ok(schema.properties.action.enum.includes(added), added);
   }
   assert.ok(propertyFor('click', 'ref').description.includes('p1-s3-e12'));
@@ -93,7 +99,7 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   assert.deepEqual(propertyFor('click', 'pointer').enum, ['mouse', 'touch']);
   assert.deepEqual(propertyFor('click', 'button').enum, ['left', 'right', 'middle']);
   assert.deepEqual(propertyFor('click', 'modifiers').items.enum, ['Alt', 'Control', 'Meta', 'Shift']);
-  assert.deepEqual(propertyFor('snapshot', 'format').enum, ['jpeg', 'png']);
+  assert.deepEqual(propertyFor('snapshot', 'format').enum, ['jpeg', 'png', 'pdf']);
   assert.equal(propertyFor('snapshot', 'quality').maximum, 100);
   assert.ok(propertyFor('snapshot', 'fullPage'));
   assert.ok(propertyFor('navigate', 'reload'));
@@ -291,27 +297,7 @@ test('browser sequence chains only deterministic same-page gestures', () => {
   );
 });
 
-test('browser handoff and extract contracts guard their own inputs', () => {
-  assert.equal(validateBrowserToolArgs({
-    action: 'handoff',
-    input: { reason: 'Solve the captcha' },
-  }).ok, true);
-  assert.match(
-    validateBrowserToolArgs({ action: 'handoff', input: { reason: '   ' } }).error,
-    /non-empty input\.reason/,
-  );
-  assert.match(
-    validateBrowserToolArgs({ action: 'handoff', input: { reason: 'x'.repeat(201) } }).error,
-    /200 characters/,
-  );
-  // Nobody can clear a challenge on an offscreen page.
-  assert.match(
-    validateBrowserToolArgs({
-      action: 'handoff',
-      input: { reason: 'Finish verification', background: true },
-    }).error,
-    /does not accept input field\(s\): background/,
-  );
+test('browser extract guards its own inputs', () => {
   assert.equal(validateBrowserToolArgs({
     action: 'extract',
     input: { selector: 'li.product', attributes: ['href', 'data-price'], limit: 20 },
@@ -326,35 +312,254 @@ test('browser handoff and extract contracts guard their own inputs', () => {
   );
 });
 
-test('browser runtime manifest stays in parity with host command handlers', async () => {
-  const hostSource = await readFile(
-    new URL('../../apps/desktop/src/main/browser-host.ts', import.meta.url),
-    'utf8',
+test('intercept rules replace a payload or refuse a request, never both or neither', () => {
+  assert.equal(validateBrowserToolArgs({
+    action: 'intercept',
+    input: { operation: 'add', url: '*/api/*', abort: true, resourceTypes: ['xhr', 'fetch'] },
+  }).ok, true);
+  assert.equal(validateBrowserToolArgs({
+    action: 'intercept',
+    input: { operation: 'add', url: '*/health*', body: '{"status":"down"}' },
+  }).ok, true);
+  assert.match(
+    validateBrowserToolArgs({
+      action: 'intercept',
+      input: { operation: 'add', url: '*/api/*', abort: true, body: 'x' },
+    }).error,
+    /abort or input\.body, not both/,
   );
-  const hostStepActions = hostSource.match(
-    /const SEQUENCE_STEP_ACTIONS = new Set\(\[([\s\S]*?)\]\)/,
-  )?.[1] || '';
-  for (const step of SEQUENCE_STEP_ACTIONS) {
-    assert.ok(hostStepActions.includes(`'${step}'`), `host sequence step: ${step}`);
-  }
-  for (const action of BROWSER_ACTIONS) {
-    const handled = hostSource.includes(`case '${action}'`)
-      || hostSource.includes(`action === '${action}'`);
-    assert.equal(handled, true, `host handler missing for ${action}`);
-  }
+  assert.match(
+    validateBrowserToolArgs({ action: 'intercept', input: { operation: 'add', url: '*/api/*' } }).error,
+    /requires input\.abort=true or input\.body/,
+  );
+  assert.match(
+    validateBrowserToolArgs({ action: 'intercept', input: { operation: 'add', abort: true } }).error,
+    /requires input\.url/,
+  );
+  assert.match(
+    validateBrowserToolArgs({ action: 'intercept', input: { operation: 'remove' } }).error,
+    /remove requires input\.ruleId/,
+  );
+  assert.match(
+    validateBrowserToolArgs({
+      action: 'intercept',
+      input: { operation: 'clear', url: '*/api/*' },
+    }).error,
+    /clear does not accept input field\(s\): url/,
+  );
+  // list is the default, so an empty call reports the table instead of failing.
+  assert.equal(validateBrowserToolArgs({ action: 'intercept' }).ok, true);
+});
+
+test('init_script registers a source and removes it by handle', () => {
+  assert.equal(validateBrowserToolArgs({
+    action: 'init_script',
+    input: { operation: 'add', script: 'window.__seeded = true' },
+  }).ok, true);
+  assert.match(
+    validateBrowserToolArgs({ action: 'init_script', input: { operation: 'add' } }).error,
+    /add requires input\.script/,
+  );
+  assert.match(
+    validateBrowserToolArgs({ action: 'init_script', input: { operation: 'remove' } }).error,
+    /remove requires input\.scriptId/,
+  );
+  assert.match(
+    validateBrowserToolArgs({
+      action: 'init_script',
+      input: { operation: 'add', script: 'void 0', scriptId: 'is1' },
+    }).error,
+    /scriptId belongs to remove/,
+  );
+});
+
+test('emulate geolocation and headers are refused unless they are usable', () => {
+  assert.equal(validateBrowserToolArgs({
+    action: 'emulate',
+    input: { latitude: 37.5, longitude: 127, accuracy: 25 },
+  }).ok, true);
+  assert.equal(validateBrowserToolArgs({
+    action: 'emulate',
+    input: { headers: { 'x-test': 'on' } },
+  }).ok, true);
+  assert.match(
+    validateBrowserToolArgs({ action: 'emulate', input: { latitude: 37.5 } }).error,
+    /latitude and input\.longitude together/,
+  );
+  assert.match(
+    validateBrowserToolArgs({ action: 'emulate', input: { accuracy: 25 } }).error,
+    /accuracy requires latitude and longitude/,
+  );
+  assert.match(
+    validateBrowserToolArgs({ action: 'emulate', input: { headers: { 'x-test': 5 } } }).error,
+    /header names with string values/,
+  );
+});
+
+test('a JSON-encoded browser input is accepted the same as the object', () => {
+  // Same provider behaviour the computer tool absorbs: a nested object argument
+  // can arrive as a JSON string, and a well-formed call must still run.
+  assert.equal(validateBrowserToolArgs({ action: 'snapshot', input: '{}' }).ok, true);
+  assert.match(
+    validateBrowserToolArgs({ action: 'snapshot', input: '{tab:main' }).error,
+    /input must be an object/,
+  );
+});
+
+test('browser runtime manifest rejects removed aliases at the schema boundary', () => {
+  assert.deepEqual(SEQUENCE_STEP_ACTIONS, [
+    'click', 'fill', 'type', 'select', 'check', 'hover', 'press', 'scroll', 'wait',
+  ]);
   for (const removed of [
     'observe', 'screenshot', 'click_at', 'tap', 'hover_at', 'drag_at', 'swipe', 'fill_form',
   ]) {
-    assert.equal(hostSource.includes(`case '${removed}'`), false, removed);
-    assert.equal(hostSource.includes(`action === '${removed}'`), false, removed);
+    assert.equal(BROWSER_ACTIONS.includes(removed), false, removed);
+    assert.match(
+      validateBrowserToolArgs({ action: removed }).error,
+      new RegExp(`unknown browser action "${removed}"`),
+    );
   }
 });
 
-test('computer runtime manifest stays in parity with host command handlers', async () => {
-  const hostSource = await readFile(
-    new URL('../../apps/desktop/src/main/computer-host-powershell.ts', import.meta.url),
-    'utf8',
+test('asking where an image goes only makes sense where an image exists', () => {
+  assert.equal(validateBrowserToolArgs({
+    action: 'snapshot',
+    input: { mode: 'visual', image_output: 'file' },
+  }).ok, true);
+  assert.equal(validateBrowserToolArgs({
+    action: 'click',
+    input: { ref: 'p1-s1-e1', includeScreenshot: true, image_output: 'file' },
+  }).ok, true);
+  assert.match(
+    validateBrowserToolArgs({ action: 'click', input: { ref: 'p1-s1-e1', image_output: 'file' } }).error,
+    /require input\.includeScreenshot=true/,
   );
+  assert.match(
+    validateBrowserToolArgs({ action: 'snapshot', input: { image_output: 'file' } }).error,
+    /require input\.mode=visual or input\.mode=both/,
+  );
+});
+
+test('printing a page is a visual snapshot that always answers with a file', () => {
+  assert.equal(validateBrowserToolArgs({
+    action: 'snapshot',
+    input: { mode: 'visual', format: 'pdf' },
+  }).ok, true);
+  assert.match(
+    validateBrowserToolArgs({ action: 'snapshot', input: { mode: 'both', format: 'pdf' } }).error,
+    /requires action "snapshot" with input\.mode=visual/,
+  );
+  assert.match(
+    validateBrowserToolArgs({
+      action: 'snapshot',
+      input: { mode: 'visual', format: 'pdf', quality: 60 },
+    }).error,
+    /only with input\.format=jpeg/,
+  );
+  assert.match(
+    validateBrowserToolArgs({
+      action: 'snapshot',
+      input: { mode: 'visual', format: 'pdf', image_output: 'inline' },
+    }).error,
+    /always writes a file/,
+  );
+});
+
+test('scroll accepts a text target, and only one target form at a time', () => {
+  assert.equal(validateBrowserToolArgs({
+    action: 'scroll',
+    input: { text: 'Pricing' },
+  }).ok, true);
+  assert.match(
+    validateBrowserToolArgs({
+      action: 'scroll',
+      input: { text: 'Pricing', ref: 'p1-s1-e2' },
+    }).error,
+    /only one input target form/,
+  );
+});
+
+test('select reads its options when no value is given, and still selects when one is', () => {
+  assert.equal(validateBrowserToolArgs({
+    action: 'select',
+    input: { ref: 'p1-s1-e2' },
+  }).ok, true);
+  assert.equal(validateBrowserToolArgs({
+    action: 'select',
+    input: { ref: 'p1-s1-e2', values: ['Seoul'] },
+  }).ok, true);
+  assert.match(
+    validateBrowserToolArgs({ action: 'select', input: { values: ['Seoul'] } }).error,
+    /requires input\..*ref/,
+  );
+});
+
+test('the observation-only actions named on each tool surface are valid actions', () => {
+  for (const action of BROWSER_OBSERVATION_ACTIONS) {
+    assert.ok(BROWSER_ACTIONS.includes(action), `browser schema missing ${action}`);
+  }
+  // The computer tool's actions map onto host commands, so the claim is checked
+  // against what the client counts as a read.
+  for (const action of COMPUTER_OBSERVATION_ACTIONS) {
+    const input = action === 'list'
+      ? { kind: 'windows' }
+      : action === 'wait'
+        ? { duration: 1 }
+        : action === 'verify'
+          ? { window_id: 'hwnd:0x1', expect: [{ present: 'Saved' }] }
+          : { window_id: 'hwnd:0x1' };
+    const command = toComputerHostCommand({ action, input });
+    const hostAction = String(command.action);
+    assert.equal(
+      isReplaySafeComputerCommand(command),
+      true,
+      `computer client treats ${action} (${hostAction}) as a mutation`,
+    );
+  }
+});
+
+test('computer observation variants are replay-safe but clipboard writes are not', () => {
+  for (const args of [
+    { action: 'list', input: { kind: 'windows' } },
+    { action: 'list', input: { kind: 'apps' } },
+    { action: 'capture', input: { window_id: 'hwnd:0x1', mode: 'state' } },
+    {
+      action: 'capture',
+      input: { mode: 'zoom', frame_id: 'frame-1', region: [0, 0, 20, 20] },
+    },
+    { action: 'clipboard', input: { operation: 'read' } },
+  ]) {
+    assert.equal(
+      isReplaySafeComputerCommand(toComputerHostCommand(args)),
+      true,
+      JSON.stringify(args),
+    );
+  }
+  assert.equal(
+    isReplaySafeComputerCommand(toComputerHostCommand({
+      action: 'clipboard',
+      input: { operation: 'write', text: 'not replay-safe' },
+    })),
+    false,
+  );
+});
+
+test('computer runtime manifest stays in parity with host command handlers', async () => {
+  // Handlers live in both halves of the host: the TypeScript decisions and the
+  // PowerShell program they dispatch into.
+  // The PowerShell half is split by capability, so every piece counts as host
+  // source: a handler is present wherever its dispatch case lives.
+  const hostSource = (await Promise.all([
+    'computer-host-powershell.ts',
+    'computer-host-program.ts',
+    'computer-host-ps-session.ts',
+    'computer-host-ps-observation.ts',
+    'computer-host-ps-input.ts',
+    'computer-host-ps-runtime.ts',
+  ].map((name) => readFile(
+    new URL(`../../apps/desktop/src/main/${name}`, import.meta.url),
+    'utf8',
+  )))).join('\n');
   // Every schema action, including the button/operation/kind variants that
   // select a different host command, so no mapped command can lose its handler.
   const calls = [
@@ -454,6 +659,20 @@ test('computer window targets take one exact window_id or one app fallback', () 
   assert.match(
     validateComputerToolArgs({ action: 'window', input: { app: '   ', operation: 'focus' } }),
     /app must not be empty/,
+  );
+  assert.match(
+    validateComputerToolArgs({
+      action: 'capture',
+      input: { window_id: 'hwnd:0x1', app: 'Notepad' },
+    }),
+    /at most one of window_id, app, or screen/,
+  );
+  assert.match(
+    validateComputerToolArgs({
+      action: 'capture',
+      input: { mode: 'zoom', frame_id: 'frame-1', region: [0, 0, 20, 20], screen: 0 },
+    }),
+    /instead of a window, app, or screen target/,
   );
   // The host resolves the label, so the app target travels through unchanged.
   assert.deepEqual(toComputerHostCommand({
@@ -562,15 +781,51 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     action: 'key',
     input: {
       window_id: 'hwnd:0x123',
-      ref: 'ref:1',
       element: 2,
       keys: '{ENTER}',
     },
-  }), /only one of ref or element/i);
+  }), /does not accept input field.*element/i);
+  assert.match(validateComputerToolArgs({
+    action: 'key',
+    input: { window_id: 'hwnd:0x123', keys: 'a'.repeat(513) },
+  }), /keys accepts at most 512 characters/i);
+  assert.match(validateComputerToolArgs({
+    action: 'type',
+    input: { window_id: 'hwnd:0x123', text: 'a'.repeat(30_001) },
+  }), /text accepts at most 30000 characters/i);
+  assert.match(validateComputerToolArgs({
+    action: 'clipboard',
+    input: { operation: 'write', text: 'a'.repeat(50_001) },
+  }), /text accepts at most 50000 characters/i);
   assert.match(validateComputerToolArgs({
     action: 'window',
     input: { window_id: 'hwnd:0x123', operation: 'hide' },
   }), /operation must be one of/i);
+  assert.match(validateComputerToolArgs({
+    action: 'window',
+    input: { window_id: 'hwnd:0x123', operation: 'move', width: 0 },
+  }), /input\.width must be at least 1/i);
+  assert.match(validateComputerToolArgs({
+    action: 'verify',
+    input: {
+      window_id: 'hwnd:0x123',
+      expect: [{ present: ' ' }],
+    },
+  }), /predicate 1 text must not be empty/i);
+  assert.match(validateComputerToolArgs({
+    action: 'verify',
+    input: {
+      window_id: 'hwnd:0x123',
+      expect: [{ present: 123 }],
+    },
+  }), /predicate 1 text must be a string/i);
+  assert.match(validateComputerToolArgs({
+    action: 'verify',
+    input: {
+      window_id: 'hwnd:0x123',
+      expect: [{ window_exists: 'false' }],
+    },
+  }), /predicate 1 window_exists must be a boolean/i);
   assert.match(validateComputerToolArgs({
     action: 'clipboard',
     input: { operation: 'delete' },
@@ -661,6 +916,51 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     action: 'launch',
     input: { app: 'https://example.com/bash/download.url?left=1&&right=2' },
   }), null);
+  // A provider may serialize the nested argument as a JSON string or flatten it
+  // onto the root; both resolve to the same command instead of being refused.
+  assert.equal(validateComputerToolArgs({
+    action: 'list',
+    input: '{"kind":"windows"}',
+  }), null);
+  assert.deepEqual(toComputerHostCommand({
+    action: 'list',
+    input: '{"kind":"windows"}',
+  }), { action: 'list_windows' });
+  assert.equal(validateComputerToolArgs({ action: 'list', kind: 'windows' }), null);
+  assert.deepEqual(
+    toComputerHostCommand({ action: 'list', kind: 'windows' }),
+    { action: 'list_windows' },
+  );
+  assert.equal(validateComputerToolArgs({
+    action: 'click',
+    input: '{"window_id":"hwnd:0x123","ref":"ref:1"}',
+    capture_after: '{"mode":"ax"}',
+  }), null);
+  assert.deepEqual(toComputerHostCommand({
+    action: 'click',
+    input: '{"window_id":"hwnd:0x123","ref":"ref:1"}',
+    capture_after: '{"mode":"ax"}',
+  }), {
+    window_id: 'hwnd:0x123',
+    ref: 'ref:1',
+    action: 'invoke',
+    capture_after: true,
+    capture_after_mode: 'ax',
+  });
+  assert.match(validateComputerToolArgs({
+    action: 'click',
+    window_id: 'hwnd:0x123',
+  }), /requires ref, element, or frame_id\/x\/y/i);
+  // A string that cannot be resolved stays a string and still fails.
+  assert.match(validateComputerToolArgs({
+    action: 'list',
+    input: '{"kind":"windows"',
+  }), /input must be an object/i);
+  assert.match(validateComputerToolArgs({
+    action: 'click',
+    input: { window_id: 'hwnd:0x123', ref: 'ref:1' },
+    capture_after: '{"mode":"ax"',
+  }), /capture_after must be an object/i);
   assert.deepEqual(toComputerHostCommand({
     action: 'click',
     input: { window_id: 'hwnd:0x123', ref: 'ref:1', button: 'right' },
@@ -711,6 +1011,14 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     input: { kind: 'apps' },
   }), { action: 'list_apps' });
   assert.deepEqual(toComputerHostCommand({
+    action: 'menu',
+    input: { window_id: 'hwnd:0x123', path: ['File', 'Save As'] },
+  }), {
+    window_id: 'hwnd:0x123',
+    path: ['File', 'Save As'],
+    action: 'invoke_menu',
+  });
+  assert.deepEqual(toComputerHostCommand({
     action: 'capture',
     input: { mode: 'zoom', frame_id: 'frame:1', region: [1, 2, 3, 4] },
   }), {
@@ -725,6 +1033,27 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     text: 'value',
     action: 'clipboard_write',
   });
+  // A frame can be answered beside the run instead of inside the conversation,
+  // but only where pixels exist at all.
+  assert.equal(validateComputerToolArgs({
+    action: 'capture',
+    input: { window_id: 'hwnd:0x123', image_output: 'file' },
+  }), null);
+  assert.match(
+    String(validateComputerToolArgs({
+      action: 'capture',
+      input: { window_id: 'hwnd:0x123', mode: 'ax', image_output: 'file' },
+    })),
+    /image_output requires a mode that returns pixels/,
+  );
+  assert.equal(
+    toComputerHostCommand({
+      action: 'click',
+      input: { window_id: 'hwnd:0x123', element: 2 },
+      capture_after: { image_output: 'file' },
+    }).capture_after_image_output,
+    'file',
+  );
   assert.deepEqual([
     ['focus', 'focus_window'],
     ['move', 'move_window'],
@@ -798,7 +1127,9 @@ test('bridge clients authenticate and preserve text plus image results', async (
         ok: true,
         value: {
           text: request.headers.authorization === 'Bearer computer-token'
-            ? JSON.stringify({ ok: true, action: body.action })
+            ? body.action === 'clipboard_read'
+              ? '{"action":"user-content","nested":true}'
+              : JSON.stringify({ ok: true, action: body.action })
             : 'bridge ok',
           image: { mimeType: 'image/jpeg', data: 'aGVsbG8=' },
           ...(request.headers.authorization === 'Bearer browser-token'
@@ -866,6 +1197,14 @@ test('bridge clients authenticate and preserve text plus image results', async (
           : []),
       ]);
     }
+    const clipboardRead = await executeComputerTool(
+      { action: 'clipboard', input: { operation: 'read' } },
+      { sessionId: 'computer-session-1' },
+    );
+    assert.equal(
+      clipboardRead.content[0].text,
+      '{"action":"user-content","nested":true}',
+    );
     assert.equal(deferComputerSessionRelease('computer-session-1', 20), true);
     const continued = await executeComputerTool(
       { action: 'list', input: { kind: 'windows' } },
@@ -896,6 +1235,12 @@ test('bridge clients authenticate and preserve text plus image results', async (
           : {}),
       },
     })), {
+      authorization: 'Bearer computer-token',
+      body: {
+        action: 'clipboard_read',
+        session_id: 'computer-session-1',
+      },
+    }, {
       authorization: 'Bearer computer-token',
       body: {
         action: 'list_windows',
@@ -997,6 +1342,101 @@ test('computer client propagates caller cancellation to same-session host abort'
   }
 });
 
+test('browser bridge replacement retries observations but never replays mutations', {
+  timeout: 10_000,
+}, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-browser-replacement-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = directory;
+  let oldRequests = 0;
+  let replacementRequests = 0;
+  const replacement = createServer((_request, response) => {
+    replacementRequests += 1;
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ ok: true, value: { text: 'replacement observation' } }));
+  });
+  const old = createServer((_request, response) => {
+    oldRequests += 1;
+    void writeFile(join(directory, 'browser-bridge.json'), `${JSON.stringify({
+      version: 1,
+      port: replacement.address().port,
+      token: 'replacement-token',
+    })}\n`).then(() => {
+      if (oldRequests === 1) {
+        response.destroy();
+        return;
+      }
+      response.writeHead(200, {
+        'content-type': 'application/json',
+        'content-length': '100',
+      });
+      response.write('{"ok":');
+      setImmediate(() => response.destroy());
+    });
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      replacement.once('error', reject);
+      replacement.listen(0, '127.0.0.1', resolve);
+    });
+    await new Promise((resolve, reject) => {
+      old.once('error', reject);
+      old.listen(0, '127.0.0.1', resolve);
+    });
+    const pointDiscoveryAtOld = async () => {
+      await writeFile(join(directory, 'browser-bridge.json'), `${JSON.stringify({
+        version: 1,
+        port: old.address().port,
+        token: 'old-token',
+      })}\n`);
+    };
+
+    await pointDiscoveryAtOld();
+    const mutation = await executeBrowserTool({
+      action: 'click',
+      input: { ref: 'p1-s1-e1' },
+    });
+    assert.equal(mutation.isError, true);
+    assert.match(mutation.content[0].text, /may have executed and was not replayed/);
+    assert.equal(oldRequests, 1);
+    assert.equal(replacementRequests, 0);
+
+    await pointDiscoveryAtOld();
+    const observation = await executeBrowserTool({
+      action: 'snapshot',
+      input: { tab: 'p1' },
+    });
+    assert.equal(observation.isError, undefined);
+    assert.equal(observation.content[0].text, 'replacement observation');
+    assert.equal(oldRequests, 2);
+    assert.equal(replacementRequests, 1);
+  } finally {
+    old.closeAllConnections?.();
+    replacement.closeAllConnections?.();
+    await Promise.all([
+      new Promise((resolve) => old.close(resolve)),
+      new Promise((resolve) => replacement.close(resolve)),
+    ]);
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('browser client rejects oversized commands before dispatch', async () => {
+  const result = await executeBrowserTool({
+    action: 'fill',
+    input: {
+      fields: Array.from({ length: 30 }, (_value, index) => ({
+        ref: `p1-s1-e${index + 1}`,
+        text: 'x'.repeat(10_000),
+      })),
+    },
+  });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /exceeds 262144 bytes/);
+});
+
 test('browser client propagates caller cancellation and budget identity', {
   timeout: 10_000,
 }, async () => {
@@ -1066,10 +1506,14 @@ test('computer client retries once against a republished bridge endpoint', {
   const previousDataDir = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = directory;
   const seen = [];
-  let staleRequestSeen;
-  let releaseStale;
-  const staleHit = new Promise((resolve) => { staleRequestSeen = resolve; });
-  const staleReleased = new Promise((resolve) => { releaseStale = resolve; });
+  let staleRequestSeen = () => {};
+  let staleReleased = Promise.resolve();
+  let releaseStale = () => {};
+  const armStaleEndpoint = () => {
+    const staleHit = new Promise((resolve) => { staleRequestSeen = resolve; });
+    staleReleased = new Promise((resolve) => { releaseStale = resolve; });
+    return staleHit;
+  };
   // The endpoint discovery still points at: it accepts the connection and drops
   // it, exactly like a bridge whose app restarted mid-flight. The drop waits for
   // the republished discovery so the retry has a live endpoint to find.
@@ -1094,13 +1538,57 @@ test('computer client retries once against a republished bridge endpoint', {
   const publish = async (port, token) => {
     await writeFile(discoveryFile, `${JSON.stringify({ version: 1, port, token })}\n`);
   };
+  const unauthorizedServer = createServer((_request, response) => {
+    void publish(liveServer.address().port, 'live-token').then(() => {
+      const payload = JSON.stringify({ ok: false, error: 'unauthorized' });
+      response.writeHead(401, {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload),
+      });
+      response.end(payload);
+    });
+  });
   try {
-    for (const server of [staleServer, liveServer]) {
+    for (const server of [staleServer, liveServer, unauthorizedServer]) {
       await new Promise((resolve, reject) => {
         server.once('error', reject);
         server.listen(0, '127.0.0.1', resolve);
       });
     }
+    let staleHit = armStaleEndpoint();
+    await publish(staleServer.address().port, 'stale-token');
+    const sameEndpointMutationExecution = executeComputerTool(
+      {
+        action: 'click',
+        input: { window_id: 'hwnd:0x123', ref: 'ref:1' },
+      },
+      { sessionId: 'retry-session' },
+    );
+    await staleHit;
+    releaseStale();
+    const sameEndpointMutation = await sameEndpointMutationExecution;
+    assert.equal(sameEndpointMutation.isError, true);
+    assert.match(sameEndpointMutation.content[0].text, /may have executed and was not replayed/);
+    assert.deepEqual(seen, []);
+
+    staleHit = armStaleEndpoint();
+    await publish(staleServer.address().port, 'stale-token');
+    const mutationExecution = executeComputerTool(
+      {
+        action: 'click',
+        input: { window_id: 'hwnd:0x123', ref: 'ref:1' },
+      },
+      { sessionId: 'retry-session' },
+    );
+    await staleHit;
+    await publish(liveServer.address().port, 'live-token');
+    releaseStale();
+    const mutation = await mutationExecution;
+    assert.equal(mutation.isError, true);
+    assert.match(mutation.content[0].text, /may have executed and was not replayed/);
+    assert.deepEqual(seen, []);
+
+    staleHit = armStaleEndpoint();
     await publish(staleServer.address().port, 'stale-token');
     const execution = executeComputerTool(
       { action: 'list', input: { kind: 'windows' } },
@@ -1112,8 +1600,19 @@ test('computer client retries once against a republished bridge endpoint', {
     const result = await execution;
     assert.equal(result.isError, undefined);
     assert.deepEqual(seen, [{ action: 'list_windows', session_id: 'retry-session' }]);
+
+    await publish(unauthorizedServer.address().port, 'stale-token');
+    const authResult = await executeComputerTool(
+      { action: 'list', input: { kind: 'apps' } },
+      { sessionId: 'retry-session' },
+    );
+    assert.equal(authResult.isError, undefined);
+    assert.deepEqual(seen, [
+      { action: 'list_windows', session_id: 'retry-session' },
+      { action: 'list_apps', session_id: 'retry-session' },
+    ]);
   } finally {
-    for (const server of [staleServer, liveServer]) {
+    for (const server of [staleServer, liveServer, unauthorizedServer]) {
       server.closeAllConnections?.();
       await new Promise((resolve) => server.close(resolve));
     }

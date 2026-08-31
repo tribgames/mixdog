@@ -132,8 +132,3 @@ export function evaluateOfficeSubmissionGate({
     blocking,
   };
 }
-
-export function officeCriticalIssueCodes() {
-  return [...CRITICAL_CODES].sort();
-}
-

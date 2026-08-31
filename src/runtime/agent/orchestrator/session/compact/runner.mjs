@@ -49,14 +49,6 @@ import {
     RECALL_TAIL_SHORT_TRUNCATION_MARKER,
 } from './summary.mjs';
 import { buildPostCompactFileAttachment } from './file-reattach.mjs';
-import {
-    collectToolOutcomeLines,
-    collectWorkingFileGroups,
-    composeRecallHandoff,
-    fitRecallHandoffText,
-    conversationLinesFromMemoryText,
-    excludeTailFromConversation,
-} from './handoff.mjs';
 
 // Post-compact file re-attachment: re-inject fresh reads
 // of files the summarized-away head was working with, when they still fit the
@@ -863,28 +855,9 @@ function _recallFastTrackCompactMessages(messages, budgetTokens, opts = {}) {
     const recallRoom = (Number.isFinite(recallTokenCap) && recallTokenCap > 0)
         ? Math.min(recallRoomUncapped, Math.max(512, recallTokenCap - tailTokens))
         : recallRoomUncapped;
-    const toolLines = collectToolOutcomeLines(recallHead)
-        .filter((line) => !recallText.includes(String(line || '').trim()));
-    const workingFiles = collectWorkingFileGroups(recallHead, undefined, {
-        cwd: opts.cwd,
-        previousSummary: '',
-        now: Date.now(),
-    });
-    const conversationLines = excludeTailFromConversation(
-        conversationLinesFromMemoryText(recallText),
-        recallTail,
-    );
-    const composedRecall = composeRecallHandoff({
-        sessionId: opts.sessionId || '',
-        conversationLines,
-        toolLines,
-        workingFiles,
-    });
-    const currentRoom = Math.max(256, recallRoom - 200);
-    const fittedRecall = fitRecallHandoffText(composedRecall, currentRoom);
     const summaryMessage = fitRecallFastTrackSummaryMessage(
         oldHistory,
-        fittedRecall,
+        recallText,
         recallRoom,
         recallMeta,
     );

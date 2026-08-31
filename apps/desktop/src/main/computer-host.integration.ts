@@ -1,16 +1,12 @@
 import assert from 'node:assert/strict';
 import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { readFile, rm } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { app, BrowserWindow, screen } from 'electron';
 import { createComputerHost, type ComputerHost } from './computer-host';
-
-interface Discovery {
-  port: number;
-  token: string;
-}
+import { createPolling } from './host-harness-poll';
 
 interface CommandResult {
   text: string;
@@ -48,34 +44,7 @@ mkdirSync(dataDirectory, { recursive: true });
 process.env.MIXDOG_DATA_DIR = dataDirectory;
 app.setPath('userData', join(profile, 'user-data'));
 
-async function eventually<T>(
-  operation: () => Promise<T>,
-  accept: (value: T) => boolean,
-  timeoutMs = 30_000,
-): Promise<T> {
-  const startedAt = Date.now();
-  let latest = await operation();
-  while (!accept(latest) && Date.now() - startedAt < timeoutMs) {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    latest = await operation();
-  }
-  assert.ok(accept(latest), `condition was not met within ${timeoutMs}ms`);
-  return latest;
-}
-
-async function readDiscovery(path: string): Promise<Discovery> {
-  return await eventually(
-    async () => {
-      try {
-        return JSON.parse(await readFile(path, 'utf8')) as Discovery;
-      } catch {
-        return { port: 0, token: '' };
-      }
-    },
-    (value) => Number.isInteger(value.port) && value.port > 0 && Boolean(value.token),
-    45_000,
-  );
-}
+const { eventually, readDiscovery } = createPolling({ timeoutMs: 30_000, intervalMs: 100 });
 
 function capturePayload(result: CommandResult): CapturePayload {
   return JSON.parse(result.text) as CapturePayload;
@@ -251,7 +220,7 @@ async function run(): Promise<void> {
     progress('custom renderer fixture ready');
 
     host = createComputerHost();
-    const discovery = await readDiscovery(join(dataDirectory, 'computer-bridge.json'));
+    const discovery = await readDiscovery(join(dataDirectory, 'computer-bridge.json'), 45_000);
     progress('resident computer bridge ready');
 
     const command = async (

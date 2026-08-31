@@ -44,6 +44,7 @@ import {
   setCachedConnectionInfo,
 } from './connection-info';
 import { GitPanel } from './git-panel';
+import { PushNotificationToggle } from './push-notification-toggle';
 import type { SettingsCategory } from './settings-items';
 
 import { ActionButton, AutoSaveRow, CompactSwitch, FormRow, Group, ListEmpty, ResourceRow, SelectRow, settingsStatus, ToggleRow } from "./capability-controls";
@@ -569,7 +570,7 @@ function VoiceInstallDialog({ mode, progressText, progressPercent, onClose, onIn
   );
 }
 
-function GeneralPanel({ data, snapshot, pending, run }: PanelContext) {
+function GeneralPanel({ data, snapshot, pending, run, api }: PanelContext) {
   const profile = record(data.profile);
   const toolModules = record(data.toolModules);
   const recap = record(data.recap);
@@ -630,6 +631,9 @@ function GeneralPanel({ data, snapshot, pending, run }: PanelContext) {
     {voiceInstallDialog && <VoiceInstallDialog mode={voiceInstallDialog}
       progressText={voiceProgressText} progressPercent={voiceProgressPercent}
       onClose={() => setVoiceInstallDialog(null)} onInstall={() => void installVoice()} />}
+    {/* Web app only: it renders nothing where the push API is absent, which is
+        every Electron window. */}
+    <PushNotificationToggle api={api} />
     <UiLanguageChoices pending={pending} />
         <ThemeChoices data={data} pending={pending} />
     <SidePanelChoices pending={pending} />

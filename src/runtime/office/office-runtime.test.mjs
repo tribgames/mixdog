@@ -42,6 +42,7 @@ import {
   reviewOfficeDesign,
   reviewPptxVisualCritique,
 } from './design-system.mjs';
+import { normalizePptxModelPlan } from './design-pptx-plan.mjs';
 import { summarizeOfficeCompositions } from './composition-system.mjs';
 import {
   canonicalOfficeDesignPack,
@@ -127,6 +128,8 @@ test('office is a first-class built-in tool with stateful document actions', () 
   assert.match(TOOL_DEFS[0].inputSchema.properties.review.description, /Keep enabled for deliverables/);
   assert.ok(TOOL_DEFS[0].inputSchema.properties.mode.enum.includes('visible'));
   assert.ok(TOOL_DEFS[0].inputSchema.properties.mode.enum.includes('attach'));
+  assert.match(TOOL_DEFS[0].inputSchema.properties.mode.description, /auto defaults to background/);
+  assert.match(TOOL_DEFS[0].inputSchema.properties.mode.description, /Only explicit attach/);
   assert.equal(TOOL_DEFS[0].inputSchema.properties.requireChanges.type, 'boolean');
   assert.deepEqual(TOOL_DEFS[0].inputSchema.properties.failOn.enum, ['error', 'warning']);
   const descriptionChars = [
@@ -138,7 +141,7 @@ test('office is a first-class built-in tool with stateful document actions', () 
 });
 
 test('Office design profiles expose semantic composition without decorative defaults', () => {
-  assert.deepEqual(officeDesignCatalog('pptx').map((entry) => entry.id), ['editorial', 'technical', 'data']);
+  assert.deepEqual(officeDesignCatalog('pptx').map((entry) => entry.id), ['executive', 'editorial', 'technical', 'data']);
   const design = resolveOfficeDesign('pptx', {
     profile: 'technical',
     intent: 'Explain an Office runtime optimization',
@@ -155,7 +158,19 @@ test('Office design profiles expose semantic composition without decorative defa
     backend: 'microsoft-office-com',
     created: true,
     operations: [
-      { op: 'compose_slide', kind: 'cover', title: 'One clear argument', subtitle: 'A designed report' },
+      {
+        op: 'compose_slide',
+        kind: 'cover',
+        title: 'One clear argument',
+        subtitle: 'A designed report',
+        plan: {
+          visualType: 'statement',
+          regions: [
+            { id: 'message', role: 'title', x: 6, y: 22, w: 70, h: 28 },
+            { id: 'support', role: 'subtitle', x: 6, y: 60, w: 62, h: 12 },
+          ],
+        },
+      },
       {
         op: 'compose_slide',
         kind: 'metrics',
@@ -165,6 +180,13 @@ test('Office design profiles expose semantic composition without decorative defa
           { value: '−44.6%', label: 'runtime' },
           { value: '100%', label: 'accuracy' },
         ],
+        plan: {
+          visualType: 'metrics',
+          regions: [
+            { id: 'message', role: 'title', x: 6, y: 7, w: 84, h: 14 },
+            { id: 'evidence', role: 'metrics', x: 6, y: 30, w: 88, h: 56, direction: 'row' },
+          ],
+        },
       },
     ],
     design,
@@ -181,6 +203,155 @@ test('Office design profiles expose semantic composition without decorative defa
     const height = Number(operation.properties?.height) || 0;
     return (width <= 14 && height >= 180) || (height <= 7 && width >= 320);
   }), false);
+});
+
+test('model-first PPTX rendering enforces readable type and internal component spacing', () => {
+  const expanded = expandOfficeDesignOperations({
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    created: true,
+    operations: [{
+      op: 'compose_slide',
+      kind: 'process',
+      title: 'One decision with readable evidence',
+      meta: ['July review'],
+      metrics: [{
+        value: '1.8억',
+        label: '승인 요청',
+        detail: '두 트랙 합계',
+      }],
+      steps: [
+        { title: 'Owner 확정', detail: '책임 지정' },
+        { title: 'Gate 판정', detail: 'release / stop' },
+      ],
+      plan: {
+        regions: [
+          { id: 'message', role: 'title', x: 6, y: 5, w: 88, h: 12 },
+          { id: 'context', role: 'meta', x: 6, y: 20, w: 32, h: 6, style: { fontSize: 8 } },
+          {
+            id: 'metric',
+            role: 'metric',
+            x: 6,
+            y: 32,
+            w: 28,
+            h: 50,
+            style: { labelSize: 8, detailSize: 8 },
+          },
+          { id: 'process', role: 'process', x: 42, y: 30, w: 52, h: 54 },
+        ],
+      },
+    }, {
+      op: 'compose_slide',
+      kind: 'closing',
+      title: 'Approve the next move',
+      visualText: 'GO',
+      visualLabel: '승인',
+      plan: {
+        regions: [
+          { id: 'message', role: 'title', x: 7, y: 18, w: 56, h: 28 },
+          { id: 'decision', role: 'visual', x: 72, y: 28, w: 20, h: 38 },
+        ],
+      },
+    }],
+  });
+  const textboxes = expanded.operations.filter((operation) => operation.op === 'add_textbox');
+  const fontSizes = textboxes.flatMap((operation) => [
+    operation.properties?.fontSize,
+    ...(operation.paragraphs || []).map((paragraph) => paragraph.fontSize),
+  ]).filter((fontSize) => Number.isFinite(Number(fontSize)));
+  assert.ok(fontSizes.length > 0);
+  assert.ok(fontSizes.every((fontSize) => Number(fontSize) >= 12), JSON.stringify(fontSizes));
+
+  const metricValue = textboxes.find((operation) => operation.text === '1.8억');
+  const metricLabel = textboxes.find((operation) => operation.text === '승인 요청');
+  const metricDetail = textboxes.find((operation) => operation.text === '두 트랙 합계');
+  assert.ok(metricLabel.properties.top - (metricValue.properties.top + metricValue.properties.height) >= 8);
+  assert.ok(metricDetail.properties.top - (metricLabel.properties.top + metricLabel.properties.height) >= 8);
+
+  for (const [title, detail] of [['Owner 확정', '책임 지정'], ['Gate 판정', 'release / stop']]) {
+    const titleBox = textboxes.find((operation) => operation.text === title);
+    const detailBox = textboxes.find((operation) => operation.text === detail);
+    assert.ok(detailBox.properties.top - (titleBox.properties.top + titleBox.properties.height) >= 8);
+  }
+  const visualText = textboxes.find((operation) => operation.text === 'GO');
+  const visualLabel = textboxes.find((operation) => operation.text === '승인');
+  assert.ok(visualLabel.properties.top - (visualText.properties.top + visualText.properties.height) >= 8);
+});
+
+test('model-first PPTX plans preserve authored geometry, repair safe bounds, and never use template fallback', () => {
+  const first = expandOfficeDesignOperations({
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    created: true,
+    design: { purpose: 'explain' },
+    operations: [{
+      op: 'compose_slide',
+      kind: 'chart',
+      title: 'Demand moved ahead of capacity',
+      body: ['Backlog growth is concentrated in one queue.'],
+      chart: {
+        categories: ['Jan', 'Feb', 'Mar'],
+        series: [{ name: 'Backlog', values: [20, 31, 48] }],
+      },
+      plan: {
+        name: 'commentary-left-chart-right',
+        rationale: 'Keep the operational claim beside its native evidence.',
+        regions: [
+          { id: 'message', role: 'title', x: -2, y: 1, w: 54, h: 13 },
+          { id: 'support', role: 'body', x: 6, y: 30, w: 27, h: 42 },
+          { id: 'evidence', role: 'chart', x: 39, y: 25, w: 61, h: 68 },
+        ],
+        readingOrder: ['message', 'support', 'evidence'],
+      },
+    }],
+  });
+  const chart = first.operations.find((operation) => operation.op === 'add_chart');
+  assert.equal(first.semantic[0].renderMode, 'model-plan');
+  assert.equal(first.semantic[0].plan.source, 'model');
+  assert.equal(first.semantic[0].plan.repairs.some((repair) => repair.type === 'bounds'), true);
+  assert.equal(first.operations.some((operation) => operation.op === 'import_slides'), false);
+  assert.ok(chart.left >= 360 && chart.width >= 500, JSON.stringify(chart));
+
+  const second = expandOfficeDesignOperations({
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    created: true,
+    operations: [{
+      op: 'compose_slide',
+      kind: 'chart',
+      title: 'Demand moved ahead of capacity',
+      chart: {
+        categories: ['Jan', 'Feb', 'Mar'],
+        series: [{ name: 'Backlog', values: [20, 31, 48] }],
+      },
+      plan: {
+        name: 'chart-led-bottom-message',
+        regions: [
+          { id: 'evidence', role: 'chart', x: 6, y: 8, w: 88, h: 60 },
+          { id: 'message', role: 'title', x: 6, y: 76, w: 88, h: 14 },
+        ],
+        readingOrder: ['evidence', 'message'],
+      },
+    }],
+  });
+  assert.notEqual(first.semantic[0].composition.id, second.semantic[0].composition.id);
+  assert.throws(() => expandOfficeDesignOperations({
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    created: true,
+    operations: [{ op: 'compose_slide', kind: 'cover', title: 'Missing plan' }],
+  }), /MODEL_COMPOSITION_PLAN_REQUIRED.*No template fallback was applied/);
+  assert.throws(() => normalizePptxModelPlan({
+    kind: 'chart',
+    title: 'Broken geometry',
+    chart: { series: [] },
+    plan: {
+      regions: [
+        { id: 'message', role: 'title', x: 5, y: 5, w: 85, h: 34 },
+        { id: 'evidence', role: 'chart', x: 8, y: 8, w: 85, h: 82 },
+      ],
+    },
+  }, resolveOfficeDesign('pptx', {}), 2), /MODEL_COMPOSITION_PLAN_OVERLAP.*No template fallback was applied/);
 });
 
 test('purpose-aware composition varies structure from content topology and recent output history', () => {
@@ -239,7 +410,7 @@ test('purpose-aware composition varies structure from content topology and recen
     format: 'pptx',
     backend: 'microsoft-office-com',
     created: true,
-    design: { purpose: 'monitor', expressionMode: 'strong-fit' },
+    design: { purpose: 'monitor', expressionMode: 'strong-fit', deck: { compositionMode: 'legacy' } },
     operations: [{
       op: 'compose_slide',
       kind: 'content',
@@ -253,7 +424,8 @@ test('purpose-aware composition varies structure from content topology and recen
   assert.equal(deck.semantic[0].requestedKind, 'content');
   assert.equal(deck.semantic[0].kind, 'chart');
   assert.equal(deck.semantic[0].composition.variant, 'chart-led');
-  assert.equal(deck.operations.find((entry) => entry.op === 'add_chart').width, 842);
+  assert.equal(deck.operations.find((entry) => entry.op === 'add_chart').left, 318);
+  assert.equal(deck.operations.find((entry) => entry.op === 'add_chart').width, 582);
 
   const workbook = expandOfficeDesignOperations({
     format: 'xlsx',
@@ -271,6 +443,173 @@ test('purpose-aware composition varies structure from content topology and recen
   });
   assert.equal(workbook.semantic[0].composition.id, 'trend-dashboard');
   assert.equal(workbook.operations.find((entry) => entry.op === 'add_chart').left, 360);
+});
+
+test('a composed sheet keeps its chart inside the print area', () => {
+  const expanded = expandOfficeDesignOperations({
+    format: 'xlsx',
+    backend: 'mixdog-ooxml',
+    created: true,
+    operations: [{
+      op: 'compose_sheet',
+      sheet: 'Sheet1',
+      title: 'Regional revenue',
+      headers: ['Region', 'Revenue'],
+      rows: [['Korea', 200], ['Japan', 210], ['US', 290]],
+      chart: { title: 'Revenue' },
+    }],
+    design: {},
+  });
+  const chart = expanded.operations.find((entry) => entry.op === 'add_chart');
+  const page = expanded.operations.find((entry) => entry.op === 'set_page_setup');
+  const area = /^A1:([A-Z]+)(\d+)$/.exec(String(page.printArea));
+  assert.ok(area, `unexpected print area ${page.printArea}`);
+  assert.equal(page.fitToContent, true);
+  const endColumn = [...area[1]].reduce((total, letter) => total * 26 + (letter.charCodeAt(0) - 64), 0);
+  // Print and PDF export clip to the print area; a chart outside it disappears
+  // from every exported copy while still looking correct on screen.
+  assert.ok(
+    endColumn * 48 >= chart.left + chart.width,
+    `print area stops at column ${area[1]} but the chart reaches ${chart.left + chart.width}pt`,
+  );
+  assert.ok(
+    Number(area[2]) * 15 >= chart.top + chart.height,
+    `print area stops at row ${area[2]} but the chart reaches ${chart.top + chart.height}pt`,
+  );
+});
+
+test('a wide composed dashboard keeps its chart clear of the data table', () => {
+  const expanded = expandOfficeDesignOperations({
+    format: 'xlsx',
+    backend: 'mixdog-ooxml',
+    created: true,
+    operations: [{
+      op: 'compose_sheet',
+      sheet: 'Dashboard',
+      kind: 'dashboard',
+      headers: ['Month', 'Revenue', 'Profit', 'Margin', 'Churn', 'NPS', 'Growth', 'Retention'],
+      rows: [['January', 5000, 650, 0.13, 0.031, 49, 60, 55]],
+      chart: { title: 'Performance', left: 440, width: 520 },
+    }],
+    design: {},
+  });
+  const chart = expanded.operations.find((entry) => entry.op === 'add_chart');
+  const estimatedTableRight = 8 * 60;
+  assert.ok(
+    chart.top >= 300,
+    `chart begins at ${chart.top}pt instead of moving below the ${estimatedTableRight}pt-wide table`,
+  );
+  assert.ok(
+    chart.left + chart.width <= 960,
+    'moving the chart must preserve the requested right edge and one-page scale',
+  );
+});
+
+test('scratch slides keep a fourth metric inside the slide and retain explicit statement visuals', () => {
+  const expanded = expandOfficeDesignOperations({
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    created: true,
+    design: { deck: { templateMode: 'scratch', compositionMode: 'legacy' } },
+    operations: [
+      {
+        op: 'compose_slide',
+        kind: 'metrics',
+        variant: 'stacked',
+        title: 'Four metrics',
+        subtitle: 'Financial capacity is confirmed',
+        metrics: [
+          { label: 'Revenue', value: 120, detail: 'Revenue detail' },
+          { label: 'Profit', value: 32, detail: 'Profit detail' },
+          { label: 'Churn', value: 0.02, detail: 'Churn detail' },
+          { label: 'NPS', value: 61, detail: 'NPS detail' },
+        ],
+      },
+      {
+        op: 'compose_slide',
+        kind: 'statement',
+        variant: 'typographic-statement',
+        title: 'Stop threshold',
+        metrics: [{ label: 'Margin stop', value: 13.5, unit: '%' }],
+      },
+      {
+        op: 'compose_slide',
+        kind: 'process',
+        title: 'Four bounded steps',
+        steps: [
+          { title: 'Owner', detail: 'Assign ownership' },
+          { title: 'Signal', detail: 'Inspect leading indicators' },
+          { title: 'Reallocate', detail: 'Move the budget' },
+          { title: 'Gate', detail: 'Make the decision' },
+        ],
+      },
+    ],
+  });
+  const fourthDetail = expanded.operations.find((operation) => operation.text === 'NPS detail');
+  assert.ok(fourthDetail);
+  assert.ok(
+    fourthDetail.properties.top + fourthDetail.properties.height <= 522,
+    'the fourth metric detail must preserve the 18pt bottom safe margin',
+  );
+  const secondaryDetails = ['Profit detail', 'Churn detail']
+    .map((text) => expanded.operations.find((operation) => operation.text === text));
+  const followingValues = ['0.02', '61']
+    .map((text) => expanded.operations.find((operation) => operation.text === text));
+  const subtitle = expanded.operations.find((operation) => operation.text === 'Financial capacity is confirmed');
+  const firstSecondaryValue = expanded.operations.find((operation) => operation.text === '32');
+  assert.ok(subtitle);
+  assert.ok(firstSecondaryValue);
+  assert.ok(
+    subtitle.properties.top + subtitle.properties.height + 6 <= firstSecondaryValue.properties.top,
+    'the subtitle and first metric must preserve at least 6pt vertical spacing',
+  );
+  const firstSecondaryLabel = expanded.operations.find((operation) => operation.text === 'Profit');
+  const firstSecondaryDetail = expanded.operations.find((operation) => operation.text === 'Profit detail');
+  assert.ok(firstSecondaryLabel);
+  assert.ok(firstSecondaryDetail);
+  assert.ok(
+    firstSecondaryValue.properties.top + firstSecondaryValue.properties.height + 6
+      <= firstSecondaryLabel.properties.top,
+    'the metric value and label must preserve at least 6pt vertical spacing',
+  );
+  assert.ok(
+    firstSecondaryLabel.properties.top + firstSecondaryLabel.properties.height + 6
+      <= firstSecondaryDetail.properties.top,
+    'the metric label and detail must preserve at least 6pt vertical spacing',
+  );
+  secondaryDetails.forEach((detail, index) => {
+    assert.ok(detail);
+    assert.ok(followingValues[index]);
+    assert.ok(
+      detail.properties.top + detail.properties.height + 6 <= followingValues[index].properties.top,
+      'adjacent metric text boxes must preserve at least 6pt vertical spacing',
+    );
+  });
+  assert.ok(
+    expanded.operations.some((operation) => (
+      operation.slide === 2
+      && operation.op === 'add_shape'
+      && operation.shapeType === 'rounded_rectangle'
+    )),
+    'an explicit statement metric must remain a visual even in a typographic composition',
+  );
+  assert.ok(
+    expanded.operations.some((operation) => (
+      operation.slide === 2
+      && operation.text === 'PRIMARY SIGNAL'
+    )),
+    'the statement visual must explain why the metric matters',
+  );
+  const processCards = expanded.operations.filter((operation) => (
+    operation.slide === 3
+    && operation.op === 'add_shape'
+    && operation.shapeType === 'rounded_rectangle'
+  ));
+  assert.equal(processCards.length, 4);
+  processCards.forEach((card) => {
+    assert.ok(card.properties.left >= 58);
+    assert.ok(card.properties.left + card.properties.width <= 902);
+  });
 });
 
 test('composition review blocks repeated and recently duplicated document structures', () => {
@@ -405,7 +744,7 @@ test('native Office templates expose sample-slide slots and drive strict templat
     documentPath: join(cwd, 'output.pptx'),
     format: 'pptx',
     created: true,
-    request: { template: 'executive-native' },
+    request: { template: 'executive-native', profile: 'editorial' },
     config,
   });
   const expanded = expandOfficeDesignOperations({
@@ -414,6 +753,7 @@ test('native Office templates expose sample-slide slots and drive strict templat
     created: true,
     design: {
       template: 'executive-native',
+      profile: 'editorial',
       density: 'light',
       deck: { templateMode: 'strict' },
     },
@@ -433,6 +773,32 @@ test('native Office templates expose sample-slide slots and drive strict templat
     ['One native argument', 'Preserve the approved source formatting'],
   );
   assert.equal(expanded.semantic[0].renderMode, 'native-template');
+  const scratchExpanded = expandOfficeDesignOperations({
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    created: true,
+    design: {
+      template: 'executive-native',
+      profile: 'editorial',
+      density: 'light',
+      deck: { templateMode: 'scratch', compositionMode: 'legacy' },
+    },
+    library,
+    operations: [{
+      op: 'compose_slide',
+      kind: 'metrics',
+      title: 'All four metrics',
+      metrics: [
+        { label: 'Revenue', value: 120 },
+        { label: 'Profit', value: 32 },
+        { label: 'Churn', value: 0.02 },
+        { label: 'NPS', value: 61 },
+      ],
+    }],
+  });
+  assert.equal(scratchExpanded.operations.some((operation) => operation.op === 'import_slides'), false);
+  assert.equal(scratchExpanded.operations.some((operation) => operation.op === 'add_slide'), true);
+  assert.equal(scratchExpanded.semantic[0].renderMode, 'legacy-scratch');
   const tableExpanded = expandOfficeDesignOperations({
     format: 'pptx',
     backend: 'microsoft-office-com',
@@ -481,7 +847,7 @@ test('native Office templates expose sample-slide slots and drive strict templat
     created: true,
     design: { deck: { templateMode: 'strict' } },
     operations: [{ op: 'compose_slide', kind: 'cover', title: 'No fallback' }],
-  }), /requires an approved native template layout/);
+  }), /requires an explicit native template layout/);
 
   const discovered = defaultOfficeTemplateDirectories({
     platform: 'win32',
@@ -507,9 +873,24 @@ test('PPTX deck plans enforce sandwich backgrounds while custom decks opt out', 
     backend: 'microsoft-office-com',
     created: true,
     operations: [
-      { op: 'compose_slide', kind: 'cover', title: 'Cover' },
-      { op: 'compose_slide', kind: 'content', title: 'Body' },
-      { op: 'compose_slide', kind: 'closing', title: 'Close' },
+      {
+        op: 'compose_slide',
+        kind: 'cover',
+        title: 'Cover',
+        plan: { regions: [{ id: 'message', role: 'title', x: 6, y: 30, w: 80, h: 20 }] },
+      },
+      {
+        op: 'compose_slide',
+        kind: 'content',
+        title: 'Body',
+        plan: { regions: [{ id: 'message', role: 'title', x: 6, y: 8, w: 80, h: 16 }] },
+      },
+      {
+        op: 'compose_slide',
+        kind: 'closing',
+        title: 'Close',
+        plan: { regions: [{ id: 'message', role: 'title', x: 6, y: 30, w: 80, h: 20 }] },
+      },
     ],
     design: request,
   });
@@ -534,6 +915,17 @@ test('PPTX deck plans enforce sandwich backgrounds while custom decks opt out', 
     design: request,
   });
   assert.equal(passing.status, 'pass');
+  const shortDeck = reviewOfficeDesign({
+    format: 'pptx',
+    document: {
+      slides: [
+        slide(1, design.tokens.colors.inverse),
+        slide(2, design.tokens.colors.canvas),
+      ],
+    },
+    design: request,
+  });
+  assert.equal(shortDeck.issues.some((issue) => issue.code === 'theme_background_drift'), false);
   const drifting = reviewOfficeDesign({
     format: 'pptx',
     document: {
@@ -579,6 +971,32 @@ test('PPTX deck plans enforce sandwich backgrounds while custom decks opt out', 
     },
   });
   assert.equal(semanticProcess.issues.some((issue) => issue.code === 'meaningful_visual_missing'), false);
+});
+
+test('PPTX review exempts the cover while a short deck still owes evidence', () => {
+  const textOnly = (index) => ({
+    index,
+    background: { color: 'F5F2EC', followMaster: false, source: 'slide' },
+    shapes: [{
+      type: 17,
+      text: `Slide ${index} carries only body copy`,
+      left: 60,
+      top: 80,
+      width: 700,
+      height: 90,
+      font: { size: 20 },
+    }],
+  });
+  const review = reviewOfficeDesign({
+    format: 'pptx',
+    document: { slides: [textOnly(1), textOnly(2)] },
+    design: { deck: { backgroundMode: 'custom' } },
+  });
+  assert.deepEqual(
+    review.issues.filter((issue) => issue.code === 'meaningful_visual_missing').map((issue) => issue.path),
+    ['/slide[2]'],
+    'a cover never owes a chart, but the content slide of a two-slide deck still does',
+  );
 });
 
 test('PPTX visual critique requires distinct per-slide evidence across five axes', () => {
@@ -646,7 +1064,7 @@ test('PPTX visual critique requires distinct per-slide evidence across five axes
   }), false);
 });
 
-test('signed Office design packs hot-update new documents while existing bindings stay pinned', async (t) => {
+test('signed Office design packs hot-update model tokens while existing bindings stay pinned', async (t) => {
   const cwd = await workspace(t);
   const dataDir = join(cwd, 'design-library-data');
   const { publicKey, privateKey } = generateKeyPairSync('ed25519');
@@ -755,14 +1173,30 @@ test('signed Office design packs hot-update new documents while existing binding
     format: 'pptx',
     backend: 'microsoft-office-com',
     created: true,
-    operations: [{ op: 'compose_slide', kind: 'statement', title: 'Pinned layout' }],
+    operations: [{
+      op: 'compose_slide',
+      kind: 'statement',
+      title: 'Pinned model palette',
+      plan: {
+        regions: [{
+          id: 'message',
+          role: 'title',
+          x: 8,
+          y: 28,
+          w: 76,
+          h: 24,
+          style: { colorRole: 'accent' },
+        }],
+      },
+    }],
     design: {},
     library: secondLibrary,
   });
-  assert.equal(composed.semantic[0].layout, 'statement-2-0-0');
+  assert.equal(composed.semantic[0].layout, undefined);
+  assert.equal(composed.semantic[0].renderMode, 'model-plan');
   assert.equal(
-    composed.operations.find((operation) => operation.op === 'add_textbox' && operation.text === 'Pinned layout')?.properties?.fontSize,
-    42,
+    composed.operations.find((operation) => operation.op === 'add_textbox' && operation.text === 'Pinned model palette')?.properties?.color,
+    '7C3AED',
   );
 
   const tampered = makePack('3.0.0', 'DC2626');
@@ -1016,13 +1450,15 @@ test('removed mutation actions remain rejected', async (t) => {
   assert.equal(finalized.closed, true);
 });
 
-test('persistent Office validation inspects the open document without quitting a second COM application', async () => {
+test('persistent Office validation inspects the open document with bounded Excel busy retries', async () => {
   const source = await readFile(new URL('./office-com-session-host.ps1', import.meta.url), 'utf8');
   const start = source.indexOf("'validate' {");
   const end = source.indexOf("'checkpoint' {", start);
   const validation = source.slice(start, end);
-  assert.match(validation, /Snapshot-Document \$document/);
-  assert.match(validation, /Issues-Document \$document/);
+  assert.match(validation, /Snapshot-SessionDocument \$document/);
+  assert.match(validation, /Issues-SessionDocument \$document/);
+  assert.match(source, /Invoke-ExcelComRetry[\s\S]+Excel session snapshot/);
+  assert.match(source, /Invoke-ExcelComRetry[\s\S]+Excel session issue inspection/);
   assert.doesNotMatch(validation, /Validate-NativeDocument/);
 });
 
@@ -1137,14 +1573,22 @@ test('describe returns compact operation contracts and actionable input errors',
     'dataLabelColor',
   ]);
 
-  const portableComment = value(await executeOfficeTool({
+  const portableAnimation = value(await executeOfficeTool({
     action: 'describe',
     format: 'pptx',
     backend: 'mixdog-ooxml',
     operation: 'add_animation',
   }));
-  assert.equal(portableComment.operation.supported, false);
-  assert.deepEqual(portableComment.operation.supportedBackends, ['microsoft-office-com']);
+  assert.equal(portableAnimation.operation.supported, true);
+  assert.deepEqual(portableAnimation.operation.supportedBackends, ['microsoft-office-com', 'mixdog-ooxml']);
+  for (const format of ['docx', 'xlsx', 'pptx']) {
+    const portable = describeOfficeCapabilities({ format, backend: 'mixdog-ooxml' });
+    assert.deepEqual(
+      portable.unsupportedInBackend,
+      [],
+      `every ${format} operation runs without Microsoft Office`,
+    );
+  }
 
   const invalid = await executeOfficeTool({
     action: 'describe',
@@ -1971,6 +2415,23 @@ test('PDF rendering compresses long documents into at most 12 contact sheets wit
     complete: true,
     remainingPages: [],
   });
+});
+
+test('PDF rendering workers ignore parent-only V8 heap flags', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'worker-flags.pdf');
+  const pdf = await PDFDocument.create();
+  pdf.addPage([200, 120]);
+  await writeFile(path, await pdf.save());
+  const original = process.execArgv;
+  process.execArgv = ['--max-old-space-size=768'];
+  try {
+    const rendered = await renderPdfPages(path, { maxWidth: 200 });
+    assert.equal(rendered.pageCount, 1);
+    assert.equal(rendered.images.length, 1);
+  } finally {
+    process.execArgv = original;
+  }
 });
 
 test('PDF specialized queries expose positioned text, inferred tables, and embedded images', async (t) => {

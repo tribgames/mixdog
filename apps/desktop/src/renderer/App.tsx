@@ -122,6 +122,9 @@ import {
   type ConversationHandoff,
 } from "./use-pane-tab-close";
 import { usePaneTabNavigation } from "./use-pane-tab-navigation";
+import { usePushNotificationNavigation } from "./use-push-notification-navigation";
+import { useSharedIntakeBoot } from "./share-target-intake";
+import { useShellUpdateReload } from "./use-shell-update-reload";
 import { useAppWorkspaceNavigation } from "./use-app-workspace-navigation";
 import { useAppPaneChrome } from "./use-app-pane-chrome";
 import { useAppStartupRestore } from "./use-app-startup-restore";
@@ -223,6 +226,7 @@ import { useSessionCatalog } from "./app-session-catalog";
 import { useAppShellPanels } from "./use-app-shell-panels";
 import {
   draftModelSelectionFromSnapshot,
+  resolvedStoredProjectPath,
   useDraftPanePreferences,
   type DraftPanePrefs,
 } from "./use-draft-pane-preferences";
@@ -345,10 +349,7 @@ export function App() {
   const workbenchSideLayout = useWorkbenchSideViewLayout(availableSideViews);
   const [activeSideViews, setActiveSideViews] = useState<
     Record<WorkbenchSide, WorkbenchSideViewId | null>
-  >(() => initialActiveWorkbenchSideViews(workbenchSideLayout.layout, {
-    left: desktopFeatureEnabled("sessions") ? "sessions" : enabledSidebarViews[0] ?? null,
-    right: desktopUtilityDockTabEnabled(dockTab) ? dockTab : null,
-  }));
+  >(() => initialActiveWorkbenchSideViews(workbenchSideLayout.layout));
   const [extensionsSection, setExtensionsSection] = useState<
     "skills" | "mcp" | "plugins"
   >("skills");
@@ -552,6 +553,15 @@ export function App() {
     () => Boolean((window as typeof window & { __mixdogStartupSettled?: boolean })
       .__mixdogStartupSettled),
   );
+  // A push notification tapped on the phone opens the session it came from —
+  // the app may not even have been running when it arrived.
+  usePushNotificationNavigation({
+    ready: sessionCatalogReady,
+    openSession: (sessionId) => { void openSessionRef.current(sessionId); },
+  });
+  // A screenshot shared into the app from the phone's share sheet: the service
+  // worker parked it during the launch this claims it from.
+  useSharedIntakeBoot();
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
   useEffect(() => {
     const focusComposerForTyping = (event: globalThis.KeyboardEvent) => {
@@ -849,9 +859,14 @@ export function App() {
   useEffect(() => {
     const onEngage = () => setWindowFocusTick((tick) => (tick + 1) % 1_000_000);
     window.addEventListener("focus", onEngage);
+    // A resumed phone does not reliably pair its return with visibilitychange,
+    // so pageshow is the independent foreground signal that lets a session the
+    // user came back to consume its dot.
+    window.addEventListener("pageshow", onEngage);
     document.addEventListener("visibilitychange", onEngage);
     return () => {
       window.removeEventListener("focus", onEngage);
+      window.removeEventListener("pageshow", onEngage);
       document.removeEventListener("visibilitychange", onEngage);
     };
   }, []);
@@ -871,6 +886,9 @@ export function App() {
     pendingDeletes: pendingSessionDeletes,
     invalidateInFlight: invalidateSessionListings,
   } = useSessionCatalog(reconcileUnreadSessions);
+  // A deploy that landed while this app was open applies to the running app,
+  // once discarding the current screen costs nothing.
+  useShellUpdateReload({ busy: sessions.some((session) => session.working === true) });
   const runningAutomationNames = useMemo(() => {
     const schedule = new Set<string>();
     const webhook = new Set<string>();
@@ -1097,10 +1115,14 @@ export function App() {
     // New task again opens a fresh tab that inherits its staged
     // project/model/workflow instead of resetting the draft.
     if (newTaskDeferred && tabs.some((tab) => tab.selection.kind === "new")) return;
-    const cached = lastNewTaskPrefs.current;
-    resetNewTaskDraft(cached
-      ? effectiveDraftProjectPath(cached.projectPath)
-      : preferredDraftProjectPath);
+    const cachedProjectPath = lastNewTaskPrefs.current?.projectPath ?? null;
+    // An explicit choice is restored as-is ("" stays No project); with none,
+    // the fresh draft inherits so a catalog that lands later still reaches it.
+    // A stored path the catalog cannot place also inherits — freezing its
+    // failed lookup as "" made the pill blank for good.
+    resetNewTaskDraft(cachedProjectPath === null
+      ? effectiveDraftProjectPath(preferredDraftProjectPath) || null
+      : resolvedStoredProjectPath(cachedProjectPath, effectiveDraftProjectPath));
   };
   const openSession = async (
     sessionId: string,
@@ -1241,30 +1263,6 @@ export function App() {
   // panel and catalog changes. Conversation is the expensive persistent tree:
   // stable event facades let React.memo retain it while each callback still
   // dispatches through the latest render state.
-  // Browser pane goal bar: the user states an errand next to the page and it
-  // becomes a task tab in the same pane group. The browser surface returns to
-  // the front on its own the moment the agent calls the browser tool, so the
-  // page the user was looking at is never lost behind the new tab.
-  const startBrowserTaskRef = useRef((_text: string, _url: string) => {});
-  startBrowserTaskRef.current = (text: string, url: string) => {
-    const draft = newDraftSelection();
-    const leafId = paneWorkspace.focusedLeafId;
-    startTask(draft, false);
-    if (draft.kind !== "new") return;
-    void paneDraftSubmitFor(draft, leafId)(
-      url ? `${text}\n\nBrowser Use pane is currently on: ${url}` : text,
-    );
-  };
-  useEffect(() => {
-    const onBrowserTask = (event: Event) => {
-      const detail = (event as CustomEvent<{ text?: string; url?: string }>).detail;
-      const text = String(detail?.text || "").trim();
-      if (!text) return;
-      startBrowserTaskRef.current(text, String(detail?.url || "").trim());
-    };
-    window.addEventListener("mixdog:browser-task", onBrowserTask);
-    return () => window.removeEventListener("mixdog:browser-task", onBrowserTask);
-  }, []);
   const conversationNewTask = useStableEvent(() => startTask());
   const conversationClearToNewTask = useStableEvent(clearSessionToNewTask);
   const conversationClearProject = useStableEvent(() => stageNewTaskProject(""));
@@ -2469,6 +2467,7 @@ export function App() {
   return (
     <DesktopBootGate
       enabled={Boolean(window.mixdogDesktop?.bootContext?.bootId)}
+      restorePending={paneWorkspace.restorePending}
       ready={desktopBootReady}>
     <div className={`app-shell ${
       sidebarOpen && workbenchSideLayout.layout.left.length ? "" : "sidebar-collapsed"

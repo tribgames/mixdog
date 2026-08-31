@@ -340,6 +340,39 @@ export function planOfficeComposition(format, operation = {}, design = {}, {
     || [design.intent, design.audience, design.signature, operation.title, topology.signature].join('|');
   if (normalizedFormat === 'pptx') {
     const kind = resolvedPptxKind(operation, topology);
+    if (plainObject(operation.plan) && Array.isArray(operation.plan.regions)) {
+      const regionSignature = operation.plan.regions.map((region) => ({
+        role: String(region?.role || ''),
+        box: Array.isArray(region?.box)
+          ? region.box.map((value) => Math.round(Number(value) || 0))
+          : [
+              region?.x ?? region?.left,
+              region?.y ?? region?.top,
+              region?.w ?? region?.width,
+              region?.h ?? region?.height,
+            ].map((value) => Math.round(Number(value) || 0)),
+        direction: String(region?.direction || region?.layout || ''),
+      }));
+      const fingerprint = sha256({
+        kind,
+        units: String(operation.plan.units || 'percent'),
+        regions: regionSignature,
+        readingOrder: operation.plan.readingOrder || [],
+      }).slice(0, 16);
+      const result = {
+        id: `${kind}:model:${fingerprint}`,
+        family: 'model-authored',
+        kind,
+        variant: String(operation.plan.name || operation.plan.visualType || 'custom'),
+        purpose: context.purpose,
+        expressionMode: context.expressionMode,
+        topology,
+        historyPenalty: recentPenalty(context, `${kind}:model:${fingerprint}`),
+        source: 'model-plan',
+      };
+      usage.set(result.id, (usage.get(result.id) || 0) + 1);
+      return result;
+    }
     const explicitVariant = String(operation.variant || '').trim().toLowerCase();
     const variants = PPTX_VARIANTS[kind] || PPTX_VARIANTS.content;
     const candidates = explicitVariant && !variants.some((entry) => entry.variant === explicitVariant)

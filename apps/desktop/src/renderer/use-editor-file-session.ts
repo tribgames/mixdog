@@ -3,13 +3,20 @@ import type {
   DesktopEditorSettings,
   DesktopTextFileEncoding,
 } from "../shared/contract";
-import { filePreviewTypeForPath } from "../shared/file-preview";
+import {
+  documentPreviewFormatForPath,
+  filePreviewTypeForPath,
+} from "../shared/file-preview";
 import {
   normalizeEditorModelText,
   resolveEditorBackup,
   takeEditorFileLoad,
   type EditorFileLoad,
 } from "./editor-file-loader";
+import {
+  mergeDocumentPreviewPages,
+  type DocumentPreview,
+} from "./editor-document-model";
 import {
   type EditorFileHandle,
   type EditorRecovery,
@@ -47,6 +54,10 @@ export function useEditorFileSession({
   const [preview, setPreview] = useState<FilePreview | null>(null);
   const [previewLoaded, setPreviewLoaded] = useState(false);
   const [previewError, setPreviewError] = useState("");
+  const [documentPreview, setDocumentPreview] = useState<DocumentPreview | null>(null);
+  const [documentError, setDocumentError] = useState("");
+  const [documentPagesLoading, setDocumentPagesLoading] = useState(false);
+  const documentPagesInFlight = useRef(false);
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -121,38 +132,10 @@ export function useEditorFileSession({
     }
   }, [editorRef, writeBackupNow]);
 
-  const reload = useCallback(() => {
-    setError("");
-    setSaveError("");
-    setRevertError("");
-    setPreviewError("");
-    setPreviewLoaded(false);
-    setPreview(null);
-    if (filePreviewTypeForPath(relPath) && api?.previewProjectFile) {
-      void api.previewProjectFile(projectPath, relPath, accessToken)
-        .then((result) => {
-          loadedRef.current = true;
-          savedMtime.current = result.mtimeMs;
-          savedDiskText.current = "";
-          savedText.current = "";
-          setPreview(result);
-          setLoad({
-            content: "",
-            mtimeMs: result.mtimeMs,
-            binary: true,
-            tooLarge: false,
-            encoding: "utf8",
-          });
-          setRecovery(null);
-          setDiskChanged(false);
-          markDirty(false);
-        })
-        .catch((reason) => {
-          setLoad(null);
-          setError(reason instanceof Error ? reason.message : String(reason));
-        });
-      return;
-    }
+  // The ordinary text/binary read, extracted so a document whose conversion
+  // fails still lands on the binary notice — with its "open in the default
+  // app" escape — instead of a dead-end error screen.
+  const readFileContents = useCallback(() => {
     if (!api?.readProjectFile) {
       setError("Desktop file access is unavailable.");
       return;
@@ -192,9 +175,101 @@ export function useEditorFileSession({
       });
   }, [accessToken, api, deleteBackup, editorRef, markDirty, projectPath, relPath]);
 
+  const reload = useCallback(() => {
+    setError("");
+    setSaveError("");
+    setRevertError("");
+    setPreviewError("");
+    setPreviewLoaded(false);
+    setPreview(null);
+    setDocumentPreview(null);
+    setDocumentError("");
+    if (filePreviewTypeForPath(relPath) && api?.previewProjectFile) {
+      void api.previewProjectFile(projectPath, relPath, accessToken)
+        .then((result) => {
+          loadedRef.current = true;
+          savedMtime.current = result.mtimeMs;
+          savedDiskText.current = "";
+          savedText.current = "";
+          setPreview(result);
+          setLoad({
+            content: "",
+            mtimeMs: result.mtimeMs,
+            binary: true,
+            tooLarge: false,
+            encoding: "utf8",
+          });
+          setRecovery(null);
+          setDiskChanged(false);
+          markDirty(false);
+        })
+        .catch((reason) => {
+          setLoad(null);
+          setError(reason instanceof Error ? reason.message : String(reason));
+        });
+      return;
+    }
+    // Office documents have no native viewer. Electron shows the converted
+    // PDF through the surface it already has; a paired phone cannot open that
+    // file at all, so it takes the same conversion as page images.
+    const documentFormat = documentPreviewFormatForPath(relPath);
+    const documentFailed = (reason: unknown): void => {
+      setDocumentError(reason instanceof Error ? reason.message : String(reason));
+      readFileContents();
+    };
+    const documentOpened = (result: { mtimeMs: number }): void => {
+      loadedRef.current = true;
+      savedMtime.current = result.mtimeMs;
+      savedDiskText.current = "";
+      savedText.current = "";
+      setLoad({
+        content: "",
+        mtimeMs: result.mtimeMs,
+        binary: true,
+        tooLarge: false,
+        encoding: "utf8",
+      });
+      setRecovery(null);
+      setDiskChanged(false);
+      markDirty(false);
+    };
+    if (documentFormat && api?.previewDocumentFile) {
+      void api.previewDocumentFile(projectPath, relPath, accessToken)
+        .then((result) => {
+          setPreview({
+            url: result.url,
+            kind: "pdf",
+            mime: result.mime,
+            mtimeMs: result.mtimeMs,
+            size: result.size,
+          });
+          documentOpened(result);
+        })
+        .catch(documentFailed);
+      return;
+    }
+    if (documentFormat && api?.previewDocumentPages) {
+      void api.previewDocumentPages(projectPath, relPath, accessToken, { pages: [1] })
+        .then((result) => {
+          setDocumentPreview({
+            format: result.format,
+            mtimeMs: result.mtimeMs,
+            size: result.size,
+            pageCount: result.pageCount,
+            pages: result.pages,
+          });
+          documentOpened(result);
+        })
+        .catch(documentFailed);
+      return;
+    }
+    readFileContents();
+  }, [accessToken, api, markDirty, projectPath, readFileContents, relPath]);
+
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => {
-    if ((error && !load) || (load && !preview && (load.binary || load.tooLarge))) {
+    if ((error && !load)
+      || (load && !preview && !documentPreview && (load.binary || load.tooLarge))) {
       reportEditorLoadStage(projectPath, relPath, accessToken, "fallback-ready", "", true);
       notifyReady();
     }
@@ -393,6 +468,29 @@ export function useEditorFileSession({
     }
   }, [deleteBackup, markDirty, scheduleBackup]);
 
+  // Page images arrive as the viewer scrolls. One request at a time: the
+  // conversion is shared, but each page is its own rasterization and a phone
+  // gains nothing from three of them racing down the same link.
+  const loadDocumentPages = useCallback((pages: number[]) => {
+    const reader = api?.previewDocumentPages;
+    if (!reader || pages.length === 0 || documentPagesInFlight.current) return;
+    documentPagesInFlight.current = true;
+    setDocumentPagesLoading(true);
+    void reader(projectPath, relPath, accessToken, { pages })
+      .then((result) => {
+        setDocumentPreview((current) => (
+          current ? mergeDocumentPreviewPages(current, result) : current
+        ));
+      })
+      .catch((reason) => {
+        setDocumentError(reason instanceof Error ? reason.message : String(reason));
+      })
+      .finally(() => {
+        documentPagesInFlight.current = false;
+        setDocumentPagesLoading(false);
+      });
+  }, [accessToken, api, projectPath, relPath]);
+
   const completePreview = useCallback(() => {
     setPreviewLoaded(true);
     notifyReady();
@@ -409,6 +507,10 @@ export function useEditorFileSession({
     preview,
     previewLoaded,
     previewError,
+    documentPreview,
+    documentError,
+    documentPagesLoading,
+    loadDocumentPages,
     error,
     dirty,
     saving,

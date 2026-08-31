@@ -37,6 +37,8 @@ use rayon::prelude::*;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use serde::Deserialize;
 
+use crate::serve_search_lifecycle::InventoryLease;
+
 const CANCELLED: &str = "cancelled";
 const SOFT_TIMEOUT: &str = "soft timeout";
 const FILE_LIST_CACHE_MAX: usize = 8;
@@ -618,11 +620,26 @@ struct LiveWalk {
     cancelled: AtomicBool,
     enumeration_done: AtomicBool,
     keep_warm: AtomicBool,
-    keep_inventory: AtomicBool,
+    inventory_lease: InventoryLease,
     cacheable: AtomicBool,
     walk_errors: AtomicUsize,
     walk_error_details: Mutex<Vec<String>>,
     generation: u64,
+}
+
+fn abandon_expired_idle_walk(live: &LiveWalk, now_ms: u64) -> bool {
+    let mut state = live.state.lock().unwrap_or_else(|error| error.into_inner());
+    let idle = live.waiters.load(Ordering::Acquire) == 0
+        && !live.keep_warm.load(Ordering::Acquire)
+        && !live.inventory_lease.active(now_ms);
+    if !idle || !matches!(&*state, LiveState::Running) {
+        return false;
+    }
+    live.cancelled.store(true, Ordering::Release);
+    *state = LiveState::Abandoned;
+    live.cond.notify_all();
+    live.files_cond.notify_all();
+    true
 }
 
 struct FileListStore {
@@ -2308,29 +2325,39 @@ impl FileListStore {
     }
 
     fn begin_live(&self, key: WalkKey, keep_warm: bool) -> (Arc<LiveWalk>, bool) {
-        self.begin_live_with_inventory(key, keep_warm, false)
+        self.begin_live_with_inventory(key, keep_warm, 0)
     }
 
     fn begin_live_with_inventory(
         &self,
         key: WalkKey,
         keep_warm: bool,
-        keep_inventory: bool,
+        inventory_lease_ms: u64,
     ) -> (Arc<LiveWalk>, bool) {
         // Read the generation before taking the live-map lock; generation()
         // locks the generations mutex and nesting it under `live` invites
         // lock-order inversions with invalidation.
         let generation = self.generation(&key.operand);
         let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(existing) = live.get(&key) {
-            if keep_warm {
-                existing.keep_warm.store(true, Ordering::Release);
+        if let Some(existing) = live.get(&key).cloned() {
+            let state = existing
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if matches!(&*state, LiveState::Running) && !existing.cancelled.load(Ordering::Acquire)
+            {
+                if keep_warm {
+                    existing.keep_warm.store(true, Ordering::Release);
+                }
+                existing
+                    .inventory_lease
+                    .extend(serve_search_uptime_ms(), inventory_lease_ms);
+                existing.waiters.fetch_add(1, Ordering::Relaxed);
+                drop(state);
+                return (existing, false);
             }
-            if keep_inventory {
-                existing.keep_inventory.store(true, Ordering::Release);
-            }
-            existing.waiters.fetch_add(1, Ordering::Relaxed);
-            return (Arc::clone(existing), false);
+            drop(state);
+            live.remove(&key);
         }
         let created = Arc::new(LiveWalk {
             files: Mutex::new(Vec::new()),
@@ -2341,7 +2368,7 @@ impl FileListStore {
             cancelled: AtomicBool::new(false),
             enumeration_done: AtomicBool::new(false),
             keep_warm: AtomicBool::new(keep_warm),
-            keep_inventory: AtomicBool::new(keep_inventory),
+            inventory_lease: InventoryLease::new(serve_search_uptime_ms(), inventory_lease_ms),
             cacheable: AtomicBool::new(true),
             walk_errors: AtomicUsize::new(0),
             walk_error_details: Mutex::new(Vec::new()),
@@ -2364,7 +2391,7 @@ impl FileListStore {
         debug_assert!(previous > 0, "live inventory waiter underflow");
         if previous != 1
             || live.keep_warm.load(Ordering::Acquire)
-            || live.keep_inventory.load(Ordering::Acquire)
+            || live.inventory_lease.active(serve_search_uptime_ms())
         {
             return;
         }
@@ -2375,19 +2402,14 @@ impl FileListStore {
                 .is_some_and(|current| Arc::ptr_eq(current, live));
             let idle = live.waiters.load(Ordering::Acquire) == 0
                 && !live.keep_warm.load(Ordering::Acquire)
-                && !live.keep_inventory.load(Ordering::Acquire);
+                && !live.inventory_lease.active(serve_search_uptime_ms());
             if same && idle {
                 live_map.remove(key);
             }
             idle
         };
         if should_cancel {
-            live.cancelled.store(true, Ordering::Release);
-            let mut state = live.state.lock().unwrap_or_else(|e| e.into_inner());
-            if matches!(&*state, LiveState::Running) {
-                *state = LiveState::Abandoned;
-            }
-            live.cond.notify_all();
+            abandon_expired_idle_walk(live, serve_search_uptime_ms());
         }
     }
 
@@ -2461,9 +2483,11 @@ struct ServeRequest {
     // deadline. Unlike keepWarm this never pre-reads file contents.
     #[serde(default, rename = "keepInventory")]
     keep_inventory: bool,
+    #[serde(default, rename = "keepInventoryMs")]
+    keep_inventory_ms: u64,
     // Client-supplied breadth hint: broad directory content scans (multi-
-    // pattern fan-out combined pass and its speculative prefilter) opt into
-    // the bulk lane so they cannot saturate the interactive worker pool.
+    // pattern combined and fallback passes) opt into the bulk lane so they
+    // cannot saturate the interactive worker pool.
     #[serde(default, rename = "bulkHint")]
     bulk_hint: bool,
     #[serde(default, rename = "mtimeTopK")]
@@ -3608,7 +3632,9 @@ fn start_live_walk(
                 let operand = &operand;
                 let mut batch = WorkerWalkBatch::new(live, publish_batch);
                 Box::new(move |entry| {
-                    if live.cancelled.load(Ordering::Acquire) {
+                    if abandon_expired_idle_walk(live, serve_search_uptime_ms())
+                        || live.cancelled.load(Ordering::Acquire)
+                    {
                         return ignore::WalkState::Quit;
                     }
                     let entry = match entry {
@@ -4050,6 +4076,13 @@ fn handle_fuzzy(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| "empty fuzzy query".to_string())?;
     let limit = req.limit.clamp(1, 1_000);
+    let inventory_lease_ms = if req.keep_inventory_ms > 0 {
+        req.keep_inventory_ms.min(30_000)
+    } else if req.keep_inventory {
+        3_000
+    } else {
+        0
+    };
     let parsed = ParsedArgs {
         patterns: Vec::new(),
         globs: req.exclude.clone(),
@@ -4139,11 +4172,8 @@ fn handle_fuzzy(
         let watched = store.watch_root(root, parsed.no_ignore);
         cache_safe = watched;
         let walk_key = key.walk.clone();
-        let (live, owner) = store.begin_live_with_inventory(
-            walk_key.clone(),
-            req.keep_warm,
-            req.keep_inventory,
-        );
+        let (live, owner) =
+            store.begin_live_with_inventory(walk_key.clone(), req.keep_warm, inventory_lease_ms);
         if !watched {
             live.cacheable.store(false, Ordering::Release);
         }
@@ -4270,6 +4300,8 @@ fn handle_fuzzy(
         "cacheSafe": cache_safe,
         "inventoryMs": inventory_ms,
         "rankMs": rank_ms,
+        "inventoryContinues": !walk_complete && inventory_lease_ms > 0,
+        "inventoryLeaseMs": if !walk_complete { inventory_lease_ms } else { 0 },
     }))
 }
 
@@ -6026,6 +6058,7 @@ mod tests {
             deadline_ms: None,
             keep_warm: false,
             keep_inventory: false,
+            keep_inventory_ms: 0,
             bulk_hint: false,
             mtime_top_k: false,
             fuzzy: None,
@@ -6433,7 +6466,7 @@ mod tests {
             cancelled: AtomicBool::new(false),
             enumeration_done: AtomicBool::new(false),
             keep_warm: AtomicBool::new(false),
-            keep_inventory: AtomicBool::new(false),
+            inventory_lease: InventoryLease::new(0, 0),
             cacheable: AtomicBool::new(true),
             walk_errors: AtomicUsize::new(0),
             walk_error_details: Mutex::new(Vec::new()),
@@ -6457,7 +6490,7 @@ mod tests {
             cancelled: AtomicBool::new(false),
             enumeration_done: AtomicBool::new(false),
             keep_warm: AtomicBool::new(false),
-            keep_inventory: AtomicBool::new(false),
+            inventory_lease: InventoryLease::new(0, 0),
             cacheable: AtomicBool::new(true),
             walk_errors: AtomicUsize::new(0),
             walk_error_details: Mutex::new(Vec::new()),
@@ -6574,12 +6607,12 @@ mod tests {
 
         let inventory_key = walk_key(Path::new("inventory"), &parsed);
         let (inventory, owner) =
-            store.begin_live_with_inventory(inventory_key.clone(), false, true);
+            store.begin_live_with_inventory(inventory_key.clone(), false, 60_000);
         assert!(owner);
         store.release_live(&inventory_key, &inventory);
         assert!(!inventory.cancelled.load(Ordering::Acquire));
         assert!(!inventory.keep_warm.load(Ordering::Acquire));
-        assert!(inventory.keep_inventory.load(Ordering::Acquire));
+        assert!(inventory.inventory_lease.active(serve_search_uptime_ms()));
         assert!(store
             .live
             .lock()

@@ -8,6 +8,8 @@ const DISCOVERY_FILE = 'browser-bridge.json';
 const DISCOVERY_VERSION = 1;
 const HEARTBEAT_MS = 60_000;
 const DEFAULT_MAX_REQUEST_BYTES = 256 * 1024;
+const DEFAULT_MAX_CONCURRENT_REQUESTS = 32;
+const MAX_CONNECTIONS = 64;
 
 export function mixdogDataDirectory(): string {
   return process.env.MIXDOG_DATA_DIR
@@ -21,6 +23,7 @@ export interface BrowserBridgeServerOptions<TCommand extends object> {
   onInactive?(): void;
   dataDirectory?: string;
   maxRequestBytes?: number;
+  maxConcurrentRequests?: number;
 }
 
 export class BrowserBridgeServer<TCommand extends object> {
@@ -123,6 +126,14 @@ export class BrowserBridgeServer<TCommand extends object> {
           this.respond(response, 400, { ok: false, error: `invalid request: ${(error as Error).message}` });
           return;
         }
+        const maxConcurrentRequests = Math.max(
+          1,
+          Math.trunc(this.options.maxConcurrentRequests || DEFAULT_MAX_CONCURRENT_REQUESTS),
+        );
+        if (this.controllers.size >= maxConcurrentRequests) {
+          this.respond(response, 429, { ok: false, error: 'too many concurrent browser commands' });
+          return;
+        }
         const controller = new AbortController();
         this.controllers.add(controller);
         const abort = () => controller.abort(new Error('browser bridge client disconnected'));
@@ -150,6 +161,10 @@ export class BrowserBridgeServer<TCommand extends object> {
         } catch { /* already gone */ }
       });
     });
+    server.maxConnections = MAX_CONNECTIONS;
+    server.headersTimeout = 10_000;
+    server.requestTimeout = 30_000;
+    server.keepAliveTimeout = 5_000;
     this.server = server;
     server.once('error', (error) => {
       console.error('browser bridge server failed:', this.options.redactError(error.message));

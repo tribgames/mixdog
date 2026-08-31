@@ -40,7 +40,8 @@ test('a fuzzy deadline returns promptly without starting another filesystem walk
     )));
     assert.ok(!/^Error[\s:[]/.test(out.trimStart()), `must not surface as a tool failure:\n${out}`);
     assert.match(out, /no fuzzy match yet/);
-    assert.match(out, /inventory is still building/);
+    assert.match(out, /inventory was incomplete/);
+    assert.match(out, /retry immediately/);
     assert.equal(telemetry.native_fuzzy_partials, 1);
     assert.equal(telemetry.native_fuzzy_targeted_hits, undefined);
     assert.equal(telemetry.native_fuzzy_errors, undefined);
@@ -96,7 +97,7 @@ test('an empty served partial is returned without another filesystem walk', asyn
         }),
       },
     ));
-    assert.match(out, /inventory is still building/);
+    assert.match(out, /inventory was incomplete/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

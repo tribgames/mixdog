@@ -4,7 +4,7 @@ const FLAG_OPTIONS = new Set([
   '--web-search', '--memory', '--json',
 ]);
 const EXEC_UNSUPPORTED_FLAGS = new Set([
-  '--readonly', '--remote', '--onboarding',
+  '--readonly', '--remote', '--onboarding', '--memory',
 ]);
 const HEADLESS_WORKFLOW_ERROR = 'option --workflow is not supported for mixdog exec';
 
@@ -100,7 +100,6 @@ export function classifyCliInvocation(argv = []) {
     effort: parsed.values['--effort'],
     fast: argv.includes('--fast'),
     webSearch: argv.includes('--web-search'),
-    memory: argv.includes('--memory'),
     json: argv.includes('--json'),
     toolMode: argv.includes('--readonly') ? 'readonly' : 'full',
     remote: argv.includes('--remote'),

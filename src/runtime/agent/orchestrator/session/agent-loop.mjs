@@ -443,6 +443,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // a long turn leave every later iteration with zero replays.
     let _transportRetriesUsed = 0;
     let _imageStripUsed = false;
+    // One-shot repair of an assistant turn whose stored reasoning replay the
+    // API refuses to take back (see thinking-replay-recovery.mjs). Without it
+    // that turn fails identically on every retry and the session is finished.
+    let _thinkingReplayRepairUsed = false;
     let _imageStripActive = false;
     let _pendingImageStripPersistMessages = null;
     let _sendMessages = null;
@@ -721,7 +725,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 model, sendTools, tools: sendTools, opts,
                 sessionId, sessionRef, nextIteration, contextOverflowRetryUsed,
                 transportRetriesUsed: _transportRetriesUsed,
-                imageStripUsed: _imageStripUsed, signal,
+                imageStripUsed: _imageStripUsed,
+                thinkingReplayRepairUsed: _thinkingReplayRepairUsed, signal,
             }),
         );
         const _sendEndedAt = Date.now();
@@ -736,6 +741,13 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         }
         if (_sendResult.action === 'retry_transport') {
             _transportRetriesUsed += 1;
+            continue;
+        }
+        if (_sendResult.action === 'retry_replay_repair') {
+            // The offending turn was repaired in the live transcript, so the
+            // replay is rebuilt from repaired history and the session keeps the
+            // fix. No transport budget is consumed: nothing was generated.
+            _thinkingReplayRepairUsed = true;
             continue;
         }
         if (_sendResult.action === 'retry_image_strip') {

@@ -60,10 +60,12 @@ export function parseDialogBridgeRequest(rawUrl: string): {
 } | null {
   const parsed = new URL(rawUrl);
   if (parsed.pathname !== DIALOG_BRIDGE_PATH) return null;
+  const rawType = parsed.searchParams.get('type') || 'dialog';
+  const type = ['alert', 'confirm', 'prompt'].includes(rawType) ? rawType : 'dialog';
   return {
-    type: parsed.searchParams.get('type') || 'dialog',
-    message: parsed.searchParams.get('message') || '',
-    defaultPrompt: parsed.searchParams.get('defaultPrompt') || '',
+    type,
+    message: (parsed.searchParams.get('message') || '').slice(0, 4_000),
+    defaultPrompt: (parsed.searchParams.get('defaultPrompt') || '').slice(0, 2_000),
   };
 }
 

@@ -733,7 +733,7 @@ async function runFuzzyFindPass(args, workDir, options = {}) {
             : '';
         return capFindResult([
             `(no fuzzy match yet for "${query}")`,
-            `... [native inventory is still building${scanErrorNote}; retry the same scope for complete results]`,
+            `... [native inventory was incomplete${scanErrorNote}; retry immediately to reuse its short lease, or narrow path/query for a complete result]`,
         ].join('\n'));
     }
     return capFindResult('Error: native fuzzy search did not return a result.');

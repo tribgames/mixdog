@@ -1,7 +1,7 @@
 import {
   cleanMemoryText,
 } from './memory-extraction.mjs'
-import { isReady as koMorphReady, stems as koMorphStems } from './ko-morph.mjs'
+import { lightKoMorphStems, stripLightKoreanParticle } from './light-ko-morph.mjs'
 
 const MEMORY_TOKEN_STOPWORDS = new Set([
   'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'did', 'do', 'does', 'for', 'from',
@@ -13,54 +13,8 @@ const MEMORY_TOKEN_STOPWORDS = new Set([
   'asks', 'question', 'answer', 'reply', 'said', 'explained', 'huh',
 ])
 
-const MIXED_SCRIPT_KOREAN_PARTICLES = [
-  '으로부터', '에게서', '한테서', '께서는', '에서는', '으로는', '에게는', '한테는',
-  '께서', '에서', '으로', '에게', '한테', '처럼', '보다', '부터', '까지',
-  '은', '는', '이', '가', '을', '를', '에', '로', '와', '과', '의', '도', '만',
-]
-
-function hangulFinalConsonantIndex(text) {
-  const point = String(text ?? '').codePointAt(String(text ?? '').length - 1)
-  if (!Number.isFinite(point) || point < 0xAC00 || point > 0xD7A3) return null
-  return (point - 0xAC00) % 28
-}
-
-function stripFallbackKoreanParticle(token) {
-  const value = String(token ?? '').trim()
-  if (!value) return ''
-
-  const mixed = value.match(/^([a-z0-9_./:-]{2,})([\p{Script=Hangul}]+)$/iu)
-  if (mixed && MIXED_SCRIPT_KOREAN_PARTICLES.includes(mixed[2])) return mixed[1]
-  if (!/^[\p{Script=Hangul}]+$/u.test(value)) return value
-
-  for (const suffix of ['으로부터', '에게서', '한테서', '께서는', '에서는', '에게는', '한테는', '께서', '에서', '에게', '한테', '부터', '까지']) {
-    const stem = value.slice(0, -suffix.length)
-    if (stem.length >= 2 && value.endsWith(suffix)) return stem
-  }
-
-  const pairs = [
-    ['으로', (jong) => jong !== 0 && jong !== 8],
-    ['은', (jong) => jong !== 0],
-    ['는', (jong) => jong === 0],
-    ['이', (jong) => jong !== 0],
-    ['가', (jong) => jong === 0],
-    ['을', (jong) => jong !== 0],
-    ['를', (jong) => jong === 0],
-    ['과', (jong) => jong !== 0],
-    ['와', (jong) => jong === 0],
-  ]
-  for (const [suffix, accepts] of pairs) {
-    if (!value.endsWith(suffix)) continue
-    const stem = value.slice(0, -suffix.length)
-    if (stem.length < 2) continue
-    const jong = hangulFinalConsonantIndex(stem)
-    if (jong != null && accepts(jong)) return stem
-  }
-  return value
-}
-
 function normalizeMemoryToken(token) {
-  let normalized = stripFallbackKoreanParticle(String(token ?? '').trim().toLowerCase())
+  let normalized = stripLightKoreanParticle(String(token ?? '').trim().toLowerCase())
   if (!normalized) return ''
 
   if (/^[a-z][a-z0-9_-]+$/i.test(normalized)) {
@@ -89,6 +43,11 @@ function isEntityConcept(token) {
     || isIdentifierToken(token)
 }
 
+function isStructuralTimeToken(token) {
+  return /^\d{4}-\d{2}-\d{2}(?:~\d{4}-\d{2}-\d{2})?$/u.test(token)
+    || /^\d{1,2}:\d{2}(?:~\d{1,2}:\d{2})?$/u.test(token)
+}
+
 function isConceptCompound(token, concepts) {
   const normalized = normalizeMemoryToken(token)
   if (!normalized) return false
@@ -111,7 +70,9 @@ export function mergeRecallConceptTokens(text, conceptTokens, limit = 24) {
     ? conceptTokens.map((token) => String(token ?? '').trim()).filter(Boolean)
     : []
   const entityConcepts = concepts.filter(isEntityConcept)
-  const useEntityConcepts = entityConcepts.some(isIdentifierToken) || entityConcepts.length > 1
+  const rankingEntityConcepts = entityConcepts.filter((token) => !isStructuralTimeToken(token))
+  const useEntityConcepts = rankingEntityConcepts.some(isIdentifierToken)
+    || rankingEntityConcepts.length > 2
   const source = concepts.length > 0
     ? [
         ...raw.filter(token => isIdentifierToken(token) || isConceptCompound(token, concepts)),
@@ -126,7 +87,7 @@ export function mergeRecallConceptTokens(text, conceptTokens, limit = 24) {
 }
 
 export function tokenizeRecallQuery(text, limit = 24) {
-  return mergeRecallConceptTokens(text, koMorphStems(text), limit)
+  return mergeRecallConceptTokens(text, lightKoMorphStems(text), limit)
 }
 
 export function buildFtsQuery(text) {
@@ -147,15 +108,12 @@ function sanitizeLexeme(t) {
   return String(t ?? '').replace(/[&|!():*'"\\\s]+/g, '')
 }
 
-// Prefix-form (to_tsquery) builder. Returns null when kiwi morph is not ready,
-// signalling the caller to keep the websearch_to_tsquery fallback path. When
-// ready: Korean tokens → Kiwi content-morpheme stems (NNG/NNP/VV/VA/XR/SL),
-// non-Korean tokens kept as-is; every lexeme gets a ':*' prefix match and the
-// set is '&'-joined to preserve the current AND semantics.
+// Prefix-form (to_tsquery) builder. Korean query tokens use the model-free
+// normalizer, non-Korean tokens stay unchanged, and every lexeme gets a ':*'
+// prefix match. The set is '&'-joined to preserve the current AND semantics.
 //
 // Returns { query, prefix:true } on success, or null.
 export function buildFtsPrefixQuery(text) {
-  if (!koMorphReady()) return null
   const tokens = tokenizeRecallQuery(text)
   if (tokens.length === 0) return null
   const ftsTokens = [...new Set(tokens)].filter((token) => (

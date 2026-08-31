@@ -399,7 +399,7 @@ export function compactDigestRows(rows, limit = 30) {
     .slice(0, cap)
 }
 
-export function compactHandoffRows(rows) {
+export function compactHandoffRows(rows, limit = 30) {
   const deduped = Array.isArray(rows) ? rows : []
   const roots = []
   const raw = []
@@ -426,7 +426,11 @@ export function compactHandoffRows(rows) {
   ))
   const selected = [...roots, ...raw]
   selected.sort(compareRecallNewestFirst)
-  return selected
+  // Handoff is a continuation digest, not a full session dump. Keep the latest
+  // unique state records in deterministic order; the preserved live tail and
+  // durable Goal carry the exact current work. This calls the dedupe contract
+  // the function's comment has always promised but previously omitted.
+  return compactDigestRows(selected, limit)
 }
 
 // Compact session label for group headers: keep short ids verbatim, shorten

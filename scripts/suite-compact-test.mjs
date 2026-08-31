@@ -107,7 +107,11 @@ test('manual manager recall-fasttrack succeeds locally after Memory browse', asy
   assert.equal(result.recallFastTrack, true);
   assert.equal(result.semanticCompact, false);
   assert.ok(summary);
-  assert.ok(summary.content.includes(`[context compacted — session ${sessionId}]`));
+  assert.ok(summary.content.includes(`recall_session=${sessionId} order=newest_first`));
+  assert.ok(summary.content.includes([
+    '[2026-08-16 10:00] u: older request that Memory already stored',
+    '[2026-08-16 10:01] a: older answer with implementation context',
+  ].join('\n')));
   assert.ok(session.messages.some((message) => message.content === 'current request stays verbatim'));
 });
 
@@ -228,12 +232,14 @@ function transcript() {
   return msgs;
 }
 
-// 1) fasttrack: path index only, last-turn files stay for continuity
+// 1) fasttrack: Memory handoff is authoritative; old history is not re-dumped
 {
   const r = recallFastTrackCompactMessages(transcript(), 4000, { force: true, recallText: 'digest', allowEmptyRecall: true, tailTurns: 2, keepTokens: 2000, cwd: dir });
-  const summary = r.messages.find((m) => m.role === 'user' && typeof m.content === 'string' && m.content.includes('## Working files'));
-  assert.ok(summary, 'fasttrack: working-files section present');
-  assert.ok(summary.content.includes('a.mjs'), 'fileA path listed');
+  const summary = r.messages.find((m) => m.role === 'user' && typeof m.content === 'string' && m.content.startsWith('A previous model worked on this task'));
+  assert.ok(summary, 'fasttrack: summary present');
+  assert.ok(summary.content.includes('digest'), 'Memory handoff preserved');
+  assert.ok(!summary.content.includes('## Working files'), 'old history working-files dump removed');
+  assert.ok(!summary.content.includes('a.mjs'), 'old history paths are not reassembled');
   assert.ok(!summary.content.includes('export const A'), 'file bodies are not re-attached');
   assert.equal(JSON.stringify(sanitizeToolPairs(r.messages)), JSON.stringify(r.messages), 'pairing valid');
   assert.equal(r.diagnostics.fileReattached, false, 'file body reattach stays off');
@@ -407,11 +413,13 @@ test('runner-level repeated compaction rebuilds context from Memory without prio
             assert.ok(serialized.includes(workingFile), `cycle ${cycle} retained ${workingFile}`);
         }
         const summary = result.messages.find((message) => (
-            typeof message.content === 'string' && message.content.includes('[context compacted')
+            typeof message.content === 'string'
+            && message.content.startsWith('A previous model worked on this task')
         ));
+        assert.ok(summary);
         const summaryBody = String(summary?.content || '');
         assert.equal((summaryBody.match(/<prior-compacted-context>/g) || []).length, 0);
-        assert.equal((summaryBody.match(/## Working files/g) || []).length, 1);
+        assert.equal((summaryBody.match(/## Working files/g) || []).length, 0);
         messages = result.messages;
     }
 });
@@ -481,7 +489,9 @@ const allRawRows = compactHandoffRows(Array.from({ length: 150 }, (_, index) => 
   is_root: 0,
   chunk_root: null,
 })));
-assert.equal(allRawRows.length, 150, 'compact handoff has no pre-compaction row cap');
+assert.equal(allRawRows.length, 30, 'compact handoff keeps the latest 30 unique rows');
+assert.equal(allRawRows[0].id, 1149, 'compact handoff starts with the newest row');
+assert.equal(allRawRows.at(-1).id, 1120, 'compact handoff drops the oldest rows first');
 
 const handoffDb = {
   async query(sql) {

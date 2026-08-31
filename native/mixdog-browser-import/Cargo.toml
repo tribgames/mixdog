@@ -11,19 +11,21 @@ path = "src/main.rs"
 
 [dependencies]
 aes-gcm = "0.11.0"
+anyhow = "1"
 base64 = "0.22.1"
 chromium_importer = { path = "../chromium_importer" }
 rand = "0.9.3"
+rusqlite = { version = "0.40.1", features = ["bundled"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread"] }
-zeroize = "1.8"
-
-[dev-dependencies]
+tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "time"] }
 windows = { version = "0.62.2", features = [
   "Win32_Foundation",
   "Win32_Security_Cryptography",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
 ] }
+zeroize = "1.8"
 
 [workspace]
 

@@ -17,6 +17,7 @@ import { reportRuntimeWorkerUnhealthy } from '../../../../shared/session-runtime
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { getPluginData } from '../../config.mjs';
 import { ensureGraphBinary } from '../graph-binary-fetcher.mjs';
+import { runWithSearchIoAdmission } from './search-admission.mjs';
 
 const RESTART_BACKOFF_MS = 30_000;
 // Default request budget. Deliberately BELOW the read-only I/O watchdog in
@@ -31,6 +32,11 @@ const CANCEL_GRACE_MS = 1_000;
 const PROCESS_FAILURES_BEFORE_BACKOFF = 2;
 const SEARCH_TIMEOUT_RECYCLE_WINDOW_MS = 30_000;
 const SEARCH_TIMEOUT_BURST_MS = 1_000;
+const FUZZY_INVENTORY_LEASE_MS = (() => {
+  const configured = Number(process.env.MIXDOG_FIND_INVENTORY_LEASE_MS);
+  if (!Number.isFinite(configured) || configured < 0) return 3_000;
+  return Math.min(30_000, Math.floor(configured));
+})();
 
 let _server = null; // { transport, exited, pending: Map, sequence }
 let _binaryPath = undefined; // undefined = unresolved, null = unavailable
@@ -575,8 +581,22 @@ async function requestNativeWithRestart(buildRequest, execOptions, deadlineMs) {
   if (!server) throw unavailableError();
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const remaining = searchRemainingMs(deadlineMs, overallStartedAt, setupMs);
+    const request = buildRequest(server, remaining);
     try {
-      return await requestNative(server, buildRequest(server, remaining), execOptions, remaining);
+      return await runWithSearchIoAdmission(
+        request,
+        execOptions,
+        async () => {
+          // Admission wait is search work, unlike process setup. Recompute the
+          // remaining budget after the broad request reaches the disk.
+          const admittedRemaining = searchRemainingMs(deadlineMs, overallStartedAt, setupMs);
+          if (Number.isFinite(Number(request.deadlineMs))) {
+            request.deadlineMs = softDeadlineMs(admittedRemaining);
+          }
+          return await requestNative(server, request, execOptions, admittedRemaining);
+        },
+        { waitTimeoutMs: remaining },
+      );
     } catch (error) {
       if (error?.code !== 'NATIVE_SEARCH_PROCESS_EXIT' || attempt > 0) throw error;
       server = await readyWithinSetup(searchRemainingMs(deadlineMs, overallStartedAt, setupMs));
@@ -709,10 +729,12 @@ export async function tryServeFuzzySearch(args, execOptions = {}) {
       limit: Math.max(1, Math.min(1_000, Math.floor(Number(args?.limit) || 25))),
       hidden: args?.hidden !== false,
       includeNoise: args?.includeNoise === true,
-      // A fuzzy deadline returns a truthful partial window. Keep the one
-      // query-independent inventory walk alive so a retry can use its complete
-      // cache instead of starting a second whole-tree enumeration.
-      keepInventory: true,
+      // A fuzzy deadline returns a truthful partial window. Keep the shared
+      // query-independent inventory briefly for an immediate retry, then let
+      // the native worker stop an idle broad walk instead of crawling forever.
+      ...(FUZZY_INVENTORY_LEASE_MS > 0
+        ? { keepInventoryMs: FUZZY_INVENTORY_LEASE_MS }
+        : {}),
       ...(Number.isFinite(Number(args?.maxDepth)) && Number(args.maxDepth) > 0
         ? { maxDepth: Math.floor(Number(args.maxDepth)) }
         : {}),
@@ -747,6 +769,8 @@ export async function tryServeFuzzySearch(args, execOptions = {}) {
     handlerMs: Math.max(0, Number(response.handlerMs) || 0),
     inventoryMs: Math.max(0, Number(response.inventoryMs) || 0),
     rankMs: Math.max(0, Number(response.rankMs) || 0),
+    inventoryContinues: response.inventoryContinues === true,
+    inventoryLeaseMs: Math.max(0, Number(response.inventoryLeaseMs) || 0),
     requestClass: response.class === 'fuzzy' ? 'fuzzy' : 'bulk',
     served: true,
   };

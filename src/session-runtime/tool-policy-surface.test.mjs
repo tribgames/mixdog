@@ -209,7 +209,13 @@ test('toSessionWorkflowMeta keeps delegatesAgents for Solo packs', () => {
   assert.equal(workflowDisallowsAgentTool({ id: 'solo' }), false);
 });
 
-function surfaceFor({ session = null, denied = [], standalone = [], provider = 'grok-oauth' } = {}) {
+function surfaceFor({
+  session = null,
+  denied = [],
+  standalone = [],
+  provider = 'grok-oauth',
+  toolProfile = 'interactive',
+} = {}) {
   return createToolSurface({
     mgr: { previewSessionTools: () => standalone },
     mode: 'full',
@@ -218,6 +224,7 @@ function surfaceFor({ session = null, denied = [], standalone = [], provider = '
     getSession: () => session,
     getRoute: () => ({ provider }),
     getConfig: () => ({ workflow: { active: 'solo' } }),
+    getToolProfile: () => toolProfile,
     cfgMod: { getPluginData: () => '' },
     loadWorkflowPack: () => ({ id: 'solo', delegatesAgents: false }),
     activeWorkflowId: () => 'solo',
@@ -285,6 +292,41 @@ test('Goal is always active on the native Lead tool surface', () => {
   assert.deepEqual(surface.tools.map((tool) => tool.name), ['goal']);
   assert.equal(surface.deferredCallableTools.includes('goal'), true);
   assert.equal((surface.deferredToolCatalog || []).some((tool) => tool.name === 'create_goal'), false);
+});
+
+test('headless tool profile keeps task-scoped tools and removes persistent or interactive tools', () => {
+  const standalone = [
+    { name: 'read' },
+    { name: 'load_tool' },
+    { name: 'office' },
+    { name: 'git_stage' },
+    { name: 'web_search' },
+    { name: 'goal' },
+    { name: 'agent' },
+    { name: 'memory' },
+    { name: 'recall' },
+    { name: 'cwd' },
+    { name: 'Skill' },
+    { name: 'browser' },
+    { name: 'computer' },
+  ];
+  const surface = surfaceFor({
+    standalone,
+    provider: 'openai-oauth',
+    toolProfile: 'headless',
+  }).activeToolSurface();
+  const catalogNames = new Set((surface.deferredToolCatalog || []).map((tool) => tool.name));
+  const activeNames = new Set((surface.tools || []).map((tool) => tool.name));
+
+  for (const name of ['read', 'load_tool', 'office', 'git_stage', 'web_search']) {
+    assert.equal(catalogNames.has(name), true, `${name} should remain available`);
+  }
+  assert.equal(activeNames.has('office'), false);
+  assert.equal(activeNames.has('git_stage'), false);
+  for (const name of ['goal', 'agent', 'memory', 'recall', 'cwd', 'Skill', 'browser', 'computer']) {
+    assert.equal(catalogNames.has(name), false, `${name} should be absent`);
+    assert.equal(activeNames.has(name), false, `${name} should not be active`);
+  }
 });
 
 test('Goal stays active while legacy Goal schemas are removed from restored sessions', () => {

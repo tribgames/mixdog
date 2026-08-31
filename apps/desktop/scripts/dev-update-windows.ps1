@@ -68,8 +68,6 @@ $installedExe = Join-Path $InstallDir 'Mixdog.exe'
 $runtimeRoot = if ($env:MIXDOG_RUNTIME_ROOT) { $env:MIXDOG_RUNTIME_ROOT } else { Join-Path $env:TEMP 'mixdog' }
 $daemonDiscovery = Join-Path $runtimeRoot 'daemon.json'
 $mixdogDataDir = if ($env:MIXDOG_DATA_DIR) { $env:MIXDOG_DATA_DIR } else { Join-Path $env:USERPROFILE '.mixdog\data' }
-$tokenManifest = Join-Path $repoRoot 'native\mixdog-token\Cargo.toml'
-$tokenBuild = Join-Path $repoRoot 'native\mixdog-token\target\release\mixdog_token.dll'
 $fastDirectHelper = Join-Path $PSScriptRoot 'dev-fast-direct.mjs'
 $fastRendererWatchHelper = Join-Path $PSScriptRoot 'dev-renderer-watch.mjs'
 $fastRendererWatchState = Join-Path $desktopDir '.cache\dev-renderer-watch.json'
@@ -235,37 +233,6 @@ function Start-DetachedMixdogApp {
   if (-not $launchTarget) { $launchTarget = $installedExe }
   Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe') `
     -ArgumentList @($launchTarget) | Out-Null
-}
-
-function Install-LocalTokenAddon {
-  if (-not (Test-Path -LiteralPath $tokenBuild -PathType Leaf)) {
-    throw "Local token addon is missing: $tokenBuild"
-  }
-  $cargo = Get-Content -LiteralPath $tokenManifest -Raw
-  $versionMatch = [regex]::Match($cargo, '(?m)^version\s*=\s*"(\d+\.\d+\.\d+)"\s*$')
-  if (-not $versionMatch.Success) { throw "Token version is missing: $tokenManifest" }
-  $version = $versionMatch.Groups[1].Value
-  $tokenDir = Join-Path $mixdogDataDir 'token-bin'
-  $fileName = "mixdog-token-$version.node"
-  $destination = Join-Path $tokenDir $fileName
-  New-Item -ItemType Directory -Path $tokenDir -Force | Out-Null
-  Copy-Item -LiteralPath $tokenBuild -Destination $destination -Force
-  $sha256 = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
-  $manifestPath = Join-Path $tokenDir 'manifest.json'
-  $temporary = "$manifestPath.$PID.tmp"
-  [ordered]@{
-    version = $version
-    assets = [ordered]@{
-      'win32-x64' = [ordered]@{
-        url = "https://github.com/tribgames/mixdog/releases/download/token-v$version/mixdog-token-win32-x64.node"
-        sha256 = $sha256
-      }
-    }
-  } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $temporary -Encoding UTF8
-  Move-Item -LiteralPath $temporary -Destination $manifestPath -Force
-  Get-ChildItem -LiteralPath $tokenDir -Filter 'mixdog-token-*' |
-    Where-Object Name -ne $fileName |
-    Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
 function Get-AppProcess {
@@ -459,8 +426,6 @@ function Invoke-Build {
       # Fast local deployment still includes every current Desktop/runtime
       # source file, but intentionally omits the release-only typecheck and
       # NSIS compression stages.
-      & node (Join-Path $repoRoot 'scripts\build-token-addon.mjs') --build --release
-      if ($LASTEXITCODE -ne 0) { throw "mixdog-token addon build exited with $LASTEXITCODE" }
       Invoke-FastDirectChangedOutputs $Plan
       & npm.cmd run brand:win
       if ($LASTEXITCODE -ne 0) { throw "brand:win exited with $LASTEXITCODE" }
@@ -640,8 +605,26 @@ function Invoke-FastDirectChangedOutputs {
   } else {
     @($Plan.targets)
   }
+  # The same rule the daemon artifact follows below, applied to the Electron
+  # targets: freshness is a claim about SOURCES, and a target whose output is
+  # not on disk cannot be fresh no matter what the plan says. A snapshot deploy
+  # builds in a throwaway worktree that starts with no `out/`, so a
+  # renderer-only plan staged an asar without out/main/index.js and the install
+  # failed on the missing entry point.
+  $targetArtifacts = [ordered]@{
+    main = 'out\main\index.js'
+    preload = 'out\preload\index.js'
+    renderer = 'out\renderer\index.html'
+  }
+  $missingTargets = @($targetArtifacts.Keys | Where-Object {
+    -not (Test-Path -LiteralPath (Join-Path $desktopDir $targetArtifacts[$_]) -PathType Leaf)
+  })
+  if ($missingTargets.Count -gt 0) {
+    Write-Step "missing build output for: $($missingTargets -join ', ')"
+    $targets = @($targetArtifacts.Keys | Where-Object { $_ -in $targets -or $_ -in $missingTargets })
+  }
   $reusedTargets = @($targets | Where-Object {
-    $ReuseBuild -or [bool]$Plan.prebuilt.$_
+    ($ReuseBuild -or [bool]$Plan.prebuilt.$_) -and $_ -notin $missingTargets
   })
   $buildTargets = @($targets | Where-Object { $_ -notin $reusedTargets })
   if ($reusedTargets.Count -gt 0) {
@@ -1145,8 +1128,6 @@ if ($ViaUpdater) {
     Write-Step 'waiting for every installed Mixdog process to release files'
     Stop-InstalledMixdogProcess
     if ($fastPlan.full) {
-      Write-Step 'installing the in-process Mixdog token addon'
-      Install-LocalTokenAddon
       Write-Step 'atomically replacing the installed directory'
       Install-UnpackedBuild
       & node $fastDirectHelper --action=commit "--install-dir=$InstallDir" `

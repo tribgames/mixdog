@@ -411,6 +411,44 @@
   font-size: var(--mx-font-code);
 }
 .editor-pane-preview-error button { display: inline-flex; align-items: center; gap: 5px; border: .5px solid var(--mx-border-muted); background: none; color: var(--mx-text); font-size: var(--mx-font-minor); padding: 4px 10px; border-radius: var(--mx-radius-md); cursor: pointer; }
+/* Document pages: one scroller of images, sized before they arrive so the
+   scrollbar never jumps as a page paints. */
+.editor-pane-document {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  overflow: auto;
+  background: var(--mx-bg-base);
+  -webkit-overflow-scrolling: touch;
+}
+.editor-pane-document-page {
+  width: min(100%, 900px);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: .5px solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-sm);
+  background: var(--mx-grey-50);
+}
+.editor-pane-document-page img { display: block; width: 100%; height: auto; }
+.editor-pane-document-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: .5px solid var(--mx-border-muted);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-code);
+}
+.editor-pane-document-note p { margin: 0; }
+.editor-pane-document-note button { display: inline-flex; align-items: center; gap: 5px; border: .5px solid var(--mx-border-muted); background: none; color: var(--mx-text); font-size: var(--mx-font-minor); padding: 4px 10px; border-radius: var(--mx-radius-md); cursor: pointer; }
 .editor-pane-notice { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; height: 100%; color: var(--mx-text-muted); font-size: var(--mx-font-code); }
 .editor-pane-notice button { display: inline-flex; align-items: center; gap: 5px; border: .5px solid var(--mx-border-muted); background: none; color: var(--mx-text); font-size: var(--mx-font-minor); padding: 4px 10px; border-radius: var(--mx-radius-md); cursor: pointer; }
 .editor-pane-spinner { animation: spin 1s linear infinite; }

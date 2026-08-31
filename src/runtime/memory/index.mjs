@@ -55,7 +55,7 @@ import {
 } from './lib/session-ingest.mjs'
 import { configureEmbedding, embedText, embedTexts, getEmbeddingDims, getEmbeddingDtype, getEmbeddingModelId, getKnownDimsForCurrentModel, isEmbeddingModelReady, primeEmbeddingDims, shutdownEmbeddingProvider, warmupEmbeddingProvider } from './lib/embedding-provider.mjs'
 import { startLlmWorker, stopLlmWorker } from './lib/llm-worker-host.mjs'
-import { runCycle1, runCycle2, runCycle3, runUnifiedGate, parseInterval, syncRootEmbedding, flushRawEmbeddings, applySimpleStatus, applyUpdate, applyMerge, CYCLE2_ACTIVE_TARGET_CAP } from './lib/memory-cycle.mjs'
+import { runCycle1, runCycle2, runCycle3, runUnifiedGate, parseInterval, syncRootEmbedding, flushEmbeddingDirty, flushRawEmbeddings, applySimpleStatus, applyUpdate, applyMerge, CYCLE2_ACTIVE_TARGET_CAP } from './lib/memory-cycle.mjs'
 import { callAgentDispatch } from './lib/agent-ipc.mjs'
 import { getInFlightCycle1 } from './lib/memory-cycle1.mjs'
 import { cancelCoalescedCycleRetries, claimAndMarkScheduledCycle, markCycleRequest, resolveCoalesceMaxRetries, scheduleCoalescedCycleRetry } from './lib/memory-cycle-requests.mjs'
@@ -65,7 +65,8 @@ import { retrieveEntries } from './lib/memory-retrievers.mjs'
 import { pruneOldEntries } from './lib/memory-maintenance-store.mjs'
 import { computeEntryScore } from './lib/memory-score.mjs'
 import { runFullBackfill } from './lib/memory-ops-policy.mjs'
-import { listCore, addCore, editCore, deleteCore, listCoreCandidates, promoteCoreCandidate, dismissCoreCandidate } from './lib/core-memory-store.mjs'
+import { listCore, addCore, editCore, deleteCore, listCoreCandidates, promoteCoreCandidate, dismissCoreCandidate, backfillCoreEmbeddings } from './lib/core-memory-store.mjs'
+import { drainEmbeddingReindex } from './lib/embedding-reindex.mjs'
 import { refreshCoreMemoryFile } from './lib/core-memory-file.mjs'
 import { resolveProjectId, resolveProjectScope } from './lib/project-id-resolver.mjs'
 import { openTraceDatabase, closeTraceDatabase, insertTraceEvents, enqueueTraceEvents, insertAgentCalls, registerTraceExitDrain } from './lib/trace-store.mjs'
@@ -76,7 +77,6 @@ import { parsePeriod, formatTs, coreRecallTerms, normalizeRecallProjectScope, se
 import { readBody, sendJson, sendError, isLocalOrigin, normalizeCoreProjectId } from './lib/http-wire.mjs'
 import { scheduledCycle1Signature, scheduledCycle2Signature, scheduledCycle3Signature } from './lib/cycle-signatures.mjs'
 import { createTranscriptIngest } from './lib/transcript-ingest.mjs'
-import { init as initKoMorph, reset as resetKoMorph } from './lib/ko-morph.mjs'
 import { createCycleLlmAdapters } from './lib/cycle-llm-adapters.mjs'
 import { createCycleScheduler } from './lib/cycle-scheduler.mjs'
 import { createQueryHandlers } from './lib/query-handlers.mjs'
@@ -190,6 +190,8 @@ let mainConfig = null
 let _initialized = false
 let _initPromise = null
 let _stopPromise = null
+let _embeddingReindexController = null
+let _embeddingReindexPromise = null
 let _bootTimestamp = null
 // Boot-edge background warmup. ONNX session creation on the embedding worker
 // thread is CPU-heavy, so it must not overlap the worker's own init (DB open,
@@ -275,7 +277,7 @@ async function _initStore() {
     provider: embeddingConfig?.provider ?? null,
     model: getEmbeddingModelId(),
     dtype: getEmbeddingDtype(),
-    format: 'mixdog-embedding-v2',
+    format: 'mixdog-embedding-v3',
   }
   let dimsResolved = null
   try {
@@ -298,8 +300,8 @@ async function _initStore() {
     primeEmbeddingDims(dimsResolved)
     assertSecondaryPgAttachable()
     // Known dimensions are enough to open the vector schema. Keep the ONNX
-    // model and the ~560 MB Kiwi analyzer completely off the boot path; the
-    // first relevant query starts them on demand without blocking startup.
+    // model completely off the boot path; the first relevant query starts it
+    // on demand without blocking startup.
     const openStartedAt = performance.now()
     db = await openDatabase(DATA_DIR, dimsResolved, metaKey)
     memoryProfile('open-db:done', { ms: (performance.now() - openStartedAt).toFixed(1), dims: dimsResolved })
@@ -446,6 +448,35 @@ function _stopCycles() {
   if (_transcriptWatcher) { try { _transcriptWatcher.stop() } catch {} _transcriptWatcher = null }
 }
 
+function _startEmbeddingReindex() {
+  if (memorySecondaryMode() || _embeddingReindexPromise || !db) return
+  const controller = new AbortController()
+  _embeddingReindexController = controller
+  const promise = drainEmbeddingReindex({
+    flushEntries: ({ signal }) => flushEmbeddingDirty(db, { signal }),
+    backfillCore: ({ signal }) => backfillCoreEmbeddings(DATA_DIR, { signal }),
+    signal: controller.signal,
+  })
+    .then((summary) => {
+      if (summary.attempted > 0 || summary.coreFilled > 0) {
+        __mixdogMemoryLog(
+          `[memory-service] embedding reindex passes=${summary.passes} attempted=${summary.attempted} ` +
+          `ok=${summary.succeeded} failed=${summary.failed} core=${summary.coreFilled}\n`,
+        )
+      }
+    })
+    .catch((error) => {
+      if (!controller.signal.aborted) {
+        __mixdogMemoryLog(`[memory-service] embedding reindex stopped: ${error?.message || error}\n`)
+      }
+    })
+    .finally(() => {
+      if (_embeddingReindexController === controller) _embeddingReindexController = null
+      if (_embeddingReindexPromise === promise) _embeddingReindexPromise = null
+    })
+  _embeddingReindexPromise = promise
+}
+
 async function _initRuntime() {
   if (_initialized) return
   const runtimeStartedAt = performance.now()
@@ -476,6 +507,7 @@ async function _initRuntime() {
     __mixdogMemoryLog('[memory-service] background cycle tick loop not started (secondary/env-disabled)\n')
   }
   _initialized = true
+  _startEmbeddingReindex()
   memoryProfile('runtime-init:done', { ms: (performance.now() - runtimeStartedAt).toFixed(1) })
 }
 
@@ -496,9 +528,6 @@ const __queryHandlers = createQueryHandlers({
   log: __mixdogMemoryLog,
   resolveProjectScope,
   embeddingWarmupCanStart,
-  ensureKoMorph: () => memorySecondaryMode()
-    ? Promise.resolve(false)
-    : initKoMorph(DATA_DIR, __mixdogMemoryLog),
   getBootTimestamp: () => _bootTimestamp,
   getTraceDb: () => _traceDb,
 })
@@ -619,6 +648,7 @@ export async function recordTraceEvents(events = []) {
   if (events.length > 500) throw new RangeError('too many events (max 500)')
   if (!_traceDb) {
     _traceDb = await openTraceDatabase(DATA_DIR)
+    if (!_traceDb) return { ok: true, queued: 0, disabled: true }
     registerTraceExitDrain(_traceDb)
   }
   enqueueTraceEvents(_traceDb, events)
@@ -662,13 +692,15 @@ export async function stop() {
   if (_stopPromise) return _stopPromise
   _stopPromise = (async () => {
     _stopCycles()
+    _embeddingReindexController?.abort(new Error('memory service stopping'))
+    const reindexPromise = _embeddingReindexPromise
     _memoryPortAdvertiser.reset()
     _daemonLifecycle.reset()
     await Promise.allSettled([
       stopLlmWorker(),
-      shutdownEmbeddingProvider(),
+      reindexPromise,
     ])
-    resetKoMorph()
+    await shutdownEmbeddingProvider()
     resetHttpListenErrorHandler()
     if (_httpBoundPort != null || _httpReadyPromise) {
       await new Promise(resolve => {

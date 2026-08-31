@@ -110,7 +110,23 @@ jobs:
         if: matrix.os == 'linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y glslc libvulkan-dev spirv-headers spirv-tools
+          sudo apt-get install -y build-essential glslc libvulkan-dev nasm python3 spirv-headers spirv-tools
+
+      - name: Install macOS FFmpeg build tools
+        if: matrix.os == 'darwin'
+        run: brew install nasm python
+
+      - name: Install Windows FFmpeg build tools
+        if: matrix.os == 'win32'
+        uses: msys2/setup-msys2@76ae6769a3fb24de40de399348f85fd024ef6199 # main
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            base-devel
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-python
+            nasm
 
       - name: Build Windows runtime
         if: matrix.os == 'win32'
@@ -131,6 +147,23 @@ jobs:
           BACKEND: ${{ matrix.backend }}
         run: bash scripts/build-voice-runtime-unix.sh
 
+      - name: Build Windows FFmpeg runtime
+        if: matrix.os == 'win32'
+        shell: msys2 {0}
+        env:
+          FFMPEG_VERSION: "6.1.1"
+          TARGET_OS: ${{ matrix.os }}
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: bash scripts/build-ffmpeg-runtime.sh
+
+      - name: Build Unix FFmpeg runtime
+        if: matrix.os != 'win32'
+        env:
+          FFMPEG_VERSION: "6.1.1"
+          TARGET_OS: ${{ matrix.os }}
+          TARGET_ARCH: ${{ matrix.arch }}
+        run: bash scripts/build-ffmpeg-runtime.sh
+
       - name: Upload runtime asset
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
@@ -140,6 +173,8 @@ jobs:
           files: |
             dist/whisper-server-*.zip
             dist/whisper-server-*.zip.sha256
+            dist/ffmpeg-*.gz
+            dist/ffmpeg-*.gz.sha256
 
   manifest:
     name: generate-and-verify-manifest

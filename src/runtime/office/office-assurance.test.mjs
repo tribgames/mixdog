@@ -4,16 +4,20 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
+import { createCanvas } from '@napi-rs/canvas';
+
 import { runOfficeAssuranceBenchmark } from './assurance-benchmark.mjs';
 import {
   analyzeOfficePromptInjection,
   assertOfficeMutationAllowed,
   evaluateOfficeChecklist,
+  reviewRenderedOfficePages,
   reviewOfficeStructure,
 } from './assurance.mjs';
 import { officeTemplateCoverage } from './design-library.mjs';
 import { expandOfficeDesignOperations } from './design-system.mjs';
 import { executeOfficeTool, resetOfficeSessionsForTest } from './index.mjs';
+import { evaluatePowerPointCategorySpacing } from './pdf-analysis.mjs';
 import { evaluateXlsxAssertions } from './xlsx-assertions.mjs';
 import {
   buildOfficePolishPlan,
@@ -26,6 +30,95 @@ function value(result) {
   if (result?.isError) throw new Error(text);
   return JSON.parse(text);
 }
+
+test('render review rejects document content clipped by a page edge', async () => {
+  const canvas = createCanvas(240, 320);
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = '#111111';
+  context.fillRect(80, 280, 160, 12);
+  const reviewed = await reviewRenderedOfficePages([{
+    page: 1,
+    data: canvas.toBuffer('image/png').toString('base64'),
+  }], { format: 'docx' });
+  assert.ok(reviewed.issues.some((issue) => issue.code === 'content_touches_page_edge'));
+});
+
+test('render review rejects a top-heavy Word page even when its footer reaches the bottom', async () => {
+  const canvas = createCanvas(240, 320);
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = '#111111';
+  for (let row = 0; row < 5; row += 1) {
+    context.fillRect(30, 34 + (row * 14), 178, 4);
+  }
+  context.fillRect(82, 292, 76, 3);
+  const reviewed = await reviewRenderedOfficePages([{
+    page: 2,
+    data: canvas.toBuffer('image/png').toString('base64'),
+  }], { format: 'docx' });
+  assert.ok(reviewed.issues.some((issue) => issue.code === 'sparse_page'));
+});
+
+test('render review rejects a worksheet scaled into an underused page', async () => {
+  const canvas = createCanvas(240, 160);
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = '#183028';
+  context.fillRect(14, 30, 150, 3);
+  context.fillRect(14, 95, 150, 3);
+  context.fillRect(14, 30, 3, 68);
+  context.fillRect(161, 30, 3, 68);
+  context.fillRect(14, 54, 150, 2);
+  context.fillRect(14, 75, 150, 2);
+  const reviewed = await reviewRenderedOfficePages([{
+    page: 1,
+    data: canvas.toBuffer('image/png').toString('base64'),
+  }], { format: 'xlsx' });
+  assert.ok(reviewed.issues.some((issue) => issue.code === 'worksheet_print_too_small'));
+});
+
+test('render review rejects a wide worksheet stranded at the top of a portrait page', async () => {
+  const canvas = createCanvas(180, 260);
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#ffffff';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = '#183028';
+  context.fillRect(14, 24, 150, 3);
+  context.fillRect(14, 70, 150, 3);
+  context.fillRect(14, 24, 3, 49);
+  context.fillRect(161, 24, 3, 49);
+  context.fillRect(14, 45, 150, 2);
+  const reviewed = await reviewRenderedOfficePages([{
+    page: 1,
+    data: canvas.toBuffer('image/png').toString('base64'),
+  }], { format: 'xlsx' });
+  assert.ok(reviewed.issues.some((issue) => issue.code === 'worksheet_print_too_small'));
+});
+
+test('PowerPoint render review rejects clustered chart category labels', () => {
+  const layout = (positions) => ({
+    pages: [{
+      page: 3,
+      width: 960,
+      items: positions.flatMap((x, index) => [
+        { text: String(index + 5), x, top: 438, width: 7 },
+        { text: '월', x: x + 7, top: 438, width: 12 },
+      ]),
+    }],
+  });
+  assert.equal(
+    evaluatePowerPointCategorySpacing(layout([476, 638, 799]), ['5월', '6월', '7월']).ok,
+    true,
+  );
+  assert.equal(
+    evaluatePowerPointCategorySpacing(layout([476, 506, 536]), ['5월', '6월', '7월']).ok,
+    false,
+  );
+});
 
 test('Korean and English prompt injection is labeled as untrusted data and gates mutation', () => {
   const trust = analyzeOfficePromptInjection({
@@ -257,6 +350,12 @@ test('one content model binds the same sourced facts across Word, Excel, and Pow
       kind: 'statement',
       claimId: 'growth',
       metrics: [{ factId: 'revenue' }],
+      plan: {
+        regions: [
+          { id: 'message', role: 'title', x: 7, y: 18, w: 56, h: 28 },
+          { id: 'evidence', role: 'metric', x: 70, y: 24, w: 22, h: 40 },
+        ],
+      },
     }],
   });
   const fingerprints = [word, excel, powerpoint].map((entry) => entry.content.fingerprint);
@@ -305,15 +404,18 @@ test('semantic composers emit editorial rhythm, dashboard print setup, and nativ
   });
   assert.ok(workbook.operations.some((entry) => entry.op === 'set_page_setup' && entry.fitToPagesWide === 1));
   assert.ok(workbook.operations.some((entry) => entry.op === 'set_sheet_view' && entry.showGridlines === false));
+  assert.equal(workbook.operations.find((entry) => entry.op === 'set_sheet_view')?.zoom, 120);
   assert.match(workbook.operations.find((entry) => entry.op === 'set_range').range, /^A\d+:B\d+$/);
   const excelChart = workbook.operations.find((entry) => entry.op === 'add_chart');
-  assert.deepEqual(excelChart.seriesColors, ['287A4B', 'D97706', '66788A']);
+  assert.deepEqual(excelChart.seriesColors, ['1F7A55', 'D89224', '66716B']);
   assert.equal(excelChart.showValues, true);
   assert.equal(excelChart.dataLabelPosition, 'inside_end');
   assert.equal(excelChart.dataLabelColor, 'FFFFFF');
   assert.equal(excelChart.zeroBaseline, true);
   const chart = workbook.operations.find((entry) => entry.op === 'add_chart');
   assert.ok(chart);
+  assert.ok(chart.width >= 850);
+  assert.ok(chart.height >= 420);
   assert.doesNotMatch(chart.range, /12$/);
 
   const deck = expandOfficeDesignOperations({
@@ -331,6 +433,13 @@ test('semantic composers emit editorial rhythm, dashboard print setup, and nativ
         series: [{ name: '매출', values: [5000, 5300, 5660] }],
       },
       source: '실적원장.xlsx#Raw!B6:B8',
+      plan: {
+        regions: [
+          { id: 'message', role: 'title', x: 6, y: 7, w: 88, h: 16 },
+          { id: 'support', role: 'body', x: 6, y: 32, w: 25, h: 42 },
+          { id: 'evidence', role: 'chart', x: 37, y: 29, w: 57, h: 62 },
+        ],
+      },
     }],
   });
   const nativeChart = deck.operations.find((entry) => entry.op === 'add_chart');

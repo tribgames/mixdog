@@ -717,3 +717,71 @@ test('an oversized chunk round-trips through the real stream worker', async () =
     assert.equal(run.result.stopReason, 'end_turn');
     assert.equal(run.state.sawCompleted, true);
 });
+
+// --- Replayable turn shape ---
+// A turn the API will take back on the next request: no empty text block, and
+// no run of consecutive thinking blocks the model did not produce as one run.
+
+function replayTurnText(events) {
+    return events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('');
+}
+
+const REPLAY_TAIL = [
+    { type: 'content_block_start', index: 3, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 3, delta: { type: 'text_delta', text: 'answer' } },
+    { type: 'content_block_stop', index: 3 },
+    { type: 'content_block_start', index: 4, content_block: { type: 'tool_use', id: 'toolu_9', name: 'read' } },
+    { type: 'content_block_delta', index: 4, delta: { type: 'input_json_delta', partial_json: '{"path":"a.txt"}' } },
+    { type: 'content_block_stop', index: 4 },
+    { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 4 } },
+    { type: 'message_stop' },
+];
+
+test('an empty text block between two thinking blocks does not fuse them into one run', async () => {
+    const run = await runTurn([replayTurnText([
+        { type: 'message_start', message: { model: 'claude-test' } },
+        { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig-a' } },
+        { type: 'content_block_stop', index: 0 },
+        // The model's own separator. It cannot be replayed (the API rejects an
+        // empty text block), so the second run must not ride along with it.
+        { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_stop', index: 1 },
+        { type: 'content_block_start', index: 2, content_block: { type: 'thinking', thinking: '' } },
+        { type: 'content_block_delta', index: 2, delta: { type: 'signature_delta', signature: 'sig-b' } },
+        { type: 'content_block_stop', index: 2 },
+        ...REPLAY_TAIL,
+    ])]);
+
+    assert.deepEqual(run.result.providerReplay.items, [
+        { type: 'thinking', thinking: '', signature: 'sig-a' },
+        { type: 'text', text: 'answer' },
+        { type: 'tool_use', id: 'toolu_9', name: 'read', input: { path: 'a.txt' } },
+    ]);
+    assert.deepEqual(run.result.thinkingBlocks, [
+        { type: 'thinking', thinking: '', signature: 'sig-a' },
+    ]);
+    // The turn itself is untouched: text, tool call and thinking observation
+    // all still describe what the model did.
+    assert.equal(run.result.content, 'answer');
+    assert.equal(run.result.toolCalls.length, 1);
+    assert.equal(run.result.hasThinkingContent, true);
+});
+
+test('thinking blocks the model emitted back to back are replayed as that run', async () => {
+    const run = await runTurn([replayTurnText([
+        { type: 'message_start', message: { model: 'claude-test' } },
+        { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig-a' } },
+        { type: 'content_block_stop', index: 0 },
+        { type: 'content_block_start', index: 2, content_block: { type: 'thinking', thinking: '' } },
+        { type: 'content_block_delta', index: 2, delta: { type: 'signature_delta', signature: 'sig-b' } },
+        { type: 'content_block_stop', index: 2 },
+        ...REPLAY_TAIL,
+    ])]);
+
+    assert.deepEqual(run.result.providerReplay.items.map((block) => block.type), [
+        'thinking', 'thinking', 'text', 'tool_use',
+    ]);
+    assert.deepEqual(run.result.thinkingBlocks.map((block) => block.signature), ['sig-a', 'sig-b']);
+});

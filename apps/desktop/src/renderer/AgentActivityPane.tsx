@@ -639,7 +639,9 @@ function AgentPoolRow({
         : state === 'cancelled'
           ? t('Cancelled')
           : done
-            ? t('Completed')
+            // A finished turn, not a generic success: the row says WORK is
+            // done (user: 완료보다 작업 완료), and the toast keeps 'Completed'.
+            ? t('Task complete')
             : t('Idle');
   const modelLabel = modelDisplayName(String(agent.model || ''), String(agent.provider || ''));
   const effortValue = String(agent.effort || '').trim();

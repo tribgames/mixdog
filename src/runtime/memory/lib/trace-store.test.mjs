@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { insertAgentCalls, insertTraceEvents } from './trace-store.mjs';
+import {
+  enqueueTraceEvents,
+  insertAgentCalls,
+  insertTraceEvents,
+  pruneAgedTraceRows,
+  registerTraceExitDrain,
+} from './trace-store.mjs';
 
 const toolError = {
   ts: 1_786_000_000_000,
@@ -54,4 +60,35 @@ test('agent_calls persists tool result metadata', async () => {
   assert.deepEqual(insert.params[7], ['error']);
   assert.deepEqual(insert.params[8], ['runtime/failure']);
   assert.deepEqual(insert.params[9], ['Error: diagnostic probe']);
+});
+
+test('disabled trace sinks are observable no-ops', async () => {
+  assert.deepEqual(await insertTraceEvents(null, [toolError]), { inserted: 0 });
+  assert.deepEqual(await insertAgentCalls(null, [toolError]), { calls: 0, llm: 0 });
+  assert.doesNotThrow(() => enqueueTraceEvents(null, [toolError]));
+  assert.doesNotThrow(() => registerTraceExitDrain(null));
+});
+
+test('seven-day trace retention deletes in bounded batches', async () => {
+  const nowMs = 1_786_500_000_000;
+  const calls = [];
+  let traceBatch = 0;
+  const client = {
+    query: async (sql, params) => {
+      calls.push({ sql, params });
+      if (sql.includes('DELETE FROM trace_events')) {
+        traceBatch += 1;
+        return { rowCount: traceBatch === 1 ? 5000 : 7 };
+      }
+      return { rowCount: 0 };
+    },
+  };
+
+  await pruneAgedTraceRows(client, nowMs);
+
+  const traceDeletes = calls.filter(({ sql }) => sql.includes('DELETE FROM trace_events'));
+  assert.equal(traceDeletes.length, 2);
+  assert.deepEqual(traceDeletes[0].params, [nowMs - 7 * 86_400_000, 5000]);
+  assert.ok(calls.some(({ sql }) => sql.includes('DELETE FROM agent_calls')));
+  assert.ok(calls.every(({ params }) => params?.[1] === 5000));
 });

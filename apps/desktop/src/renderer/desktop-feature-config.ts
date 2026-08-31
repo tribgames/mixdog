@@ -83,11 +83,5 @@ export function firstEnabledDesktopUtilityDockTab(): DesktopUtilityDockTab | nul
   return UTILITY_DOCK_TABS.find(desktopUtilityDockTabEnabled) ?? null;
 }
 
-export function resolveDesktopUtilityDockTab(
-  tab: DesktopUtilityDockTab,
-): DesktopUtilityDockTab | null {
-  return desktopUtilityDockTabEnabled(tab) ? tab : firstEnabledDesktopUtilityDockTab();
-}
-
 export const hasDesktopUtilityDockFeature =
   firstEnabledDesktopUtilityDockTab() !== null;

@@ -54,13 +54,14 @@ import {
   isEmbeddingModelReady,
   warmupEmbeddingProvider,
 } from './embedding-provider.mjs'
+import { embedRecallQuery } from './recall-embedding-readiness.mjs'
+import { isSemanticOnlyRecall } from './recall-fusion.mjs'
 
 export function createQueryHandlers({
   getDb,
   log,
   resolveProjectScope,
   embeddingWarmupCanStart,
-  ensureKoMorph,
   getBootTimestamp,
   getTraceDb,
 }) {
@@ -244,7 +245,7 @@ export function createQueryHandlers({
         }
       }
     }
-    if (compactHandoff) rows = compactHandoffRows(rows)
+    if (compactHandoff) rows = compactHandoffRows(rows, limit)
     else if (compactDigest) rows = compactDigestRows(rows, limit)
     return { text: renderEntryLines(rows, { pendingMarks: !compactDigest && !compactHandoff }) }
   }
@@ -425,10 +426,10 @@ export function createQueryHandlers({
       })
       let settled
       try {
-        // Pre-warm only when the embedding model is already resident. If the
-        // process is still cold, keep recall responsive and let the background
-        // warmup finish independently instead of making the first query pay the
-        // ONNX session-create cost.
+        // Pre-warm cached query vectors when the model is resident. A cold
+        // fan-out starts one shared warmup here; each sub-query then observes
+        // the same bounded wait in embedRecallQuery instead of starting its own
+        // worker load.
         if (isEmbeddingModelReady()) {
           // Race against the same deadline as the fan-out itself: a stuck
           // embedding worker would previously park here indefinitely because
@@ -458,14 +459,6 @@ export function createQueryHandlers({
       return { text: header + parts.join('\n\n') }
     }
     const query = String(args.query ?? '').trim()
-    // Concept extraction must be ready before a Unicode-script query is
-    // tokenized. The analyzer is lazy and cached; secondary mode returns false
-    // and keeps the language-neutral lexical fallback.
-    if (query && /[\uAC00-\uD7AF]/u.test(query)) {
-      await Promise.resolve(ensureKoMorph?.()).catch((err) => {
-        log(`[memory-service] lazy kiwi init failed; recall stays lexical: ${err?.message || err}\n`)
-      })
-    }
     const queryPeriod = inferRecallPeriod(query)
     let period = String(args.period ?? '').trim() || queryPeriod
     const timelineMode = args.sort == null && hasTimelineIntent(query)
@@ -543,13 +536,6 @@ export function createQueryHandlers({
       projectScope = projectId !== null ? projectId : 'common'
     }
 
-    // R11 reviewer M4: calendar-bounded periods disable freshness decay
-    // so within-period ranking doesn't downgrade Mon entries vs Sun.
-    const CALENDAR_PERIODS = new Set(['yesterday', 'today', 'this_week', 'last_week'])
-    const isCalendarPeriod = period != null
-      && (period === 'all' || CALENDAR_PERIODS.has(period) || /^\d{4}-\d{2}-\d{2}/.test(period) || /^\d{1,2}:\d{2}~/.test(period))
-    const applyFreshness = !isCalendarPeriod
-
     // period='last': no time window and no session exclusion — 'last' is a
     // recent-session browse; with a query, filter those recent sessions by
     // topic instead of falling through to the unbounded semantic search path.
@@ -561,26 +547,25 @@ export function createQueryHandlers({
     if (query && temporal?.mode !== 'last') {
       const _t0 = Date.now()
       if (signal?.aborted) throw signal.reason ?? new Error('aborted')
-      let queryVector = null
-      if (isEmbeddingModelReady()) {
-        queryVector = await embedText(retrievalQuery, { priority: true, inputType: 'query' })
-      } else if (embeddingWarmupCanStart()) {
-        // Never turn a cold model into an 8-second foreground lock. Start the
-        // isolated worker and return lexical results now; the next recall gets
-        // the dense leg when the model is ready.
-        void warmupEmbeddingProvider().catch((err) => {
+      const embedding = await embedRecallQuery(retrievalQuery, {
+        isReady: isEmbeddingModelReady,
+        canWarmup: embeddingWarmupCanStart,
+        warmup: warmupEmbeddingProvider,
+        embed: embedText,
+        signal,
+        onWarmupError: (err) => {
           log(`[memory-service] embedding warmup after cold recall failed: ${err?.message || err}\n`)
-        })
+        },
+      })
+      const queryVector = Array.isArray(embedding.vector) ? embedding.vector : null
+      if (!queryVector) {
         const now = Date.now()
         if (now - _embeddingColdRecallLogAt > 10_000) {
           _embeddingColdRecallLogAt = now
-          log('[recall] embedding model warming in background; returning lexical results\n')
-        }
-      } else {
-        const now = Date.now()
-        if (now - _embeddingColdRecallLogAt > 10_000) {
-          _embeddingColdRecallLogAt = now
-          log('[recall] embedding model cold; returning lexical results while background warmup continues\n')
+          const reason = embedding.state === 'timeout'
+            ? 'bounded cold-start wait elapsed'
+            : `embedding ${embedding.state}`
+          log(`[recall] ${reason}; returning lexical results while background warmup continues\n`)
         }
       }
       if (signal?.aborted) throw signal.reason ?? new Error('aborted')
@@ -602,7 +587,6 @@ export function createQueryHandlers({
         includeMembers: structuredTimeMode ? false : includeMembers,
         ts_from: temporal?.startMs,
         ts_to: temporal?.endMs,
-        applyFreshness,
         projectScope,
         category,
         excludeStatuses,
@@ -649,6 +633,7 @@ export function createQueryHandlers({
             .filter((row) => Number(row?.is_root) === 1)
             .map((row) => ({ ...row, members: [] }))
         : []
+      const semanticOnlyRetrieval = isSemanticOnlyRecall(results)
       const seenHistoricalRoots = new Set()
       let historicalRootCandidates = [...primaryRootCandidates, ...historicalRootRows]
         .filter((row) => {
@@ -860,7 +845,15 @@ export function createQueryHandlers({
       const latestEvidenceNote = latestIntent && args.period == null
         ? 'note: latest stored evidence; no newer stored completion is implied\n'
         : ''
-      const out = { text: recallCapPrefix + latestEvidenceNote + renderEntryLines(sliced, { recencyOrder: sort === 'date' }) }
+      const semanticEvidenceNote = semanticOnlyRetrieval
+        ? 'note: semantic-only candidates; no lexical corroboration was found, so treat them as possible rather than confirmed evidence\n'
+        : ''
+      const out = {
+        text: recallCapPrefix
+          + latestEvidenceNote
+          + semanticEvidenceNote
+          + renderEntryLines(sliced, { recencyOrder: sort === 'date' }),
+      }
       if (process.env.MIXDOG_DEBUG_MEMORY) {
         log(`[search-time] render+trace=${Date.now() - _t2}ms total=${Date.now() - _t0}ms textLen=${out.text.length}\n`)
       }

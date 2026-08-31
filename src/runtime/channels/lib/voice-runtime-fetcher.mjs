@@ -410,6 +410,16 @@ function gcStaleVersions(rootDir, activeName, prefix) {
   }
 }
 
+function gcPublishedRuntimeSiblings(rootDir, prefix) {
+  const activeFile = join(rootDir, 'active-version')
+  if (!existsSync(activeFile)) return
+  try {
+    const activeName = readFileSync(activeFile, 'utf8').trim()
+    if (!activeName.startsWith(prefix) || !existsSync(join(rootDir, activeName))) return
+    gcStaleVersions(rootDir, activeName, prefix)
+  } catch {}
+}
+
 async function extractGz(gzPath, destPath) {
   await pipeline(createReadStream(gzPath), createGunzip(), createWriteStream(destPath))
 }
@@ -664,7 +674,7 @@ function gcUnknownModelFiles(manifest, modelDir) {
 // Single managed ffmpeg binary used by transcribe (ogg→wav). Layout mirrors
 // whisper-runtime: one binary per OS×arch fetched once, sha256-verified, atomic
 // stage→rename, GC of stale ffmpeg-* dirs. Source binaries are gz-compressed
-// raw executables on the eugeneware/ffmpeg-static GitHub releases — no archive
+// raw minimal audio-transcode executables on the Mixdog voice release — no archive
 // extraction. The package is never bundled into the marketplace cache; the
 // manifest only carries url + sha256 + size + executable name.
 export async function ensureFfmpegRuntime(dataDir, onProgress = null) {
@@ -762,6 +772,8 @@ function resolveManagedFfmpegPath(dataDir) {
 }
 
 export function resolveVoiceRuntime(dataDir, { modelId = 'standard' } = {}) {
+  gcPublishedRuntimeSiblings(join(dataDir, 'voice-runtime'), 'whisper-')
+  gcPublishedRuntimeSiblings(join(dataDir, 'ffmpeg-runtime'), 'ffmpeg-')
   const managedWhisperCmd = resolveManagedWhisperCmd(dataDir)
   const managedModelPath = resolveManagedWhisperModelById(dataDir, modelId)
   const managedFfmpegPath = resolveManagedFfmpegPath(dataDir)

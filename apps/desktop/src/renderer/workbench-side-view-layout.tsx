@@ -43,6 +43,8 @@ export const WORKBENCH_SIDE_GROUP_MIME = "application/x-mixdog-side-group";
 const WORKBENCH_SIDE_LAYOUT_KEY = "mixdog.desktop.workbench-side-view-layout.v1";
 const UTILITIES_RIGHT_MIGRATION_KEY =
   "mixdog.desktop.workbench-side-view-layout.utilities-right.v1";
+const UTILITIES_FOURTH_MIGRATION_KEY =
+  "mixdog.desktop.workbench-side-view-layout.utilities-fourth.v1";
 const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
   "sessions",
   "projects",
@@ -66,11 +68,32 @@ export const DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT: WorkbenchSideViewLayout = {
     ["schedules"],
     ["webhooks"],
   ],
-  right: [["utilities"], ["agents"], ["search"], ["source-control"], ["pull-requests"]],
+  // Utilities sits FOURTH on the right (user: 오른쪽 사이드 탭에 유틸리티를
+  // 네 번째로): the working tabs take the leading slots a phone reaches first,
+  // and with pull-requests disabled Utilities lands on the trailing icon.
+  right: [["agents"], ["search"], ["source-control"], ["utilities"], ["pull-requests"]],
 };
 
 function isViewId(value: unknown): value is WorkbenchSideViewId {
   return ALL_VIEW_IDS.includes(value as WorkbenchSideViewId);
+}
+
+/**
+ * Where a view the stored layout never carried belongs: ahead of the first
+ * group that already holds a default view following it. A side stored before
+ * those views existed (a phone that only ever persisted Utilities) therefore
+ * rebuilds in DEFAULT order instead of collecting every missing view behind
+ * whatever it happened to store.
+ */
+function defaultSlotIndex(
+  groups: readonly WorkbenchSideViewGroup[],
+  defaultOrder: readonly WorkbenchSideViewId[],
+  id: WorkbenchSideViewId,
+): number {
+  const rank = defaultOrder.indexOf(id);
+  const index = groups.findIndex((group) =>
+    group.some((member) => defaultOrder.indexOf(member) > rank));
+  return index < 0 ? groups.length : index;
 }
 
 export function normalizeWorkbenchSideViewLayout(
@@ -100,15 +123,13 @@ export function normalizeWorkbenchSideViewLayout(
   const left = normalizeSide("left");
   const right = normalizeSide("right");
   for (const side of ["left", "right"] as const) {
-    const defaults = DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT[side];
+    const defaultOrder: WorkbenchSideViewId[] = [];
+    for (const group of DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT[side]) defaultOrder.push(...group);
     const target = side === "left" ? left : right;
-    for (const group of defaults) {
-      for (const id of group) {
-        if (allowed.has(id) && !seen.has(id)) {
-          target.push([id]);
-          seen.add(id);
-        }
-      }
+    for (const id of defaultOrder) {
+      if (!allowed.has(id) || seen.has(id)) continue;
+      target.splice(defaultSlotIndex(target, defaultOrder, id), 0, [id]);
+      seen.add(id);
     }
   }
   return { left, right };
@@ -210,25 +231,28 @@ export function moveWorkbenchSideView(
 }
 
 /**
- * First active view per side, reconciled with the RESTORED placement.
- *
- * A preferred view (Sessions on the left, the persisted dock tab on the right)
- * only wins on the side that actually holds it after restoration. Seeding the
- * preference blindly left a moved Sessions panel selecting nothing on either
- * side: the left panel rendered fallback content with no highlighted icon,
- * and the side that really owns it opened unselected.
+ * First active view per side: ALWAYS the leading group (user: 좌·우·하단 도크
+ * 전부 첫 메뉴로 초기화). No last-visited view survives a reload — the dock tab
+ * and the bottom panel drop their persisted selection for the same reason — so
+ * every reconnect lands on one predictable entry point per edge. A side that
+ * holds nothing has no active view.
  */
 export function initialActiveWorkbenchSideViews(
   layout: WorkbenchSideViewLayout,
-  preferred: Partial<Record<WorkbenchSide, WorkbenchSideViewId | null>> = {},
 ): Record<WorkbenchSide, WorkbenchSideViewId | null> {
-  const pick = (side: WorkbenchSide): WorkbenchSideViewId | null => {
-    const groups = layout[side];
-    const wanted = preferred[side] ?? null;
-    const owning = wanted ? groups.find((group) => group.includes(wanted)) : undefined;
-    return owning?.[0] ?? groups[0]?.[0] ?? null;
+  return {
+    left: layout.left[0]?.[0] ?? null,
+    right: layout.right[0]?.[0] ?? null,
   };
-  return { left: pick("left"), right: pick("right") };
+}
+
+/** Fourth slot, clamped to the end of a shorter right side. */
+const UTILITIES_RIGHT_INDEX = 3;
+
+function insertUtilitiesRightGroup(right: readonly unknown[]): unknown[] {
+  const next = [...right];
+  next.splice(Math.min(UTILITIES_RIGHT_INDEX, next.length), 0, ["utilities"]);
+  return next;
 }
 
 export function migrateDefaultUtilitiesToRight(value: unknown): unknown {
@@ -244,22 +268,47 @@ export function migrateDefaultUtilitiesToRight(value: unknown): unknown {
   return {
     ...record,
     left: left.filter((_, index) => index !== utilityIndex),
-    right: [["utilities"], ...right],
+    right: insertUtilitiesRightGroup(right),
   };
+}
+
+/**
+ * Installs that already moved Utilities to the right kept it in the LEADING
+ * slot, so the new default alone would never reach them. One shot re-seats that
+ * exact shape to the fourth position; a right side that does not START with the
+ * Utilities singleton was arranged by hand and is left untouched.
+ */
+export function migrateLeadingUtilitiesToFourth(value: unknown): unknown {
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record<string, unknown>;
+  const right = Array.isArray(record.right) ? record.right : [];
+  const leading = right[0];
+  if (!Array.isArray(leading) || leading.length !== 1 || leading[0] !== "utilities") {
+    return value;
+  }
+  return { ...record, right: insertUtilitiesRightGroup(right.slice(1)) };
 }
 
 function readLayout(): unknown {
   try {
-    const stored = JSON.parse(
+    let value: unknown = JSON.parse(
       window.localStorage.getItem(WORKBENCH_SIDE_LAYOUT_KEY) || "null",
     );
-    if (window.localStorage.getItem(UTILITIES_RIGHT_MIGRATION_KEY) === "1") {
-      return stored;
+    let migrated = false;
+    if (window.localStorage.getItem(UTILITIES_RIGHT_MIGRATION_KEY) !== "1") {
+      value = migrateDefaultUtilitiesToRight(value);
+      window.localStorage.setItem(UTILITIES_RIGHT_MIGRATION_KEY, "1");
+      migrated = true;
     }
-    const migrated = migrateDefaultUtilitiesToRight(stored);
-    window.localStorage.setItem(WORKBENCH_SIDE_LAYOUT_KEY, JSON.stringify(migrated));
-    window.localStorage.setItem(UTILITIES_RIGHT_MIGRATION_KEY, "1");
-    return migrated;
+    if (window.localStorage.getItem(UTILITIES_FOURTH_MIGRATION_KEY) !== "1") {
+      value = migrateLeadingUtilitiesToFourth(value);
+      window.localStorage.setItem(UTILITIES_FOURTH_MIGRATION_KEY, "1");
+      migrated = true;
+    }
+    if (migrated) {
+      window.localStorage.setItem(WORKBENCH_SIDE_LAYOUT_KEY, JSON.stringify(value));
+    }
+    return value;
   } catch {
     return null;
   }

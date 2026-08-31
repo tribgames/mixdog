@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   initialActiveWorkbenchSideViews,
   migrateDefaultUtilitiesToRight,
+  migrateLeadingUtilitiesToFourth,
   moveWorkbenchSideGroup,
   moveWorkbenchSideView,
   nextRetainedWorkbenchSideRoots,
@@ -46,7 +47,7 @@ test("restoration drops views this build no longer offers", () => {
 test("a corrupt or missing persisted layout falls back to the defaults", () => {
   assert.deepEqual(
     normalizeWorkbenchSideViewLayout(null, ["sessions", "utilities", "agents"]),
-    { left: [["sessions"]], right: [["utilities"], ["agents"]] },
+    { left: [["sessions"]], right: [["agents"], ["utilities"]] },
   );
 });
 
@@ -58,7 +59,7 @@ test("the old default Utilities singleton migrates right without resetting custo
     }),
     {
       left: [["sessions"], ["projects"]],
-      right: [["utilities"], ["search"], ["agents"]],
+      right: [["search"], ["agents"], ["utilities"]],
     },
   );
   const custom = {
@@ -68,36 +69,58 @@ test("the old default Utilities singleton migrates right without resetting custo
   assert.equal(migrateDefaultUtilitiesToRight(custom), custom);
 });
 
-test("the first active view per side follows the RESTORED placement", () => {
-  // Sessions was moved to the right side, so the left must not select it: the
-  // left panel used to render fallback content with no icon selected while the
-  // right side opened with nothing selected at all.
-  const layout = { left: [["projects"], ["search"]], right: [["sessions", "agents"]] };
+test("an already-migrated leading Utilities re-seats to the fourth right slot", () => {
   assert.deepEqual(
-    initialActiveWorkbenchSideViews(layout, { left: "sessions", right: "agents" }),
-    { left: "projects", right: "sessions" },
+    migrateLeadingUtilitiesToFourth({
+      left: [["sessions"]],
+      right: [["utilities"], ["agents"], ["search"], ["source-control"]],
+    }),
+    {
+      left: [["sessions"]],
+      right: [["agents"], ["search"], ["source-control"], ["utilities"]],
+    },
+  );
+  // A hand-arranged right side never starts with the Utilities singleton.
+  const custom = { left: [["sessions"]], right: [["agents"], ["utilities"]] };
+  assert.equal(migrateLeadingUtilitiesToFourth(custom), custom);
+});
+
+test("views missing from a stored side are restored in default order", () => {
+  // The phone shape: only Utilities was ever persisted on the right, so the
+  // working views arrive as newly available and belong AHEAD of it, exactly
+  // where the default layout puts them.
+  assert.deepEqual(
+    normalizeWorkbenchSideViewLayout(
+      { left: [["sessions"]], right: [["utilities"]] },
+      ["sessions", "utilities", "agents", "search", "source-control"],
+    ),
+    {
+      left: [["sessions"]],
+      right: [["agents"], ["search"], ["source-control"], ["utilities"]],
+    },
   );
 });
 
-test("a preferred view still wins on the side that holds it", () => {
-  const layout = { left: [["sessions"], ["projects"]], right: [["agents"]] };
+test("each side opens on its leading group, never a last-visited view", () => {
+  // Sessions sits on the right here, and neither side restores anything: the
+  // left starts on its own first group, the right on the group that leads it.
   assert.deepEqual(
-    initialActiveWorkbenchSideViews(layout, { left: "sessions", right: "agents" }),
-    { left: "sessions", right: "agents" },
+    initialActiveWorkbenchSideViews({
+      left: [["projects"], ["search"]],
+      right: [["sessions", "agents"]],
+    }),
+    { left: "projects", right: "sessions" },
   );
-  // A view inside a combined group selects that group's root.
+  // A combined group selects its root.
   assert.deepEqual(
-    initialActiveWorkbenchSideViews(
-      { left: [["projects", "sessions"]], right: [] },
-      { left: "sessions", right: null },
-    ),
+    initialActiveWorkbenchSideViews({ left: [["projects", "sessions"]], right: [] }),
     { left: "projects", right: null },
   );
 });
 
 test("an empty side has no active view", () => {
   assert.deepEqual(
-    initialActiveWorkbenchSideViews({ left: [], right: [["agents"]] }, {}),
+    initialActiveWorkbenchSideViews({ left: [], right: [["agents"]] }),
     { left: null, right: "agents" },
   );
 });

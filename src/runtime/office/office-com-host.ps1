@@ -118,6 +118,7 @@ function Snapshot-Word($doc, $payload) {
       $styleName = try { [string]$style.NameLocal } catch {
         try { [string]$style.Name } catch { [string]$style }
       }
+      $styleName = Word-CanonicalStyleName $doc $styleName
       $tabStops = @()
       try {
         for ($tabIndex = 1; $tabIndex -le $p.Format.TabStops.Count; $tabIndex++) {
@@ -191,7 +192,7 @@ function Snapshot-Word($doc, $payload) {
     $tables += [ordered]@{
       path = "/body/tbl[$i]"
       index = $i
-      style = $(try { [string]$table.Style.NameLocal } catch { try { [string]$table.Style } catch { '' } })
+      style = $(Word-CanonicalStyleName $doc $(try { [string]$table.Style.NameLocal } catch { try { [string]$table.Style } catch { '' } }))
       alignment = $(try { [int]$table.Rows.Alignment } catch { 0 })
       columnWidths = $columnWidths
       rows = $tableRows
@@ -640,6 +641,11 @@ function Snapshot-Excel($book, $payload) {
       }
     } catch {}
   }
+  # A paged request must always be answered with a pagination block. This
+  # complete-workbook path reported none, so a caller could not tell a whole
+  # snapshot apart from a silently truncated one.
+  $completeCells = 0
+  foreach ($entry in $sheets) { $completeCells += @($entry.cells).Count }
   return [ordered]@{
     format = 'xlsx'
     path = [string]$book.FullName
@@ -647,6 +653,17 @@ function Snapshot-Excel($book, $payload) {
     definedNameCount = $definedNames.Count
     definedNames = $definedNames
     sheets = $sheets
+    pagination = $(if ($payload.paged) {
+      [ordered]@{
+        unit = 'cell'
+        scope = 'workbook'
+        offset = 0
+        limit = [Math]::Max(1, [int]$payload.limit)
+        returned = $completeCells
+        total = $completeCells
+        nextOffset = $null
+      }
+    } else { $null })
   }
 }
 
@@ -838,6 +855,26 @@ function Snapshot-ExcelPage($book, $payload) {
   }
 }
 
+# The notes body is located by placeholder type, never by position. A notes page
+# written outside PowerPoint carries no slide-image placeholder, so asking for
+# item 2 threw and every speaker note authored by the portable backend read back
+# as null instead of its text.
+function PowerPoint-NotesText($slide) {
+  $text = ''
+  try {
+    foreach ($notesShape in @($slide.NotesPage.Shapes)) {
+      $isNotesBody = $false
+      try { $isNotesBody = [int]$notesShape.PlaceholderFormat.Type -eq 2 } catch {}
+      if (-not $isNotesBody) { continue }
+      if ($notesShape.HasTextFrame -and $notesShape.TextFrame.HasText) {
+        $text = [string]$notesShape.TextFrame.TextRange.Text
+      }
+      break
+    }
+  } catch {}
+  return $text
+}
+
 function Snapshot-PowerPoint($presentation, $payload) {
   $slides = @()
   $slideOffset = if ($payload.paged) { [Math]::Max(0, [int]$payload.offset) } else { 0 }
@@ -1010,8 +1047,7 @@ function Snapshot-PowerPoint($presentation, $payload) {
         } catch { $null })
       }
     }
-    $notes = $null
-    try { $notes = [string]$slide.NotesPage.Shapes.Placeholders.Item(2).TextFrame.TextRange.Text } catch {}
+    $notes = PowerPoint-NotesText $slide
     $comments = @()
     try {
       for ($commentIndex = 1; $commentIndex -le $slide.Comments.Count; $commentIndex++) {
@@ -1402,6 +1438,45 @@ function Fill-PowerPointTemplate($presentation, $op) {
   return [ordered]@{ op = 'fill_template'; changed = $filled.Count -gt 0; filled = $filled; unfilledTokens = $unfilled; strict = [bool]$op.strict }
 }
 
+# Word reports styles under the UI language, so a Korean install answers "제목 1"
+# where the package stores the styleId "Heading1". Handing that localized name to
+# the portable backend writes an unknown w:pStyle value and the styling is lost,
+# so reads are mapped back onto the same identifiers the writer accepts.
+$script:WordBuiltinStyleIds = @{
+  -1 = 'Normal'
+  -2 = 'Heading1'
+  -3 = 'Heading2'
+  -4 = 'Heading3'
+  -5 = 'Heading4'
+  -6 = 'Heading5'
+  -7 = 'Heading6'
+  -8 = 'Heading7'
+  -9 = 'Heading8'
+  -10 = 'Heading9'
+  -63 = 'Title'
+  -75 = 'Subtitle'
+  -106 = 'TableNormal'
+  -155 = 'TableGrid'
+}
+
+$script:WordLocalStyleMap = $null
+
+function Word-CanonicalStyleName($doc, [string]$localName) {
+  if ([string]::IsNullOrWhiteSpace($localName)) { return '' }
+  if ($null -eq $script:WordLocalStyleMap) {
+    $map = @{}
+    foreach ($entry in $script:WordBuiltinStyleIds.GetEnumerator()) {
+      try {
+        $local = [string]$doc.Styles.Item([int]$entry.Key).NameLocal
+        if (-not [string]::IsNullOrWhiteSpace($local)) { $map[$local] = [string]$entry.Value }
+      } catch {}
+    }
+    $script:WordLocalStyleMap = $map
+  }
+  if ($script:WordLocalStyleMap.ContainsKey($localName)) { return [string]$script:WordLocalStyleMap[$localName] }
+  return $localName
+}
+
 function Word-StyleValue([string]$name) {
   $styles = @{
     normal = -1
@@ -1549,6 +1624,11 @@ function Apply-WordOperation($doc, $op) {
           $table.Columns.Item($column).Width = [single]@($props.columnWidths)[$column - 1]
         }
       }
+      if ($props.rowHeights) {
+        for ($row = 1; $row -le [Math]::Min($rows, @($props.rowHeights).Count); $row++) {
+          $table.Rows.Item($row).SetHeight([single]@($props.rowHeights)[$row - 1], 1)
+        }
+      }
       if ($props.borders) { $table.Borders.Enable = 1 }
       if ($props.shading) { $table.Shading.BackgroundPatternColor = Color-Value ([string]$props.shading) }
       return [ordered]@{ op = 'add_table'; changed = $true; table = [int]$table.Index; rows = $rows; columns = $columns }
@@ -1598,12 +1678,10 @@ function Apply-WordOperation($doc, $op) {
       $paragraph.Range.Text = ([string]$op.text) + "`r"
       return [ordered]@{ op = 'set_paragraph_text'; changed = $true }
     }
-    'set_run_text' {
-      $paragraph = $doc.Paragraphs.Item([int]$op.paragraph)
-      $run = $paragraph.Range.Words.Item([int]$op.run)
-      $run.Text = [string]$op.text
-      return [ordered]@{ op = 'set_run_text'; changed = $true }
-    }
+    # set_run_text is deliberately absent here. It addresses OOXML runs, Word
+    # exposes no run object, and the closest match — its word list — numbers
+    # differently, so the same index rewrote different text. The operation is
+    # portable-only; the registry rejects it before dispatch in Office mode.
     'remove_paragraph' {
       $doc.Paragraphs.Item([int]$op.paragraph).Range.Delete()
       return [ordered]@{ op = 'remove_paragraph'; changed = $true }
@@ -1791,13 +1869,17 @@ function Apply-WordOperation($doc, $op) {
       if (-not $op.kind) {
         $section.PageSetup.DifferentFirstPageHeaderFooter = 0
         $section.PageSetup.OddAndEvenPagesHeaderFooter = 0
+      } elseif ([string]$op.kind -eq 'first') {
+        $section.PageSetup.DifferentFirstPageHeaderFooter = -1
+      } elseif ([string]$op.kind -eq 'even') {
+        $section.PageSetup.OddAndEvenPagesHeaderFooter = -1
       }
       $kind = switch ([string]$op.kind) {
         'first' { 2 }
         'even' { 3 }
         default { 1 }
       }
-      $footerKinds = if ($op.kind) { @($kind) } else { @(1, 2, 3) }
+      $footerKinds = @($kind)
       foreach ($footerKind in $footerKinds) {
         $footer = $section.Footers.Item($footerKind)
         $footer.Exists = $true
@@ -1898,9 +1980,81 @@ function Apply-WordOperation($doc, $op) {
   }
 }
 
+function Invoke-ExcelComRetry(
+  [scriptblock]$operation,
+  [string]$label,
+  [int[]]$additionalTransientHResults = @()
+) {
+  $lastError = ''
+  $transientHResults = @(-2146777998, -2147418111, -2147417846) + @($additionalTransientHResults)
+  for ($attempt = 0; $attempt -lt 50; $attempt++) {
+    try {
+      return & $operation
+    } catch {
+      $hresult = [int]$_.Exception.HResult
+      if ($transientHResults -notcontains $hresult) { throw }
+      $lastError = [string]$_.Exception.Message
+      Start-Sleep -Milliseconds 100
+    }
+  }
+  throw "$label remained busy after transient COM retries. Last error: $lastError"
+}
+
 function Excel-Sheet($book, $op) {
   if ($op.sheet) { return $book.Worksheets.Item([string]$op.sheet) }
   return $book.ActiveSheet
+}
+
+function Activate-ExcelSheetWindow($book, $sheet) {
+  $null = $book.Activate()
+  $window = $book.Windows.Item(1)
+  if (-not [bool]$book.Application.Visible) {
+    try { $window.WindowState = -4137 } catch {}
+  }
+  $null = $window.Activate()
+  $null = $sheet.Activate()
+  return $window
+}
+
+function Excel-ContentPrintArea($sheet) {
+  $used = $null
+  $shapes = $null
+  $startCell = $null
+  $endCell = $null
+  try {
+    $used = $sheet.UsedRange
+    $firstRow = [int]$used.Row
+    $firstColumn = [int]$used.Column
+    $lastRow = $firstRow + [int]$used.Rows.Count - 1
+    $lastColumn = $firstColumn + [int]$used.Columns.Count - 1
+    $shapes = $sheet.Shapes
+    for ($index = 1; $index -le [int]$shapes.Count; $index++) {
+      $shape = $null
+      $topLeft = $null
+      $bottomRight = $null
+      try {
+        $shape = $shapes.Item($index)
+        $topLeft = $shape.TopLeftCell
+        $bottomRight = $shape.BottomRightCell
+        $firstRow = [Math]::Min($firstRow, [int]$topLeft.Row)
+        $firstColumn = [Math]::Min($firstColumn, [int]$topLeft.Column)
+        $lastRow = [Math]::Max($lastRow, [int]$bottomRight.Row)
+        $lastColumn = [Math]::Max($lastColumn, [int]$bottomRight.Column)
+      } finally {
+        if ($null -ne $bottomRight) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($bottomRight) } catch {} }
+        if ($null -ne $topLeft) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($topLeft) } catch {} }
+        if ($null -ne $shape) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shape) } catch {} }
+      }
+    }
+    $startCell = $sheet.Cells.Item($firstRow, $firstColumn)
+    $endCell = $sheet.Cells.Item($lastRow, $lastColumn)
+    return [string]$sheet.Range($startCell, $endCell).Address($true, $true, 1)
+  } finally {
+    if ($null -ne $endCell) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($endCell) } catch {} }
+    if ($null -ne $startCell) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($startCell) } catch {} }
+    if ($null -ne $shapes) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($shapes) } catch {} }
+    if ($null -ne $used) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($used) } catch {} }
+  }
 }
 
 function Excel-CellValue($value) {
@@ -2160,12 +2314,29 @@ function Apply-ExcelOperation($book, $op) {
       $top = if ($null -ne $op.top) { [single]$op.top } else { [single]20 }
       $width = if ($op.width) { [single]$op.width } else { [single]480 }
       $height = if ($op.height) { [single]$op.height } else { [single]280 }
-      $shape = $sheet.Shapes.AddChart2(-1, $chartType, $left, $top, $width, $height)
-      $chart = $shape.Chart
-      if ($op.range) { $chart.SetSourceData($sheet.Range([string]$op.range), 2) }
-      if ($op.title) { $chart.HasTitle = $true; $chart.ChartTitle.Text = [string]$op.title }
-      $seriesCount = [int]$chart.SeriesCollection().Count
-      $palette = @($op.seriesColors)
+      $shape = Invoke-ExcelComRetry {
+        return $sheet.Shapes.AddChart2(-1, $chartType, $left, $top, $width, $height)
+      } 'Excel add chart'
+      $chart = Invoke-ExcelComRetry { return $shape.Chart } 'Excel chart proxy'
+      if ($op.range) {
+        $null = Invoke-ExcelComRetry {
+          $chart.SetSourceData($sheet.Range([string]$op.range), 2)
+          return $true
+        } 'Excel chart source'
+      }
+      if ($op.title) {
+        $null = Invoke-ExcelComRetry {
+          $chart.HasTitle = $true
+          $chart.ChartTitle.Text = [string]$op.title
+          return $true
+        } 'Excel chart title'
+      }
+      $seriesCount = [int](Invoke-ExcelComRetry {
+        return $chart.SeriesCollection().Count
+      } 'Excel chart series')
+      $palette = @($op.seriesColors | Where-Object {
+        $null -ne $_ -and -not [string]::IsNullOrWhiteSpace([string]$_)
+      })
       for ($seriesIndex = 1; $seriesIndex -le $seriesCount; $seriesIndex++) {
         $series = $chart.SeriesCollection().Item($seriesIndex)
         if ($palette.Count -gt 0) {
@@ -2193,7 +2364,11 @@ function Apply-ExcelOperation($book, $op) {
           } catch {}
         }
       }
-      $chart.HasLegend = $(if ($null -ne $op.showLegend) { [bool]$op.showLegend } else { $seriesCount -gt 1 })
+      $legendVisible = $(if ($null -ne $op.showLegend) { [bool]$op.showLegend } else { $seriesCount -gt 1 })
+      $null = Invoke-ExcelComRetry {
+        $chart.HasLegend = $legendVisible
+        return $true
+      } 'Excel chart legend'
       try { $chart.ChartArea.Format.Line.Visible = 0 } catch {}
       try { $chart.PlotArea.Format.Fill.Visible = 0 } catch {}
       try {
@@ -2216,7 +2391,13 @@ function Apply-ExcelOperation($book, $op) {
           }
         } catch {}
       }
-      $pointCount = if ($seriesCount -gt 0) { [int]$chart.SeriesCollection().Item(1).Points().Count } else { 0 }
+      $pointCount = if ($seriesCount -gt 0) {
+        [int](Invoke-ExcelComRetry {
+          return $chart.SeriesCollection().Item(1).Points().Count
+        } 'Excel chart point count' @(-2146827864))
+      } else {
+        0
+      }
       return [ordered]@{ op = 'add_chart'; changed = $true; name = [string]$shape.Name; series = $seriesCount; categories = $pointCount }
     }
     'add_conditional_format' {
@@ -2249,12 +2430,36 @@ function Apply-ExcelOperation($book, $op) {
     }
     'freeze_panes' {
       $sheet = Excel-Sheet $book $op
-      $sheet.Activate()
-      $window = $book.Windows.Item(1)
+      $window = Activate-ExcelSheetWindow $book $sheet
+      try {
+        if ([int]$window.View -ne 1) { $window.View = 1 }
+      } catch {}
+      $splitRow = $(if ($null -ne $op.row) { [int]$op.row } else { 1 })
+      $splitColumn = $(if ($null -ne $op.column) { [int]$op.column } else { 0 })
       $window.FreezePanes = $false
-      $window.SplitRow = $(if ($null -ne $op.row) { [int]$op.row } else { 1 })
-      $window.SplitColumn = $(if ($null -ne $op.column) { [int]$op.column } else { 0 })
-      $window.FreezePanes = $true
+      $window.SplitRow = 0
+      $window.SplitColumn = 0
+      if ($splitRow -gt 0 -or $splitColumn -gt 0) {
+        $window.ScrollRow = 1
+        $window.ScrollColumn = 1
+        $window.SplitRow = $splitRow
+        $window.SplitColumn = $splitColumn
+        try {
+          $window.FreezePanes = $true
+        } catch {
+          $activeSheet = $(try { [string]$book.ActiveSheet.Name } catch { '' })
+          $activeCell = $(try { [string]$book.Application.ActiveCell.Address($false, $false) } catch { '' })
+          $appVisible = $(try { [bool]$book.Application.Visible } catch { $false })
+          $windowVisible = $(try { [bool]$window.Visible } catch { $false })
+          $view = $(try { [int]$window.View } catch { 0 })
+          $windowState = $(try { [int]$window.WindowState } catch { 0 })
+          $windowSize = $(try { "$([int]$window.Width)x$([int]$window.Height)" } catch { 'unknown' })
+          throw "Cannot freeze panes on '$([string]$sheet.Name)' at row=$splitRow column=$splitColumn; activeSheet='$activeSheet', activeCell='$activeCell', appVisible=$appVisible, windowVisible=$windowVisible, windowState=$windowState, windowSize=$windowSize, view=$view, splitRow=$([int]$window.SplitRow), splitColumn=$([int]$window.SplitColumn). $($_.Exception.Message)"
+        }
+        if ([int]$window.SplitRow -ne $splitRow -or [int]$window.SplitColumn -ne $splitColumn) {
+          throw "Excel froze panes at row=$([int]$window.SplitRow) column=$([int]$window.SplitColumn) instead of row=$splitRow column=$splitColumn"
+        }
+      }
       return [ordered]@{ op = 'freeze_panes'; changed = $true }
     }
     'add_pivot_table' {
@@ -2356,7 +2561,8 @@ function Apply-ExcelOperation($book, $op) {
     'set_page_setup' {
       $sheet = Excel-Sheet $book $op
       $setup = $sheet.PageSetup
-      if ($op.printArea) { $setup.PrintArea = [string]$op.printArea }
+      if ([bool]$op.fitToContent) { $setup.PrintArea = Excel-ContentPrintArea $sheet }
+      elseif ($op.printArea) { $setup.PrintArea = [string]$op.printArea }
       if ($op.orientation) { $setup.Orientation = $(if ([string]$op.orientation -eq 'landscape') { 2 } else { 1 }) }
       if ($null -ne $op.fitToPagesWide -or $null -ne $op.fitToPagesTall) { $setup.Zoom = $false }
       if ($null -ne $op.fitToPagesWide) { $setup.FitToPagesWide = [int]$op.fitToPagesWide }
@@ -2371,8 +2577,7 @@ function Apply-ExcelOperation($book, $op) {
     }
     'set_sheet_view' {
       $sheet = Excel-Sheet $book $op
-      $sheet.Activate()
-      $window = $book.Windows.Item(1)
+      $window = Activate-ExcelSheetWindow $book $sheet
       if ($null -ne $op.showGridlines) { $window.DisplayGridlines = [bool]$op.showGridlines }
       if ($null -ne $op.zoom) { $window.Zoom = [Math]::Max(10, [Math]::Min(400, [int]$op.zoom)) }
       return [ordered]@{ op = 'set_sheet_view'; changed = $true; sheet = [string]$sheet.Name }
@@ -2397,6 +2602,102 @@ function Ppt-Slide($presentation, $op) {
   return $presentation.Slides.Item([int]$op.slide)
 }
 
+function Invoke-PowerPointComRetry([scriptblock]$operation, [string]$label) {
+  $lastError = ''
+  for ($attempt = 0; $attempt -lt 50; $attempt++) {
+    try {
+      return & $operation
+    } catch {
+      $hresult = [int]$_.Exception.HResult
+      if (@(-2147418111, -2147417846) -notcontains $hresult) { throw }
+      $lastError = [string]$_.Exception.Message
+      Start-Sleep -Milliseconds 100
+    }
+  }
+  throw "$label remained busy after transient COM retries. Last error: $lastError"
+}
+
+$script:PowerPointChartExcelApplications = @{}
+$script:PowerPointChartExcelProcessIds = @{}
+
+function Register-PowerPointChartExcelApplication($workbook, [int[]]$processIdsBefore) {
+  $application = $null
+  try {
+    $application = $workbook.Application
+    if ($null -eq $application) { return }
+    $hWnd = $(try { [long]$application.Hwnd } catch { 0 })
+    $key = if ($hWnd) {
+      "hwnd:$hWnd"
+    } else {
+      "rcw:$([System.Runtime.CompilerServices.RuntimeHelpers]::GetHashCode($application))"
+    }
+    if ($script:PowerPointChartExcelApplications.ContainsKey($key)) {
+      try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($application) } catch {}
+      return
+    }
+    $processId = 0
+    if ($hWnd -and ('MixdogOfficeInterop' -as [type])) {
+      try { $processId = [MixdogOfficeInterop]::ProcessIdForWindow($hWnd) } catch {}
+    }
+    if ($processId -gt 0) { $script:PowerPointChartExcelProcessIds[[int]$processId] = $true }
+    foreach ($process in @(Get-Process -Name EXCEL -ErrorAction SilentlyContinue)) {
+      if ($processIdsBefore -notcontains [int]$process.Id) {
+        $script:PowerPointChartExcelProcessIds[[int]$process.Id] = $true
+      }
+      try { $process.Dispose() } catch {}
+    }
+    $script:PowerPointChartExcelApplications[$key] = [pscustomobject]@{
+      App = $application
+      ProcessId = $processId
+    }
+    $application = $null
+  } finally {
+    if ($null -ne $application) {
+      try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($application) } catch {}
+    }
+  }
+}
+
+function Close-PowerPointChartExcelApplications([bool]$quit) {
+  $records = @($script:PowerPointChartExcelApplications.Values)
+  $script:PowerPointChartExcelApplications = @{}
+  $processIds = @($script:PowerPointChartExcelProcessIds.Keys | ForEach-Object { [int]$_ })
+  $script:PowerPointChartExcelProcessIds = @{}
+  foreach ($record in $records) {
+    if ($quit) {
+      try { $record.App.DisplayAlerts = $false } catch {}
+      try {
+        $null = Invoke-PowerPointComRetry {
+          $record.App.Quit()
+          return $true
+        } 'PowerPoint chart Excel host'
+      } catch {}
+    }
+    try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($record.App) } catch {}
+  }
+  if ($records.Count) {
+    [GC]::Collect()
+    [GC]::WaitForPendingFinalizers()
+  }
+  if ($quit) {
+    foreach ($processId in $processIds) {
+      $process = $null
+      try { $process = [System.Diagnostics.Process]::GetProcessById($processId) } catch {}
+      if ($null -eq $process) { continue }
+      $exited = $false
+      try { $exited = [bool]$process.WaitForExit(500) } catch { $exited = $true }
+      if (-not $exited) {
+        try {
+          $process.Kill()
+          $null = $process.WaitForExit(1000)
+        } catch {}
+      }
+      try { $process.Dispose() } catch {}
+    }
+  }
+  return $records.Count
+}
+
 function Set-PowerPointChartData($chart, $categoryValues, $seriesValues) {
   $specs = @($seriesValues)
   if ($specs.Count -eq 0) { throw 'PowerPoint chart data requires at least one series' }
@@ -2407,73 +2708,127 @@ function Set-PowerPointChartData($chart, $categoryValues, $seriesValues) {
   if ($categories.Count -eq 0) {
     $categories = @(1..$pointCount | ForEach-Object { "Item $_" })
   }
+  $matrix = New-Object 'object[,]' ($pointCount + 1), ($specs.Count + 1)
+  $matrix[0, 0] = 'Category'
+  for ($seriesIndex = 1; $seriesIndex -le $specs.Count; $seriesIndex++) {
+    $matrix[0, $seriesIndex] = [string]$specs[$seriesIndex - 1].name
+  }
+  for ($pointIndex = 1; $pointIndex -le $pointCount; $pointIndex++) {
+    $category = if ($pointIndex -le $categories.Count) { $categories[$pointIndex - 1] } else { "Item $pointIndex" }
+    $matrix[$pointIndex, 0] = $category
+    for ($seriesIndex = 1; $seriesIndex -le $specs.Count; $seriesIndex++) {
+      $values = @($specs[$seriesIndex - 1].values)
+      if ($pointIndex -le $values.Count) {
+        $matrix[$pointIndex, $seriesIndex] = $values[$pointIndex - 1]
+      }
+    }
+  }
+  $lastColumn = Excel-ColumnLabel ($specs.Count + 1)
+  $lastRow = $pointCount + 1
+  $sourceAddress = "A1:${lastColumn}${lastRow}"
   $chartData = $null
   $workbook = $null
+  $worksheets = $null
   $worksheet = $null
+  $source = $null
+  $lastOpenError = ''
+  $seriesCount = 0
+  $excelProcessIdsBefore = @(
+    Get-Process -Name EXCEL -ErrorAction SilentlyContinue | ForEach-Object {
+      try { [int]$_.Id } finally { try { $_.Dispose() } catch {} }
+    }
+  )
   try {
     $chartData = $chart.ChartData
     $null = $chartData.Activate()
-    for ($attempt = 0; $attempt -lt 50 -and $null -eq $workbook; $attempt++) {
-      try { $workbook = $chartData.Workbook } catch {}
-      if ($null -eq $workbook) { Start-Sleep -Milliseconds 100 }
-    }
-    if ($null -eq $workbook) { throw 'PowerPoint chart embedded workbook did not activate' }
-    $worksheet = $workbook.Worksheets.Item(1)
-    $null = $worksheet.Cells.Clear()
-    $matrix = New-Object 'object[,]' ($pointCount + 1), ($specs.Count + 1)
-    $matrix[0, 0] = 'Category'
-    for ($seriesIndex = 1; $seriesIndex -le $specs.Count; $seriesIndex++) {
-      $matrix[0, $seriesIndex] = [string]$specs[$seriesIndex - 1].name
-    }
-    for ($pointIndex = 1; $pointIndex -le $pointCount; $pointIndex++) {
-      $category = if ($pointIndex -le $categories.Count) { $categories[$pointIndex - 1] } else { "Item $pointIndex" }
-      $matrix[$pointIndex, 0] = $category
-      for ($seriesIndex = 1; $seriesIndex -le $specs.Count; $seriesIndex++) {
-        $values = @($specs[$seriesIndex - 1].values)
-        if ($pointIndex -le $values.Count) {
-          $matrix[$pointIndex, $seriesIndex] = $values[$pointIndex - 1]
+    for ($attempt = 0; $attempt -lt 50 -and $null -eq $worksheet; $attempt++) {
+      $candidateWorkbook = $null
+      $candidateWorksheets = $null
+      $candidateWorksheet = $null
+      $candidateCells = $null
+      $candidateSource = $null
+      try {
+        if ($attempt -gt 0) { $null = $chartData.Activate() }
+        $candidateWorkbook = $chartData.Workbook
+        if ($null -eq $candidateWorkbook) { throw 'Workbook is not ready' }
+        $candidateWorksheets = $candidateWorkbook.Worksheets
+        if ($null -eq $candidateWorksheets -or [int]$candidateWorksheets.Count -eq 0) {
+          throw 'Worksheets collection is not ready'
         }
+        $candidateWorksheet = $candidateWorksheets.Item(1)
+        if ($null -eq $candidateWorksheet) { throw 'First worksheet is not ready' }
+        $candidateCells = $candidateWorksheet.Cells
+        if ($null -eq $candidateCells) { throw 'Worksheet cells are not ready' }
+        # A non-null worksheet proxy can still be stale while the embedded
+        # workbook is activating. Adopt the full chain only after the first
+        # intended worksheet operation succeeds.
+        $null = $candidateCells.Clear()
+        $candidateSource = $candidateWorksheet.Range($sourceAddress)
+        if ($null -eq $candidateSource) { throw 'Chart source range is not ready' }
+        $null = ($candidateSource.Value2 = $matrix)
+        $sheetName = ([string]$candidateWorksheet.Name).Replace("'", "''")
+        $sourceFormula = "='$sheetName'!`$A`$1:`$$lastColumn`$$lastRow"
+        # Bind the complete range in one native operation so PowerPoint replaces
+        # its placeholder series without a chain of mutable COM collection calls.
+        $chart.SetSourceData($sourceFormula, 2)
+        $workbook = $candidateWorkbook
+        $worksheets = $candidateWorksheets
+        $worksheet = $candidateWorksheet
+        $source = $candidateSource
+        Register-PowerPointChartExcelApplication $candidateWorkbook $excelProcessIdsBefore
+        $candidateWorkbook = $null
+        $candidateWorksheets = $null
+        $candidateWorksheet = $null
+        $candidateSource = $null
+      } catch {
+        $lastOpenError = [string]$_.Exception.Message
+      } finally {
+        if ($null -ne $candidateSource) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($candidateSource) } catch {} }
+        if ($null -ne $candidateCells) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($candidateCells) } catch {} }
+        if ($null -ne $candidateWorksheet) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($candidateWorksheet) } catch {} }
+        if ($null -ne $candidateWorksheets) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($candidateWorksheets) } catch {} }
+        if ($null -ne $candidateWorkbook) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($candidateWorkbook) } catch {} }
       }
+      if ($null -eq $worksheet) { Start-Sleep -Milliseconds 100 }
     }
-    $lastColumn = Excel-ColumnLabel ($specs.Count + 1)
-    $source = $worksheet.Range("A1:${lastColumn}$($pointCount + 1)")
-    $null = ($source.Value2 = $matrix)
-    $collection = $chart.SeriesCollection()
-    $placeholderSeriesCount = [int]$collection.Count
-    $sheetName = ([string]$worksheet.Name).Replace("'", "''")
-    $lastRow = $pointCount + 1
-    for ($seriesIndex = 1; $seriesIndex -le $specs.Count; $seriesIndex++) {
-      $series = $collection.NewSeries()
-      $column = Excel-ColumnLabel ($seriesIndex + 1)
-      $null = ($series.Name = [string]$specs[$seriesIndex - 1].name)
-      $null = ($series.XValues = "='$sheetName'!`$A`$2:`$A`$$lastRow")
-      $null = ($series.Values = "='$sheetName'!`$$column`$2:`$$column`$$lastRow")
+    if ($null -eq $worksheet) {
+      throw "PowerPoint chart embedded workbook did not expose its first worksheet. Last error: $lastOpenError"
     }
-    for ($seriesIndex = 0; $seriesIndex -lt $placeholderSeriesCount; $seriesIndex++) { $null = $collection.Item(1).Delete() }
-    $null = $chart.Refresh()
     try {
+      $null = $chart.Refresh()
       $categoryAxis = $chart.Axes(1, 1)
       $categoryAxis.CategoryType = 2
       $categoryAxis.TickLabelPosition = 4
       $categoryAxis.TickLabels.Orientation = 0
     } catch {}
+    $seriesCount = [int](Invoke-PowerPointComRetry { $chart.SeriesCollection().Count } 'PowerPoint chart series')
+    for ($seriesIndex = 1; $seriesIndex -le [Math]::Min($specs.Count, $seriesCount); $seriesIndex++) {
+      $spec = $specs[$seriesIndex - 1]
+      if ($spec.color) {
+        try {
+          $chart.SeriesCollection().Item($seriesIndex).Format.Fill.ForeColor.RGB = Color-Value ([string]$spec.color)
+          $chart.SeriesCollection().Item($seriesIndex).Format.Line.ForeColor.RGB = Color-Value ([string]$spec.color)
+        } catch {}
+      }
+    }
+    $legendVisible = $specs.Count -gt 1
+    $null = Invoke-PowerPointComRetry {
+      $chart.HasLegend = $legendVisible
+      return $true
+    } 'PowerPoint chart legend'
   } finally {
+    # Close the embedded workbook but never quit the Excel host that PowerPoint
+    # started for it: PowerPoint reuses that host for the next chart in the same
+    # presentation, and quitting it here left the following operation holding a
+    # dead workbook whose Worksheets came back null.
+    if ($null -ne $source) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($source) } catch {} }
     if ($null -ne $workbook) { try { $null = $workbook.Close($true) } catch {} }
     if ($null -ne $worksheet) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($worksheet) } catch {} }
+    if ($null -ne $worksheets) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($worksheets) } catch {} }
     if ($null -ne $workbook) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($workbook) } catch {} }
     if ($null -ne $chartData) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($chartData) } catch {} }
   }
-  for ($seriesIndex = 1; $seriesIndex -le [Math]::Min($specs.Count, [int]$chart.SeriesCollection().Count); $seriesIndex++) {
-    $spec = $specs[$seriesIndex - 1]
-    if ($spec.color) {
-      try {
-        $chart.SeriesCollection().Item($seriesIndex).Format.Fill.ForeColor.RGB = Color-Value ([string]$spec.color)
-        $chart.SeriesCollection().Item($seriesIndex).Format.Line.ForeColor.RGB = Color-Value ([string]$spec.color)
-      } catch {}
-    }
-  }
-  $null = ($chart.HasLegend = $specs.Count -gt 1)
-  return [ordered]@{ categories = $pointCount; series = [int]$chart.SeriesCollection().Count }
+  return [ordered]@{ categories = $pointCount; series = $seriesCount }
 }
 
 function Set-PowerPointParagraphs($shape, $paragraphs) {
@@ -2657,6 +3012,14 @@ function Apply-PowerPointOperation($presentation, $op, [bool]$live = $false) {
       $requestedColumns = 0
       foreach ($rowValues in $values) {
         $requestedColumns = [Math]::Max($requestedColumns, @($rowValues).Count)
+      }
+      while ($availableRows -lt $values.Count) {
+        $null = $shape.Table.Rows.Add()
+        $availableRows = [int]$shape.Table.Rows.Count
+      }
+      while ($availableColumns -lt $requestedColumns) {
+        $null = $shape.Table.Columns.Add()
+        $availableColumns = [int]$shape.Table.Columns.Count
       }
       if ($values.Count -gt $availableRows -or $requestedColumns -gt $availableColumns) {
         throw "PowerPoint table shape $($op.shape) is ${availableRows}x${availableColumns}, but received $($values.Count)x${requestedColumns}"
@@ -3574,7 +3937,7 @@ function Issues-PowerPoint($presentation, $payload) {
       $allText = @($slide.Shapes | ForEach-Object {
         try { if ($_.HasTextFrame -and $_.TextFrame.HasText) { [string]$_.TextFrame.TextRange.Text } } catch {}
       }) -join ' '
-      $notes = $(try { [string]$slide.NotesPage.Shapes.Placeholders.Item(2).TextFrame.TextRange.Text } catch { '' })
+      $notes = PowerPoint-NotesText $slide
       if ($allText -match '\d' -and $notes -notmatch '(?i)source\s*:|[\w .-]+!\$?[A-Z]{1,3}\$?\d+') {
         $issues += Office-Issue 'warning' 'number_without_source' "/slide[$($slide.SlideIndex)]" 'Model-backed deck slide contains numbers but its notes do not cite a workbook cell or source.'
       }
@@ -3861,6 +4224,9 @@ try {
       try { $app.Quit() } catch {}
     }
     try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($app) } catch {}
+  }
+  if ($format -eq 'pptx') {
+    try { $null = Close-PowerPointChartExcelApplications $createdApp } catch {}
   }
   [GC]::Collect()
   [GC]::WaitForPendingFinalizers()

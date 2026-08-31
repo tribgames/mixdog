@@ -1,6 +1,6 @@
 {
   "name": "mixdog",
-  "version": "0.9.156",
+  "version": "0.9.157",
   "private": false,
   "type": "module",
   "description": "Standalone mixdog coding-agent CLI/TUI workspace.",
@@ -54,7 +54,7 @@
     "smoke:all": "npm run smoke && npm run smoke:boot && npm run smoke:patch && npm run smoke:compact",
     "smoke:boot": "node scripts/boot-smoke.mjs",
     "smoke:compact": "node scripts/compact-smoke.mjs",
-    "test:compact": "node --test scripts/suite-compact-test.mjs",
+    "test:compact": "node --test scripts/suite-compact-test.mjs src/runtime/agent/orchestrator/session/token-estimate.test.mjs",
     "test:markdown": "node --test scripts/markdown-surface-test.mjs",
     "smoke:loop": "node scripts/smoke-loop.mjs",
     "smoke:loop:final": "node scripts/smoke-loop-report.mjs --require-complete --min-elapsed 5h --min-iterations 400 --max-gap 60s --max-smoke-ms 10000 --max-avg-smoke-ms 8500 --max-step-ms smoke.mjs=4000 --max-step-ms boot-smoke.mjs=8000 --max-rss-mb 140 --max-rss-growth-mb 50",
@@ -72,7 +72,7 @@
     "test:session-transport": "node --test scripts/session-transport-test.mjs scripts/daemon-bootstrap-test.mjs src/runtime/shared/child-spawn-remote.test.mjs src/standalone/session-runtime-agent-control-client.test.mjs src/standalone/session-runtime-dispatch-cancel.test.mjs src/standalone/session-runtime-host-factory.test.mjs src/standalone/session-runtime-inline-host.test.mjs src/standalone/session-runtime-provider-cooldown.test.mjs src/standalone/session-runtime-shard-host.test.mjs src/standalone/session-runtime-shard-router.test.mjs",
     "test:session": "node --test scripts/runtime-turn-contract-test.mjs scripts/session-save-fault-store-test.mjs scripts/turn-review-revert-test.mjs src/runtime/shared/tool-surface.test.mjs src/runtime/bridge-clients.test.mjs",
     "test:quick": "npm run test:session && npm run test:session-transport && npm run test:desktop-main --prefix apps/desktop",
-    "test:office": "node --test src/runtime/office/office-runtime.test.mjs src/runtime/office/office-assurance.test.mjs src/runtime/office/portable-authoring.test.mjs && npm run test:office-approval --prefix apps/desktop",
+    "test:office": "node --test scripts/run-office-live-tests.test.mjs src/runtime/office/office-runtime.test.mjs src/runtime/office/office-assurance.test.mjs src/runtime/office/portable-authoring.test.mjs && npm run test:office-approval --prefix apps/desktop",
     "test:office:live": "node scripts/run-office-live-tests.mjs",
     "test:media": "node --test src/runtime/media/store.test.mjs src/runtime/media/renditions.test.mjs src/runtime/media/adapters/codex-image.test.mjs",
     "failures": "node scripts/tool-failures.mjs",
@@ -125,7 +125,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
     "@google/generative-ai": "^0.24.1",
-    "@huggingface/transformers": "^3.8.1",
+    "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@mozilla/readability": "^0.6.0",
     "@napi-rs/canvas": "^1.0.8",
@@ -136,10 +136,9 @@
     "ink": "^7.1.0",
     "jsdom": "^27.0.0",
     "jszip": "^3.10.1",
-    "kiwi-nlp": "^0.21.0",
     "marked": "^14.1.4",
     "node-cron": "^4.5.0",
-    "onnxruntime-node": "1.23.2",
+    "onnxruntime-node": "1.29.0",
     "openai": "^6.44.0",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.2.108",
@@ -150,7 +149,6 @@
     "string-width": "^8.2.1",
     "strip-ansi": "^7.2.0",
     "tesseract.js": "^7.0.0",
-    "tiktoken": "^1.0.22",
     "undici": "^8.5.0",
     "unpdf": "^1.8.0",
     "wrap-ansi": "^10.0.0",
@@ -160,7 +158,7 @@
   },
   "overrides": {
     "onnxruntime-node": {
-      ".": "1.23.2",
+      ".": "1.29.0",
       "global-agent": "^4.1.3"
     },
     "sharp": "^0.35.3"

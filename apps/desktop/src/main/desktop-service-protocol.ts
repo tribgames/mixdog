@@ -23,6 +23,11 @@ export interface DesktopServiceError {
 
 export type DesktopServiceOutbound =
   | { kind: 'ready' }
+  /** The daemon behind a still-open transport was replaced. Everything the
+   *  dead process hosted went with it — the relay leg above all — and no
+   *  second `ready` announces the swap, because the transport itself never
+   *  dropped. This frame is what says so. */
+  | { kind: 'daemon-replaced' }
   | { kind: 'response'; id: number; ok: true; value: unknown }
   | { kind: 'response'; id: number; ok: false; error: DesktopServiceError }
   | { kind: 'state'; sequence: number; wire: unknown }

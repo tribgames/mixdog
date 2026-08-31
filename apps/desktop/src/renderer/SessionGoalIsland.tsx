@@ -95,23 +95,6 @@ export function goalTimeLabel(goal: GoalSnapshot, clock: number): string {
   });
 }
 
-// Observations, never judgements. Turn count and time since the task list last
-// actually changed make a spinning Goal visible, while the decision to stop it
-// stays entirely with the user — no rule here infers "stuck".
-export function goalObservationLabel(goal: GoalSnapshot, clock: number): string {
-  if (goal.status === 'complete') return '';
-  const turns = Math.max(0, Number(goal.turnCount) || 0);
-  const changedAt = Number(goal.tasksUpdatedAt) || 0;
-  const parts: string[] = [];
-  if (turns > 0) parts.push(t('{{count}} turns', { count: turns }));
-  if (changedAt > 0) {
-    parts.push(t('tasks {{time}} ago', {
-      time: formatGoalDuration(Math.max(0, clock - changedAt)),
-    }));
-  }
-  return parts.join(' · ');
-}
-
 // No strokeWidth override: the global pixel-snapped icon rule
 // (`svg.lucide { stroke-width: 1px }`, 02-base.css) outranks presentation
 // attributes anyway, so a per-glyph value is dead weight that would also
@@ -160,7 +143,6 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
 
   const statusLabel = useMemo(() => goal ? goalStatusLabel(goal) : '', [goal]);
   const timeLabel = goal ? goalTimeLabel(goal, clock) : '';
-  const observationLabel = goal ? goalObservationLabel(goal, clock) : '';
   const elapsedLabel = goal ? goalElapsedLabel(goal, clock) : '';
   const completedTimeLabel = goal ? goalCompletedTimeLabel(goal) : '';
   if (!goal) return null;
@@ -219,7 +201,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
       <header className={goal.status === 'complete' ? 'has-menu' : undefined}>
         <div>
           <strong title={objective}>{title}</strong>
-          <small>{[statusLabel, timeLabel, completedTimeLabel, observationLabel]
+          <small>{[statusLabel, timeLabel, completedTimeLabel]
             .filter(Boolean).join(' · ')}</small>
         </div>
         {goal.status === 'complete' ? <details className="session-goal-menu">

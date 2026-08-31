@@ -110,12 +110,6 @@ export function createPrewarmSchedulers({
       } catch (error) {
         bootProfile('tool-runtime:shell-job-recovery-failed', { error: error?.message || String(error) });
       }
-      try {
-        const { prewarmTokenEstimator } = await import('../runtime/agent/orchestrator/session/context-utils.mjs');
-        bootProfile('tool-runtime:token-estimator', { warmed: prewarmTokenEstimator() === true });
-      } catch (error) {
-        bootProfile('tool-runtime:token-estimator-failed', { error: error?.message || String(error) });
-      }
     })(), delayMs);
     timer.unref?.();
   }

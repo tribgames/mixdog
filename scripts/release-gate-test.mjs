@@ -10,12 +10,10 @@ import {
   GRAPH_PLATFORMS,
   PATCH_PLATFORMS,
   SPAWN_PLATFORMS,
-  TOKEN_PLATFORMS,
   validateGraphManifest,
   validatePatchManifest,
   validateRuntimeManifest,
   validateSpawnManifest,
-  validateTokenManifest,
   verifyAssetDownloads,
   verifyReleaseAssets,
 } from './verify-release-assets.mjs';
@@ -96,26 +94,11 @@ function spawnFixture() {
   };
 }
 
-function tokenFixture() {
-  return {
-    version: VERSION,
-    _comment: 'test fixture',
-    assets: Object.fromEntries(Object.entries(TOKEN_PLATFORMS).map(([platform, filename]) => [
-      platform,
-      {
-        url: `https://github.com/tribgames/mixdog/releases/download/token-v${VERSION}/${filename}`,
-        sha256,
-      },
-    ])),
-  };
-}
-
 test('accepts independent strict patch, runtime, app, and graph versions', () => {
   assert.equal(validatePatchManifest(patchFixture(), `[package]\nversion = "${VERSION}"\n`).version, VERSION);
   assert.equal(validateRuntimeManifest(runtimeFixture()).release_tag, 'runtime-v1.2.3');
   assert.equal(validateGraphManifest(graphFixture(), { version: APP_VERSION }).version, GRAPH_VERSION);
   assert.equal(validateSpawnManifest(spawnFixture(), `[package]\nversion = "${VERSION}"\n`).version, VERSION);
-  assert.equal(validateTokenManifest(tokenFixture(), `[package]\nversion = "${VERSION}"\n`).version, VERSION);
 });
 
 test('rejects stale Cargo version, partial schema, and wrong patch tag URL', () => {
@@ -153,12 +136,6 @@ test('rejects stale Cargo version, partial schema, and wrong patch tag URL', () 
   noncanonicalRuntime.assets['linux-x64'].url = 'https://example.com/runtime.tar.gz';
   assert.throws(() => validateRuntimeManifest(noncanonicalRuntime), /runtime asset URL must be/);
 
-  const extraToken = tokenFixture();
-  extraToken.assets['freebsd-x64'] = extraToken.assets['linux-x64'];
-  assert.throws(
-    () => validateTokenManifest(extraToken, `[package]\nversion = "${VERSION}"\n`),
-    /keys must be exactly/,
-  );
 });
 
 test('rejects stale, noncanonical, partial, and malformed graph manifests', () => {
@@ -305,9 +282,8 @@ test('full guard reads deterministic fixtures and downloads every declared asset
   const runtime = runtimeFixture();
   const graph = graphFixture();
   const spawn = spawnFixture();
-  const token = tokenFixture();
   const expectedUrls = new Set(
-    [...Object.values(patch.assets), ...Object.values(runtime.assets), ...Object.values(graph.assets), ...Object.values(spawn.assets), ...Object.values(token.assets)]
+    [...Object.values(patch.assets), ...Object.values(runtime.assets), ...Object.values(graph.assets), ...Object.values(spawn.assets)]
       .map(({ url }) => url),
   );
   const paths = {
@@ -317,8 +293,6 @@ test('full guard reads deterministic fixtures and downloads every declared asset
     graphManifestPath: join(dir, 'graph.json'),
     spawnManifestPath: join(dir, 'spawn.json'),
     spawnCargoPath: join(dir, 'spawn-Cargo.toml'),
-    tokenManifestPath: join(dir, 'token.json'),
-    tokenCargoPath: join(dir, 'token-Cargo.toml'),
     packagePath: join(dir, 'package.json'),
   };
   await Promise.all([
@@ -328,8 +302,6 @@ test('full guard reads deterministic fixtures and downloads every declared asset
     writeFile(paths.graphManifestPath, JSON.stringify(graph)),
     writeFile(paths.spawnManifestPath, JSON.stringify(spawn)),
     writeFile(paths.spawnCargoPath, `[package]\nversion = "${VERSION}"\n`),
-    writeFile(paths.tokenManifestPath, JSON.stringify(token)),
-    writeFile(paths.tokenCargoPath, `[package]\nversion = "${VERSION}"\n`),
     writeFile(paths.packagePath, JSON.stringify({ version: APP_VERSION })),
   ]);
   let downloads = 0;
@@ -350,7 +322,7 @@ test('full guard reads deterministic fixtures and downloads every declared asset
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
-  assert.equal(downloads, 25);
+  assert.equal(downloads, 20);
   assert.deepEqual(new Set(requestedUrls), expectedUrls);
 });
 
@@ -588,15 +560,14 @@ test('native release workflows are reusable and unchanged runtime platforms stay
   const voiceConfig = JSON.parse(
     await readFile(new URL('./voice-runtime-config.json', import.meta.url), 'utf8'),
   );
-  const [runtime, voice, patch, graph, spawn, token] = await Promise.all([
+  const [runtime, voice, patch, graph, spawn] = await Promise.all([
     workflow('build-runtime.yml'),
     workflow('build-voice-runtime.yml'),
     workflow('patch-release.yml'),
     workflow('graph-release.yml'),
     workflow('spawn-release.yml'),
-    workflow('token-release.yml'),
   ]);
-  for (const worker of [runtime, voice, patch, graph, spawn, token]) assert.match(worker, /workflow_call:/);
+  for (const worker of [runtime, voice, patch, graph, spawn]) assert.match(worker, /workflow_call:/);
   assert.match(runtime, /needs\.build\.result == 'skipped' && inputs\.refresh_manifest/);
   assert.doesNotMatch(runtime,
     /needs\.build\.result == 'success' \|\| needs\.build\.result == 'skipped'\)\s*\}\}/);
@@ -616,14 +587,12 @@ test('native release workflows are reusable and unchanged runtime platforms stay
   assert.equal((graph.match(/mozilla-actions\/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba/g) || []).length, 2);
   assert.match(graph, /SCCACHE_GHA_VERSION:\s*graph-primary-v1-\$\{\{ matrix\.pkey \}\}/);
   assert.match(graph, /SCCACHE_GHA_VERSION:\s*graph-comparison-v1-\$\{\{ matrix\.pkey \}\}/);
-  for (const [name, worker] of [['graph', graph], ['spawn', spawn], ['token', token]]) {
+  for (const [name, worker] of [['graph', graph], ['spawn', spawn]]) {
     assert.match(worker, /rebuild:[\s\S]*name:\s*build-\$\{\{ matrix\.pkey \}\}-comparison/);
     assert.match(worker, /prepare:[\s\S]*needs:\s*\[gate,\s*test,\s*build,\s*rebuild\]/);
     assert.match(worker,
       new RegExp(`pattern:\\s*rebuild-${name}-\\*-\\$\\{\\{ github\\.run_attempt \\}\\}`));
     assert.match(worker, /cmp "_release\/\$asset" "_repro\/\$asset"/);
-  }
-  for (const [name, worker] of [['graph', graph], ['spawn', spawn]]) {
     assert.match(worker,
       new RegExp(`^concurrency:\\s*\\n\\s*group:\\s*${name}-release-\\$\\{\\{ inputs\\.tag \\|\\| github\\.ref_name \\}\\}`, 'm'));
     assert.match(worker, new RegExp(`sync:[\\s\\S]*group:\\s*${name}-release-finalize`));
@@ -689,14 +658,11 @@ test('npm package declares the published native platform families', () => {
   assert.deepEqual(pkg.cpu, ['x64', 'arm64']);
 });
 
-test('checked-in runtime and token manifests satisfy the release schema', async () => {
-  const [tokenSource, tokenCargo, runtimeSource] = await Promise.all([
-    readFile(new URL('../src/runtime/agent/orchestrator/tools/token-manifest.json', import.meta.url), 'utf8'),
-    readFile(new URL('../native/mixdog-token/Cargo.toml', import.meta.url), 'utf8'),
-    readFile(new URL('../src/runtime/memory/data/runtime-manifest.json', import.meta.url), 'utf8'),
-  ]);
-  const token = JSON.parse(tokenSource);
+test('the checked-in runtime manifest satisfies the release schema', async () => {
+  const runtimeSource = await readFile(
+    new URL('../src/runtime/memory/data/runtime-manifest.json', import.meta.url),
+    'utf8',
+  );
   const runtime = JSON.parse(runtimeSource);
-  assert.equal(validateTokenManifest(token, tokenCargo).version, token.version);
   assert.equal(validateRuntimeManifest(runtime).release_tag, runtime.release_tag);
 });

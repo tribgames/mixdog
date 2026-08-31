@@ -106,6 +106,63 @@ export async function extractPdfTextLayout(path, {
   }
 }
 
+export function evaluatePowerPointCategorySpacing(layout, categories = []) {
+  const expected = [...new Set(categories.map((entry) => String(entry || '').trim()).filter(Boolean))];
+  const rows = [];
+  for (const page of layout?.pages || []) {
+    const items = Array.isArray(page.items) ? page.items : [];
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index];
+      let text = String(item?.text || '').trim();
+      if (!text) continue;
+      if (!expected.includes(text)) {
+        let nextIndex = index + 1;
+        while (nextIndex < items.length && !String(items[nextIndex]?.text || '').trim()) nextIndex += 1;
+        const next = items[nextIndex];
+        if (next && Math.abs(Number(next.top) - Number(item.top)) <= 1) {
+          const joined = `${text}${String(next.text || '').trim()}`;
+          if (expected.includes(joined)) text = joined;
+        }
+      }
+      if (!expected.includes(text)) continue;
+      let row = rows.find((entry) => entry.page === page.page && Math.abs(entry.top - Number(item.top)) <= 1);
+      if (!row) {
+        row = { page: page.page, width: Number(page.width) || 0, top: Number(item.top), labels: [] };
+        rows.push(row);
+      }
+      if (!row.labels.some((entry) => entry.text === text)) {
+        row.labels.push({ text, x: Number(item.x) || 0 });
+      }
+    }
+  }
+  const complete = rows
+    .filter((row) => expected.every((text) => row.labels.some((entry) => entry.text === text)))
+    .map((row) => {
+      const labels = expected
+        .map((text) => row.labels.find((entry) => entry.text === text))
+        .sort((left, right) => left.x - right.x);
+      const gaps = labels.slice(1).map((entry, index) => entry.x - labels[index].x);
+      return {
+        ...row,
+        labels,
+        span: labels.length > 1 ? labels.at(-1).x - labels[0].x : 0,
+        minimumGap: gaps.length ? Math.min(...gaps) : 0,
+      };
+    })
+    .sort((left, right) => right.span - left.span);
+  const best = complete[0] || null;
+  const requiredGap = best ? best.width * 0.1 : 0;
+  return {
+    ok: expected.length <= 1 || Boolean(best && best.minimumGap >= requiredGap),
+    categories: expected,
+    page: best?.page || 0,
+    labels: best?.labels || [],
+    span: Number((best?.span || 0).toFixed(2)),
+    minimumGap: Number((best?.minimumGap || 0).toFixed(2)),
+    requiredGap: Number(requiredGap.toFixed(2)),
+  };
+}
+
 function clusterRows(items, tolerance = 3) {
   const rows = [];
   for (const item of [...items].sort((left, right) => left.top - right.top || left.x - right.x)) {

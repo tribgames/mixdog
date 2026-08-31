@@ -15,9 +15,22 @@
 # the dependency shell, not mixdog code.
 param(
     [string]$Image = "debian:bookworm-slim",
-    [string]$MixdogVersion = ""
+    [string]$MixdogVersion = "",
+    # Optional local `npm pack` artifact for versions not published yet.
+    # Registry installation remains the default release-reproduction path.
+    [string]$PackageTar = ""
 )
 $ErrorActionPreference = "Stop"
+$packageMount = ""
+$packageSpec = "mixdog@__VERSION__"
+if (-not [string]::IsNullOrWhiteSpace($PackageTar)) {
+    $resolvedPackageTar = (Resolve-Path -LiteralPath $PackageTar -ErrorAction Stop).Path
+    if (-not (Test-Path -LiteralPath $resolvedPackageTar -PathType Leaf)) {
+        throw "PackageTar must be a package archive file: $resolvedPackageTar"
+    }
+    $packageMount = ($resolvedPackageTar -replace '\\', '/')
+    $packageSpec = "/input/mixdog-package.tgz"
+}
 if ([string]::IsNullOrWhiteSpace($MixdogVersion)) {
     $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..\..")).Path
     $MixdogVersion = [string]((Get-Content -Raw -LiteralPath (Join-Path $repoRoot "package.json") | ConvertFrom-Json).version)
@@ -41,8 +54,10 @@ apt-get install -y nodejs
 # below anyway. The OTHER half of that postinstall is not optional — it stages
 # the release native assets, including the search server behind the runtime's
 # grep/glob tools — so it runs explicitly right after.
-npm install -g mixdog@__VERSION__ --ignore-scripts
+npm install -g __PACKAGE_SPEC__ --ignore-scripts
 MIXDOG_PKG="$(npm root -g)/mixdog"
+INSTALLED_VERSION="$(node -p "require('$MIXDOG_PKG/package.json').version")"
+test "$INSTALLED_VERSION" = "__VERSION__"
 (cd "$MIXDOG_PKG" && node scripts/prepare-native-assets.mjs)
 test -d "$MIXDOG_PKG/native-tools"
 # Native spawn is supplied by the local runtime bundle, never by this
@@ -69,7 +84,7 @@ find "$MIXDOG_PKG/node_modules" -type f \
 # cache entries stay valid per trial; only overlaid src files recompile.
 mkdir -p /opt/mixdog-v8-cache
 NODE_COMPILE_CACHE=/opt/mixdog-v8-cache node --input-type=module -e "await import('$MIXDOG_PKG/src/mixdog-session-runtime.mjs'); console.log('runtime import ok after prune')"
-(cd "$MIXDOG_PKG" && node --input-type=module -e "await Promise.all([import('@anthropic-ai/sdk'),import('openai'),import('sharp'),import('tiktoken')]); console.log('provider/native imports ok after prune')")
+(cd "$MIXDOG_PKG" && node --input-type=module -e "await Promise.all([import('@anthropic-ai/sdk'),import('openai'),import('sharp')]); console.log('provider/native imports ok after prune')")
 chmod -R a+rwX /opt/mixdog-v8-cache
 # Package managers are needed only while building this archive. Runtime source
 # overlay locates the installed package through the mixdog executable itself.
@@ -111,11 +126,16 @@ tar -C / -I 'zstd -T0 -19' -cf /out/mixdog-node-prebake.tar.zst \
   root/.local/bin opt/mixdog-v8-cache opt/static-curl
 cp /usr/bin/zstd /out/zstd-amd64
 echo "prebake zst written"
-'@ -replace '__VERSION__', $MixdogVersion
+'@ -replace '__VERSION__', $MixdogVersion -replace '__PACKAGE_SPEC__', $packageSpec
 # The here-string inherits this file's CRLF endings; bash -lc treats a
 # trailing \r as part of the command (exit 127), so normalize to LF.
 $script = $script -replace "`r", ""
-docker run --rm -v "${hostOut}:/out" $Image bash -lc $script
+$dockerArgs = @("run", "--rm", "-v", "${hostOut}:/out")
+if ($packageMount) {
+    $dockerArgs += @("-v", "${packageMount}:/input/mixdog-package.tgz:ro")
+}
+$dockerArgs += @($Image, "bash", "-lc", $script)
+docker @dockerArgs
 if ($LASTEXITCODE -ne 0) { throw "prebake build failed (exit $LASTEXITCODE)" }
 $tar = Join-Path $outDir "mixdog-node-prebake.tar.gz"
 # Version stamp for the pre-run guard in run.ps1. install() verifies the same

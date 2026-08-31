@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { createRequire } from 'node:module';
 import { semanticCompactMessages, recallFastTrackCompactMessages, SUMMARY_PREFIX, COMPACT_TYPE_SEMANTIC, COMPACT_TYPE_RECALL_FASTTRACK, normalizeCompactType } from '../src/runtime/agent/orchestrator/session/compact.mjs';
 import { agentLoop } from '../src/runtime/agent/orchestrator/session/loop.mjs';
 import { estimateMessagesTokens, estimateToolSchemaTokens, providerTokenCalibration } from '../src/runtime/agent/orchestrator/session/context-utils.mjs';
@@ -1018,53 +1017,54 @@ assert(!tinyCapUserContent.startsWith('[...'), 'tiny cap recall must not use a p
 // ---------------------------------------------------------------------------
 // Conservative Unicode-aware estimator (strict-fit hardening).
 //
-// The estimator now encodes the provider-visible projection with the real
-// o200k_base BPE (tiktoken), so local estimates equal actual tokenizer counts
-// for every script (Korean/CJK/emoji/ASCII alike). Provider-specific billing
-// deltas (e.g. Anthropic ~1.7x o200k) are applied separately via
-// providerTokenCalibration at the pressure/gauge aggregation boundary.
-const requireForTokenizer = createRequire(import.meta.url);
-const { Tiktoken: SmokeTiktoken } = requireForTokenizer('tiktoken/lite');
-const smokeO200k = requireForTokenizer('tiktoken/encoders/o200k_base.json');
-const smokeEncoder = new SmokeTiktoken(smokeO200k.bpe_ranks, smokeO200k.special_tokens, smokeO200k.pat_str);
-const bpeCount = (text) => smokeEncoder.encode(String(text), undefined, []).length;
-
-for (const [label, probe] of [
-  ['korean', '\uD55C\uAD6D\uC5B4 \uCEF4\uD329\uC158 \uACBD\uACC4 \uD14C\uC2A4\uD2B8 '.repeat(200)],
-  ['cjk', '上下文压缩边界测试令牌预算'.repeat(200)],
-  ['emoji', '😀🚀🔥✅'.repeat(200)],
-  ['ascii', 'plain ascii sentence with normal words. '.repeat(200)],
+// The estimator is a heuristic, not a tokenizer. Context pressure is anchored
+// on the provider usage baseline and only the delta since that baseline is
+// estimated locally, so what the estimator MUST guarantee is DIRECTION: it may
+// never read low against the real o200k count, because undercounting overflows
+// the context window (a failed turn) while overcounting only compacts slightly
+// early. The band keeps that safety margin from becoming waste.
+//
+// The o200k figures below are real encodes of each probe, measured once and
+// pinned here so the guarantee stays checkable without shipping a tokenizer.
+const ESTIMATE_UPPER_BAND = 2.5;
+for (const [label, probe, o200k] of [
+  ['korean', '\uD55C\uAD6D\uC5B4 \uCEF4\uD329\uC158 \uACBD\uACC4 \uD14C\uC2A4\uD2B8 '.repeat(200), 1601],
+  ['cjk', '上下文压缩边界测试令牌预算'.repeat(200), 2000],
+  ['emoji', '😀🚀🔥✅'.repeat(200), 1000],
+  ['ascii', 'plain ascii sentence with normal words. '.repeat(200), 1401],
 ]) {
   const est = estimateMessagesTokens([{ role: 'user', content: probe }]);
-  const expected = bpeCount(probe) + 4;
   assert(
-    est === expected,
-    `${label} message estimate must equal the real o200k count plus framing (est=${est}, expected=${expected})`,
+    est >= o200k,
+    `${label} estimate must never read below the real o200k count (est=${est}, o200k=${o200k})`,
+  );
+  assert(
+    est <= o200k * ESTIMATE_UPPER_BAND,
+    `${label} estimate must stay inside the conservative band (est=${est}, o200k=${o200k})`,
   );
 }
 
-// Provider calibration reconciles o200k counts with actual billing.
+// Provider calibration reconciles local estimates with actual billing.
 assert(
   providerTokenCalibration('anthropic-oauth') > 1.5 && providerTokenCalibration('anthropic-oauth') < 2,
-  'anthropic calibration must reflect the measured ~1.7x billed/o200k ratio',
+  'anthropic calibration must reflect the measured billed/estimate ratio',
 );
 assert(providerTokenCalibration('openai-oauth') === 1.0, 'openai calibration must stay neutral');
 assert(providerTokenCalibration(undefined) === 1.0, 'unknown provider calibration must stay neutral');
 
 // Tool schemas are serialized into the request body, so their estimate must
-// track the real tokenizer over the wire-shape serialization.
+// conservatively cover the wire-shape serialization (o200k of that JSON = 51).
 const toolSchema = [{
   name: 'apply_patch',
   description: '\uD328\uCE58\uB97C \uD30C\uC77C\uC5D0 \uC801\uC6A9 (\uD55C\uAD6D\uC5B4 \uC124\uBA85) — applies a patch',
   parameters: { type: 'object', properties: { patch: { type: 'string', description: '\uD328\uCE58 \uBCF8\uBB38 \uD14D\uC2A4\uD2B8' } } },
 }];
+const TOOL_SCHEMA_O200K = 51;
 const toolSchemaEst = estimateToolSchemaTokens(toolSchema);
-const toolWireJson = JSON.stringify(toolSchema.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters })));
 assert(
-  toolSchemaEst === bpeCount(toolWireJson),
-  `tool schema estimate must equal the o200k count of the serialized wire JSON (est=${toolSchemaEst}, expected=${bpeCount(toolWireJson)})`,
+  toolSchemaEst >= TOOL_SCHEMA_O200K && toolSchemaEst <= TOOL_SCHEMA_O200K * ESTIMATE_UPPER_BAND,
+  `tool schema estimate must conservatively cover the serialized wire JSON (est=${toolSchemaEst}, o200k=${TOOL_SCHEMA_O200K})`,
 );
-smokeEncoder.free();
 
 // Strict-fit smoke: a Korean/CJK-heavy newest turn far larger than the preserve
 // budget must be summarized/truncated safely — never preserved verbatim — and

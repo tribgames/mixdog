@@ -1,6 +1,7 @@
 {
-  "runtimeVersion": "1.9.3",
+  "runtimeVersion": "1.10.0",
   "whisperCommit": "306c88f4d1286aec1bf96e544632897886af5501",
+  "ffmpegVersion": "6.1.1-mixdog.1",
   "vulkanSdkVersion": "1.4.309.0",
   "platforms": [
     {

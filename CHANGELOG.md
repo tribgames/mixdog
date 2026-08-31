@@ -5,6 +5,34 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Browser Use gains a smaller, more reliable host split across tabs, downloads,
+  interception, permissions, snapshots, dialog reporting, and page lifecycle.
+  Chromium profile import now includes offline App-Bound v20 cookie decryption
+  through the packaged native importer without exposing decrypted secrets to
+  the renderer or agent.
+- Computer Use is decomposed into bounded capture, discovery, targeting,
+  observation, input, and worker modules. Fairer resource ownership, fresher
+  post-action state, stricter input guards, and expanded repeat scenarios make
+  long-running native and Chromium sessions faster and safer.
+- Memory moves to a compact E5 embedding runtime with incremental latest-first
+  backfill, cache compression and retention, Korean-aware lexical ranking, and
+  idle worker reclamation. The old token native addon and heavier legacy model
+  path are removed from the shipped runtime.
+- Session recovery promotes the checkpoint journal to the durable resume
+  boundary, preserving provider usage, compaction anchors, recall handoff, and
+  Anthropic thinking replay across interruption, retry, and restart without
+  duplicating context.
+- Office authoring adds model-authored composition plans, a reusable design
+  library, document preview, and broader portable Word, Excel, and PowerPoint
+  primitives while retaining structural and rendered assurance checks.
+- Desktop and mobile web surfaces gain remote Browser Use, share-target intake,
+  push notifications, richer document editing and preview, quieter startup
+  restoration, and more predictable service-worker cache updates.
+- Native search now bounds broad inventory leases and fairly admits concurrent
+  find, glob, and grep work. Release automation incrementally rebuilds changed
+  native and voice assets, verifies packaged sidecars, and reuses unchanged
+  platform runtime artifacts.
+
 ## v0.9.156 - 2026-08-29
 
 - Portable Office authoring gains chart rendering and text metrics, so more

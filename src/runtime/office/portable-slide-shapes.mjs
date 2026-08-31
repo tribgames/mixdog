@@ -65,10 +65,6 @@ export function toEmu(points, fallback = 0) {
   return Math.round((Number.isFinite(value) ? value : fallback) * EMU_PER_POINT);
 }
 
-export function toPoints(emu) {
-  return Number(emu) / EMU_PER_POINT;
-}
-
 export function normalizeHex(value) {
   const raw = String(value ?? '').trim().replace(/^#/, '').toUpperCase();
   if (/^[0-9A-F]{6}$/.test(raw)) return raw;

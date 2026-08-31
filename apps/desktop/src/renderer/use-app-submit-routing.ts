@@ -9,7 +9,7 @@ import { promptTitle } from "../shared/session-title.mjs";
 import type { NavigationSelection } from "./navigation";
 import type { PaneLeaf } from "./pane-layout";
 import { asRecord, navigationKey } from "./text-format";
-import type { DraftPanePrefs } from "./use-draft-pane-preferences";
+import type { ResolvedDraftPrefs } from "./use-draft-pane-preferences";
 
 export function useAppSubmitRouting({
   selectionRef,
@@ -30,7 +30,7 @@ export function useAppSubmitRouting({
   focusedLeafIdRef: MutableRefObject<string>;
   paneLeavesRef: MutableRefObject<PaneLeaf[]>;
   navigationEpoch: MutableRefObject<number>;
-  resolvedDraftPrefsFor(draftKey: string): DraftPanePrefs;
+  resolvedDraftPrefsFor(draftKey: string): ResolvedDraftPrefs;
   effectiveDraftProjectPath(candidate: unknown): string;
   clearNewTaskPreferences(target?: NavigationSelection): void;
   setNewTaskDeferred(value: boolean): void;

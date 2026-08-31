@@ -248,6 +248,12 @@ async function contentModelCrossApp() {
         kind: 'statement',
         claimId: 'growth',
         metrics: [{ factId: 'revenue' }],
+        plan: {
+          regions: [
+            { id: 'message', role: 'title', x: 7, y: 18, w: 56, h: 28 },
+            { id: 'evidence', role: 'metric', x: 70, y: 24, w: 22, h: 40 },
+          ],
+        },
       },
     },
   ].map(({ format, operation }) => expandOfficeDesignOperations({
@@ -297,6 +303,12 @@ async function semanticDeliverableQuality() {
         series: [{ name: 'Revenue', values: [5000, 5300, 5660] }],
       },
       source: 'model.xlsx#Raw!B6:B8',
+      plan: {
+        regions: [
+          { id: 'message', role: 'title', x: 6, y: 7, w: 88, h: 16 },
+          { id: 'evidence', role: 'chart', x: 6, y: 30, w: 88, h: 60 },
+        ],
+      },
     }],
   });
   return {

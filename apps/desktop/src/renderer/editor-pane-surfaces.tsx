@@ -26,13 +26,18 @@ export function EditorPaneLoadingSurface({ breadcrumbs }: { breadcrumbs: ReactNo
 export function EditorPaneFileFallback({
   breadcrumbs,
   load,
+  note,
   onOpen,
 }: {
   breadcrumbs: ReactNode;
   load: EditorFileLoad;
+  /** Why a viewer that WAS attempted could not show this file — a failed
+   *  document conversion. Absent for files that never had one. */
+  note?: string;
   onOpen(): void;
 }) {
   return <EditorPaneNoticeSurface breadcrumbs={breadcrumbs}>
+    {note && <p>{note}</p>}
     <p>{load.binary
       ? "Binary file — in-app editing is unavailable."
       : "File exceeds the 1 MB in-app editing cap."}</p>

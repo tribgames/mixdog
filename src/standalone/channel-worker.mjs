@@ -8,6 +8,7 @@ import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { detachedSpawnOpts } from '../runtime/shared/spawn-flags.mjs';
 import { scrubLoaderVars } from '../runtime/agent/orchestrator/tools/env-scrub.mjs';
+import { withHeapCap } from '../runtime/shared/heap-cap.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
 import { attachChannel, readChannelDiscovery, probeChannelHealth } from './channel-client.mjs';
 
@@ -203,7 +204,8 @@ export function createStandaloneChannelWorker({
       try {
         daemon = fork(daemonEntry(), [], {
           cwd,
-          execArgv: ['--require', WORKER_PRELOAD],
+          // Same singleton daemon as the session spawn path, so the same cap.
+          execArgv: withHeapCap('daemon', ['--require', WORKER_PRELOAD]),
           stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
           env: daemonEnv(),
           ...detachedSpawnOpts,

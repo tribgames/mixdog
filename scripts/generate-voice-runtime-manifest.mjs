@@ -10,6 +10,7 @@ const RELEASE_HASH_INPUTS = [
   new URL('../.github/workflows/build-voice-runtime.yml', import.meta.url),
   new URL('./build-voice-runtime-unix.sh', import.meta.url),
   new URL('./build-voice-runtime-windows.ps1', import.meta.url),
+  new URL('./build-ffmpeg-runtime.sh', import.meta.url),
   new URL('./generate-voice-runtime-manifest.mjs', import.meta.url),
 ]
 
@@ -20,6 +21,9 @@ function loadVoiceRuntimeConfig() {
   }
   if (!/^[a-f0-9]{40}$/.test(config.whisperCommit || '')) {
     throw new Error('voice runtime config has an invalid whisperCommit')
+  }
+  if (!/^\d+\.\d+\.\d+-mixdog\.\d+$/.test(config.ffmpegVersion || '')) {
+    throw new Error('voice runtime config has an invalid ffmpegVersion')
   }
   if (!Array.isArray(config.platforms) || config.platforms.length === 0) {
     throw new Error('voice runtime config has no platforms')
@@ -133,6 +137,38 @@ export function buildVoiceRuntimePlatforms(
   return platforms
 }
 
+function ffmpegAssetName(spec) {
+  return `ffmpeg-${spec.os}-${spec.arch}.gz`
+}
+
+export function buildVoiceFfmpegPlatforms(
+  releaseAssets,
+  { repository = 'tribgames/mixdog', tag = VOICE_RUNTIME_TAG } = {},
+) {
+  const byName = new Map((releaseAssets || []).map((asset) => [asset.name, asset]))
+  const platforms = {}
+  for (const spec of VOICE_RUNTIME_CONFIG.platforms) {
+    const assetName = ffmpegAssetName(spec)
+    const asset = byName.get(assetName)
+    if (!asset) throw new Error(`release is missing required asset ${assetName}`)
+    if (!Number.isSafeInteger(asset.size) || asset.size <= 0) {
+      throw new Error(`release asset ${assetName} has invalid size`)
+    }
+    platforms[spec.key] = {
+      url: `https://github.com/${repository}/releases/download/${tag}/${assetName}`,
+      sha256: releaseAssetSha256(asset),
+      size: asset.size,
+      format: 'gz',
+      executable: spec.os === 'win32' ? 'ffmpeg.exe' : 'ffmpeg',
+    }
+  }
+  return {
+    version: VOICE_RUNTIME_CONFIG.ffmpegVersion,
+    source: 'FFmpeg n6.1.1 minimal audio-transcode build',
+    platforms,
+  }
+}
+
 function githubHeaders(token, accept = 'application/vnd.github+json') {
   return {
     Accept: accept,
@@ -207,6 +243,7 @@ export function voiceRuntimeIdentity(manifest) {
     source: manifest?.source,
     release_tag: manifest?.release_tag,
     build_hash: manifest?.build_hash,
+    ffmpeg: manifest?.ffmpeg,
     platforms: manifest?.platforms,
   }
 }
@@ -258,6 +295,36 @@ export async function assertVoiceRuntimeManifestIdentity(
       throw new Error(`voice runtime manifest ${spec.key} does not match the release config`)
     }
   }
+  const expectedFfmpeg = buildVoiceFfmpegPlatforms(
+    VOICE_RUNTIME_CONFIG.platforms.map((spec, index) => ({
+      name: ffmpegAssetName(spec),
+      size: index + 1,
+      digest: `sha256:${String(index + 1).padStart(64, '0')}`,
+    })),
+    { repository, tag: VOICE_RUNTIME_TAG },
+  )
+  if (
+    manifest?.ffmpeg?.version !== expectedFfmpeg.version
+    || manifest?.ffmpeg?.source !== expectedFfmpeg.source
+    || JSON.stringify(Object.keys(manifest?.ffmpeg?.platforms || {}))
+      !== JSON.stringify(Object.keys(expectedFfmpeg.platforms))
+  ) {
+    throw new Error('voice runtime FFmpeg manifest does not match the release config')
+  }
+  for (const spec of VOICE_RUNTIME_CONFIG.platforms) {
+    const actual = manifest.ffmpeg.platforms[spec.key]
+    const expected = expectedFfmpeg.platforms[spec.key]
+    if (
+      actual?.url !== expected.url
+      || actual?.format !== expected.format
+      || actual?.executable !== expected.executable
+      || !/^[a-f0-9]{64}$/.test(actual?.sha256 || '')
+      || !Number.isSafeInteger(actual?.size)
+      || actual.size <= 0
+    ) {
+      throw new Error(`voice runtime FFmpeg ${spec.key} does not match the release config`)
+    }
+  }
 }
 
 async function main() {
@@ -269,11 +336,13 @@ async function main() {
   const manifestPath = resolve(process.argv[2] || 'src/runtime/channels/data/voice-runtime-manifest.json')
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
   let platforms
+  let ffmpeg
   let lastError
   for (let attempt = 1; attempt <= 5; attempt++) {
     try {
       const release = await fetchGithubRelease(repository, tag, process.env.GITHUB_TOKEN)
       platforms = buildVoiceRuntimePlatforms(release.assets, { repository, tag })
+      ffmpeg = buildVoiceFfmpegPlatforms(release.assets, { repository, tag })
       lastError = null
       break
     } catch (error) {
@@ -286,6 +355,7 @@ async function main() {
   manifest.source = `ggml-org/whisper.cpp@${VOICE_RUNTIME_COMMIT}`
   manifest.release_tag = tag
   manifest.build_hash = await voiceRuntimeBuildHash()
+  manifest.ffmpeg = ffmpeg
   manifest.platforms = platforms
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
   console.log(`updated ${manifestPath} from ${tag}`)

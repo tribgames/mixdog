@@ -127,13 +127,6 @@ public static class MixdogBrowserCloseFixture {
     0,
   );
   history.close();
-  const cookieDirectory = join(sourceProfile, 'Network');
-  await mkdir(cookieDirectory, { recursive: true });
-  const cookies = new DatabaseSync(join(cookieDirectory, 'Cookies'));
-  cookies.exec('CREATE TABLE fixture (id INTEGER PRIMARY KEY, value TEXT NOT NULL);');
-  cookies.prepare('INSERT INTO fixture (value) VALUES (?)').run('encrypted-cookie-placeholder');
-  cookies.close();
-
   const importedCookies: unknown[] = [];
   let chromePreparationCalls = 0;
   const partition = session.fromPartition(`mixdog-import-test-${Date.now()}`);
@@ -164,16 +157,8 @@ public static class MixdogBrowserCloseFixture {
         note: '',
       }];
     },
-    readCookiesFromSnapshot: async ({ cookieDatabase }) => {
-      const snapshot = new DatabaseSync(cookieDatabase, { readOnly: true });
-      try {
-        assert.equal(
-          snapshot.prepare('SELECT value FROM fixture LIMIT 1').get()?.value,
-          'encrypted-cookie-placeholder',
-        );
-      } finally {
-        snapshot.close();
-      }
+    readNativeCookies: async (profileId) => {
+      assert.equal(profileId, 'Default');
       return [{
         name: 'session',
         value: 'secret-cookie-value',
@@ -198,6 +183,22 @@ public static class MixdogBrowserCloseFixture {
   assert.equal(sources[0].supports.history, true);
   assert.equal(sources[0].supports.passwords, true);
   assert.equal(sources[0].passwordSupportReason, undefined);
+
+  const passwordOnlyService = new BrowserProfileImportService({
+    userDataDirectory: destinationUserData,
+    temporaryDirectory,
+    partition,
+    chromeExecutablePath: chromeExecutable,
+    chromeUserDataDirectory: sourceUserData,
+    readNativeCredentials: async () => [],
+  });
+  const passwordOnlySources = await passwordOnlyService.sources();
+  assert.equal(passwordOnlySources[0].supports.passwords, true);
+  assert.equal(passwordOnlySources[0].supports.cookies, false);
+  assert.match(
+    passwordOnlySources[0].supportReasons?.cookies || '',
+    /native cookie importer is not installed/,
+  );
 
   await assert.rejects(
     service.importProfile({
@@ -300,6 +301,47 @@ public static class MixdogBrowserCloseFixture {
     httpOnly: true,
     sameSite: 'lax',
   });
+
+  let releasePreparation = () => {};
+  let announcePreparation = () => {};
+  const preparationEntered = new Promise<void>((resolve) => {
+    announcePreparation = resolve;
+  });
+  const preparationRelease = new Promise<void>((resolve) => {
+    releasePreparation = resolve;
+  });
+  const raceService = new BrowserProfileImportService({
+    userDataDirectory: join(destinationUserData, 'race'),
+    temporaryDirectory,
+    partition,
+    chromeExecutablePath: chromeExecutable,
+    chromeUserDataDirectory: sourceUserData,
+    prepareChromeForImport: async () => {
+      announcePreparation();
+      await preparationRelease;
+    },
+    readNativeCookies: async () => [],
+  });
+  const firstImport = raceService.importProfile({
+    jobId: 'racejob1234',
+    sourceId: 'chrome',
+    profileId: 'Default',
+    items: ['cookies'],
+    administratorApproved: true,
+  }, () => undefined);
+  await preparationEntered;
+  await assert.rejects(
+    raceService.importProfile({
+      jobId: 'racejob5678',
+      sourceId: 'chrome',
+      profileId: 'Default',
+      items: ['cookies'],
+      administratorApproved: true,
+    }, () => undefined),
+    /Another browser import is already running/,
+  );
+  releasePreparation();
+  await firstImport;
 
   process.stdout.write('browser profile import integration passed\n');
 }

@@ -239,6 +239,17 @@ export class DesktopServiceClient implements DesktopService {
     return () => this.desktopEventListeners.delete(listener);
   }
 
+  /** Both ways this process arrives at a live daemon: the first attach, and a
+   *  replacement behind a transport that never dropped. The generation the
+   *  host reads tells those apart; what has to happen after either is the
+   *  same, because a fresh daemon hosts none of its predecessor's services. */
+  private announceServiceReady(): void {
+    this.options.onServiceReady?.({ generation: this.generation });
+    if (this.visibleSessionIds.length === 0) return;
+    void this.sendRequest<boolean>('setVisibleSessions', [this.visibleSessionIds])
+      .catch(() => { /* renderer registration remains cached for the next restart */ });
+  }
+
   private handleMessage(transport: DesktopTransport, value: unknown): void {
     if (transport !== this.transport || !value || typeof value !== 'object') return;
     const message = value as DesktopServiceOutbound;
@@ -256,11 +267,16 @@ export class DesktopServiceClient implements DesktopService {
       this.readyResolve = null;
       this.readyReject = null;
       resolve?.();
-      this.options.onServiceReady?.({ generation: this.generation });
-      if (this.visibleSessionIds.length > 0) {
-        void this.sendRequest<boolean>('setVisibleSessions', [this.visibleSessionIds])
-          .catch(() => { /* renderer registration remains cached for the next restart */ });
-      }
+      this.announceServiceReady();
+      return;
+    }
+    if (message.kind === 'daemon-replaced') {
+      // A different process now answers this transport, hosting none of what
+      // the dead one did. That is exactly what a new attachment means here,
+      // so it counts as one: the host redials the relay off the raised
+      // generation and the renderer's registration is re-sent.
+      this.generation += 1;
+      this.announceServiceReady();
       return;
     }
     if (message.kind === 'state') {

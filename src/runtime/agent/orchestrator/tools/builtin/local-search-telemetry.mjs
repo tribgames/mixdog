@@ -43,7 +43,18 @@ export function recordNativeSearchTiming(served) {
     if (requestClass === 'fuzzy') {
         addNumber(target, 'native_fuzzy_inventory_ms', served.inventoryMs);
         addNumber(target, 'native_fuzzy_rank_ms', served.rankMs);
+        if (served.inventoryContinues === true) {
+            target.native_fuzzy_inventory_leases = (Number(target.native_fuzzy_inventory_leases) || 0) + 1;
+            addNumber(target, 'native_fuzzy_inventory_lease_ms', served.inventoryLeaseMs);
+        }
     }
+}
+
+export function recordLocalSearchAdmission(waitedMs) {
+    const target = current();
+    if (!target) return;
+    target.broad_admissions = (Number(target.broad_admissions) || 0) + 1;
+    addNumber(target, 'broad_admission_wait_ms', waitedMs);
 }
 
 export function recordLocalSearchCacheHit(layer) {

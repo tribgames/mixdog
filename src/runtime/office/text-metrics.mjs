@@ -154,6 +154,11 @@ export function reviewShapeSpacing(boxes = [], { minimumGap = 21.6 } = {}) {
         if (apart[0] === apart[1]) continue;
         const gap = apart[0] ? horizontal : vertical;
         if (gap >= minimumGap) continue;
+        if (!apart[0]) {
+          const aligned = Math.min(left.left + left.width, right.left + right.width)
+            - Math.max(left.left, right.left);
+          if (aligned >= Math.min(left.width, right.width) * 0.6) continue;
+        }
         issues.push({
           code: 'shapes_too_close',
           path: `/slide[${slide}]/shape[${right.shape}]`,

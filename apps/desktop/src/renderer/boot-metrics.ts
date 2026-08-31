@@ -23,6 +23,10 @@ export function desktopBootPrerequisitesReady({
     && !restorePending;
 }
 
+export function desktopBootCoverTimeoutAllowed(restorePending: boolean): boolean {
+  return !restorePending;
+}
+
 export interface BootMetricEntry {
   bootId: string;
   scenario?: string;

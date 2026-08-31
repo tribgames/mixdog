@@ -22,6 +22,11 @@ import {
     shouldStripImagesForRetry,
     stripInlineImagesFromLatestTurn,
 } from './image-strip-recovery.mjs';
+import {
+    canRepairThinkingReplay,
+    isThinkingReplayRejection,
+    repairThinkingReplayInPlace,
+} from './thinking-replay-recovery.mjs';
 import { setTimeout as sleepMs } from 'timers/promises';
 import { readStreamOutcome } from '../providers/lib/stream-outcome.mjs';
 import { cloneProviderReplay } from '../providers/lib/provider-replay.mjs';
@@ -101,7 +106,8 @@ export async function sendWithRecovery(ctx) {
         provider, messages, model, sendTools, tools, opts,
         recoveryMessages = messages,
         sessionId, sessionRef, nextIteration, contextOverflowRetryUsed,
-        transportRetriesUsed = 0, imageStripUsed = false, signal,
+        transportRetriesUsed = 0, imageStripUsed = false,
+        thinkingReplayRepairUsed = false, signal,
     } = ctx;
     // Establishes the in-request stall window the provider layer shares through
     // opts. A fresh replay below resets it: the loop's own TRANSPORT_RETRY_MAX
@@ -484,6 +490,37 @@ export async function sendWithRecovery(ctx) {
                 );
                 await sleepMs(waitMs, undefined, signal ? { signal } : undefined);
                 return beginFreshTransportAttempt(opts);
+            } else
+            // Anthropic replay-shape refusal: the latest assistant turn carries
+            // thinking blocks the API will not accept back (a thinking run it
+            // did not produce, or an empty text block). This is deterministic —
+            // the same body fails forever and the turn is already persisted, so
+            // without this repair the session is dead. Drop that turn's
+            // reasoning replay in place (its text and tool calls stay) and
+            // replay once. No exposure guard: the request was rejected at
+            // validation, before any generation.
+            if (
+                thinkingReplayRepairUsed !== true
+                && isThinkingReplayRejection(sendErr)
+                && canRepairThinkingReplay(recoveryMessages)
+            ) {
+                const repairedIndex = repairThinkingReplayInPlace(recoveryMessages);
+                try {
+                    process.stderr.write(
+                        `[loop] thinking-replay repair (sess=${sessionId || 'unknown'} `
+                        + `iter=${nextIteration} message=${repairedIndex}); `
+                        + 'dropped the rejected reasoning replay and replaying once\n',
+                    );
+                } catch { /* best-effort */ }
+                try {
+                    appendAgentTrace({
+                        kind: 'thinking_replay_repair',
+                        sessionId: sessionId || null,
+                        iteration: nextIteration,
+                        messageIndex: repairedIndex,
+                    });
+                } catch { /* best-effort */ }
+                return { action: 'retry_replay_repair' };
             } else
             // Grok Build RetryWithImageStrip: drop inline images and replay
             // once. Safe only when no tool was dispatched. Text exposure must

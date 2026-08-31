@@ -109,8 +109,8 @@ native/mixdog-patch/target/
 native/mixdog-graph/target/
 native/mixdog-graph/target-verify/
 native/mixdog-graph-addon/target/
-native/mixdog-token/target/
 native/mixdog-spawn/target/
+/.mixdog-probe/
 /native-tools/
 /.native-tools-install-*/
 

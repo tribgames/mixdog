@@ -21,9 +21,21 @@ export const codeGraphSourceIoAdmission = createOwnerFairGate({
   waitTimeoutMs: positiveInt(process.env.MIXDOG_CODE_GRAPH_SOURCE_WAIT_TIMEOUT_MS, 30_000),
 });
 
+// Broad native searches walk directory inventories or whole content scopes.
+// Keep one disk-heavy request active at a time while leaving point/content
+// searches outside this gate so interactive lookups stay responsive.
+export const searchIoAdmission = createOwnerFairGate({
+  name: 'broad search I/O',
+  activeMax: positiveInt(process.env.MIXDOG_SEARCH_MAX_BROAD_INFLIGHT, 1),
+  queueMax: positiveInt(process.env.MIXDOG_SEARCH_MAX_BROAD_QUEUE, 256),
+  minOwnerQueue: 4,
+  waitTimeoutMs: positiveInt(process.env.MIXDOG_SEARCH_BROAD_WAIT_TIMEOUT_MS, 20_000),
+});
+
 export function toolWorkloadSnapshot() {
   return {
     readIo: readIoAdmission.snapshot(),
     codeGraphSourceIo: codeGraphSourceIoAdmission.snapshot(),
+    searchIo: searchIoAdmission.snapshot(),
   };
 }

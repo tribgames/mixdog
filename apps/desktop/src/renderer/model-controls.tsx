@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DesktopApi, DesktopModelOption, DesktopModelSelection, SessionSnapshot } from "../shared/contract";
+import type { DesktopModelOption, DesktopModelSelection, SessionSnapshot } from "../shared/contract";
 import {
   beginBootSurface,
   reportBootSurfaceReady,
@@ -8,7 +8,11 @@ import {
 import { routePreferenceStore } from "./app-route-preference";
 import { type RecordValue } from "./desktop-types";
 import { t } from "./i18n";
-import { readCachedModelCatalog, writeCachedModelCatalog } from "./model-catalog-cache";
+import {
+  SHARED_MODEL_CATALOG_MAX_AGE_MS,
+  readCachedModelCatalog,
+  requestModelCatalog,
+} from "./model-catalog-cache";
 import { preferredModelParameters } from "./model-route-utils";
 import { RouteEditor } from "./RouteEditor";
 import { OpenSelect } from "./OpenSelect";
@@ -56,42 +60,6 @@ export let workflowOptionsCache: { at: number; options: WorkflowOption[] } | nul
 // remaining TTL window.
 export function invalidateWorkflowOptionsCache() {
   workflowOptionsCache = null;
-}
-
-type SharedModelCatalogRequest = {
-  api: DesktopApi;
-  startedAt: number;
-  full: Promise<DesktopModelOption[]>;
-  setup: Promise<unknown>;
-};
-
-const SHARED_MODEL_CATALOG_MAX_AGE_MS = 24 * 60 * 60_000;
-let sharedModelCatalogRequest: SharedModelCatalogRequest | null = null;
-
-function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest {
-  const current = sharedModelCatalogRequest;
-  if (current
-    && current.api === api
-    && Date.now() - current.startedAt < SHARED_MODEL_CATALOG_MAX_AGE_MS) {
-    return current;
-  }
-  const full = Promise.resolve().then(() =>
-    api.listProviderModels?.({ quick: false }) ?? [])
-    .then((models) => writeCachedModelCatalog(Array.isArray(models) ? models : []).models);
-  const setup = api.invokeCapability
-    ? Promise.resolve().then(() => api.invokeCapability<unknown>({
-        capability: "getProviderSetup",
-        args: [],
-      })).then((result) => result.value)
-    : Promise.resolve(null);
-  const request = {
-    api,
-    startedAt: Date.now(),
-    full,
-    setup,
-  };
-  sharedModelCatalogRequest = request;
-  return request;
 }
 
 // Model-style trigger for changing the active session workflow.
@@ -613,6 +581,7 @@ export const ModelSelector = memo(function ModelSelector({
       onChangeFast={(enabled) => void changeFast(enabled)}
       onChangeContext={(value) => void changeContext(value)}
       onChangeModelParameter={(id, value) => void changeModelParameter(id, value)}
-      onOpenProviders={() => onOpenSettings("providers")} />
+      onOpenProviders={() => onOpenSettings("providers")}
+      onOpenModelPane={() => void loadCatalog()} />
   </div>;
 });

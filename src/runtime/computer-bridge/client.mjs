@@ -11,6 +11,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
+  normalizeComputerToolArgs,
   toComputerHostCommand,
   validateComputerToolArgs,
 } from './action-schema.mjs';
@@ -32,7 +33,12 @@ const SHUTDOWN_SESSION_RELEASE_TIMEOUT_MS = 5_000;
 // treated as a mutation that owns a write-active session.
 const READ_ONLY_ACTIONS = new Set([
   'list_windows', 'list_apps', 'diagnose', 'capture', 'clipboard_read', 'wait', 'zoom',
+  'verify',
 ]);
+
+export function isReplaySafeComputerCommand(command) {
+  return READ_ONLY_ACTIONS.has(String(command?.action || ''));
+}
 const activeComputerSessions = new Set();
 const deferredComputerSessionReleases = new Map();
 // Every session that reached the host owns a worker there, including read-only
@@ -44,6 +50,7 @@ const BRIDGE_UNAVAILABLE_MESSAGE =
   'computer use is unavailable; open the Mixdog desktop app and enable Computer Use in settings';
 
 function canonicalResultText(text, args) {
+  if (args.action === 'clipboard' && args.input?.operation === 'read') return text;
   let value;
   try {
     value = JSON.parse(text);
@@ -93,11 +100,14 @@ function readDiscovery() {
 
 /** Execute one `computer` tool call. Returns MCP-shaped content so the
  *  internal-tools normalizer forwards text and screenshot images as-is. */
-export async function executeComputerTool(args, context = {}) {
+export async function executeComputerTool(rawArgs, context = {}) {
   const discovery = readDiscovery();
   if (!discovery) {
     return { content: [{ type: 'text', text: `Error: ${BRIDGE_UNAVAILABLE_MESSAGE}` }], isError: true };
   }
+  // Resolve the argument shape once so validation, host translation, and the
+  // canonical result text all read the same input.
+  const args = normalizeComputerToolArgs(rawArgs);
   const validationError = validateComputerToolArgs(args);
   if (validationError) {
     return { content: [{ type: 'text', text: `Error: ${validationError}` }], isError: true };
@@ -108,7 +118,7 @@ export async function executeComputerTool(args, context = {}) {
   cancelDeferredComputerSessionRelease(sessionId);
   const action = String(command?.action || '');
   if (sessionId) hostBoundComputerSessions.add(sessionId);
-  if (sessionId && !READ_ONLY_ACTIONS.has(action) && command?.read_only !== true) {
+  if (sessionId && !isReplaySafeComputerCommand(command) && command?.read_only !== true) {
     activeComputerSessions.add(sessionId);
   }
   let bridge = discovery;
@@ -130,20 +140,49 @@ export async function executeComputerTool(args, context = {}) {
         }),
         signal: requestSignal,
       });
+      if (response.status === 401 && attempt === 0 && isReplaySafeComputerCommand(command)) {
+        const replacement = readDiscovery();
+        if (replacement
+          && (replacement.port !== bridge.port || replacement.token !== bridge.token)) {
+          await response.arrayBuffer().catch(() => undefined);
+          bridge = replacement;
+          continue;
+        }
+      }
       break;
     } catch (error) {
       const externallyAborted = context?.signal?.aborted === true;
       const timedOut = error?.name === 'TimeoutError';
+      const mutationMayHaveExecuted = !isReplaySafeComputerCommand(command)
+        && command?.read_only !== true;
       // The desktop app republishes the bridge with a fresh port/token when it
-      // restarts. Retry once against the new endpoint instead of reporting the
-      // whole capability unavailable.
+      // restarts. Observations are replay-safe; input may already have executed
+      // before the response vanished, so never send it twice.
       if (attempt === 0 && !externallyAborted && !timedOut) {
         const replacement = readDiscovery();
         if (replacement
           && (replacement.port !== bridge.port || replacement.token !== bridge.token)) {
-          bridge = replacement;
-          continue;
+          if (isReplaySafeComputerCommand(command)) {
+            bridge = replacement;
+            continue;
+          }
+          return {
+            content: [{
+              type: 'text',
+              text: 'Error: computer command may have executed and was not replayed; inspect fresh state before retrying',
+            }],
+            isError: true,
+          };
         }
+      }
+      if (!externallyAborted && mutationMayHaveExecuted) {
+        return {
+          content: [{
+            type: 'text',
+            text: 'Error: computer command may have executed and was not replayed; inspect fresh state before retrying',
+          }],
+          isError: true,
+        };
       }
       const abortConfirmed = externallyAborted && sessionId
         ? await abortComputerSession(sessionId)
@@ -152,8 +191,12 @@ export async function executeComputerTool(args, context = {}) {
         ? 'computer bridge timed out'
         : externallyAborted
           ? (abortConfirmed
-              ? 'computer command aborted; input state and session resources were released'
-              : 'computer command aborted; host cleanup could not be confirmed')
+              ? mutationMayHaveExecuted
+                ? 'computer command aborted; input state and session resources were released, but input may have partially executed; inspect fresh state before retrying'
+                : 'computer command aborted; input state and session resources were released'
+              : mutationMayHaveExecuted
+                ? 'computer command aborted; host cleanup could not be confirmed and input may have partially executed; inspect fresh state before retrying'
+                : 'computer command aborted; host cleanup could not be confirmed')
           : BRIDGE_UNAVAILABLE_MESSAGE;
       return { content: [{ type: 'text', text: `Error: ${reason}` }], isError: true };
     }
@@ -165,7 +208,10 @@ export async function executeComputerTool(args, context = {}) {
   try {
     body = await response.json();
   } catch {
-    return { content: [{ type: 'text', text: `Error: computer bridge returned an invalid response (HTTP ${response.status})` }], isError: true };
+    const message = !isReplaySafeComputerCommand(command) && command?.read_only !== true
+      ? 'computer command may have executed but the bridge returned an invalid response; inspect fresh state before retrying'
+      : `computer bridge returned an invalid response (HTTP ${response.status})`;
+    return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
   }
   if (!body?.ok) {
     const message = String(body?.error || `computer bridge request failed (HTTP ${response.status})`);

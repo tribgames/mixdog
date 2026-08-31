@@ -2,13 +2,13 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
 
 import { buildFtsQuery, buildFtsPrefixQuery } from './memory-text-utils.mjs'
 import { VALID_CATEGORY, embeddingToSql } from './memory.mjs'
-import { freshnessFactor } from './memory-score.mjs'
 import { buildRecallScopeFilter } from './memory-recall-scope-filter.mjs'
 import { recallReadQuery } from './memory-recall-read-query.mjs'
+import { rankRecallCandidates, recallLaneRanks, recallRrfScore } from './recall-fusion.mjs'
 
 // Per-db cache of mv_hot_active populated state. The main recall path currently
 // uses entries directly; this guard remains for explicit useHotActive callers.
-import { SEMANTIC_ONLY_MIN_SIM, memberTsInWindow, SEMANTIC_TOP_RANK_MAX, SEMANTIC_TOP_RANK_MIN_SIM, SEMANTIC_TOP_RANK_STRICT_SIM, SHORT_QUERY_TOKEN_MAX, SIM_FLOOR, W_DENSE, W_WINDOW_RECENCY, W_RARE, RARE_DF_MAX, queryTokensLower, rowDisplayText, windowRecencyFactor, buildExactTerms, countQueryTokens, hasFullQueryTextMatch, hasQueryTokenCoverage, exactTextBoost, _checkMvHotActivePopulated } from './recall-scoring.mjs';
+import { memberTsInWindow, buildExactTerms, _checkMvHotActivePopulated } from './recall-scoring.mjs';
 
 // Bounded lexical scan window. The trgm/exact CTE legs run `ILIKE '%…%'`
 // which no index accelerates, so their worst case grows linearly with the
@@ -67,11 +67,6 @@ export async function searchRelevantHybrid(db, query, options = {}) {
   const categories = (Array.isArray(options.category) ? options.category : [options.category])
     .map(c => String(c ?? '').trim().toLowerCase())
     .filter(c => VALID_CATEGORY.has(c))
-  // Caller can disable freshness decay when the period is calendar-bounded
-  // (yesterday/today/this_week/last_week/specific date). Inside a fixed
-  // window, absolute-age decay misranks early-week vs late-week entries.
-  const applyFreshness = options.applyFreshness !== false
-
   // ── mv_hot_active fast-path opt-in ──────────────────────────────────────
   // When useHotActive:true, the dense and sparse CTE legs query mv_hot_active
   // instead of the full entries table.
@@ -160,15 +155,12 @@ export async function searchRelevantHybrid(db, query, options = {}) {
     ? embeddingToSql(options.queryVector)
     : null
 
-  // Prefer the Kiwi morph prefix-form query (to_tsquery, ':*' prefix match on
-  // content-morpheme stems) when kiwi is ready; else fall back to the plain
-  // websearch_to_tsquery path. ftsPrefixMode drives which tsquery ctor the
-  // sparse CTE uses (to_tsquery vs websearch_to_tsquery).
+  // Use the model-free Korean normalizer with to_tsquery ':*' prefix matches.
+  // ftsPrefixMode drives which tsquery constructor the sparse CTE uses.
   const ftsPrefix = clean.length >= 3 ? buildFtsPrefixQuery(clean) : null
   const ftsQuery = ftsPrefix ? ftsPrefix.query : (clean.length >= 3 ? (buildFtsQuery(clean) ?? null) : null)
   const ftsPrefixMode = Boolean(ftsPrefix)
   const exactTerms = buildExactTerms(clean)
-  const queryTokenCount = countQueryTokens(clean)
   // Candidate generation is recall-oriented: one concept may be the only
   // distinctive event identifier in a natural-language question. Precision is
   // enforced after retrieval through semantic support, token coverage, and
@@ -267,9 +259,9 @@ dense AS (SELECT NULL::bigint AS id, NULL::float8 AS sim, NULL::bigint AS dense_
 
   // sparse CTE: active only when ftsQuery is non-null.
   // useHotActive → queries mv_hot_active GIN index (mv_hot_active_tsv).
-  // tsqExpr: to_tsquery for the Kiwi morph prefix-form query ('stem:* & ...'),
-  // else websearch_to_tsquery for the plain fallback token string. Both parse
-  // $2 under the 'simple' config to match search_tsv's simple-config lexemes.
+  // tsqExpr: to_tsquery for normalized prefix terms ('stem:* & ...'), else
+  // websearch_to_tsquery for a plain fallback token string. Both parse $2 under
+  // the 'simple' config to match search_tsv's simple-config lexemes.
   const tsqExpr = ftsPrefixMode
     ? `to_tsquery('simple', $2)`
     : `websearch_to_tsquery('simple', $2)`
@@ -455,12 +447,7 @@ LEFT JOIN exact  x ON x.id = c.id`
         if (!conceptIdsByRoot.has(rootId)) conceptIdsByRoot.set(rootId, [])
         conceptIdsByRoot.get(rootId).push(conceptId)
       }
-      const anchorStrength = (row) => (
-        (row.exact_rank != null ? 4 / (60 + Number(row.exact_rank)) : 0)
-        + (row.sparse_rank != null ? 3 / (60 + Number(row.sparse_rank)) : 0)
-        + (row.dense_rank != null ? 2 / (60 + Number(row.dense_rank)) : 0)
-        + (row.trgm_rank != null ? 1 / (60 + Number(row.trgm_rank)) : 0)
-      )
+      const anchorStrength = (row) => recallRrfScore(row)
       const anchorByConcept = new Map()
       for (const row of rawRows) {
         const rootId = Number(row.is_root) === 1 ? Number(row.id) : Number(row.chunk_root)
@@ -522,150 +509,13 @@ LEFT JOIN exact  x ON x.id = c.id`
     }
   }
 
-  // ── JS-side RRF merge (unchanged logic) ──────────────────────────────────
-  // K=60 is the standard RRF constant from Cormack et al. (SIGIR 2009).
-  const K = 60
-  const nowMs = Date.now()
-
-  // ── Rare-token display DF (IDF-style rarity) ─────────────────────────────
-  // Count, per query token, how many candidate rows carry it in their RENDERED
-  // display text. A token in only a small fraction of candidates is rare and
-  // earns a boost for the rows that show it (see rareTokenDisplayBoost).
-  const qTokens = queryTokensLower(clean)
-  const candCount = rawRows.length || 1
-  const displayDf = new Map()
-  if (qTokens.length > 0) {
-    const displayTexts = rawRows.map(rowDisplayText)
-    for (const t of qTokens) {
-      let c = 0
-      for (const dt of displayTexts) if (dt.includes(t)) c++
-      displayDf.set(t, c)
-    }
-  }
-  function rareTokenDisplayBoost(row) {
-    if (qTokens.length === 0) return 0
-    const disp = rowDisplayText(row)
-    let best = 0
-    for (const t of qTokens) {
-      const df = displayDf.get(t) ?? 0
-      if (df === 0) continue
-      if (df / candCount > RARE_DF_MAX) continue // common token: no rarity credit
-      if (!disp.includes(t)) continue
-      const b = W_RARE * (1 - df / candCount)
-      if (b > best) best = b
-    }
-    return best
-  }
-
-  const scoredAll = rawRows.map(row => {
-    const id = Number(row.id)
-    const denseRank = row.dense_rank != null ? Number(row.dense_rank) : null
-    const sparseRank = row.sparse_rank != null ? Number(row.sparse_rank) : null
-    const trgmRank = row.trgm_rank != null ? Number(row.trgm_rank) : null
-    const exactRank = row.exact_rank != null ? Number(row.exact_rank) : null
-    const rrf = (denseRank ? 1 / (K + denseRank) : 0)
-              + (sparseRank ? 1 / (K + sparseRank) : 0)
-              + (trgmRank ? 1 / (K + trgmRank) : 0)
-              + (exactRank ? 1 / (K + exactRank) : 0)
-    const freshness = applyFreshness ? freshnessFactor(row.ts, nowMs) : 1.0
-    const boost = exactTextBoost(clean, row, row.exact_hits)
-    const rareBoost = rareTokenDisplayBoost(row)
-    const sim = Number(row.dense_sim)
-    const denseTerm = Number.isFinite(sim)
-      ? W_DENSE * Math.max(0, sim - SIM_FLOOR) / (1 - SIM_FLOOR) * freshness
-      : 0
-    const windowRecency = hasTsFilter ? W_WINDOW_RECENCY * windowRecencyFactor(row.ts, tsFrom, tsTo, nowMs) : 0
-    return { id, row, rrf, freshness, rareBoost, retrievalScore: (rrf * freshness) + boost + rareBoost + denseTerm + windowRecency }
-  })
-  let semanticOnlyDropped = 0
-  let weakTextDropped = 0
-  // Cross-language signature: a query whose candidate set produced NO lexical
-  // leg at all is almost always a cross-language recall where dense is the only
-  // usable signal. In that case relax the top-rank rescue back to the measured
-  // 0.70-0.74 band; when lexical evidence exists elsewhere, keep demanding
-  // lexical corroboration (or the stricter above-noise floor) per row.
-  const setHasLexicalLeg = scoredAll.some(({ row }) => row.sparse_rank != null || row.exact_rank != null)
-  const scored = scoredAll.filter(({ row, rareBoost }) => {
-    const hasTextSupport = row.sparse_rank != null || row.trgm_rank != null || row.exact_rank != null
-    const sim = Number(row.dense_sim)
-    const denseRankNum = row.dense_rank != null ? Number(row.dense_rank) : null
-    const hasStrongSemantic = Number.isFinite(sim) && sim >= SEMANTIC_ONLY_MIN_SIM
-    const hasLexicalLeg = row.sparse_rank != null || row.exact_rank != null
-    // Top-rank rescue now demands corroboration: the softer 0.70 floor only
-    // rescues rows that also carry a lexical leg, while a purely semantic row
-    // must clear the stricter above-noise floor. This stops sub-noise top
-    // ranks (unrelated narration) from surfacing on semantic-only queries.
-    const inTopRank = denseRankNum != null && denseRankNum <= SEMANTIC_TOP_RANK_MAX
-    const hasTopRankRescue = Number.isFinite(sim) && inTopRank
-      && ((sim >= SEMANTIC_TOP_RANK_MIN_SIM && (hasLexicalLeg || !setHasLexicalLeg))
-          || sim >= SEMANTIC_TOP_RANK_STRICT_SIM)
-    const hasSemanticSupport = hasStrongSemantic || hasTopRankRescue
-    if (!hasTextSupport) {
-      if (hasSemanticSupport) return true
-      semanticOnlyDropped += 1
-      return false
-    }
-    // A long query that only shares a weak trigram/exact tail with old rows
-    // should not fill the page with accidental matches. Accept lexical-only
-    // rows when the query is a short keyword/identifier lookup, a full phrase
-    // match, or an FTS hit. Otherwise require semantic support as a second
-    // independent signal.
-    if (categories.length > 0) return true
-    const hasFullPhrase = hasFullQueryTextMatch(clean, row)
-    if (hasFullPhrase) return true
-    // Short keyword/identifier lookups: pass real lexical legs (FTS/exact)
-    // freely, but a trigram-only fuzzy hit riding a sub-floor dense leg is
-    // filler — require the strong semantic floor so an unrelated 2-token query
-    // (e.g. a project identifier plus a non-English word for "balance"
-    // against another project) returns empty rather
-    // than accidental trigram neighbours.
-    if (queryTokenCount <= SHORT_QUERY_TOKEN_MAX) {
-      // A real FTS (sparse) hit is a topical match — keep it. But an exact/trgm
-      // hit alone can be INCIDENTAL: the term appears only in un-rendered body
-      // text (e.g. a project path buried in a codeGraph note),
-      // so the row renders a line that never mentions the query at all. For a
-      // short keyword query where every rendered line is expected to be about
-      // the term, require the token to actually land in the display fields
-      // (element/summary, or a member turn's own content) before accepting an
-      // exact/trgm-only row. This drops pure filler without touching genuine
-      // FTS or in-display keyword hits.
-      if (row.sparse_rank != null) return true
-      if (hasStrongSemantic) return true
-      const tokenInDisplay = qTokens.length > 0 && (() => {
-        const d = rowDisplayText(row)
-        return qTokens.some(t => d.includes(t))
-      })()
-      if (hasLexicalLeg && tokenInDisplay) return true
-      // Strong trigram match survives even with a cold/absent dense leg (full
-      // ILIKE=1.0, no-vector path pins 0.5 — both above the 0.3 real-fuzzy
-      // cutoff), but only when the term is on the rendered line, not incidental.
-      const trgSim = Number(row.trg_sim)
-      if (row.trgm_rank != null && Number.isFinite(trgSim) && trgSim >= 0.3 && tokenInDisplay) return true
-      weakTextDropped += 1
-      return false
-    }
-    if (row.sparse_rank != null) return true
-    // Semantic support as a second signal only applies when the dense leg
-    // actually ran. With a cold embedding model (no queryVector) semantic
-    // support is unattainable, and requiring it silently zeroed every
-    // multi-token lexical recall until warmup finished. Token coverage alone
-    // carries the filter in that degraded mode.
-    const semanticLegActive = vecSql != null
-    const display = rowDisplayText(row)
-    const hasIdentifierMatch = qTokens.some((token) => (
-      (/[^\p{Script=Hangul}]/u.test(token) || /[_./:-]/u.test(token) || /\p{N}/u.test(token))
-      && display.includes(token)
-    ))
-    if (hasLexicalLeg && (hasIdentifierMatch || Number(row.exact_phrase_hits) > 0)) return true
-    if (hasLexicalLeg && rareBoost > 0) return true
-    if ((!semanticLegActive || hasSemanticSupport) && hasQueryTokenCoverage(row, queryTokenCount)) return true
-    weakTextDropped += 1
-    return false
-  })
-  if (scored.length === 0) return []
-  scored.sort((a, b) => b.retrievalScore - a.retrievalScore || b.rrf - a.rrf)
-
-  const filtered = scored
+  // Fixed equal-weight RRF: one dense lane and one lexical lane. The lexical
+  // generators only expand candidate coverage; matching several of them does
+  // not multiply lexical weight. No positive similarity threshold, query
+  // branch, manual boost, or freshness multiplier changes the fused score;
+  // non-finite/non-positive dense-only candidates carry no semantic evidence.
+  const filtered = rankRecallCandidates(rawRows)
+  if (filtered.length === 0) return []
 
   // ── Root resolution + member-hit write-back ───────────────────────────────
   const byId = new Map(rawRows.map(r => [Number(r.id), r]))
@@ -730,10 +580,14 @@ LEFT JOIN exact  x ON x.id = c.id`
     }
     if (seen.has(targetRow.id)) continue
     seen.add(targetRow.id)
+    const { denseRank, lexicalRank } = recallLaneRanks(row)
     rootIdsForReturn.push({
       root: targetRow,
       rrf,
       retrievalScore,
+      retrievalEvidence: lexicalRank != null
+        ? 'lexical'
+        : (denseRank != null ? 'semantic' : 'none'),
       retrievalRank: rootIdsForReturn.length + 1,
       conceptExpanded: conceptExpandedRootIds.has(Number(targetRow.id))
         || (options.latestByConcept === true && targetRow.supersedes_id != null),
@@ -878,7 +732,7 @@ LEFT JOIN exact  x ON x.id = c.id`
   }
   const results = []
   const emittedRootIds = new Set()
-  for (const { root, rrf, retrievalScore, retrievalRank, conceptExpanded } of rootIdsForReturn) {
+  for (const { root, rrf, retrievalScore, retrievalRank, retrievalEvidence, conceptExpanded } of rootIdsForReturn) {
     // Roots absent from finalById were excluded by the status/time filter on
     // the final fetch; falling back to the unfiltered `root` would leak
     // archived / out-of-window rows via member-hit resolution.
@@ -887,6 +741,7 @@ LEFT JOIN exact  x ON x.id = c.id`
     if (emittedRootIds.has(Number(finalRoot.id))) continue
     emittedRootIds.add(Number(finalRoot.id))
     const out = { ...finalRoot, rrf, retrievalScore, retrievalRank }
+    out._retrievalEvidence = retrievalEvidence
     if (conceptExpanded || (options.latestByConcept === true && finalRoot.supersedes_id != null)) {
       out._conceptExpanded = true
     }
@@ -914,7 +769,7 @@ LEFT JOIN exact  x ON x.id = c.id`
   }
 
   __mixdogMemoryLog(
-    `[recall] dense=${denseCount} sparse=${sparseCount} trgm=${trgmCount} exact=${exactCount} semantic_only_dropped=${semanticOnlyDropped} weak_text_dropped=${weakTextDropped} merged=${results.length}\n`,
+    `[recall] dense=${denseCount} sparse=${sparseCount} trgm=${trgmCount} exact=${exactCount} merged=${results.length}\n`,
   )
 
   return results

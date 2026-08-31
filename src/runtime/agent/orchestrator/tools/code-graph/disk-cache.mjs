@@ -19,6 +19,7 @@ import {
   CODE_GRAPH_DISK_DIR,
   CODE_GRAPH_DISK_MAX_ENTRIES,
   CODE_GRAPH_DISK_MAX_BYTES,
+  CODE_GRAPH_DISK_MEMORY_MAX_BYTES,
   CODE_GRAPH_FAST_PATH_MAX_BYTES,
   ORPHAN_TMP_MIN_AGE_MS,
   RE_CACHE_TMP,
@@ -28,6 +29,10 @@ import {
 import { _serializeGraph, _deserializeGraph } from './graph-model.mjs';
 
 const _diskCodeGraphCache = new Map();
+// Approximate serialized bytes of each resident entry, taken from the same
+// numbers the manifest already records (statSync on persist, the read length
+// on demand-load). Backs the resident-memory budget in the prune below.
+const _diskCodeGraphBytes = new Map();
 let _diskCodeGraphCacheLoaded = false;
 let _diskCodeGraphCacheFlushTimer = null;
 // Per-cwd manifest read at boot; per-cwd entries load on demand via
@@ -66,10 +71,25 @@ function _cleanupLegacyDiskCache() {
   try { unlinkSync(stale); } catch { /* best-effort */ }
 }
 
+function _dropDiskEntry(cwd) {
+  _diskCodeGraphCache.delete(cwd);
+  _diskCodeGraphBytes.delete(cwd);
+}
+
+function _noteDiskEntryBytes(cwd, bytes) {
+  if (Number.isFinite(bytes) && bytes >= 0) _diskCodeGraphBytes.set(cwd, bytes);
+}
+
+function _residentDiskBytes() {
+  let total = 0;
+  for (const cwd of _diskCodeGraphCache.keys()) total += _diskCodeGraphBytes.get(cwd) || 0;
+  return total;
+}
+
 function _pruneDiskCodeGraphEntries(_now = Date.now()) {
   for (const [cwd, entry] of _diskCodeGraphCache) {
     if (!entry || typeof entry !== 'object') {
-      _diskCodeGraphCache.delete(cwd);
+      _dropDiskEntry(cwd);
       continue;
     }
     // Disk entries are not TTL-evicted: signature validation on load/build
@@ -79,7 +99,17 @@ function _pruneDiskCodeGraphEntries(_now = Date.now()) {
   while (_diskCodeGraphCache.size > CODE_GRAPH_DISK_MAX_ENTRIES) {
     const oldest = _diskCodeGraphCache.keys().next().value;
     if (!oldest) break;
-    _diskCodeGraphCache.delete(oldest);
+    _dropDiskEntry(oldest);
+  }
+  // Resident-memory budget, oldest first. The newest entry is never evicted:
+  // it is the root the caller is working in right now, so dropping it would
+  // force a re-read on the very next lookup. Evicted entries stay on disk and
+  // return through _ensureCwdLoaded().
+  while (_diskCodeGraphCache.size > 1
+    && _residentDiskBytes() > CODE_GRAPH_DISK_MEMORY_MAX_BYTES) {
+    const oldest = _diskCodeGraphCache.keys().next().value;
+    if (!oldest) break;
+    _dropDiskEntry(oldest);
   }
 }
 
@@ -254,8 +284,13 @@ function _ensureCwdLoaded(cwd) {
   try {
     const file = join(_codeGraphDiskDir(), `${meta.hash}.json`);
     if (!existsSync(file)) return;
-    const entry = JSON.parse(readFileSync(file, 'utf8'));
-    if (entry && typeof entry === 'object') _diskCodeGraphCache.set(key, entry);
+    const raw = readFileSync(file, 'utf8');
+    const entry = JSON.parse(raw);
+    if (entry && typeof entry === 'object') {
+      _diskCodeGraphCache.set(key, entry);
+      _noteDiskEntryBytes(key, raw.length);
+      _pruneDiskCodeGraphEntries();
+    }
   } catch { /* skip corrupt per-cwd file */ }
 }
 
@@ -296,6 +331,7 @@ export function _persistDiskCodeGraphCacheNow({
         writeJson(file, entry, { compact: true, lock: false });
         let bytes = null;
         try { bytes = statSync(file).size; } catch { /* written entry may be unavailable */ }
+        _noteDiskEntryBytes(cwd, bytes);
         manifest[cwd] = {
           hash,
           builtAt: entry.builtAt || Date.now(),
@@ -306,7 +342,7 @@ export function _persistDiskCodeGraphCacheNow({
       const pruned = _pruneCodeGraphManifestForBudget(manifest, dir);
       manifest = pruned.manifest;
       for (const row of pruned.evicted) {
-        _diskCodeGraphCache.delete(row.cwd);
+        _dropDiskEntry(row.cwd);
       }
       for (const meta of Object.values(manifest)) {
         if (meta && typeof meta === 'object' && meta.hash) validHashes.add(meta.hash);
@@ -371,7 +407,15 @@ export function drainCodeGraphCache() {
 export function getDiskCodeGraphEntry(cwd) {
   const key = _canonicalGraphCwd(cwd);
   _ensureCwdLoaded(key);
-  return _diskCodeGraphCache.get(key);
+  const entry = _diskCodeGraphCache.get(key);
+  // Re-insert so the resident-byte prune evicts by RECENCY. Map.set does not
+  // move an existing key, so without this the first root ever touched stays
+  // "oldest" forever and gets evicted while it is the one being worked in.
+  if (entry !== undefined) {
+    _diskCodeGraphCache.delete(key);
+    _diskCodeGraphCache.set(key, entry);
+  }
+  return entry;
 }
 
 // Inspect only manifest metadata (or a stat fallback), never parse the entry.
@@ -435,7 +479,13 @@ export function _setDiskCodeGraphEntry(cwd, graph, { persist = true } = {}) {
   // not CODE_GRAPH_TTL_MS (memory cache only).
   const serialized = _serializeGraph(graph);
   serialized.builtAt = Date.now();
-  _diskCodeGraphCache.set(_canonicalGraphCwd(cwd), serialized);
+  const key = _canonicalGraphCwd(cwd);
+  // delete-then-set makes this the newest entry for the recency prune below.
+  _diskCodeGraphCache.delete(key);
+  _diskCodeGraphCache.set(key, serialized);
+  // The rebuilt graph of a root is close in size to its last persisted form;
+  // the next flush replaces this with the exact statSync figure.
+  _noteDiskEntryBytes(key, Number(_diskManifest?.[key]?.bytes));
   _pruneDiskCodeGraphEntries();
   // Worker success is already fenced by drainCodeGraphCacheStrict(); the
   // parent only adopts that result. Rewriting it here races a following

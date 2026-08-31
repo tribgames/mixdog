@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createBrowserInputDriver } from './browser-input.ts';
+import {
+  assertBrowserKeyDoesNotAccessClipboard,
+  browserImagePointToCss,
+  createBrowserInputDriver,
+} from './browser-input.ts';
 
 test('browser CDP pointer input keeps CSS coordinates independent of WebContents zoom', async () => {
   const calls = [];
@@ -56,5 +60,32 @@ test('browser CDP pointer input keeps CSS coordinates independent of WebContents
   assert.deepEqual(
     [wheel.params.x, wheel.params.y, wheel.params.deltaX, wheel.params.deltaY],
     [600, 400, 120, 180],
+  );
+});
+
+test('Browser Use keyboard input cannot read or overwrite the system clipboard', () => {
+  assert.doesNotThrow(() => assertBrowserKeyDoesNotAccessClipboard('Control+A'));
+  assert.throws(
+    () => assertBrowserKeyDoesNotAccessClipboard('Control+V'),
+    /cannot access the system clipboard/,
+  );
+  assert.throws(
+    () => assertBrowserKeyDoesNotAccessClipboard('Command+C'),
+    /cannot access the system clipboard/,
+  );
+  assert.throws(
+    () => assertBrowserKeyDoesNotAccessClipboard('Shift+Insert'),
+    /cannot access the system clipboard/,
+  );
+});
+
+test('remote Browser Use maps screenshot pixels through pane zoom for every gesture', () => {
+  assert.deepEqual(
+    browserImagePointToCss({ x: 300, y: 200 }, 0.5),
+    { x: 600, y: 400 },
+  );
+  assert.deepEqual(
+    browserImagePointToCss({ x: 300, y: 200 }, Number.NaN),
+    { x: 300, y: 200 },
   );
 });

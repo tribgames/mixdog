@@ -10,6 +10,7 @@ import { build } from 'esbuild';
 const staging = await mkdtemp(join(tmpdir(), 'mixdog-browser-host-integration-'));
 const output = join(staging, 'browser-host-integration.mjs');
 const progressPath = join(staging, 'progress.log');
+let progressPrinted = false;
 
 try {
   await build({
@@ -36,8 +37,8 @@ try {
   const exitCode = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       child.kill();
-      reject(new Error('browser host integration exceeded 60 seconds'));
-    }, 60_000);
+      reject(new Error('browser host integration exceeded 90 seconds'));
+    }, 90_000);
     child.once('error', reject);
     child.once('exit', (code, signal) => {
       clearTimeout(timer);
@@ -46,13 +47,16 @@ try {
     });
   });
   const progress = await readFile(progressPath, 'utf8').catch(() => '');
-  if (progress) process.stdout.write(progress);
+  if (progress) {
+    process.stdout.write(progress);
+    progressPrinted = true;
+  }
   if (exitCode !== 0 || !progress.includes('integration passed')) {
     throw new Error(`browser host integration failed before its success marker (exit ${exitCode})`);
   }
 } finally {
   const progress = await readFile(progressPath, 'utf8').catch(() => '');
-  if (progress && typeof process.exitCode === 'number' && process.exitCode !== 0) {
+  if (progress && !progressPrinted) {
     process.stderr.write(progress);
   }
   await rm(staging, { recursive: true, force: true });

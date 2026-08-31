@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   _resetBootMetricsForTest,
   beginBootSurface,
+  desktopBootCoverTimeoutAllowed,
   createBootSurfaceBarrier,
   desktopBootPrerequisitesReady,
   reportBootSurfaceStage,
@@ -26,6 +27,11 @@ test("desktop boot stays covered until pane layout restoration completes", () =>
     ...prerequisites,
     restorePending: false,
   }), true);
+});
+
+test("desktop boot cover cannot time out while pane layout restoration is active", () => {
+  assert.equal(desktopBootCoverTimeoutAllowed(true), false);
+  assert.equal(desktopBootCoverTimeoutAllowed(false), true);
 });
 
 test("cold boot barrier releases on first paint instead of waiting for ready", async () => {

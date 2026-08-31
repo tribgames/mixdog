@@ -28,6 +28,7 @@ import {
 import { readSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
 import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
 import { resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
+import { withHeapCap } from '../runtime/shared/heap-cap.mjs';
 
 function runtimeRoot() {
   return resolveRuntimeRoot();
@@ -265,6 +266,10 @@ function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000 }) {
     try {
       child = fork(daemonEntry(), [], {
         cwd,
+        // Inherit this launcher's flags (fork's default) and add the daemon's
+        // old-space cap on top: uncapped, a long-lived daemon stays resident
+        // far above its live set.
+        execArgv: withHeapCap('daemon', process.execArgv),
         stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
         detached: daemonShouldDetach(),
         windowsHide: true,

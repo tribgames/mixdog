@@ -53,9 +53,11 @@ $RootDir    = (Resolve-Path "$ScriptDir\..").Path
 $BuildDir   = "$RootDir\build\runtime-win32-$TARGET_ARCH"
 $DistDir    = "$RootDir\dist"
 $RuntimeDir = "$BuildDir\runtime"
+. "$ScriptDir\lib\stage-postgres-runtime-windows.ps1"
 
 $PgBin    = "$PgRoot\bin"
 $PgConfig = "$PgBin\pg_config.exe"
+$VsWhere  = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 
 $OutputName = "mixdog-runtime-${TARGET_OS}-${TARGET_ARCH}-pg${PG_VERSION}-pgvector${PGVECTOR_VERSION}.tar.gz"
 
@@ -82,7 +84,6 @@ if (Test-Path $VectorDllBuilt) {
     Write-Host "==> Building pgvector (MSVC/nmake against system PG 16)"
     Push-Location $PgVectorDir
     try {
-        $VsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
         $VcVarsAll = & $VsWhere -latest -find 'VC\Auxiliary\Build\vcvarsall.bat' 2>$null | Select-Object -First 1
         if (-not $VcVarsAll) {
             Write-Error "vswhere could not locate vcvarsall.bat — Visual Studio Build Tools required."
@@ -107,22 +108,17 @@ if (Test-Path $VectorDllBuilt) {
     }
 }
 
-Write-Host "==> Assembling runtime layout — copy bin (.exe + .dll), lib, share from $PgRoot"
-# Copy ALL .exe + .dll from PG bin so postgres.exe + libpq.dll + libcrypto/libssl/
-# libintl/libiconv/icu*/libxml2/libxslt/libwinpthread/libecpg/libpgtypes etc. all
-# ship together. PG 16 install layout puts these all in bin\.
-Copy-Item "$PgBin\*.exe","$PgBin\*.dll" "$RuntimeDir\bin\" -Force
-
-# lib\: PG extension modules (incl. contrib like pgcrypto.dll). vector.dll
-# placed here below — PG looks for $libdir/<ext>.dll which resolves to lib\.
-Copy-Item -Recurse -Force "$PgRoot\lib\*"   "$RuntimeDir\lib\"   -ErrorAction SilentlyContinue
-# share\: extension SQL/control, locale, timezone data, conf samples.
-Copy-Item -Recurse -Force "$PgRoot\share\*" "$RuntimeDir\share\" -ErrorAction SilentlyContinue
+Write-Host "==> Assembling minimal runtime layout"
+$StageSummary = Stage-MixdogWindowsPgRuntime `
+    -PgRoot $PgRoot `
+    -RuntimeDir $RuntimeDir `
+    -VectorDll $VectorDllBuilt `
+    -VsWhere $VsWhere
+Write-Host "  staged $($StageSummary.ExecutableCount) executables + $($StageSummary.DependencyDllCount) dependency DLLs"
 
 Write-Host "==> Manually staging pgvector artifacts (avoid pg_config-derived install paths)"
 $RuntimeExtDir = "$RuntimeDir\share\extension"
 New-Item -ItemType Directory -Force -Path $RuntimeExtDir | Out-Null
-Copy-Item "$PgVectorDir\vector.dll"        "$RuntimeDir\lib\"  -Force
 Copy-Item "$PgVectorDir\vector.control"    $RuntimeExtDir      -Force
 Copy-Item "$PgVectorDir\sql\vector--*.sql" $RuntimeExtDir      -Force
 
@@ -135,6 +131,9 @@ if (-not (Test-Path "$RuntimeDir\lib\vector.dll")) {
     Write-Error "ASSERT FAILED: vector.dll not found in lib\"
     exit 1
 }
+Assert-MixdogWindowsPgRuntime `
+    -RuntimeDir $RuntimeDir `
+    -PgVectorVersion $PGVECTOR_VERSION
 Write-Host "  PASS runtime layout"
 
 # Licenses
@@ -156,7 +155,7 @@ $SmokeLog  = "$BuildDir\smoke-pg.log"
 $SmokePort = 55899
 if (Test-Path $SmokeData) { Remove-Item -Recurse -Force $SmokeData }
 
-& "$RuntimeDir\bin\initdb.exe" -D $SmokeData --username=postgres --auth-local=trust --no-locale -E UTF8 | Out-Null
+& "$RuntimeDir\bin\initdb.exe" -D $SmokeData --username=postgres --auth-local=trust --auth-host=trust --no-locale -E UTF8 | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Error "FAIL: initdb"; exit 1 }
 
 & "$RuntimeDir\bin\pg_ctl.exe" -D $SmokeData -o "-p $SmokePort -h 127.0.0.1" -l $SmokeLog -w start
@@ -185,6 +184,11 @@ $DistDirFwd    = $DistDir.Replace('\', '/')
 $RuntimeDirFwd = $RuntimeDir.Replace('\', '/')
 & tar -czf "$DistDirFwd/$OutputName" -C "$RuntimeDirFwd" .
 if ($LASTEXITCODE -ne 0) { Write-Error "tar failed (exit $LASTEXITCODE)"; exit 1 }
+$ArchiveBytes = (Get-Item "$DistDir\$OutputName").Length
+if ($ArchiveBytes -gt 30MB) {
+    Write-Error "Windows PostgreSQL runtime archive exceeds 30 MiB: $([math]::Round($ArchiveBytes / 1MB, 1)) MiB"
+    exit 1
+}
 
 Write-Host "==> Generating sha256 sidecar"
 Push-Location $DistDir
@@ -219,7 +223,7 @@ $env:PGDATA = $null
 try {
     & "$ExtractDir\bin\postgres.exe" --version
     if ($LASTEXITCODE -ne 0) { throw "FAIL: postgres --version under hostile env" }
-    & "$ExtractDir\bin\initdb.exe" -D $ExtractData --username=postgres --auth-local=trust --no-locale -E UTF8 | Out-Null
+    & "$ExtractDir\bin\initdb.exe" -D $ExtractData --username=postgres --auth-local=trust --auth-host=trust --no-locale -E UTF8 | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "FAIL: initdb under hostile env" }
     & "$ExtractDir\bin\pg_ctl.exe" -D $ExtractData -o "-p $ExtractPort -h 127.0.0.1" -l $ExtractLog -w start
     if ($LASTEXITCODE -ne 0) { Get-Content $ExtractLog | Select-Object -Last 30; throw "FAIL: pg_ctl start under hostile env" }

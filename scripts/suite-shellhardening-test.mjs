@@ -91,10 +91,6 @@ import {
   planLosslessShellCompaction,
   renderLosslessRecoveryHint,
 } from '../src/runtime/agent/orchestrator/tools/builtin/shell-lossless-compact.mjs';
-import {
-  ensureTokenAddon,
-  findCachedTokenAddon,
-} from '../src/runtime/agent/orchestrator/tools/token-addon-fetcher.mjs';
 import { executeGlobTool } from '../src/runtime/agent/orchestrator/tools/builtin/search-tool.mjs';
 
 // ==== from shell-hardening-test.mjs ====
@@ -1739,103 +1735,6 @@ test('child guardians re-exec Electron as Node without forwarding secrets', () =
     WINDIR: 'C:\\Windows',
     ELECTRON_RUN_AS_NODE: '1',
   });
-});
-
-test('daemon-owned token addon uses a Worker thread while the session runtime relays over IPC', () => {
-  const tokenNative = source('src/runtime/agent/orchestrator/session/token-native.mjs');
-  const tokenWorker = source('src/runtime/agent/orchestrator/session/token-native-worker.mjs');
-  const runtimeHost = source('src/standalone/session-runtime-host.mjs');
-  const runtimeWorker = source('src/standalone/session-runtime-worker.mjs');
-  assert.doesNotMatch(tokenNative, /startChildGuardian/);
-  assert.doesNotMatch(tokenNative, /node:child_process/);
-  assert.match(tokenNative, /new Worker\(/);
-  assert.match(tokenNative, /execArgv: process\.execArgv\.filter/);
-  assert.match(tokenNative, /owner\.pending\.size === 0[\s\S]*worker\.unref\(\)/);
-  assert.match(tokenNative, /worker\.once\('exit'[\s\S]*_workerFailed = false/);
-  assert.match(tokenWorker, /createRequire\(import\.meta\.url\)/);
-  assert.match(tokenWorker, /addon\.countTokens/);
-  assert.match(tokenNative, /isSessionRuntimeWorkerProcess\(\)/);
-  assert.match(runtimeHost, /message\.type === 'token-native-count'/);
-  assert.match(runtimeHost, /countTokensNative\(String\(message\.text \?\? ''\)\)/);
-  assert.match(runtimeHost, /try \{ prewarmNativeTokenCounter\(\); \}/);
-  assert.match(runtimeWorker, /message\.type === 'token-native-result'/);
-});
-
-test('token addon cache accepts only canonical versioned .node assets', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-token-addon-'));
-  const bytes = Buffer.from('native-addon-fixture');
-  const sha256 = createHash('sha256').update(bytes).digest('hex');
-  const pkey = `${process.platform === 'win32' ? 'win32' : process.platform}-${process.arch}`;
-  const manifest = {
-    version: '9.8.7',
-    assets: {
-      [pkey]: {
-        url: `https://github.com/tribgames/mixdog/releases/download/token-v9.8.7/mixdog-token-${pkey}.node`,
-        sha256,
-      },
-    },
-  };
-  try {
-    const path = await ensureTokenAddon(root, {
-      bundledManifest: manifest,
-      download: async (_url, destination) => writeFileSync(destination, bytes),
-    });
-    assert.equal(path, join(root, 'token-bin', 'mixdog-token-9.8.7.node'));
-    assert.equal(findCachedTokenAddon(root, { bundledManifest: manifest }), path);
-    const invalid = structuredClone(manifest);
-    invalid.assets[pkey].url = invalid.assets[pkey].url.replace(/\.node$/, '.exe');
-    assert.equal(findCachedTokenAddon(root, { bundledManifest: invalid }), null);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('session runtime token client reuses its daemon owner', { timeout: 10_000 }, async () => {
-  const moduleUrl = pathToFileURL(join(
-    root,
-    'src/runtime/agent/orchestrator/session/token-native.mjs',
-  )).href;
-  const child = spawn(process.execPath, ['--input-type=module', '--eval', `
-    process.env.MIXDOG_SESSION_RUNTIME_WORKER = '1';
-    process.env.MIXDOG_SESSION_RUNTIME_WORKER_PID = String(process.pid);
-    const token = await import(${JSON.stringify(moduleUrl)});
-    const warmed = token.prewarmNativeTokenCounter();
-    const count = await token.countTokensNative('daemon-owned-token-counter');
-    process.stdout.write(JSON.stringify({ warmed, count }), () => process.exit(count === 42 ? 0 : 1));
-  `], {
-    stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
-    windowsHide: true,
-    env: {
-      ...process.env,
-      MIXDOG_TOKEN_NATIVE: '1',
-    },
-  });
-  let stdout = '';
-  let stderr = '';
-  const messages = [];
-  child.stdout.setEncoding('utf8');
-  child.stderr.setEncoding('utf8');
-  child.stdout.on('data', (chunk) => { stdout += chunk; });
-  child.stderr.on('data', (chunk) => { stderr += chunk; });
-  child.on('message', (message) => {
-    messages.push(message);
-    if (message?.type !== 'token-native-count') return;
-    child.send({
-      type: 'token-native-result',
-      tokenRequestId: message.tokenRequestId,
-      count: 42,
-    });
-  });
-  const exit = await new Promise((resolveExit, rejectExit) => {
-    child.once('error', rejectExit);
-    child.once('exit', (code, signal) => resolveExit({ code, signal }));
-  });
-  assert.equal(exit.code, 0, stderr || `signal=${exit.signal}`);
-  assert.deepEqual(JSON.parse(stdout), { warmed: true, count: 42 });
-  assert.deepEqual(messages.map((message) => message.type), [
-    'token-native-prewarm',
-    'token-native-count',
-  ]);
 });
 
 test('command-scoped child guardians can stop without killing a reusable child', { timeout: 10_000 }, async () => {

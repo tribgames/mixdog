@@ -19,6 +19,8 @@ export const DESKTOP_IPC = {
   listProjectDir: 'mixdog:list-project-dir',
   readProjectFile: 'mixdog:read-project-file',
   previewProjectFile: 'mixdog:preview-project-file',
+  previewDocumentFile: 'mixdog:preview-document-file',
+  previewDocumentPages: 'mixdog:preview-document-pages',
   writeProjectFile: 'mixdog:write-project-file',
   readEditorBackup: 'mixdog:read-editor-backup',
   writeEditorBackup: 'mixdog:write-editor-backup',
@@ -88,9 +90,6 @@ export const DESKTOP_IPC = {
   browserHistorySearch: 'mixdog:browser-history-search',
   browserCredentialSuggestions: 'mixdog:browser-credential-suggestions',
   browserCredentialFill: 'mixdog:browser-credential-fill',
-  browserHandoffChanged: 'mixdog:browser-handoff-changed',
-  browserActivityChanged: 'mixdog:browser-activity-changed',
-  browserHandoffResolve: 'mixdog:browser-handoff-resolve',
   applyTitleBarTheme: 'mixdog:apply-titlebar-theme',
   setTitleBarDim: 'mixdog:set-titlebar-dim',
   invokeCapability: 'mixdog:invoke-capability',
@@ -793,23 +792,6 @@ export interface DesktopSettings {
   browserControl: boolean;
 }
 
-/** An agent Browser Use command parked on the user: a captcha, a 2FA prompt,
- *  or an identity check only the person at the keyboard can clear. */
-export interface DesktopBrowserHandoffRequest {
-  id: string;
-  reason: string;
-  url: string;
-  expiresAt: number;
-}
-
-/** What the agent's browser tool is doing right now. The pane states this in
- *  plain language so watching the page never means reading tool calls. */
-export interface DesktopBrowserActivity {
-  action: string;
-  background: boolean;
-  at: number;
-}
-
 export type DesktopBrowserImportItem = 'passwords' | 'cookies' | 'history';
 export type DesktopBrowserImportItemState = 'running' | 'completed' | 'failed';
 
@@ -824,6 +806,7 @@ export interface DesktopBrowserImportSource {
   name: string;
   profiles: DesktopBrowserImportProfile[];
   supports: Record<DesktopBrowserImportItem, boolean>;
+  supportReasons?: Partial<Record<DesktopBrowserImportItem, string>>;
   passwordSupportReason?: string;
 }
 
@@ -866,6 +849,42 @@ export interface DesktopBrowserCredentialFillResult {
   passwordFilled: boolean;
   reason?: 'no-password-field' | 'password-field-unavailable';
 }
+
+export interface DesktopRemoteBrowserFrame {
+  frameId: string;
+  url: string;
+  title: string;
+  loading: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  width: number;
+  height: number;
+  image?: {
+    mimeType: 'image/jpeg' | 'image/png';
+    data: string;
+  };
+}
+
+export type DesktopRemoteBrowserControl =
+  | { type: 'navigate'; url: string }
+  | { type: 'back' | 'forward' | 'reload' | 'stop' }
+  | { type: 'tap'; frameId: string; x: number; y: number }
+  | {
+      type: 'swipe';
+      frameId: string;
+      from: { x: number; y: number };
+      to: { x: number; y: number };
+    }
+  | {
+      type: 'scroll';
+      frameId: string;
+      x: number;
+      y: number;
+      deltaX: number;
+      deltaY: number;
+    }
+  | { type: 'text'; frameId: string; text: string }
+  | { type: 'key'; frameId: string; key: string };
 
 /** Settings → Git: GitHub CLI presence and auth, probed through gh itself. */
 export interface DesktopGithubCliStatus {
@@ -1253,7 +1272,7 @@ export interface DesktopRendererComposerActionDiagnostic {
   kind: 'composer-action';
   action: 'submit' | 'restore-queue';
   source: 'keyboard-enter' | 'form-submit' | 'slash-keyboard' | 'slash-click'
-    | 'escape' | 'arrow-up' | 'queue-row';
+    | 'escape' | 'arrow-up' | 'queue-row' | 'voice-submit';
   turnBusy: boolean;
   queueCount: number;
   draftLength: number;
@@ -1495,6 +1514,23 @@ export interface DesktopLocalFileData {
   data: string;
 }
 
+/** One rasterized page of a converted Office document. */
+export interface DesktopDocumentPreviewPage {
+  page: number;
+  width: number;
+  height: number;
+  mime: string;
+  base64: string;
+}
+
+export interface DesktopDocumentPreviewPages {
+  format: string;
+  mtimeMs: number;
+  size: number;
+  pageCount: number;
+  pages: DesktopDocumentPreviewPage[];
+}
+
 /** Small, last-writer-wins UI projection shared by Electron and paired web
  * clients. Pane geometry remains local; `selection` is the first visual pane. */
 export interface DesktopApi {
@@ -1576,6 +1612,26 @@ export interface DesktopApi {
     mtimeMs: number;
     size: number;
   }>;
+  /** Office document shown through the in-app PDF viewer, converting it once
+   *  per revision. Electron only: the URL is a local protocol URL, which is
+   *  exactly why a paired phone gets pages instead. */
+  previewDocumentFile?(projectPath: string, relPath: string, accessToken?: string): Promise<{
+    url: string;
+    kind: 'pdf';
+    mime: string;
+    format: string;
+    mtimeMs: number;
+    size: number;
+  }>;
+  /** Rasterized pages of the same conversion, for a surface that cannot
+   *  display a PDF at all. The reply carries the page count so the viewer can
+   *  ask for the rest as it scrolls. */
+  previewDocumentPages?(
+    projectPath: string,
+    relPath: string,
+    accessToken?: string,
+    options?: { pages?: number[]; maxWidth?: number },
+  ): Promise<DesktopDocumentPreviewPages>;
   writeProjectFile?(
     projectPath: string,
     relPath: string,
@@ -1685,6 +1741,16 @@ export interface DesktopApi {
   /** Settings → Connection: revoke one browser while preserving every other
    *  browser's individual credential. */
   revokeRemoteAccessClient?(clientId: string): Promise<DesktopRemoteAccessInfo | null>;
+  /** Web Push. Only the relay shim implements these — an Electron window has
+   *  the taskbar/dock signal instead, and its absence is what hides the
+   *  notification toggle outside the web app. */
+  pushPublicKey?(): Promise<string>;
+  registerPushSubscription?(input: {
+    endpoint: string;
+    p256dh: string;
+    auth: string;
+  }): Promise<boolean>;
+  removePushSubscription?(endpoint: string): Promise<boolean>;
   /** A web app with no credential is asking to connect. Only the in-process
    *  desktop implements these: the approval has to happen where the user is. */
   subscribeRemoteClientClaim?(
@@ -1869,15 +1935,10 @@ export interface DesktopApi {
   /** Current visible Browser Use page only. Passwords never cross this API. */
   browserCredentialSuggestions?(): Promise<DesktopBrowserCredentialSuggestion[]>;
   browserCredentialFill?(credentialId: string): Promise<DesktopBrowserCredentialFillResult>;
-  /** Agent handoff banner: null clears the current request. */
-  onBrowserHandoffChanged?(
-    listener: (request: DesktopBrowserHandoffRequest | null) => void,
-  ): () => void;
-  browserHandoffResolve?(handoffId: string, completed: boolean): Promise<boolean>;
-  /** Live agent browser activity; null once nothing is running. */
-  onBrowserActivityChanged?(
-    listener: (activity: DesktopBrowserActivity | null) => void,
-  ): () => void;
+  /** Paired web app: pixels and bounded human input target the desktop's
+   * current Browser Use guest, preserving its cookies and agent-visible page. */
+  remoteBrowserFrame?(previousFrameId?: string): Promise<DesktopRemoteBrowserFrame>;
+  remoteBrowserControl?(input: DesktopRemoteBrowserControl): Promise<void>;
   /** systemPreference keeps DWM on 'system' so OS theme tracking survives. */
   applyTitleBarTheme(theme: string, systemPreference?: boolean): Promise<void>;
   /** Scrim-composited WCO caption colors while a fullscreen modal is open;

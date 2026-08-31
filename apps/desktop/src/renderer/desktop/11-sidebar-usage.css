@@ -152,9 +152,9 @@
 .sidebar-usage-meters {
   display: grid;
   gap: 6px;
-  /* Start the period column under the provider name (20px icon + 5px gap)
-     so labels never poke out past the logo (user: 로고보다 기간이 더 앞). */
-  padding-left: 25px;
+  /* Use the provider icon's left edge for every quota row. This removes the
+     nested-list indent and gives the meter more room in the narrow flyout. */
+  padding-left: 0;
 }
 .sidebar-usage-meter {
   min-width: 0;

@@ -442,6 +442,32 @@ function Close-SessionState($state, [bool]$save) {
   }
   try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($state.App) } catch {}
   $state.App = $null
+  if ($state.Format -eq 'pptx') {
+    try {
+      $null = Close-PowerPointChartExcelApplications ($state.Ownership -eq 'owned')
+    } catch {}
+  }
+  if ($state.Ownership -eq 'owned' -and $state.Format -eq 'pptx' -and [int]$state.AppPid -gt 0) {
+    $children = @(
+      Get-CimInstance Win32_Process `
+        -Filter "ParentProcessId = $([int]$state.AppPid) AND Name = 'EXCEL.EXE'" `
+        -ErrorAction SilentlyContinue
+    )
+    foreach ($child in $children) {
+      $childProcess = $null
+      try { $childProcess = [System.Diagnostics.Process]::GetProcessById([int]$child.ProcessId) } catch {}
+      if ($null -eq $childProcess) { continue }
+      $exited = $false
+      try { $exited = [bool]$childProcess.WaitForExit(500) } catch { $exited = $true }
+      if (-not $exited) {
+        try {
+          $childProcess.Kill()
+          $null = $childProcess.WaitForExit(1000)
+        } catch {}
+      }
+      try { $childProcess.Dispose() } catch {}
+    }
+  }
   $exited = $null -eq $process
   if (-not $exited) {
     try { $exited = [bool]$process.WaitForExit(250) } catch { $exited = $true }
@@ -555,17 +581,35 @@ function Reopen-BackgroundPowerPointSession($state, [string]$restorePath = '') {
   return $state.Document
 }
 
+function Snapshot-SessionDocument($document, [string]$format, $payload) {
+  if ($format -eq 'xlsx') {
+    return Invoke-ExcelComRetry {
+      return Snapshot-Document $document $format $payload
+    } 'Excel session snapshot'
+  }
+  return Snapshot-Document $document $format $payload
+}
+
+function Issues-SessionDocument($document, [string]$format, $payload) {
+  if ($format -eq 'xlsx') {
+    return Invoke-ExcelComRetry {
+      return Issues-Document $document $format $payload
+    } 'Excel session issue inspection'
+  }
+  return Issues-Document $document $format $payload
+}
+
 function Invoke-SessionAction($state, $payload) {
   $document = $state.Document
   $format = $state.Format
   switch ([string]$payload.action) {
     'snapshot' {
-      $value = Snapshot-Document $document $format $payload
+      $value = Snapshot-SessionDocument $document $format $payload
       return Session-Response $state ([ordered]@{ value = $value })
     }
     'issues' {
       $wasSaved = [bool]$document.Saved
-      $value = Issues-Document $document $format $payload
+      $value = Issues-SessionDocument $document $format $payload
       if ($wasSaved -and -not [bool]$document.Saved) { $document.Saved = $true }
       return Session-Response $state ([ordered]@{ value = $value })
     }
@@ -574,11 +618,11 @@ function Invoke-SessionAction($state, $payload) {
       # Starting a second Word/Excel/PowerPoint COM application can bind to the
       # same process; quitting that validator then destroys this live session.
       $wasSaved = [bool]$document.Saved
-      $snapshot = Snapshot-Document $document $format ([ordered]@{})
+      $snapshot = Snapshot-SessionDocument $document $format ([ordered]@{})
       $inspection = if ($null -ne $payload.inspectIssues -and -not [bool]$payload.inspectIssues) {
         [ordered]@{ ok = $true; issueCount = 0; issues = @() }
       } else {
-        Issues-Document $document $format ([ordered]@{})
+        Issues-SessionDocument $document $format ([ordered]@{})
       }
       if ($wasSaved -and -not [bool]$document.Saved) { $document.Saved = $true }
       $value = [ordered]@{
@@ -593,7 +637,7 @@ function Invoke-SessionAction($state, $payload) {
     }
     'checkpoint' {
       $output = [System.IO.Path]::GetFullPath([string]$payload.output)
-      $value = Snapshot-Document $document $format $payload
+      $value = Snapshot-SessionDocument $document $format $payload
       if ($format -eq 'docx') {
         return Session-Response $state ([ordered]@{
           fingerprint = Snapshot-Fingerprint $value
@@ -744,7 +788,7 @@ function Invoke-SessionAction($state, $payload) {
       } else {
         Rollback-LiveDocument $document $format ([string]$payload.checkpoint) ([int]$payload.undoUnits)
       }
-      $value = Snapshot-Document $document $format $payload
+      $value = Snapshot-SessionDocument $document $format $payload
       if ($state.Mode -eq 'background') { Save-Document $document $format }
       return Session-Response $state ([ordered]@{ rolledBack = $true; value = $value })
     }
@@ -764,8 +808,13 @@ function Invoke-SessionAction($state, $payload) {
         $document = $state.Document
         $reopened = $true
       }
-      $snapshot = Snapshot-Document $document $format ([ordered]@{})
-      $inspection = Issues-Document $document $format ([ordered]@{})
+      if ($format -eq 'xlsx' -and -not [bool]$document.Saved) {
+        Save-Document $document $format
+      }
+      $wasSaved = [bool]$document.Saved
+      $snapshot = Snapshot-SessionDocument $document $format ([ordered]@{})
+      $inspection = Issues-SessionDocument $document $format ([ordered]@{})
+      if ($wasSaved -and -not [bool]$document.Saved) { $document.Saved = $true }
       return Session-Response $state ([ordered]@{
         value = [ordered]@{
           ok = [bool]$inspection.ok

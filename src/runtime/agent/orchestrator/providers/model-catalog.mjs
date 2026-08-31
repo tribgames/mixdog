@@ -22,6 +22,12 @@ import {
     providerCachedModelMetadataSync,
     providerUsesEndpointScopedLimits,
 } from './provider-catalog-cache.mjs';
+// Both overlays are narrowed to their read surface before becoming resident;
+// the disk caches below still receive the full payload.
+import {
+    projectLitellmCatalog,
+    projectModelsDevCatalog,
+} from './model-catalog-projection.mjs';
 
 const CATALOG_URL = 'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json';
 const CATALOG_CACHE_FILE = 'litellm-catalog.json';
@@ -221,15 +227,15 @@ async function _loadCatalogImpl(fetchFn = fetch) {
         try {
             writeJsonAtomicSync(cachePath(), { fetchedAt: Date.now(), data }, { lock: true, compact: true, fsyncDir: true, timeoutMs: 1000 });
         } catch { /* cache is best-effort */ }
-        _memCache = data;
+        _memCache = projectLitellmCatalog(data);
         _memCacheAt = Date.now();
         _catalogFetchedRemote = true;
-        return data;
+        return _memCache;
     } catch (err) {
         process.stderr.write(`[model-catalog] fetch failed: ${err.message}\n`);
         const raw = readDiskCatalog(cachePath());
         if (raw?.data) {
-            _memCache = raw.data;
+            _memCache = projectLitellmCatalog(raw.data);
             _memCacheAt = raw.fetchedAt || Date.now();
             _catalogFetchedRemote = true;
             return _memCache;
@@ -269,7 +275,7 @@ function warmFromDiskSync() {
     try {
         const raw = JSON.parse(readFileSync(cachePath(), 'utf-8'));
         if (raw?.data) {
-            _memCache = raw.data;
+            _memCache = projectLitellmCatalog(raw.data);
             _memCacheAt = raw.fetchedAt || Date.now();
         }
     } catch { /* disk cache unavailable — stay cold, async warm will fill later */ }
@@ -291,15 +297,15 @@ async function _loadModelsDevImpl(fetchFn = fetch) {
         try {
             writeJsonAtomicSync(mdCachePath(), { fetchedAt: Date.now(), data }, { lock: true, compact: true, fsyncDir: true, timeoutMs: 1000 });
         } catch { /* cache is best-effort */ }
-        _mdCache = data;
+        _mdCache = projectModelsDevCatalog(data);
         _mdCacheAt = Date.now();
         _mdFetchedRemote = true;
-        return data;
+        return _mdCache;
     } catch (err) {
         process.stderr.write(`[model-catalog] models.dev fetch failed: ${err.message}\n`);
         const raw = readDiskCatalog(mdCachePath());
         if (raw?.data) {
-            _mdCache = raw.data;
+            _mdCache = projectModelsDevCatalog(raw.data);
             _mdCacheAt = raw.fetchedAt || Date.now();
             _mdFetchedRemote = true;
             return _mdCache;
@@ -336,7 +342,7 @@ function warmModelsDevFromDiskSync() {
     try {
         const raw = JSON.parse(readFileSync(mdCachePath(), 'utf-8'));
         if (raw?.data) {
-            _mdCache = raw.data;
+            _mdCache = projectModelsDevCatalog(raw.data);
             _mdCacheAt = raw.fetchedAt || Date.now();
         }
     } catch { /* cold — async loadModelsDevCatalog will fill later */ }

@@ -14,9 +14,16 @@ import {
   normalizePageUrl,
   normalizeBackgroundTabName,
   redactBrowserText,
+  redactBrowserKnownSecrets,
+  redactBrowserUrl,
+  selectAndRefreshActiveBrowserGuest,
   selectActiveBrowserGuest,
 } from './browser-host-policy.ts';
+import { createBrowserCommandQueue } from './browser-command-queue.ts';
 import { BROWSER_CREDENTIAL_AUTOFILL_FUNCTION } from './browser-credential-autofill.ts';
+import { createBrowserUrlAdmission } from './browser-url-admission.ts';
+import { createBrowserInitScripts } from './browser-init-scripts.ts';
+import { createBrowserEmulation } from './browser-emulation.ts';
 
 test('background browser tab names are bounded and cannot impersonate visible tabs', () => {
   assert.equal(normalizeBackgroundTabName(''), 'bg');
@@ -56,6 +63,71 @@ test('focused browser guest selection follows explicit activity without arbitrar
   alpha.destroyed = true;
   current = selectActiveBrowserGuest(guests, alpha, beta.id, false);
   assert.equal(current, null);
+});
+
+test('active browser guest repaints on activation and foreground return', () => {
+  const alpha = {
+    id: 1,
+    destroyed: false,
+    repaints: 0,
+    isDestroyed() { return this.destroyed; },
+    invalidate() { this.repaints += 1; },
+  };
+  const beta = {
+    id: 2,
+    destroyed: false,
+    repaints: 0,
+    isDestroyed() { return this.destroyed; },
+    invalidate() { this.repaints += 1; },
+  };
+  const guests = new Set([alpha, beta]);
+  let current = selectAndRefreshActiveBrowserGuest(guests, null, alpha.id, true);
+  assert.equal(current, alpha);
+  assert.equal(alpha.repaints, 1);
+
+  current = selectAndRefreshActiveBrowserGuest(guests, current, alpha.id, true);
+  assert.equal(current, alpha);
+  assert.equal(alpha.repaints, 2);
+
+  current = selectAndRefreshActiveBrowserGuest(guests, current, beta.id, false);
+  assert.equal(current, alpha);
+  assert.equal(beta.repaints, 0);
+
+  current = selectAndRefreshActiveBrowserGuest(guests, current, beta.id, true);
+  assert.equal(current, beta);
+  assert.equal(beta.repaints, 1);
+});
+
+test('queued Browser Use commands release immediately when cancelled before dispatch', async () => {
+  let releasePrevious;
+  const previous = new Promise((resolve) => {
+    releasePrevious = resolve;
+  });
+  const chains = new Map([['foreground', previous]]);
+  let dispatches = 0;
+  const queue = createBrowserCommandQueue({
+    chains,
+    pendingReads: new Map(),
+    backgroundEntryByPageId: () => null,
+    run: async () => {
+      dispatches += 1;
+      return { text: 'unexpected' };
+    },
+    bounded: async (operation) => await operation,
+    readOnlyActions: new Set(),
+    commandTimeoutMs: 45_000,
+  });
+  const controller = new AbortController();
+  const pending = queue.executeSerialized({ action: 'open' }, controller.signal);
+  controller.abort(new Error('fixture cancelled'));
+  await assert.rejects(pending, /fixture cancelled/);
+  assert.equal(dispatches, 0);
+  const next = queue.executeSerialized({ action: 'open' });
+  await Promise.resolve();
+  assert.equal(dispatches, 0);
+  releasePrevious();
+  await next;
+  assert.equal(dispatches, 1);
 });
 
 function refPointHarness() {
@@ -176,6 +248,155 @@ test('browser URL policy blocks credentials, metadata, and private networks but 
   );
   assert.throws(() => normalizePageUrl('https://user:pass@example.com'), /embedded credentials/);
   assert.throws(() => normalizePageUrl('http://169.254.169.254/latest/meta-data'), /metadata/);
+  assert.throws(() => normalizePageUrl('file:///C:/Users/example/secrets.txt'), /only http\(s\)/);
+});
+
+test('browser URL admission rechecks completed DNS answers and coalesces only concurrent lookups', async () => {
+  let calls = 0;
+  let releaseFirst;
+  const firstLookup = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  const admission = createBrowserUrlAdmission({
+    policy: {},
+    lookupAddresses: async () => {
+      calls += 1;
+      if (calls === 1) {
+        await firstLookup;
+        return [{ address: '93.184.216.34' }];
+      }
+      return [{ address: '192.168.1.10' }];
+    },
+  });
+  const first = admission.assertResolvedUrlAllowed('https://rebind.example.test/');
+  const concurrent = admission.assertResolvedUrlAllowed('https://rebind.example.test/image.png');
+  releaseFirst();
+  await Promise.all([first, concurrent]);
+  assert.equal(calls, 1, 'concurrent requests should share one DNS lookup');
+
+  await assert.rejects(
+    admission.assertResolvedUrlAllowed('https://rebind.example.test/private'),
+    /resolved to blocked private or internal address 192\.168\.1\.10/,
+  );
+  await admission.assertResolvedUrlAllowed('http://[::1]:8080/fixture');
+  assert.equal(calls, 2, 'a later request must recheck DNS after the first lookup completed');
+
+  const unresolved = createBrowserUrlAdmission({
+    policy: {},
+    lookupAddresses: async () => {
+      throw new Error('fixture DNS failure');
+    },
+  });
+  await assert.rejects(
+    unresolved.assertResolvedUrlAllowed('https://unresolved.example.test/'),
+    /could not be resolved for private-network validation/,
+  );
+
+  let releasePending;
+  const pendingLookup = new Promise((resolve) => {
+    releasePending = resolve;
+  });
+  const bounded = createBrowserUrlAdmission({
+    policy: {},
+    maxPendingResolutions: 1,
+    lookupAddresses: async () => {
+      await pendingLookup;
+      return [{ address: '93.184.216.34' }];
+    },
+  });
+  const occupied = bounded.assertResolvedUrlAllowed('https://one.example.test/');
+  await assert.rejects(
+    bounded.assertResolvedUrlAllowed('https://two.example.test/'),
+    /too many concurrent browser DNS validations/,
+  );
+  releasePending();
+  await occupied;
+
+  const socketAdmission = createBrowserUrlAdmission({
+    policy: {},
+    lookupAddresses: async () => [{ address: '93.184.216.34' }],
+  });
+  await socketAdmission.assertResolvedResourceUrlAllowed('wss://socket.example.test/live');
+  await assert.rejects(
+    socketAdmission.assertResolvedResourceUrlAllowed('ws://169.254.169.254/latest/meta-data'),
+    /cloud metadata endpoints is blocked/,
+  );
+});
+
+test('init script clear preserves only transient failures so cleanup can be retried', async () => {
+  const guest = {};
+  let identifier = 0;
+  let failSecondRemoval = true;
+  const scripts = createBrowserInitScripts({
+    guestDebugger: async () => ({}),
+    cdpTimeoutMs: 100,
+    sendCdp: async (_guest, _cdp, method, params) => {
+      if (method === 'Page.addScriptToEvaluateOnNewDocument') {
+        identifier += 1;
+        return { identifier: `cdp-${identifier}` };
+      }
+      if (params.identifier === 'cdp-2' && failSecondRemoval) {
+        throw new Error('fixture transient failure');
+      }
+      return {};
+    },
+  });
+  await scripts.initScriptResult(guest, { operation: 'add', script: 'window.one = 1;' });
+  await scripts.initScriptResult(guest, { operation: 'add', script: 'window.two = 2;' });
+  await assert.rejects(
+    scripts.initScriptResult(guest, { operation: 'clear' }),
+    /1 could not be removed; retry clear/,
+  );
+  const remaining = await scripts.initScriptResult(guest, { operation: 'list' });
+  assert.doesNotMatch(remaining.text, /\[is1\]/);
+  assert.match(remaining.text, /\[is2\]/);
+
+  failSecondRemoval = false;
+  assert.match(
+    (await scripts.initScriptResult(guest, { operation: 'clear' })).text,
+    /Removed 1 init script/,
+  );
+});
+
+test('emulation validates compound input before attaching CDP or partially resetting the page', async () => {
+  let debuggerCalls = 0;
+  let cdpCalls = 0;
+  const emulation = createBrowserEmulation({
+    guestDebugger: async () => {
+      debuggerCalls += 1;
+      return {};
+    },
+    sendCdp: async () => {
+      cdpCalls += 1;
+      return {};
+    },
+    invalidateInteractionState() {},
+    snapshotResult: async () => ({ text: 'fixture snapshot' }),
+    cdpTimeoutMs: 100,
+  });
+  const guest = {};
+  await assert.rejects(
+    emulation.applyEmulation(guest, { reset: true, width: 390 }),
+    /requires width and height together/,
+  );
+  await assert.rejects(
+    emulation.applyEmulation(guest, {
+      width: 390,
+      height: 844,
+      networkProfile: 'satellite',
+    }),
+    /networkProfile must be none, offline, slow3g, or fast3g/,
+  );
+  await assert.rejects(
+    emulation.applyEmulation(guest, { latitude: 37.5 }),
+    /latitude and longitude together/,
+  );
+  await assert.rejects(
+    emulation.applyEmulation(guest, { reset: true, timezone: 'Not/A_Real_Zone' }),
+    /timezone must be a valid IANA timezone/,
+  );
+  assert.equal(debuggerCalls, 0);
+  assert.equal(cdpCalls, 0);
 });
 
 test('browser URL secret detection covers encoded token shapes without blocking ordinary keys', () => {
@@ -193,6 +414,21 @@ test('browser output redacts URL credentials and common token shapes', () => {
   );
   assert.doesNotMatch(redacted, /secret|abc123|abcdefghijklmnop|ghp_/);
   assert.match(redacted, /\[REDACTED/);
+  assert.doesNotMatch(
+    redactBrowserText('{"access_token":"opaque-value","name":"safe"}'),
+    /opaque-value/,
+  );
+  assert.doesNotMatch(
+    redactBrowserUrl('https://example.test/callback?code=opaque-code&state=public'),
+    /opaque-code/,
+  );
+});
+
+test('known browser credential redaction never amplifies short secrets', () => {
+  const source = 'a password can be short: a';
+  const redacted = redactBrowserKnownSecrets(source, ['a', '*']);
+  assert.equal(redacted.includes('a'), false);
+  assert.ok(redacted.length <= source.length);
 });
 
 test('DOM fallback semantic query ignores URL search parameters and reports the matched field', () => {
@@ -244,7 +480,7 @@ test('semantic snapshots include shadow controls, omit password values, and bind
   const dom = new JSDOM(
     '<!doctype html><title>Demo</title><button id="plain">Run</button>'
       + '<label for="secret">Password</label><input id="secret" type="password" value="do-not-leak">'
-      + '<div id="custom" role="button" aria-expanded="false">Custom</div><div id="host"></div>',
+      + `<div id="custom" role="button" aria-expanded="${'expanded '.repeat(100)}">Custom</div><div id="host"></div>`,
     { runScripts: 'outside-only', pretendToBeVisual: true, url: 'https://example.com/app' },
   );
   const { window } = dom;
@@ -285,6 +521,8 @@ test('semantic snapshots include shadow controls, omit password values, and bind
     assert.equal(password.sensitive, true);
     assert.equal(password.value, '');
     assert.doesNotMatch(JSON.stringify(payload), /do-not-leak/);
+    const custom = payload.elements.find((entry) => entry.name === 'Custom');
+    assert.ok(custom.states.every((state) => state.length <= 89));
     assert.ok(window.__mixdogAgentSnapshot.refs.has(payload.elements[0].ref));
   } finally {
     dom.window.close();

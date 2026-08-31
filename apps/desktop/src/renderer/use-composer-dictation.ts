@@ -74,6 +74,7 @@ export function useComposerDictation({
   invokeResult,
   showNotice,
   confirmVoiceInstall,
+  onTranscriptSubmit,
 }: {
   transitioningRef: MutableRefObject<boolean>;
   textarea: MutableRefObject<HTMLTextAreaElement | null>;
@@ -81,6 +82,8 @@ export function useComposerDictation({
   invokeResult<T>(action: () => T | Promise<T>): Promise<T | undefined>;
   showNotice(message: string, durationMs?: number): void;
   confirmVoiceInstall(): Promise<boolean>;
+  /** Fired when a take ended by `stopDictationAndSend` produced real text. */
+  onTranscriptSubmit?(): void;
 }) {
   const [dictationState, setDictationState] = useState<DictationState>("idle");
   // Elapsed time backs the composer's recording overlay: the disc alone
@@ -95,6 +98,7 @@ export function useComposerDictation({
     stream: MediaStream;
     chunks: Blob[];
     cancelled: boolean;
+    submitOnStop: boolean;
     stopTimer: number;
     meter: DictationMeter | null;
   } | null>(null);
@@ -158,6 +162,7 @@ export function useComposerDictation({
         stream,
         chunks: [] as Blob[],
         cancelled: false,
+        submitOnStop: false,
         stopTimer: 0,
         meter: null as DictationMeter | null,
       };
@@ -202,6 +207,10 @@ export function useComposerDictation({
                 ? `${current}${/\s$/.test(current) ? "" : " "}${text}`
                 : text);
               window.setTimeout(() => textarea.current?.focus(), 0);
+              // Only a take that produced words is allowed to send itself. A
+              // silent or failed transcription falls back to the ordinary
+              // draft, so nothing is ever posted blind.
+              if (session.submitOnStop) onTranscriptSubmit?.();
             }
           } finally {
             setDictationState("idle");
@@ -233,7 +242,31 @@ export function useComposerDictation({
     } finally {
       dictationPreparing.current = false;
     }
-  }, [confirmVoiceInstall, dictationState, invokeResult, setDraft, showNotice, textarea, transitioningRef]);
+  }, [
+    confirmVoiceInstall,
+    dictationState,
+    invokeResult,
+    onTranscriptSubmit,
+    setDraft,
+    showNotice,
+    textarea,
+    transitioningRef,
+  ]);
+
+  // Speaking straight into the conversation (user: 입력 버튼 누르면 텍스트가
+  // 아니라 즉시 발송): the take ends, the transcript lands in the draft, and
+  // the composer submits it — one press instead of stop, read, send. The mic
+  // disc keeps the editing path for takes worth checking first.
+  const stopDictationAndSend = useCallback(() => {
+    const active = dictationSession.current;
+    if (!active || active.cancelled) return;
+    active.submitOnStop = true;
+    try {
+      active.recorder.stop();
+    } catch {
+      // The recorder already stopped.
+    }
+  }, []);
 
   // Discarding is its own path: `toggleDictation` always transcribes what it
   // stopped, so a take started by mistake had no way back (overlay ×, Esc).
@@ -298,5 +331,12 @@ export function useComposerDictation({
     for (const track of session.stream.getTracks()) track.stop();
   }, []);
 
-  return { dictationState, toggleDictation, cancelDictation, recordingElapsedMs, dictationLevelRef };
+  return {
+    dictationState,
+    toggleDictation,
+    stopDictationAndSend,
+    cancelDictation,
+    recordingElapsedMs,
+    dictationLevelRef,
+  };
 }

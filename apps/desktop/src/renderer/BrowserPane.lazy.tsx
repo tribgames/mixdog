@@ -9,28 +9,23 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  Cookie,
   Download,
   ExternalLink,
   Globe,
-  Hand,
-  History,
   KeyRound,
   LoaderCircle,
   RotateCw,
-  Sparkles,
   X,
 } from "lucide-react";
 
 import { t } from "./i18n";
+import { normalizeAddressInput } from "./browser-address";
+import { BrowserImportDialog } from "./BrowserImportDialog";
+import { watchBrowserForegroundReturns } from "./browser-foreground-lifecycle";
+import RemoteBrowserPane from "./RemoteBrowserPane";
 import type {
-  DesktopBrowserActivity,
   DesktopBrowserCredentialSuggestion,
-  DesktopBrowserHandoffRequest,
   DesktopBrowserHistoryEntry,
-  DesktopBrowserImportItem,
-  DesktopBrowserImportProgress,
-  DesktopBrowserImportSource,
 } from "../shared/contract";
 import "./desktop/32-browser-pane.css";
 
@@ -73,58 +68,19 @@ interface WebviewElement extends HTMLElement {
 const FIT_CONTENT_WIDTH = 1160;
 const MIN_FIT_ZOOM = 0.5;
 
-/** Address-bar entry → URL: explicit schemes pass through, host-shaped text
- *  gets https://, anything else becomes a web search. */
-export function normalizeAddressInput(input: string): string {
-  const text = input.trim();
-  if (!text) return "";
-  if (/^(https?|file|about):/i.test(text)) return text;
-  const hostLike = /^[\w.-]+\.[a-z]{2,}(:\d+)?([/?#]\S*)?$/i.test(text)
-    || /^localhost(:\d+)?([/?#]\S*)?$/i.test(text)
-    || /^\d{1,3}(\.\d{1,3}){3}(:\d+)?([/?#]\S*)?$/i.test(text);
-  if (hostLike && !/\s/.test(text)) return `https://${text}`;
-  return `https://www.google.com/search?q=${encodeURIComponent(text)}`;
-}
+export { normalizeAddressInput } from "./browser-address";
 
-/** Progress strip wording. A general user watching the page should never have
- *  to read tool calls, so every action collapses into one plain sentence. */
-function browserActivityLabel(action: string): string {
-  switch (action) {
-    case "navigate":
-    case "back":
-    case "forward":
-      return t("Opening a page");
-    case "wait":
-      return t("Waiting for the page");
-    case "upload":
-      return t("Uploading a file");
-    case "handoff":
-      return t("Waiting for you");
-    case "snapshot":
-    case "read":
-    case "extract":
-    case "locate":
-    case "status":
-    case "console":
-    case "network":
-    case "list_tabs":
-    case "downloads":
-    case "performance":
-      return t("Reading the page");
-    default:
-      return t("Acting on the page");
-  }
-}
-
-export default function BrowserPane({
-  paneId,
-  active,
-  foreground,
-}: {
+export interface BrowserPaneProps {
   paneId: string;
   active: boolean;
   foreground: boolean;
-}) {
+}
+
+function DesktopBrowserPane({
+  paneId,
+  active,
+  foreground,
+}: BrowserPaneProps) {
   const webviewRef = useRef<WebviewElement | null>(null);
   const addressRef = useRef<HTMLInputElement | null>(null);
   const addressFocused = useRef(false);
@@ -141,52 +97,7 @@ export default function BrowserPane({
   const [credentialStatus, setCredentialStatus] = useState<"idle" | "success" | "error">("idle");
   const [pageFailure, setPageFailure] = useState<BrowserPageFailure | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [importSources, setImportSources] = useState<DesktopBrowserImportSource[]>([]);
-  const [importSourceId, setImportSourceId] = useState("");
-  const [importProfileId, setImportProfileId] = useState("");
-  const [importItems, setImportItems] = useState<Record<DesktopBrowserImportItem, boolean>>({
-    passwords: true,
-    cookies: true,
-    history: true,
-  });
-  const [administratorApproved, setAdministratorApproved] = useState(false);
-  const [importBusy, setImportBusy] = useState(false);
-  const [importLoading, setImportLoading] = useState(false);
-  const [importFinished, setImportFinished] = useState(false);
-  const [importError, setImportError] = useState("");
-  const [importProgress, setImportProgress] = useState<
-    Partial<Record<DesktopBrowserImportItem, DesktopBrowserImportProgress>>
-  >({});
-  const [activity, setActivity] = useState<DesktopBrowserActivity | null>(null);
-  const [goal, setGoal] = useState("");
-  const [handoff, setHandoff] = useState<DesktopBrowserHandoffRequest | null>(null);
-  const [handoffBusy, setHandoffBusy] = useState(false);
   const desktopApi = window.mixdogDesktop;
-
-  // Agent handoff: the browser tool parked on a captcha, a 2FA prompt, or an
-  // identity check. Main clears the request by publishing null.
-  useEffect(() => {
-    const subscribe = desktopApi?.onBrowserHandoffChanged;
-    if (!subscribe) return undefined;
-    return subscribe((request) => {
-      setHandoff(request);
-      setHandoffBusy(false);
-    });
-  }, [desktopApi]);
-
-  // Progress strip: main publishes null as soon as the last command settles.
-  useEffect(() => {
-    const subscribe = desktopApi?.onBrowserActivityChanged;
-    if (!subscribe) return undefined;
-    return subscribe(setActivity);
-  }, [desktopApi]);
-
-  const resolveHandoff = useCallback((completed: boolean) => {
-    const resolve = desktopApi?.browserHandoffResolve;
-    if (!handoff || !resolve || handoffBusy) return;
-    setHandoffBusy(true);
-    void resolve(handoff.id, completed).catch(() => setHandoffBusy(false));
-  }, [desktopApi, handoff, handoffBusy]);
 
   useEffect(() => {
     const view = webviewRef.current;
@@ -202,9 +113,13 @@ export default function BrowserPane({
       } catch { /* guest not attached yet; did-attach/dom-ready retries */ }
     };
     report();
+    const stopForegroundReturnReporting = foreground
+      ? watchBrowserForegroundReturns(window, document, report)
+      : () => {};
     view.addEventListener("did-attach", report);
     view.addEventListener("dom-ready", report);
     return () => {
+      stopForegroundReturnReporting();
       view.removeEventListener("did-attach", report);
       view.removeEventListener("dom-ready", report);
       if (reportedId) void setGuestActive(paneId, reportedId, false).catch(() => {});
@@ -323,30 +238,49 @@ export default function BrowserPane({
   // because Chromium's per-origin zoom memory would otherwise override it.
   const desiredZoom = useRef(1);
   useEffect(() => {
+    if (!active) return undefined;
     const view = webviewRef.current;
     if (!view) return undefined;
+    let restoreFrame = 0;
     const applyZoom = () => {
       try {
         view.setZoomFactor(desiredZoom.current);
       } catch { /* guest not attached yet; dom-ready reapplies */ }
     };
-    const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width || view.clientWidth;
+    const syncZoom = (width: number, force = false) => {
       if (!width) return;
       const zoom = Math.min(1, Math.max(MIN_FIT_ZOOM, width / FIT_CONTENT_WIDTH));
-      if (Math.abs(zoom - desiredZoom.current) < 0.01) return;
-      desiredZoom.current = zoom;
-      applyZoom();
+      const changed = Math.abs(zoom - desiredZoom.current) >= 0.01;
+      if (changed) desiredZoom.current = zoom;
+      if (changed || force) applyZoom();
+    };
+    const restoreVisibleGuest = () => {
+      window.cancelAnimationFrame(restoreFrame);
+      restoreFrame = window.requestAnimationFrame(() => {
+        syncZoom(view.clientWidth, true);
+      });
+    };
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width || view.clientWidth;
+      syncZoom(width);
     });
     observer.observe(view);
+    const stopForegroundReturnReporting = watchBrowserForegroundReturns(
+      window,
+      document,
+      restoreVisibleGuest,
+    );
     view.addEventListener("dom-ready", applyZoom);
     view.addEventListener("did-navigate", applyZoom);
+    restoreVisibleGuest();
     return () => {
+      window.cancelAnimationFrame(restoreFrame);
+      stopForegroundReturnReporting();
       observer.disconnect();
       view.removeEventListener("dom-ready", applyZoom);
       view.removeEventListener("did-navigate", applyZoom);
     };
-  }, []);
+  }, [active]);
 
   // A fresh, blank browser tab is for typing an address first.
   useEffect(() => {
@@ -388,89 +322,6 @@ export default function BrowserPane({
     };
   }, [address, addressHasFocus, desktopApi]);
 
-  const closeImporter = useCallback(() => {
-    if (importBusy) return;
-    setImportOpen(false);
-    setImportFinished(false);
-    setImportError("");
-    setImportProgress({});
-    setAdministratorApproved(false);
-  }, [importBusy]);
-
-  const openImporter = useCallback(() => {
-    if (!desktopApi?.browserProfileImportSources || importBusy) return;
-    setImportOpen(true);
-    setImportLoading(true);
-    setImportFinished(false);
-    setImportError("");
-    setImportProgress({});
-    void desktopApi.browserProfileImportSources().then((sources) => {
-      setImportSources(sources);
-      const source = sources[0];
-      const profile = source?.profiles[0];
-      setImportSourceId(source?.id || "");
-      setImportProfileId(profile?.id || "");
-      setImportItems({
-        passwords: source?.supports.passwords === true,
-        cookies: source?.supports.cookies === true,
-        history: source?.supports.history === true,
-      });
-      if (!source || !profile) setImportError("가져올 수 있는 Chrome 프로필을 찾지 못했습니다.");
-    }).catch((reason) => {
-      setImportError(reason instanceof Error ? reason.message : String(reason));
-    }).finally(() => setImportLoading(false));
-  }, [desktopApi, importBusy]);
-
-  useEffect(() => {
-    if (!desktopApi?.onBrowserProfileImportProgress) return undefined;
-    return desktopApi.onBrowserProfileImportProgress((progress) => {
-      setImportProgress((current) => ({
-        ...current,
-        [progress.item]: progress,
-      }));
-    });
-  }, [desktopApi]);
-
-  const startImport = useCallback(() => {
-    if (!desktopApi?.browserProfileImportStart || importBusy) return;
-    const selectedItems = (Object.keys(importItems) as DesktopBrowserImportItem[])
-      .filter((item) => importItems[item]);
-    if (!selectedItems.length) {
-      setImportError("가져올 항목을 하나 이상 선택하세요.");
-      return;
-    }
-    if (selectedItems.includes("passwords") && !administratorApproved) {
-      setImportError("저장된 비밀번호를 가져오려면 관리자 승인 안내를 확인하세요.");
-      return;
-    }
-    const jobId = crypto.randomUUID().replaceAll("-", "");
-    setImportBusy(true);
-    setImportFinished(false);
-    setImportError("");
-    setImportProgress({});
-    void desktopApi.browserProfileImportStart({
-      jobId,
-      sourceId: importSourceId,
-      profileId: importProfileId,
-      items: selectedItems,
-      administratorApproved,
-    }).then((result) => {
-      setImportFinished(true);
-      const failures = Object.values(result.errors).filter(Boolean);
-      if (failures.length) setImportError(failures.join("\n"));
-    }).catch((reason) => {
-      setImportError(reason instanceof Error ? reason.message : String(reason));
-    }).finally(() => setImportBusy(false));
-  }, [
-    administratorApproved,
-    desktopApi,
-    importBusy,
-    importItems,
-    importProfileId,
-    importSourceId,
-  ]);
-
-  const selectedSource = importSources.find((source) => source.id === importSourceId);
   const displayedUrl = currentUrl;
 
   const fillStoredCredential = useCallback((credentialId: string) => {
@@ -483,51 +334,6 @@ export default function BrowserPane({
     }).catch(() => setCredentialStatus("error"))
       .finally(() => setCredentialBusy(false));
   }, [credentialBusy, desktopApi]);
-
-  const importItemRow = (
-    item: DesktopBrowserImportItem,
-    label: string,
-    icon: React.ReactNode,
-  ) => {
-    const supported = selectedSource?.supports[item] !== false;
-    const progress = importProgress[item];
-    const selected = supported && importItems[item];
-    const showProgress = (importBusy || importFinished) && selected;
-    const progressState = progress?.state || (importBusy ? "running" : "failed");
-    return <label className={`browser-import-item${supported ? "" : " is-disabled"}`}>
-      <span className="browser-import-item-icon">{icon}</span>
-      <span className="browser-import-item-label">
-        <strong>{label}</strong>
-        {!supported && item === "passwords" && selectedSource?.passwordSupportReason
-          ? <small>{selectedSource.passwordSupportReason}</small>
-          : null}
-        {showProgress && progressState === "completed"
-          ? <small>{progress?.count?.toLocaleString() || "0"}개 가져옴</small>
-          : null}
-        {showProgress && progressState === "failed"
-          ? <small>가져오지 못함</small>
-          : null}
-      </span>
-      {showProgress
-        ? <span className={`browser-import-state is-${progressState}`}
-          aria-label={progressState === "completed" ? "완료" : progressState === "failed" ? "실패" : "진행 중"}>
-          {progressState === "completed"
-            ? <Check size={16} />
-            : progressState === "failed"
-              ? <AlertTriangle size={16} />
-              : <LoaderCircle size={16} className="is-spinning" />}
-        </span>
-        : importBusy || importFinished
-          ? <span className="browser-import-skipped">제외</span>
-        : <input type="checkbox"
-          checked={supported && importItems[item]}
-          disabled={!supported || importLoading}
-          onChange={(event) => setImportItems((current) => ({
-            ...current,
-            [item]: event.target.checked,
-          }))} />}
-    </label>;
-  };
 
   return <div className="browser-pane" data-pane-instance={paneId}
     data-surface-active={active ? "true" : "false"}>
@@ -638,91 +444,13 @@ export default function BrowserPane({
       </button>
       {desktopApi?.browserProfileImportSources && <button type="button"
         className="browser-pane-nav-button browser-pane-import-button"
-        disabled={importBusy}
-        onClick={openImporter}
+        onClick={() => setImportOpen(true)}
         aria-label="브라우저에서 가져오기"
         data-tooltip="브라우저에서 가져오기">
         <Download size={15} />
       </button>}
     </div>
-    {importOpen && <div className="browser-import-backdrop">
-      <section className="browser-import-dialog" role="dialog" aria-modal="true"
-        aria-label="브라우저에서 가져오기">
-        <header>
-          <div>
-            <h2>브라우저에서 가져오기</h2>
-            <p>{importBusy
-              ? "브라우저 데이터를 가져오는 중..."
-              : importFinished
-                ? importError
-                  ? "일부 데이터를 가져오지 못했습니다"
-                  : "브라우저 데이터를 가져왔습니다"
-                : "내장 브라우저로 가져올 데이터를 선택하세요"}</p>
-          </div>
-          {!importBusy && <button type="button" className="browser-pane-nav-button"
-            onClick={closeImporter} aria-label={t("Close")}>
-            <X size={16} />
-          </button>}
-        </header>
-        {!importBusy && !importFinished && <div className="browser-import-source">
-          <span>원본</span>
-          <select value={`${importSourceId}\u0000${importProfileId}`}
-            aria-label="가져올 Chrome 프로필"
-            disabled={importLoading}
-            onChange={(event) => {
-              const [sourceId, profileId] = event.target.value.split("\u0000");
-              const source = importSources.find((candidate) => candidate.id === sourceId);
-              setImportSourceId(sourceId);
-              setImportProfileId(profileId);
-              setImportItems({
-                passwords: source?.supports.passwords === true,
-                cookies: source?.supports.cookies === true,
-                history: source?.supports.history === true,
-              });
-              setAdministratorApproved(false);
-            }}>
-            {importSources.flatMap((source) => source.profiles.map((profile) =>
-              <option key={`${source.id}:${profile.id}`}
-                value={`${source.id}\u0000${profile.id}`}>
-                {source.name} · {profile.name}{profile.accountEmail ? ` (${profile.accountEmail})` : ""}
-              </option>))}
-          </select>
-        </div>}
-        <div className="browser-import-items">
-          {importItemRow("passwords", "저장된 비밀번호", <KeyRound size={18} />)}
-          {importItemRow("cookies", "쿠키", <Cookie size={18} />)}
-          {importItemRow("history", "방문 기록", <History size={18} />)}
-        </div>
-        {!importBusy && !importFinished && importItems.passwords && selectedSource?.supports.passwords && <label
-          className="browser-import-admin">
-          <strong>관리자 승인 필요</strong>
-          <span className="browser-import-admin-check">
-            <input type="checkbox" checked={administratorApproved}
-              onChange={(event) => setAdministratorApproved(event.target.checked)} />
-            앱이 Chrome 데이터를 가져오려고 관리자 승인을 요청한다는 점을 이해합니다
-          </span>
-        </label>}
-        {importError && <div className="browser-import-error">{importError}</div>}
-        <footer>
-          <button type="button" className="browser-import-secondary"
-            disabled={importBusy} onClick={closeImporter}>
-            {importFinished ? "닫기" : "취소"}
-          </button>
-          {(!importFinished || Boolean(importError)) && <button type="button" className="browser-import-primary"
-            disabled={
-              importBusy
-              || importLoading
-              || !importProfileId
-              || !(Object.values(importItems).some(Boolean))
-              || (importItems.passwords && selectedSource?.supports.passwords === true && !administratorApproved)
-            }
-            onClick={startImport}>
-            {importBusy ? <LoaderCircle size={15} className="is-spinning" /> : null}
-            {importFinished ? "다시 시도" : "가져오기"}
-          </button>}
-        </footer>
-      </section>
-    </div>}
+    <BrowserImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
     <div className="browser-pane-content">
       <webview ref={(element) => {
         webviewRef.current = element as unknown as WebviewElement | null;
@@ -735,21 +463,6 @@ export default function BrowserPane({
       {!currentUrl && <div className="browser-pane-empty" aria-hidden="true">
         <Globe size={28} />
         <span>{t("Search or enter address")}</span>
-      </div>}
-      {handoff && <div className="browser-pane-handoff" role="status" aria-live="polite">
-        <Hand className="browser-pane-handoff-icon" size={18} aria-hidden="true" />
-        <div className="browser-pane-handoff-body">
-          <strong>{t("The agent needs you to continue here")}</strong>
-          <span>{handoff.reason}</span>
-        </div>
-        <button type="button" onClick={() => resolveHandoff(false)} disabled={handoffBusy}>
-          {t("Cancel")}
-        </button>
-        <button type="button" className="is-primary"
-          onClick={() => resolveHandoff(true)} disabled={handoffBusy}>
-          <Check size={14} aria-hidden="true" />
-          {t("Done")}
-        </button>
       </div>}
       {pageFailure && <div className="browser-pane-failure" role="status" aria-live="polite">
         <AlertTriangle size={26} />
@@ -770,29 +483,12 @@ export default function BrowserPane({
         </button>
       </div>}
     </div>
-    {activity && <div className="browser-pane-activity" role="status" aria-live="polite">
-      <LoaderCircle className="browser-pane-activity-spin" size={13} aria-hidden="true" />
-      <span>{browserActivityLabel(activity.action)}</span>
-      {activity.background && <em>{t("in a background tab")}</em>}
-    </div>}
-    {/* Goal bar: the plain-language entry point. App owns what happens next —
-        the pane only reports the errand and the page it was stated on. */}
-    <form className="browser-pane-goal"
-      onSubmit={(event) => {
-        event.preventDefault();
-        const text = goal.trim();
-        if (!text) return;
-        window.dispatchEvent(new CustomEvent("mixdog:browser-task", {
-          detail: { text, url: currentUrl },
-        }));
-        setGoal("");
-      }}>
-      <Sparkles size={15} aria-hidden="true" />
-      <input type="text" value={goal} spellCheck={false}
-        placeholder={t("Ask the agent to do something with this page")}
-        aria-label={t("Ask the agent to do something with this page")}
-        onChange={(event) => setGoal(event.target.value)} />
-      <button type="submit" disabled={!goal.trim()}>{t("Start")}</button>
-    </form>
   </div>;
+}
+
+export default function BrowserPane(props: BrowserPaneProps) {
+  if (typeof window.mixdogDesktop?.remoteBrowserFrame === "function") {
+    return <RemoteBrowserPane {...props} />;
+  }
+  return <DesktopBrowserPane {...props} />;
 }

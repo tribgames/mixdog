@@ -23,6 +23,15 @@ export const CODE_GRAPH_DISK_MAX_BYTES = Math.max(
   1 * 1024 * 1024,
   Math.floor((Number(process.env.MIXDOG_CODE_GRAPH_CACHE_MAX_MB) || 80) * 1024 * 1024),
 );
+// Resident size of the in-memory mirror of those disk entries. The entry-count
+// cap above bounds the DISK set; it left MEMORY unbounded, because one indexed
+// monorepo root can serialize to several MB and 24 of them simply stayed
+// resident. Every entry is re-loadable from disk, so an evicted one costs a
+// single JSON.parse on its next lookup.
+export const CODE_GRAPH_DISK_MEMORY_MAX_BYTES = Math.max(
+  1 * 1024 * 1024,
+  Math.floor((Number(process.env.MIXDOG_CODE_GRAPH_DISK_MEMORY_MAX_MB) || 8) * 1024 * 1024),
+);
 // Reap writeFileAtomicSync debris only after this age (see _sweepCodeGraphCacheDir).
 // Younger .tmp files may belong to an in-flight persist still holding the sibling .lock;
 // DEFAULT_LOCK_TIMEOUT_MS is 8s — 120s is a safe margin for large graph JSON writes.

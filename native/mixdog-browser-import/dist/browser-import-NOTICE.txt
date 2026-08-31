@@ -1,0 +1,10 @@
+Chrome password import sidecar
+
+This directory contains a separate GPL-3.0 process built from:
+https://github.com/bitwarden/clients.git
+commit 6e2c2151f215df69b7cf75b43f189b2cba8b6b5e
+
+Mixdog wrapper source and the reproducible build script are in:
+native/mixdog-browser-import/
+
+The sidecar is invoked only from the packaged desktop main process.

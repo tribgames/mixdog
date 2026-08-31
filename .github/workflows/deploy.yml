@@ -44,10 +44,6 @@ jobs:
       spawn_bump: ${{ steps.plan.outputs.spawn_bump }}
       spawn_version: ${{ steps.plan.outputs.spawn_version }}
       spawn_tag: ${{ steps.plan.outputs.spawn_tag }}
-      token_build: ${{ steps.plan.outputs.token_build }}
-      token_bump: ${{ steps.plan.outputs.token_bump }}
-      token_version: ${{ steps.plan.outputs.token_version }}
-      token_tag: ${{ steps.plan.outputs.token_tag }}
       runtime_tag: ${{ steps.plan.outputs.runtime_tag }}
       native_changed: ${{ steps.plan.outputs.native_changed }}
       runtime_needed: ${{ steps.plan.outputs.runtime_needed }}
@@ -179,17 +175,10 @@ jobs:
             tagPrefix: 'spawn-v',
             paths: ['native/mixdog-spawn'],
           });
-          const token = component({
-            name: 'token',
-            manifestPath: 'src/runtime/agent/orchestrator/tools/token-manifest.json',
-            cargoPath: 'native/mixdog-token/Cargo.toml',
-            tagPrefix: 'token-v',
-            paths: ['native/mixdog-token'],
-          });
           const runtimeTag = readJson('src/runtime/memory/data/runtime-manifest.json').release_tag;
           if (!/^runtime-v\d+\.\d+\.\d+$/.test(runtimeTag)) throw new Error(`Invalid runtime tag ${runtimeTag}`);
           const nativeChanged = mode !== 'skip'
-            && [patch, graph, spawn, token].some(component => component.build);
+            && [patch, graph, spawn].some(component => component.build);
           const runtimeNeeded = mode !== 'skip' && (mode === 'force' || changedSince(currentTag, [
             '.github/workflows/build-runtime.yml',
             'scripts/build-runtime-linux.sh',
@@ -240,10 +229,6 @@ jobs:
             spawn_bump: String(mode !== 'skip' && spawn.bump),
             spawn_version: spawn.version,
             spawn_tag: spawn.tag,
-            token_build: String(mode !== 'skip' && token.build),
-            token_bump: String(mode !== 'skip' && token.bump),
-            token_version: token.version,
-            token_tag: token.tag,
             runtime_tag: runtimeTag,
             native_changed: String(nativeChanged),
             runtime_needed: String(runtimeNeeded),
@@ -280,10 +265,6 @@ jobs:
           SPAWN_BUMP: ${{ needs.plan.outputs.spawn_bump }}
           SPAWN_VERSION: ${{ needs.plan.outputs.spawn_version }}
           SPAWN_TAG: ${{ needs.plan.outputs.spawn_tag }}
-          TOKEN_BUILD: ${{ needs.plan.outputs.token_build }}
-          TOKEN_BUMP: ${{ needs.plan.outputs.token_bump }}
-          TOKEN_VERSION: ${{ needs.plan.outputs.token_version }}
-          TOKEN_TAG: ${{ needs.plan.outputs.token_tag }}
         shell: bash
         run: |
           set -euo pipefail
@@ -313,17 +294,13 @@ jobs:
           if (process.env.SPAWN_BUMP === 'true') {
             setCargoVersion('mixdog-spawn', 'native/mixdog-spawn', process.env.SPAWN_VERSION);
           }
-          if (process.env.TOKEN_BUMP === 'true') {
-            setCargoVersion('mixdog-token', 'native/mixdog-token', process.env.TOKEN_VERSION);
-          }
           NODE
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add native/mixdog-patch/Cargo.toml native/mixdog-patch/Cargo.lock \
             native/mixdog-graph/Cargo.toml native/mixdog-graph/Cargo.lock \
-            native/mixdog-spawn/Cargo.toml native/mixdog-spawn/Cargo.lock \
-            native/mixdog-token/Cargo.toml native/mixdog-token/Cargo.lock
+            native/mixdog-spawn/Cargo.toml native/mixdog-spawn/Cargo.lock
           if ! git diff --cached --quiet; then
             git commit -m "chore(native): prepare incremental release assets"
             git push origin "HEAD:${DEFAULT_BRANCH}"
@@ -354,7 +331,6 @@ jobs:
           create_tag "$PATCH_BUILD" "$PATCH_TAG"
           create_tag "$GRAPH_BUILD" "$GRAPH_TAG"
           create_tag "$SPAWN_BUILD" "$SPAWN_TAG"
-          create_tag "$TOKEN_BUILD" "$TOKEN_TAG"
 
   runtime:
     name: incremental-runtime
@@ -401,18 +377,9 @@ jobs:
       tag: ${{ needs.plan.outputs.spawn_tag }}
     secrets: inherit
 
-  token:
-    name: incremental-token
-    needs: [plan, prepare-native]
-    if: ${{ needs.plan.outputs.token_build == 'true' }}
-    uses: ./.github/workflows/token-release.yml
-    with:
-      tag: ${{ needs.plan.outputs.token_tag }}
-    secrets: inherit
-
   prepare-app:
     name: prepare-app-release
-    needs: [plan, prepare-native, runtime, voice, patch, graph, spawn, token]
+    needs: [plan, prepare-native, runtime, voice, patch, graph, spawn]
     if: >-
       ${{
         always()
@@ -423,7 +390,6 @@ jobs:
         && (needs.patch.result == 'success' || needs.patch.result == 'skipped')
         && (needs.graph.result == 'success' || needs.graph.result == 'skipped')
         && (needs.spawn.result == 'success' || needs.spawn.result == 'skipped')
-        && (needs.token.result == 'success' || needs.token.result == 'skipped')
       }}
     runs-on: ubuntu-22.04
     outputs:

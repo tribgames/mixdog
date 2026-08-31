@@ -61,6 +61,9 @@ interface DesktopServiceRuntime {
   loadStatuslineSegments(): Promise<StatuslineSegmentsModule>;
   loadConfig(): Promise<import('./settings-store').MixdogConfigModule>;
   loadCommitCompletion(): Promise<import('./commit-message').CommitCompletionModule>;
+  /** Office document conversion and page rasterization. Optional: an older
+   *  daemon simply has no document preview, and the editor says so. */
+  loadDocumentPreview?(): Promise<import('./document-preview').DocumentPreviewModule>;
   executeCodeGraphTool(
     name: string,
     args: Record<string, unknown>,
@@ -102,6 +105,9 @@ export async function createDesktopService(
     appPath: options.appPath,
     loadConfig: runtime.loadConfig,
     loadCommitCompletion: runtime.loadCommitCompletion,
+    loadDocumentPreview: runtime.loadDocumentPreview
+      ? () => runtime.loadDocumentPreview!()
+      : undefined,
     emit: (event) => publishDesktopEvent(event.name, event.value),
   });
   const settingsStore = operations.settingsStore;
@@ -135,6 +141,24 @@ export async function createDesktopService(
     promise: Promise<boolean>;
     settle(approved: boolean): void;
   }>();
+  let nextBrowserRemoteRequestId = 0;
+  const pendingBrowserRemoteRequests = new Map<string, {
+    resolve(value: unknown): void;
+    reject(error: Error): void;
+    timer: NodeJS.Timeout;
+  }>();
+  const requestBrowserRemote = (method: 'frame' | 'control', args: unknown[]): Promise<unknown> => {
+    const id = `browser_remote_${++nextBrowserRemoteRequestId}`;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingBrowserRemoteRequests.delete(id);
+        reject(new Error('Desktop Browser Use did not answer the remote request.'));
+      }, 20_000);
+      timer.unref?.();
+      pendingBrowserRemoteRequests.set(id, { resolve, reject, timer });
+      publishDesktopEvent('browser-remote-request', { id, method, args });
+    });
+  };
   const remoteDescriptor = async () => {
     if (!remoteRelay) return null;
     let clients: DesktopRemoteClientInfo[] = [];
@@ -160,6 +184,7 @@ export async function createDesktopService(
       emit({ kind: 'desktop-event', name: 'relay-payload-refused', value });
     },
     terminals: operations.terminals,
+    browserRemote: requestBrowserRemote,
     subscribeTerminalData: operations.subscribeTerminalData,
     userDataPath: options.userDataPath,
     onClientCountChanged,
@@ -369,6 +394,16 @@ export async function createDesktopService(
           else await startRemoteServices();
           return null;
         }
+        if (operation === 'browserRemoteResolve') {
+          const id = String(operationArgs[0] || '');
+          const pending = pendingBrowserRemoteRequests.get(id);
+          if (!pending) return false;
+          pendingBrowserRemoteRequests.delete(id);
+          clearTimeout(pending.timer);
+          if (operationArgs[1] === true) pending.resolve(operationArgs[2]);
+          else pending.reject(new Error(String(operationArgs[3] || 'Desktop Browser Use failed.')));
+          return true;
+        }
         return operations.invoke(operation, operationArgs);
       }
       if (method === 'setVisibleSessions') {
@@ -428,6 +463,11 @@ export async function createDesktopService(
       latestSessionProvenance.clear();
       visibleSessionIds.clear();
       desktopEventListeners.clear();
+      for (const [id, pending] of pendingBrowserRemoteRequests) {
+        clearTimeout(pending.timer);
+        pending.reject(new Error('Desktop service is closing.'));
+        pendingBrowserRemoteRequests.delete(id);
+      }
       if (relayRetryTimer) {
         clearTimeout(relayRetryTimer);
         relayRetryTimer = null;

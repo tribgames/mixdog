@@ -111,3 +111,49 @@ test('pre-ready daemon handoff retries remain bounded by the startup timeout', a
     await client.dispose();
   }
 });
+
+test('a daemon replaced behind a live transport counts as a new attachment', async () => {
+  const readyGenerations = [];
+  let live = null;
+  const client = new DesktopServiceClient({
+    connect() {
+      const transport = new TestTransport((current) => {
+        live = current;
+        current.emit('message', { kind: 'ready' });
+      });
+      return transport;
+    },
+    sessionOptions: () => ({
+      userDataPath: 'C:/tmp/mixdog',
+      packaged: true,
+      resourcesPath: 'C:/tmp/resources',
+      appPath: 'C:/tmp/resources/app.asar',
+    }),
+    restartBaseDelayMs: 1,
+    restartMaxDelayMs: 1,
+    startupTimeoutMs: 1_000,
+    failureNoticeDelayMs: 1_000,
+    onServiceReady: ({ generation }) => { readyGenerations.push(generation); },
+  });
+  const keepAlive = setTimeout(() => {}, 2_000);
+  try {
+    await client.start();
+    await client.setVisibleSessions(['session_ready']);
+    assert.deepEqual(readyGenerations, [1]);
+    live.requests.length = 0;
+
+    live.emit('message', { kind: 'daemon-replaced' });
+    await new Promise((resolve) => { setTimeout(resolve, 0); });
+
+    // A raised generation is what the host redials the relay off; the
+    // renderer's registration has to reach the new process as well.
+    assert.deepEqual(readyGenerations, [1, 2]);
+    assert.deepEqual(
+      live.requests.map((request) => request.method),
+      ['setVisibleSessions'],
+    );
+  } finally {
+    clearTimeout(keepAlive);
+    await client.dispose();
+  }
+});

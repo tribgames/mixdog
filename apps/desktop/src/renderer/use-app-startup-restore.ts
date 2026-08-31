@@ -13,6 +13,7 @@ import type { Snapshot } from "./desktop-types";
 import { isMobileRemoteSurface } from "./mobile-surface";
 import type { NavigationSelection, WorkspaceSelection } from "./navigation";
 import { startupRestorePlan } from "./renderer-logic.mjs";
+import { resolvedStoredProjectPath } from "./use-draft-pane-preferences";
 
 export function useAppStartupRestore({
   restorePending,
@@ -57,11 +58,11 @@ export function useAppStartupRestore({
     replaceKey?: string,
   ): void;
   openSessionRef: MutableRefObject<(sessionId: string, force?: boolean) => Promise<void>>;
-  lastNewTaskPrefs: MutableRefObject<{ projectPath: string } | null>;
+  lastNewTaskPrefs: MutableRefObject<{ projectPath: string | null } | null>;
   effectiveDraftProjectPath(path: string): string;
   preferredDraftProjectPath: string;
   setNewTaskDeferred: Dispatch<SetStateAction<boolean>>;
-  resetNewTaskDraft(projectPath: string): void;
+  resetNewTaskDraft(projectPath: string | null): void;
   lastSessionStorageKey: string;
   lastProjectStorageKey: string;
 }) {
@@ -166,10 +167,16 @@ export function useAppStartupRestore({
     } catch {
       // Continue with the preferred draft project.
     }
-    const cachedDraftProject = lastNewTaskPrefs.current
-      ? effectiveDraftProjectPath(lastNewTaskPrefs.current.projectPath)
-      : effectiveDraftProjectPath(storedProject || preferredDraftProjectPath);
-    if (!cachedDraftProject) {
+    const cachedProjectPath = lastNewTaskPrefs.current?.projectPath ?? null;
+    // Only an EXPLICIT stored choice is restored — "" keeps No project. With
+    // no choice at all the draft keeps INHERITING, so a phone that boots
+    // before its relay-backed project catalog lands still adopts the last
+    // project when it arrives instead of freezing an empty one (user:
+    // 마지막으로 쓴 프로젝트가 안 잡힘).
+    const cachedDraftProject = cachedProjectPath === null
+      ? effectiveDraftProjectPath(storedProject || preferredDraftProjectPath) || null
+      : resolvedStoredProjectPath(cachedProjectPath, effectiveDraftProjectPath);
+    if (cachedDraftProject === "") {
       setNewTaskDeferred(true);
       settleStartup();
       return;

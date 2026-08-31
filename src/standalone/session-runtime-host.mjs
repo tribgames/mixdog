@@ -4,14 +4,11 @@ import { fileURLToPath } from 'node:url';
 
 import { safeIpcSend } from '../runtime/shared/safe-ipc-send.mjs';
 import { hiddenSpawnOpts } from '../runtime/shared/spawn-flags.mjs';
+import { withHeapCap } from '../runtime/shared/heap-cap.mjs';
 import {
   acquire as acquireMachineSpawnSlot,
   snapshot as machineSpawnSnapshot,
 } from '../runtime/shared/child-spawn-gate.mjs';
-import {
-  countTokensNative,
-  prewarmNativeTokenCounter,
-} from '../runtime/agent/orchestrator/session/token-native.mjs';
 import { createRuntimeLagTracker } from '../runtime/shared/session-runtime-health.mjs';
 import {
   SESSION_CONFIGURE_ACTIONS,
@@ -86,7 +83,7 @@ class SessionRuntimeShard {
     if (this.closed) throw new Error('session runtime worker is closed');
     const child = fork(this.workerEntry, [], {
       cwd: this.cwd,
-      execArgv: [],
+      execArgv: withHeapCap('session-runtime'),
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
       env: { ...this.env },
       ...hiddenSpawnOpts,
@@ -119,14 +116,6 @@ class SessionRuntimeShard {
     // queued frames after its replacement is live. Its late state/response must
     // never outrank the replacement's revision or settle its pending calls.
     if (child !== this.child) return;
-    if (message.type === 'token-native-prewarm') {
-      if (child === this.child) prewarmNativeTokenCounter();
-      return;
-    }
-    if (message.type === 'token-native-count') {
-      void this.handleTokenNativeCount(child, message);
-      return;
-    }
     if (message.type === 'spawn-lease') {
       void this.grantSpawnLease(message);
       return;
@@ -189,21 +178,6 @@ class SessionRuntimeShard {
     } else {
       request.resolve(message.value);
     }
-  }
-
-  async handleTokenNativeCount(child, message) {
-    const tokenRequestId = String(message.tokenRequestId || '');
-    if (!tokenRequestId || child !== this.child || child?.killed) return;
-    let count = null;
-    try {
-      count = await countTokensNative(String(message.text ?? ''));
-    } catch {}
-    if (child !== this.child || child?.killed) return;
-    safeIpcSend(child, {
-      type: 'token-native-result',
-      tokenRequestId,
-      count: Number.isFinite(count) && count >= 0 ? count : null,
-    }, { onError: () => {} });
   }
 
   rejectPending(error) {

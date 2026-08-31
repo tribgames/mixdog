@@ -32,10 +32,31 @@ const FILE_PREVIEW_TYPES: Readonly<Record<string, DesktopFilePreviewType>> = Obj
   mov: { kind: 'video', mime: 'video/quicktime' },
 });
 
-/** Browser-native read-only preview support, selected by the final extension. */
-export function filePreviewTypeForPath(path: string): DesktopFilePreviewType | null {
+// Documents with no browser-native viewer at all. They reach a preview through
+// a LibreOffice conversion in the runtime, which owns the authoritative list
+// and refuses anything else; this copy only decides whether the editor offers
+// the attempt instead of the binary-file notice.
+const DOCUMENT_PREVIEW_FORMATS: ReadonlySet<string> = new Set([
+  'docx', 'doc', 'docm', 'dotx', 'rtf', 'odt',
+  'xlsx', 'xls', 'xlsm', 'ods',
+  'pptx', 'ppt', 'pptm', 'odp',
+]);
+
+function fileExtension(path: string): string {
   const name = String(path || '').split(/[\\/]/).at(-1) || '';
   const dot = name.lastIndexOf('.');
-  if (dot < 0 || dot === name.length - 1) return null;
-  return FILE_PREVIEW_TYPES[name.slice(dot + 1).toLocaleLowerCase()] ?? null;
+  if (dot < 0 || dot === name.length - 1) return '';
+  return name.slice(dot + 1).toLocaleLowerCase();
+}
+
+/** The convertible document format for this filename, or '' when none. */
+export function documentPreviewFormatForPath(path: string): string {
+  const extension = fileExtension(path);
+  return DOCUMENT_PREVIEW_FORMATS.has(extension) ? extension : '';
+}
+
+/** Browser-native read-only preview support, selected by the final extension. */
+export function filePreviewTypeForPath(path: string): DesktopFilePreviewType | null {
+  const extension = fileExtension(path);
+  return extension ? FILE_PREVIEW_TYPES[extension] ?? null : null;
 }

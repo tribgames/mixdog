@@ -26,6 +26,10 @@ export interface BrowserGuestCandidate {
   isDestroyed(): boolean;
 }
 
+export interface RepaintableBrowserGuestCandidate extends BrowserGuestCandidate {
+  invalidate(): void;
+}
+
 export function selectActiveBrowserGuest<T extends BrowserGuestCandidate>(
   guests: Iterable<T>,
   current: T | null,
@@ -38,6 +42,24 @@ export function selectActiveBrowserGuest<T extends BrowserGuestCandidate>(
   if (!guest) return liveCurrent;
   if (active) return guest;
   return liveCurrent === guest ? null : liveCurrent;
+}
+
+/** Select the explicit Browser Use guest and repaint it on every active signal.
+ * Repeated active signals represent app foreground returns, not only tab
+ * changes, so they intentionally invalidate an already-selected guest too. */
+export function selectAndRefreshActiveBrowserGuest<T extends RepaintableBrowserGuestCandidate>(
+  guests: Iterable<T>,
+  current: T | null,
+  webContentsId: number,
+  active: boolean,
+): T | null {
+  const selected = selectActiveBrowserGuest(guests, current, webContentsId, active);
+  if (active && selected?.id === webContentsId) {
+    try {
+      selected.invalidate();
+    } catch { /* guest teardown can race the renderer's foreground signal */ }
+  }
+  return selected;
 }
 
 export function normalizeBackgroundTabName(raw: string, options: { required?: boolean } = {}): string {
@@ -171,7 +193,10 @@ export function browserUrlContainsSecret(raw: string): boolean {
   try {
     const parsed = new URL(raw);
     for (const [key, value] of parsed.searchParams) {
-      if (value && /^(?:access[_-]?token|api[_-]?key|apikey|authorization|password|passwd|secret|token)$/i.test(key)) {
+      if (value && (
+        /^(?:access[_-]?token|api[_-]?key|apikey|authorization|id[_-]?token|password|passwd|refresh[_-]?token|secret|session[_-]?(?:id|token)|token)$/i.test(key)
+        || (key.toLowerCase() === 'code' && value.length >= 8)
+      )) {
         return true;
       }
     }
@@ -261,7 +286,11 @@ export function redactBrowserText(value: unknown): string {
     (_match, scheme: string, user: string) => `${scheme}${user}:***@`,
   );
   text = text.replace(
-    /([?&](?:access[_-]?token|api[_-]?key|apikey|auth|authorization|key|password|passwd|secret|token)=)[^&#\s]*/gi,
+    /([?&](?:access[_-]?token|api[_-]?key|apikey|auth|authorization|code|id[_-]?token|key|password|passwd|refresh[_-]?token|secret|session[_-]?(?:id|token)|token)=)[^&#\s]*/gi,
+    '$1[REDACTED]',
+  );
+  text = text.replace(
+    /((?:"|')?(?:access[_-]?token|api[_-]?key|apikey|authorization|id[_-]?token|password|passwd|refresh[_-]?token|secret|session[_-]?(?:id|token)|token)(?:"|')?\s*[:=]\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^,\s;&}\]\r\n]+)/gi,
     '$1[REDACTED]',
   );
   text = text.replace(/\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{12,}/gi, '[REDACTED_AUTH]');
@@ -278,6 +307,23 @@ export function redactBrowserText(value: unknown): string {
   return text;
 }
 
+export function redactBrowserKnownSecrets(
+  value: string,
+  secrets: Iterable<string>,
+): string {
+  let redacted = value;
+  const marker = '[REDACTED STORED CREDENTIAL]';
+  for (const secret of secrets) {
+    if (!secret) continue;
+    const mask = '*'.repeat(secret.length);
+    const replacement = secret.length >= marker.length && secret !== marker
+      ? marker
+      : mask === secret ? '•'.repeat(secret.length) : mask;
+    redacted = redacted.replaceAll(secret, replacement);
+  }
+  return redacted;
+}
+
 export function redactBrowserUrl(value: unknown): string {
   const raw = String(value ?? '');
   try {
@@ -285,7 +331,8 @@ export function redactBrowserUrl(value: unknown): string {
     if (parsed.username) parsed.username = '[REDACTED]';
     if (parsed.password) parsed.password = '[REDACTED]';
     for (const key of [...parsed.searchParams.keys()]) {
-      if (/(?:access[_-]?token|api[_-]?key|apikey|auth|authorization|key|password|passwd|secret|token)/i.test(key)) {
+      if (key.toLowerCase() === 'code'
+        || /(?:access[_-]?token|api[_-]?key|apikey|auth|authorization|id[_-]?token|key|password|passwd|refresh[_-]?token|secret|session[_-]?(?:id|token)|token)/i.test(key)) {
         parsed.searchParams.set(key, '[REDACTED]');
       }
     }
@@ -391,14 +438,27 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
       }
       return { left, top, right: left + rect.width, bottom: top + rect.height, width: rect.width, height: rect.height };
     };
-    const stateList = (el) => {
+    const stateList = (el, style) => {
       const states = [];
+      // A pane that scrolls on its own is invisible in the tree otherwise, and
+      // the agent would scroll the page while the list it wants stays put.
+      const scrollsY = el.scrollHeight - el.clientHeight > 4
+        && /(auto|scroll)/.test(String(style && style.overflowY || ''));
+      const scrollsX = el.scrollWidth - el.clientWidth > 4
+        && /(auto|scroll)/.test(String(style && style.overflowX || ''));
+      if (scrollsY || scrollsX) {
+        states.push('scrollable=' + (scrollsY ? 'y' : '') + (scrollsX ? 'x' : ''));
+      }
       if (el.disabled || el.getAttribute('aria-disabled') === 'true') states.push('disabled');
       if (el.checked === true || el.getAttribute('aria-checked') === 'true') states.push('checked');
       if (el.checked === false || el.getAttribute('aria-checked') === 'false') states.push('unchecked');
       if (el.selected === true || el.getAttribute('aria-selected') === 'true') states.push('selected');
-      if (el.getAttribute('aria-expanded')) states.push('expanded=' + el.getAttribute('aria-expanded'));
-      if (el.getAttribute('aria-pressed')) states.push('pressed=' + el.getAttribute('aria-pressed'));
+      if (el.getAttribute('aria-expanded')) {
+        states.push('expanded=' + compact(el.getAttribute('aria-expanded'), 80));
+      }
+      if (el.getAttribute('aria-pressed')) {
+        states.push('pressed=' + compact(el.getAttribute('aria-pressed'), 80));
+      }
       if (el.required || el.getAttribute('aria-required') === 'true') states.push('required');
       if (el.readOnly || el.getAttribute('aria-readonly') === 'true') states.push('readonly');
       if (el.ownerDocument.activeElement === el) states.push('focused');
@@ -415,7 +475,7 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
       if (!seenDocuments.has(doc)) {
         seenDocuments.add(doc);
         const bodyText = doc.body ? (doc.body.innerText || doc.body.textContent || '') : '';
-        if (bodyText) pageTexts.push(bodyText);
+        if (bodyText) pageTexts.push(String(bodyText).slice(0, config.textChars * 4));
       }
       const tag = (el.tagName || '').toLowerCase();
       let style;
@@ -503,7 +563,7 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
               href,
               value,
               sensitive,
-              states: stateList(el),
+              states: stateList(el, style),
               inViewport,
               ...(match ? { matchField: match[0] } : {}),
             },
@@ -545,7 +605,7 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
       refs.set(ref, { element: candidate.el, frames: candidate.frames });
       return { ref, ...candidate.entry };
     });
-    const text = compact(pageTexts.join('\\n'), config.textChars);
+    const text = compact(pageTexts.join('\\n').slice(0, config.textChars * 4), config.textChars);
     return {
       snapshotId: config.snapshotId,
       url: String(location.href),

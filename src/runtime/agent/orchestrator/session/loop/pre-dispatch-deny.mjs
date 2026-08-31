@@ -5,9 +5,9 @@
 // Error string the serial path would emit. The eager caller ignores the
 // message body and just treats non-null as "do not start eager".
 //
-// This is NOT a permission gate — every tool call is trusted. Lead and Agent
-// share the same runtime surface; only recursive Agent session control remains
-// Lead-only.
+// The persisted schema allowlist is also the execution allowlist. This keeps a
+// provider-emitted call outside the advertised surface from reaching a tool
+// merely because the process-wide registry knows its name.
 import { isAgentOwner } from '../../agent-owner.mjs';
 
 const WORKER_DENIED_TOOLS = new Set([
@@ -74,14 +74,28 @@ export function routeWebFetchCall(call) {
     }
     const urls = callUrls(call);
     if (!urls.length) return call;
-    if (urls.every(isLoopbackHttpUrl)) call.name = 'local_fetch';
-    else if (urls.every((value) => IMAGE_PATH_RE.test(value))) call.name = 'image_fetch';
+    if (urls.every(isLoopbackHttpUrl)) {
+        call.schemaName = 'web_fetch';
+        call.name = 'local_fetch';
+    } else if (urls.every((value) => IMAGE_PATH_RE.test(value))) {
+        call.schemaName = 'web_fetch';
+        call.name = 'image_fetch';
+    }
     return call;
 }
 
 function _preDispatchDeny(call, toolKind, sessionRef) {
     const name = call?.name;
     if (typeof name !== 'string' || !name) return null;
+    if (Array.isArray(sessionRef?.schemaAllowedTools)) {
+        const schemaName = String(call?.schemaName || name);
+        const allowed = new Set(
+            sessionRef.schemaAllowedTools.map((toolName) => String(toolName).toLowerCase()),
+        );
+        if (!allowed.has(schemaName.toLowerCase())) {
+            return `Error: tool "${name}" is not available on this session's schema allowlist.`;
+        }
+    }
     if (hasCompactedPatchPlaceholder(call)) {
         return 'Error: [tool-input-validation] apply_patch received a compacted-history placeholder, not executable patch content. Re-read the current target files and submit a fresh full patch; do not replay or reconstruct the stored marker.';
     }

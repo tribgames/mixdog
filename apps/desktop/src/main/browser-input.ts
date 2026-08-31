@@ -53,12 +53,36 @@ function cssPoint(point: { x: number; y: number }): { x: number; y: number } {
   return { x: Math.round(point.x), y: Math.round(point.y) };
 }
 
+export function browserImagePointToCss(
+  point: { x: number; y: number },
+  zoomFactor: number,
+): { x: number; y: number } {
+  const zoom = Number.isFinite(zoomFactor) && zoomFactor > 0 ? zoomFactor : 1;
+  return { x: point.x / zoom, y: point.y / zoom };
+}
+
+export function assertBrowserKeyDoesNotAccessClipboard(rawKey: string): void {
+  const parts = String(rawKey || '').trim().split('+').map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+  const key = parts.at(-1) || '';
+  const modifiers = new Set(parts.slice(0, -1));
+  const controlOrMeta = modifiers.has('control') || modifiers.has('ctrl')
+    || modifiers.has('meta') || modifiers.has('command') || modifiers.has('cmd');
+  const clipboardLetter = key === 'c' || key === 'v' || key === 'x';
+  const clipboardInsert = key === 'insert'
+    && (controlOrMeta || modifiers.has('shift'));
+  if ((controlOrMeta && clipboardLetter) || clipboardInsert) {
+    throw new Error('Browser Use press cannot access the system clipboard');
+  }
+}
+
 export function createBrowserInputDriver(send: SendBrowserInput) {
   async function pressKey(
     guest: WebContents,
     rawKey: string,
     signal?: AbortSignal,
   ): Promise<void> {
+    assertBrowserKeyDoesNotAccessClipboard(rawKey);
     const parts = String(rawKey || '').trim().split('+').map((part) => part.trim()).filter(Boolean);
     const keyName = parts.pop() || '';
     const modifierNames = new Set(parts.map((part) => part.toLowerCase()));

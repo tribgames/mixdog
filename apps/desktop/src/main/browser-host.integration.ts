@@ -1,18 +1,15 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type ServerResponse } from 'node:http';
-import { readFile, rm } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { app, BrowserWindow, nativeImage, webContents, type WebContents } from 'electron';
+import { BROWSER_ACTIONS } from '../../../../src/runtime/browser-bridge/browser-action-contract.mjs';
 import { createBrowserHost, type BrowserHost } from './browser-host';
-
-interface Discovery {
-  port: number;
-  token: string;
-}
+import { createPolling } from './host-harness-poll';
 
 interface CommandResponse {
   ok: boolean;
@@ -38,7 +35,9 @@ function percentile(values: number[], ratio: number): number {
 const profile = mkdtempSync(join(tmpdir(), 'mixdog-browser-host-profile-'));
 const dataDirectory = join(profile, 'data');
 const downloadsDirectory = join(profile, 'downloads');
+const uploadFixturePath = join(profile, 'browser-upload-fixture.txt');
 mkdirSync(downloadsDirectory, { recursive: true });
+writeFileSync(uploadFixturePath, 'Browser upload fixture');
 process.env.MIXDOG_DATA_DIR = dataDirectory;
 app.setPath('userData', join(profile, 'user-data'));
 app.setPath('downloads', downloadsDirectory);
@@ -101,33 +100,7 @@ function imagePixel(
   return [bitmap[offset + 2], bitmap[offset + 1], bitmap[offset]];
 }
 
-async function eventually<T>(
-  operation: () => Promise<T>,
-  accept: (value: T) => boolean,
-  timeoutMs = 5_000,
-): Promise<T> {
-  const startedAt = Date.now();
-  let latest = await operation();
-  while (!accept(latest) && Date.now() - startedAt < timeoutMs) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    latest = await operation();
-  }
-  assert.ok(accept(latest), `condition was not met within ${timeoutMs}ms`);
-  return latest;
-}
-
-async function readDiscovery(path: string): Promise<Discovery> {
-  return await eventually(
-    async () => {
-      try {
-        return JSON.parse(await readFile(path, 'utf8')) as Discovery;
-      } catch {
-        return { port: 0, token: '' };
-      }
-    },
-    (value) => Number.isInteger(value.port) && value.port > 0 && Boolean(value.token),
-  );
-}
+const { eventually, readDiscovery } = createPolling({ timeoutMs: 5_000, intervalMs: 50 });
 
 async function run(): Promise<void> {
   const stalledResponses = new Set<ServerResponse>();
@@ -186,6 +159,8 @@ async function run(): Promise<void> {
         <label>Preferred role <select aria-label="Preferred role" onchange="document.querySelector('#state').textContent = 'Role ' + this.value"><option value="designer">Designer</option><option value="engineer">Engineer</option></select></label>
         <button id="mouse-options" onmousedown="document.querySelector('#state').textContent = 'Mouse ' + event.button + ' ctrl=' + event.ctrlKey + ' shift=' + event.shiftKey">Mouse options</button>
         <label>Default checkbox <input type="checkbox" onchange="document.querySelector('#state').textContent = this.checked ? 'Checkbox checked' : 'Checkbox unchecked'"></label>
+        <label>Type probe <input aria-label="Type probe" oninput="document.querySelector('#state').textContent = 'Typed ' + this.value"></label>
+        <label>Upload fixture <input type="file" aria-label="Upload fixture" onchange="document.querySelector('#state').textContent = 'Uploaded ' + (this.files[0]?.name || 'none')"></label>
         <button id="hover-target" onmouseenter="document.querySelector('#state').textContent = 'Semantic hovered'">Hover target</button>
         <button id="drag-source" style="position:fixed;left:600px;top:200px" onmousedown="window.fixtureDragging=true">Drag source</button>
         <button id="drag-target" style="position:fixed;left:820px;top:200px" onmousemove="if (event.buttons === 1 && window.fixtureDragging) document.querySelector('#state').textContent = 'Mouse dragged'" onmouseup="window.fixtureDragging=false">Drag target</button>
@@ -243,6 +218,11 @@ async function run(): Promise<void> {
             }, true);
           }
         </script>`);
+      return;
+    }
+    if (path === '/api/echo-headers') {
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify({ headers: request.headers }));
       return;
     }
     if (path === '/api/submit') {
@@ -313,24 +293,33 @@ async function run(): Promise<void> {
     const origin = `http://127.0.0.1:${address.port}`;
 
     progress('creating browser host');
-    parent = new BrowserWindow({ show: false });
+    parent = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        webviewTag: true,
+      },
+    });
     host = createBrowserHost(parent);
+    const visibleGuestAttached = new Promise<WebContents>((resolve) => {
+      parent?.webContents.once('did-attach-webview', (_event, guest) => resolve(guest));
+    });
+    await parent.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+      <!doctype html>
+      <style>html,body,webview{width:100%;height:100%;margin:0;display:block}</style>
+      <webview src="${origin}/root" partition="persist:mixdog-browser"></webview>
+    `)}`);
+    const visibleGuest = await visibleGuestAttached;
+    host.setGuestActive('integration-browser-pane', visibleGuest.id, true);
     host.setBridgeEnabled(true);
-    // Progress-strip evidence: the pane learns what the agent is doing only
-    // from these events, so record them at the window boundary.
-    const activityEvents: Array<{ action?: string; background?: boolean } | null> = [];
-    const originalSend = parent.webContents.send.bind(parent.webContents);
-    parent.webContents.send = ((channel: string, ...args: unknown[]) => {
-      if (channel === 'mixdog:browser-activity-changed') {
-        activityEvents.push(args[0] as { action?: string; background?: boolean } | null);
-      }
-      return originalSend(channel, ...args);
-    }) as typeof parent.webContents.send;
     const discovery = await readDiscovery(join(dataDirectory, 'browser-bridge.json'));
     progress('browser bridge discovered');
     let turnId = 1;
     const commandDurations = new Map<string, number[]>();
     const commandDurationDetails = new Map<string, Array<{ label: string; duration: number }>>();
+    const completedActions = new Set<string>();
 
     const command = async (
       input: Record<string, unknown>,
@@ -358,6 +347,7 @@ async function run(): Promise<void> {
         });
         const payload = await response.json() as CommandResponse;
         if (!payload.ok) throw new Error(payload.error || 'browser command failed');
+        completedActions.add(action);
         return {
           text: String(payload.value?.text || ''),
           ...(payload.value?.image ? { image: payload.value.image } : {}),
@@ -464,6 +454,29 @@ async function run(): Promise<void> {
     assert.ok((observed.image?.data?.length || 0) > 100);
     alpha = { text: observed.text };
     progress('combined visual snapshot complete');
+
+    turnId = 41;
+    const readResult = await command({ action: 'read', query: 'SPA done 3', tab: 'alpha' });
+    assert.match(readResult.text, /SPA done 3/);
+    alpha = await command({ action: 'wait', text: 'SPA done 3', tab: 'alpha' });
+    assert.match(alpha.text, /Condition met after \d+ms/);
+    alpha = await command({
+      action: 'type',
+      ref: refNamed(alpha.text, 'Type probe'),
+      text: 'bridge',
+      tab: 'alpha',
+    });
+    assert.match(alpha.text, /Typed bridge/);
+    alpha = await command({ action: 'press', key: 'Tab', tab: 'alpha' });
+    alpha = await command({
+      action: 'upload',
+      ref: refNamed(alpha.text, 'Upload fixture'),
+      paths: [uploadFixturePath],
+      confirm: true,
+      tab: 'alpha',
+    });
+    assert.match(alpha.text, /Uploaded browser-upload-fixture\.txt/);
+    progress('read, wait, type, press, and upload dispatch complete');
 
     const dialogRef = refNamed(alpha.text, 'Open dialog');
     const dialogStartedAt = Date.now();
@@ -604,26 +617,54 @@ async function run(): Promise<void> {
     );
     progress('custom dropdown and extraction complete');
 
-    // Human handoff needs a page the user can actually look at. This harness
-    // runs entirely on offscreen pages, so the reachable guarantee here is the
-    // refusal itself; the resolve path is exercised through the pane.
-    turnId = 29;
+    // Reading a control instead of changing it, and reaching a phrase whose
+    // position nobody knows. A phrase that is absent must not scroll blindly.
+    turnId = 34;
+    alpha = await command({ action: 'snapshot', tab: 'alpha' });
+    const roleOptions = await command({
+      action: 'select',
+      ref: refNamed(alpha.text, 'Preferred role'),
+      tab: 'alpha',
+    });
+    assert.match(roleOptions.text, /Options for [\w-]+ \(2\)/);
+    assert.match(roleOptions.text, /- Designer/);
+    assert.match(roleOptions.text, /- Engineer/);
+    const scrolledToText = await command({
+      action: 'scroll',
+      text: 'Extended snapshot tail',
+      tab: 'alpha',
+    });
+    assert.match(scrolledToText.text, /Snapshot: /);
     await assert.rejects(
-      command({ action: 'handoff', reason: 'Solve the fixture captcha', tab: 'alpha' }),
-      /needs a page the user can see/,
+      command({ action: 'scroll', text: 'no such phrase on this fixture', tab: 'alpha' }),
+      /was not found on this page/,
     );
-    // Nothing is pending, so an answer cannot invent a request to resolve.
-    assert.equal(host?.resolveBrowserHandoff('h1', true), false);
-    assert.ok(
-      activityEvents.some((entry) => entry?.action === 'extract'),
-      'browser activity was never published',
-    );
-    assert.ok(
-      activityEvents.some((entry) => entry?.background === true),
-      'background work was never reported as background',
-    );
-    assert.equal(activityEvents.at(-1), null);
-    progress('handoff surface guard and activity publishing complete');
+    progress('option read and text scroll complete');
+
+    // Pixels can answer beside the run instead of inside the conversation, and
+    // a printed page always does.
+    turnId = 35;
+    const filedShot = await command({
+      action: 'snapshot',
+      mode: 'visual',
+      image_output: 'file',
+      tab: 'alpha',
+    });
+    assert.equal(filedShot.image, undefined, filedShot.text);
+    const framePath = filedShot.text.match(/Frame written to (.+?) \((\d+) bytes\)/);
+    assert.ok(framePath, filedShot.text);
+    assert.equal(statSync(framePath[1]).size, Number(framePath[2]));
+    const printed = await command({
+      action: 'snapshot',
+      mode: 'visual',
+      format: 'pdf',
+      tab: 'alpha',
+    });
+    assert.equal(printed.image, undefined, printed.text);
+    const pdfPath = printed.text.match(/to (.+?\.pdf) \((\d+) bytes\)/);
+    assert.ok(pdfPath, printed.text);
+    assert.equal(statSync(pdfPath[1]).size, Number(pdfPath[2]));
+    progress('frame file output and pdf print complete');
 
     // Read-only commands overlap: serialized, two 400ms waits could not both
     // finish inside one 400ms window plus overhead.
@@ -750,6 +791,20 @@ async function run(): Promise<void> {
     );
     assert.match(tabs.text, /p\d+ \["popup-1"\] \(popup from p\d+\)/);
     progress('popup tracking complete');
+
+    turnId = 38;
+    await command({
+      action: 'open',
+      background: true,
+      tab: 'history',
+    });
+    const wentBack = await command({ action: 'back', tab: 'history' });
+    assert.match(wentBack.text, /Cannot go back: no earlier history entry/);
+    const wentForward = await command({ action: 'forward', tab: 'history' });
+    assert.match(wentForward.text, /Cannot go forward: no later history entry/);
+    const closedHistory = await command({ action: 'close_tab', tab: 'history' });
+    assert.match(closedHistory.text, /Closed background tab "history"/);
+    progress('history navigation and tab closure complete');
 
     turnId = 3;
     await command({
@@ -918,6 +973,101 @@ async function run(): Promise<void> {
     });
     assert.match(storage.text, /storage-ready/);
     progress('cookie and storage management complete');
+
+    turnId = 36;
+    await command({
+      action: 'intercept',
+      operation: 'add',
+      url: '*/recovered*',
+      body: 'fixture-mocked',
+      tab: 'beta',
+    });
+    const replacedResponse = await command({
+      action: 'evaluate',
+      script: `fetch('/recovered').then(async (response) => ({
+        status: response.status,
+        body: await response.text(),
+      }))`,
+      tab: 'beta',
+    });
+    // The payload is the rule's while the status line stays the server's, which
+    // is exactly what a replaced body promises and all Chromium honours here.
+    assert.match(replacedResponse.text, /fixture-mocked/);
+    assert.match(replacedResponse.text, /"status": 200/);
+    const interceptList = await command({ action: 'intercept', tab: 'beta' });
+    assert.match(interceptList.text, /\[i\d+\] replace body [\s\S]*— 1 hit/);
+    await command({
+      action: 'intercept',
+      operation: 'add',
+      url: '*/api/submit*',
+      abort: true,
+      tab: 'beta',
+    });
+    const abortedRequest = await command({
+      action: 'evaluate',
+      script: `fetch('/api/submit', { method: 'POST', body: '{}' })
+        .then(() => 'reached the server')
+        .catch((error) => 'refused:' + error.name)`,
+      tab: 'beta',
+    });
+    assert.match(abortedRequest.text, /refused:TypeError/);
+    await command({ action: 'intercept', operation: 'clear', tab: 'beta' });
+    // Clearing has to restore the real network, not leave the page answering
+    // from a rule table nobody can see anymore.
+    const liveAgain = await command({
+      action: 'evaluate',
+      script: "fetch('/recovered').then((response) => response.text())",
+      tab: 'beta',
+    });
+    assert.match(liveAgain.text, /Queue recovered/);
+    progress('request interception complete');
+
+    turnId = 37;
+    await command({
+      action: 'emulate',
+      headers: { 'x-mixdog-fixture': 'header-ready' },
+      latitude: 37.5665,
+      longitude: 126.978,
+      accuracy: 25,
+      tab: 'beta',
+    });
+    const echoedHeaders = await command({
+      action: 'evaluate',
+      script: `fetch(${JSON.stringify(`${origin}/api/echo-headers`)})
+        .then((response) => response.json())
+        .then((payload) => payload.headers['x-mixdog-fixture'] || 'missing')`,
+      tab: 'beta',
+    });
+    assert.match(echoedHeaders.text, /header-ready/);
+    const registered = await command({
+      action: 'init_script',
+      operation: 'add',
+      script: 'window.__mixdogSeed = "seeded-before-boot";',
+      tab: 'beta',
+    });
+    assert.match(registered.text, /Registered init script is\d+/);
+    const registeredId = registered.text.match(/init script (is\d+)/)?.[1] || '';
+    await command({ action: 'navigate', url: `${origin}/secondary`, tab: 'beta' });
+    const seedPresent = await command({
+      action: 'evaluate',
+      script: 'window.__mixdogSeed || "absent"',
+      tab: 'beta',
+    });
+    assert.match(seedPresent.text, /seeded-before-boot/);
+    await command({
+      action: 'init_script',
+      operation: 'remove',
+      scriptId: registeredId,
+      tab: 'beta',
+    });
+    await command({ action: 'navigate', url: `${origin}/secondary`, tab: 'beta' });
+    const seedGone = await command({
+      action: 'evaluate',
+      script: 'window.__mixdogSeed || "absent"',
+      tab: 'beta',
+    });
+    assert.match(seedGone.text, /absent/);
+    progress('extra headers, geolocation, and init scripts complete');
 
     turnId = 31;
     await command({
@@ -1106,6 +1256,20 @@ async function run(): Promise<void> {
       );
     }
 
+    const remoteFrame = await host.remoteBrowserFrame();
+    assert.match(remoteFrame.frameId, /^rbf_[a-z0-9]+$/);
+    assert.ok(remoteFrame.image?.data);
+    await assert.rejects(
+      host.remoteBrowserControl({
+        type: 'tap',
+        frameId: 'rbf_stale',
+        x: 10,
+        y: 10,
+      }),
+      /frame is stale/,
+    );
+    progress('remote Browser Use frame binding complete');
+
     turnId = 99;
     for (let index = 0; index < 10; index += 1) {
       await command({ action: 'open', tab: 'beta' });
@@ -1130,8 +1294,13 @@ async function run(): Promise<void> {
         );
       }
     }
+    assert.deepEqual(
+      BROWSER_ACTIONS.filter((action) => !completedActions.has(action)),
+      [],
+      'every public Browser Use action must complete through the live bridge',
+    );
     progress('integration passed');
-    console.log('Browser host integration passed: device emulation and touch, cookies/storage, visual locate, AX/OOPIF refs and script execution, request/response/WebSocket inspection, performance tracing, download attachment, recovery, dialogs, popup tracking, isolation, queue recovery, and action budget.');
+    console.log('Browser host integration passed: device emulation and touch, geolocation and extra headers, cookies/storage, visual locate, AX/OOPIF refs and script execution, request/response/WebSocket inspection, request interception, init scripts, performance tracing, download attachment, recovery, dialogs, popup tracking, isolation, queue recovery, and action budget.');
   } finally {
     for (const response of stalledResponses) response.destroy();
     await host?.dispose();

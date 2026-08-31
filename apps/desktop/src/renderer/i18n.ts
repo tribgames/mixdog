@@ -6,6 +6,7 @@
 import i18next from "i18next";
 
 import { supplementalUiTranslations } from "./auto-i18n";
+import { publishUiLanguage } from "./push-notification-bridge";
 
 /** Selectable UI languages with their native display names (settings picker).
  *  RTL locales stay out until the chrome grows mirrored-layout support. */
@@ -134,6 +135,10 @@ void i18next.init({
  *  (Settings → Display language), so one catalog per session is enough. */
 export async function initUiLanguage(): Promise<void> {
   const language = resolveUiLanguage();
+  // The worker showing notifications on this device cannot read localStorage;
+  // this is the only way it learns which language to speak. English included:
+  // it has to overwrite whatever a previous choice left behind.
+  void publishUiLanguage(language);
   if (language === "en") return;
   try {
     const catalog = await CATALOGS[language]();

@@ -572,8 +572,7 @@ async function stopAll(reason = 'session runtime worker shutdown') {
 
 process.on('message', (message) => {
   if (!message || typeof message !== 'object') return;
-  // token-native.mjs owns daemon-relayed token count responses.
-  if (message.type === 'token-native-result' || message.type === 'agent-control-result') return;
+  if (message.type === 'agent-control-result') return;
   // Fire-and-forget shard coordination: no response frame, no request id.
   if (message.type === 'provider-cooldown-sync') {
     void applyReplayedProviderCooldown(message);

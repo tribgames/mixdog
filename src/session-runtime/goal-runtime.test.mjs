@@ -194,21 +194,22 @@ test('Goal continuation parks only for active agent work and the deadline limits
     assert.match(shellIgnored.prompt, /Active Goal/);
     assert.match(shellIgnored.prompt, /goal action "set_tasks"/);
     assert.match(shellIgnored.prompt, /mark current work in_progress before starting/);
-    assert.match(shellIgnored.prompt, /current evidence proves the full objective/);
+    assert.match(shellIgnored.prompt, /requested duration is a full-period work commitment/);
+    assert.match(shellIgnored.prompt, /keep implementing, verifying, reviewing, and polishing/);
+    assert.match(shellIgnored.prompt, /do not complete early unless the user allows it/);
+    assert.match(shellIgnored.prompt, /audit each user condition on its own/);
+    assert.match(shellIgnored.prompt, /every user condition is proven met/);
     assert.match(shellIgnored.prompt, /Finish every approved task without stepwise approval/);
     assert.match(shellIgnored.prompt, /Paused is the only Goal waiting state/);
-    // Deferred pause: park the blocked task, keep the approval-free work
-    // moving, and pause only when nothing else can proceed.
-    assert.match(shellIgnored.prompt, /When an action needs a user response/);
-    assert.match(shellIgnored.prompt, /mark that task awaiting_approval and keep doing the work that does not depend on the answer/);
-    assert.match(shellIgnored.prompt, /Call action "pause" only once nothing else can proceed, ask every parked question at once/);
-    assert.match(shellIgnored.prompt, /after the response call "resume" in the first execution batch and continue immediately/);
+    // Deferred pause in short form: the full standing contract is owned by the
+    // tool-description test, so the per-turn prompt only points at it.
+    assert.match(shellIgnored.prompt, /park work that needs a user response as awaiting_approval/);
     assert.match(shellIgnored.prompt, /same external impasse prevents meaningful progress for 3 consecutive Goal turns/);
-    assert.match(shellIgnored.prompt, /never for user input, approval, direction choice, difficulty, uncertainty, incomplete work/);
+    assert.match(shellIgnored.prompt, /never for user input, approval, direction choice, difficulty, uncertainty, or incomplete work/);
     assert.doesNotMatch(shellIgnored.prompt, /success criteria|criteria_revision_summary/i);
-    // Injected once per continuation, so it stays lean; the ceiling moved only
-    // for the deferred-pause rule that long-running Goals depend on.
-    assert.ok(shellIgnored.prompt.length < 2_100);
+    // Injected once per continuation, so it stays lean while retaining the
+    // deferred-pause and full-duration commitments long-running Goals depend on.
+    assert.ok(shellIgnored.prompt.length < 2_300);
 
     clock += limitMs + 1;
     const limited = runtime.snapshot('sess_goal_limit');
@@ -288,6 +289,8 @@ test('Goal tool schemas expose lifecycle and durable task contracts', () => {
   assert.match(goalTool.description, /plan without a Goal and create only after that approval/i);
   assert.match(goalTool.description, /never spend a model iteration on Goal alone: batch create, resume, and set_tasks with the next independent work tool/i);
   assert.match(goalTool.description, /finish every approved step without stepwise approval/i);
+  assert.match(goalTool.inputSchema.properties.time_limit_minutes.description, /full-period active work commitment/i);
+  assert.match(goalTool.inputSchema.properties.time_limit_minutes.description, /do not complete early unless user allows it/i);
   assert.match(goalTool.description, /paused is the single user-wait state/i);
   // Deferred pause: a long-running Goal must not idle for hours on one
   // approval while approval-free work is still available.
@@ -300,7 +303,7 @@ test('Goal tool schemas expose lifecycle and durable task contracts', () => {
   // A stopped Goal must stay retirable, or it blocks every later Goal.
   assert.match(goalTool.description, /Abandon only when the user redirects away from the objective/i);
   assert.doesNotMatch(goalTool.description, /opt-in|explicit user request/i);
-  assert.match(goalTool.inputSchema.properties.action.description, /pause is the single user-wait or intentional-stop state; resume continues it/i);
+  assert.match(goalTool.inputSchema.properties.action.description, /pause is the single user-wait state; resume continues it/i);
   assert.match(goalTool.inputSchema.properties.action.description, /abandon discards a superseded Goal/i);
   assert.match(goalTool.inputSchema.properties.blocker.description, /external impasse.*3 consecutive turns/i);
   // Retiring scoped-out work must not require falsely marking it completed.
@@ -417,6 +420,56 @@ test('dropped tasks retire scoped-out work without a false completion', async ()
     const completed = JSON.parse(await runtime.executeTool('goal', {
       action: 'complete',
     }, { callerSessionId: 'sess_goal_dropped' })).goal;
+    assert.equal(completed.status, 'complete');
+  } finally {
+    runtime.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('work dropped this turn cannot also close the Goal in the same turn', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-drop-turn-'));
+  const runtime = createGoalRuntime({ dataDir });
+  try {
+    await runtime.control('sess_goal_drop_turn', { action: 'create', objective: 'Ship both paths' });
+    await runtime.startTurn('sess_goal_drop_turn');
+    let goal = JSON.parse(await runtime.executeTool('goal', {
+      action: 'set_tasks',
+      tasks: [
+        { text: 'Ship the main path', status: 'completed', kind: 'work' },
+        { text: 'Ship the legacy path', status: 'pending', kind: 'work' },
+        { text: 'Verify both paths', status: 'completed', kind: 'verification' },
+      ],
+    }, { callerSessionId: 'sess_goal_drop_turn' })).goal;
+    goal = JSON.parse(await runtime.executeTool('goal', {
+      action: 'set_tasks',
+      tasks: goal.tasks.map((task) =>
+        (task.id === 'task_2' ? { ...task, status: 'dropped' } : task)),
+    }, { callerSessionId: 'sess_goal_drop_turn' })).goal;
+    // Writing requested work off and closing the Goal in one breath is how a
+    // user condition disappears unnoticed, so the drop has to outlive the turn.
+    await assert.rejects(
+      runtime.executeTool('goal', { action: 'complete' }, {
+        callerSessionId: 'sess_goal_drop_turn',
+      }),
+      /dropped this turn/,
+    );
+    // Omitting the retired row does not launder the same turn either.
+    await runtime.executeTool('goal', {
+      action: 'set_tasks',
+      tasks: goal.tasks.filter((task) => task.status !== 'dropped'),
+    }, { callerSessionId: 'sess_goal_drop_turn' });
+    await assert.rejects(
+      runtime.executeTool('goal', { action: 'complete' }, {
+        callerSessionId: 'sess_goal_drop_turn',
+      }),
+      /dropped this turn/,
+    );
+    // A later turn, where the user has seen the retired row, completes normally.
+    await runtime.startTurn('sess_goal_drop_turn');
+    const completed = JSON.parse(await runtime.executeTool('goal', {
+      action: 'complete',
+    }, { callerSessionId: 'sess_goal_drop_turn' })).goal;
     assert.equal(completed.status, 'complete');
   } finally {
     runtime.close();

@@ -110,8 +110,6 @@ export const targetInputs = {
     join(desktopDir, 'scripts', 'generate-brand-icons.mjs'),
     join(desktopDir, 'scripts', 'dev-fast-direct.mjs'),
     join(desktopDir, 'scripts', 'dev-update-windows.ps1'),
-    join(repoRoot, 'native', 'mixdog-token'),
-    join(repoRoot, 'scripts', 'build-token-addon.mjs'),
   ],
 };
 
@@ -553,7 +551,13 @@ async function stageShell({ installDir, artifactDir, plan }) {
   await rm(artifactDir, { recursive: true, force: true });
   await mkdir(artifactResources, { recursive: true });
   await rm(join(stagingRoot, 'out'), { recursive: true, force: true });
-  await cp(join(desktopDir, 'out'), join(stagingRoot, 'out'), { recursive: true });
+  // `dereference` because a snapshot deploy links `out/` back to the real
+  // checkout: without it fs.cp tries to RECREATE that junction inside the
+  // staging root and Windows refuses the symlink outright (EPERM).
+  await cp(join(desktopDir, 'out'), join(stagingRoot, 'out'), {
+    recursive: true,
+    dereference: true,
+  });
   await rm(join(stagingRoot, 'out', 'main', 'capture-window.js'), { force: true });
   await rm(join(stagingRoot, ...ptyPackageSegments), { recursive: true, force: true });
   try {

@@ -44,6 +44,7 @@ import {
 } from "./composer-draft";
 import { useComposerDictation } from "./use-composer-dictation";
 import { useComposerAttachments } from "./use-composer-attachments";
+import { useComposerShareIntake } from "./use-composer-share-intake";
 import { useComposerQueue } from "./use-composer-queue";
 import { useComposerSubmission } from "./use-composer-submission";
 import { useComposerKeyboard } from "./use-composer-keyboard";
@@ -178,6 +179,7 @@ export const Composer = memo(function Composer({
   onOpenSettings,
   onOpenCommandSurface,
   dropTargetRef,
+  paneActive = true,
 }: {
   turnBusy: boolean;
   commandBusy: boolean;
@@ -221,6 +223,9 @@ export const Composer = memo(function Composer({
   onOpenSettings: (section?: SettingsSection | null) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
   dropTargetRef: React.RefObject<HTMLElement | null>;
+  /** This pane is the focused, visible one. A payload shared into the app from
+   *  outside (share sheet) may only land in a composer the user can see. */
+  paneActive?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -303,13 +308,25 @@ export const Composer = memo(function Composer({
   const composerPaintSamplePending = useRef(false);
   const transitioningRef = useRef(transitioning);
   transitioningRef.current = transitioning;
-  const { dictationState, toggleDictation, cancelDictation, recordingElapsedMs, dictationLevelRef } = useComposerDictation({
+  // Voice → send in one press. The transcript reaches the draft through a
+  // state update, and `send` reads the textarea, so the intent is parked here
+  // and fired by the effect below on the commit that carries the words.
+  const voiceSubmitPending = useRef(false);
+  const {
+    dictationState,
+    toggleDictation,
+    stopDictationAndSend,
+    cancelDictation,
+    recordingElapsedMs,
+    dictationLevelRef,
+  } = useComposerDictation({
     transitioningRef,
     textarea,
     setDraft,
     invokeResult,
     showNotice: showComposerNotice,
     confirmVoiceInstall,
+    onTranscriptSubmit: useCallback(() => { voiceSubmitPending.current = true; }, []),
   });
   const wasTransitioning = useRef(transitioning);
   const historyNavigation = useRef({ index: -1, seed: '' });
@@ -342,6 +359,21 @@ export const Composer = memo(function Composer({
     recoveryScope,
     submissionRecoveryVersion,
     dropTargetRef,
+  });
+  // A shared link or note arrives as text: it JOINS the draft instead of
+  // replacing whatever the user already typed.
+  const appendSharedText = useCallback((text: string) => {
+    setDraft((current) => {
+      const next = current.trim() ? `${current.replace(/\s+$/, '')}\n${text}` : text;
+      draftRef.current = next;
+      return next;
+    });
+    window.setTimeout(() => { textarea.current?.focus(); }, 0);
+  }, [draftRef, setDraft, textarea]);
+  useComposerShareIntake({
+    active: paneActive && !transitioning,
+    attachFiles,
+    appendText: appendSharedText,
   });
   useEffect(() => {
     const element = textarea.current;
@@ -994,6 +1026,14 @@ export const Composer = memo(function Composer({
     text: draft,
     attachments,
   });
+  // A live take turns the send disc into "finish and send"; a running turn
+  // still claims that disc for Stop.
+  const voiceSend = !stopOnly && dictationState === 'recording';
+  useEffect(() => {
+    if (!voiceSubmitPending.current || dictationState !== 'idle') return;
+    voiceSubmitPending.current = false;
+    void send('', 'voice-submit');
+  }, [dictationState, draft, send]);
   return (
     <>
       {voiceInstallPromptOpen && <VoiceInstallDialog
@@ -1207,21 +1247,28 @@ export const Composer = memo(function Composer({
             : dictationState === 'recording' ? <MxIcon name="stop" size={16} />
               : <Mic size={16} />}
         </button>
-        <button type={stopOnly ? "button" : "submit"}
+        {/* Mid-take the disc ENDS the take and sends what was spoken, instead
+            of sitting disabled: the transcript still only reaches the draft
+            after the recorder stops, so this press chains stop → transcribe →
+            submit. Transcribing keeps it disabled — that take is already on
+            its way. */}
+        <button type={stopOnly || voiceSend ? "button" : "submit"}
           className={`send-button${stopOnly ? " stop" : ""}`}
-          onClick={stopOnly ? () => void stop() : undefined}
-          // Sending mid-take would drop what was just spoken: the transcript
-          // only reaches the draft after the recorder stops.
-          disabled={stopOnly ? false
+          onClick={stopOnly ? () => void stop()
+            : voiceSend ? () => stopDictationAndSend()
+              : undefined}
+          disabled={stopOnly || voiceSend ? false
             : (!draft.trim() && !attachments.some((attachment) => !attachment.token || attachment.chipOnly === true))
               || (submitting && Boolean(draftMode)) || transitioning || dictationState !== 'idle'}
           aria-label={stopOnly ? t("Stop generation")
-            : submitting ? (hasConversation ? t("Sending message") : t("Starting session"))
-              : turnBusy ? t("Queue or steer active turn")
-                : commandBusy ? t("Queue after current command") : t("Send message")}
+            : voiceSend ? t("Stop dictation and send")
+              : submitting ? (hasConversation ? t("Sending message") : t("Starting session"))
+                : turnBusy ? t("Queue or steer active turn")
+                  : commandBusy ? t("Queue after current command") : t("Send message")}
           data-tooltip={stopOnly ? t("Stop")
-            : turnBusy ? t("Queue or steer · Enter")
-              : commandBusy ? t("Queue after command · Enter") : t("Send · Enter")}
+            : voiceSend ? t("Stop and send")
+              : turnBusy ? t("Queue or steer · Enter")
+                : commandBusy ? t("Queue after command · Enter") : t("Send · Enter")}
           data-tooltip-side="top">
           {stopOnly
             ? <MxIcon name="stop" size={16} />

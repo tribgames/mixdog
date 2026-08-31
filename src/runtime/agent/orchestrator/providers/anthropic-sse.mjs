@@ -32,6 +32,10 @@ import { splitSseRegion } from './lib/sse-framing.mjs';
 import { stampStreamOutcome, STREAM_TRANSPORTS, STREAM_OUTCOME_VERSION } from './lib/stream-outcome.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
 import {
+    isAnthropicThinkingBlock,
+    sanitizeAnthropicReplayEntries,
+} from './lib/anthropic-replay-blocks.mjs';
+import {
     anthropicFallbackProviderMetadata,
     parseAnthropicFallbackBlock,
 } from './anthropic-server-fallback.mjs';
@@ -200,33 +204,54 @@ export async function parseSSEStream(response, signal, abortStream, onStreamDelt
     // truncation failure so a cut-off turn preserves exactly the same completed
     // native/client blocks (verbatim, in original content_block order) that a
     // successful turn would have replayed.
-    const _orderedThinkingBlocks = () => (thinkingBlocks.size
-        ? [...thinkingBlocks.entries()].sort((a, b) => a[0] - b[0]).map(([, b]) => b)
-        : undefined);
     // A native CALL block is seeded at content_block_start and only gains its
     // parsed `input` at content_block_stop, so a block whose input JSON is
     // still streaming is INCOMPLETE and must never enter the replay list: it
     // would be replayed with empty/partial arguments. Completed blocks only.
     const _completedNativeBlocks = () => [...nativeServerToolBlocks.entries()]
         .filter(([index]) => !pendingNativeToolInputs.has(index));
+    // Every block of this turn in provider content_block index space, EMPTY
+    // text blocks included. They never reach the wire (the API rejects an empty
+    // text block outright), but the reducer has to see them: an empty text
+    // block between two thinking blocks is the only evidence that the model
+    // produced two SEPARATE thinking runs, and silently fusing those runs is a
+    // permanent 400 on every later request (anthropic-replay-blocks.mjs).
+    const _replayBlockEntries = () => [
+        ...thinkingBlocks.entries(),
+        ...[...textBlocks.entries()].map(([index, text]) => [
+            index,
+            { type: 'text', text: typeof text === 'string' ? text : '' },
+        ]),
+        ..._completedNativeBlocks(),
+        ...clientToolUseBlocks.entries(),
+    ];
+    let _mergedThinkingDropped = 0;
+    const _noteReplayDrop = (kind, block) => {
+        if (kind !== 'merged_thinking') return;
+        _mergedThinkingDropped += 1;
+        if (_mergedThinkingDropped > 1) return;
+        try {
+            process.stderr.write(
+                `[anthropic] dropped a ${block?.type || 'thinking'} block separated only by an empty `
+                + 'text block; replaying it would merge two thinking runs into one\n',
+            );
+        } catch { /* best-effort */ }
+    };
+    const _orderedThinkingBlocks = () => {
+        if (!thinkingBlocks.size) return undefined;
+        const kept = sanitizeAnthropicReplayEntries(_replayBlockEntries(), _noteReplayDrop)
+            .filter(isAnthropicThinkingBlock);
+        return kept.length ? kept : undefined;
+    };
     const _orderedAssistantBlocks = () => {
-        const nativeBlocks = _completedNativeBlocks();
-        const entries = [
-            ...[...thinkingBlocks.entries()],
-            ...[...textBlocks.entries()]
-                .filter(([, text]) => typeof text === 'string' && text.length > 0)
-                .map(([index, text]) => [index, { type: 'text', text }]),
-            ...nativeBlocks,
-            ...[...clientToolUseBlocks.entries()],
-        ];
+        const entries = _replayBlockEntries();
         if (!entries.length) return undefined;
         // A leaked plain-text tool call has no provider content_block index.
         // Falling back to the legacy flattened projection is safer than
         // claiming an exact replay while silently omitting that synthetic call.
         if (toolCalls.length > 0 && clientToolUseBlocks.size !== toolCalls.length) return undefined;
-        return entries
-            .sort((a, b) => a[0] - b[0])
-            .map(([, block]) => block);
+        const blocks = sanitizeAnthropicReplayEntries(entries, _noteReplayDrop);
+        return blocks.length ? blocks : undefined;
     };
     // Per-index raw text, kept only so the ordered native-block replay list
     // below can interleave text exactly where the provider emitted it.

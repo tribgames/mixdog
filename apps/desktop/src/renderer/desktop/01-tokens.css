@@ -351,6 +351,24 @@
      shrinks a sheet for the soft keyboard, and the unit caps it at what is
      really on screen. */
   --mx-visible-height: min(var(--vvh, 100dvh), 100dvh);
+  /* ── Side-sheet width ────────────────────────────────────────────────────
+     Every overlay side surface — the phone drawers and the narrow-window
+     sheets — sizes from ONE expression instead of each surface inventing its
+     own ratio. The 78% ratio reads right on a phone in portrait; the floor
+     keeps a session row legible on a small screen; the ceiling is the desktop
+     sidebar's own maximum (MAX_SIDEBAR_WIDTH, session-sidebar.tsx); and the
+     peek guarantees the surface BEHIND the sheet never disappears entirely
+     (user: 최대 값이 없어서 너무 넓어지는 케이스). The phone layer
+     re-declares the same expression in dp, with the projection factor
+     divided out. */
+  --mx-side-sheet-min: 260px;
+  --mx-side-sheet-max: 420px;
+  --mx-side-sheet-peek: 48px;
+  --mx-side-sheet-width: min(
+    max(78vw, var(--mx-side-sheet-min)),
+    var(--mx-side-sheet-max),
+    calc(100vw - var(--mx-side-sheet-peek))
+  );
 }
 
 /* Reduced motion, at the SOURCE: collapsing the scale itself retimes every

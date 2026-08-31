@@ -125,7 +125,10 @@ async function renderPdfPageDirect(path, pageNumber, targetWidth, minimumScale =
 
 async function runPdfRenderWorker(data, signal = null) {
   const worker = new Worker(new URL(import.meta.url), {
-    execArgv: process.execArgv.filter((argument) => !argument.startsWith('--input-type')),
+    execArgv: process.execArgv.filter((argument) => !(
+      /^--(?:input-type|max-old-space-size|max-semi-space-size|stack-size|heapsnapshot-near-heap-limit)(?:=|$)/
+        .test(argument)
+    )),
     workerData: data,
   });
   return await new Promise((resolve, reject) => {

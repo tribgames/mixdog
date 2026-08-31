@@ -19,6 +19,8 @@ import * as workspaceConfig from './workspace-config';
 import * as workspaceSearch from './workspace-search';
 import { createCommitMessageGenerator } from './commit-message';
 import type { CommitCompletionModule } from './commit-message';
+import { createDocumentPreviewOperations } from './document-preview';
+import type { DocumentPreviewModule } from './document-preview';
 
 export interface DesktopOperationEvent {
   name: 'folder-changed' | 'lsp-diagnostics' | 'lsp-status' | 'terminal-data';
@@ -32,6 +34,7 @@ interface DesktopOperationsOptions {
   appPath?: string;
   loadConfig?: () => Promise<MixdogConfigModule>;
   loadCommitCompletion?: () => Promise<CommitCompletionModule>;
+  loadDocumentPreview?: () => Promise<DocumentPreviewModule>;
   emit(event: DesktopOperationEvent): void;
 }
 
@@ -149,6 +152,7 @@ export function createDesktopOperations({
   appPath,
   loadConfig,
   loadCommitCompletion,
+  loadDocumentPreview,
   emit,
 }: DesktopOperationsOptions) {
   const languageServers = new LanguageServerManager();
@@ -164,6 +168,12 @@ export function createDesktopOperations({
     resourcesPath,
     appPath,
     loadModule: loadCommitCompletion,
+  });
+  // Converted documents are a cache, not user data: they live under the app's
+  // own directory and are evicted, never synced or backed up.
+  const documentPreviews = createDocumentPreviewOperations({
+    cacheRoot: userDataPath,
+    loadDocumentPreview,
   });
   const folderWatchers = new Map<string, {
     watcher: FSWatcher;
@@ -214,6 +224,16 @@ export function createDesktopOperations({
       | ((...values: unknown[]) => unknown)
       | undefined;
     if (staticOperation) return await staticOperation(...args);
+    if (name === 'documentPreviewIn') {
+      return documentPreviews.documentPreviewIn(String(args[0] || ''), String(args[1] || ''));
+    }
+    if (name === 'documentPreviewPagesIn') {
+      return documentPreviews.documentPreviewPagesIn(
+        String(args[0] || ''),
+        String(args[1] || ''),
+        (args[2] ?? {}) as { pages?: unknown; maxWidth?: unknown },
+      );
+    }
     if (name === 'readSettings') return settingsStore.read();
     if (name === 'updateSetting') {
       return settingsStore.update(

@@ -201,6 +201,124 @@
   background: #fff;
 }
 
+.browser-remote-content {
+  align-items: stretch;
+  justify-content: stretch;
+  background: #111;
+  touch-action: none;
+  user-select: none;
+}
+
+.browser-remote-content > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.browser-remote-keyboard-button.is-active {
+  background: var(--mx-hover);
+  color: var(--mx-text);
+}
+
+.browser-remote-keyboard {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--mx-border-muted);
+  background: var(--mx-surface-plate);
+}
+
+.browser-remote-keyboard input {
+  min-width: 0;
+  height: 30px;
+  flex: 1;
+  padding: 0 10px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 7px;
+  background: var(--mx-surface-raised);
+  color: var(--mx-text);
+  outline: none;
+}
+
+.browser-remote-keyboard input:focus {
+  border-color: var(--mx-focus);
+}
+
+.browser-remote-keyboard button,
+.browser-remote-empty button,
+.browser-remote-status button {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 7px;
+  background: var(--mx-surface-raised);
+  color: var(--mx-text);
+}
+
+.browser-remote-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  padding: 24px;
+  background: var(--mx-workspace-sheet);
+  color: var(--mx-text-muted);
+  text-align: center;
+}
+
+.browser-remote-empty strong {
+  color: var(--mx-text);
+}
+
+.browser-remote-empty span {
+  max-width: 520px;
+  overflow-wrap: anywhere;
+}
+
+.browser-remote-status {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--mx-danger) 45%, var(--mx-border-muted));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--mx-surface-plate) 92%, transparent);
+  color: var(--mx-danger);
+  box-shadow: var(--mx-floating);
+}
+
+.browser-remote-status span {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .browser-remote-pane .browser-pane-toolbar {
+    gap: 2px;
+    padding-inline: 5px;
+  }
+
+  .browser-remote-pane .browser-pane-nav-button {
+    width: 27px;
+  }
+}
+
 .browser-pane-webview.is-import-open,
 .browser-pane-webview.is-history-open,
 .browser-pane-webview.is-credential-open,
@@ -215,147 +333,6 @@
   flex: 0 0 1px;
   opacity: 0;
   pointer-events: none;
-}
-
-/* Progress strip: one plain sentence about what the agent is doing to the
-   page, so watching it never means reading tool calls. */
-.browser-pane-activity {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 7px;
-  padding: 6px 12px;
-  border-top: 1px solid var(--mx-border-muted);
-  background: var(--mx-workspace-sheet);
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-}
-
-.browser-pane-activity > em {
-  color: var(--mx-text-faint);
-  font-style: normal;
-}
-
-.browser-pane-activity-spin {
-  flex: none;
-  animation: mixdog-browser-activity-spin 1s linear infinite;
-}
-
-@keyframes mixdog-browser-activity-spin {
-  to { transform: rotate(360deg); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .browser-pane-activity-spin {
-    animation: none;
-  }
-}
-
-/* Goal bar: plain-language entry point under the page, shaped like a composer
-   so the browser pane reads as a place you can ask for work. */
-.browser-pane-goal {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-top: 1px solid var(--mx-border-muted);
-  background: var(--mx-workspace-sheet);
-  color: var(--mx-text-faint);
-}
-
-.browser-pane-goal > input {
-  min-width: 0;
-  flex: 1;
-  border: none;
-  background: transparent;
-  color: var(--mx-text);
-  font-size: var(--mx-font-ui);
-  outline: none;
-}
-
-.browser-pane-goal > button {
-  display: inline-flex;
-  height: 26px;
-  flex: none;
-  align-items: center;
-  padding: 0 12px;
-  border: 1px solid var(--mx-border-muted);
-  border-radius: 7px;
-  background: var(--mx-surface-raised);
-  color: var(--mx-text);
-  cursor: pointer;
-  font-size: var(--mx-font-meta);
-}
-
-.browser-pane-goal > button:disabled {
-  color: var(--mx-text-faint);
-  cursor: default;
-  opacity: .6;
-}
-
-/* Human handoff: the agent parked on a captcha, a 2FA prompt, or an identity
-   check. The banner is a strip ABOVE the guest, never a cover — hiding the
-   page would hide the very challenge the user has to clear. */
-.browser-pane-handoff {
-  position: absolute;
-  z-index: 3;
-  top: 10px;
-  right: 12px;
-  left: 12px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--mx-border-muted);
-  border-radius: 10px;
-  background: var(--mx-surface-raised);
-  box-shadow: 0 10px 28px rgb(0 0 0 / 26%);
-  color: var(--mx-text);
-}
-
-.browser-pane-handoff-icon {
-  flex: none;
-  color: var(--mx-accent, var(--mx-text));
-}
-
-.browser-pane-handoff-body {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.browser-pane-handoff-body > strong {
-  font-size: var(--mx-font-ui);
-}
-
-.browser-pane-handoff-body > span {
-  overflow-wrap: anywhere;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-}
-
-.browser-pane-handoff button {
-  display: inline-flex;
-  height: 28px;
-  flex: none;
-  align-items: center;
-  gap: 6px;
-  padding: 0 12px;
-  border: 1px solid var(--mx-border-muted);
-  border-radius: 7px;
-  background: var(--mx-surface-sunken, transparent);
-  color: var(--mx-text);
-  cursor: pointer;
-  font-size: var(--mx-font-meta);
-}
-
-.browser-pane-handoff button.is-primary {
-  border-color: transparent;
-  background: var(--mx-accent, var(--mx-text));
-  color: var(--mx-on-accent, var(--mx-workspace-sheet));
 }
 
 .browser-pane-failure {

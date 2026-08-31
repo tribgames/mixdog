@@ -1,7 +1,21 @@
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import test from 'node:test';
 
-import { BrowserNetworkLedger } from './browser-network.ts';
+import { BrowserNetworkLedger, formatNetworkHeaders } from './browser-network.ts';
+import { BrowserConsoleLedger } from './browser-console.ts';
+import {
+  browserDownloadExceedsLimit,
+  browserDownloadSavePath,
+  MAX_BROWSER_DOWNLOAD_BYTES,
+  safeBrowserDownloadName,
+} from './browser-downloads.ts';
+import { createBrowserIntercept } from './browser-intercept.ts';
+import { createBrowserInitScripts } from './browser-init-scripts.ts';
+import {
+  browserStorageKeyIsSensitive,
+  createBrowserPageState,
+} from './browser-page-state.ts';
 
 test('browser network ledger records request, response, timing, and filters', () => {
   const ledger = new BrowserNetworkLedger();
@@ -38,6 +52,24 @@ test('browser network ledger records request, response, timing, and filters', ()
     ['r1'],
   );
   assert.equal(ledger.list({ resourceTypes: ['image'] }).total, 0);
+});
+
+test('browser network reports redact custom credential headers', () => {
+  assert.deepEqual(formatNetworkHeaders({
+    'X-Auth-Token': 'opaque-value',
+    'X-Amz-Security-Token': 'another-secret',
+    Accept: 'application/json',
+  }), [
+    '- X-Auth-Token: [REDACTED]',
+    '- X-Amz-Security-Token: [REDACTED]',
+    '- Accept: application/json',
+  ]);
+});
+
+test('browser storage diagnostics classify opaque credential keys', () => {
+  assert.equal(browserStorageKeyIsSensitive('access_token'), true);
+  assert.equal(browserStorageKeyIsSensitive('session-id'), true);
+  assert.equal(browserStorageKeyIsSensitive('theme'), false);
 });
 
 test('browser network ledger keeps redirect hops distinct and records failures', () => {
@@ -111,4 +143,183 @@ test('browser network ledger records WebSocket handshakes and frames', () => {
   assert.equal(socket.status, 101);
   assert.deepEqual(socket.webSocketFrames.map((frame) => frame.direction), ['sent', 'received']);
   assert.equal(socket.finishedAt, 3_030);
+});
+
+test('browser network ledger bounds pending requests and untrusted payload memory', () => {
+  const ledger = new BrowserNetworkLedger(2);
+  const oversized = 'x'.repeat(100_000);
+  for (let index = 1; index <= 3; index += 1) {
+    ledger.requestWillBeSent({
+      requestId: String(index),
+      type: 'Fetch',
+      request: {
+        method: 'POST',
+        url: `https://example.test/${index}${oversized}`,
+        headers: Object.fromEntries(
+          Array.from({ length: 140 }, (_, header) => [`x-${header}`, oversized]),
+        ),
+        postData: oversized,
+      },
+    });
+  }
+  assert.equal(ledger.get('r1'), undefined);
+  assert.equal(ledger.pendingCount, 2);
+  const newest = ledger.get('r3');
+  assert.ok(newest.url.length <= 16_384);
+  assert.ok(newest.requestBody.length <= 64_000);
+  assert.equal(Object.keys(newest.requestHeaders).length, 128);
+  assert.ok(Object.values(newest.requestHeaders).every((value) => value.length <= 8_192));
+
+  const socket = ledger.webSocketCreated({
+    requestId: 'socket',
+    url: 'wss://example.test/socket',
+  });
+  for (let index = 0; index < 120; index += 1) {
+    ledger.webSocketFrame({
+      requestId: 'socket',
+      response: { opcode: 1, payloadData: oversized },
+    }, 'received');
+  }
+  assert.ok(socket.webSocketFrames.length <= 100);
+  assert.ok(
+    socket.webSocketFrames.reduce((total, frame) => total + frame.data.length, 0) <= 256_000,
+  );
+});
+
+test('browser console ledger bounds untrusted entries and its formatted report', () => {
+  const ledger = new BrowserConsoleLedger();
+  const oversized = 'page-console '.repeat(20_000);
+  for (let index = 0; index < 30; index += 1) {
+    ledger.record('error', `${index}:${oversized}`);
+  }
+  const report = ledger.format('all', '', 200);
+  assert.match(report, /UNTRUSTED CONSOLE DATA/);
+  assert.match(report, /\[truncated\]/);
+  assert.ok(report.length < 45_000);
+});
+
+test('browser intercept mutations roll back when Chromium rejects the new pattern set', async () => {
+  const guest = {};
+  const intercept = createBrowserIntercept();
+  await assert.rejects(
+    intercept.interceptResult(
+      guest,
+      { operation: 'add', url: '*/api/*', body: 'fixture' },
+      async () => { throw new Error('CDP unavailable'); },
+    ),
+    /CDP unavailable/,
+  );
+  assert.match(
+    (await intercept.interceptResult(guest, { operation: 'list' }, async () => {})).text,
+    /No intercept rules are active/,
+  );
+
+  const added = await intercept.interceptResult(
+    guest,
+    { operation: 'add', url: '*/api/*', body: 'fixture' },
+    async () => {},
+  );
+  const id = added.text.match(/\[(i\d+)\]/)?.[1];
+  assert.ok(id);
+  await assert.rejects(
+    intercept.interceptResult(
+      guest,
+      { operation: 'remove', ruleId: id },
+      async () => { throw new Error('CDP unavailable'); },
+    ),
+    /CDP unavailable/,
+  );
+  assert.match(
+    (await intercept.interceptResult(guest, { operation: 'list' }, async () => {})).text,
+    new RegExp(`\\[${id}\\]`),
+  );
+});
+
+test('browser downloads stay inside the download directory with stable collision handling', () => {
+  assert.equal(safeBrowserDownloadName('../secrets.txt'), 'secrets.txt');
+  assert.equal(safeBrowserDownloadName('..\\..\\NUL.txt'), '_NUL.txt');
+  assert.equal(safeBrowserDownloadName('bad:name?.json'), 'bad_name_.json');
+
+  const directory = join('safe', 'downloads');
+  const occupied = new Set([
+    join(directory, 'report.pdf'),
+    join(directory, 'rs-report.pdf'),
+  ]);
+  const destination = browserDownloadSavePath(directory, '../report.pdf', {
+    exists: (path) => occupied.has(path),
+    now: () => 1_000,
+  });
+  assert.equal(destination.file, 'report.pdf');
+  assert.equal(destination.path, join(directory, 'rs-1-report.pdf'));
+  assert.equal(browserDownloadExceedsLimit(0, MAX_BROWSER_DOWNLOAD_BYTES), false);
+  assert.equal(browserDownloadExceedsLimit(MAX_BROWSER_DOWNLOAD_BYTES + 1, -1), true);
+  assert.equal(browserDownloadExceedsLimit(0, -1, 3 * 1024 * 1024 * 1024), true);
+});
+
+test('clearing init scripts preserves untouched entries when cancellation lands midway', async () => {
+  const guest = {};
+  const controller = new AbortController();
+  let identifiers = 0;
+  let removals = 0;
+  const scripts = createBrowserInitScripts({
+    guestDebugger: async () => ({}),
+    sendCdp: async (_guest, _cdp, method) => {
+      if (method === 'Page.addScriptToEvaluateOnNewDocument') {
+        identifiers += 1;
+        return { identifier: `chromium-${identifiers}` };
+      }
+      removals += 1;
+      if (removals === 2) {
+        controller.abort(new Error('fixture cancelled'));
+        throw controller.signal.reason;
+      }
+      return {};
+    },
+    cdpTimeoutMs: 1_000,
+  });
+  await scripts.initScriptResult(guest, { operation: 'add', script: 'window.one = 1' });
+  await scripts.initScriptResult(guest, { operation: 'add', script: 'window.two = 2' });
+
+  await assert.rejects(
+    scripts.initScriptResult(guest, { operation: 'clear' }, controller.signal),
+    /fixture cancelled/,
+  );
+  const listed = await scripts.initScriptResult(guest, { operation: 'list' });
+  assert.doesNotMatch(listed.text, /\[is1\]/);
+  assert.match(listed.text, /\[is2\]/);
+});
+
+test('cookie observations redact common tokens and cap oversized profiles', async () => {
+  const secret = 'ghp_abcdefghijklmnopqrstuvwxyz1234567890';
+  const cookies = Array.from({ length: 205 }, (_, index) => ({
+    name: `cookie-${index}`,
+    value: index === 0 ? secret : `value-${index}`,
+    domain: 'example.test',
+    path: '/',
+    secure: true,
+    httpOnly: true,
+    session: true,
+    sameSite: 'lax',
+  }));
+  const pageState = createBrowserPageState({
+    partitionSession: {
+      cookies: {
+        get: async () => cookies,
+        set: async () => {},
+        remove: async () => {},
+      },
+    },
+    urlPolicy: () => ({}),
+    evaluate: async () => undefined,
+    invalidateInteractionState() {},
+    formatEvaluationValue: () => '',
+  });
+  const result = await pageState.cookiesResult({
+    getURL: () => 'https://example.test/',
+  }, { operation: 'list' });
+  assert.match(result.text, /UNTRUSTED PAGE DATA/);
+  assert.match(result.text, /Cookies \(205; showing 200\)/);
+  assert.doesNotMatch(result.text, new RegExp(secret));
+  assert.doesNotMatch(result.text, /cookie-204/);
+  assert.ok(result.text.length < 25_000);
 });

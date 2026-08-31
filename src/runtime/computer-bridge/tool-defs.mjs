@@ -1,4 +1,7 @@
-import { COMPUTER_INPUT_SCHEMA } from './action-schema.mjs';
+import {
+  COMPUTER_INPUT_SCHEMA,
+  COMPUTER_OBSERVATION_ACTIONS,
+} from './action-schema.mjs';
 
 const COMPUTER_TOOL_DESCRIPTION = [
   'Operate the local Windows desktop through Mixdog (Windows only).',
@@ -7,6 +10,7 @@ const COMPUTER_TOOL_DESCRIPTION = [
   'Prefer a fresh ref or element over pixels; coordinates require frame_id from the latest capture of the same window and must never be guessed or mixed with semantic targets.',
   'Use type for literal text and key for chords; window and clipboard select their operation inside input.',
   'Use diagnose for read-only backend/OCR/accessibility readiness.',
+  `Observation-only actions, safe to repeat: ${COMPUTER_OBSERVATION_ACTIONS.join(', ')}. Every other action can move the desktop.`,
   'Use verify to wait for a bounded window condition instead of recapturing in a loop, and menu to invoke an exact application menu path.',
   'STRICT CALL CARDINALITY: even if transport supports parallel calls, emit at most one computer call per model turn. Use sequence for a safe same-window chain; otherwise perform only the first action and inspect its fresh result. Two computer calls in one response are invalid.',
   'Prefer sequence over separate calls when one fresh exact-window observation supports 2-6 deterministic steps and every nonfinal step preserves the same target and focus.',

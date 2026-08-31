@@ -132,6 +132,16 @@ const api: DesktopApi = {
     ipcRenderer.invoke(DESKTOP_IPC.readProjectFile, projectPath, relPath, accessToken),
   previewProjectFile: (projectPath, relPath, accessToken) =>
     ipcRenderer.invoke(DESKTOP_IPC.previewProjectFile, projectPath, relPath, accessToken),
+  previewDocumentFile: (projectPath, relPath, accessToken) =>
+    ipcRenderer.invoke(DESKTOP_IPC.previewDocumentFile, projectPath, relPath, accessToken),
+  previewDocumentPages: (projectPath, relPath, accessToken, options) =>
+    ipcRenderer.invoke(
+      DESKTOP_IPC.previewDocumentPages,
+      projectPath,
+      relPath,
+      accessToken,
+      options,
+    ),
   writeProjectFile: (projectPath, relPath, content, expectedContent, accessToken, encoding) =>
     ipcRenderer.invoke(
       DESKTOP_IPC.writeProjectFile,
@@ -555,24 +565,6 @@ const api: DesktopApi = {
     ipcRenderer.invoke(DESKTOP_IPC.browserCredentialSuggestions),
   browserCredentialFill: (credentialId) =>
     ipcRenderer.invoke(DESKTOP_IPC.browserCredentialFill, credentialId),
-  onBrowserHandoffChanged: (listener) => {
-    const receive = (
-      _event: Electron.IpcRendererEvent,
-      request: Parameters<typeof listener>[0],
-    ): void => listener(request);
-    ipcRenderer.on(DESKTOP_IPC.browserHandoffChanged, receive);
-    return () => ipcRenderer.removeListener(DESKTOP_IPC.browserHandoffChanged, receive);
-  },
-  browserHandoffResolve: (handoffId, completed) =>
-    ipcRenderer.invoke(DESKTOP_IPC.browserHandoffResolve, handoffId, completed),
-  onBrowserActivityChanged: (listener) => {
-    const receive = (
-      _event: Electron.IpcRendererEvent,
-      activity: Parameters<typeof listener>[0],
-    ): void => listener(activity);
-    ipcRenderer.on(DESKTOP_IPC.browserActivityChanged, receive);
-    return () => ipcRenderer.removeListener(DESKTOP_IPC.browserActivityChanged, receive);
-  },
   invokeCapability: (request) => ipcRenderer.invoke(DESKTOP_IPC.invokeCapability, request),
   readCapabilities: (requests) => ipcRenderer.invoke(DESKTOP_IPC.readCapabilities, requests),
   // Byte lane for gallery media: a plain URL the DOM fetches itself (cached

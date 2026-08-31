@@ -2079,8 +2079,29 @@ async function handleClaimRequest(context, request, response) {
   json(202, { claimId: id });
 }
 
+// The installed app's share sheet posts to its service worker, which answers
+// on the device. A share that still reaches the relay means no worker was
+// active yet: reopening the app beats failing the share outright, even though
+// the payload itself is lost with the request this relay never stores.
+const SHARE_TARGET_PATH = /^\/(?:d\/[^/]+\/)?share-target$/;
+
+function shareTargetShell(requestUrl) {
+  let pathname;
+  try {
+    pathname = decodeURIComponent(new URL(requestUrl || '/', 'http://localhost').pathname);
+  } catch {
+    return '';
+  }
+  return SHARE_TARGET_PATH.test(pathname) ? pathname.replace(/share-target$/, '') : '';
+}
+
 function serveStatic(rendererDir, store, unauthorizedLimiter, request, response) {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
+    const shell = request.method === 'POST' ? shareTargetShell(request.url) : '';
+    if (shell) {
+      response.writeHead(303, { Location: shell }).end();
+      return;
+    }
     response.writeHead(405).end();
     return;
   }

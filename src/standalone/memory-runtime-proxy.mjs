@@ -1,5 +1,6 @@
 import { fork } from 'node:child_process';
 import { detachedSpawnOpts } from '../runtime/shared/spawn-flags.mjs';
+import { withHeapCap } from '../runtime/shared/heap-cap.mjs';
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import { dirname, join, resolve } from 'node:path';
@@ -430,7 +431,7 @@ export function createStandaloneMemoryRuntime({
       scrubLoaderVars(daemonEnv);
       child = fork(entry, [], {
         cwd,
-        execArgv: [],
+        execArgv: withHeapCap('memory'),
         stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
         env: {
           ...daemonEnv,

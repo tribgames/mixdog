@@ -5,4 +5,5 @@
 // executable front end used for graph builds and `--serve-search`.
 pub mod lang;
 pub mod serve_search;
+mod serve_search_lifecycle;
 pub mod serve_search_usn;

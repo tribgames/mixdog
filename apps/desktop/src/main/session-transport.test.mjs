@@ -193,6 +193,11 @@ test('a dead daemon is reattached internally and replays an in-flight request on
     diagnostics.map((entry) => entry.event),
     ['session-daemon-reconnecting', 'session-daemon-reconnected'],
   );
+  // The swap is announced on the lane the host actually acts on, once.
+  assert.equal(
+    messages.filter((message) => message.kind === 'daemon-replaced').length,
+    1,
+  );
   await transport.close();
 });
 

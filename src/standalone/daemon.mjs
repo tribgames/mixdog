@@ -47,6 +47,7 @@ import { setOwnerContext } from '../runtime/channels/lib/runtime-paths.mjs';
 import { safeIpcSend } from '../runtime/shared/safe-ipc-send.mjs';
 import { releaseAllComputerSessions } from '../runtime/computer-bridge/client.mjs';
 import { resourceAdmission } from '../runtime/shared/resource-admission.mjs';
+import { createIdleGc } from '../runtime/shared/idle-gc.mjs';
 import { snapshot as childSpawnSnapshot } from '../runtime/shared/child-spawn-gate.mjs';
 import { toolWorkloadSnapshot } from '../runtime/shared/tool-workload-gates.mjs';
 import { providerAdmissionScheduler } from '../runtime/agent/orchestrator/providers/admission-scheduler.mjs';
@@ -248,6 +249,7 @@ let replacementRequested = null;
 const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
 eventLoopDelay.enable();
 let eventLoopLagTimer = null;
+let idleGc = null;
 
 function registerMemoryRuntimeLazy() {
   // Register the shared proxy immediately so daemon shutdown owns its
@@ -313,6 +315,7 @@ async function shutdown(reason, code = 0) {
   try { agentDispatchBroker?.close?.(reason); } catch (e) { log(`agent broker stop failed: ${e?.message || e}`); }
   try { await closeProviderStreamJsonPool(reason); } catch (e) { log(`stream parser stop failed: ${e?.message || e}`); }
   try { await transport?.stop?.(); } catch (e) { log(`transport.stop failed: ${e?.message || e}`); }
+  idleGc?.disarm();
   if (eventLoopLagTimer) { clearInterval(eventLoopLagTimer); eventLoopLagTimer = null; }
   eventLoopDelay.disable();
   for (const discoveryPath of [DAEMON_DISCOVERY_PATH]) {
@@ -321,6 +324,23 @@ async function shutdown(reason, code = 0) {
   try { releaseSingletonOwner(OWNER_PATH, process.pid); } catch {}
   await flushDaemonLogs();
   process.exit(code);
+}
+
+/** Work actually running right now, across both front doors. Self-shutdown
+ *  asks whether this process may exit; idle GC asks whether a pause is safe. */
+function inFlightWork() {
+  return {
+    activeCalls: (transport?.activeCount ?? 0) + (sessionTransport?.activeCount ?? 0),
+    queuedCalls: (transport?.queuedCount ?? 0) + (sessionTransport?.queuedCount ?? 0),
+    busySessions: sessionService?.busyCount ?? 0,
+    busyMemoryAgents: agentDispatchBroker?.snapshot?.().inFlight ?? 0,
+  };
+}
+
+function daemonHasWorkInFlight() {
+  const work = inFlightWork();
+  return work.activeCalls > 0 || work.queuedCalls > 0
+    || work.busySessions > 0 || work.busyMemoryAgents > 0;
 }
 
 /** One process, two front doors (channels + sessions): an idle side must never
@@ -351,8 +371,7 @@ function maybeSelfShutdown(reason) {
     }
     return;
   }
-  const activeCalls = (transport?.activeCount ?? 0) + (sessionTransport?.activeCount ?? 0);
-  const queuedCalls = (transport?.queuedCount ?? 0) + (sessionTransport?.queuedCount ?? 0);
+  const { activeCalls, queuedCalls, busySessions, busyMemoryAgents } = inFlightWork();
   if (activeCalls > 0 || queuedCalls > 0) {
     log(`shutdown deferred (${reason}): activeCalls=${activeCalls} queuedCalls=${queuedCalls}`);
     if (!shutdownRecheckTimer) {
@@ -366,8 +385,6 @@ function maybeSelfShutdown(reason) {
   }
   // A turn in flight outlives every view — closing the app or the terminal is
   // not a reason to abandon work the daemon is still running.
-  const busySessions = sessionService?.busyCount ?? 0;
-  const busyMemoryAgents = agentDispatchBroker?.snapshot?.().inFlight ?? 0;
   if (busySessions > 0 || busyMemoryAgents > 0) {
     log(
       `shutdown deferred (${reason}): busySessions=${busySessions}`
@@ -454,6 +471,12 @@ async function main() {
       + ` provider=${ms(row.providerMs)}ms`,
     );
   });
+
+  // Reclaim deferred garbage while nothing is in flight. V8 keeps a long-lived
+  // daemon's dead transcripts resident for as long as the heap limit stays out
+  // of sight; a measured sweep on this daemon returned 140MB in 98ms.
+  idleGc = createIdleGc({ isBusy: daemonHasWorkInFlight, log });
+  if (idleGc.arm()) log('idle gc armed');
 
   // The channels runtime is imported AFTER the daemon env is set so worker-main
   // skips runWorkerIpc; that import also triggers its boot side effects
@@ -591,6 +614,7 @@ async function main() {
     loadCommitCompletion: () => import(
       '../runtime/agent/orchestrator/agent-runtime/commit-message-completion.mjs'
     ),
+    loadDocumentPreview: () => import('../runtime/office/document-preview.mjs'),
     async executeCodeGraphTool(name, args, cwd) {
       const graph = await import('../runtime/agent/orchestrator/tools/code-graph/dispatch.mjs');
       return graph.executeCodeGraphTool(name, args, cwd);

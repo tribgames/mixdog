@@ -18,6 +18,7 @@ export async function mergeVoiceRuntimeManifest(current, released, options = {})
     source: released.source,
     release_tag: released.release_tag,
     build_hash: released.build_hash,
+    ffmpeg: released.ffmpeg,
     platforms: released.platforms,
   }
 }

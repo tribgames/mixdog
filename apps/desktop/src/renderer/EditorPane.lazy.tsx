@@ -13,6 +13,7 @@ import {
   MIXDOG_EDITOR_SCROLLBAR,
   QUICK_DIFF_COLOR_TOKENS,
 } from "./editor-monaco-bootstrap";
+import { EditorPaneDocumentSurface } from "./editor-pane-document";
 import {
   EditorPaneAlerts,
   EditorPaneFileFallback,
@@ -276,6 +277,10 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
     preview,
     previewLoaded,
     previewError,
+    documentPreview,
+    documentError,
+    documentPagesLoading,
+    loadDocumentPages,
     error,
     dirty,
     saving,
@@ -601,10 +606,22 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
       onOpen={() => void api?.openFilePath?.(projectPath, relPath, accessToken)}
     />;
   }
+  if (documentPreview) {
+    return <EditorPaneDocumentSurface
+      breadcrumbs={editorBreadcrumbs}
+      preview={documentPreview}
+      relPath={relPath}
+      error={documentError}
+      loading={documentPagesLoading}
+      onRequestPages={loadDocumentPages}
+      onFirstPageLoad={completePreview}
+    />;
+  }
   if (load.binary || load.tooLarge) {
     return <EditorPaneFileFallback
       breadcrumbs={editorBreadcrumbs}
       load={load}
+      note={documentError}
       onOpen={() => void api?.openFilePath?.(projectPath, relPath, accessToken)}
     />;
   }

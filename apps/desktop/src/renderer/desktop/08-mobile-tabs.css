@@ -451,6 +451,15 @@
     z-index: 38;
     top: var(--titlebar-height);
     right: 0;
+    /* As a SHEET this panel kept the width dragged on the desktop (up to
+       SIDE_PANEL_MAX_WIDTH 560px), so a ~600px window handed nearly the whole
+       screen to it and the thread behind it vanished (user: 최대 값이 없어서
+       너무 넓어지는 케이스). The shared sheet grammar caps it against the
+       viewport; the stored width still wins whenever it is the narrower of
+       the two, and the panel's own min-width no longer fights the cap. */
+    width: min(var(--workbench-side-panel-width), var(--mx-side-sheet-width));
+    min-width: 0;
+    max-width: none;
     /* Anchored to `bottom`, this sheet resolved against the LAYOUT viewport —
        on a mobile browser the URL-bar-hidden height — so its last rows and its
        pinned footer sat below the fold, exactly the defect the phone sheets
@@ -476,7 +485,11 @@
 }
 @media (max-width: 760px) {
   .sidebar-drawer-frame > .workbench-side-panel {
-    width: calc(100% - 48px);
+    /* The frame is `display: contents` in this band, so this percentage
+       resolves against the WORKBENCH, not the drawer: the panel spanned the
+       whole window minus the rail. Cap it on the shared sheet grammar, rail
+       width included, so the drawer stays a sheet over the thread. */
+    width: min(calc(100% - 48px), calc(var(--mx-side-sheet-width) - 48px));
     min-width: 0;
     max-width: none;
     flex: 1 1 auto;

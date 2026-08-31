@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { access, readFile, readdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { dirname, join, sep } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -7,6 +9,10 @@ import { listPackage, statFile } from '@electron/asar';
 
 import { SETTINGS_ITEMS } from '../renderer/settings/settings-items.ts';
 import { childEnvironment } from './child-environment.ts';
+import {
+  nativeBrowserImporterPath,
+  resolvePackagedBrowserImporter,
+} from './browser-profile-import-native.ts';
 
 test('daemon-owned desktop children never inherit service identity', () => {
   const source = {
@@ -152,8 +158,8 @@ test('production desktop uses only the packaged daemon service adapter', async (
     'compiled PTY targets must retain their active build/Release fallback',
   );
   assert.match(builder, /from:\s*\.runtime\/native-tools\s+to:\s*native-tools/);
-  assert.match(main, /MIXDOG_GRAPH_BIN:\s*graphPath/);
-  assert.match(main, /MIXDOG_SPAWN_SERVER_BIN:/);
+  assert.match(main, /kind:\s*'graph',\s*names:\s*\['MIXDOG_GRAPH_BIN',\s*'MIXDOG_SEARCH_SERVER_BIN'\]/);
+  assert.match(main, /kind:\s*'spawn',\s*names:\s*\['MIXDOG_SPAWN_SERVER_BIN'\]/);
 });
 
 test('FastDirect staging ships the PTY package unpacked beside the archive', async () => {
@@ -192,30 +198,75 @@ test('browser password import uses only packaged native-tools without a certific
     new URL('../../../../native/mixdog-browser-import/build.ps1', import.meta.url),
     'utf8',
   );
-  const trustBoundary = importer
-    .slice(importer.indexOf('private async nativePasswordImporter()'))
-    .split('async sources()')[0];
   const chromeClose = importer
     .slice(importer.indexOf('export async function prepareChromeForImport('))
     .split('async function sha256File')[0];
   const nativeTransport = importer
     .slice(importer.indexOf('async function readEncryptedChildJson('))
     .split('export class BrowserProfileImportService')[0];
-  const packagedPath = importer
-    .slice(importer.indexOf('export function defaultNativeBrowserImporterPath()'));
   assert.match(builder, /from:\s*\.runtime\/native-tools\s+to:\s*native-tools/);
-  assert.match(
-    trustBoundary,
-    /if \(!app\.isPackaged \|\| process\.platform !== 'win32'\) return undefined/,
-  );
-  assert.match(
-    trustBoundary,
-    /resolve\(process\.resourcesPath,\s*'native-tools',\s*fileName\)/,
-  );
-  assert.match(trustBoundary, /bitwarden_chromium_import_helper\.exe/);
-  assert.match(trustBoundary, /sha256:\s*await sha256File\(expected\)/);
-  assert.doesNotMatch(trustBoundary, /process\.cwd\(\)/);
-  assert.doesNotMatch(importer, /Authenticode|Get-AuthenticodeSignature|authenticodeBundleIsTrusted/);
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-browser-import-trust-'));
+  try {
+    const resourcesPath = join(root, 'resources');
+    const nativeTools = join(resourcesPath, 'native-tools');
+    const expected = nativeBrowserImporterPath({
+      isPackaged: true,
+      platform: 'win32',
+      resourcesPath,
+      cwd: join(root, 'source'),
+    });
+    const foreign = join(root, 'foreign', 'mixdog-browser-import.exe');
+    const environment = {
+      isPackaged: true,
+      platform: 'win32',
+      resourcesPath,
+      requestedPath: expected,
+    };
+    assert.equal(await resolvePackagedBrowserImporter({
+      ...environment,
+      isPackaged: false,
+    }), undefined);
+    assert.equal(await resolvePackagedBrowserImporter({
+      ...environment,
+      platform: 'linux',
+    }), undefined);
+    assert.equal(await resolvePackagedBrowserImporter({
+      ...environment,
+      requestedPath: foreign,
+    }), undefined);
+    assert.equal(await resolvePackagedBrowserImporter(environment), undefined);
+
+    await mkdir(nativeTools, { recursive: true });
+    const unsignedFixture = Buffer.from('unsigned browser importer fixture');
+    await writeFile(expected, unsignedFixture);
+    assert.equal(await resolvePackagedBrowserImporter(environment), undefined);
+    await writeFile(join(nativeTools, 'bitwarden_chromium_import_helper.exe'), 'unsigned helper fixture');
+
+    const accepted = await resolvePackagedBrowserImporter(environment);
+    assert.deepEqual(accepted, {
+      executable: expected,
+      sha256: createHash('sha256').update(unsignedFixture).digest('hex'),
+    });
+    assert.equal(
+      nativeBrowserImporterPath({
+        isPackaged: false,
+        platform: 'win32',
+        resourcesPath,
+        cwd: join(root, 'source'),
+      }),
+      join(
+        root,
+        'source',
+        'native',
+        'mixdog-browser-import',
+        'target',
+        'release',
+        'mixdog-browser-import.exe',
+      ),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
   assert.match(nativeTransport, /stdio:\s*\['pipe',\s*'pipe',\s*'pipe'\]/);
   assert.ok(
     nativeTransport.indexOf('const exitCodePromise = new Promise<number>')
@@ -248,10 +299,6 @@ test('browser password import uses only packaged native-tools without a certific
     /MIXDOG_BROWSER_IMPORT_SIGNER_SHA256|MIXDOG_CODE_SIGN|Get-AuthenticodeSignature|signtool/,
   );
   assert.match(nativeBuild, /LICENSE_GPL\.txt/);
-  assert.match(
-    packagedPath,
-    /if \(app\.isPackaged\) return join\(process\.resourcesPath,\s*'native-tools',\s*fileName\)/,
-  );
 });
 
 test('closed-window cleanup never reacquires the destroyed BrowserWindow webContents getter', async () => {
@@ -274,12 +321,18 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   const progressDriver = await readFile(new URL('../../build/progress-driver.ps1', import.meta.url), 'utf8');
   const iconGenerator = await readFile(new URL('../../scripts/generate-brand-icons.mjs', import.meta.url), 'utf8');
   const devUpdate = await readFile(new URL('../../scripts/dev-update-windows.ps1', import.meta.url), 'utf8');
+  const fastSnapshot = await readFile(new URL('../../scripts/dev-fast-snapshot.ps1', import.meta.url), 'utf8');
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
   assert.match(builder, /protocols:\s+name:\s*Mixdog\s+schemes:\s+-\s*mixdog/);
   assert.match(packageJson.scripts['build:win'],
     /electron-builder --win --x64 --publish never && npm run verify:update-metadata$/);
   assert.match(packageJson.scripts['update:dev'], /dev-update-windows\.ps1 -ViaUpdater$/);
-  assert.match(packageJson.scripts['update:dev:fast'], /dev-update-windows\.ps1 -FastDirect$/);
+  // The local deploy goes through the snapshot wrapper so a concurrent edit
+  // cannot invalidate the build, and the wrapper still runs the same FastDirect
+  // install from the frozen worktree.
+  assert.match(packageJson.scripts['update:dev:fast'], /dev-fast-snapshot\.ps1$/);
+  assert.match(fastSnapshot, /'apps\\desktop\\scripts\\dev-update-windows\.ps1'/);
+  assert.match(fastSnapshot, /\$arguments = @\(\s*'-FastDirect',/);
   assert.match(packageJson.scripts['update:dev:reinstall'], /dev-update-windows\.ps1$/);
   assert.match(packageJson.scripts['update:dev:plan'], /dev-update-windows\.ps1 -ViaUpdater -DryRun$/);
   assert.match(
@@ -298,9 +351,6 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   assert.match(devUpdate, /-WindowStyle Hidden/);
   assert.match(devUpdate, /function Start-DetachedMixdogApp/);
   assert.match(devUpdate, /explorer\.exe/);
-  assert.match(devUpdate, /function Install-LocalTokenAddon/);
-  assert.match(devUpdate, /build-token-addon\.mjs'\) --build --release/);
-  assert.match(devUpdate, /mixdog-token-\$version\.node/);
   assert.doesNotMatch(devUpdate, /mixdog-graph\.node|Install-LocalGraphAddon|build-graph-addon/);
   assert.doesNotMatch(main, /MIXDOG_SEARCH_SERVER_ADDON/);
   assert.match(devUpdate, /Wait-ForFreshDaemon[\s\S]*DetachedRelaunch/);

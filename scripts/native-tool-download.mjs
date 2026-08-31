@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
 /**
- * Target-aware download of the four product-native tools for a desktop build.
+ * Target-aware download of the product-native tools for a desktop build.
  *
- * The runtime fetchers (graph/patch/spawn/token) resolve the HOST's asset.
+ * The runtime fetchers (graph/patch/spawn) resolve the HOST's asset.
  * That is exactly right for an installed app fetching its own binary, and
  * exactly wrong for preparing a runtime for another platform — so rather than
- * teach four production code paths a build-only concern, this reads the same
+ * teach three production code paths a build-only concern, this reads the same
  * manifests and names the target explicitly.
  *
  * The URL is rebuilt from the manifest version and the target instead of being
@@ -26,11 +26,11 @@ import {
 const RELEASE_ROOT = 'https://github.com/tribgames/mixdog/releases/download'
 const TOOLS_DIR = new URL('../src/runtime/agent/orchestrator/tools/', import.meta.url)
 
-export const NATIVE_TOOL_KINDS = Object.freeze(['graph', 'patch', 'spawn', 'token'])
+export const NATIVE_TOOL_KINDS = Object.freeze(['graph', 'patch', 'spawn'])
 
-/** Released asset name. Only token ships as a Node addon; the rest are executables. */
+/** Released asset name. */
 export function nativeToolAssetName(kind, target) {
-  const suffix = kind === 'token' ? '.node' : (target.platform === 'win32' ? '.exe' : '')
+  const suffix = target.platform === 'win32' ? '.exe' : ''
   return `mixdog-${kind}-${target.platform}-${target.arch}${suffix}`
 }
 
@@ -40,7 +40,6 @@ export function nativeToolAssetUrl(kind, version, target) {
 
 /** Installed name inside the app, named for the TARGET rather than the host. */
 export function nativeToolInstalledName(kind, target) {
-  if (kind === 'token') return 'mixdog-token.node'
   return target.platform === 'win32' ? `mixdog-${kind}.exe` : `mixdog-${kind}`
 }
 

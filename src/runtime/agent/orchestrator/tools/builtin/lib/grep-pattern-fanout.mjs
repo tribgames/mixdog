@@ -38,17 +38,14 @@ export async function runGrepPatternFanout({
     fileType,
     executeGrepTool,
 }) {
-    // Fan-out prefilter, started CONCURRENTLY with the combined attempt
-    // below: ONE rg --files-with-matches pass over ALL patterns yields
-    // every file any pattern touches. The combined single-spawn path
-    // returns without ever awaiting it; the frequent match-heavy bail
-    // path (cap/partial) used to pay this pass as a THIRD serial rg wave
-    // — overlapping it with the combined attempt removes one full spawn
-    // round-trip (~100ms on win32) from every bailed multi-pattern grep.
-    // Owner-fair gating keeps the speculative spawn a self-cost of this
-    // call. Best-effort: any failure/cap/partial falls back to the
-    // unscoped fan-out unchanged. MIXDOG_GREP_FANOUT_PREFILTER=0 disables.
+    // ONE rg --files-with-matches pass over ALL patterns can scope the fallback
+    // fan-out to candidate files. Start it lazily only after the combined pass
+    // declines: the old speculative overlap left a whole-tree bulk scan running
+    // after a successful combined result had already returned.
     const GREP_FANOUT_PREFILTER_FILE_CAP = 400;
+    const runWindowedLines = typeof options?.__runRgWindowedLines === 'function'
+        ? options.__runRgWindowedLines
+        : runRgWindowedLines;
     const startFanoutPrefilter = async () => {
         try {
             let preSpawnCwd = workDir;
@@ -75,19 +72,16 @@ export async function runGrepPatternFanout({
                 pcre2: pcre2Mode,
                 withFilename: false,
             });
-            const pre = await runRgWindowedLines(
+            const pre = await runWindowedLines(
                 prefilterArgs,
                 { cwd: preSpawnCwd, signal: options.signal },
-                // Speculative whole-scope pass: bulk lane keeps it from
-                // competing with interactive searches for disk bandwidth.
+                // Whole-scope fallback pass: the broad admission lane keeps it
+                // from competing with interactive searches for disk bandwidth.
                 { offset: 0, limit: GREP_FANOUT_PREFILTER_FILE_CAP, summaryLimit: 0, bulkHint: true },
             );
             return pre.complete && !pre.partial ? pre.lines : null;
         } catch { return null; }
     };
-    const fanoutPrefilterPromise = process.env.MIXDOG_GREP_FANOUT_PREFILTER !== '0'
-        ? startFanoutPrefilter()
-        : null;
     // Combined single-spawn fan-out: ONE rg run carrying every pattern
     // (-e p1 -e p2 …), then JS-side attribution of each matched line back
     // to its pattern(s) rebuilds the per-pattern sections. K patterns cost
@@ -138,7 +132,7 @@ export async function runGrepPatternFanout({
         const combinedBulkHint = normalizedGlobPatterns.length === 0 && !fileType;
         let streamed;
         try {
-            streamed = await runRgWindowedLines(
+            streamed = await runWindowedLines(
                 combinedArgs,
                 { cwd: rgCwd, signal: options.signal },
                 { offset: 0, limit: combinedCap, summaryLimit: 0, bulkHint: combinedBulkHint },
@@ -269,12 +263,13 @@ export async function runGrepPatternFanout({
         }
         return patternCapNote + sections.join('\n\n') + combinedPartialSuffix;
     }
-    // Prefilter result (started above, overlapped with the combined
-    // attempt): when it completed under the cap, each per-pattern grep
-    // below scopes to that candidate list — K patterns cost 1 repo walk +
-    // K file-list scans instead of K full walks. Zero candidates
-    // short-circuits with no further spawns.
+    // The combined pass declined. Run one fallback prefilter now; when it
+    // completes under the cap, K patterns cost one repo walk plus K file-list
+    // scans instead of K full walks. Zero candidates short-circuits.
     let fanoutCandidateFiles = null;
+    const fanoutPrefilterPromise = process.env.MIXDOG_GREP_FANOUT_PREFILTER !== '0'
+        ? startFanoutPrefilter()
+        : null;
     if (fanoutPrefilterPromise) {
         const pre = await fanoutPrefilterPromise;
         if (pre) {

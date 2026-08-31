@@ -9,6 +9,8 @@ import { WebSocketServer } from 'ws';
 
 import { createChromeCdpBrowser, isFinalPurchaseTarget } from './browser-chrome-cdp';
 
+const publicLookup = async () => [{ address: '93.184.216.34' }];
+
 async function createFakeChrome(options = {}) {
   const calls = [];
   let pageUrl = 'https://accounts.example.test/profile';
@@ -160,6 +162,11 @@ async function createFakeChrome(options = {}) {
   return {
     endpoint: `ws://127.0.0.1:${port}/devtools/browser/test`,
     calls,
+    emitEvent(method, params, sessionId = 'selected-tab-session') {
+      for (const client of sockets.clients) {
+        client.send(JSON.stringify({ method, params, sessionId }));
+      }
+    },
     async close() {
       for (const client of sockets.clients) client.terminate();
       await new Promise((resolve) => sockets.close(resolve));
@@ -170,7 +177,10 @@ async function createFakeChrome(options = {}) {
 
 test('Chrome CDP Browser Use binds one selected page target and never exposes its socket', async () => {
   const fake = await createFakeChrome();
-  const browser = createChromeCdpBrowser(fake.endpoint);
+  const browser = createChromeCdpBrowser({
+    browserWSEndpoint: fake.endpoint,
+    lookupAddresses: publicLookup,
+  });
   try {
     const targets = await browser.listTargets();
     assert.deepEqual(targets.map(({ id }) => id), ['tab-1', 'tab-2']);
@@ -219,7 +229,10 @@ test('Chrome CDP Browser Use binds one selected page target and never exposes it
 
 test('Chrome CDP Browser Use supports form input but rejects tab escape and profile secrets', async () => {
   const fake = await createFakeChrome();
-  const browser = createChromeCdpBrowser(fake.endpoint);
+  const browser = createChromeCdpBrowser({
+    browserWSEndpoint: fake.endpoint,
+    lookupAddresses: publicLookup,
+  });
   try {
     await browser.connect('tab-1');
     const snapshot = await browser.run({ action: 'snapshot' });
@@ -246,6 +259,42 @@ test('Chrome CDP Browser Use supports form input but rejects tab escape and prof
       browser.run({ action: 'cookies' }),
       /never exports profile secrets/,
     );
+    await assert.rejects(
+      browser.run({ action: 'press', key: 'Control+V' }),
+      /cannot access the system clipboard/,
+    );
+    await assert.rejects(
+      browser.run({ action: 'navigate', url: 'file:///C:/Users/example/secrets.txt' }),
+      /only http\(s\) navigation is allowed/,
+    );
+    await assert.rejects(
+      browser.run({ action: 'navigate', url: 'http://169.254.169.254/latest/meta-data' }),
+      /cloud metadata endpoints is blocked/,
+    );
+    assert.equal(fake.calls.some(({ method }) => method === 'Page.navigate'), false);
+
+    fake.emitEvent('Fetch.requestPaused', {
+      requestId: 'private-request',
+      request: { url: 'http://192.168.1.10/admin' },
+    });
+    for (let attempt = 0; attempt < 50
+      && !fake.calls.some(({ method }) => method === 'Fetch.failRequest'); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.ok(fake.calls.some(({ method, params }) =>
+      method === 'Fetch.failRequest' && params.requestId === 'private-request'));
+
+    fake.emitEvent('Fetch.requestPaused', {
+      requestId: 'public-request',
+      request: { url: 'https://example.com/app.js' },
+    });
+    for (let attempt = 0; attempt < 50
+      && !fake.calls.some(({ method }) => method === 'Fetch.continueRequest'); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.ok(fake.calls.some(({ method, params }) =>
+      method === 'Fetch.continueRequest' && params.requestId === 'public-request'));
+
     const disconnected = browser.disconnect();
     assert.equal(disconnected.connected, false);
     await assert.rejects(
@@ -267,7 +316,10 @@ test('Chrome CDP Browser Use discovers the protected browser endpoint from DevTo
     `${endpoint.port}\n${endpoint.pathname}\n`,
     'utf8',
   );
-  const browser = createChromeCdpBrowser({ userDataDirectories: [directory] });
+  const browser = createChromeCdpBrowser({
+    userDataDirectories: [directory],
+    lookupAddresses: publicLookup,
+  });
   try {
     const targets = await browser.listTargets();
     assert.equal(targets[0]?.id, 'tab-1');
@@ -295,6 +347,7 @@ test('Chrome CDP Browser Use prefers protected auto-connect before the extension
   let providerCalls = 0;
   const browser = createChromeCdpBrowser({
     userDataDirectories: [directory],
+    lookupAddresses: publicLookup,
     browserWSEndpointProvider: async () => {
       providerCalls += 1;
       return fallback.endpoint;
@@ -332,6 +385,7 @@ test('protected Chrome tabs block arbitrary evaluate and require one-time approv
   const approvals = [];
   const browser = createChromeCdpBrowser({
     browserWSEndpoint: fake.endpoint,
+    lookupAddresses: publicLookup,
     protectedExistingProfile: true,
     onPurchaseApproval: async (request) => {
       approvals.push(request);

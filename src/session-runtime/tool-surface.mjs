@@ -8,6 +8,10 @@ import {
 } from './tool-catalog.mjs';
 import { LEAD_DISALLOWED_TOOLS } from './tool-defs.mjs';
 import { deferredSurfaceModeForLead, toolSpecForMode } from './effort.mjs';
+import {
+  disallowedModelToolNamesForProfile,
+  filterModelToolsForProfile,
+} from './tool-profile.mjs';
 
 export function createToolSurface({
   mgr,
@@ -17,6 +21,7 @@ export function createToolSurface({
   getSession,
   getRoute,
   getConfig,
+  getToolProfile = () => 'interactive',
   getMcpScopeId = () => null,
   cfgMod,
   loadWorkflowPack,
@@ -55,9 +60,10 @@ export function createToolSurface({
     const session = getSession();
     const agentOwned = session?.owner === 'agent' || session?.visibility === 'agent-only';
     const hideAgentTool = agentOwned || !workflowAllowsAgents();
+    const profileTools = filterModelToolsForProfile(standaloneTools, getToolProfile());
     const workflowTools = hideAgentTool
-      ? standaloneTools.filter((tool) => !agentToolNames.has(String(tool?.name || '')))
-      : standaloneTools;
+      ? profileTools.filter((tool) => !agentToolNames.has(String(tool?.name || '')))
+      : profileTools;
     const denied = new Set(getFeatureDisallowedTools().map((name) => String(name || '')));
     return denied.size
       ? workflowTools.filter((tool) => !denied.has(String(tool?.name || '')))
@@ -65,8 +71,15 @@ export function createToolSurface({
   }
 
   function disallowedTools() {
+    const session = getSession();
+    const profileCandidates = [
+      ...standaloneTools,
+      ...(Array.isArray(session?.tools) ? session.tools : []),
+      ...(Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []),
+    ];
     return [
       ...LEAD_DISALLOWED_TOOLS,
+      ...disallowedModelToolNamesForProfile(profileCandidates, getToolProfile()),
       ...getFeatureDisallowedTools(),
       ...(workflowAllowsAgents() ? [] : [...agentToolNames]),
     ];
@@ -80,7 +93,10 @@ export function createToolSurface({
       })
       : [];
     const denied = disallowedTools();
-    const tools = filterDisallowedTools(previewTools, denied);
+    const tools = filterDisallowedTools(
+      filterModelToolsForProfile(previewTools, getToolProfile()),
+      denied,
+    );
     const surface = { tools: Array.isArray(tools) ? tools.slice() : [], mcpScopeId: getMcpScopeId() };
     applyDeferredToolSurface(surface, deferredSurfaceModeForLead(mode), modelStandaloneTools(), {
       provider: getRoute().provider,

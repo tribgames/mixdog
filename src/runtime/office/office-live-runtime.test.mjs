@@ -8,6 +8,7 @@ import { createInterface } from 'node:readline';
 import test from 'node:test';
 
 import { executeOfficeTool, resetOfficeSessionsForTest } from './index.mjs';
+import { describeOfficeSnapshotViolations, officeSnapshotContractViolations } from './snapshot-contract.mjs';
 
 const enabled = process.platform === 'win32' && process.env.MIXDOG_TEST_LIVE_OFFICE === '1';
 
@@ -511,6 +512,17 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
         properties: { left: 240, top: 240, width: 280, height: 100 },
       },
       {
+        op: 'set_table_data',
+        slide: 1,
+        shape: 3,
+        values: [
+          ['Metric', 'Actual', 'Plan', 'Status'],
+          ['Users', 42, 45, 'Track'],
+          ['Calls', 18, 20, 'Track'],
+          ['Errors', 0, 0, 'Pass'],
+        ],
+      },
+      {
         op: 'add_chart',
         slide: 1,
         chartType: 'column',
@@ -578,7 +590,12 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
   assert.equal(textbox.height, 120);
   assert.equal(textbox.font.size, 24);
   const table = powerpointSnapshot.document.slides[0].shapes.find((shape) => shape.table);
-  assert.deepEqual(table.table.values, [['Metric', 'Value'], ['Users', '42']]);
+  assert.deepEqual(table.table.values, [
+    ['Metric', 'Actual', 'Plan', 'Status'],
+    ['Users', '42', '45', 'Track'],
+    ['Calls', '18', '20', 'Track'],
+    ['Errors', '0', '0', 'Pass'],
+  ]);
   const chart = powerpointSnapshot.document.slides[0].shapes.find((shape) => shape.chart);
   assert.equal(chart.chart.title, 'Metrics');
   assert.equal(chart.chart.seriesCount, 2);
@@ -769,13 +786,25 @@ test('attach selects the exact workbook across multiple Excel instances', {
       action: 'create',
       path,
       format: 'xlsx',
-      mode: 'background',
     }, { cwd }));
+    assert.equal(created.mode, 'background');
+    assert.equal(created.visible, false);
     value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
   }
 
   firstExternal = await startExternalExcel(firstPath);
   secondExternal = await startExternalExcel(secondPath);
+
+  const automatic = value(await executeOfficeTool({
+    action: 'open',
+    path: secondPath,
+    output: join(cwd, 'auto-background.xlsx'),
+  }, { cwd }));
+  assert.equal(automatic.mode, 'background');
+  assert.equal(automatic.ownership, 'owned');
+  assert.equal(automatic.visible, false);
+  assert.notEqual(automatic.windowHwnd, secondExternal.hWnd);
+  value(await executeOfficeTool({ action: 'close', session: automatic.session }, { cwd }));
 
   const attachedSecond = value(await executeOfficeTool({
     action: 'attach',
@@ -816,4 +845,119 @@ test('attach selects the exact workbook across multiple Excel instances', {
   await stopExternalExcel(secondExternal);
   firstExternal = null;
   secondExternal = null;
+});
+
+test('both backends satisfy one snapshot contract and agree on the same document', {
+  skip: !enabled,
+}, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-contract-'));
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+
+  const cases = [
+    {
+      format: 'docx',
+      file: 'contract.docx',
+      operations: [
+        { op: 'append_text', text: 'Document title', style: 'Title' },
+        { op: 'append_text', text: 'Heading one', style: 'Heading1' },
+        { op: 'append_text', text: 'Body paragraph.' },
+        { op: 'add_table', values: [['A', 'B'], ['1', '2']] },
+      ],
+    },
+    {
+      format: 'xlsx',
+      file: 'contract.xlsx',
+      operations: [
+        { op: 'set_range', range: 'A1:B3', values: [['Region', 'Revenue'], ['Korea', 120], ['Japan', 95]] },
+      ],
+    },
+    {
+      format: 'pptx',
+      file: 'contract.pptx',
+      operations: [
+        { op: 'add_slide' },
+        { op: 'set_slide_background', slide: 1, color: '16191D' },
+        { op: 'add_textbox', slide: 1, text: 'Title', properties: { left: 40, top: 40, width: 400, height: 60, fontSize: 40 } },
+        { op: 'set_notes', slide: 1, text: 'Speaker note.' },
+        { op: 'add_slide' },
+        { op: 'set_slide_background', slide: 2, color: 'F5F2EC' },
+        { op: 'add_table', slide: 2, values: [['A', 'B'], ['1', '2']], left: 40, top: 40, width: 300, height: 90 },
+      ],
+    },
+  ];
+
+  for (const testCase of cases) {
+    const target = join(cwd, testCase.file);
+    const authored = value(await executeOfficeTool({
+      action: 'create',
+      path: target,
+      mode: 'portable',
+      operations: testCase.operations,
+    }, { cwd }));
+    value(await executeOfficeTool({ action: 'close', session: authored.session }, { cwd }));
+
+    const readings = {};
+    for (const mode of ['portable', 'background']) {
+      const opened = value(await executeOfficeTool({ action: 'open', path: target, mode }, { cwd }));
+      const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: opened.session }, { cwd }));
+      const violations = officeSnapshotContractViolations(snapshot.document, {
+        format: testCase.format,
+        paged: true,
+      });
+      assert.deepEqual(
+        violations,
+        [],
+        `${opened.backend} ${testCase.format} breaks the backend contract:\n${describeOfficeSnapshotViolations(violations)}`,
+      );
+      readings[mode] = snapshot.document;
+      value(await executeOfficeTool({ action: 'close', session: opened.session }, { cwd }));
+    }
+
+    // One file, two readers. Representation may differ, but the facts a caller
+    // acts on must not: silent disagreement here is what blinded design review.
+    const portable = readings.portable;
+    const com = readings.background;
+    if (testCase.format === 'docx') {
+      assert.equal(com.tableCount, portable.tableCount, 'table counts must agree');
+      // Word numbers table-cell paragraphs alongside body paragraphs while the
+      // portable model reports cell text under tables, so /body/p[N] addresses
+      // different content per backend. Body text itself must still agree.
+      const bodyText = (document) => (document.paragraphs || [])
+        .filter((entry) => entry.inTable !== true)
+        .map((entry) => entry.text)
+        .filter(Boolean);
+      assert.deepEqual(bodyText(com), bodyText(portable), 'body paragraph text must agree');
+      // Word answers under the UI language; a localized style name handed to the
+      // portable writer produces an unknown styleId and silently drops styling.
+      const bodyStyles = (document) => (document.paragraphs || [])
+        .filter((entry) => entry.inTable !== true && String(entry.text || '').trim())
+        .map((entry) => entry.style);
+      assert.deepEqual(bodyStyles(com), bodyStyles(portable), 'paragraph styles must agree');
+      assert.deepEqual(
+        (com.tables || []).map((entry) => entry.style),
+        (portable.tables || []).map((entry) => entry.style),
+        'table styles must agree',
+      );
+    }
+    if (testCase.format === 'xlsx') {
+      const cellValues = (document) => (document.sheets || [])
+        .flatMap((sheet) => (sheet.cells || []).map((cell) => `${cell.path}=${cell.value}`));
+      assert.deepEqual(cellValues(com), cellValues(portable), 'cell values must agree');
+    }
+    if (testCase.format === 'pptx') {
+      assert.equal(com.slideCount, portable.slideCount, 'slide counts must agree');
+      const indexes = (document) => (document.slides || []).map((slide) => slide.index);
+      assert.deepEqual(indexes(com), indexes(portable), 'slide order must agree');
+      const notes = (document) => (document.slides || []).map((slide) => String(slide.notes || '').trim());
+      assert.deepEqual(notes(com), notes(portable), 'speaker notes must agree');
+      const backgrounds = (document) => (document.slides || [])
+        .map((slide) => String(slide.background?.color || '').toUpperCase());
+      assert.deepEqual(backgrounds(com), backgrounds(portable), 'slide backgrounds must agree');
+      const shapeCounts = (document) => (document.slides || []).map((slide) => (slide.shapes || []).length);
+      assert.deepEqual(shapeCounts(com), shapeCounts(portable), 'shape counts must agree');
+    }
+  }
 });

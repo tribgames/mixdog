@@ -1,10 +1,12 @@
 # Computer Use scenario dashboard
 
 This dashboard measures the Windows Computer Use observation → action →
-verification loop against 23 source-host scenarios. The matrix uses real
+verification loop against the source-host scenario matrix. The matrix uses real
 Windows capture and input paths, including a native text app, the running
 Mixdog Electron window, the running Chrome window, Korean Windows OCR, and a
-secondary display.
+secondary display. The measurements below are the 23-scenario effort that
+established the loop; the matrix has since grown to 44 scenarios, and the
+current state is recorded at the end of this document.
 
 ## Result
 
@@ -21,6 +23,163 @@ secondary display.
 The extra two commands are the popup capture and close steps that the baseline
 did not reach. The native app launch time varied between runs; no product
 latency regression remained in the aggregate.
+
+## Current state (matrix at 44 scenarios)
+
+Four defects were found and fixed after the measurements above, three of them
+in the product rather than the harness:
+
+- **Native window capture read pixels that were not the window's.** The direct
+  screen grab used the window rect, which on Windows includes an invisible
+  8px resize border, so whatever sat behind the window bled into the frame. A
+  fully black window was reported as usable pixels. The grab now uses the DWM
+  visible bounds.
+- **The blank-frame gate was defeated by 1px of chrome.** Blankness was judged
+  over the whole frame, so a window border and rounded corners were enough to
+  keep an empty capture "available". Blankness is now judged on the interior.
+- **The post-action image policy was inverted.** The frame was dropped when the
+  accessibility tree had not moved — which is exactly the signature of a change
+  only pixels show, such as a canvas stroke or a chart repaint. The frame is now
+  dropped when the semantic diff already names what changed, and kept when the
+  diff is empty. Two scenarios pin both directions.
+- **The scenario fixture never ran its own script.** A `</script>` inside a
+  string ended the inline script early, so the canvas stayed blank and every
+  OCR-dependent scenario failed on a truthful "no text found".
+
+The matrix also gained S30 (sequence latency) and S31 (frame written beside the
+run instead of returned inline). Two scenarios were made independent of machine
+state: the native-app scenario launches the program directly rather than
+depending on the file association, and the popup scenario pays the shell
+dialog's cold start before it measures the transition.
+
+`capture` and `capture_after` accept `image_output: "file"`, which writes the
+frame beside the run and returns its path instead of the pixels. The host names
+the file — a caller never supplies a path — and a failed write keeps the frame
+inline rather than losing the evidence. Browser Use screenshots take the same
+option, and `snapshot mode=visual format=pdf` prints a page to a file that is
+never returned inline.
+
+A frontier comparison against the public computer-use and browser-driving
+references closed four more gaps, each shaped to this host's contract rather
+than copied: the tool surface now names its observation-only actions (a test
+fails if that list and the host's own read set drift apart), `select` without a
+value reads the control's options instead of guessing them, `scroll` accepts a
+text target so an off-screen match can be brought into view, and a snapshot
+marks elements that scroll inside themselves. Page text search was already
+covered by `read`'s query, so no action was added for it.
+
+### Final polishing pass (2026-08-31)
+
+The final source pass closed two host lifecycle/accuracy defects and one
+scenario isolation defect:
+
+- **MSAA could silently omit the last controls in a partial response.**
+  `AccessibleChildren` may return fewer children than requested even while
+  `accChildCount` reports more. The host used one call and lost the remainder.
+  Enumeration now advances `childStart` through bounded pages until the
+  provider is exhausted or the resource limit is reached.
+- **A disabled bridge could retain its in-flight warm-up worker.** If Computer
+  Use was disabled before warm-up completed, that worker was neither the spare
+  nor an active agent worker and had no heartbeat reaper. Bridge shutdown now
+  retires it explicitly. PowerShell process and stdin errors also reject and
+  clean their worker instead of becoming unhandled stream events.
+- **The native-app scenario could reuse a user's modern Notepad session.**
+  Windows 11 Notepad is single-instance and restores tabs, so launching and
+  closing it is not an isolated test. S20 now compiles a dedicated WinForms
+  text fixture with a 30-second self-timeout, then launches, captures, and
+  closes only that executable.
+
+The subsequent action-coverage audit closed three more contract gaps:
+
+- **Menu paths stopped at the TypeScript-to-PowerShell boundary.** The canonical
+  bridge preserved `menu.path`, but the host request did not. The request now
+  forwards the path unchanged.
+- **Capture exposed MSAA menus that `menu` could not invoke.** The resolver was
+  UIA-only even when the observed menu item came from MSAA. It now resolves
+  exact enabled MSAA menu levels across the target and its owned popup, invokes
+  only `accDoDefaultAction`, removes physical provider duplicates, and still
+  fails closed on genuinely ambiguous labels.
+- **OCR marks were advertised for drag but rejected by the host.** Fresh OCR
+  aliases already retain their frame, window, and center. Drag now accepts two
+  such marks only when both belong to the same fresh frame and exact window.
+
+S01 and S20 now pin exact app listing, native menu invocation, and
+`verify(title_contains)`. S32 records real canvas events for `mouse_move`,
+`double_click`, `drag`, and `scroll`; S33 verifies move, minimize, maximize, and
+restore against a dedicated Electron fixture. Together the matrix exercises
+all model-facing actions. S34 reads and preserves the clipboard byte-for-byte;
+clipboard write remains excluded from the live repeat because changing it would
+touch user data.
+
+The post-fix gates passed:
+
+- Canonical bridge contract: 26 / 26.
+- Computer Use unit/safety/targeting/repeat policy: 36 / 36.
+- MSAA generated-host action stress: 10 / 10.
+- Windows host integration: passed.
+- Full source matrix: 43 / 44 passed, 0 failed; S22 was skipped because no
+  Chrome or Edge window was running.
+- Focused final stress: 150 / 150 passed with no flaky scenario,
+  p50 1,168 ms and p95 9,426 ms. S18's deliberate shell-dialog warm-up owns
+  the high tail.
+- Final action-coverage stress: 40 / 40 passed, p50 3,314 ms and p95 6,677 ms.
+- Lifecycle and stale-scope stress: 60 / 60 passed, p50 1,093 ms and
+  p95 2,402 ms.
+- Installed capability without redeployment: diagnostics, Korean OCR,
+  accessibility, two-display discovery, exact native launch/capture, focus and
+  cursor recovery, and exact window close all returned truthful fresh state.
+
+No development deployment or app restart was performed in this pass.
+
+### Extended stability findings
+
+The longer lifecycle and stale-state soak found four additional product or
+harness defects:
+
+- **A screen-only or failed exact-window capture retained an older input
+  scope.** Capture now invalidates element aliases and exact-window scope before
+  target resolution. S41 and S42 prove screen-only and failed captures cannot
+  authorize later input.
+- **A closed window retained its pre-close scope when post-close capture was
+  skipped.** Window, menu, launch, and motor mutations now invalidate the scope
+  before delivery; only a successful fresh capture restores it. S43 pins the
+  closed-target case.
+- **The lifecycle harness could hang inside WMI despite a process timeout.**
+  Killing the PowerShell parent did not guarantee `Get-CimInstance` released
+  its inherited pipe. The worker pool now tracks every spawned worker until its
+  actual `exit`, and S35 verifies zero workers before each republish without an
+  external WMI probe.
+- **Diagnostic history limits reset across process state.** Existing run-log
+  bytes now count toward the 256 KiB cap, the in-memory per-session map is gone,
+  and pruning runs after a new file so the directory remains at 20 files.
+
+Bridge recovery now retries observation-only commands once after a republished
+endpoint or stale-token 401, while mutations are never replayed after an
+ambiguous network failure. Nested `verify` predicates enforce their declared
+types, and key, type, and clipboard-write payloads have host-enforced size
+ceilings before dispatch.
+
+The last fixed-source candidate closed four more stability boundaries:
+
+- Continuation tokens are bound to the exact session generation, window,
+  filters, budget, tree total, issued offset, and one immediately consumable
+  token. Out-of-range, edited, stale, and reused tokens fail closed.
+- Zoom keeps only the newest actionable frame, rejects the original frame
+  after use, and applies the same blank-frame quality gate as normal capture.
+- Background wheel delivery establishes hover on the exact child HWND before
+  sending the wheel message. The pointer scenario then passed 40 / 40 focused
+  repetitions, covering 160 real pointer mutations without a false positive.
+- The repeat runner records `require_pass` and owns a behavior-tested failure
+  gate, so a failed repeated scenario cannot be reported as a successful
+  verification process.
+
+The resulting 44-scenario matrix passed 430 / 440 over ten fixed-source
+cycles, with 0 failures, 0 false positives, and no flaky scenario. The ten
+skips were all S22 because no Chrome or Edge window was running. Scenario
+latency was p50 1,048 ms and p95 6,793 ms; all 510 cleanup commands completed.
+The final focused soaks also passed without a flake: lifecycle/stale scope
+160 / 160, input/safety 280 / 280, observation/native 360 / 360, sequence
+performance 20 / 20, and the six highest-risk exit boundaries 210 / 210.
 
 ## Model-facing Computer Use contract
 
@@ -409,6 +568,10 @@ repeat cohort:
 | S27 | Windows OCR and accessibility diagnostics | Pass |
 | S28 | Bounded same-window sequence with one final capture | Pass |
 | S29 | Semantic invoke confirmed by exact-window transition | Pass |
+| S30 | Sequence reduces focus-chain calls and captures | Pass |
+| S31 | Frame written beside the run instead of returned inline | Pass |
+| S32 | Mouse move, double-click, drag, and scroll reach the observed canvas | Pass |
+| S33 | Window move and state operations restore their fixture | Pass |
 
 ## Fixed product failures
 
@@ -439,25 +602,27 @@ successes.
 
 ## Evidence and remaining scope
 
-- Baseline: `artifacts/computer-use/scenario-baseline.json`
-- After: `artifacts/computer-use/scenario-after.json`
-- Repeat baseline:
-  `artifacts/computer-use/scenario-repeat-turn-baseline.json`
-- Repeat optimized:
-  `artifacts/computer-use/scenario-repeat-turn-optimized.json`
-- Final core:
-  `apps/desktop/artifacts/computer-use/scenario-repeat-further-optimized-v5.json`
-- Extended stress:
-  `apps/desktop/artifacts/computer-use/scenario-repeat-stress-accuracy.json`
+Run reports are untracked under `artifacts/computer-use/`, and probe runs there
+are pruned as they
+age. The merged repeat reports below can be rebuilt from the per-shard runs kept
+in `artifacts/computer-use/repeats/` with `merge:computer-host:scenarios`.
+
+- Baseline: `scenario-baseline.json`
+- Final core: `scenario-repeat-further-optimized-v5.json`
+- Extended stress: `scenario-repeat-stress-accuracy.json`
+- Final 33-scenario matrix: `scenario-final-polish-33.json`
+- Final action coverage: `scenario-repeat-final-polish-action-coverage.json`
 - TypeScript node typecheck passed.
-- Windows host safety tests passed: 24 / 24.
+- Canonical bridge contract passed: 23 / 23.
+- Windows host safety, observation, and targeting tests passed: 31 / 31.
 - Existing Electron integration passed, including secondary-display capture,
   black-frame fail-closed, OCR marks, pointer input, Electron typing, fresh
   verification, and session cleanup.
 
-No final scenario remains failed or skipped across 230 core runs or 40 extended
-runs. The repeat baseline had one S17 cursor-position failure; the final core
-matrix had none. This is not a reliability claim across different Windows
-versions, OCR language packs, GPU drivers, or long-running sessions. After the
-source-host gates, one development deployment also passed the installed
-semantic-dialog and native file-association launch/close checks.
+Historical repeat cohorts recorded 230 core and 40 extended passes. The current
+33-scenario source matrix had no product failure; S22 alone was skipped because
+no Chrome or Edge window was open. This is not a reliability claim across
+different Windows versions, OCR language packs, GPU drivers, or long-running
+sessions. A historical development deployment passed the installed
+semantic-dialog and native file-association launch/close checks; the final
+polishing pass performed no deployment or app restart.

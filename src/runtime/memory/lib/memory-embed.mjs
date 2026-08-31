@@ -3,6 +3,10 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
 import { embedTexts, getEmbeddingModelId } from './embedding-provider.mjs'
 import { embeddingToSql } from './memory.mjs'
 import { createHash } from 'crypto'
+import {
+  pruneEmbeddingCache,
+  resolveEmbeddingCacheMaxRows,
+} from './embedding-cache-retention.mjs'
 
 // Restart-survivable embedding dedup cache (DDL created on first flush).
 // Keyed per-db handle so a second DB instance in the same process re-runs the
@@ -15,10 +19,7 @@ const _embCacheReady = new WeakSet()
 // (oldest inserted rows first) so the working set of hot vectors survives while
 // the tail is reclaimed. Applied opportunistically after cache writes, rate-
 // limited per db handle so it never runs on the hot path more than once/interval.
-const EMB_CACHE_MAX_ROWS = (() => {
-  const n = Number(process.env.MIXDOG_EMBED_CACHE_MAX_ROWS)
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 200_000
-})()
+const EMB_CACHE_MAX_ROWS = resolveEmbeddingCacheMaxRows()
 const EMB_CACHE_PRUNE_INTERVAL_MS = 10 * 60_000
 const _embCachePruneAt = new WeakMap() // db → next-allowed prune epoch ms
 
@@ -28,29 +29,7 @@ async function maybePruneEmbCache(db) {
   if (now < next) return
   _embCachePruneAt.set(db, now + EMB_CACHE_PRUNE_INTERVAL_MS)
   try {
-    // Only prune when actually over the cap.
-    const { rows } = await db.query(`SELECT count(*)::bigint AS n FROM memory.embedding_cache`)
-    let over = Number(rows?.[0]?.n ?? 0) - EMB_CACHE_MAX_ROWS
-    if (over <= 0) return
-    // Delete OLDEST rows first (ctid ascending ≈ insertion age) in bounded
-    // batches so a large backlog never takes one long ACCESS-heavy DELETE that
-    // locks the table. Each batch caps at PRUNE_BATCH; loop until under cap.
-    const PRUNE_BATCH = 5000
-    let guard = 0
-    while (over > 0 && guard++ < 1000) {
-      const del = await db.query(
-        `DELETE FROM memory.embedding_cache
-         WHERE ctid IN (
-           SELECT ctid FROM memory.embedding_cache
-           ORDER BY ctid ASC
-           LIMIT $1
-         )`,
-        [Math.min(PRUNE_BATCH, over)],
-      )
-      const n = Number(del?.rowCount ?? 0)
-      if (n === 0) break
-      over -= n
-    }
+    await pruneEmbeddingCache(db, { maxRows: EMB_CACHE_MAX_ROWS })
   } catch (err) {
     __mixdogMemoryLog(`[embed] cache prune skipped: ${err?.message || err}\n`)
   }
@@ -230,7 +209,7 @@ export async function flushEmbeddingDirty(db, options = {}) {
     let timedOut = false
     const allFailed = []
     const deadline = Date.now() + EMBED_FLUSH_TIMEOUT_MS
-    let cursor = 0
+    let cursor = null
     await ensureEmbCacheTable(db)
     throwIfAborted(signal)
 
@@ -244,6 +223,9 @@ export async function flushEmbeddingDirty(db, options = {}) {
         break
       }
 
+      // Claim newest roots first so a model migration restores current work
+      // before deep history. The descending cursor still drains every older
+      // root across repeated timeout-bounded passes.
       // Claim a disjoint batch via SKIP LOCKED on a dedicated connection.
       // Hold the transaction open across the embedding write so another flush
       // (different process / db handle) cannot re-claim the same ids mid-flight.
@@ -259,8 +241,8 @@ export async function flushEmbeddingDirty(db, options = {}) {
           `SELECT id FROM memory.entries
            WHERE is_root = 1 AND embedding IS NULL
              AND (element IS NOT NULL OR summary IS NOT NULL)
-             AND id > $2
-           ORDER BY id
+             AND ($2::bigint IS NULL OR id < $2)
+           ORDER BY id DESC
            LIMIT $1
            FOR UPDATE SKIP LOCKED`,
           [BATCH_SIZE, cursor],

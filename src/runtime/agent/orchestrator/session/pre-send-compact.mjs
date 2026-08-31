@@ -26,7 +26,6 @@ import {
 } from './compact.mjs';
 import { runRecallFastTrackCompact } from './loop/recall-fasttrack.mjs';
 import { estimateMessagesTokensSafe } from './loop/compact-debug.mjs';
-import { hasPendingNativeTokenCounts, withSyncTokenCounts } from './context-utils.mjs';
 import { messagesArrayChanged } from './loop/tool-helpers.mjs';
 import { normalizeUsage, addUsage } from './loop/usage.mjs';
 import { agentContextOverflowError } from './loop/context-overflow.mjs';
@@ -85,29 +84,6 @@ export async function runPreSendCompactPass(state) {
                 sessionRef,
                 pressureTokens,
             });
-            // Large fresh strings (>=32KB) may still be counting on the native
-            // token server; until the exact count lands, estimateTokens serves
-            // the CONSERVATIVE legacy heuristic. Never fire a compaction off
-            // that transient overshoot: when the decision says compact while
-            // counts are pending, redo the estimate synchronously (exact BPE)
-            // and re-decide. The fast path pays nothing; a genuine trigger
-            // pays one exact encode whose result seeds the shared cache.
-            if (shouldCompact && !reactivePending && hasPendingNativeTokenCounts()) {
-                withSyncTokenCounts(() => {
-                    messageTokensEst = estimateMessagesTokensSafe(messages);
-                    pressureTokens = compactionTelemetryPressureTokens(messageTokensEst, compactPolicy, {
-                        reactivePending,
-                        messages,
-                        sessionRef,
-                    });
-                });
-                shouldCompact = shouldCompactForSession(messageTokensEst, compactPolicy, {
-                    forceReactive: reactivePending,
-                    messages,
-                    sessionRef,
-                    pressureTokens,
-                });
-            }
             // This is the exact canonical value used by the decision above.
             // Reactive overflow recovery floors it at the trigger so the gauge,
             // telemetry, and forced compact still describe the same event.

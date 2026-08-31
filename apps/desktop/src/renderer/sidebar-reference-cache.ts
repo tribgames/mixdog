@@ -10,6 +10,8 @@
 // no disk. A reload starts cold on purpose.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { invalidateSharedModelCatalogRequest } from './model-catalog-cache';
+
 import type {
   DesktopApi,
   DesktopCapability,
@@ -315,6 +317,10 @@ export function invalidateSidebarReference(...keys: SidebarReferenceKey[]): void
     // An explicit truth change outranks the failure backoff: retry at once.
     failures.delete(key);
   }
+  // The route picker keeps its own day-long catalog share, outside these
+  // entries. A provider change retires that snapshot too, otherwise a newly
+  // connected provider stays missing from the picker until the app restarts.
+  if (keys.some((key) => PROVIDER_KEYS.includes(key))) invalidateSharedModelCatalogRequest();
   // Tell the mounted panels. Settings/onboarding mutate reference data from an
   // overlay ABOVE the sidebar, so without this the panel underneath would keep
   // a stale snapshot until the next re-entry.

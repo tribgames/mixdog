@@ -354,6 +354,9 @@ export function recordProviderContextBaseline(sessionRef, messages, usage, {
     sessionRef.contextPressureBaselineBoundary = boundary === 'request' ? 'request' : 'complete';
     sessionRef.contextPressureBaselineUpdatedAt = Date.now();
     sessionRef.lastContextTokensStaleAfterCompact = false;
+    sessionRef.contextPressureBaselineSource = 'provider';
+    delete sessionRef.contextPressureUnanchoredAfterRestart;
+    delete sessionRef.contextPressureUnanchoredReason;
     return true;
 }
 
@@ -370,7 +373,10 @@ export function invalidateProviderContextBaseline(sessionRef) {
     sessionRef.contextPressureBaselineToolSignature = null;
     sessionRef.contextPressureBaselineRequestReserveTokens = null;
     sessionRef.contextPressureBaselineUpdatedAt = null;
+    sessionRef.contextPressureBaselineSource = null;
     sessionRef.lastContextTokensStaleAfterCompact = true;
+    delete sessionRef.contextPressureUnanchoredAfterRestart;
+    delete sessionRef.contextPressureUnanchoredReason;
 }
 
 // A baseline is refreshed on every provider_send/turn-end. When the transcript
@@ -450,7 +456,17 @@ export function resolveContextTokens(messageTokensEst, policy, { messages, sessi
     const baseline = providerBaselinePressureTokens(messages, sessionRef, policy, {
         includeConfiguredReserve: false,
     });
-    return baseline ?? currentContextEstimateTokens(messageTokensEst, policy);
+    if (baseline !== null && baseline !== undefined) return baseline;
+    // A crash-recovered transcript whose old provider prefix could not be
+    // proven identical keeps the last actual reading for display. It is NOT a
+    // proactive-compaction signal: the next real provider response will either
+    // refresh the anchor or return an overflow for the existing reactive path.
+    if (sessionRef?.contextPressureUnanchoredAfterRestart === true) {
+        const lastActual = positiveTokenInt(sessionRef.contextPressureBaselineTokens)
+            || positiveTokenInt(sessionRef.lastContextTokens);
+        if (lastActual) return lastActual;
+    }
+    return currentContextEstimateTokens(messageTokensEst, policy);
 }
 
 export function resolveCurrentContextTokens(messageTokensEst, policy, options = {}) {
@@ -510,6 +526,10 @@ export function shouldCompactForSession(messageTokensEst, policy, {
     // (`contextOverflowRetryUsed`), so this can consume at most one additional
     // reactive compact after a one-shot attempt; a second overflow is surfaced.
     if (forceReactive) return true;
+    // Resume parity: never destroy durable history from an unanchored local
+    // estimate. One provider attempt re-establishes actual usage; a genuine
+    // overflow still enters through forceReactive above.
+    if (sessionRef?.contextPressureUnanchoredAfterRestart === true) return false;
     // A reserve at/above the trigger (or a one-token boundary)
     // can never satisfy target < trigger. Permit one legacy compact attempt,
     // then suppress automatic repeats until an operator intervenes.

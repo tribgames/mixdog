@@ -1,9 +1,11 @@
+import assert from 'node:assert/strict';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 
 import { executeOfficeTool, resetOfficeSessionsForTest } from './index.mjs';
+import { evaluatePowerPointCategorySpacing, extractPdfTextLayout } from './pdf-analysis.mjs';
 
 function toolValue(result, label) {
   const text = result?.content?.find((entry) => entry.type === 'text')?.text || '';
@@ -104,7 +106,7 @@ function contentModel() {
   };
 }
 
-function design(content, profile = 'data', purpose = 'explain') {
+function design(content, profile = 'executive', purpose = 'explain') {
   return {
     profile,
     purpose,
@@ -120,7 +122,7 @@ function design(content, profile = 'data', purpose = 'explain') {
 
 async function createWorkbook(directory, content) {
   const path = join(directory, '01-dashboard.xlsx');
-  const designRequest = design(content, 'data', 'monitor');
+  const designRequest = design(content, 'executive', 'monitor');
   const operations = [
     { op: 'rename_sheet', sheet: 'Sheet1', name: 'Source' },
     {
@@ -214,6 +216,11 @@ async function createWorkbook(directory, content) {
         'NPS 55 유지',
         '총 1.8억원을 성장과 고객 유지에 균등 배분',
       ],
+      decision: '성장 가속 0.9억원과 고객 유지 0.9억원을 함께 승인하고 월말에 성과를 재판정합니다.',
+      gates: [
+        { track: '성장 가속', release: '영업이익률 13.5% 이상', stop: '13.5% 미만' },
+        { track: '고객 유지', release: '이탈률 2.4% 이하 경로', stop: 'NPS 52 미만' },
+      ],
       columnFormats: {
         매출: '#,##0',
         영업이익: '#,##0',
@@ -264,6 +271,13 @@ async function createWorkbook(directory, content) {
       { kind: 'no-errors' },
     ],
   }, directory, 'validate workbook');
+  const persistedDashboard = validation.value.native?.snapshot?.sheets
+    ?.find((sheet) => sheet.name === 'Dashboard');
+  assert.deepEqual(persistedDashboard?.freezePanes, {
+    frozen: true,
+    splitRow: 11,
+    splitColumn: 1,
+  });
   await office({ action: 'close', session: created.value.session }, directory, 'close workbook');
   const { qa, images } = await reviewPersisted({
     path,
@@ -280,7 +294,7 @@ async function createWorkbook(directory, content) {
 
 async function createDocument(directory, content) {
   const path = join(directory, '02-decision-brief.docx');
-  const designRequest = design(content, 'editorial', 'decide');
+  const designRequest = design(content, 'executive', 'decide');
   const created = await office({
     action: 'create',
     path,
@@ -296,6 +310,7 @@ async function createDocument(directory, content) {
       meta: ['2026년 7월', '경영회의용', '단위: 백만원'],
       sections: [
         {
+          kind: 'decision',
           heading: '1. 결론과 요청사항',
           paragraphs: [
             '7월 매출은 5,660백만원, 영업이익은 802백만원으로 개선 흐름을 이어갔습니다. 영업이익률 14.2%는 성장 투자 여력을 뒷받침합니다.',
@@ -308,6 +323,7 @@ async function createDocument(directory, content) {
           ],
         },
         {
+          kind: 'metrics',
           heading: '2. 핵심 실적',
           table: [
             ['지표', '7월 실적', '판정'],
@@ -319,26 +335,30 @@ async function createDocument(directory, content) {
           ],
         },
         {
+          kind: 'decision-gates',
           heading: '3. 투자 release / stop gate',
-          pageBreak: true,
           paragraphs: ['두 트랙 모두 승인하되, 다음 월말에 정량 기준으로 계속 집행 여부를 다시 결정합니다.'],
           table: [
             ['트랙', 'Release', 'Stop'],
-            ['성장 가속 0.9억원', '매출 성장률과 영업이익률 유지', '영업이익률 13.5% 미만'],
-            ['고객 유지 0.9억원', '이탈률 2.4% 이하 경로 확인', '이탈률 반등 또는 NPS 52 미만'],
+            ['성장 가속 0.9억원', '매출 성장률 유지\n영업이익률 13.5% 이상', '영업이익률 13.5% 미만'],
+            ['고객 유지 0.9억원', '이탈률 2.4% 이하 경로\nNPS 55 유지', '이탈률 반등\nNPS 52 미만'],
           ],
         },
         {
+          kind: 'roadmap',
           heading: '4. 30일 실행계획',
-          bullets: [
-            '1주차: 성장 채널과 유지 캠페인별 owner·예산 확정',
-            '2주차: cohort별 전환·이탈 leading indicator 점검',
-            '3주차: 저효율 집행분 중단 및 고효율 채널 재배분',
-            '4주차: 경영회의에 release / stop 재판정 보고',
+          paragraphs: ['Owner 확정 → leading indicator 점검 → 집행 재배분 → gate 판정의 네 단계로 운영합니다.'],
+          steps: [
+            { label: '1주차', title: 'Owner·예산 확정', detail: '성장 채널과 유지 캠페인의 책임자와 예산을 확정' },
+            { label: '2주차', title: 'Leading indicator', detail: 'cohort별 전환율·이탈률 조기 신호를 점검' },
+            { label: '3주차', title: '집행 재배분', detail: '저효율 집행을 중단하고 고효율 채널로 이동' },
+            { label: '4주차', title: 'Gate 재판정', detail: '월말 경영회의에 release / stop을 보고' },
           ],
+          callout: '월말 경영회의에서 두 트랙의 release / stop을 정량 기준으로 다시 결정합니다.',
+          calloutLabel: 'NEXT DECISION',
         },
       ],
-      footer: 'Source: 01-dashboard.xlsx · Source→Calculation→Dashboard',
+      footer: 'Source: 01-dashboard.xlsx / Dashboard',
       pageNumbers: true,
     }],
   }, directory, 'create document');
@@ -359,10 +379,11 @@ async function createDocument(directory, content) {
 async function createPresentation(directory, content) {
   const path = join(directory, '03-executive-deck.pptx');
   const designRequest = {
-    ...design(content, 'data', 'decide'),
+    ...design(content, 'executive', 'decide'),
     deck: {
       backgroundMode: 'sandwich',
       templateMode: 'scratch',
+      compositionMode: 'model',
       requireSlidePlan: true,
     },
   };
@@ -375,6 +396,18 @@ async function createPresentation(directory, content) {
       eyebrow: 'JULY EXECUTIVE REVIEW',
       meta: ['2026년 7월', '경영회의'],
       source: '01-dashboard.xlsx#Dashboard',
+      plan: {
+        name: 'decision-cover-asymmetric',
+        rationale: 'Keep the investment claim dominant while the meeting context stays quiet.',
+        visualType: 'typography',
+        regions: [
+          { id: 'eyebrow', role: 'eyebrow', x: 6, y: 9, w: 42, h: 5 },
+          { id: 'message', role: 'title', x: 6, y: 23, w: 58, h: 28 },
+          { id: 'support', role: 'subtitle', x: 6, y: 62, w: 54, h: 12 },
+          { id: 'context', role: 'meta', x: 72, y: 76, w: 22, h: 6, style: { align: 'right' } },
+        ],
+        readingOrder: ['eyebrow', 'message', 'support', 'context'],
+      },
     },
     {
       op: 'compose_slide',
@@ -383,6 +416,17 @@ async function createPresentation(directory, content) {
       title: '매출 5,660백만원이 성장 투자의 여력을 만들었습니다',
       subtitle: '영업이익 802백만원 · 영업이익률 14.2%',
       metrics: [{ factId: 'revenue' }],
+      plan: {
+        name: 'claim-with-focal-metric',
+        rationale: 'Pair the investment claim with one source-bound metric instead of a generic statement template.',
+        visualType: 'metrics',
+        regions: [
+          { id: 'message', role: 'title', x: 6, y: 16, w: 57, h: 30 },
+          { id: 'support', role: 'subtitle', x: 6, y: 58, w: 57, h: 10 },
+          { id: 'evidence', role: 'metric', x: 71, y: 23, w: 22, h: 42, style: { align: 'center' } },
+        ],
+        readingOrder: ['message', 'evidence', 'support'],
+      },
     },
     {
       op: 'compose_slide',
@@ -396,6 +440,17 @@ async function createPresentation(directory, content) {
         categories: ['5월', '6월', '7월'],
         series: [{ name: '매출', values: [5000, 5300, 5660] }],
       },
+      plan: {
+        name: 'evidence-left-commentary-right',
+        rationale: 'Lead with the native trend and place the interpretation in a narrow commentary rail.',
+        visualType: 'chart',
+        regions: [
+          { id: 'evidence', role: 'chart', x: 5, y: 18, w: 58, h: 70 },
+          { id: 'message', role: 'title', x: 68, y: 12, w: 26, h: 30 },
+          { id: 'support', role: 'body', x: 68, y: 51, w: 26, h: 30 },
+        ],
+        readingOrder: ['evidence', 'message', 'support'],
+      },
     },
     {
       op: 'compose_slide',
@@ -408,6 +463,17 @@ async function createPresentation(directory, content) {
         ['성장 0.9억원', '영업이익률 13.5% 이상', '13.5% 미만'],
         ['고객 유지 0.9억원', '이탈률 2.4% 이하 경로', 'NPS 52 미만'],
       ],
+      plan: {
+        name: 'decision-matrix-with-side-claim',
+        rationale: 'Use the gate matrix as primary evidence and keep the interpretation separate.',
+        visualType: 'table',
+        regions: [
+          { id: 'message', role: 'title', x: 6, y: 7, w: 88, h: 16 },
+          { id: 'evidence', role: 'table', x: 6, y: 30, w: 60, h: 58 },
+          { id: 'support', role: 'subtitle', x: 72, y: 35, w: 22, h: 22, style: { fontSize: 18, bold: true } },
+        ],
+        readingOrder: ['message', 'evidence', 'support'],
+      },
     },
     {
       op: 'compose_slide',
@@ -420,6 +486,16 @@ async function createPresentation(directory, content) {
         { title: 'Gate 판정', detail: '월말 release / stop' },
       ],
       source: '02-decision-brief.docx#4. 30일 실행계획',
+      plan: {
+        name: 'wide-operating-flow',
+        rationale: 'Give the execution sequence a full-width stage distinct from the evidence slides.',
+        visualType: 'process',
+        regions: [
+          { id: 'message', role: 'title', x: 6, y: 7, w: 88, h: 16 },
+          { id: 'evidence', role: 'process', x: 6, y: 32, w: 88, h: 52, direction: 'row' },
+        ],
+        readingOrder: ['message', 'evidence'],
+      },
     },
     {
       op: 'compose_slide',
@@ -429,6 +505,17 @@ async function createPresentation(directory, content) {
       subtitle: '성장 0.9억원 · 고객 유지 0.9억원 · 월말 gate 재판정',
       visualText: '1.8억',
       visualLabel: '승인 요청',
+      plan: {
+        name: 'decision-close-number-right',
+        rationale: 'End on the approval sentence with the amount isolated as the final visual signal.',
+        visualType: 'statement',
+        regions: [
+          { id: 'message', role: 'title', x: 7, y: 22, w: 60, h: 30 },
+          { id: 'support', role: 'subtitle', x: 7, y: 65, w: 58, h: 12 },
+          { id: 'decision', role: 'visual', x: 74, y: 28, w: 18, h: 36, style: { align: 'center', fillRole: 'accent', colorRole: 'onAccent' } },
+        ],
+        readingOrder: ['message', 'decision', 'support'],
+      },
     },
   ];
   const created = await office({
@@ -455,7 +542,19 @@ async function createPresentation(directory, content) {
     auditProfile: 'model-backed-deck',
     design: designRequest,
   });
-  return { path, created: created.value, qa: qa.value, validation: validation.value, images };
+  const categorySpacing = evaluatePowerPointCategorySpacing(
+    await extractPdfTextLayout(qa.value.preview.output, { pages: [3] }),
+    ['5월', '6월', '7월'],
+  );
+  assert.equal(categorySpacing.ok, true, JSON.stringify(categorySpacing));
+  return {
+    path,
+    created: created.value,
+    qa: qa.value,
+    validation: validation.value,
+    images,
+    categorySpacing,
+  };
 }
 
 function compactResult(entry) {
@@ -480,6 +579,7 @@ function compactResult(entry) {
       || entry.created.design?.content?.fingerprint
       || '',
     postSaveGate: entry.validation.postSaveGate,
+    ...(entry.categorySpacing ? { categorySpacing: entry.categorySpacing } : {}),
   };
 }
 
@@ -514,7 +614,11 @@ export async function runOfficeQualityLiveBenchmark({ output = '' } = {}) {
     criticalCount,
     automatedPass: crossAppConsistent
       && criticalCount === 0
-      && Object.values(results).every((entry) => entry.qaOk && entry.validationOk),
+      && Object.values(results).every((entry) => (
+        entry.qaOk
+        && entry.validationOk
+        && entry.categorySpacing?.ok !== false
+      )),
     results,
     nextAction: 'Inspect every PNG, score content/design/layout/form/request fidelity, then apply one targeted polish batch per failing file.',
   };
@@ -529,4 +633,3 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   if (!report.automatedPass) process.exit(1);
 }
-

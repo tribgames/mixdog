@@ -18,22 +18,19 @@ export function clampDockWidth(value: number): number {
   );
 }
 
-export function readDockState(): { open: boolean; tab: UtilityDockTab; width: number } {
+/**
+ * Open state and width only. The active TAB is deliberately not restored
+ * (user: 좌·우·하단 도크 전부 첫 메뉴로 초기화), which also retires the old
+ * Tasks/Files tab identities: every launch starts on the leading tab.
+ */
+export function readDockState(): { open: boolean; width: number } {
   try {
     const raw = JSON.parse(window.localStorage.getItem(DOCK_STATE_KEY) || "{}") as Record<string, unknown>;
     return {
       open: raw.open === true,
-      // Migrate the retired Tasks/Files identities without discarding width
-      // and open-state preferences from existing installs.
-      tab: raw.tab === "agents" || raw.tab === "search"
-        || raw.tab === "source-control" || raw.tab === "pull-requests"
-        ? raw.tab
-        : raw.tab === "tasks" ? "agents"
-          : raw.tab === "files" ? "search"
-            : "agents",
       width: clampDockWidth(Number(raw.width)),
     };
   } catch {
-    return { open: false, tab: "agents", width: DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH };
+    return { open: false, width: DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH };
   }
 }

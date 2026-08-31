@@ -4,6 +4,7 @@ import test from 'node:test'
 import {
   VOICE_RUNTIME_CONFIG,
   VOICE_RUNTIME_TAG,
+  buildVoiceFfmpegPlatforms,
   buildVoiceRuntimePlatforms,
   fetchGithubRelease,
   voiceRuntimeBuildHash,
@@ -11,6 +12,9 @@ import {
 import { mergeVoiceRuntimeManifest } from './sync-voice-runtime-manifest.mjs'
 
 const names = VOICE_RUNTIME_CONFIG.platforms.map((platform) => platform.asset)
+const ffmpegNames = VOICE_RUNTIME_CONFIG.platforms.map(
+  (platform) => `ffmpeg-${platform.os}-${platform.arch}.gz`,
+)
 
 test('voice runtime release assets produce a complete fail-closed manifest', () => {
   assert.equal(VOICE_RUNTIME_CONFIG.vulkanSdkVersion, '1.4.309.0')
@@ -37,6 +41,19 @@ test('voice runtime release assets produce a complete fail-closed manifest', () 
 
 test('voice runtime manifest generation rejects a partial release', () => {
   assert.throws(() => buildVoiceRuntimePlatforms([]), /missing required asset/)
+})
+
+test('voice runtime release assets produce a minimal FFmpeg manifest', () => {
+  const assets = ffmpegNames.map((name, index) => ({
+    name,
+    size: index + 1,
+    digest: `sha256:${String(index + 1).padStart(64, '0')}`,
+  }))
+  const ffmpeg = buildVoiceFfmpegPlatforms(assets)
+  assert.equal(ffmpeg.version, VOICE_RUNTIME_CONFIG.ffmpegVersion)
+  assert.equal(ffmpeg.platforms['win32-x64'].format, 'gz')
+  assert.equal(ffmpeg.platforms['win32-x64'].executable, 'ffmpeg.exe')
+  assert.equal(ffmpeg.platforms['darwin-arm64'].executable, 'ffmpeg')
 })
 
 test('voice runtime manifest generation rejects undeclared archives', () => {
@@ -96,7 +113,7 @@ test('voice runtime release lookup finds an authenticated untagged draft', async
   assert.match(requests[1], /\/releases\?per_page=100&page=1$/)
 })
 
-test('voice runtime build identity is stable and merge preserves model and ffmpeg metadata', async () => {
+test('voice runtime build identity is stable and merge preserves model metadata', async () => {
   const buildHash = await voiceRuntimeBuildHash()
   assert.match(buildHash, /^[a-f0-9]{64}$/)
   const platforms = Object.fromEntries(VOICE_RUNTIME_CONFIG.platforms.map((platform, index) => [
@@ -120,16 +137,22 @@ test('voice runtime build identity is stable and merge preserves model and ffmpe
     ffmpeg: { version: 'b6.1.1' },
     platforms: {},
   }
+  const ffmpeg = buildVoiceFfmpegPlatforms(ffmpegNames.map((name, index) => ({
+    name,
+    size: index + 1,
+    digest: `sha256:${String(index + 1).padStart(64, '0')}`,
+  })))
   const released = {
     ...current,
     version: VOICE_RUNTIME_CONFIG.runtimeVersion,
     source: `ggml-org/whisper.cpp@${VOICE_RUNTIME_CONFIG.whisperCommit}`,
     release_tag: VOICE_RUNTIME_TAG,
     build_hash: buildHash,
+    ffmpeg,
     platforms,
   }
   const merged = await mergeVoiceRuntimeManifest(current, released)
   assert.strictEqual(merged.model, current.model)
-  assert.strictEqual(merged.ffmpeg, current.ffmpeg)
+  assert.deepEqual(merged.ffmpeg, ffmpeg)
   assert.deepEqual(merged.platforms, platforms)
 })

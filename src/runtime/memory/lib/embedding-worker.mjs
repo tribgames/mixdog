@@ -8,6 +8,7 @@ import os from 'os'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { resolvePluginData } from '../../shared/plugin-paths.mjs'
+import { compressEmbeddingModelCache } from './embedding-model-cache-compression.mjs'
 import {
   getConfiguredEmbeddingModelId,
   getDefaultEmbeddingDevice,
@@ -62,14 +63,14 @@ const execFileAsync = promisify(execFile)
 const _envLoadCores = Number(process.env.MIXDOG_EMBED_LOAD_CORES)
 const LOAD_AFFINITY_CORES = Number.isInteger(_envLoadCores) && _envLoadCores >= 1 ? _envLoadCores : 1
 const MODEL_CACHE_DIR = join(resolvePluginData(), 'memory-models')
+let modelCacheCompressionStarted = false
 // Reclaim the model after an idle window. The parent retires this worker thread
 // so the next recall reloads on demand without keeping hundreds of MB resident
 // throughout an otherwise idle desktop session. The window is 5 minutes rather
-// than 60s because a disposed model does not just cost the ~1.4s reload: recall
-// skips its dense leg entirely and returns lexical-only results while the
-// reload runs in the background, and a 60s window expired between ordinary
-// conversational turns. MIXDOG_EMBED_IDLE_TIMEOUT_MS overrides; 0 disables the
-// release entirely.
+// than 60s because a disposed model still costs a reload: recall waits for a
+// bounded cold-start window, then falls back to lexical-only if the reload is
+// not done. A 60s window expired between ordinary conversational turns.
+// MIXDOG_EMBED_IDLE_TIMEOUT_MS overrides; 0 disables the release entirely.
 const _envIdleMs = Number(process.env.MIXDOG_EMBED_IDLE_TIMEOUT_MS)
 const IDLE_TIMEOUT_MS = Number.isFinite(_envIdleMs) && _envIdleMs >= 0 ? _envIdleMs : 300_000
 
@@ -340,6 +341,18 @@ async function loadExtractor() {
       const loadMs = Date.now() - startMs
       __mixdogMemoryLog(`[embed-worker] loaded ${MODEL_ID} dtype=${configuredDtype} device=${_device} threads=${INTRA_OP_THREADS} in ${loadMs}ms\n`)
       parentPort.postMessage({ type: 'profile', record: { phase: 'load', model: MODEL_ID, device: _device, dtype: configuredDtype, wallMs: loadMs } })
+      if (!modelCacheCompressionStarted) {
+        modelCacheCompressionStarted = true
+        void compressEmbeddingModelCache(MODEL_CACHE_DIR, MODEL_ID)
+          .then((result) => {
+            if (result.compressed) {
+              __mixdogMemoryLog(`[embed-worker] model cache LZX compressed: ${result.modelDir}\n`)
+            }
+          })
+          .catch((error) => {
+            __mixdogMemoryLog(`[embed-worker] model cache LZX compression skipped: ${error?.message || error}\n`)
+          })
+      }
       return extractor
     })()
   }

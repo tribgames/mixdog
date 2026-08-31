@@ -37,44 +37,13 @@ test('npm postinstall prepares every required release-native asset', async () =>
       ]),
     );
     const prepared = await prepareRequiredNativeAssets({ packageRoot: root, installers });
-    assert.deepEqual(Object.keys(prepared), ['graph', 'patch', 'spawn', 'token']);
-    assert.deepEqual(calls.map(([name]) => name), ['graph', 'patch', 'spawn', 'token']);
+    assert.deepEqual(Object.keys(prepared), ['graph', 'patch', 'spawn']);
+    assert.deepEqual(calls.map(([name]) => name), ['graph', 'patch', 'spawn']);
     assert.equal(new Set(calls.map(([, dataDir]) => dataDir)).size, 1);
     for (const [name, fileName] of Object.entries(NATIVE_TOOL_FILENAMES)) {
       assert.equal(await readFile(join(packageNativeToolsDir(root), fileName), 'utf8'), `${name}-fixture`);
       assert.equal(prepared[name], join(packageNativeToolsDir(root), fileName));
     }
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test('a token-only outage still completes required native assets', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-native-token-optional-'));
-  try {
-    const prepared = await prepareRequiredNativeAssets({
-      packageRoot: root,
-      installers: {
-        graph: async () => {
-          const source = join(root, 'graph.source');
-          await writeFile(source, 'graph-fixture');
-          return source;
-        },
-        patch: async () => {
-          const source = join(root, 'patch.source');
-          await writeFile(source, 'patch-fixture');
-          return source;
-        },
-        spawn: async () => {
-          const source = join(root, 'spawn.source');
-          await writeFile(source, 'spawn-fixture');
-          return source;
-        },
-        token: async () => { throw new Error('token release unavailable'); },
-      },
-    });
-    assert.deepEqual(Object.keys(prepared), ['graph', 'patch', 'spawn']);
-    await assert.rejects(readFile(join(packageNativeToolsDir(root), NATIVE_TOOL_FILENAMES.token)));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -90,7 +59,6 @@ test('unsupported host platforms fail closed before downloading native assets', 
         graph: async () => { throw new Error('should not download'); },
         patch: async () => { throw new Error('should not download'); },
         spawn: async () => { throw new Error('should not download'); },
-        token: async () => { throw new Error('should not download'); },
       },
     }),
     /not published for win32-arm64/,
@@ -109,7 +77,6 @@ test('a required native asset failure rejects the complete install step', async 
           graph: async () => join(root, 'existing'),
           patch: async () => { throw new Error('release unavailable'); },
           spawn: async () => join(root, 'existing'),
-          token: async () => join(root, 'existing'),
         },
       }),
       /release unavailable/,

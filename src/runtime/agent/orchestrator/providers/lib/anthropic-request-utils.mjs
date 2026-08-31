@@ -1,5 +1,9 @@
 import { providerNativeToolPrefixCount } from '../../../../../session-runtime/provider-request-tools.mjs';
 import { isNativeServerToolBlockType } from './anthropic-native-blocks.mjs';
+import {
+    isAnthropicThinkingBlock,
+    sanitizeAnthropicReplayBlocks,
+} from './anthropic-replay-blocks.mjs';
 import { sanitizeAnthropicContentPairs, foldUserTextIntoToolResultTail } from '../../session/context-utils.mjs';
 import { normalizeContentForAnthropic } from '../media-normalization.mjs';
 import { createProviderReplay, providerReplayItems } from './provider-replay.mjs';
@@ -241,9 +245,13 @@ export function normalizeAnthropicNonStreamingResponse(message, fallbackModel = 
             name: block.name,
             arguments: block.input && typeof block.input === 'object' ? block.input : {},
         }));
-    const thinkingBlocks = blocks.filter((block) => (
-        block?.type === 'thinking' || block?.type === 'redacted_thinking'
-    ));
+    // Replay-safe projection of the turn: empty text blocks removed (the API
+    // rejects them) without letting that removal fuse two separate thinking
+    // runs into one, which the API rejects just as hard and permanently
+    // (anthropic-replay-blocks.mjs).
+    const replayableBlocks = sanitizeAnthropicReplayBlocks(blocks);
+    const thinkingBlocks = replayableBlocks.filter(isAnthropicThinkingBlock);
+    const modelEmittedThinking = blocks.some(isAnthropicThinkingBlock);
     // Anthropic NATIVE server-tool turns (web search / web fetch / code
     // execution / native MCP) cannot be rebuilt from the flattened
     // text/toolCalls/thinking projections above: `server_tool_use` and its
@@ -254,13 +262,12 @@ export function normalizeAnthropicNonStreamingResponse(message, fallbackModel = 
     // absent-for-ordinary-turns rule, so plain text/thinking/tool_use
     // responses keep the existing lowering and never double-replay.
     const nativeAssistantBlocks = blocks.some((block) => isNativeServerToolBlockType(block?.type))
-        ? blocks.filter((block) => block && typeof block === 'object' && (
+        ? replayableBlocks.filter((block) => (
             isNativeServerToolBlockType(block.type)
             || REPLAYABLE_ASSISTANT_BLOCK_TYPES.has(block.type)
-            || (block.type === 'text' && typeof block.text === 'string' && block.text.length > 0)
+            || block.type === 'text'
         ))
         : [];
-    const replayableBlocks = blocks.filter((block) => block && typeof block === 'object');
     const usage = message?.usage || {};
     const input = Number(usage.input_tokens) || 0;
     const cacheRead = Number(usage.cache_read_input_tokens) || 0;
@@ -270,7 +277,7 @@ export function normalizeAnthropicNonStreamingResponse(message, fallbackModel = 
         model: fallbackEvents.at(-1)?.fallbackModel || message?.model || fallbackModel,
         toolCalls: toolCalls.length ? toolCalls : undefined,
         stopReason: message?.stop_reason || null,
-        hasThinkingContent: thinkingBlocks.length > 0,
+        hasThinkingContent: modelEmittedThinking,
         contentBlockTypes: blocks.map((block) => block?.type).filter(Boolean),
         thinkingBlocks: thinkingBlocks.length ? thinkingBlocks : undefined,
         assistantBlocks: nativeAssistantBlocks.length ? nativeAssistantBlocks : undefined,

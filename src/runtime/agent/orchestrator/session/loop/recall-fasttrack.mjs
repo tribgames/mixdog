@@ -24,14 +24,11 @@ import { positiveTokenInt } from './env.mjs';
 // Memory provides every available summary/raw row. Only the final compaction
 // budget is allowed to reduce the handoff.
 function buildRecallDigestText(sessionId, digestBody) {
-    // No recall-usage instruction block here: the recall tool description
-    // already carries the usage-pattern cheatsheet (tool-defs.mjs), so
-    // repeating it per-compaction would be redundant injected tokens. The
-    // one-line header marks the compaction boundary and names the session id
-    // the model needs for a scoped recall.
+    // The summary record already owns the compaction envelope. Keep one small
+    // scope line, then preserve the Memory handoff byte-for-byte instead of
+    // parsing and rebuilding a second conversation/tool/file dump.
     return [
-        `[context compacted — session ${sessionId}]`,
-        `Recent digest (newest first):`,
+        `recall_session=${sessionId} order=newest_first`,
         String(digestBody || '').trim(),
     ].join('\n');
 }
@@ -179,6 +176,7 @@ export async function runRecallFastTrackCompact({
         const browsed = await searchMemory({
             action: 'search',
             sessionId,
+            limit: 30,
             includeMembers: true,
             includeRaw: true,
             compactHandoff: true,

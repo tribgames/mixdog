@@ -22,6 +22,7 @@ const requirePass = process.argv.includes('--require-pass');
 const only = argument('only');
 const timeoutMs = Number(argument('timeout-ms')) || 900_000;
 const staging = await mkdtemp(join(tmpdir(), 'mixdog-computer-host-scenarios-'));
+const profile = await mkdtemp(join(tmpdir(), 'mixdog-computer-scenarios-profile-'));
 const output = join(staging, 'computer-host-scenarios.mjs');
 const progressPath = join(staging, 'progress.log');
 
@@ -45,6 +46,10 @@ try {
   env.MIXDOG_COMPUTER_SCENARIO_LABEL = label;
   env.MIXDOG_COMPUTER_SCENARIO_REPORT_DIR = dirname(reportPath);
   env.MIXDOG_COMPUTER_SCENARIO_ONLY = only;
+  env.MIXDOG_COMPUTER_SCENARIO_PROFILE = profile;
+  // --display=primary keeps every fixture on the primary display, so a failure
+  // can be attributed to the code rather than to secondary-display geometry.
+  env.MIXDOG_COMPUTER_SCENARIO_DISPLAY = argument('display');
   let emittedProgress = '';
   const flushProgress = () => {
     let progress = '';
@@ -95,4 +100,12 @@ try {
   }
 } finally {
   await rm(staging, { recursive: true, force: true });
+  await rm(profile, {
+    recursive: true,
+    force: true,
+    maxRetries: 20,
+    retryDelay: 100,
+  }).catch((error) => {
+    console.warn(`computer scenario profile cleanup deferred: ${error.code || error.message}`);
+  });
 }

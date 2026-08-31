@@ -228,18 +228,6 @@ export function createSession(opts) {
         ...(Array.isArray(opts.disallowedTools) ? opts.disallowedTools : []),
         ...(!ownerIsAgent && workflowDisallowsAgentTool(opts.workflow) ? ['agent'] : []),
     ];
-    // The edit dialect this model never receives is omitted from the rules as
-    // well, so a session never reads placement guidance for a tool it cannot
-    // call.
-    const ruleOmitTools = [...sessionDeny, unusedModelEditToolName(modelName)];
-    const injectedRules = skipAgentRules ? '' : _buildSharedRules({ omitTools: ruleOmitTools });
-    const delegationFree = !ownerIsAgent && workflowDisallowsAgentTool(opts.workflow);
-    const roleRules = skipAgentRules
-        ? ''
-        : (ownerIsAgent
-            ? _buildAgentRules(agentRulesProfile)
-            : _buildLeadRules({ includeLeadBrief: !delegationFree }));
-    const metaContext = skipAgentRules ? '' : (ownerIsAgent ? '' : _buildLeadMetaContext());
     // Role permission is prompt/diagnostic metadata only. Resolve and persist
     // it without shaping the provider-visible Agent schema.
     const toolPermission = opts.permission
@@ -269,6 +257,30 @@ export function createSession(opts) {
         ownerIsAgent,
         resolvedAgent,
     });
+    // Every tool omitted by a caller schema allowlist is omitted from BP1 too.
+    // The model never receives guidance for a tool it cannot call, and a new
+    // process-wide built-in cannot leak into a narrow profile's prompt.
+    const visibleToolNames = new Set(
+        tools.map((tool) => String(tool?.name || '').toLowerCase()),
+    );
+    const schemaOmittedTools = hasCallerAllow
+        ? toolsForRouting
+            .map((tool) => String(tool?.name || ''))
+            .filter((name) => name && !visibleToolNames.has(name.toLowerCase()))
+        : [];
+    const ruleOmitTools = [
+        ...sessionDeny,
+        ...schemaOmittedTools,
+        unusedModelEditToolName(modelName),
+    ];
+    const injectedRules = skipAgentRules ? '' : _buildSharedRules({ omitTools: ruleOmitTools });
+    const delegationFree = !ownerIsAgent && workflowDisallowsAgentTool(opts.workflow);
+    const roleRules = skipAgentRules
+        ? ''
+        : (ownerIsAgent
+            ? _buildAgentRules(agentRulesProfile)
+            : _buildLeadRules({ includeLeadBrief: !delegationFree }));
+    const metaContext = skipAgentRules ? '' : (ownerIsAgent ? '' : _buildLeadMetaContext());
     // Preserve the exact pre-layout environment payload: Lead carried the
     // shell preference in Profile Preferences, while any routing surface with
     // shell carried the startup capability line in BP1.
@@ -644,9 +656,16 @@ function _prepareResumeTools(session, preset) {
     };
 }
 
+// The prepared tool surface is a CACHE, never a reason to keep a transcript
+// resident. Holding `session` strongly pinned up to PREPARED_RESUME_LIMIT
+// whole session objects for the process lifetime — hovering desktop session
+// rows (prefetchSession) was enough to do it, and those objects were reachable
+// from nothing else. The record therefore holds the session WEAKLY: a
+// collected session simply misses and re-prepares.
 function _rememberPreparedResume(sessionId, prepared) {
     _preparedResumes.delete(sessionId);
-    _preparedResumes.set(sessionId, prepared);
+    const { session, ...rest } = prepared;
+    _preparedResumes.set(sessionId, { ...rest, sessionRef: new WeakRef(session) });
     while (_preparedResumes.size > PREPARED_RESUME_LIMIT) {
         const oldest = _preparedResumes.keys().next().value;
         if (oldest === undefined) break;
@@ -654,8 +673,22 @@ function _rememberPreparedResume(sessionId, prepared) {
     }
 }
 
+// Rehydrate a stored record into the shape callers expect, dropping it when
+// its session has already been collected.
+function _readPreparedResume(sessionId) {
+    const entry = _preparedResumes.get(sessionId);
+    if (!entry) return null;
+    const session = entry.sessionRef?.deref();
+    if (!session) {
+        _preparedResumes.delete(sessionId);
+        return null;
+    }
+    const { sessionRef, ...rest } = entry;
+    return { ...rest, session };
+}
+
 function _preparedResumeForSession(session, preset) {
-    const cached = _preparedResumes.get(session.id);
+    const cached = _readPreparedResume(session.id);
     if (cached?.session === session && cached?.preset === preset
         && cached?.mcpScopeId === (session.mcpScopeId || null)) return cached;
     const prepared = _prepareResumeTools(session, preset);
@@ -868,7 +901,7 @@ export async function resumeSession(sessionId, preset, options = {}) {
     }
     _recoverTurnCheckpointDurably(session, sessionId);
     const oldTools = session.tools || [];
-    const cached = _preparedResumes.get(sessionId);
+    const cached = _readPreparedResume(sessionId);
     _preparedResumes.delete(sessionId);
     const prepared = cached?.session === session && cached?.preset === preset
         && cached?.mcpScopeId === (session.mcpScopeId || null)

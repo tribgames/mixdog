@@ -69,6 +69,7 @@ import {
 } from './message-sanitize.mjs';
 import { createTurnInterruptionTracker } from './turn-interruption.mjs';
 import {
+    captureTurnCheckpointContextState,
     clearTurnCheckpoint,
     createTurnCheckpointRecorder,
     recoverTurnCheckpoint,
@@ -404,6 +405,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         let _turnCheckpointStopped = false;
         let _turnCheckpointLastAt = 0;
         let _turnCheckpointWarned = false;
+        let _turnCheckpointContextState = null;
         // The recorder writes this turn's header synchronously on its first
         // flush (the crash-durability anchor for the prompt, landing before the
         // provider runs) and appends bounded deltas afterwards.
@@ -413,6 +415,13 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             turnToken: _turnCheckpointToken,
             startedAt: _turnCheckpointStartedAt,
         });
+        const _refreshTurnCheckpointContextState = () => {
+            _turnCheckpointContextState = captureTurnCheckpointContextState(
+                activeSession,
+                _turnOutgoing,
+                cancelledUserTurnContent,
+            );
+        };
         const _flushTurnCheckpoint = () => {
             if (_turnCheckpointStopped || !_turnOutgoing || !cancelledUserTurnContent) return false;
             try {
@@ -420,6 +429,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     currentUserContent: cancelledUserTurnContent,
                     turnOutgoing: _turnOutgoing,
                     interruption: _turnInterruption,
+                    contextState: _turnCheckpointContextState,
                 });
                 if (written) _turnCheckpointLastAt = Date.now();
                 return written;
@@ -770,6 +780,10 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                                 cachedTokens: d.contextCachedReadTokens ?? d.deltaCachedRead,
                                 cacheWriteTokens: d.contextCacheWriteTokens ?? d.deltaCacheWrite,
                             }, { boundary: 'request', sendTools: d.sendTools });
+                            _refreshTurnCheckpointContextState();
+                            // Persist the actual provider reading in the SAME
+                            // ordered checkpoint lane as the request prefix.
+                            _scheduleTurnCheckpoint(true);
                         }
                         try { askOpts?.onUsageDelta?.(d); } catch {}
                     },
@@ -779,6 +793,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         ? askOpts.beforeToolExecution
                         : undefined,
                     onCompactEvent: (event) => {
+                        _refreshTurnCheckpointContextState();
                         _scheduleTurnCheckpoint(true);
                         try { askOpts?.onCompactEvent?.(event); } catch {}
                     },

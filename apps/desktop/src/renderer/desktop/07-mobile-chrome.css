@@ -463,6 +463,17 @@ html[data-mixdog-mobile-tabs] .pane-strip-row > .workspace-tabs-shell {
    the real visible height (shell-viewport.ts → --vvh, what .app-shell and
    every dialog measure against), so the sheets read from it too. A zoomed
    sheet divides the factor back out exactly like its width does. */
+/* Phone sheets lay out in dp inside their zoomed frames, so the shared width
+   grammar is restated with the projection factor divided out. Both drawers
+   read from this ONE value: left uses it as-is (zoomed frame, 1px = 1dp) and
+   right multiplies it back into layout px. */
+html[data-mixdog-mobile-tabs] {
+  --mx-side-sheet-width: min(
+    max(calc(78vw / var(--mx-device-scale, 2.5)), var(--mx-side-sheet-min)),
+    var(--mx-side-sheet-max),
+    calc(100vw / var(--mx-device-scale, 2.5) - var(--mx-side-sheet-peek))
+  );
+}
 html[data-mixdog-mobile-tabs] .sidebar-drawer-frame {
   position: fixed;
   z-index: 150;
@@ -472,11 +483,11 @@ html[data-mixdog-mobile-tabs] .sidebar-drawer-frame {
   height: calc(var(--mx-visible-height) / var(--mx-device-scale, 2.5));
   /* 78% of the screen is right in portrait and absurd once the same RATIO is
      measured against a landscape long edge: a session list does not need 780dp
-     and the transcript behind it would be left a sliver. The cap is the
-     desktop sidebar's own maximum (MAX_SIDEBAR_WIDTH, session-sidebar.tsx), so
-     a rotated phone converges on the width grammar the app already uses
-     instead of inventing a second one. Inside the zoomed frame 1px IS 1dp. */
-  width: min(calc(78vw / var(--mx-device-scale, 2.5)), 420px);
+     and the transcript behind it would be left a sliver. The floor and ceiling
+     come from the shared sheet grammar (01-tokens.css), so a rotated phone —
+     and a small one — converge on the width the app already uses instead of
+     inventing a second one. Inside the zoomed frame 1px IS 1dp. */
+  width: var(--mx-side-sheet-width);
   min-width: 0;
   display: flex;
   zoom: var(--mx-device-scale, 2.5);
@@ -590,9 +601,9 @@ html[data-mixdog-mobile-tabs] .workbench-side-panel[data-side="right"] {
   right: 0;
   bottom: auto;
   left: auto;
-  /* Same 420dp ceiling as the left drawer. This frame is NOT zoomed, so the
-     cap is written in layout px: 420dp × the projection factor. */
-  width: min(78vw, calc(420px * var(--mx-device-scale, 2.5))) !important;
+  /* Same floor and ceiling as the left drawer. This frame is NOT zoomed, so
+     the shared dp width is multiplied back into layout px. */
+  width: calc(var(--mx-side-sheet-width) * var(--mx-device-scale, 2.5)) !important;
   min-width: 0 !important;
   max-width: none !important;
   /* No zoom on this one — the scale rides on .workbench-side-panel-content —

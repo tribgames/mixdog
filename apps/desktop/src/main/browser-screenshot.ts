@@ -1,13 +1,19 @@
 import type { Rectangle, WebContents } from 'electron';
 import { BrowserWindow, nativeImage } from 'electron';
 
-export type BrowserScreenshotFormat = 'jpeg' | 'png';
-
-export interface BrowserScreenshotOptions {
-  format: BrowserScreenshotFormat;
-  quality: number;
-  fullPage: boolean;
-}
+import {
+  assertFullPageOutputBounds,
+  browserScreenshotBytesFitBudget,
+  boundedFullPageRect,
+  normalizeScreenshotOptions,
+  scaledScreenshotRect,
+  type BrowserScreenshotOptions,
+} from './browser-screenshot-policy';
+export {
+  normalizeScreenshotOptions,
+  type BrowserScreenshotFormat,
+  type BrowserScreenshotOptions,
+} from './browser-screenshot-policy';
 
 export interface BrowserScreenshotCapture {
   data: string;
@@ -25,33 +31,6 @@ type SendBrowserCdp = <T>(
   signal?: AbortSignal,
 ) => Promise<T>;
 
-const DEFAULT_QUALITY = 75;
-const MAX_FULL_PAGE_DIMENSION = 32_768;
-const MAX_FULL_PAGE_PIXELS = 24_000_000;
-
-export function normalizeScreenshotOptions(input: {
-  format?: unknown;
-  quality?: unknown;
-  fullPage?: unknown;
-}): BrowserScreenshotOptions {
-  const format = String(input.format || 'jpeg').trim().toLowerCase();
-  if (format !== 'jpeg' && format !== 'png') {
-    throw new Error('snapshot format must be jpeg or png');
-  }
-  if (format === 'png' && input.quality !== undefined) {
-    throw new Error('snapshot quality is supported only with format=jpeg');
-  }
-  const rawQuality = input.quality === undefined ? DEFAULT_QUALITY : Number(input.quality);
-  if (!Number.isFinite(rawQuality) || rawQuality < 0 || rawQuality > 100) {
-    throw new Error('snapshot quality must be between 0 and 100');
-  }
-  return {
-    format,
-    quality: Math.round(rawQuality),
-    fullPage: input.fullPage === true,
-  };
-}
-
 function encodeImage(
   image: Electron.NativeImage,
   options: BrowserScreenshotOptions,
@@ -61,7 +40,7 @@ function encodeImage(
   const data = options.format === 'png'
     ? image.toPNG()
     : image.toJPEG(options.quality);
-  if (!data.length) return null;
+  if (!browserScreenshotBytesFitBudget(data.length)) return null;
   return {
     data: data.toString('base64'),
     width: size.width,
@@ -75,30 +54,8 @@ function decodeImage(
   data: string,
   options: BrowserScreenshotOptions,
 ): BrowserScreenshotCapture | null {
-  if (!data) return null;
+  if (!data || !browserScreenshotBytesFitBudget(Math.floor(data.length * 3 / 4))) return null;
   return encodeImage(nativeImage.createFromBuffer(Buffer.from(data, 'base64')), options);
-}
-
-function boundedFullPageRect(contentSize: {
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-}): Rectangle {
-  const x = Math.max(0, Math.floor(Number(contentSize.x) || 0));
-  const y = Math.max(0, Math.floor(Number(contentSize.y) || 0));
-  const width = Math.ceil(Number(contentSize.width) || 0);
-  const height = Math.ceil(Number(contentSize.height) || 0);
-  if (width < 1 || height < 1) throw new Error('full-page screenshot has no measurable content');
-  if (width > MAX_FULL_PAGE_DIMENSION
-    || height > MAX_FULL_PAGE_DIMENSION
-    || width * height > MAX_FULL_PAGE_PIXELS) {
-    throw new Error(
-      `full-page screenshot is too large (${width}x${height}); limit is `
-      + `${MAX_FULL_PAGE_DIMENSION}px per side and ${MAX_FULL_PAGE_PIXELS.toLocaleString()} pixels`,
-    );
-  }
-  return { x, y, width, height };
 }
 
 function coversRect(capture: BrowserScreenshotCapture | null, rect?: Rectangle): boolean {
@@ -108,36 +65,32 @@ function coversRect(capture: BrowserScreenshotCapture | null, rect?: Rectangle):
   );
 }
 
-function scaledRect(rect: Rectangle, scale: number): Rectangle {
-  return {
-    x: Math.floor(rect.x * scale),
-    y: Math.floor(rect.y * scale),
-    width: Math.ceil(rect.width * scale),
-    height: Math.ceil(rect.height * scale),
-  };
-}
-
 export function createBrowserScreenshotService(
   sendCdp: SendBrowserCdp,
   screenshotTimeoutMs: number,
   nativeTimeoutMs: number,
 ) {
-  async function fullPageRect(guest: WebContents): Promise<Rectangle> {
+  async function fullPageRect(guest: WebContents, signal?: AbortSignal): Promise<Rectangle> {
     const metrics = await sendCdp<{
       cssContentSize?: { x?: number; y?: number; width?: number; height?: number };
       contentSize?: { x?: number; y?: number; width?: number; height?: number };
-    }>(guest, 'Page.getLayoutMetrics', {}, screenshotTimeoutMs);
-    return boundedFullPageRect(metrics.cssContentSize || metrics.contentSize || {});
+    }>(guest, 'Page.getLayoutMetrics', {}, screenshotTimeoutMs, signal);
+    const rect = boundedFullPageRect(metrics.cssContentSize || metrics.contentSize || {});
+    // CDP's clip scale is the page zoom, so the output allocation can be much
+    // larger than the CSS layout. Apply the same pixel ceiling to that result.
+    assertFullPageOutputBounds(rect, guest.getZoomFactor());
+    return rect;
   }
 
   async function captureViaCdp(
     guest: WebContents,
     options: BrowserScreenshotOptions,
     fullPageClip?: Rectangle,
+    signal?: AbortSignal,
   ): Promise<BrowserScreenshotCapture | null> {
     try {
       const scale = fullPageClip ? guest.getZoomFactor() : 1;
-      const expectedRect = fullPageClip ? scaledRect(fullPageClip, scale) : undefined;
+      const expectedRect = fullPageClip ? scaledScreenshotRect(fullPageClip, scale) : undefined;
       const shot = await sendCdp<{ data?: string }>(
         guest,
         'Page.captureScreenshot',
@@ -150,10 +103,12 @@ export function createBrowserScreenshotService(
           } : {}),
         },
         screenshotTimeoutMs,
+        signal,
       );
       const capture = shot.data ? decodeImage(shot.data, options) : null;
       return coversRect(capture, expectedRect) ? capture : null;
-    } catch {
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason || error;
       return null;
     }
   }
@@ -163,10 +118,11 @@ export function createBrowserScreenshotService(
     options: BrowserScreenshotOptions,
     fullPageClip?: Rectangle,
     background = false,
+    signal?: AbortSignal,
   ): Promise<BrowserScreenshotCapture | null> {
     if (fullPageClip && !background) return null;
     const expectedRect = fullPageClip
-      ? scaledRect(fullPageClip, guest.getZoomFactor())
+      ? scaledScreenshotRect(fullPageClip, guest.getZoomFactor())
       : undefined;
     const owner = fullPageClip && background ? BrowserWindow.fromWebContents(guest) : null;
     const originalSize = owner && !owner.isDestroyed() ? owner.getContentSize() : null;
@@ -176,16 +132,30 @@ export function createBrowserScreenshotService(
         await new Promise((resolve) => setTimeout(resolve, 50));
         try { guest.invalidate(); } catch { /* teardown can reject repaint */ }
       }
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      let abort: (() => void) | undefined;
+      const cancelled = new Promise<never>((_resolve, reject) => {
+        abort = () => reject(signal?.reason || new Error('browser screenshot cancelled'));
+        if (signal?.aborted) abort();
+        else signal?.addEventListener('abort', abort, { once: true });
+      });
       const image = await Promise.race([
         guest.capturePage(),
-        new Promise<never>((_resolve, reject) => setTimeout(
-          () => reject(new Error('capturePage timed out')),
-          fullPageClip ? screenshotTimeoutMs : nativeTimeoutMs,
-        )),
-      ]);
+        cancelled,
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error('capturePage timed out')),
+            fullPageClip ? screenshotTimeoutMs : nativeTimeoutMs,
+          );
+        }),
+      ]).finally(() => {
+        if (timeout) clearTimeout(timeout);
+        if (abort) signal?.removeEventListener('abort', abort);
+      });
       const capture = encodeImage(image, options);
       return coversRect(capture, expectedRect) ? capture : null;
-    } catch {
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason || error;
       return null;
     } finally {
       if (owner && originalSize && !owner.isDestroyed()) {
@@ -202,15 +172,22 @@ export function createBrowserScreenshotService(
       quality?: unknown;
       fullPage?: unknown;
     } = {},
+    signal?: AbortSignal,
   ): Promise<BrowserScreenshotCapture> {
     const options = normalizeScreenshotOptions(rawOptions);
-    const fullPageClip = options.fullPage ? await fullPageRect(guest) : undefined;
+    const fullPageClip = options.fullPage ? await fullPageRect(guest, signal) : undefined;
     try { guest.invalidate(); } catch { /* teardown can reject repaint */ }
     const order = background
-      ? [captureViaNative, captureViaCdp]
-      : [captureViaCdp, captureViaNative];
+      ? [
+        () => captureViaNative(guest, options, fullPageClip, background, signal),
+        () => captureViaCdp(guest, options, fullPageClip, signal),
+      ]
+      : [
+        () => captureViaCdp(guest, options, fullPageClip, signal),
+        () => captureViaNative(guest, options, fullPageClip, background, signal),
+      ];
     for (const engine of order) {
-      const data = await engine(guest, options, fullPageClip, background);
+      const data = await engine();
       if (data) return data;
     }
     throw new Error('screenshot capture failed');

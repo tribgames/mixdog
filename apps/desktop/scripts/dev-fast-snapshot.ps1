@@ -201,6 +201,12 @@ try {
     Write-Step 'linking dependency trees'
     New-DirectoryLink (Join-Path $snapshotRoot 'node_modules') (Join-Path $repoRoot 'node_modules')
     New-DirectoryLink (Join-Path $snapshotRoot 'apps\desktop\node_modules') (Join-Path $desktopDir 'node_modules')
+    # `out/` is deliberately NOT linked here. electron-builder collects the app
+    # files itself and walks past a junction without descending into it, so a
+    # linked build directory produced an app.asar with no out/main/index.js in
+    # it. The snapshot starts with no build output at all, and the deploy's own
+    # missing-artifact rule (dev-update-windows.ps1) rebuilds whatever the
+    # incremental plan would otherwise have skipped.
 
     Write-Step 'checking the frozen copy compiles'
     Push-Location (Join-Path $snapshotRoot 'apps\desktop')

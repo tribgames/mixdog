@@ -1,7 +1,7 @@
 // Recent-list unread dots. Seen state is a per-session MESSAGE COUNT (v2) in
-// localStorage: only message growth that lands while the window is hidden or
-// while another session is viewed earns a dot, so housekeeping saves never
-// re-dot a checked row. Extracted from App.tsx.
+// localStorage: only message growth that lands while the surface is unread —
+// hidden, unfocused, or showing another session — earns a dot, so housekeeping
+// saves never re-dot a checked row. Extracted from App.tsx.
 import { useCallback, useRef, useState, type MutableRefObject } from "react";
 
 import type { DesktopSessionSummary } from "../shared/contract";
@@ -11,6 +11,18 @@ const LEGACY_TIMESTAMP_KEY = "mixdog.desktop.session-last-seen";
 // Counts are small; a timestamp mistakenly stored as a count (~1.7e12) would
 // suppress the dot forever, so absurd values are dropped and re-baselined.
 const MAX_PLAUSIBLE_COUNT = 1e7;
+
+/** Reading requires ATTENTION, not mere presence on screen: the surface must be
+ *  visible AND focused. A desktop window sitting behind another app, or a phone
+ *  whose tab lost focus, is not being read — a turn that completes there keeps
+ *  its dot and the Agents pane's completion notice (user: 작업 완료 후 읽지도
+ *  않았는데 대기중). Both surfaces run this same renderer, so the rule is one.
+ *  A host without `hasFocus` degrades to visibility alone. */
+export function sessionSurfaceEngaged(): boolean {
+  if (typeof document === "undefined") return false;
+  if (document.visibilityState !== "visible") return false;
+  return typeof document.hasFocus === "function" ? document.hasFocus() : true;
+}
 
 function sharedReadCount(row: DesktopSessionSummary): number {
   const value = Number(row.readMessageCount);
@@ -132,9 +144,9 @@ export function useUnreadSessions({
     const completedIds = new Set([...previousWorkingSessionIds.current]
       .filter((id) => liveIds.has(id) && !workingIds.has(id)));
     previousWorkingSessionIds.current = workingIds;
-    // "Viewed" means the window is actually on screen: an unfocused but visible
-    // desktop mirroring a terminal-owned turn IS being watched (user report).
-    const engaged = document.visibilityState === "visible";
+    // "Viewed" means the surface is on screen AND focused; see
+    // sessionSurfaceEngaged.
+    const engaged = sessionSurfaceEngaged();
     let dirty = false;
     for (const id of [...seen.keys()]) {
       if (liveIds.has(id)) continue;
@@ -198,12 +210,13 @@ export function useUnreadSessions({
     commitUnread(unread);
   }, [commitUnread, loadSeen, persistSeen, publishRead, viewedSessionRef]);
 
-  // Viewing a session consumes its marker — but only while the window is on
-  // screen, so a selected session in a hidden window keeps its dot. The caller
-  // fires this from an effect once the viewed selection is known.
+  // Viewing a session consumes its marker — but only while the surface is
+  // engaged, so a selected session in a hidden or unfocused window keeps its
+  // dot. The caller fires this from an effect once the selection is known, and
+  // again whenever focus returns.
   const consumeUnread = useCallback((viewedSessionId: string, sessions: DesktopSessionSummary[]) => {
     if (!viewedSessionId) return;
-    if (document.visibilityState !== "visible") return;
+    if (!sessionSurfaceEngaged()) return;
     const seen = loadSeen();
     const row = sessions.find((session) => session.id === viewedSessionId);
     const count = Math.max(Number(row?.messageCount) || 0, seen.get(viewedSessionId) || 0);

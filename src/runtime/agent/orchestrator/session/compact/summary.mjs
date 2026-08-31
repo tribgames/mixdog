@@ -504,8 +504,36 @@ export function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remaini
         return minimal;
     }
 
-    // No parseable root-block boundaries (plain recall text): fall back to the
-    // character-slice binary search below.
+    // Plain newest-first handoff: preserve complete lines whenever possible,
+    // dropping only the oldest trailing lines. A single oversized line falls
+    // through to the character fit below.
+    const lines = recall.split('\n');
+    if (lines.length > 1) {
+        let loL = 1;
+        let hiL = lines.length;
+        let bestLines = 0;
+        while (loL <= hiL) {
+            const midL = Math.floor((loL + hiL) / 2);
+            const candidate = makeRecallFastTrackSummaryMessageParts(
+                oldHistory,
+                lines.slice(0, midL).join('\n'),
+                recallMeta,
+            );
+            if (estimateMessagesTokens([candidate]) <= remainingTokens) {
+                bestLines = midL;
+                loL = midL + 1;
+            } else {
+                hiL = midL - 1;
+            }
+        }
+        if (bestLines > 0) {
+            return makeRecallFastTrackSummaryMessageParts(
+                oldHistory,
+                lines.slice(0, bestLines).join('\n'),
+                recallMeta,
+            );
+        }
+    }
 
     let lo = 0;
     let hi = recall.length;

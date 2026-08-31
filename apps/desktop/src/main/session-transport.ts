@@ -249,6 +249,12 @@ export class SessionTransport implements DesktopTransport {
         newPid: Number((next as AttachedDaemon & { pid?: number }).pid) || 0,
         newPort: Number((next as AttachedDaemon & { port?: number }).port) || 0,
       });
+      // Reattaching restores the CALLS, not the services the old daemon ran.
+      // Its relay leg died with the process, and a diagnostic is read by
+      // nobody who could redial it, so the replacement is announced on the
+      // message lane instead. Without this the phone stays dark until the
+      // app is restarted.
+      this.emit('message', { kind: 'daemon-replaced' } satisfies DesktopServiceOutbound);
     })();
     this.recovering = recovery;
     void recovery.catch((error) => this.fail(error)).finally(() => {

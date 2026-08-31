@@ -135,6 +135,7 @@ export function RouteEditor({
   onChangeContext,
   onChangeModelParameter,
   onOpenProviders,
+  onOpenModelPane,
 }: {
   models: DesktopModelOption[];
   provider: string;
@@ -166,6 +167,9 @@ export function RouteEditor({
   onChangeContext(percent: number): void;
   onChangeModelParameter?(id: string, value: string): void;
   onOpenProviders?: () => void;
+  /** Opening the catalog is also the user's retry gesture: the owner may
+   *  re-request a catalog whose previous fetch failed. */
+  onOpenModelPane?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -375,7 +379,10 @@ export function RouteEditor({
   const openPane = (next: RouteSheetPane) => {
     if (next !== 'model' && tuningDisabled) return;
     hoverLock.current = null;
-    if (next === 'model') setModelCatalogReady(true);
+    if (next === 'model') {
+      setModelCatalogReady(true);
+      onOpenModelPane?.();
+    }
     const triggerRect = trigger.current?.getBoundingClientRect();
     if (triggerRect) {
       const viewport = currentViewport(trigger.current);

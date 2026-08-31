@@ -53,6 +53,8 @@ import {
   executeRemoteFrame,
   type RemoteMethodDependencies,
 } from './remote-methods';
+import { createPushNotifier } from './push-notifier';
+import { createPushSubscriptionStore } from './push-subscription-store';
 import { loadOrCreateRelayE2EEIdentity } from './remote-e2ee';
 import { readSecretFile, writeSecretFile } from './secret-file';
 import { createSnapshotDeltaEncoder, isNoDelta, isStateResyncFrame } from './state-delta';
@@ -490,7 +492,10 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   const clientUrl = relayClientUrl(relayUrl, deviceId);
   const e2eeIdentity = await loadOrCreateRelayE2EEIdentity(options.userDataPath);
   const pairing = relayE2EEPairingMaterial(e2eeIdentity);
-  const methods = createRemoteMethods(options);
+  // Web Push belongs to the relay leg: this is the only surface where a client
+  // can be absent from the socket and still want to hear that a turn finished.
+  const pushStore = createPushSubscriptionStore(options.userDataPath);
+  const methods = createRemoteMethods({ ...options, push: pushStore });
   let socket: WebSocket | null = null;
   let closed = false;
   let relayBinaryFrames = false;
@@ -1538,8 +1543,18 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   // Engine pushes stay droppable: the subscriber must not forward its own
   // extra arguments as the `critical` flag.
   const unsubscribeState = options.host.subscribe((snapshot) => broadcastState(snapshot));
+  // The roster keeps arriving while a phone sleeps, so a turn that finishes
+  // with nobody connected still reaches that phone — through the browser's
+  // push service, which never sees the plaintext of anything else here.
+  const pushNotifier = createPushNotifier({
+    store: pushStore,
+    isEnabled: () => !closed,
+    isClientConnected: (clientId) => activeClients.has(clientId),
+    onError: (detail) => console.error(`[mixdog-remote-push] ${detail}`),
+  });
   const unsubscribeSessions = options.host.subscribeSessions((sessions) => {
     lastSessions = sessions;
+    pushNotifier.onSessions(sessions);
     if (activeClients.size === 0) return;
     for (const [clientId, state] of activeClients) {
       if (!state.channel) continue;
@@ -1608,6 +1623,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       // browser's token on the relay. The QR bootstrap token never rotates
       // here, so every other paired browser keeps working untouched.
       await controlRequest<boolean>('revoke-client', { clientId });
+      // The credential is gone; its notifications must go with it.
+      pushNotifier.forgetClient(clientId);
     },
     resume: (): void => {
       if (closed) return;
@@ -1691,6 +1708,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       if (reconnectTimer) clearTimeout(reconnectTimer);
       unsubscribeState();
       unsubscribeSessions();
+      pushNotifier.dispose();
       unsubscribeAgentPool();
       unsubscribeSessionStates();
       unsubscribeTerminals();

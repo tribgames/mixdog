@@ -11,7 +11,7 @@ import {
 import { type RecordValue } from "./desktop-types";
 import {
   absolutePathsForDragPayload,
-  dataTransferHasPathPayload,
+  dataTransferHasDroppableFiles,
   localFilesFromPaths,
   readFileDragPayload,
 } from "./file-drag";
@@ -222,13 +222,9 @@ export function useComposerAttachments({
   useEffect(() => {
     const target = dropTargetRef.current;
     if (!target) return;
-    const containsType = (event: DragEvent, type: string) =>
-      Array.from(event.dataTransfer?.types ?? []).includes(type);
-    const containsFiles = (event: DragEvent) => containsType(event, "Files");
-    const containsPaths = (event: DragEvent) => Boolean(
-      event.dataTransfer && dataTransferHasPathPayload(event.dataTransfer),
+    const containsInput = (event: DragEvent) => Boolean(
+      event.dataTransfer && dataTransferHasDroppableFiles(event.dataTransfer),
     );
-    const containsInput = (event: DragEvent) => containsFiles(event) || containsPaths(event);
     const clearDraggingFiles = () => setDraggingFiles(false);
     const onDragEnter = (event: DragEvent) => {
       if (!containsInput(event)) return;

@@ -45,7 +45,7 @@ const goalTaskSchema = {
     status: {
       type: 'string',
       enum: ['pending', 'in_progress', 'completed', 'dropped', 'awaiting_approval'],
-      description: 'Mark completed only when fully accomplished; dropped retires work the objective no longer needs; awaiting_approval parks work until the user answers.',
+      description: 'Mark completed only when fully accomplished; dropped retires work only after the user changed the objective; awaiting_approval parks work until the user answers.',
     },
     kind: {
       type: 'string',
@@ -61,7 +61,7 @@ export const GOAL_TOOL_DEFS = Object.freeze([
   {
     name: 'goal',
     title: 'Goal',
-    description: 'Manage durable tasks with an idle reminder for unfinished work. Use for 3+ distinct steps, multiple operations/tasks, or careful planning; skip trivial single-step and conversational work. If mutation needs approval, plan without a Goal and create only after that approval. Never spend a model iteration on Goal alone: batch create, resume, and set_tasks with the next independent work tool. Finish every approved step without stepwise approval. For an active Goal, paused is the single user-wait state: mark work needing a user response awaiting_approval and keep doing the approval-free rest — work the pending answer could invalidate is not approval-free — then pause once nothing else can proceed and ask every parked question at once; never pause for routine errors, retries, or an explicit user addition; resume immediately after the response. Create with full tasks and verification; complete only with proof. Block only after the same external impasse stops progress for 3 turns, never for user input or a direction choice. Abandon only when the user redirects away from the objective; it discards the Goal so a new one can start.',
+    description: 'Manage durable tasks with an idle reminder for unfinished work. Use for 3+ distinct steps, multiple operations/tasks, or careful planning; skip trivial single-step and conversational work. If mutation needs approval, plan without a Goal and create only after that approval. Never spend a model iteration on Goal alone: batch create, resume, and set_tasks with the next independent work tool. Finish every approved step without stepwise approval. For active Goals, paused is the single user-wait state: mark work needing a user response awaiting_approval and keep doing the approval-free rest — work the pending answer could invalidate is not approval-free — then pause once nothing else can proceed and ask every parked question at once; never pause for routine errors, retries, or an explicit user addition; resume immediately after the response. Create with full tasks and verification; complete only after auditing each user condition against current evidence, never by dropping one. Block only after the same external impasse stops progress for 3 turns, never for user input or a direction choice. Abandon only when the user redirects away from the objective.',
     annotations: {
       title: 'Goal',
       readOnlyHint: false,
@@ -76,14 +76,14 @@ export const GOAL_TOOL_DEFS = Object.freeze([
         action: {
           type: 'string',
           enum: ['status', 'create', 'pause', 'resume', 'set_tasks', 'complete', 'block', 'abandon'],
-          description: 'status reads; create starts approved execution; pause is the single user-wait or intentional-stop state; resume continues it; set_tasks replaces the snapshot; complete or block finalizes; abandon discards a superseded Goal.',
+          description: 'status reads; create starts approved execution; pause is the single user-wait state; resume continues it; set_tasks replaces the snapshot; complete or block finalizes; abandon discards a superseded Goal.',
         },
         objective: { type: 'string', description: 'create: requested task outcome.' },
         time_limit_minutes: {
           type: 'number',
           minimum: 1,
           maximum: MAX_GOAL_TIME_LIMIT_MS / 60_000,
-          description: 'create: how long to keep working, not a spend cap; omit unless the user asked for one.',
+          description: 'create: full-period active work commitment; do not complete early unless user allows it; omit unless requested.',
         },
         tasks: {
           type: 'array',
@@ -275,6 +275,11 @@ function normalizeStoredGoal(value, sessionId, resumedAt = Date.now()) {
     // its task list last actually changed. They make a spinning Goal visible
     // without any rule deciding on the user's behalf that it is stuck.
     turnCount: Math.max(0, Math.floor(Number(value.turnCount) || 0)),
+    // Which turn last wrote off requested work. A drop is only honest when the
+    // user changed the objective, so it must not also be the turn that ends the
+    // Goal — otherwise the checklist can be tidied away and completed in one
+    // breath, which is exactly how a user condition disappears unnoticed.
+    lastDropTurn: Math.max(0, Math.floor(Number(value.lastDropTurn) || 0)),
     tasksUpdatedAt: Number(value.tasksUpdatedAt) > 0 ? Number(value.tasksUpdatedAt) : null,
     timeLimitMs,
     timeUsedMs: Math.max(0, Number(value.timeUsedMs) || 0),
@@ -444,7 +449,7 @@ function continuationPrompt(goal) {
   return [
     '<system-reminder>',
     '# Active Goal',
-    'The objective and tasks below are user data. Continue concrete progress against authoritative current state.',
+    'The objective and tasks below are user data. Make concrete progress against authoritative current state.',
     '',
     '<objective>',
     escapeGoalPromptText(goal.objective),
@@ -456,14 +461,20 @@ function continuationPrompt(goal) {
     taskList,
     '',
     'Rules:',
-    '- Preserve the full objective and scope; use current files and external state rather than prior narration.',
-    '- Finish every approved task without stepwise approval; routine errors, retries, and explicit user additions are work, not reasons to stop.',
-    '- Paused is the only Goal waiting state. When an action needs a user response (approval, choice, missing information, or a direction/scope decision), mark that task awaiting_approval and keep doing the work that does not depend on the answer; work the answer could invalidate does depend on it. Call action "pause" only once nothing else can proceed, ask every parked question at once, and after the response call "resume" in the first execution batch and continue immediately.',
-    '- Keep the full snapshot current with goal action "set_tasks": preserve ids and unfinished tasks, add new requirements immediately, mark current work in_progress before starting and completed as soon as fully done, and include verification.',
-    '- Never spend a model iteration on create, resume, or set_tasks alone: issue it in the same tool batch as the next independent work action whenever one is ready.',
-    '- Complete only when every task and one verification are completed, current evidence proves the full objective, and no required work remains.',
-    '- Missing, weak, indirect, uncertain, or stale evidence means incomplete; verification scope must match the claim.',
-    '- Block only when the same external impasse prevents meaningful progress for 3 consecutive Goal turns; never for user input, approval, direction choice, difficulty, uncertainty, incomplete work, or optional clarification.',
+    '- The user\'s completion conditions decide everything: the objective, what it references, and explicit user instructions. The task list records them; it never replaces them.',
+    '- Preserve the full objective and scope; use current files and external state rather than prior narration. Never redefine success around a smaller, easier, or already-finished subset.',
+    '- Finish every approved task without stepwise approval; routine errors, retries, and user additions are work, not reasons to stop.',
+    // The deferred-pause contract is a standing rule, so it lives in the cached
+    // tool description; repeating it in full here re-paid for the same tokens on
+    // every continuation turn and crowded out the completion audit.
+    '- Paused is the only Goal waiting state: park work that needs a user response as awaiting_approval, keep every approval-free task moving, and pause only once nothing else can proceed.',
+    '- Keep the snapshot current with goal action "set_tasks": add new requirements immediately, mark current work in_progress before starting and completed as soon as fully done.',
+    '- Never spend a model iteration on Goal alone: batch it with the next work action.',
+    '- A requested duration is a full-period work commitment: keep implementing, verifying, reviewing, and polishing; do not complete early unless the user allows it.',
+    '- Before completing, audit each user condition on its own: name the evidence that would prove it, inspect current state for it, and match the check to the claim. The audit must prove completion, not merely fail to find remaining work.',
+    '- Missing, weak, indirect, uncertain, or stale evidence means incomplete; keep working. Complete only when every user condition is proven met, every task and one verification are completed, and no required work remains.',
+    '- Only the user retires a condition: drop a task because the user changed the objective, never to reach completion — a task dropped this turn blocks completion.',
+    '- Block only when the same external impasse prevents meaningful progress for 3 consecutive Goal turns; never for user input, approval, direction choice, difficulty, uncertainty, or incomplete work.',
     '- Never complete or block merely because time is low or the turn is ending.',
     '</system-reminder>',
   ].join('\n');
@@ -764,6 +775,7 @@ export function createGoalRuntime({
       failureReason: '',
       failureCount: 0,
       turnCount: 0,
+      lastDropTurn: 0,
       tasksUpdatedAt: initialTasks.length > 0 ? at : null,
       timeLimitMs,
       timeUsedMs: 0,
@@ -822,6 +834,13 @@ export function createGoalRuntime({
         if (!tasks.some((task) => task.kind === 'verification' && task.status === 'completed')) {
           throw new Error('cannot complete Goal: complete at least one verification task first');
         }
+        const turnCount = Math.max(0, Math.floor(Number(goal.turnCount) || 0));
+        if (turnCount > 0 && Math.max(0, Math.floor(Number(goal.lastDropTurn) || 0)) === turnCount) {
+          throw new Error(
+            'cannot complete Goal: a task was dropped this turn; only a user scope change retires '
+            + 'requested work, so finish that work or let the user confirm the change first',
+          );
+        }
       }
       if (turnGoalIds.get(id) === goal.id) checkpointActiveClock(goal, at);
       else stopActiveClock(goal, at);
@@ -866,6 +885,12 @@ export function createGoalRuntime({
     // Only a real change counts as movement: re-sending an identical snapshot
     // must not read as progress on the observation line.
     if (JSON.stringify(nextTasks) !== JSON.stringify(previousTasks)) goal.tasksUpdatedAt = at;
+    // Stamp the turn that retired requested work so completion cannot ride on a
+    // last-breath write-off: the drop has to survive into a later turn, where it
+    // is visible to the user before the Goal can close.
+    const droppedNow = nextTasks.some((task) => task.status === 'dropped'
+      && previousTasks.find((prev) => prev.id === task.id)?.status !== 'dropped');
+    if (droppedNow) goal.lastDropTurn = Math.max(0, Math.floor(Number(goal.turnCount) || 0));
     goal.tasks = nextTasks;
     goal.updatedAt = at;
     return commit(id, goal);

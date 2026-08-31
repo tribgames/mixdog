@@ -17,8 +17,16 @@ import {
     turnMessagesForCheckpoint,
     writeCheckpointHeader,
 } from './turn-checkpoint-journal.mjs';
+import {
+    captureTurnCheckpointContextState,
+    restoreTurnCheckpointContextState,
+} from './turn-checkpoint-context.mjs';
 
 export { turnCheckpointPath, turnMessagesForCheckpoint };
+export {
+    captureTurnCheckpointContextState,
+    restoreTurnCheckpointContextState,
+};
 
 /** Resolve once every queued journal append for a session has been written. */
 export const settleTurnCheckpointWrites = settleTurnJournalWrites;
@@ -72,10 +80,15 @@ export function createTurnCheckpointRecorder({ sessionId, generation, turnToken,
     return {
         get opened() { return opened; },
         /** True when this call wrote or queued durable state. */
-        record({ currentUserContent, turnOutgoing, interruption }) {
+        record({ currentUserContent, turnOutgoing, interruption, contextState = null }) {
             if (stopped || !sessionId || !turnToken) return false;
             if (!opened) {
-                const seed = encoder.seed(turnOutgoing, currentUserContent, interruption);
+                const seed = encoder.seed(
+                    turnOutgoing,
+                    currentUserContent,
+                    interruption,
+                    contextState,
+                );
                 writeCheckpointHeader({
                     sessionId,
                     generation,
@@ -87,6 +100,7 @@ export function createTurnCheckpointRecorder({ sessionId, generation, turnToken,
                     interruption: typeof interruption?.snapshot === 'function'
                         ? interruption.snapshot()
                         : emptyInterruptionSnapshot(),
+                    contextState: seed.contextState,
                 });
                 // Opening the journal is part of the anchor: a leftover journal
                 // from an earlier turn of this session must never replay onto
@@ -98,7 +112,12 @@ export function createTurnCheckpointRecorder({ sessionId, generation, turnToken,
                 opened = true;
                 return true;
             }
-            const lines = encoder.encode({ turnOutgoing, currentUserContent, interruption });
+            const lines = encoder.encode({
+                turnOutgoing,
+                currentUserContent,
+                interruption,
+                contextState,
+            });
             if (lines.length === 0) return false;
             appendJournalLines(sessionId, lines);
             return true;
@@ -206,10 +225,12 @@ export function recoverTurnCheckpoint(session) {
             ...(start >= 0 ? current.slice(0, start) : current),
             ...finalized.messages,
         ];
-    // Keep the last provider reading across restart. Pressure resolution
-    // validates its message-prefix signature against this recovered transcript:
-    // a matching durable prefix stays authoritative, while any rewritten
-    // prefix falls back to a local estimate until the next provider response.
+    // Re-anchor provider usage / post-compact replacement state to the exact
+    // canonical checkpoint representation. If a legacy or corrupted checkpoint
+    // cannot prove alignment, retain the last provider reading for display but
+    // mark it unanchored so the first resumed send cannot compact from a gross
+    // whole-transcript estimate.
+    const contextStateRestored = restoreTurnCheckpointContextState(session, checkpoint);
     delete session.activeTurnCheckpoint;
     delete session.providerState;
     delete session._providerPrefixGuardState;
@@ -220,5 +241,6 @@ export function recoverTurnCheckpoint(session) {
         recovered: true,
         turnToken: checkpoint.turnToken,
         responsePreserved: finalized.responsePreserved,
+        contextStateRestored,
     };
 }

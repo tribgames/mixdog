@@ -44,6 +44,14 @@ const queryEmbeddingCache = createCompactVectorCache({
 
 const WORKER_PATH = join(fileURLToPath(import.meta.url), '..', 'embedding-worker.mjs')
 
+export function embeddingWorkerExecArgv(execArgv = process.execArgv) {
+  return (Array.isArray(execArgv) ? execArgv : []).filter((arg) => {
+    const value = String(arg)
+    if (value.startsWith('--input-type')) return false
+    return !/^--(?:max-old-space-size|max-semi-space-size|initial-old-space-size)(?:=|$)/.test(value)
+  })
+}
+
 function cacheEmbedding(key, vector) {
   queryEmbeddingCache.set(key, vector)
 }
@@ -67,7 +75,7 @@ function ensureWorker() {
     }
   }
   _lastRestartMs = now
-  const execArgv = process.execArgv.filter((arg) => !String(arg).startsWith('--input-type'))
+  const execArgv = embeddingWorkerExecArgv()
   const created = new Worker(WORKER_PATH, { env: { ...process.env }, execArgv })
   worker = created
   const rejectWorkerPending = (error) => {

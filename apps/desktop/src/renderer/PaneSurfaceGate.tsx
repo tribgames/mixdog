@@ -1,7 +1,11 @@
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 
-import { createBootSurfaceBarrier, markBootStage } from "./boot-metrics";
+import {
+  createBootSurfaceBarrier,
+  desktopBootCoverTimeoutAllowed,
+  markBootStage,
+} from "./boot-metrics";
 import { DesktopLoadingSurface } from "./RendererRecovery";
 import { t } from "./i18n";
 
@@ -163,11 +167,13 @@ function useStableSurfaceReveal(
  */
 export function DesktopBootGate({
   ready,
+  restorePending = false,
   enabled = true,
   label = t("Starting Mixdog…"),
   children,
 }: {
   ready: boolean;
+  restorePending?: boolean;
   enabled?: boolean;
   label?: string;
   children: ReactNode;
@@ -202,10 +208,11 @@ export function DesktopBootGate({
     if (revealRequested && !revealed) setRevealed(true);
   }, [revealRequested, revealed]);
   useEffect(() => {
-    if (!enabled || !windowShown || revealed) return undefined;
+    if (!enabled || !windowShown || revealed
+      || !desktopBootCoverTimeoutAllowed(restorePending)) return undefined;
     const timer = window.setTimeout(() => setTimedOut(true), DESKTOP_BOOT_COVER_MAX_MS);
     return () => window.clearTimeout(timer);
-  }, [enabled, revealed, windowShown]);
+  }, [enabled, restorePending, revealed, windowShown]);
   useEffect(() => {
     if (timedOut) {
       markBootStage("desktop-boot-timeout", surfaces.pendingKeys.join(","));

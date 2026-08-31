@@ -46,6 +46,9 @@ export interface BottomPanelState {
 export type BottomPanelMotion = "animated" | "instant";
 
 export function useBottomPanelState(defaultTab = "") {
+  // Open state and height carry across reloads; the ACTIVE TAB never does
+  // (user: 좌·우·하단 도크 전부 첫 메뉴로 초기화). Every reconnect opens the
+  // panel on its leading tab.
   const [state, setState] = useState<BottomPanelState>(() => {
     try {
       const record = JSON.parse(
@@ -54,7 +57,7 @@ export function useBottomPanelState(defaultTab = "") {
       return {
         open: record.open === true,
         height: clampBottomPanelHeight(Number(record.height), window.innerHeight),
-        tab: typeof record.tab === "string" && record.tab.trim() ? record.tab : defaultTab,
+        tab: defaultTab,
       };
     } catch {
       return { open: false, height: BOTTOM_PANEL_DEFAULT_HEIGHT, tab: defaultTab };
@@ -63,11 +66,14 @@ export function useBottomPanelState(defaultTab = "") {
   const [motion, setMotion] = useState<BottomPanelMotion>("animated");
   const persistState = useCallback(() => {
     try {
-      window.localStorage.setItem(BOTTOM_PANEL_KEY, JSON.stringify(state));
+      window.localStorage.setItem(
+        BOTTOM_PANEL_KEY,
+        JSON.stringify({ open: state.open, height: state.height }),
+      );
     } catch {
       // Panel persistence is a convenience only.
     }
-  }, [state]);
+  }, [state.height, state.open]);
   usePageHideFlush(persistState);
   useEffect(() => {
     const timer = window.setTimeout(persistState, 120);

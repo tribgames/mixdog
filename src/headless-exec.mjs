@@ -97,7 +97,6 @@ function createJsonLifecycle({
   fast,
   cwd,
   webSearch = false,
-  memory = false,
 }) {
   let threadId = `exec_${randomUUID().replace(/-/g, '')}`;
   const turnId = 'turn_1';
@@ -152,7 +151,6 @@ function createJsonLifecycle({
         approval_mode: 'implicit',
         delegation: false,
         web_search: webSearch === true,
-        memory: memory === true,
       },
     }, turnStartedAt);
     emit({
@@ -543,7 +541,6 @@ export async function runHeadlessExec({
   effort,
   fast,
   webSearch = false,
-  memory = false,
   json = false,
   cwd = process.cwd(),
   write = (text) => stdout.write(text),
@@ -578,7 +575,6 @@ export async function runHeadlessExec({
     fast,
     cwd,
     webSearch,
-    memory,
   }) : null;
   let boundary = null;
   let runtime = null;
@@ -669,12 +665,13 @@ export async function runHeadlessExec({
     // disallowed below, completing the solo surface. The per-process
     // MIXDOG_FEATURE_* overrides are the runtime's canonical switches.
     process.env.MIXDOG_FEATURE_WEB_SEARCH = webSearch === true ? '1' : '0';
-    process.env.MIXDOG_FEATURE_MEMORY = memory === true ? '1' : '0';
+    process.env.MIXDOG_FEATURE_MEMORY = '0';
     runtime = await createRuntime({
       provider,
       model,
       cwd,
       toolMode: 'full',
+      toolProfile: 'headless',
       approvalMode: 'implicit',
       disallowDelegation: true,
       autoWakeCompletions: false,

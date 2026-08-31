@@ -9,6 +9,7 @@ import { expandOfficeDesignOperations } from './design-system.mjs';
 import { executeOfficeTool, resetOfficeSessionsForTest } from './index.mjs';
 import { applyPortableOoxmlBatch } from './portable-ooxml.mjs';
 import { createPortableOoxmlDocument } from './portable-package.mjs';
+import { describeOfficeSnapshotViolations, officeSnapshotContractViolations } from './snapshot-contract.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
 
@@ -28,6 +29,12 @@ async function workspace(t) {
 function value(result) {
   assert.equal(result?.isError, undefined, result?.content?.[0]?.text);
   return JSON.parse(result.content[0].text);
+}
+
+async function writeZip(path, files) {
+  const zip = new JSZip();
+  for (const [name, content] of Object.entries(files)) zip.file(name, content);
+  await writeFile(path, await zip.generateAsync({ type: 'nodebuffer' }));
 }
 
 async function parts(path) {
@@ -160,6 +167,20 @@ test('portable presentation authoring manages slides, shapes, tables, and notes'
   assert.match(second, /<a:tbl>/);
   assert.equal(packaged.has('ppt/notesSlides/notesSlide2.xml'), true);
   assert.equal(packaged.has('ppt/notesMasters/notesMaster1.xml'), true);
+  // PowerPoint reports the entire package as corrupt and unreadable when the
+  // notes master shares the slide master's theme part, so every deck carrying
+  // speaker notes needs a theme of its own.
+  const notesMasterRelationships = await packaged.text('ppt/notesMasters/_rels/notesMaster1.xml.rels');
+  const notesTheme = /Target="\.\.\/theme\/(theme\d+\.xml)"/.exec(notesMasterRelationships)?.[1];
+  const slideMasterRelationships = await packaged.text('ppt/slideMasters/_rels/slideMaster1.xml.rels');
+  const slideTheme = /Target="\.\.\/theme\/(theme\d+\.xml)"/.exec(slideMasterRelationships)?.[1];
+  assert.ok(notesTheme, 'the notes master must reference a theme');
+  assert.notEqual(notesTheme, slideTheme, 'the notes master needs a theme part of its own');
+  assert.equal(packaged.has(`ppt/theme/${notesTheme}`), true);
+  assert.match(
+    await packaged.text('[Content_Types].xml'),
+    new RegExp(`PartName="/ppt/theme/${notesTheme}"`),
+  );
 
   value(await executeOfficeTool({
     action: 'batch',
@@ -190,9 +211,36 @@ test('portable composition stays inside the portable operation catalog', () => {
       source: { document: 'internal model' },
     }],
     pptx: [
-      { op: 'compose_slide', kind: 'cover', title: 'Portable decks' },
-      { op: 'compose_slide', kind: 'metrics', title: 'Coverage', metrics: [{ label: 'Formats', value: '3' }] },
-      { op: 'compose_slide', kind: 'table', title: 'Regions', table: [['Region', 'Revenue'], ['Korea', '120']] },
+      {
+        op: 'compose_slide',
+        kind: 'cover',
+        title: 'Portable decks',
+        plan: { regions: [{ id: 'message', role: 'title', x: 8, y: 30, w: 78, h: 22 }] },
+      },
+      {
+        op: 'compose_slide',
+        kind: 'metrics',
+        title: 'Coverage',
+        metrics: [{ label: 'Formats', value: '3' }],
+        plan: {
+          regions: [
+            { id: 'message', role: 'title', x: 7, y: 8, w: 80, h: 16 },
+            { id: 'evidence', role: 'metric', x: 62, y: 30, w: 28, h: 44 },
+          ],
+        },
+      },
+      {
+        op: 'compose_slide',
+        kind: 'table',
+        title: 'Regions',
+        table: [['Region', 'Revenue'], ['Korea', '120']],
+        plan: {
+          regions: [
+            { id: 'message', role: 'title', x: 7, y: 8, w: 80, h: 16 },
+            { id: 'evidence', role: 'table', x: 7, y: 31, w: 86, h: 50 },
+          ],
+        },
+      },
     ],
     docx: [{
       op: 'compose_document',
@@ -236,6 +284,12 @@ test('portable composition keeps charts native instead of rejecting them', () =>
       kind: 'chart',
       title: 'Trend',
       chart: { series: [{ name: '2026', values: [1, 2, 3] }], categories: ['a', 'b', 'c'] },
+      plan: {
+        regions: [
+          { id: 'message', role: 'title', x: 7, y: 8, w: 80, h: 16 },
+          { id: 'evidence', role: 'chart', x: 7, y: 30, w: 86, h: 60 },
+        ],
+      },
     }],
     created: true,
   });
@@ -1122,6 +1176,399 @@ test('portable Word measures table columns in points and keeps borders through f
   assert.equal(Number(spanned[1]), 9026, 'the merged cell spans both column widths');
 });
 
+test('portable slides build an entrance animation timeline', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'anim.pptx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [
+      { op: 'add_slide' },
+      { op: 'add_textbox', slide: 1, text: 'First', properties: { left: 60, top: 60, width: 300, height: 60 } },
+      { op: 'add_textbox', slide: 1, text: 'Second', properties: { left: 60, top: 200, width: 300, height: 60 } },
+      { op: 'add_animation', slide: 1, shape: 1, effect: 'fade', trigger: 'onclick', duration: 0.75 },
+      { op: 'add_animation', slide: 1, shape: 2, effect: 'wipe', trigger: 'afterprevious', delay: 0.25 },
+    ],
+  }, { cwd }));
+  assert.equal(created.batch.results.at(-1).effect, 'wipe');
+
+  const slide = await (await parts(target)).text('ppt/slides/slide1.xml');
+  assert.equal((slide.match(/<p:timing>/g) || []).length, 1, 'one timing tree per slide');
+  assert.match(slide, /nodeType="mainSeq"/);
+  assert.match(slide, /presetID="10"[^>]*nodeType="clickEffect"/);
+  assert.match(slide, /presetID="22"[^>]*nodeType="afterEffect"/);
+  assert.match(slide, /<p:animEffect transition="in" filter="fade"><p:cBhvr><p:cTn id="\d+" dur="750"\/>/);
+  assert.match(slide, /<p:cond delay="250"\/>/);
+  const clickEffect = slide.indexOf('nodeType="clickEffect"');
+  const afterEffect = slide.indexOf('nodeType="afterEffect"');
+  const groupClose = slide.indexOf('</p:childTnLst></p:cTn></p:par></p:childTnLst></p:cTn></p:par>', clickEffect);
+  assert.equal(afterEffect < groupClose, true, 'the follow-up effect stays a sibling inside the same click group');
+
+  await assert.rejects(
+    executeOfficeTool({
+      action: 'batch',
+      session: created.session,
+      operations: [{ op: 'add_animation', slide: 1, shape: 1, effect: 'explode' }],
+    }, { cwd }).then((result) => {
+      if (result?.isError) throw new Error(result.content[0].text);
+      return result;
+    }),
+    /effect must be one of/,
+  );
+});
+
+test('portable slides flag table cells whose text cannot fit the row', async (t) => {
+  const cwd = await workspace(t);
+  const outcomes = [];
+  for (const [label, values] of [
+    ['short', [['Metric', 'Value'], ['Latency', '120ms']]],
+    ['long', [['Metric', 'Value'], ['Rolling ninety-fifth percentile request latency measured across every production region and edge node', '120ms']]],
+  ]) {
+    const created = value(await executeOfficeTool({
+      action: 'create',
+      path: join(cwd, `${label}.pptx`),
+      mode: 'portable',
+      operations: [
+        { op: 'add_slide' },
+        { op: 'add_table', slide: 1, values, left: 40, top: 40, width: 320, height: 90 },
+      ],
+    }, { cwd }));
+    const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+    outcomes.push((issues.issues || []).filter((issue) => issue.code === 'table_cell_overflow'));
+  }
+  assert.equal(outcomes[0].length, 0, 'short cell text stays clean');
+  assert.equal(outcomes[1].length, 1);
+  assert.equal(outcomes[1][0].path, '/slide[1]/table[1]/row[2]/cell[1]');
+});
+
+test('portable slides flag stretched images but pass proportional ones', async (t) => {
+  const cwd = await workspace(t);
+  const square = join(cwd, 'square.png');
+  await writeFile(square, PNG_PIXEL);
+  const outcomes = [];
+  for (const [label, size] of [
+    ['proportional', { width: 200, height: 200 }],
+    ['stretched', { width: 300, height: 100 }],
+  ]) {
+    const created = value(await executeOfficeTool({
+      action: 'create',
+      path: join(cwd, `${label}.pptx`),
+      mode: 'portable',
+      operations: [
+        { op: 'add_slide' },
+        { op: 'add_image', slide: 1, path: square, left: 40, top: 40, ...size },
+      ],
+    }, { cwd }));
+    const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+    outcomes.push((issues.issues || []).filter((issue) => issue.code === 'image_aspect_distorted'));
+  }
+  assert.equal(outcomes[0].length, 0, 'a square image placed square stays clean');
+  assert.equal(outcomes[1].length, 1);
+  assert.equal(outcomes[1][0].severity, 'warning');
+  assert.match(outcomes[1][0].path, /^\/slide\[1\]\/picture\[1\]$/);
+});
+
+test('portable slides number shapes the same way for snapshot and set_text', async (t) => {
+  const cwd = await workspace(t);
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: join(cwd, 'group.pptx'),
+    mode: 'portable',
+    operations: [
+      { op: 'add_slide' },
+      { op: 'add_textbox', slide: 1, text: 'first', properties: { left: 40, top: 40, width: 200, height: 40 } },
+      { op: 'add_textbox', slide: 1, text: 'grouped A', properties: { left: 40, top: 120, width: 200, height: 40 } },
+      { op: 'add_textbox', slide: 1, text: 'grouped B', properties: { left: 40, top: 180, width: 200, height: 40 } },
+      { op: 'add_textbox', slide: 1, text: 'last', properties: { left: 40, top: 260, width: 200, height: 40 } },
+      { op: 'group_shapes', slide: 1, shapes: [2, 3] },
+    ],
+  }, { cwd }));
+  const before = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  const names = before.document.slides[0].shapes.map((shape) => String(shape.text || ''));
+  assert.equal(names.length, 3, 'the group counts as one shape, not two');
+
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: created.session,
+    operations: [{ op: 'set_text', slide: 1, shape: 2, text: 'SECOND EDITED' }],
+  }, { cwd }));
+  const after = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  assert.equal(
+    String(after.document.slides[0].shapes[1].text || ''),
+    'SECOND EDITED',
+    'set_text targets the same shape index the snapshot reports',
+  );
+});
+
+test('portable slide snapshots keep deck order and report evidence shapes', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'evidence.pptx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [
+      { op: 'add_slide' },
+      {
+        op: 'add_textbox',
+        slide: 1,
+        text: 'Cover',
+        properties: { left: 40, top: 40, width: 400, height: 80, fontSize: 44 },
+      },
+      { op: 'add_slide' },
+      {
+        op: 'add_table',
+        slide: 2,
+        values: [['Region', 'Revenue'], ['Korea', '120']],
+        left: 40,
+        top: 40,
+        width: 400,
+        height: 120,
+      },
+    ],
+  }, { cwd }));
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  assert.deepEqual(
+    snapshot.document.slides.map((slide) => slide.index),
+    [1, 2],
+    'slides report in deck order, matching the Microsoft Office snapshot',
+  );
+  const cover = snapshot.document.slides[0].shapes.find((shape) => shape.text === 'Cover');
+  assert.equal(cover.font.size, 44, 'the type scale must reach the design review');
+  const table = snapshot.document.slides[1].shapes.find((shape) => shape.table);
+  assert.equal(table.table.rows, 2);
+  assert.equal(table.table.columns, 2);
+});
+
+test('portable snapshots satisfy the shared backend contract', async (t) => {
+  const cwd = await workspace(t);
+  const cases = [
+    {
+      format: 'docx',
+      file: 'contract.docx',
+      operations: [
+        { op: 'append_text', text: 'Heading one', style: 'Heading1' },
+        { op: 'append_text', text: 'Body paragraph.' },
+        { op: 'add_table', values: [['A', 'B'], ['1', '2']] },
+      ],
+    },
+    {
+      format: 'xlsx',
+      file: 'contract.xlsx',
+      operations: [
+        { op: 'set_range', range: 'A1:B3', values: [['Region', 'Revenue'], ['Korea', 120], ['Japan', 95]] },
+      ],
+    },
+    {
+      format: 'pptx',
+      file: 'contract.pptx',
+      operations: [
+        { op: 'add_slide' },
+        { op: 'set_slide_background', slide: 1, color: '16191D' },
+        { op: 'add_textbox', slide: 1, text: 'Title', properties: { left: 40, top: 40, width: 400, height: 60, fontSize: 40 } },
+        { op: 'set_notes', slide: 1, text: 'Speaker note.' },
+        { op: 'add_slide' },
+        { op: 'add_table', slide: 2, values: [['A', 'B'], ['1', '2']], left: 40, top: 40, width: 300, height: 90 },
+      ],
+    },
+  ];
+  for (const testCase of cases) {
+    const target = join(cwd, testCase.file);
+    const created = value(await executeOfficeTool({
+      action: 'create',
+      path: target,
+      mode: 'portable',
+      operations: testCase.operations,
+    }, { cwd }));
+    const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+    const violations = officeSnapshotContractViolations(snapshot.document, {
+      format: testCase.format,
+      paged: true,
+    });
+    assert.deepEqual(
+      violations,
+      [],
+      `${testCase.format} snapshot breaks the backend contract:\n${describeOfficeSnapshotViolations(violations)}`,
+    );
+  }
+});
+
+test('portable Word reads and edits tables that contain a nested table', async (t) => {
+  const cwd = await workspace(t);
+  const cell = (text, extra = '') => `<w:tc><w:tcPr><w:tcW w:w="2000" w:type="dxa"/></w:tcPr>${extra}`
+    + `<w:p><w:r><w:t>${text}</w:t></w:r></w:p></w:tc>`;
+  const inner = '<w:tbl><w:tblPr><w:tblW w:w="1000" w:type="dxa"/></w:tblPr>'
+    + `<w:tblGrid><w:gridCol w:w="1000"/></w:tblGrid><w:tr>${cell('inner')}</w:tr></w:tbl>`;
+  const outer = '<w:tbl><w:tblPr><w:tblW w:w="4000" w:type="dxa"/></w:tblPr>'
+    + '<w:tblGrid><w:gridCol w:w="2000"/><w:gridCol w:w="2000"/></w:tblGrid>'
+    + `<w:tr>${cell('outer A')}${cell('outer B', inner)}</w:tr>`
+    + `<w:tr>${cell('row2 A')}${cell('row2 B')}</w:tr></w:tbl>`;
+  const second = '<w:tbl><w:tblPr><w:tblW w:w="3000" w:type="dxa"/></w:tblPr>'
+    + `<w:tblGrid><w:gridCol w:w="3000"/></w:tblGrid><w:tr>${cell('second')}</w:tr></w:tbl>`;
+  const source = join(cwd, 'nested.docx');
+  await writeZip(source, {
+    '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+      + '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    'word/document.xml': '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+      + `<w:body><w:p><w:r><w:t>Intro</w:t></w:r></w:p>${outer}${second}<w:sectPr/></w:body></w:document>`,
+  });
+
+  const opened = value(await executeOfficeTool({
+    action: 'open', path: source, output: join(cwd, 'nested-out.docx'), mode: 'portable',
+  }, { cwd }));
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: opened.session }, { cwd }));
+  assert.equal(snapshot.document.tables.length, 2, 'the nested table is not counted as a sibling');
+  assert.equal(snapshot.document.tables[0].rows.length, 2, 'the outer table keeps both rows');
+  assert.equal(snapshot.document.tables[1].rows[0].cells[0].text, 'second');
+
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: opened.session,
+    operations: [
+      { op: 'set_table_cell', table: 1, row: 2, col: 1, text: 'row2 edited' },
+      { op: 'insert_table_column', table: 1, column: 2 },
+    ],
+  }, { cwd }));
+  const edited = value(await executeOfficeTool({ action: 'snapshot', session: opened.session }, { cwd }));
+  assert.equal(edited.document.tables[0].rows[1].cells[0].text, 'row2 edited');
+  assert.equal(edited.document.tables[0].rows[0].cells.length, 3, 'the outer row gained a column');
+  const document = await (await parts(join(cwd, 'nested-out.docx'))).text('word/document.xml');
+  assert.match(document, /<w:t>inner<\/w:t>/, 'the nested table survives structural edits');
+});
+
+test('portable workbooks read cells that follow a style-only cell', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'styled.xlsx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [
+      { op: 'set_cell', cell: 'A1', value: 'Latency model' },
+      { op: 'set_style', range: 'A1:C1', properties: { bold: true, fillColor: '183028' } },
+      { op: 'set_range', range: 'A3:C4', values: [['Region', 'Product', 'Revenue'], ['Korea', 'Alpha', 120]] },
+    ],
+  }, { cwd }));
+  assert.equal(created.batch.results.length, 3);
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  const cells = new Map(snapshot.document.sheets[0].cells.map((cell) => [
+    cell.path.replace(/^.*\[/, '').replace(/\]$/, ''),
+    cell.value,
+  ]));
+  assert.equal(cells.get('A1'), 'Latency model');
+  assert.equal(cells.get('A3'), 'Region', 'the header after the style-only B1/C1 cells survives the read');
+  assert.equal(cells.get('B3'), 'Product');
+  assert.equal(cells.get('C3'), 'Revenue');
+  assert.equal(cells.get('A4'), 'Korea');
+});
+
+test('portable workbook audits see cells that follow a style-only cell', async (t) => {
+  const cwd = await workspace(t);
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: join(cwd, 'audit.xlsx'),
+    mode: 'portable',
+    operations: [
+      { op: 'set_cell', cell: 'A1', value: 'Audit' },
+      { op: 'set_style', range: 'A1:D1', properties: { bold: true, fillColor: '183028' } },
+      { op: 'set_cell', cell: 'A4', value: 42 },
+      { op: 'set_style', cell: 'A4', properties: { numberFormat: '0.0%' } },
+      { op: 'set_cell', cell: 'B4', value: 123456789012 },
+      { op: 'set_formula', cell: 'A6', formula: '=1+1' },
+      { op: 'set_formula', cell: 'B6', formula: '=2+2' },
+      { op: 'set_formula', cell: 'C6', formula: '=3+3' },
+      { op: 'set_cell', cell: 'D6', value: 99 },
+    ],
+  }, { cwd }));
+  const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  const codes = new Map((issues.issues || []).map((issue) => [issue.code, issue.path]));
+  assert.equal(codes.get('percent_stored_as_whole'), '/sheet[Sheet1]/cell[A4]');
+  assert.equal(codes.get('column_too_narrow'), '/sheet[Sheet1]/cell[B4]');
+  assert.equal(codes.get('formula_inconsistency'), '/sheet[Sheet1]/cell[D6]');
+});
+
+test('portable workbooks build a refreshable pivot table', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'pivot.xlsx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [
+      {
+        op: 'set_range',
+        range: 'A1:C5',
+        values: [
+          ['Region', 'Product', 'Revenue'],
+          ['Korea', 'Alpha', 120],
+          ['Korea', 'Beta', 80],
+          ['Japan', 'Alpha', 150],
+          ['Japan', 'Beta', 60],
+        ],
+      },
+      { op: 'add_sheet', name: 'Pivot' },
+      {
+        op: 'add_pivot_table',
+        sheet: 'Sheet1',
+        source: 'A1:C5',
+        destination: 'A3',
+        destinationSheet: 'Pivot',
+        name: 'RevenueByRegion',
+        rows: ['Region'],
+        columns: ['Product'],
+        values: ['Revenue'],
+      },
+    ],
+  }, { cwd }));
+  const summary = created.batch.results.at(-1);
+  assert.equal(summary.name, 'RevenueByRegion');
+  assert.equal(summary.rows, 4);
+
+  const packaged = await parts(target);
+  assert.equal(packaged.has('xl/pivotCache/pivotCacheDefinition1.xml'), true);
+  assert.equal(packaged.has('xl/pivotCache/pivotCacheRecords1.xml'), true);
+  assert.equal(packaged.has('xl/pivotTables/pivotTable1.xml'), true);
+
+  const definition = await packaged.text('xl/pivotCache/pivotCacheDefinition1.xml');
+  assert.match(definition, /<worksheetSource ref="A1:C5" sheet="Sheet1"\/>/);
+  assert.match(definition, /refreshOnLoad="1"/);
+  assert.match(definition, /<sharedItems count="2"><s v="Korea"\/><s v="Japan"\/><\/sharedItems>/);
+  assert.match(definition, /containsNumber="1"[^>]*minValue="60" maxValue="150"/);
+
+  const records = await packaged.text('xl/pivotCache/pivotCacheRecords1.xml');
+  assert.match(records, /<r><x v="0"\/><x v="0"\/><n v="120"\/><\/r>/);
+  assert.equal((records.match(/<r>/g) || []).length, 4);
+
+  const table = await packaged.text('xl/pivotTables/pivotTable1.xml');
+  assert.match(table, /<location ref="A3:D7" firstHeaderRow="1" firstDataRow="2" firstDataCol="1"\/>/);
+  assert.match(table, /<pivotField axis="axisRow"[^>]*><items count="3"><item x="1"\/><item x="0"\/>/, 'row items follow display order');
+  assert.match(table, /<dataField name="Sum of Revenue" fld="2"/);
+  assert.match(table, /<rowItems count="3">[\s\S]*<i t="grand">/);
+
+  const workbook = await packaged.text('xl/workbook.xml');
+  assert.match(workbook, /<pivotCaches><pivotCache cacheId="1" r:id="rId\d+"\/><\/pivotCaches>/);
+
+  await assert.rejects(
+    executeOfficeTool({
+      action: 'batch',
+      session: created.session,
+      operations: [{
+        op: 'add_pivot_table',
+        sheet: 'Sheet1',
+        source: 'A1:C5',
+        destination: 'F3',
+        rows: ['Region', 'Product'],
+        values: ['Revenue'],
+      }],
+    }, { cwd }).then((result) => {
+      if (result?.isError) throw new Error(result.content[0].text);
+      return result;
+    }),
+    /one row field and one column field/,
+  );
+});
+
 test('portable slides embed media and swap the theme', async (t) => {
   const cwd = await workspace(t);
   const poster = join(cwd, 'poster.png');
@@ -1226,13 +1673,14 @@ test('portable image replacement removes the orphaned media part', async (t) => 
   assert.equal(packaged.has('ppt/media/image1.png'), false, 'the replaced media part must be cleaned up');
 });
 
-test('portable table slides use the bundled layout without leftover rows', async (t) => {
+test('portable table slides use an explicitly requested bundled layout without leftover rows', async (t) => {
   const cwd = await workspace(t);
   const target = join(cwd, 'table-layout.pptx');
   const created = value(await executeOfficeTool({
     action: 'create',
     path: target,
     mode: 'portable',
+    design: { profile: 'editorial', deck: { templateMode: 'prefer' } },
     operations: [{
       op: 'compose_slide',
       kind: 'table',
@@ -1248,13 +1696,14 @@ test('portable table slides use the bundled layout without leftover rows', async
   assert.doesNotMatch(slide, /Adoption/, 'unused template rows must be removed');
 });
 
-test('portable decks seed the bundled template and keep its typography', async (t) => {
+test('portable decks use the bundled template only after explicit opt-in and keep its typography', async (t) => {
   const cwd = await workspace(t);
   const target = join(cwd, 'branded.pptx');
   const created = value(await executeOfficeTool({
     action: 'create',
     path: target,
     mode: 'portable',
+    design: { profile: 'editorial', deck: { templateMode: 'prefer' } },
     operations: [
       { op: 'compose_slide', kind: 'cover', title: '표지 제목', subtitle: '부제' },
       { op: 'compose_slide', kind: 'metrics', title: '지표', metrics: [{ label: '포맷', value: '3' }] },

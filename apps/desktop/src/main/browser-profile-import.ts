@@ -1,7 +1,6 @@
 import { createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import {
-  copyFile,
   mkdir,
   readFile,
   rename,
@@ -9,18 +8,21 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
-import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { promisify } from 'node:util';
 import { app, safeStorage, type Session } from 'electron';
-import WebSocket from 'ws';
+import {
+  nativeBrowserImporterPath,
+  resolvePackagedBrowserImporter,
+  type NativeBrowserImporter,
+} from './browser-profile-import-native';
 
 const CHROME_SOURCE_ID = 'chrome';
 const HISTORY_LIMIT = 10_000;
 const HISTORY_SEARCH_LIMIT = 12;
 const NATIVE_OUTPUT_LIMIT = 64 * 1024 * 1024;
 const NATIVE_IMPORT_TIMEOUT_MS = 120_000;
-const CDP_START_TIMEOUT_MS = 15_000;
 const CHROME_CLOSE_TIMEOUT_MS = 30_000;
 const CHROME_EPOCH_OFFSET_MS = 11_644_473_600_000;
 const execFileAsync = promisify(execFile);
@@ -39,6 +41,7 @@ export interface BrowserImportSource {
   name: string;
   profiles: BrowserImportProfile[];
   supports: Record<BrowserImportItem, boolean>;
+  supportReasons?: Partial<Record<BrowserImportItem, string>>;
   passwordSupportReason?: string;
 }
 
@@ -117,11 +120,6 @@ interface NativeCredential {
   note?: unknown;
 }
 
-interface NativePasswordImporter {
-  executable: string;
-  sha256: string;
-}
-
 export interface BrowserProfileImportOptions {
   userDataDirectory: string;
   temporaryDirectory: string;
@@ -131,11 +129,7 @@ export interface BrowserProfileImportOptions {
   chromeUserDataDirectory?: string;
   prepareChromeForImport?: () => Promise<void>;
   readNativeCredentials?: (profileId: string) => Promise<NativeCredential[]>;
-  readCookiesFromSnapshot?: (input: {
-    snapshotRoot: string;
-    profileId: string;
-    cookieDatabase: string;
-  }) => Promise<BrowserImportCookie[]>;
+  readNativeCookies?: (profileId: string) => Promise<BrowserImportCookie[]>;
 }
 
 export interface BrowserProcessCloseTarget {
@@ -329,12 +323,6 @@ function exactTemporaryJob(root: string, jobId: string): string {
   return target;
 }
 
-async function copyIfPresent(source: string, destination: string): Promise<void> {
-  if (!existsSync(source)) return;
-  await mkdir(dirname(destination), { recursive: true });
-  await copyFile(source, destination);
-}
-
 async function snapshotSqlite(source: string, destination: string): Promise<void> {
   await mkdir(dirname(destination), { recursive: true });
   const database = new DatabaseSync(source, { readOnly: true });
@@ -353,104 +341,6 @@ function chromeTimeToUnixMilliseconds(value: unknown): number {
   const micros = Number(value);
   if (!Number.isFinite(micros) || micros <= 0) return 0;
   return Math.max(0, Math.trunc(micros / 1_000 - CHROME_EPOCH_OFFSET_MS));
-}
-
-class CdpClient {
-  private nextId = 0;
-  private readonly pending = new Map<number, {
-    resolve: (value: Record<string, unknown>) => void;
-    reject: (error: Error) => void;
-  }>();
-
-  private constructor(private readonly socket: WebSocket) {
-    socket.on('message', (data) => {
-      let message: Record<string, unknown>;
-      try {
-        message = JSON.parse(data.toString()) as Record<string, unknown>;
-      } catch {
-        return;
-      }
-      const id = Number(message.id);
-      if (!Number.isInteger(id)) return;
-      const pending = this.pending.get(id);
-      if (!pending) return;
-      this.pending.delete(id);
-      if (message.error) {
-        const detail = message.error as Record<string, unknown>;
-        pending.reject(new Error(String(detail.message || 'Chrome CDP request failed.')));
-      } else {
-        pending.resolve((message.result || {}) as Record<string, unknown>);
-      }
-    });
-    socket.once('close', () => {
-      for (const pending of this.pending.values()) {
-        pending.reject(new Error('Temporary Chrome CDP connection closed.'));
-      }
-      this.pending.clear();
-    });
-  }
-
-  static async open(endpoint: string): Promise<CdpClient> {
-    const socket = new WebSocket(endpoint);
-    await new Promise<void>((resolveOpen, rejectOpen) => {
-      const onOpen = (): void => {
-        socket.off('error', onError);
-        resolveOpen();
-      };
-      const onError = (error: Error): void => {
-        socket.off('open', onOpen);
-        rejectOpen(error);
-      };
-      socket.once('open', onOpen);
-      socket.once('error', onError);
-    });
-    return new CdpClient(socket);
-  }
-
-  send(method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
-    const id = ++this.nextId;
-    return new Promise((resolveRequest, rejectRequest) => {
-      this.pending.set(id, { resolve: resolveRequest, reject: rejectRequest });
-      this.socket.send(JSON.stringify({ id, method, params }), (error) => {
-        if (!error) return;
-        this.pending.delete(id);
-        rejectRequest(error);
-      });
-    });
-  }
-
-  close(): void {
-    this.socket.close();
-  }
-}
-
-async function waitForDevToolsEndpoint(
-  activePortFile: string,
-  child: ChildProcess,
-): Promise<string> {
-  const deadline = Date.now() + CDP_START_TIMEOUT_MS;
-  let childFailure: Error | null = null;
-  child.once('error', (error) => {
-    childFailure = error;
-  });
-  while (Date.now() < deadline) {
-    if (childFailure) throw childFailure;
-    try {
-      const lines = (await readFile(activePortFile, 'utf8'))
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-      const port = Number(lines[0]);
-      const path = lines[1];
-      if (Number.isInteger(port) && port > 0 && port <= 65_535 && path?.startsWith('/devtools/browser/')) {
-        return `ws://127.0.0.1:${port}${path}`;
-      }
-    } catch {
-      // Chrome has not published its protected endpoint yet.
-    }
-    await new Promise((resolveWait) => setTimeout(resolveWait, 80));
-  }
-  throw new Error('Temporary Chrome did not publish a DevTools endpoint.');
 }
 
 function cookieSameSite(value: unknown): Electron.CookiesSetDetails['sameSite'] | undefined {
@@ -549,25 +439,21 @@ export class BrowserProfileImportService {
     return this.options.chromeUserDataDirectory || chromeUserDataDirectory();
   }
 
-  private async nativePasswordImporter(): Promise<NativePasswordImporter | undefined> {
-    if (this.options.readNativeCredentials) {
+  private async nativeImporter(
+    item: 'passwords' | 'cookies',
+  ): Promise<NativeBrowserImporter | undefined> {
+    if (
+      (item === 'passwords' && this.options.readNativeCredentials)
+      || (item === 'cookies' && this.options.readNativeCookies)
+    ) {
       return { executable: '[test seam]', sha256: '' };
     }
-    if (!app.isPackaged || process.platform !== 'win32') return undefined;
-    const helper = this.options.nativeImporterPath;
-    if (!helper) return undefined;
-    const fileName = process.platform === 'win32'
-      ? 'mixdog-browser-import.exe'
-      : 'mixdog-browser-import';
-    const expected = resolve(process.resourcesPath, 'native-tools', fileName);
-    if (resolve(helper).toLowerCase() !== expected.toLowerCase()) return undefined;
-    if (!existsSync(expected)) return undefined;
-    const elevatedHelper = join(dirname(expected), 'bitwarden_chromium_import_helper.exe');
-    if (!existsSync(elevatedHelper)) return undefined;
-    return {
-      executable: expected,
-      sha256: await sha256File(expected),
-    };
+    return await resolvePackagedBrowserImporter({
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      resourcesPath: process.resourcesPath,
+      requestedPath: this.options.nativeImporterPath,
+    });
   }
 
   async sources(): Promise<BrowserImportSource[]> {
@@ -595,22 +481,34 @@ export class BrowserProfileImportService {
       }))
       .sort((left, right) => left.name.localeCompare(right.name));
     if (!profiles.length) return [];
-    const passwordSupport = Boolean(
-      await this.nativePasswordImporter()
-      && safeStorage.isEncryptionAvailable(),
-    );
+    const [passwordImporter, cookieImporter] = await Promise.all([
+      this.nativeImporter('passwords'),
+      this.nativeImporter('cookies'),
+    ]);
+    const passwordSupport = Boolean(passwordImporter && safeStorage.isEncryptionAvailable());
+    const cookieSupport = Boolean(cookieImporter);
+    const passwordSupportReason = !passwordImporter
+      ? 'The native password importer is not installed in this build.'
+      : !safeStorage.isEncryptionAvailable()
+        ? 'Windows credential encryption is unavailable.'
+        : undefined;
+    const cookieSupportReason = !cookieImporter
+      ? 'The native cookie importer is not installed in this build.'
+      : undefined;
     return [{
       id: CHROME_SOURCE_ID,
       name: 'Google Chrome',
       profiles,
       supports: {
         passwords: passwordSupport,
-        cookies: true,
+        cookies: cookieSupport,
         history: true,
       },
-      ...(!passwordSupport ? {
-        passwordSupportReason: 'The native password importer is not installed in this build.',
-      } : {}),
+      supportReasons: {
+        ...(passwordSupportReason ? { passwords: passwordSupportReason } : {}),
+        ...(cookieSupportReason ? { cookies: cookieSupportReason } : {}),
+      },
+      ...(passwordSupportReason ? { passwordSupportReason } : {}),
     }];
   }
 
@@ -701,7 +599,9 @@ export class BrowserProfileImportService {
     onProgress: (progress: BrowserImportProgress) => void,
   ): Promise<BrowserImportResult> {
     if (this.activeJobId) throw new Error('Another browser import is already running.');
-    const items = uniqueItems(request.items);
+    this.activeJobId = request.jobId || 'pending';
+    try {
+      const items = uniqueItems(request.items);
     if (!items.length) throw new Error('Select at least one browser data type to import.');
     const sources = await this.sources();
     const source = sources.find((candidate) => candidate.id === request.sourceId);
@@ -710,23 +610,28 @@ export class BrowserProfileImportService {
     for (const item of items) {
       if (!source.supports[item]) throw new Error(`${item} import is unavailable in this build.`);
     }
-    if (items.includes('passwords') && !request.administratorApproved) {
-      throw new Error('Password import requires explicit administrator approval.');
+    if (
+      (items.includes('passwords') || items.includes('cookies'))
+      && !request.administratorApproved
+    ) {
+      throw new Error('Password and cookie import require explicit administrator approval.');
     }
-    await (this.options.prepareChromeForImport || prepareChromeForImport)();
-    this.activeJobId = request.jobId;
-    const counts: Record<BrowserImportItem, number> = {
+      await (this.options.prepareChromeForImport || prepareChromeForImport)();
+      const counts: Record<BrowserImportItem, number> = {
       passwords: 0,
       cookies: 0,
       history: 0,
     };
     const errors: Partial<Record<BrowserImportItem, string>> = {};
-    try {
       for (const item of items) onProgress({ jobId: request.jobId, item, state: 'running' });
-      await Promise.all(items.map(async (item) => {
+      // Passwords and cookies both drive the elevated helper over a single
+      // fixed-name pipe, so items must run sequentially. Running them together
+      // makes the second helper launch collide on the pipe (first_pipe_instance)
+      // and fail — which is why a combined import dropped only the second item.
+      for (const item of items) {
         try {
           const count = item === 'cookies'
-            ? await this.importCookies(profile.id, request.jobId)
+            ? await this.importCookies(profile.id)
             : item === 'history'
               ? await this.importHistory(profile.id, request.jobId)
               : await this.importPasswords(profile.id);
@@ -737,104 +642,70 @@ export class BrowserProfileImportService {
           errors[item] = message;
           onProgress({ jobId: request.jobId, item, state: 'failed', error: message });
         }
-      }));
+      }
       return { jobId: request.jobId, counts, errors };
     } finally {
       this.activeJobId = '';
     }
   }
 
-  private async importCookies(profileId: string, jobId: string): Promise<number> {
-    const chromeExecutable = chromeExecutableCandidates(this.options.chromeExecutablePath)
-      .find((candidate) => existsSync(candidate));
-    if (!chromeExecutable) throw new Error('Google Chrome executable was not found.');
-    const sourceUserData = this.chromeUserData();
-    const sourceProfile = exactProfileDirectory(sourceUserData, profileId);
-    const cookieRelativePath = existsSync(join(sourceProfile, 'Network', 'Cookies'))
-      ? join('Network', 'Cookies')
-      : 'Cookies';
-    const sourceCookies = join(sourceProfile, cookieRelativePath);
-    if (!existsSync(sourceCookies)) return 0;
-    const jobRoot = exactTemporaryJob(this.options.temporaryDirectory, jobId);
-    const snapshotRoot = join(jobRoot, 'chrome-cookie-snapshot');
-    const snapshotProfile = exactProfileDirectory(snapshotRoot, profileId);
-    let child: ChildProcess | null = null;
-    let client: CdpClient | null = null;
-    try {
-      await rm(jobRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-      await mkdir(snapshotProfile, { recursive: true });
-      await copyFile(join(sourceUserData, 'Local State'), join(snapshotRoot, 'Local State'));
-      await Promise.all([
-        copyIfPresent(join(sourceProfile, 'Preferences'), join(snapshotProfile, 'Preferences')),
-        copyIfPresent(join(sourceProfile, 'Secure Preferences'), join(snapshotProfile, 'Secure Preferences')),
-        snapshotSqlite(sourceCookies, join(snapshotProfile, cookieRelativePath)),
-      ]);
-      let cookies: BrowserImportCookie[];
-      if (this.options.readCookiesFromSnapshot) {
-        cookies = await this.options.readCookiesFromSnapshot({
-          snapshotRoot,
-          profileId,
-          cookieDatabase: join(snapshotProfile, cookieRelativePath),
+  private async importCookies(profileId: string): Promise<number> {
+    const cookies = this.options.readNativeCookies
+      ? await this.options.readNativeCookies(profileId)
+      : await this.readNativeCookies(profileId);
+    let imported = 0;
+    for (const cookie of cookies) {
+      const name = String(cookie.name || '');
+      const value = String(cookie.value || '');
+      const domain = String(cookie.domain || '');
+      const cookiePath = String(cookie.path || '/') || '/';
+      const host = domain.replace(/^\./, '');
+      if (!name || !host || !/^[a-z0-9.-]+$/i.test(host)) continue;
+      const secure = cookie.secure === true;
+      const sameSite = cookieSameSite(cookie.sameSite);
+      try {
+        await this.options.partition.cookies.set({
+          url: `${secure ? 'https' : 'http'}://${host}${cookiePath.startsWith('/') ? cookiePath : '/'}`,
+          name,
+          value,
+          domain,
+          path: cookiePath,
+          secure,
+          httpOnly: cookie.httpOnly === true,
+          ...(sameSite ? { sameSite } : {}),
+          ...(cookie.session !== true && Number(cookie.expires) > 0
+            ? { expirationDate: Number(cookie.expires) }
+            : {}),
         });
-      } else {
-        child = spawn(chromeExecutable, [
-          `--user-data-dir=${snapshotRoot}`,
-          `--profile-directory=${profileId}`,
-          '--remote-debugging-port=0',
-          '--headless=new',
-          '--disable-gpu',
-          '--disable-background-networking',
-          '--no-first-run',
-          '--no-default-browser-check',
-          'about:blank',
-        ], {
-          windowsHide: true,
-          stdio: 'ignore',
-        });
-        const endpoint = await waitForDevToolsEndpoint(join(snapshotRoot, 'DevToolsActivePort'), child);
-        client = await CdpClient.open(endpoint);
-        const response = await client.send('Storage.getCookies');
-        cookies = Array.isArray(response.cookies)
-          ? response.cookies as BrowserImportCookie[]
-          : [];
+        imported += 1;
+      } catch {
+        // One invalid/expired cookie must not discard the rest of the profile.
       }
-      let imported = 0;
-      for (const cookie of cookies) {
-        const name = String(cookie.name || '');
-        const value = String(cookie.value || '');
-        const domain = String(cookie.domain || '');
-        const cookiePath = String(cookie.path || '/') || '/';
-        const host = domain.replace(/^\./, '');
-        if (!name || !host || !/^[a-z0-9.-]+$/i.test(host)) continue;
-        const secure = cookie.secure === true;
-        const sameSite = cookieSameSite(cookie.sameSite);
-        try {
-          await this.options.partition.cookies.set({
-            url: `${secure ? 'https' : 'http'}://${host}${cookiePath.startsWith('/') ? cookiePath : '/'}`,
-            name,
-            value,
-            domain,
-            path: cookiePath,
-            secure,
-            httpOnly: cookie.httpOnly === true,
-            ...(sameSite ? { sameSite } : {}),
-            ...(cookie.session !== true && Number(cookie.expires) > 0
-              ? { expirationDate: Number(cookie.expires) }
-              : {}),
-          });
-          imported += 1;
-        } catch {
-          // One invalid/expired cookie must not discard the rest of the profile.
-        }
-      }
-      await this.options.partition.flushStorageData();
-      await client?.send('Browser.close').catch(() => ({}));
-      return imported;
-    } finally {
-      client?.close();
-      if (child && child.exitCode === null) child.kill();
-      await rm(jobRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
     }
+    await this.options.partition.flushStorageData();
+    return imported;
+  }
+
+  private async readNativeCookies(profileId: string): Promise<BrowserImportCookie[]> {
+    const importer = await this.nativeImporter('cookies');
+    if (!importer) {
+      throw new Error('The packaged native browser importer is not installed.');
+    }
+    const output = await readEncryptedChildJson(importer.executable, [
+      'import-cookies',
+      '--browser',
+      'chrome',
+      '--profile',
+      profileId,
+      '--json',
+    ], importer.sha256);
+    if (!Array.isArray(output)) {
+      throw new Error('Native cookie importer returned an invalid result.');
+    }
+    if (output.length > 1_000_000) {
+      throw new Error('Native cookie importer returned too many cookies.');
+    }
+    return output as BrowserImportCookie[];
   }
 
   private async importHistory(profileId: string, jobId: string): Promise<number> {
@@ -892,7 +763,7 @@ export class BrowserProfileImportService {
   }
 
   private async importPasswords(profileId: string): Promise<number> {
-    const nativeImporter = await this.nativePasswordImporter();
+    const nativeImporter = await this.nativeImporter('passwords');
     if (!nativeImporter) {
       throw new Error('The packaged native password importer is not installed.');
     }
@@ -938,9 +809,10 @@ export class BrowserProfileImportService {
 }
 
 export function defaultNativeBrowserImporterPath(): string {
-  const fileName = process.platform === 'win32'
-    ? 'mixdog-browser-import.exe'
-    : 'mixdog-browser-import';
-  if (app.isPackaged) return join(process.resourcesPath, 'native-tools', fileName);
-  return join(process.cwd(), 'native', 'mixdog-browser-import', 'target', 'release', fileName);
+  return nativeBrowserImporterPath({
+    isPackaged: app.isPackaged,
+    platform: process.platform,
+    resourcesPath: process.resourcesPath,
+    cwd: process.cwd(),
+  });
 }

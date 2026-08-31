@@ -183,8 +183,7 @@ interface DesktopIpcDependencies {
     | 'browserHistorySearch'
     | 'setGuestActive'
     | 'browserCredentialSuggestions'
-    | 'browserCredentialFill'
-    | 'resolveBrowserHandoff'>;
+    | 'browserCredentialFill'>;
   /** Settings → Connection pairing card; resolves null while the bridge is off. */
   remoteAccessInfo?: () => Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection: mint a new pairing token (revokes paired phones). */
@@ -430,6 +429,23 @@ export function registerDesktopIpc(
     const project = requiredString(projectPath, 'projectPath');
     const rel = requiredString(relPath, 'relPath', 4_096);
     return projectEntryPathIn(await host.projectDirectory(project), rel);
+  };
+  // Root + relative pair for operations that resolve the file themselves, so
+  // the traversal guard runs where the work happens instead of on a path this
+  // process hands over already resolved.
+  const editorFileTarget = async (
+    projectPath: unknown,
+    relPath: unknown,
+    accessToken: unknown,
+  ): Promise<{ root: string; rel: string }> => {
+    if (typeof accessToken === 'string' && accessToken) {
+      const granted = await grantedFile(accessToken, projectPath, relPath);
+      return { root: granted.root, rel: granted.rel };
+    }
+    return {
+      root: await host.projectDirectory(requiredString(projectPath, 'projectPath')),
+      rel: requiredString(relPath, 'relPath', 4_096),
+    };
   };
   const editorBackupRoot = typeof app.getPath === 'function'
     ? app.getPath('userData')
@@ -759,6 +775,40 @@ export function registerDesktopIpc(
     const preview = registerFilePreview(file, `${info.mtimeMs}:${info.size}`);
     if (!preview) throw new Error('This file type does not support an in-app preview.');
     return { ...preview, ...info };
+  });
+  // An Office document has no in-browser viewer, so one conversion per file
+  // revision produces a PDF and the existing PDF surface shows it. The token
+  // is registered from the CONVERSION, so the renderer never learns where the
+  // cache lives — same rule as every other preview URL.
+  handle(DESKTOP_IPC.previewDocumentFile, async (_event, projectPath, relPath, accessToken) => {
+    const target = await editorFileTarget(projectPath, relPath, accessToken);
+    const converted = await invokeDesktopOperation(
+      'documentPreviewIn',
+      [target.root, target.rel],
+    ) as { path: string; format: string; mtimeMs: number; size: number };
+    const preview = registerFilePreview(converted.path, `${converted.mtimeMs}:${converted.size}`);
+    if (!preview) throw new Error('The converted document preview is unavailable.');
+    return {
+      url: preview.url,
+      kind: 'pdf' as const,
+      mime: preview.mime,
+      format: converted.format,
+      mtimeMs: converted.mtimeMs,
+      size: converted.size,
+    };
+  });
+  handle(DESKTOP_IPC.previewDocumentPages, async (
+    _event,
+    projectPath,
+    relPath,
+    accessToken,
+    options,
+  ) => {
+    const target = await editorFileTarget(projectPath, relPath, accessToken);
+    return invokeDesktopOperation(
+      'documentPreviewPagesIn',
+      [target.root, target.rel, options ?? {}],
+    );
   });
   handle(DESKTOP_IPC.writeProjectFile, async (
     _event,
@@ -1142,14 +1192,6 @@ export function registerDesktopIpc(
       throw new TypeError('Stored browser credential id is invalid.');
     }
     return browserHost.browserCredentialFill(credentialId);
-  });
-  handle(DESKTOP_IPC.browserHandoffResolve, (_event, handoffId, completed) => {
-    if (!browserHost) throw new Error('Browser Use is unavailable in this app surface.');
-    if (typeof handoffId !== 'string' || !/^h\d{1,9}$/.test(handoffId)) {
-      throw new TypeError('Browser handoff id is invalid.');
-    }
-    if (typeof completed !== 'boolean') throw new TypeError('Browser handoff answer is invalid.');
-    return browserHost.resolveBrowserHandoff(handoffId, completed);
   });
   handle(DESKTOP_IPC.readGitPreferences, () =>
     settingsStore?.readGitPreferences() ?? invokeDesktopOperation('readGitPreferences', []));

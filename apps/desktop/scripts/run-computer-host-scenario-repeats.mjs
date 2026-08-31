@@ -3,6 +3,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  assertRepeatedScenariosPassed,
+  repeatRequiresPass,
+} from './computer-host-repeat-policy.mjs';
+
 const argument = (name) => {
   const prefix = `--${name}=`;
   return process.argv.find((value) => value.startsWith(prefix))?.slice(prefix.length) || '';
@@ -19,7 +24,7 @@ const runDirectory = resolve(
   argument('run-dir')
     || join(initialDirectory, 'artifacts', 'computer-use', 'repeats', label),
 );
-const requirePass = process.argv.includes('--require-pass');
+const requirePass = repeatRequiresPass();
 const only = argument('only');
 const customTimeoutMs = Number(argument('timeout-ms')) || 300_000;
 const scenarioRunner = fileURLToPath(new URL('./run-computer-host-scenarios.mjs', import.meta.url));
@@ -27,27 +32,32 @@ const mergeRunner = fileURLToPath(new URL('./merge-computer-host-scenarios.mjs',
 const coreShards = [
   {
     name: 'observation',
-    only: 'S01,S02,S03,S04,S05',
+    only: 'S01,S02,S03,S04,S05,S24,S25,S27,S31,S40,S44',
     timeoutMs: 240_000,
   },
   {
     name: 'input',
-    only: 'S01,S06,S07,S08,S09,S10,S11,S12,S13,S14',
+    only: 'S06,S07,S08,S09,S10,S11,S12,S13,S14,S28,S32,S36,S37,S38,S39',
     timeoutMs: 360_000,
   },
   {
     name: 'recovery',
-    only: 'S01,S15,S16,S17,S18',
+    only: 'S15,S16,S17,S18,S26,S35,S41,S42,S43',
     timeoutMs: 360_000,
   },
   {
     name: 'external',
-    only: 'S01,S19',
+    only: 'S19',
     timeoutMs: 240_000,
   },
   {
     name: 'real-apps',
-    only: 'S01,S20,S21,S22,S23',
+    only: 'S20,S21,S22,S23,S29,S33,S34',
+    timeoutMs: 300_000,
+  },
+  {
+    name: 'performance',
+    only: 'S30',
     timeoutMs: 300_000,
   },
 ];
@@ -187,6 +197,7 @@ const report = {
   label,
   generated_at: new Date().toISOString(),
   repeats: repeatCount,
+  require_pass: requirePass,
   scenario_count: scenarioStats.length,
   total_runs: results.length,
   summary: {
@@ -195,9 +206,9 @@ const report = {
     skipped: results.filter((result) => result.status === 'skip').length,
     success_rate: results.length ? passed / results.length : 0,
     false_positives: results.filter((result) => result.false_positive).length,
-    flaky_scenarios: scenarioStats.filter((scenario) => scenario.pass_rate < 1).map(
-      (scenario) => scenario.id,
-    ),
+    flaky_scenarios: scenarioStats.filter(
+      (scenario) => scenario.failed > 0 || (scenario.passed > 0 && scenario.skipped > 0),
+    ).map((scenario) => scenario.id),
     scenario_duration_p50_ms: percentile(results.map((result) => result.duration_ms), 0.5),
     scenario_duration_p95_ms: percentile(results.map((result) => result.duration_ms), 0.95),
     matrix_duration_p50_ms: percentile(
@@ -237,6 +248,4 @@ console.log(
     + ` p50=${report.summary.scenario_duration_p50_ms}ms`
     + ` p95=${report.summary.scenario_duration_p95_ms}ms; ${output}`,
 );
-if (requirePass && report.summary.failed > 0) {
-  throw new Error(`${report.summary.failed} repeated Computer Use scenarios failed`);
-}
+assertRepeatedScenariosPassed(report.summary, requirePass);

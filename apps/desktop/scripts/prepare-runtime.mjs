@@ -10,6 +10,10 @@ import {
   embeddingRuntimeTarget,
   pruneEmbeddingRuntime,
 } from '../../../scripts/prune-embedding-runtime.mjs';
+import {
+  pruneDesktopPtyPackage,
+  pruneDesktopRuntime,
+} from '../../../scripts/prune-desktop-runtime.mjs';
 import { nativeBinaryRunsOn } from '../../../scripts/native-binary-arch.mjs';
 import {
   downloadNativeTool,
@@ -53,7 +57,7 @@ const browserImportNativeFileNames = [
   'browser-import-NOTICE.txt',
 ];
 const runtimeManifestPath = join(runtimeDir, 'manifest.json');
-const preparedRuntimeSchema = 1;
+const preparedRuntimeSchema = 2;
 const configuredNpmCacheDir = String(process.env.MIXDOG_RUNTIME_NPM_CACHE ?? '').trim();
 const npmCacheDir = configuredNpmCacheDir
   ? resolve(configuredNpmCacheDir)
@@ -255,8 +259,9 @@ async function runtimeInputFingerprint(manifest) {
       sha256: sha256(await readFile(source)),
     });
   }
-  const [preparationSource, desktopLockfile] = await Promise.all([
+  const [preparationSource, desktopPruneSource, desktopLockfile] = await Promise.all([
     readFile(fileURLToPath(import.meta.url)),
+    readFile(join(rootDir, 'scripts', 'prune-desktop-runtime.mjs')),
     readFile(join(desktopDir, 'package-lock.json')),
   ]);
   return sha256(JSON.stringify({
@@ -264,6 +269,7 @@ async function runtimeInputFingerprint(manifest) {
     target: embeddingTarget.key,
     dependencies: dependencyCacheIdentity,
     preparationSha256: sha256(preparationSource),
+    desktopPruneSha256: sha256(desktopPruneSource),
     desktopLockfileSha256: sha256(desktopLockfile),
     browserImport: browserImportInputIdentity,
     packageFiles,
@@ -429,9 +435,14 @@ async function prepareRuntime(manifest, fingerprint) {
     // letting it reach app.asar.unpacked.
     await timed('desktop-node-pty', async () => {
       await cp(desktopPtyPackageDir, builderDesktopPtyDir, { recursive: true });
+      const ptyPrune = await pruneDesktopPtyPackage(builderDesktopPtyDir, embeddingTarget);
+      console.log(
+        `Pruned desktop node-pty from ${(ptyPrune.beforeBytes / 1024 / 1024).toFixed(1)} MiB `
+        + `to ${(ptyPrune.afterBytes / 1024 / 1024).toFixed(1)} MiB.`,
+      );
       // The package intentionally carries third_party/prebuild variants for
-      // several platforms. Validating the whole multiarch tree rejects those
-      // legitimate fallbacks instead of checking the target's active binding.
+      // several platforms before pruning. Validate the one active payload that
+      // remains for the packaged target.
       await assertTreeTargetArchitecture(
         await desktopPtyNativeRoot(),
         'Desktop node-pty',
@@ -511,6 +522,16 @@ async function prepareRuntime(manifest, fingerprint) {
     delete runtimePackage.scripts;
     delete runtimePackage.devDependencies;
     await writeFile(join(stagingDir, 'package.json'), `${JSON.stringify(runtimePackage, null, 2)}\n`);
+    const desktopPrune = await timed(
+      'production-payload-prune',
+      () => pruneDesktopRuntime(stagingDir, embeddingTarget),
+    );
+    console.log(
+      `Removed ${desktopPrune.removedSourceFiles} source-only runtime files`
+      + `${desktopPrune.removedSharpWasm ? ' and the Sharp WASM fallback' : ''}`
+      + `; optimized ${((desktopPrune.removedTesseractBytes + desktopPrune.removedPdfBytes) / (1024 ** 2)).toFixed(1)} MiB`
+      + ' of unused OCR and PDF variants.',
+    );
 
     // NSIS is very slow when it has to create the production dependency tree one
     // file at a time. Electron reads ASARs directly, so install one archive and

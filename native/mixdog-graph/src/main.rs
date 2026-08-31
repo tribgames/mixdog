@@ -1398,11 +1398,7 @@ fn parse_file_from(src: &SrcFile, patterns: &Patterns) -> Result<FileRecord, Str
 // Stat-and-parse a single path (used by --files, where paths come from the
 // caller, not the walk). One metadata read, then parse_file_from.
 fn parse_file(path: &Path, root: &Path, patterns: &Patterns) -> Result<Option<FileRecord>, String> {
-    let Some(lang) = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .and_then(lang_for)
-    else {
+    let Some(lang) = path.extension().and_then(|s| s.to_str()).and_then(lang_for) else {
         return Ok(None);
     };
     let meta = fs::metadata(path)
@@ -1463,16 +1459,17 @@ fn collect_source_files(root: &Path) -> Result<Vec<SrcFile>, String> {
         .hidden(false)
         .build()
     {
-        let dir_entry = entry.map_err(|err| format!("walk failed under {}: {err}", root.display()))?;
-        if !dir_entry.file_type().map(|kind| kind.is_file()).unwrap_or(false) {
+        let dir_entry =
+            entry.map_err(|err| format!("walk failed under {}: {err}", root.display()))?;
+        if !dir_entry
+            .file_type()
+            .map(|kind| kind.is_file())
+            .unwrap_or(false)
+        {
             continue;
         }
         let path = dir_entry.path();
-        let Some(lang) = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .and_then(lang_for)
-        else {
+        let Some(lang) = path.extension().and_then(|s| s.to_str()).and_then(lang_for) else {
             continue;
         };
         candidates.push((path.to_path_buf(), lang));
@@ -3163,7 +3160,10 @@ fn run_files(root: &Path, files: &[String]) -> Result<(), String> {
             let meta = serde_json::from_str::<ReusedMeta>(line)
                 .map_err(|err| format!("invalid reused JSONL at line {}: {err}", index + 1))?;
             if meta.rel.is_empty() {
-                return Err(format!("invalid reused JSONL at line {}: rel is empty", index + 1));
+                return Err(format!(
+                    "invalid reused JSONL at line {}: rel is empty",
+                    index + 1
+                ));
             }
             records.push(record_from_reused(meta));
         }

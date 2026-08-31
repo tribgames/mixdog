@@ -1,12 +1,6 @@
 import { isOffloadedToolResultText } from './tool-result-offload.mjs';
 import { createHash } from 'node:crypto';
-import { createRequire } from 'node:module';
-import { bpeEncodeCount } from './token-bpe.mjs';
-import {
-    countTokensNative,
-    nativeTokenCounterEnabled,
-    prewarmNativeTokenCounter,
-} from './token-native.mjs';
+import { estimateTokens } from './token-estimate.mjs';
 import {
     isFinalizedProviderRequestTools,
     providerNativeToolPrefixCount,
@@ -34,139 +28,20 @@ export {
 } from './context-compaction-policy.mjs';
 
 // ---------------------------------------------------------------------------
-// Token estimation: real o200k_base BPE (tiktoken) + per-provider calibration.
+// Token estimation lives in ./token-estimate.mjs — a conservative
+// Unicode-aware heuristic. It is accurate ENOUGH because context pressure is
+// anchored on the provider usage baseline (the exact prompt-token count the
+// provider reports for the previous request) and the heuristic only prices the
+// delta appended since then. Measured across 5,552 real deltas the worst
+// underestimate was 2,985 tokens (1.5% of a 200K window) with a +6.5%
+// aggregate bias toward overcounting.
 //
-// estimateTokens() encodes the provider-visible text projection with the real
-// o200k_base BPE (tiktoken, same approach as mainstream agent UIs), so
-// estimates track actual billing instead of a weighted-chars heuristic that
-// diverged -25%..+60% depending on script and provider. The residual
-// provider-specific gap between an o200k count and billed prompt tokens is
-// reconciled by providerTokenCalibration(): measured on prefix-verified live
-// sessions, OpenAI billing matches o200k directly (median ratio 1.00 against
-// the request prefix) while Anthropic bills the identical projection at
-// ~1.9x o200k (Claude tokenizer + wire framing). The earlier 1.7 was
-// re-measured against live opus-5 sessions and read 12-16% LOW on large
-// transcripts (estimate/billed 0.85-0.94). Calibration is applied at the provider-aware
-// aggregation boundary (compaction pressure / context gauge), never inside
-// the provider-agnostic per-message memo.
-//
-// The previous conservative Unicode-weight heuristic is retained verbatim as
-// legacyEstimateTokens(), used only when the tiktoken WASM cannot be loaded
-// (stripped installs / exotic platforms) so estimation degrades safely.
-//
-// MIXDOG_TOKEN_ESTIMATE_SAFETY_MULTIPLIER (default 1.0, clamped 1.0..2.0)
-// still lets operators dial extra headroom without code changes; the
-// provider-usage baseline remains the primary pressure source when aligned.
-function readSafetyMultiplier() {
-    const raw = Number(process.env.MIXDOG_TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
-    if (Number.isFinite(raw)) return Math.min(2.0, Math.max(1.0, raw));
-    return 1.0;
-}
-const TOKEN_ESTIMATE_SAFETY_MULTIPLIER = readSafetyMultiplier();
+// providerTokenCalibration() below reconciles that estimate with actual
+// billing at the provider-aware aggregation boundary (compaction pressure /
+// context gauge), never inside the provider-agnostic per-message memo.
+// ---------------------------------------------------------------------------
 
-// Lazy singleton o200k_base encoder. createRequire keeps the load dynamic for
-// bundlers (TUI esbuild) and lets a missing/broken WASM fall back cleanly.
-const _requireForTokenizer = createRequire(import.meta.url);
-let _bpeEncoder; // undefined = not attempted, null = unavailable
-function bpeEncoder() {
-    if (_bpeEncoder !== undefined) return _bpeEncoder;
-    try {
-        const { Tiktoken } = _requireForTokenizer('tiktoken/lite');
-        const o200k = _requireForTokenizer('tiktoken/encoders/o200k_base.json');
-        _bpeEncoder = new Tiktoken(o200k.bpe_ranks, o200k.special_tokens, o200k.pat_str);
-    } catch {
-        _bpeEncoder = null;
-    }
-    return _bpeEncoder;
-}
-
-// Compaction budget loops re-estimate overlapping transcript slices; identical
-// large strings (tool results, system blocks) would re-encode every pass.
-// Hash-keyed LRU absorbs the repeats.
-const TOKEN_COUNT_CACHE_MIN_CHARS = 512;
-const TOKEN_COUNT_CACHE_MAX_ENTRIES = 1_024;
-const tokenCountCache = new Map();
-
-// Bumped whenever a native offload lands an exact count for a string that was
-// previously answered with the conservative legacy heuristic. Memoized
-// per-message / per-tool-schema contributions record the generation they were
-// computed under, so the correction actually propagates instead of freezing
-// the (~20% high) fallback value for the lifetime of the message object.
-let tokenEstimateGeneration = 0;
-
-function _tokenCacheSet(key, count) {
-    if (tokenCountCache.size >= TOKEN_COUNT_CACHE_MAX_ENTRIES) {
-        tokenCountCache.delete(tokenCountCache.keys().next().value);
-    }
-    tokenCountCache.set(key, count);
-}
-
-// ── Native offload for large encodes ────────────────────────────────────────
-// estimateTokens is a SYNC api polled from context gauges and compaction
-// pressure checks. A large fresh string (big tool result) costs tens of ms to
-// encode; under many parallel agents those encodes serialize the one shared
-// event loop. Strings at/above BPE_ASYNC_THRESHOLD_CHARS with no cache entry
-// are therefore counted by the mixdog-token native server (SINGLE offload
-// engine — no worker-thread fallback by design): the caller immediately gets
-// the conservative legacy heuristic, the precise count lands in
-// tokenCountCache, and the next poll returns the exact value. Smaller
-// strings (the vast majority) keep exact synchronous counting. With the
-// native server unavailable (MIXDOG_TOKEN_NATIVE=0, missing binary before
-// the first token-v release), large strings encode synchronously — exact,
-// pre-offload semantics.
-const BPE_ASYNC_THRESHOLD_CHARS = 32_768;
-const _nativePendingKeys = new Set();
-// Compact-decision confirmation path: force exact synchronous encodes while a
-// caller re-evaluates a decision that must not act on the conservative
-// heuristic (see withSyncTokenCounts).
-let _forceSyncTokenCounts = false;
-
-// Offload one large count to the native mixdog-token server. Returns false
-// when the native path cannot be attempted (caller encodes synchronously). A
-// mid-flight failure just drops the pending key: the next poll re-evaluates
-// and encodes synchronously if the server is really gone.
-function _offloadTokenCountNative(key, s) {
-    if (!nativeTokenCounterEnabled()) return false;
-    _nativePendingKeys.add(key);
-    countTokensNative(s).then((count) => {
-        if (!_nativePendingKeys.delete(key)) return;
-        if (Number.isFinite(count) && count >= 0) {
-            _tokenCacheSet(key, count);
-            tokenEstimateGeneration += 1;
-        }
-    }).catch(() => {
-        _nativePendingKeys.delete(key);
-    });
-    return true;
-}
-
-// Returns the exact count, or null when the string was handed to the native
-// server
-// (caller falls back to the legacy heuristic until the precise count lands).
-function bpeTokenCount(enc, s) {
-    if (s.length < TOKEN_COUNT_CACHE_MIN_CHARS) return bpeEncodeCount(enc, s);
-    const key = `${s.length}:${createHash('sha1').update(s).digest('base64')}`;
-    const hit = tokenCountCache.get(key);
-    if (hit !== undefined) {
-        tokenCountCache.delete(key);
-        tokenCountCache.set(key, hit);
-        return hit;
-    }
-    if (s.length >= BPE_ASYNC_THRESHOLD_CHARS && !_forceSyncTokenCounts) {
-        if (!_nativePendingKeys.has(key)) _offloadTokenCountNative(key, s);
-        if (_nativePendingKeys.has(key)) return null;
-    }
-    const count = bpeEncodeCount(enc, s);
-    // A forced-sync encode may race a pending native count for the same key:
-    // consume the pending marker so the late native result cannot double-set,
-    // and bump the generation exactly as the native landing would have, so
-    // memoized heuristic-based contributions refresh to the exact value.
-    if (_nativePendingKeys.delete(key)) tokenEstimateGeneration += 1;
-    _tokenCacheSet(key, count);
-    return count;
-}
-
-// Billed-prompt / o200k-estimate ratio per provider family, measured against
+// Billed-prompt / estimate ratio per provider family, measured against
 // prefix-signature-verified provider baselines from real sessions (opaque
 // signature/encrypted payloads excluded from the projection — see
 // stripOpaquePayloads). Env overrides let a deployment recalibrate without a
@@ -188,138 +63,7 @@ export function providerTokenCalibration(provider) {
 export const IMAGE_VISUAL_TOKEN_ALLOWANCE = 2_000;
 const IMAGE_MAX_TOKEN_ALLOWANCE = 5_333;
 
-// Per-code-point token-cost weight. Tuned to overcount, not match exactly.
-function codePointTokenWeight(cp) {
-    // ASCII (latin letters, digits, punctuation, whitespace, control): the one
-    // region where chars/4 is roughly right — keep the cheap 0.25/char cost.
-    if (cp < 0x80) return 0.25;
-    // Hangul syllables + Jamo + compatibility Jamo. Korean is the worst case
-    // for chars/4: a single syllable frequently costs 1.5–3 BPE tokens, and
-    // rarer syllables fall back to multi-byte splits. Weight high for safety.
-    if (cp >= 0xAC00 && cp <= 0xD7A3) return 1.5;
-    if (cp >= 0x1100 && cp <= 0x11FF) return 1.5;
-    if (cp >= 0x3130 && cp <= 0x318F) return 1.5;
-    if (cp >= 0xA960 && cp <= 0xA97F) return 1.5;
-    if (cp >= 0xD7B0 && cp <= 0xD7FF) return 1.5;
-    // Hiragana / Katakana / Katakana phonetic extensions.
-    if (cp >= 0x3040 && cp <= 0x30FF) return 1.2;
-    if (cp >= 0x31F0 && cp <= 0x31FF) return 1.2;
-    // CJK unified ideographs (incl. Ext A) + compatibility ideographs.
-    if (cp >= 0x3400 && cp <= 0x4DBF) return 1.2;
-    if (cp >= 0x4E00 && cp <= 0x9FFF) return 1.2;
-    if (cp >= 0xF900 && cp <= 0xFAFF) return 1.2;
-    // CJK Extension B and beyond (supplementary ideographic plane).
-    if (cp >= 0x20000 && cp <= 0x2FA1F) return 1.2;
-    // Emoji / pictographs / dingbats / symbols — these explode under BPE
-    // (surrogate pairs, ZWJ sequences, variation selectors), so weight highest.
-    if (cp >= 0x2600 && cp <= 0x27BF) return 2.0;
-    if (cp >= 0x1F000 && cp <= 0x1FAFF) return 2.0;
-    if (cp >= 0x2190 && cp <= 0x21FF) return 1.5; // arrows
-    if (cp >= 0x2300 && cp <= 0x23FF) return 1.5; // technical symbols
-    // Latin-1 supplement / extended latin / IPA — pricier than ASCII (often a
-    // token per accented char) but cheaper than CJK.
-    if (cp < 0x0400) return 0.6;
-    // Everything else non-ASCII (Cyrillic, Greek, Arabic, Hebrew, Thai, …):
-    // multi-byte UTF-8, typically ~0.5–1 token/char. Stay conservative.
-    return 0.8;
-}
-
-// Real-BPE token estimate with heuristic fallback. See module header.
-export function estimateTokens(text) {
-    const s = String(text ?? '');
-    if (s.length === 0) return 0;
-    const enc = bpeEncoder();
-    if (enc) {
-        try {
-            const count = bpeTokenCount(enc, s);
-            // null = precise count is being computed in the worker; return the
-            // conservative heuristic until it lands in the cache.
-            if (count !== null) return Math.ceil(count * TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
-        } catch { /* corrupt input — degrade to the heuristic below */ }
-    }
-    return legacyEstimateTokens(s);
-}
-
-/**
- * True while at least one large string is still being counted by the native
- * token server (its estimate is the conservative legacy heuristic until the
- * exact count lands in the cache).
- */
-export function hasPendingNativeTokenCounts() {
-    return _nativePendingKeys.size > 0;
-}
-
-/**
- * Run fn with the async native offload disabled: every estimate inside is an
- * exact synchronous BPE encode (seeding the shared cache). Reserved for rare
- * decision-confirmation paths — a sync encode of a huge string costs tens of
- * milliseconds on the shared event loop.
- */
-export function withSyncTokenCounts(fn) {
-    const prev = _forceSyncTokenCounts;
-    _forceSyncTokenCounts = true;
-    try { return fn(); }
-    finally { _forceSyncTokenCounts = prev; }
-}
-
-/**
- * Boot prewarm: load the o200k encoder (WASM init), run one small encode
- * (JIT), and spawn the token-count worker so the first large transcript
- * estimate of a session neither blocks on WASM init nor waits for the
- * worker spawn. Best-effort; returns true when the encoder is live.
- */
-export function prewarmTokenEstimator() {
-    const enc = bpeEncoder();
-    if (enc) {
-        try { bpeEncodeCount(enc, 'mixdog tokenizer warmup — 워밍업 텍스트 0123456789'); } catch { /* best-effort */ }
-    }
-    // Native server boots its encoder (~100-300ms) off the first estimate;
-    // with no binary yet, this also kicks the one-shot release fetch.
-    try { prewarmNativeTokenCounter(); } catch { /* best-effort */ }
-    return !!enc;
-}
-
-// Legacy conservative Unicode-aware estimate (fallback only). Iterates by
-// code point, takes the max of the weighted sum and the chars/4 ASCII floor,
-// then applies the safety multiplier.
-function legacyEstimateTokens(s) {
-    let weighted = 0;
-    for (const ch of s) weighted += codePointTokenWeight(ch.codePointAt(0));
-    // Encoded blobs, minified JSON and generated identifiers do not get the
-    // word/whitespace merges that make prose approach chars/4. Long printable
-    // ASCII runs are commonly 0.5-0.8 tokens/byte; retain a conservative floor
-    // for those runs without penalizing ordinary spaced prose.
-    let denseAsciiFloor = 0;
-    for (const match of s.matchAll(/[\x21-\x7e]{16,}/g)) {
-        // Dense JSON/JSONL prices at chars/2; 0.5/char keeps that ratio for
-        // long unmerged printable runs.
-        denseAsciiFloor += match[0].length * 0.5;
-    }
-    const encodedWords = s.match(/\b(?=[A-Za-z0-9]{8,}\b)(?=[A-Za-z0-9]*[A-Za-z])(?=[A-Za-z0-9]*\d)[A-Za-z0-9]+\b/g) || [];
-    if (encodedWords.length >= 3) {
-        // Encoded/generated identifiers are often wrapped at short columns or
-        // separated by spaces. Their individual runs can stay below the long-
-        // run threshold while still receiving almost no prose-style BPE merges.
-        const encodedChars = encodedWords.reduce((sum, word) => sum + word.length, 0);
-        denseAsciiFloor = Math.max(
-            denseAsciiFloor,
-            (encodedChars * 0.5) + ((s.length - encodedChars) * 0.25),
-        );
-    }
-    const lines = s.split(/\r?\n/).filter(line => line.trim());
-    const nonWhitespace = s.match(/\S/g)?.length || 0;
-    const structural = s.match(/[\[\]{}":,=<>|\\]/g)?.length || 0;
-    const jsonLikeLines = lines.filter(line => /^\s*[\[{].*[\]}],?\s*$/.test(line)).length;
-    if (lines.length >= 3 && nonWhitespace > 0
-        && (jsonLikeLines >= Math.ceil(lines.length / 2) || structural / nonWhitespace >= 0.12)) {
-        // JSONL, compact tables and generated line protocols can consist
-        // entirely of short runs while still tokenizing like minified data.
-        // chars/2 on the dense payload chars (dense-JSON pricing).
-        denseAsciiFloor = Math.max(denseAsciiFloor, (nonWhitespace * 0.5) + ((s.length - nonWhitespace) * 0.25));
-    }
-    const asciiFloor = s.length / 4; // never below the legacy chars/4 lower bound
-    return Math.ceil(Math.max(weighted, asciiFloor, denseAsciiFloor) * TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
-}
+export { estimateTokens };
 
 // Opaque replay payloads (Anthropic thinking signatures, OpenAI encrypted
 // reasoning blobs, redacted data) are long base64-ish strings that are NOT
@@ -535,8 +279,7 @@ function contextMessageContribution(message) {
     const fingerprint = contextMessageFingerprint(message);
     if (message && typeof message === 'object') {
         const cached = contextMessageMemo.get(message);
-        if (cached && cached.generation === tokenEstimateGeneration
-            && sameContextMessageFingerprint(cached.fingerprint, fingerprint)) return cached.contribution;
+        if (cached && sameContextMessageFingerprint(cached.fingerprint, fingerprint)) return cached.contribution;
     }
     const role = ['system', 'user', 'assistant', 'tool'].includes(fingerprint.role) ? fingerprint.role : 'other';
     const text = messageEstimateText(message);
@@ -580,7 +323,7 @@ function contextMessageContribution(message) {
         catch { contribution.toolCallTokens = estimateTokens(`[${message.toolCalls.length} tool calls]`); }
     }
     if (message && typeof message === 'object') {
-        contextMessageMemo.set(message, { fingerprint, contribution, generation: tokenEstimateGeneration });
+        contextMessageMemo.set(message, { fingerprint, contribution });
     }
     return contribution;
 }
@@ -838,11 +581,10 @@ export function toolSchemaSignature(tools) {
 function analyzeToolSchemas(tools) {
     const list = Array.isArray(tools) ? tools : [];
     const cached = Array.isArray(tools) ? toolSchemaAnalysisMemo.get(tools) : null;
-    const currentGeneration = cached?.generation === tokenEstimateGeneration;
-    if (cached && currentGeneration && isFinalizedProviderRequestTools(tools)) return cached;
+    if (cached && isFinalizedProviderRequestTools(tools)) return cached;
     const text = serializeToolSchemas(list);
     const signature = createHash('sha256').update(text).digest('hex');
-    if (cached && currentGeneration && cached.signature === signature) return cached;
+    if (cached && cached.signature === signature) return cached;
     // defer_loading schemas ride the wire but the API excludes them from
     // context-token calculation and prompt-cache keys, so metering them at
     // full weight inflated the request reserve. The SIGNATURE keeps hashing
@@ -851,7 +593,7 @@ function analyzeToolSchemas(tools) {
     const meterText = list.some(isDeferredToolSchema)
         ? serializeToolSchemas(list, { excludeDeferred: true })
         : text;
-    const analysis = { signature, tokens: estimateTokens(meterText), generation: tokenEstimateGeneration };
+    const analysis = { signature, tokens: estimateTokens(meterText) };
     if (Array.isArray(tools)) toolSchemaAnalysisMemo.set(tools, analysis);
     return analysis;
 }

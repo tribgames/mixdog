@@ -1,3 +1,16 @@
+import { parseJsonObjectArg, splitBridgeToolArgs } from '../shared/bridge-tool-args.mjs';
+
+/** Actions that only observe the desktop. Naming them on the tool surface lets
+ *  a caller repeat one without wondering whether it moved anything; the host
+ *  enforces the same split when it decides which session owns a write. */
+export const COMPUTER_OBSERVATION_ACTIONS = Object.freeze([
+  'list', 'diagnose', 'capture', 'verify', 'wait',
+]);
+
+const MAX_TYPE_TEXT_LENGTH = 30_000;
+const MAX_KEY_SEQUENCE_LENGTH = 512;
+const MAX_CLIPBOARD_TEXT_LENGTH = 50_000;
+
 const ACTIONS = [
   'list', 'diagnose', 'capture', 'verify',
   'click', 'double_click', 'mouse_move', 'drag', 'type', 'key', 'scroll', 'wait',
@@ -7,14 +20,14 @@ const ACTIONS = [
 const windowTarget = {
   window_id: {
     type: 'string',
-    description: 'Exact id returned by list(kind="windows"), e.g. hwnd:0x123ABC.',
+    description: 'Exact id from list(kind="windows"), e.g. hwnd:0x123ABC.',
   },
 };
 
 const appTarget = {
   app: {
     type: 'string',
-    description: 'Resolves to one exact window when no window_id is known; ambiguous matches are refused.',
+    description: 'Resolves to one exact window; ambiguous matches are refused.',
   },
 };
 
@@ -37,11 +50,11 @@ const framePoint = {
   },
   x: {
     type: 'integer',
-    description: 'Frame-relative X coordinate.',
+    description: 'Frame-relative X.',
   },
   y: {
     type: 'integer',
-    description: 'Frame-relative Y coordinate.',
+    description: 'Frame-relative Y.',
   },
 };
 
@@ -49,7 +62,7 @@ const delivery = {
   delivery: {
     type: 'string',
     enum: ['background', 'foreground'],
-    description: 'Background by default. Foreground is an explicit visible escalation.',
+    description: 'Background by default; foreground is a visible escalation.',
   },
 };
 
@@ -63,6 +76,7 @@ const captureAfter = {
     include_ocr: { type: 'boolean' },
     ocr_language: { type: 'string' },
     max_ocr_words: { type: 'integer', minimum: 1, maximum: 1000 },
+    image_output: { type: 'string', enum: ['inline', 'file'] },
   },
   additionalProperties: false,
 };
@@ -127,6 +141,11 @@ const captureProperties = {
     minimum: 1,
     maximum: 1000,
   },
+  image_output: {
+    type: 'string',
+    enum: ['inline', 'file'],
+    description: 'inline (default) returns the frame here; file writes it beside the run and returns its path, keeping large pixels out of the conversation.',
+  },
   query: { type: 'string' },
   role: { type: 'string' },
   visible_only: { type: 'boolean' },
@@ -178,11 +197,15 @@ const sequenceStepSchemas = {
   type: input({
     ...elementTarget,
     ...framePoint,
-    text: { type: 'string' },
+    text: { type: 'string', maxLength: MAX_TYPE_TEXT_LENGTH },
   }, ['text']),
   key: input({
-    ...elementTarget,
-    keys: { type: 'string' },
+    ref: elementTarget.ref,
+    keys: {
+      type: 'string',
+      maxLength: MAX_KEY_SEQUENCE_LENGTH,
+      description: 'SendKeys syntax. To key an OCR mark, use sequence with a targeted click first.',
+    },
   }, ['keys']),
   wait: input({
     duration: {
@@ -195,13 +218,13 @@ const sequenceStepSchemas = {
 
 const sequenceStep = {
   type: 'object',
-  description: 'One focus-chain step. First: targeted click/type/key. Later: untargeted type/key/wait. Every nonfinal step must preserve the same target and focus.',
+  description: 'One focus-chain step. First: targeted click/type, or key by semantic ref. Later: untargeted type/key/wait. Use click then key for an OCR mark. Every nonfinal step must preserve the same target and focus.',
   properties: {
     action: { type: 'string', enum: ['click', 'type', 'key', 'wait'] },
     ...elementTarget,
     ...framePoint,
-    text: { type: 'string' },
-    keys: { type: 'string' },
+    text: { type: 'string', maxLength: MAX_TYPE_TEXT_LENGTH },
+    keys: { type: 'string', maxLength: MAX_KEY_SEQUENCE_LENGTH },
     duration: { type: 'number', minimum: 0, maximum: 30 },
     modifiers: { type: 'string' },
     button: { type: 'string', enum: ['left', 'right', 'middle'] },
@@ -266,7 +289,7 @@ export const COMPUTER_INPUT_SCHEMA = {
       ...appTarget,
       ...elementTarget,
       ...framePoint,
-      text: { type: 'string' },
+      text: { type: 'string', maxLength: MAX_TYPE_TEXT_LENGTH },
       mode: {
         type: 'string',
         enum: ['literal', 'set'],
@@ -277,10 +300,11 @@ export const COMPUTER_INPUT_SCHEMA = {
     branch('key', input({
       ...windowTarget,
       ...appTarget,
-      ...elementTarget,
+      ref: elementTarget.ref,
       keys: {
         type: 'string',
-        description: 'SendKeys syntax, e.g. "^s", "%{F4}", or "Hello{ENTER}". Modifiers and groups require delivery="foreground".',
+        maxLength: MAX_KEY_SEQUENCE_LENGTH,
+        description: 'SendKeys syntax, e.g. "^s", "%{F4}", or "Hello{ENTER}". Modifiers and groups require delivery="foreground". To key an OCR mark, use sequence with a targeted click first.',
       },
       ...delivery,
     }, ['keys'])),
@@ -328,8 +352,8 @@ export const COMPUTER_INPUT_SCHEMA = {
       },
       x: { type: 'integer' },
       y: { type: 'integer' },
-      width: { type: 'integer' },
-      height: { type: 'integer' },
+      width: { type: 'integer', minimum: 1 },
+      height: { type: 'integer', minimum: 1 },
     }, ['operation'])),
     branch('menu', input({
       ...windowTarget,
@@ -371,7 +395,11 @@ export const COMPUTER_INPUT_SCHEMA = {
     }, ['expect'])),
     branch('clipboard', input({
       operation: { type: 'string', enum: ['read', 'write'] },
-      text: { type: 'string', description: 'Required for operation="write".' },
+      text: {
+        type: 'string',
+        maxLength: MAX_CLIPBOARD_TEXT_LENGTH,
+        description: 'Required for operation="write".',
+      },
     }, ['operation'])),
     branch('launch', input({
       app: {
@@ -410,7 +438,15 @@ function schemaValueError(value, schema, path) {
   if (schema.enum && !schema.enum.includes(value)) {
     return `${path} must be one of: ${schema.enum.join(', ')}`;
   }
-  if (schema.type === 'string' && typeof value !== 'string') return `${path} must be a string`;
+  if (schema.type === 'string') {
+    if (typeof value !== 'string') return `${path} must be a string`;
+    if (schema.minLength !== undefined && value.length < schema.minLength) {
+      return `${path} requires at least ${schema.minLength} characters`;
+    }
+    if (schema.maxLength !== undefined && value.length > schema.maxLength) {
+      return `${path} accepts at most ${schema.maxLength} characters`;
+    }
+  }
   if (schema.type === 'boolean' && typeof value !== 'boolean') return `${path} must be a boolean`;
   if (schema.type === 'number' && (typeof value !== 'number' || !Number.isFinite(value))) {
     return `${path} must be a finite number`;
@@ -461,10 +497,31 @@ function validateTargetForm(name, inputValue, { required = true } = {}) {
   return null;
 }
 
-export function validateComputerToolArgs(args) {
-  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+/** Absorb the two transport shapes a provider can emit for a nested argument:
+ *  a JSON-serialized `input` or `capture_after`, and input fields flattened
+ *  onto the argument root. A shape that stays unresolved is left exactly as it
+ *  arrived, so validation still reports it. */
+export function normalizeComputerToolArgs(args) {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return args;
+  const { hasNestedInput, input } = splitBridgeToolArgs(args, ['action', 'capture_after']);
+  const normalized = { ...args };
+  if (hasNestedInput) {
+    normalized.input = input;
+  } else if (Object.keys(input).length) {
+    for (const key of Object.keys(input)) delete normalized[key];
+    normalized.input = input;
+  }
+  if (hasOwn(args, 'capture_after')) {
+    normalized.capture_after = parseJsonObjectArg(args.capture_after);
+  }
+  return normalized;
+}
+
+export function validateComputerToolArgs(rawArgs) {
+  if (!rawArgs || typeof rawArgs !== 'object' || Array.isArray(rawArgs)) {
     return 'Computer Use arguments must be an object';
   }
+  const args = normalizeComputerToolArgs(rawArgs);
   const rootExtras = Object.keys(args).filter(
     (key) => !['action', 'input', 'capture_after'].includes(key),
   );
@@ -512,14 +569,29 @@ export function validateComputerToolArgs(args) {
   }
   if (name === 'capture') {
     const mode = inputObject.mode || 'state';
+    const captureTargets = ['window_id', 'app', 'screen'].filter(
+      (key) => hasOwn(inputObject, key),
+    );
+    if (captureTargets.length > 1) {
+      return 'Computer Use capture accepts at most one of window_id, app, or screen';
+    }
+    if (hasOwn(inputObject, 'app') && !String(inputObject.app || '').trim()) {
+      return 'Computer Use capture app must not be empty';
+    }
     if (mode === 'zoom' && (!hasOwn(inputObject, 'frame_id') || !hasOwn(inputObject, 'region'))) {
       return 'Computer Use capture mode="zoom" requires input field(s): frame_id, region';
+    }
+    if (mode === 'zoom' && captureTargets.length) {
+      return 'Computer Use capture mode="zoom" accepts frame_id and region instead of a window, app, or screen target';
     }
     if (mode !== 'zoom' && (hasOwn(inputObject, 'frame_id') || hasOwn(inputObject, 'region'))) {
       return 'Computer Use capture frame_id/region requires mode="zoom"';
     }
     if (mode === 'ax' && inputObject.include_ocr === true) {
       return 'Computer Use capture include_ocr is unavailable with mode="ax"';
+    }
+    if (mode === 'ax' && hasOwn(inputObject, 'image_output')) {
+      return 'Computer Use capture image_output requires a mode that returns pixels';
     }
     if (hasOwn(inputObject, 'screen') && mode !== 'vision') {
       return 'Computer Use capture screen requires mode="vision"';
@@ -557,6 +629,19 @@ export function validateComputerToolArgs(args) {
       }
       if (keys.length !== 1) {
         return `Computer Use verify predicate ${index + 1} takes exactly one condition`;
+      }
+      const key = keys[0];
+      if (key === 'window_exists') {
+        if (typeof predicate[key] !== 'boolean') {
+          return `Computer Use verify predicate ${index + 1} window_exists must be a boolean`;
+        }
+      } else {
+        if (typeof predicate[key] !== 'string') {
+          return `Computer Use verify predicate ${index + 1} text must be a string`;
+        }
+        if (!predicate[key].trim()) {
+          return `Computer Use verify predicate ${index + 1} text must not be empty`;
+        }
       }
     }
   }
@@ -677,7 +762,8 @@ export function validateComputerToolArgs(args) {
   return null;
 }
 
-export function toComputerHostCommand(args) {
+export function toComputerHostCommand(rawArgs) {
+  const args = normalizeComputerToolArgs(rawArgs);
   const inputValue = args.input || {};
   const command = { ...inputValue };
   switch (args.action) {
@@ -751,6 +837,7 @@ export function toComputerHostCommand(args) {
       include_ocr: 'capture_after_include_ocr',
       ocr_language: 'capture_after_ocr_language',
       max_ocr_words: 'capture_after_max_ocr_words',
+      image_output: 'capture_after_image_output',
     };
     for (const [source, target] of Object.entries(afterFields)) {
       if (hasOwn(args.capture_after, source)) command[target] = args.capture_after[source];

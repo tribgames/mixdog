@@ -129,6 +129,7 @@ export function writeCheckpointHeader(checkpoint) {
         turnMessages: (Array.isArray(checkpoint.turnMessages) ? checkpoint.turnMessages : [])
             .map(checkpointMessage),
         interruption: checkpoint.interruption ?? emptyInterruptionSnapshot(),
+        contextState: checkpoint.contextState ?? null,
         updatedAt: Date.now(),
     };
     const temp = `${target}.${randomBytes(6).toString('hex')}.tmp`;
@@ -437,6 +438,7 @@ export function replayTurnJournal(header) {
     }
     let messages = header.turnMessages.slice();
     let fullTranscript = header.fullTranscript === true;
+    let contextState = header.contextState ?? null;
     const state = interruptionStateFromSnapshot(header.interruption);
     let updatedAt = Number(header.updatedAt) || 0;
     let head = false;
@@ -481,6 +483,8 @@ export function replayTurnJournal(header) {
             }
         } else if (record.t === 'x') {
             applyInterruptionDelta(state, record.d);
+        } else if (record.t === 'c') {
+            contextState = record.c ?? null;
         }
         const at = Number(record.at);
         if (Number.isFinite(at) && at > updatedAt) updatedAt = at;
@@ -491,6 +495,7 @@ export function replayTurnJournal(header) {
         turnMessages: messages,
         ...(fullTranscript ? { fullTranscript: true } : {}),
         interruption: interruptionSnapshotFromState(state),
+        contextState,
         updatedAt,
     };
 }
@@ -504,6 +509,7 @@ export function createTurnJournalEncoder({ turnToken } = {}) {
     let journaled = [];
     let fullTranscript = false;
     let cursor = null;
+    let contextStateKey = null;
     // Per-turn record sequence. It is assigned where records are produced, so
     // the number line is exactly the enqueue order the write lane preserves.
     let seq = 0;
@@ -517,7 +523,7 @@ export function createTurnJournalEncoder({ turnToken } = {}) {
          * and the journal's opening lines (head record, plus — defensively —
          * the delta that makes the journal authoritative if the tracker already
          * carried state at open time). */
-        seed(turnOutgoing, currentUserContent, interruption) {
+        seed(turnOutgoing, currentUserContent, interruption, contextState = null) {
             const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
             const start = findTurnStart(source, currentUserContent);
             fullTranscript = start < 0;
@@ -526,16 +532,18 @@ export function createTurnJournalEncoder({ turnToken } = {}) {
                 ? interruption.journalDelta(null)
                 : null;
             cursor = seeded ? seeded.cursor : null;
+            contextStateKey = contextState == null ? null : JSON.stringify(contextState);
             seq = 0;
             const openLines = [line({ t: 'h', turnToken, at: Date.now() })];
             if (seeded?.changed) openLines.push(line({ t: 'x', d: seeded.delta, at: Date.now() }));
             return {
                 turnMessages: journaled.map(checkpointMessage),
                 fullTranscript,
+                contextState,
                 openLines,
             };
         },
-        encode({ turnOutgoing, currentUserContent, interruption }) {
+        encode({ turnOutgoing, currentUserContent, interruption, contextState = null }) {
             const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
             const start = findTurnStart(source, currentUserContent);
             const records = [];
@@ -569,6 +577,11 @@ export function createTurnJournalEncoder({ turnToken } = {}) {
                 const next = interruption.journalDelta(cursor);
                 cursor = next.cursor;
                 if (next.changed) records.push({ t: 'x', d: next.delta });
+            }
+            const nextContextStateKey = contextState == null ? null : JSON.stringify(contextState);
+            if (nextContextStateKey !== contextStateKey) {
+                contextStateKey = nextContextStateKey;
+                records.push({ t: 'c', c: contextState });
             }
             if (records.length === 0) return [];
             // One timestamp per batch keeps `updatedAt` fresh for the

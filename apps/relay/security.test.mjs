@@ -664,7 +664,13 @@ test('the device route opens the shell and aims its manifest back at that route'
   writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
   writeFileSync(
     join(renderer, 'manifest.webmanifest'),
-    JSON.stringify({ id: '/', name: 'Mixdog', start_url: '/', scope: '/' }),
+    JSON.stringify({
+      id: '/',
+      name: 'Mixdog',
+      start_url: '/',
+      scope: '/',
+      share_target: { action: '/share-target', method: 'POST' },
+    }),
   );
   const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), rendererDir: renderer });
   try {
@@ -684,6 +690,33 @@ test('the device route opens the shell and aims its manifest back at that route'
     assert.equal(manifest.start_url, `/d/${DEVICE_ID}/`);
     assert.equal(manifest.scope, `/d/${DEVICE_ID}/`);
     assert.equal(manifest.id, `/d/${DEVICE_ID}/`);
+    // An installer drops a share_target action that falls outside the scope,
+    // and with it the share sheet entry a phone screenshot arrives through.
+    assert.equal(manifest.share_target.action, `/d/${DEVICE_ID}/share-target`);
+  } finally {
+    await relay.close();
+  }
+});
+
+test('a share POST that outran the service worker reopens the app instead of failing', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-share-target-'));
+  const renderer = join(dir, 'renderer');
+  mkdirSync(renderer);
+  writeFileSync(join(renderer, 'index.html'), '<!doctype html><title>Mixdog</title>');
+  const relay = await startRelay({ port: 0, dataDir: join(dir, 'data'), rendererDir: renderer });
+  try {
+    const origin = `http://127.0.0.1:${relay.port}`;
+    // The worker normally answers this POST on the device; the relay never
+    // stores the payload, so the share is reopened rather than 405'd.
+    const shared = await fetch(`${origin}/d/${DEVICE_ID}/share-target`, {
+      method: 'POST',
+      body: 'ignored',
+      redirect: 'manual',
+    });
+    assert.equal(shared.status, 303);
+    assert.equal(shared.headers.get('location'), `/d/${DEVICE_ID}/`);
+    // Every other write to the static surface still refuses.
+    assert.equal((await fetch(`${origin}/index.html`, { method: 'POST', body: 'x' })).status, 405);
   } finally {
     await relay.close();
   }

@@ -10,6 +10,11 @@ const SUPPORTED_TARGETS = new Map([
   ['linux', new Set(['x64', 'arm64'])],
 ])
 
+export const WINDOWS_DML_PRUNABLE_FILES = Object.freeze([
+  'dxcompiler.dll',
+  'dxil.dll',
+])
+
 async function exists(path) {
   try {
     await access(path)
@@ -123,6 +128,19 @@ export async function pruneEmbeddingRuntime(packageRoot, options = {}) {
   const napiRoot = join(ortRoot, 'bin', 'napi-v6')
   await removeChildrenExcept(napiRoot, new Set([target.platform]))
   await removeChildrenExcept(join(napiRoot, target.platform), new Set([target.arch]))
+  const removedTargetFiles = []
+  if (target.platform === 'win32') {
+    // The fixed production embedding profile uses CPU inference. Keep
+    // DirectML.dll for explicit device overrides, but remove the optional DXC
+    // shader compiler payload verified unnecessary by packaged-runtime warmup.
+    for (const name of WINDOWS_DML_PRUNABLE_FILES) {
+      const path = join(targetBinaryDir, name)
+      if (await exists(path)) {
+        await rm(path, { force: true, maxRetries: 10, retryDelay: 250 })
+        removedTargetFiles.push(name)
+      }
+    }
+  }
   await removeChildrenExcept(ortRoot, new Set([
     'package.json',
     'dist',
@@ -146,6 +164,7 @@ export async function pruneEmbeddingRuntime(packageRoot, options = {}) {
     transformerRoot,
     ortRoot,
     targetBinaryDir,
+    removedTargetFiles,
   }
 }
 

@@ -9,7 +9,6 @@ import {
   desktopUtilityDockTabEnabled,
   firstEnabledDesktopUtilityDockTab,
   hasDesktopUtilityDockFeature,
-  resolveDesktopUtilityDockTab,
 } from "./desktop-feature-config";
 import {
   clampDockWidth,
@@ -115,9 +114,7 @@ export function useAppShellPanels() {
     hasDesktopUtilityDockFeature
       && (activeSidePanelLayout.dockLockedOpen ? true : readDockState().open));
   const [dockTab, setDockTab] = useState<UtilityDockTab>(() =>
-    resolveDesktopUtilityDockTab(readDockState().tab)
-      ?? firstEnabledDesktopUtilityDockTab()
-      ?? "agents");
+    firstEnabledDesktopUtilityDockTab() ?? "agents");
   const [dockWidth, setDockWidth] = useState<number>(() => readDockState().width);
   const desktopDockOpen = useRef(dockOpen);
   const bottomPanel = useBottomPanelState("terminal");
@@ -469,10 +466,10 @@ export function useAppShellPanels() {
     try {
       window.localStorage.setItem(
         DOCK_STATE_KEY,
-        JSON.stringify({ open: dockOpen, tab: dockTab, width: dockWidth }),
+        JSON.stringify({ open: dockOpen, width: dockWidth }),
       );
     } catch { /* dock state is a convenience only */ }
-  }, [dockOpen, dockTab, dockWidth, narrowShell]);
+  }, [dockOpen, dockWidth, narrowShell]);
   usePageHideFlush(persistDockState);
   useEffect(() => {
     // Same transience rule as the sidebar: drawer-band dock toggles never

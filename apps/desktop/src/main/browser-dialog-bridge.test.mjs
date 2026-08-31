@@ -20,6 +20,12 @@ test('dialog bridge uses a same-origin reserved path and parses any HTTP origin'
     { type: 'prompt', message: 'Hello', defaultPrompt: 'Default' },
   );
   assert.equal(parseDialogBridgeRequest('http://127.0.0.1:8137/api/data'), null);
+  const bounded = parseDialogBridgeRequest(
+    `https://example.test${DIALOG_BRIDGE_PATH}?type=forged&message=${'x'.repeat(5_000)}&defaultPrompt=${'y'.repeat(3_000)}`,
+  );
+  assert.equal(bounded.type, 'dialog');
+  assert.equal(bounded.message.length, 4_000);
+  assert.equal(bounded.defaultPrompt.length, 2_000);
 });
 
 test('dialog bridge fulfills prompt responses as complete JSON bodies', () => {

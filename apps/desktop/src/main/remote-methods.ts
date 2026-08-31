@@ -15,6 +15,10 @@ import {
 import type { DesktopService } from './desktop-service-contract';
 import type { DesktopSettingsStore } from './settings-store';
 import type { DesktopLocalPathEntry, DesktopSettings } from '../shared/contract';
+import {
+  normalizeRemoteBrowserControl,
+  normalizeRemoteBrowserFrameId,
+} from '../shared/remote-browser';
 import { requiredSessionId } from './desktop-state';
 import type { TerminalSpawnProfile } from './terminal-contract';
 import {
@@ -106,12 +110,27 @@ export interface RemoteMethodDependencies {
   settingsStore?: Pick<DesktopSettingsStore, 'read' | 'update'>;
   /** Fires after a successful desktop-settings write (keep-awake wiring). */
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
+  /** Web Push registration. Only the relay leg supplies it: a backgrounded web
+   *  app has no socket, so this desktop notifies it through the browser's push
+   *  service instead. The private half never leaves this machine. */
+  push?: {
+    publicKey(): Promise<string>;
+    register(input: {
+      endpoint: string;
+      p256dh: string;
+      auth: string;
+      clientId?: string;
+      label?: string;
+    }): Promise<unknown>;
+    remove(endpoint: string): Promise<boolean>;
+  };
   terminals?: {
     ensure(id: string | null, cwd: string | null, profile?: TerminalSpawnProfile | string | null):
       { id: string; replay: string } | Promise<{ id: string; replay: string }>;
     write(id: string, data: string): void;
     resize(id: string, cols: number, rows: number): void;
   };
+  browserRemote?: (method: 'frame' | 'control', args: unknown[]) => Promise<unknown>;
 }
 
 export type RemoteMethod = (params: unknown[]) => unknown;
@@ -123,11 +142,21 @@ export function createRemoteMethods(
     settingsStore,
     onDesktopSettingsChanged,
     terminals,
+    push,
+    browserRemote,
   }: RemoteMethodDependencies,
 ): Record<string, RemoteMethod> {
   const invokeDesktopOperation = (name: string, args: unknown[]): Promise<unknown> =>
     host.invokeDesktopOperation(name, args);
   const operation = (name: string) => (...args: unknown[]) => invokeDesktopOperation(name, args);
+  const requiredPush = (): NonNullable<RemoteMethodDependencies['push']> => {
+    if (!push) throw new TypeError('Push notifications are unavailable on this connection.');
+    return push;
+  };
+  const requiredBrowserRemote = (): NonNullable<RemoteMethodDependencies['browserRemote']> => {
+    if (!browserRemote) throw new TypeError('Remote Browser Use is unavailable.');
+    return browserRemote;
+  };
   // Selected-file permissions for paths OUTSIDE any registered project. The
   // desktop persists them under userData; a paired browser holds them for the
   // life of this bridge, so a daemon restart simply asks the surface to
@@ -274,6 +303,42 @@ export function createRemoteMethods(
         requiredString(relPath, 'relPath'),
       );
     },
+    // Rasterized pages, never the converted PDF's path: a phone cannot open a
+    // file on this machine, and the byte lane that could serve one is disabled
+    // until it is encrypted. The operation validates the page window itself.
+    previewDocumentPages: async ([projectPath, relPath, accessToken, options]) => {
+      const target = grantedIf(accessToken)
+        ? grantedFile(accessToken, projectPath, relPath)
+        : {
+          root: await host.projectDirectory(requiredString(projectPath, 'projectPath')),
+          rel: requiredString(relPath, 'relPath', 4_096),
+        };
+      const request = options && typeof options === 'object'
+        ? options as { pages?: unknown; maxWidth?: unknown }
+        : {};
+      return invokeDesktopOperation('documentPreviewPagesIn', [
+        target.root,
+        target.rel,
+        { pages: request.pages, maxWidth: request.maxWidth },
+      ]);
+    },
+    // Web Push. The browser subscribes with the key this returns and hands the
+    // resulting endpoint back over the SAME encrypted channel, so the relay
+    // never sees which device wants notifications.
+    pushPublicKey: () => requiredPush().publicKey(),
+    registerPushSubscription: async ([input]) => {
+      const record = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+      await requiredPush().register({
+        endpoint: requiredString(record.endpoint, 'endpoint'),
+        p256dh: requiredString(record.p256dh, 'p256dh'),
+        auth: requiredString(record.auth, 'auth'),
+        ...(typeof record.clientId === 'string' ? { clientId: record.clientId } : {}),
+        ...(typeof record.label === 'string' ? { label: record.label } : {}),
+      });
+      return true;
+    },
+    removePushSubscription: ([endpoint]) =>
+      requiredPush().remove(requiredString(endpoint, 'endpoint')),
     listSessions: () => host.listSessions(),
     markSessionRead: ([sessionId, messageCount, consumedUnread]) => {
       if (consumedUnread !== undefined && typeof consumedUnread !== 'boolean') {
@@ -355,6 +420,14 @@ export function createRemoteMethods(
       for (const request of requests) assertRemoteCapability(request.capability);
       return host.readCapabilities(requests);
     },
+    browserRemoteFrame: ([previousFrameId]) => requiredBrowserRemote()(
+      'frame',
+      [normalizeRemoteBrowserFrameId(previousFrameId)],
+    ),
+    browserRemoteControl: ([input]) => requiredBrowserRemote()(
+      'control',
+      [normalizeRemoteBrowserControl(input)],
+    ),
     gitStatus: ([cwd, options]) => {
       const record = options && typeof options === 'object'
         ? options as { reuseLineStats?: unknown }

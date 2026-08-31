@@ -25,6 +25,8 @@ const { useComposerAttachments } = await import("./use-composer-attachments.ts")
 const { useComposerQueue } = await import("./use-composer-queue.ts");
 const { useComposerSubmission } = await import("./use-composer-submission.ts");
 const { useComposerKeyboard } = await import("./use-composer-keyboard.ts");
+const { useComposerShareIntake } = await import("./use-composer-share-intake.ts");
+const { publishSharedIntake, resetSharedIntake } = await import("./share-target-intake.ts");
 
 function mountHarness(Component, props) {
   const host = document.createElement("main");
@@ -344,5 +346,42 @@ test("keyboard hook restores prompt history and inserts project mentions", async
     assert.equal(current.draft, "@src/App.tsx ");
   } finally {
     await mounted.cleanup();
+  }
+});
+
+test("a shared payload lands only in the composer the user can see", async () => {
+  resetSharedIntake();
+  const attached = [];
+  const appended = [];
+  function Harness({ active }) {
+    useComposerShareIntake({
+      active,
+      attachFiles: (files) => { attached.push(...files); },
+      appendText: (text) => { appended.push(text); },
+    });
+    return React.createElement("div", null);
+  }
+  const mounted = mountHarness(Harness, { active: false });
+  try {
+    await mounted.render({ active: false });
+    const shared = new File(["bytes"], "screenshot.png", { type: "image/png" });
+    await act(async () => publishSharedIntake({ files: [shared], text: "note" }));
+    // A pane that is not the visible one must never swallow the share.
+    assert.equal(attached.length, 0);
+    assert.equal(appended.length, 0);
+
+    // Becoming the visible pane takes the payload that was waiting.
+    await mounted.render({ active: true });
+    assert.deepEqual(attached.map((file) => file.name), ["screenshot.png"]);
+    assert.deepEqual(appended, ["note"]);
+
+    // One payload, one arrival: returning to this composer cannot re-attach it.
+    await mounted.render({ active: false });
+    await mounted.render({ active: true });
+    assert.equal(attached.length, 1);
+    assert.equal(appended.length, 1);
+  } finally {
+    await mounted.cleanup();
+    resetSharedIntake();
   }
 });
