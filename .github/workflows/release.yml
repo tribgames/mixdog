@@ -204,7 +204,7 @@ jobs:
           retention-days: 2
 
   # Each platform has an independent runtime -> package chain. A slow platform
-  # no longer prevents the other four packaging jobs from starting.
+  # no longer prevents the other three packaging jobs from starting.
   desktop-runtime-win32-x64:
     uses: ./.github/workflows/desktop-runtime.yml
     with:
@@ -220,14 +220,6 @@ jobs:
       runner: macos-14
       platform: darwin
       arch: arm64
-
-  desktop-runtime-darwin-x64:
-    uses: ./.github/workflows/desktop-runtime.yml
-    with:
-      ref: ${{ inputs.ref || github.ref }}
-      runner: macos-15-intel
-      platform: darwin
-      arch: x64
 
   desktop-runtime-linux-x64:
     uses: ./.github/workflows/desktop-runtime.yml
@@ -300,21 +292,6 @@ jobs:
       artifact_arch: arm64
       target: mac
 
-  desktop-darwin-x64:
-    needs: [validate, desktop-build, desktop-runtime-darwin-x64, prepare-github-release]
-    uses: ./.github/workflows/desktop-package.yml
-    permissions:
-      contents: write
-    with:
-      ref: ${{ inputs.ref || github.ref }}
-      tag: ${{ inputs.tag || github.ref_name }}
-      release_id: ${{ needs.prepare-github-release.outputs.release_id }}
-      runner: macos-15-intel
-      platform: darwin
-      arch: x64
-      artifact_arch: x64
-      target: mac
-
   desktop-linux-x64:
     needs: [validate, desktop-build, desktop-runtime-linux-x64, prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
@@ -347,7 +324,7 @@ jobs:
 
   publish:
     name: publish-staged-release
-    needs: [validate, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64]
+    needs: [validate, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-linux-x64, desktop-linux-arm64]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -408,8 +385,6 @@ jobs:
             'mixdog-desktop-linux-x86_64.AppImage',
             'mixdog-desktop-mac-arm64.dmg',
             'mixdog-desktop-mac-arm64.zip',
-            'mixdog-desktop-mac-x64.dmg',
-            'mixdog-desktop-mac-x64.zip',
             'mixdog-desktop-win-x64.exe',
             'mixdog-desktop-win-x64.exe.blockmap',
           ].sort();

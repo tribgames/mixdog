@@ -422,9 +422,9 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   // could never succeed here and left the check permanently red.
   assert.match(release,
     /name:\s*Stage common desktop output[\s\S]*actions\/upload-artifact@[0-9a-f]{40} # v7/);
-  assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-runtime\.yml/g) || []).length, 5);
-  assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-package\.yml/g) || []).length, 5);
-  for (const platform of ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64']) {
+  assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-runtime\.yml/g) || []).length, 4);
+  assert.equal((release.match(/uses:\s*\.\/\.github\/workflows\/desktop-package\.yml/g) || []).length, 4);
+  for (const platform of ['win32-x64', 'darwin-arm64', 'linux-x64', 'linux-arm64']) {
     assert.doesNotMatch(release, new RegExp(
       `desktop-runtime-${platform}:\\s*\\n\\s*needs:`,
     ), 'runtime preparation must overlap release validation');
@@ -466,7 +466,6 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   assert.doesNotMatch(desktopRuntime, /name:\s*Verify platform embedding runtime/);
   assert.doesNotMatch(desktopRuntime, /name:\s*Install runtime dependencies/);
   assert.match(release, /npm ci --prefix apps\/desktop --prefer-offline --no-audit --no-fund/);
-  assert.match(release, /desktop-darwin-x64:[\s\S]*runner:\s*macos-15-intel[\s\S]*artifact_arch:\s*x64/);
   assert.match(release, /name:\s*Stage npm package[\s\S]*actions\/upload-artifact/);
   assert.doesNotMatch(desktopPackage, /name:\s*Stage (?:Windows|macOS|Linux)/);
   assert.doesNotMatch(release, /name:\s*Download staged desktop packages/);
