@@ -5,6 +5,23 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- The Extensions hub now gives Git, Memory, Browser Use, Computer Use, Office,
+  and voice a consistent install, progress, enable, and disable flow. Optional
+  runtimes are prepared on demand, Office can install LibreOffice through the
+  platform package manager, and disabling voice preserves downloaded assets.
+- Desktop runtime packaging is smaller and more deterministic: optional feature
+  payloads stay out of the base app, runtime code is prepared once, snapshot
+  deploys tolerate concurrent edits, and release CI shares one cross-platform
+  runtime build with explicit Git and Computer Use gates.
+- Studio preserves per-item drafts and makes detail editing, selection, and
+  keyboard interactions resilient across navigation. Context usage and voice
+  dictation controls also report their current state more consistently.
+- The OpenAI OAuth route leaves WebSocket prompt prewarming off by default,
+  avoiding an unnecessary warmup request unless it is explicitly enabled.
+- Terminal-Bench 2.1 publishes the full Codex CLI `k=5` comparison with raw
+  Harbor artifacts, source-commit verification, recovered-cost provenance, and
+  reproducible report generation.
+
 ## v0.9.157 - 2026-08-31
 
 - Browser Use gains a smaller, more reliable host split across tabs, downloads,
