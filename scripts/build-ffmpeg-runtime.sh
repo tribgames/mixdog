@@ -47,11 +47,14 @@ if [[ "$TARGET_OS" == "win32" ]]; then
   CONFIGURE_FLAGS+=(
     --target-os=mingw32
     --arch=x86_64
-    --cross-prefix=x86_64-w64-mingw32-
+    --cc=gcc
+    --ar=ar
+    --ranlib=ranlib
+    --nm=nm
+    --strip=strip
     --extra-ldflags=-static
   )
   EXE_NAME=ffmpeg.exe
-  STRIP_COMMAND=x86_64-w64-mingw32-strip
 elif [[ "$TARGET_OS" == "darwin" ]]; then
   STRIP_COMMAND="strip -x"
 fi
