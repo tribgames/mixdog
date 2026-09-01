@@ -5,10 +5,10 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
-- Windows release acceptance now checks the canonical 16-item settings
-  inventory instead of the stale pre-navigation count.
+## v0.9.159
 
-## v0.9.159 - 2026-09-01
+- Windows release acceptance now checks the canonical 16-item settings
+  inventory instead of the stale pre-navigation count. - 2026-09-01
 
 - Computer Use now coordinates foreground target leases, recaptures after
   window transitions, validates bounded action sequences, and exposes a
