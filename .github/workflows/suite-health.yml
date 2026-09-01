@@ -1,0 +1,80 @@
+name: Suite Health
+
+# Weekly opt-out sweep of every test:*/smoke:* npm script that is not gated
+# elsewhere: a suite that runs nowhere automatic drifts silently
+# (docs/testing.md). scripts/suite-health.mjs enumerates the catalog, so new
+# suites join without touching this workflow.
+
+on:
+  schedule:
+    - cron: "23 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: suite-health
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/desktop/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Install desktop dependencies
+        run: npm ci --prefix apps/desktop --prefer-offline --no-audit --no-fund
+
+      - name: Run every locally-registered suite
+        id: sweep
+        continue-on-error: true
+        run: node scripts/suite-health.mjs
+
+      - name: Create or update suite health issue
+        if: ${{ always() && steps.sweep.outcome == 'failure' }}
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const fs = require('node:fs');
+            const title = 'Weekly suite health sweep failed';
+            const body = fs.readFileSync('suite-health-report.md', 'utf8');
+            const { owner, repo } = context.repo;
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'all',
+              per_page: 100,
+            });
+            const existing = issues.find(issue => !issue.pull_request && issue.title === title);
+
+            if (existing) {
+              await github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: existing.number,
+                body,
+                state: 'open',
+              });
+              core.info(`Updated issue #${existing.number}`);
+            } else {
+              const created = await github.rest.issues.create({ owner, repo, title, body });
+              core.info(`Created issue #${created.data.number}`);
+            }
+
+      - name: Fail unhealthy sweep
+        if: ${{ always() && steps.sweep.outcome == 'failure' }}
+        run: exit 1

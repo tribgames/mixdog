@@ -5,6 +5,21 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Verification and release plumbing churn drops sharply: the 3,500-line
+  tool-smoke monolith is now fourteen focused `node --test` suites under
+  `scripts/tool-contracts/` with brittle exact-wording assertions relaxed to
+  key-phrase contracts, CI path selection is single-sourced in
+  `scripts/release-paths.mjs` for both the release gate and deploy planning,
+  and a release skips re-running the critical lane when the gate already
+  verified the exact same commits.
+
+- No suite can rot silently any more: the remaining test monoliths
+  (provider-toolcall, session-transport, shell-hardening) are per-domain
+  suites under `scripts/`, the release gate now executes the tool-contract
+  and compaction (recall-fasttrack) contracts on every gated push, and a
+  weekly `suite-health` sweep runs every registered `test:*`/`smoke:*`
+  script through an opt-out catalog that opens a tracked issue on failure.
+
 ## v0.9.158 - 2026-08-31
 
 - The Extensions hub now gives Git, Memory, Browser Use, Computer Use, Office,

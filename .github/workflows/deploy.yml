@@ -49,6 +49,7 @@ jobs:
       runtime_needed: ${{ steps.plan.outputs.runtime_needed }}
       voice_runtime_needed: ${{ steps.plan.outputs.voice_runtime_needed }}
       critical_changed: ${{ steps.plan.outputs.critical_changed }}
+      run_critical: ${{ steps.plan.outputs.run_critical }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -71,12 +72,14 @@ jobs:
         env:
           BUMP: ${{ inputs.bump }}
           NATIVE_MODE: ${{ inputs.native }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           node --input-type=module <<'NODE'
           import { appendFileSync, readFileSync } from 'node:fs';
           import { execFileSync, spawnSync } from 'node:child_process';
+          import { RELEASE_CRITICAL_PATHS } from './scripts/release-paths.mjs';
 
           const output = process.env.GITHUB_OUTPUT;
           const mode = process.env.NATIVE_MODE;
@@ -101,12 +104,15 @@ jobs:
             );
             return result.status === 0 && result.stdout.trim() === 'false';
           };
-          const changedSince = (tag, paths) => {
-            if (!tagExists(tag)) return true;
-            const result = spawnSync('git', ['diff', '--quiet', `${tag}..HEAD`, '--', ...paths]);
+          const changedBetween = (base, paths) => {
+            const result = spawnSync('git', ['diff', '--quiet', `${base}..HEAD`, '--', ...paths]);
             if (result.status === 0) return false;
             if (result.status === 1) return true;
-            throw new Error(`git diff failed for ${tag}: ${result.stderr?.toString() || result.status}`);
+            throw new Error(`git diff failed for ${base}: ${result.stderr?.toString() || result.status}`);
+          };
+          const changedSince = (tag, paths) => {
+            if (!tagExists(tag)) return true;
+            return changedBetween(tag, paths);
           };
           const compare = (a, b) => {
             const left = a.split('.').map(Number);
@@ -197,22 +203,40 @@ jobs:
             'scripts/verify-voice-runtime-release.mjs',
             'scripts/sync-voice-runtime-manifest.mjs',
           ]));
-          const criticalChanged = changedSince(currentTag, [
-            'native',
-            'src/runtime/agent/orchestrator',
-            'src/runtime/shared',
-            'scripts/verify-release-assets.mjs',
-            'scripts/release-gate-test.mjs',
-            'scripts/prepare-native-assets.mjs',
-            'scripts/prepare-native-assets-test.mjs',
-            'scripts/apply-patch-edit-smoke.mjs',
-            'scripts/provider-toolcall-test.mjs',
-            'scripts/provider-contract-test.mjs',
-            'scripts/provider-stream-outcome-test.mjs',
-            'scripts/cursor-provider-test.mjs',
-            'package.json',
-            'package-lock.json',
-          ]);
+          const criticalChanged = changedSince(currentTag, RELEASE_CRITICAL_PATHS);
+          // The release gate already ran the identical critical lane
+          // (test:release-critical) on every gated main push. When every gate
+          // run covering commits since the published release succeeded and no
+          // critical path changed after the newest gated commit, the release
+          // validate step would only re-verify an already verified state, so
+          // it may skip the lane. Any uncertainty (missing runs, failed or
+          // in-flight runs, gh errors) falls back to re-running it.
+          const gateVerifiedCritical = () => {
+            if (!criticalChanged || !currentTagExists) return false;
+            try {
+              const shas = execFileSync('git', ['rev-list', `${currentTag}..HEAD`], { encoding: 'utf8' })
+                .split(/\s+/).filter(Boolean); // newest first
+              if (!shas.length) return false;
+              const list = spawnSync('gh', [
+                'run', 'list', '--workflow', 'release-gate.yml',
+                '--branch', process.env.DEFAULT_BRANCH || 'main',
+                '--limit', '200', '--json', 'headSha,status,conclusion',
+              ], { encoding: 'utf8', env: process.env });
+              if (list.status !== 0) return false;
+              const runs = JSON.parse(list.stdout || '[]');
+              const range = new Set(shas);
+              const covering = runs.filter((run) => range.has(run.headSha));
+              if (!covering.length) return false;
+              if (!covering.every((run) => run.status === 'completed' && run.conclusion === 'success')) {
+                return false;
+              }
+              const newestGated = shas.find((sha) => covering.some((run) => run.headSha === sha));
+              return !changedBetween(newestGated, RELEASE_CRITICAL_PATHS);
+            } catch {
+              return false;
+            }
+          };
+          const gateVerified = gateVerifiedCritical();
 
           const values = {
             app_version: appVersion,
@@ -234,6 +258,7 @@ jobs:
             runtime_needed: String(runtimeNeeded),
             voice_runtime_needed: String(voiceRuntimeNeeded),
             critical_changed: String(criticalChanged),
+            run_critical: String(criticalChanged && !gateVerified),
           };
           for (const [key, value] of Object.entries(values)) appendFileSync(output, `${key}=${value}\n`);
           console.log(JSON.stringify({ mode, resume, preBumped, ...values }, null, 2));
@@ -480,5 +505,5 @@ jobs:
     with:
       tag: ${{ needs.plan.outputs.app_tag }}
       ref: ${{ needs.prepare-app.outputs.sha }}
-      run_critical: ${{ needs.plan.outputs.critical_changed == 'true' }}
+      run_critical: ${{ needs.plan.outputs.run_critical == 'true' }}
     secrets: inherit

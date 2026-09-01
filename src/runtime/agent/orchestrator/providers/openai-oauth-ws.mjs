@@ -73,8 +73,8 @@ import {
 import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
 import { envPositiveInt } from './lib/env-utils.mjs';
 
-// Legacy import paths for scripts/tool-smoke.mjs, mixdog-session-runtime.mjs
-// (drainOpenaiWsPool), scripts/provider-toolcall-test.mjs (parseToolSearchArgs,
+// Legacy import paths for mixdog-session-runtime.mjs (drainOpenaiWsPool),
+// the scripts/provider-toolcall/ suites (parseToolSearchArgs,
 // _logicalResponseItemMatch, _streamResponse) and other external callers.
 export {
     drainOpenaiWsPool,

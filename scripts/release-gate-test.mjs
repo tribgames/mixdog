@@ -22,6 +22,7 @@ import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildReleaseTimingReport } from './release-timing-report.mjs';
+import { desktopGateRegex, runtimeGateRegex, RELEASE_CRITICAL_PATHS } from './release-paths.mjs';
 
 // Product/workflow shape is intentionally non-blocking. Opt in from the
 // advisory runner when reviewing a deliberate specification change.
@@ -343,6 +344,10 @@ test('Deploy is the one-click release entry with incremental native workers', as
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/spawn-release\.yml/);
   assert.match(deploy, /uses:\s*\.\/\.github\/workflows\/release\.yml/);
   assert.match(deploy, /changedSince\(`\$\{tagPrefix\}\$\{manifestVersion\}`/);
+  assert.match(deploy, /import \{ RELEASE_CRITICAL_PATHS \} from '\.\/scripts\/release-paths\.mjs'/,
+    'deploy must consume the single-source critical path list');
+  assert.match(deploy, /run_critical: \$\{\{ needs\.plan\.outputs\.run_critical == 'true' \}\}/,
+    'release validate must honor the gate-verified critical skip');
   assert.match(deploy, /const preBumped = !currentTagExists && !currentReleaseExists/);
   assert.match(deploy, /const appVersion = resume \|\| preBumped/);
   assert.match(deploy, /needs\.runtime\.result == 'success' \|\| needs\.runtime\.result == 'skipped'/);
@@ -367,6 +372,48 @@ test('Deploy is the one-click release entry with incremental native workers', as
   }
 });
 
+test('release path selection classifies desktop, runtime, and critical paths', () => {
+  const desktop = new RegExp(desktopGateRegex());
+  const runtime = new RegExp(runtimeGateRegex());
+  for (const path of [
+    'apps/desktop/src/main/index.ts',
+    'src/help.mjs',
+    'package-lock.json',
+    'scripts/native-binary-arch.test.mjs',
+    'scripts/release-paths.mjs',
+  ]) assert.match(path, desktop, `desktop gate must select ${path}`);
+  for (const path of ['docs/guide.md', 'apps/relay/src/index.ts', 'scripts/session-bench.mjs']) {
+    assert.doesNotMatch(path, desktop, `desktop gate must skip ${path}`);
+  }
+  for (const path of [
+    '.github/workflows/release.yml',
+    'native/mixdog-spawn/src/main.rs',
+    'src/runtime/agent/orchestrator/session/loop.mjs',
+    'scripts/provider-contract-test.mjs',
+    'scripts/tool-contracts/search-tools.test.mjs',
+    'scripts/provider-toolcall/openai-api.test.mjs',
+    'scripts/suite-compact-test.mjs',
+    'scripts/release-paths.mjs',
+    'package.json',
+  ]) assert.match(path, runtime, `runtime gate must select ${path}`);
+  for (const path of ['src/tui/app.mjs', 'apps/desktop/src/main/index.ts', 'scripts/smoke.mjs']) {
+    assert.doesNotMatch(path, runtime, `runtime gate must skip ${path}`);
+  }
+  assert.ok(RELEASE_CRITICAL_PATHS.includes('scripts/provider-toolcall'));
+  assert.ok(RELEASE_CRITICAL_PATHS.includes('package-lock.json'));
+});
+
+test('the weekly suite-health sweep runs the opt-out catalog and reports failures', async () => {
+  const sweep = await workflow('suite-health.yml');
+  assert.match(sweep, /schedule:[\s\S]*cron:/, 'the sweep must run on a schedule');
+  assert.match(sweep, /workflow_dispatch:/);
+  assert.match(sweep, /node scripts\/suite-health\.mjs/,
+    'the sweep must execute the opt-out suite enumeration');
+  assert.match(sweep, /issues:\s*write/);
+  assert.match(sweep, /suite-health-report\.md/,
+    'a failed sweep must surface as a tracked issue');
+});
+
 test('application release overlaps gates and publishes one exact hidden draft', async () => {
   const [release, automaticGate, desktopPackage, relayDeploy, uploadScript] = await Promise.all([
     workflow('release.yml'),
@@ -377,15 +424,16 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   ]);
   assert.match(automaticGate, /pull_request:[\s\S]*push:[\s\S]*branches:\s*\[main\]/);
   assert.match(automaticGate, /name:\s*Select incremental gates/);
-  assert.match(automaticGate, /\^\(apps\/desktop\/\|src\/\|vendor\//);
-  assert.match(
-    automaticGate,
-    /scripts\/\(prune-embedding-runtime\|native-binary-arch\|native-tool-download\|runtime-dependency-cache-key\)/,
-  );
-  assert.match(
-    automaticGate,
-    /cursor-provider-test\|prune-embedding-runtime\|native-binary-arch/,
-  );
+  // Path selection is single-sourced: the gate derives its grep patterns from
+  // scripts/release-paths.mjs instead of duplicating hand-written regexes.
+  assert.match(automaticGate, /release-paths\.mjs desktop-regex/);
+  assert.match(automaticGate, /release-paths\.mjs runtime-regex/);
+  // A suite that guards a contract must run in CI: tool-smoke stayed
+  // local-only and silently drifted three contracts behind the runtime.
+  assert.match(automaticGate, /npm run test:tool-contracts/,
+    'the runtime gate must execute the tool-contract suites');
+  assert.match(automaticGate, /npm run test:compact/,
+    'the runtime gate must execute the compaction contracts');
   assert.match(automaticGate, /needs\.changes\.outputs\.desktop == 'true'/);
   assert.match(automaticGate, /needs\.changes\.outputs\.graph == 'true'/);
   assert.match(release,

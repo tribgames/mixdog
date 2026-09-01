@@ -40,6 +40,50 @@ recall-fasttrack prior-summary handling; when the pipeline moved to rebuilding
 context from Memory, only the suite was updated and the smoke stayed red for
 months while asserting the opposite contract.
 
+The boundary today: `suite-compact-test.mjs` owns the manager-level
+recall-fasttrack contracts (`runSessionCompaction` — Memory handoff shape,
+tail policy, no semantic fallback) and runs in the release gate;
+`compact-smoke.mjs` owns the compact-message functions underneath (redaction,
+byte-exact no-ops, alias normalization, manual-override semantics) and runs in
+the weekly sweep. Integration above, functions below — one invariant must not
+be asserted on both sides of that line.
+
+## A contract suite runs in CI or it drifts
+
+`scripts/tool-smoke.mjs` guarded the runtime tool surface for months but ran
+only on the developer's machine. When the agent-session schema was unified on
+2026-08-28, nothing forced the suite to follow: it kept asserting three
+retired contracts and would have failed on any run. Its replacement,
+`scripts/tool-contracts/`, runs as `npm run test:tool-contracts` in the
+`runtime` job of `release-gate.yml`, and `release-gate-test.mjs` pins that
+step so it cannot quietly drop out. A suite that asserts a contract but runs
+nowhere automatic is documentation with an expiry date.
+
+Suites that stay out of the gate are swept weekly instead: `suite-health.yml`
+runs every `test:*`/`smoke:*` script through the opt-out enumeration in
+`scripts/suite-health.mjs` (stale exclusions fail closed, new scripts join
+automatically) and opens a tracked issue on failure, so nothing local can rot
+silently for more than a week. Deliberate exclusions carry their reason in the
+runner: aggregates, live COM/desktop harnesses, and `test:fast-direct` — a
+dev-only deploy tool whose real deploys are its verification.
+
+## One domain, one test file
+
+A multi-domain test file makes every change pay a whole-file search: fixing
+one tool meant scanning the 3,561 lines of `tool-smoke.mjs`. Suites split by
+domain instead — `scripts/tool-contracts/` keeps one file per tool domain
+(search-tools, patch-edit, shell-task, …) over shared `_env.mjs` fixtures, so
+a feature fix touches its own file and `node --test` runs files as parallel
+processes (~6s total). Split an existing file when one change makes you
+search across domains, not on line count alone.
+
+The 2026-09 sweep split `provider-toolcall-test.mjs` (3,533 lines, 134 tests),
+`session-transport-test.mjs` and `suite-shellhardening-test.mjs` the same way
+into `scripts/provider-toolcall/`, `scripts/session-transport/` and
+`scripts/shellhardening/`. `session-save-fault-store-test.mjs` stays whole on
+purpose: one stateful fixture chain (C1–C37 subtests over one live store)
+covering one domain is one file, whatever its line count.
+
 ## Slow files run as their own script
 
 A test file over ~5s gets its own npm script and a parallel CI job so the

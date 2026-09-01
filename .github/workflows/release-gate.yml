@@ -70,7 +70,11 @@ jobs:
           else
             git diff --name-only "$BASE" "$GITHUB_SHA" > /tmp/changed
           fi
-          if grep -Eq '^(apps/desktop/|src/|vendor/|LICENSES/|README\.md$|NOTICE\.md$|package(-lock)?\.json$|scripts/(prune-embedding-runtime|native-binary-arch|native-tool-download|runtime-dependency-cache-key)(\.test)?\.mjs$)' /tmp/changed; then
+          # Gate selection patterns live in scripts/release-paths.mjs — the
+          # single source shared with deploy.yml's criticalChanged list.
+          DESKTOP_RE=$(node scripts/release-paths.mjs desktop-regex)
+          RUNTIME_RE=$(node scripts/release-paths.mjs runtime-regex)
+          if grep -Eq "$DESKTOP_RE" /tmp/changed; then
             echo "desktop=true" >> "$GITHUB_OUTPUT"
           else
             echo "desktop=false" >> "$GITHUB_OUTPUT"
@@ -85,7 +89,7 @@ jobs:
           else
             echo "graph=false" >> "$GITHUB_OUTPUT"
           fi
-          if grep -Eq '^(\.github/workflows/|native/|src/runtime/agent/orchestrator/|src/runtime/shared/|scripts/(verify-release-assets|release-gate-test|prepare-native-assets|prepare-native-assets-test|apply-patch-edit-smoke|provider-toolcall-test|provider-contract-test|provider-stream-outcome-test|cursor-provider-test|prune-embedding-runtime|native-binary-arch|native-binary-arch\.test|native-tool-download|runtime-dependency-cache-key)\.mjs$|package(-lock)?\.json$)' /tmp/changed; then
+          if grep -Eq "$RUNTIME_RE" /tmp/changed; then
             echo "runtime=true" >> "$GITHUB_OUTPUT"
           else
             echo "runtime=false" >> "$GITHUB_OUTPUT"
@@ -106,6 +110,16 @@ jobs:
         run: npm ci --prefer-offline --no-audit --no-fund
       - name: Verify the critical release lane
         run: npm run test:release-critical
+      # The tool-contract suites guard the runtime tool surface but used to run
+      # only on the developer's machine, so they silently drifted when the
+      # agent-session schema changed on main. The spawn debug build reuses the
+      # runner's preinstalled Rust toolchain.
+      - name: Verify tool contracts
+        run: npm run test:tool-contracts
+      # Compaction (recall-fasttrack) contracts are product behavior with the
+      # same local-only drift history as the tool contracts above.
+      - name: Verify compaction contracts
+        run: npm run test:compact
 
   desktop:
     needs: changes
