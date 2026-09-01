@@ -82,16 +82,21 @@
   gap: 16px;
   padding: 4px 20px 20px;
 }
-.schedules-field { display: grid; gap: 6px; color: var(--mx-text-muted); font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); }
-/* A field title and its note are ONE block: they close to 3px, and only the
-   control opens the next step. */
+.schedules-field { display: grid; gap: 8px; color: var(--mx-text-muted); font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); }
+/* A field title and its note are ONE block: they close to 4px, and only the
+   control opens the full 8px step — grown from 2/6 with the 15px label
+   (user: 제목·설명·텍스트상자 사이가 좁다). */
 .schedules-field > span + small,
-.projects-edit-field > div > span + small { margin-top: -3px; }
+.projects-edit-field > div > span + small { margin-top: -4px; }
 .schedules-field > span,
 .projects-edit-field > div > span {
+  /* Labels align with the control edge; values keep their internal inset.
+     The dialog walks the rail's type ramp (user: 사이드탭 폰트 규칙처럼):
+     title 16 > field label 15 > item/control text 14 > note 13. */
   color: var(--mx-text);
+  font-size: var(--mx-font-category);
   font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-ui);
+  line-height: var(--mx-line-emphasis);
 }
 /* The field plate itself (32px, 8px text inset, hairline, focus ring) is
    declared once in the dialog system; only the read-only tone lives here. */
@@ -101,14 +106,14 @@
   cursor: default;
   opacity: 1;
 }
-.schedules-dialog input:disabled:focus { box-shadow: inset 0 0 0 .5px var(--mx-border-muted); }
+.schedules-dialog input:disabled:focus { box-shadow: var(--mx-button); }
 .schedules-composer {
   display: grid;
   border-radius: var(--mx-radius-xl);
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: var(--mx-button);
 }
-.schedules-composer:focus-within { box-shadow: inset 0 0 0 .5px var(--mx-border-strong); }
+.schedules-composer:focus-within { box-shadow: var(--mx-button-contrast); }
 .schedules-composer textarea {
   min-height: 140px;
   /* Same 8px text axis as the field plates and the Markdown editors, so every
@@ -118,11 +123,13 @@
   outline: none;
   color: var(--mx-text);
   background: transparent;
-  /* Same reading scale as the chat composer's typing surface. */
+  /* One step UNDER the dialog title so the ladder holds — title 15 > label
+     14 > note 13 (user: 폰트 위계가 망가졌다). Chat-composer parity had given
+     this typing surface the title's own 15 and the card read upside-down. */
   font-family: var(--mx-font-prose);
-  font-size: var(--mx-font-body);
+  font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-emphasis);
+  line-height: var(--mx-line-ui);
   resize: none;
 }
 .schedules-composer-row {
@@ -230,9 +237,11 @@
 .webhook-connection-copy:hover:not(:disabled) { color: var(--mx-text); }
 .webhook-connection-copy:disabled { opacity: var(--mx-op-disabled); }
 .schedules-dialog footer {
-  /* Pinned to the card floor while the form scrolls beneath it, wearing the
-     SAME plate tone and hairline as every other dialog footer. Its inline
-     inset stays the form's 20px, so Save closes on the fields' right edge. */
+  /* Pinned to the card floor while the form scrolls beneath it. It wears the
+     CARD's own tone with no hairline (user: 확인/취소 구역이 분리돼 보이는 게
+     별로다) — opaque only so scrolled fields vanish seamlessly under it. Its
+     inline inset stays the form's 20px, so Save closes on the fields' right
+     edge. */
   position: sticky;
   bottom: -20px;
   z-index: 1;
@@ -242,8 +251,7 @@
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  border-top: .5px solid var(--mx-border);
-  background: var(--mx-bg-base);
+  background: var(--mx-bg-layer-1);
 }
 /* Save-time errors sit inline with Cancel/Save, pushing the buttons right. */
 .schedules-dialog footer .schedules-form-error { flex: 1; min-width: 0; text-align: left; }
@@ -416,14 +424,14 @@
   outline: none;
   color: var(--mx-text);
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: var(--mx-button);
   font-family: var(--mx-font-mono);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
   line-height: 1.55;
   resize: vertical;
 }
-.workflows-md-field textarea:focus { box-shadow: inset 0 0 0 .5px var(--mx-border-strong); }
+.workflows-md-field textarea:focus { box-shadow: var(--mx-button-contrast); }
 .workflows-agent-list { display: grid; gap: 6px; }
 .workflows-agent-row {
   display: flex;
@@ -573,7 +581,7 @@
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-meta);
 }
-.projects-memory-editor { min-width: 0; display: grid; gap: 6px; }
+.projects-memory-editor { min-width: 0; display: grid; gap: 8px; }
 .projects-memory-editor > header {
   display: flex;
   align-items: end;

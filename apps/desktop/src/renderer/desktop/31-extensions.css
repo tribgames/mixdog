@@ -237,7 +237,13 @@
   column-gap: 10px;
   row-gap: 0;
 }
-.built-in-feature-title { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.built-in-feature-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  align-self: center;
+  gap: 7px;
+}
 .built-in-feature-title-icon {
   flex: 0 0 auto;
   color: var(--mx-icon-muted);
@@ -258,15 +264,7 @@
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
-.built-in-feature-state {
-  flex: 0 0 auto;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-micro);
-  font-weight: var(--mx-weight-medium);
-}
-.built-in-feature-state.is-failed,
-.built-in-feature-state.is-unavailable { color: var(--mx-danger); }
-.built-in-feature-control { display: flex; align-items: center; }
+.built-in-feature-control { display: flex; align-items: center; align-self: center; }
 .built-in-feature-control .mixdog-settings__switch span { height: 18px; }
 .built-in-feature-control .mixdog-settings__switch span::after {
   width: 14px;
@@ -444,28 +442,17 @@
 
 /* MCP uses transport-specific structured rows instead of exposing JSON. */
 .extensions-mcp-dialog { --mx-editor-width: 760px; }
-.extensions-mcp-dialog form {
-  display: grid;
-  gap: 10px;
-}
+/* Card chrome dropped (user: 팝업 문법 통일): MCP fields flow flat on the
+   shared 16px form rhythm like the workflow/agent/skill editors — a card is
+   now only a grouping box, and inputs keep the dialog-wide 32px plate. */
 .extensions-mcp-card {
   min-width: 0;
   display: grid;
-  overflow: hidden;
-  border-radius: var(--mx-radius-xl);
-  background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  gap: 16px;
 }
 .extensions-mcp-card > .schedules-field,
 .extensions-mcp-card > .extensions-mcp-list {
   min-width: 0;
-  padding: 12px;
-}
-.extensions-mcp-card > * + * {
-  border-top: 1px solid var(--mx-border-muted);
-}
-.extensions-mcp-dialog input {
-  height: 36px;
 }
 .extensions-mcp-transport-field {
   grid-template-columns: minmax(0, 1fr) auto;
@@ -487,10 +474,10 @@
   padding: 3px;
   border-radius: var(--mx-radius-md);
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: var(--mx-button);
 }
 .extensions-mcp-transport button {
-  min-height: 30px;
+  min-height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -531,37 +518,41 @@
 .extensions-mcp-transport button:disabled { cursor: default; opacity: var(--mx-op-disabled); }
 .extensions-mcp-list {
   display: grid;
-  gap: 7px;
+  gap: 8px;
   min-width: 0;
   margin: 0;
   padding: 0;
   border: 0;
 }
+/* Legend + note mirror the schedules-field label/note block exactly. */
 .extensions-mcp-list legend {
   padding: 0;
-  color: var(--mx-text-primary);
-  font-size: var(--mx-font-ui);
-  font-weight: 600;
+  color: var(--mx-text);
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-emphasis);
 }
 .extensions-mcp-list > small {
+  margin-top: -4px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
 }
 .extensions-mcp-list-rows {
   display: grid;
-  gap: 7px;
+  gap: 6px;
 }
 .extensions-mcp-list-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 34px;
-  gap: 7px;
+  gap: 6px;
 }
 .extensions-mcp-pair-row {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 34px;
 }
 .extensions-mcp-list-row > button {
   width: 34px;
-  height: 36px;
+  height: 32px;
   display: grid;
   place-items: center;
   padding: 0;

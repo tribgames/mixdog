@@ -150,8 +150,15 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
    the other floating chrome already uses (--pane-chrome-inset, same ladder as
    .jump-to-latest). */
 .transcript-shell > .session-status-island {
+  --session-island-frame-bg:
+    color-mix(in srgb, var(--mx-bg-base) 62%, var(--mx-workspace-sheet));
+}
+.transcript-shell > .session-status-island {
   --session-status-slot: 28px;
-  --session-status-gap: 2px;
+  /* The 20px glyphs leave only 4px of slot margin, so a 2px gap packed the
+     three marks edge to edge (user: 너무 밀착된 느낌) — the wider gap and
+     the horizontal lip below give the capsule real air. */
+  --session-status-gap: 4px;
   --session-status-card-width: 220px;
   position: absolute;
   z-index: 9;
@@ -160,18 +167,11 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   display: flex;
   align-items: center;
   gap: var(--session-status-gap);
-  padding: 2px;
+  padding: 2px 4px;
   border-radius: var(--mx-radius-pill);
 }
-/* Translucent frame (user: 프레임은 배경색도 좀 투명하게) on its OWN plate: the
-   capsule tints and blurs the prose behind it instead of stamping an opaque
-   sheet over the transcript, and a hairline keeps its edge readable on both
-   sheets. The blur MUST stay on this pseudo-element — while it sat on the
-   capsule itself, every slot and hover card painted inside the capsule's
-   backdrop-filter group, which cost the cards their crisp text and glued their
-   fade to the frame (user: 글자가 깨져나오고 애니메이션이 프레임에서 진행돼서
-   어색). The island carries z-index 9, so this negative layer stays inside its
-   own stacking context. */
+/* Both transcript-edge islands use one opaque theme blend, so content behind
+   either edge cannot tint one frame differently from the other. */
 .transcript-shell > .session-status-island::before {
   content: "";
   position: absolute;
@@ -179,24 +179,19 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  background: color-mix(in srgb, var(--mx-bg-base) 62%, transparent);
-  backdrop-filter: blur(12px) saturate(140%);
+  background: var(--session-island-frame-bg);
+  backdrop-filter: none;
   box-shadow: inset 0 0 0 .5px var(--mx-border), var(--mx-raised);
 }
-/* A live backdrop blur re-samples the transcript behind this island on EVERY
-   scrolled frame, and the island is pinned over the transcript for the whole
-   session — on a phone GPU that is the single most expensive thing in the
-   scroll path. The projected phone keeps the same plate as a near-opaque tint
-   instead, which reads identically over prose and gives the frame budget back
-   to scrolling. */
+/* The projected phone keeps the same stable plate without live backdrop work. */
 html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before {
-  background: color-mix(in srgb, var(--mx-bg-base) 92%, transparent);
+  background: var(--session-island-frame-bg);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
-/* TWO slots only (user: 쉘하고 에이전트는 합쳐서): work status left, context
-   gauge right. The work slot stays mounted while idle so the capsule keeps
-   ONE resting width and only its count area grows with live work. */
+/* Pane-owned slots: work status, context gauge, then the right utility-dock
+   toggle. The work slot stays mounted while idle so the capsule keeps one
+   resting width and only its count area grows with live work. */
 .session-work-indicator {
   position: relative;
   height: 28px;
@@ -456,6 +451,20 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   flex: 0 0 auto;
   min-width: 0;
   padding-inline: 4px;
+}
+/* Status island docked at the strip's right end (user: 최종결정은 우상단 —
+   Claude Desktop처럼 PANE 우상단). It joins the unified band frameless:
+   labels alone distinguish the tabs, and the island buttons float on the
+   shared sheet color with only their own hover pills anchoring them. */
+.workspace-tabs-trailing > .session-status-island {
+  --session-status-slot: 28px;
+  --session-status-gap: 4px;
+  --session-status-card-width: 220px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--session-status-gap);
+  padding-inline: 2px;
 }
 .workspace-utility-tab {
   min-width: 0;
@@ -1157,49 +1166,59 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   white-space: nowrap;
 }
 
-/* Goal island: the compact mirror of the session-status island, pinned to the
-   opposite transcript edge. The capsule carries only objective/progress/time;
-   completion evidence and controls live in its downward card. */
-.transcript-shell > .session-goal-island {
+/* Goal island: one snapshot owner moves between the composer and the visible
+   DIFF. Hosts center the capsule; only the popover direction changes. */
+.session-goal-host {
+  position: relative;
+  z-index: 9;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.session-goal-host:empty { display: none; }
+.session-goal-host[data-goal-placement="composer"] {
+  margin-bottom: 8px;
+}
+.session-goal-host[data-goal-placement="diff"] {
+  flex: 0 0 auto;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--mx-border-muted);
+  background: var(--mx-workspace-sheet);
+}
+.session-goal-host > .session-goal-island {
+  --session-island-frame-bg:
+    color-mix(in srgb, var(--mx-bg-base) 62%, var(--mx-workspace-sheet));
   --session-goal-width: 320px;
   --session-goal-trigger-height: 28px;
   --session-goal-padding: 2px;
   --session-goal-capsule-height:
     calc(var(--session-goal-trigger-height) + var(--session-goal-padding) + var(--session-goal-padding));
-  position: absolute;
-  z-index: 9;
-  top: var(--pane-chrome-inset);
-  left: var(--pane-chrome-inset);
-  width: min(var(--session-goal-width), calc(100% - 92px));
+  position: relative;
+  width: min(var(--session-goal-width), calc(100% - 16px));
   max-width: none;
   box-sizing: border-box;
   padding: var(--session-goal-padding);
   border-radius: var(--mx-radius-pill);
+  pointer-events: auto;
 }
-.transcript-shell > .session-goal-island::before {
+.session-goal-host > .session-goal-island::before {
   content: "";
   position: absolute;
   z-index: -1;
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  background: color-mix(in srgb, var(--mx-bg-base) 62%, transparent);
-  backdrop-filter: blur(12px) saturate(140%);
+  background: var(--session-island-frame-bg);
+  backdrop-filter: none;
   box-shadow: inset 0 0 0 .5px var(--mx-border), var(--mx-raised);
-}
-.transcript-shell > .session-goal-island[data-open="true"] {
-  bottom: var(--pane-chrome-inset);
-  pointer-events: none;
-}
-.transcript-shell > .session-goal-island[data-open="true"]::before {
-  bottom: auto;
-  height: var(--session-goal-capsule-height);
 }
 .session-goal-island[data-open="true"] :is(.session-goal-trigger, .session-goal-popover) {
   pointer-events: auto;
 }
-html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
-  background: color-mix(in srgb, var(--mx-bg-base) 92%, transparent);
+html[data-mixdog-mobile-tabs] .session-goal-host > .session-goal-island::before {
+  background: var(--session-island-frame-bg);
   backdrop-filter: none;
 }
 .session-goal-trigger {
@@ -1226,7 +1245,7 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
   display: grid;
   grid-template-columns: var(--mx-icon-md) minmax(0, 1fr);
   align-items: center;
-  gap: 3px;
+  gap: 6px;
   overflow: hidden;
 }
 .session-goal-trigger:hover,
@@ -1275,6 +1294,7 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
   font-size: var(--mx-font-minor);
   font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-minor);
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1314,9 +1334,16 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
   font-family: inherit;
 }
 .session-goal-island[data-open="true"] .session-goal-popover {
-  top: calc(var(--session-goal-capsule-height) + 6px);
-  max-height: calc(100% - var(--session-goal-capsule-height) - 6px);
+  max-height: min(520px, 60cqh);
   overflow: hidden;
+}
+.session-goal-host[data-goal-placement="composer"] .session-goal-popover {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+.session-goal-host[data-goal-placement="diff"] .session-goal-popover {
+  top: calc(100% + 6px);
+  bottom: auto;
 }
 .session-goal-popover > header {
   min-width: 0;
@@ -1564,7 +1591,7 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island::before {
   cursor: default;
 }
 
-html[data-mixdog-mobile-tabs] .transcript-shell > .session-goal-island {
+html[data-mixdog-mobile-tabs] .session-goal-host > .session-goal-island {
   --session-goal-trigger-height: calc(36px * var(--mx-device-scale, 2.5));
   --session-goal-padding: calc(36px * 2 / 28 * var(--mx-device-scale, 2.5));
   max-width: 72vw;

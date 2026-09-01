@@ -4,7 +4,6 @@
 // resumeSession (reload tools for a stored session) all share the same tool
 // resolution + context-meta + agent-runtime resolution helpers.
 import { getProvider } from '../../providers/registry.mjs';
-import { normalizeCompactType, DEFAULT_COMPACT_TYPE } from '../compact.mjs';
 import { collectPromptSkillsCached, buildSkillManifest, composeSystemPrompt } from '../../context/collect.mjs';
 import { saveSession, saveSessionAsync, saveSessionAsyncDeferred, loadSession, setLiveSession, readSessionHeartbeatMtime, readSessionPresenceMtime, isSessionPresenceOwnerDead, deleteSessionPresence, isSessionHeartbeatOwnerDead, readSessionHeartbeatOwnerPid, deleteHeartbeat, isProcessAlive } from '../store.mjs';
 import { _getRuntimeEntry } from './runtime-liveness.mjs';
@@ -103,28 +102,18 @@ export function normalizeDesktopSessionMetadata(value, cwd = null) {
 export function initialCompactionConfig(compaction = {}, contextMeta = {}) {
     return {
         auto: compaction?.auto !== false,
-        prune: compaction?.prune === true,
-        semantic: compaction?.semantic ?? 'auto',
-        type: normalizeCompactType(compaction?.type ?? compaction?.compactType ?? compaction?.compact_type, DEFAULT_COMPACT_TYPE),
-        compactType: normalizeCompactType(compaction?.type ?? compaction?.compactType ?? compaction?.compact_type, DEFAULT_COMPACT_TYPE),
         model: compaction?.model || null,
+        summaryModel: compaction?.summaryModel || compaction?.semanticModel || null,
         timeoutMs: positiveContextWindow(compaction?.timeoutMs),
-        tailTurns: positiveContextWindow(compaction?.tailTurns),
+        memoryTimeoutMs: positiveContextWindow(compaction?.memoryTimeoutMs ?? compaction?.recallMemoryTimeoutMs),
         bufferTokens: positiveContextWindow(compaction?.bufferTokens ?? compaction?.buffer),
         mainBufferTokens: positiveContextWindow(compaction?.mainBufferTokens ?? compaction?.mainBuffer),
         // Preserve percent/ratio-named config so the shared policy can honor
-        // both agent semantic and main/user recall-fasttrack buffer settings.
+        // agent and main/user buffer settings.
         ...preserveBufferConfigFields(compaction),
         keepTokens: positiveContextWindow(compaction?.keepTokens ?? compaction?.keep?.tokens),
         preserveRecentTokens: positiveContextWindow(compaction?.preserveRecentTokens),
         reservedTokens: positiveContextWindow(compaction?.reservedTokens),
-        recallIngestLimit: positiveContextWindow(compaction?.recallIngestLimit),
-        recallChunkLimit: positiveContextWindow(compaction?.recallChunkLimit ?? compaction?.recallLimit),
-        recallCycle1BatchSize: positiveContextWindow(compaction?.recallCycle1BatchSize),
-        recallRowsPerSession: positiveContextWindow(compaction?.recallRowsPerSession),
-        recallWindowSize: positiveContextWindow(compaction?.recallWindowSize),
-        recallConcurrency: positiveContextWindow(compaction?.recallConcurrency),
-        recallCycle1DeadlineMs: positiveContextWindow(compaction?.recallCycle1DeadlineMs),
         boundaryTokens: contextMeta.compactBoundaryTokens,
     };
 }

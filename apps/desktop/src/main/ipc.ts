@@ -48,10 +48,9 @@ import type { TerminalSpawnProfile } from './terminal-contract';
 import type { DesktopService } from './desktop-service-contract';
 import { registerFilePreview } from './file-preview';
 import {
-  browsableFolderPath,
-  listFolderPlaces,
+  absoluteLocalPath,
   MAX_LOCAL_FILE_BYTES,
-} from './folder-explorer';
+} from './local-files';
 import {
   commonInstructionsFile,
   legacyCommonInstructionsFile,
@@ -166,13 +165,12 @@ const SERVICE_OPERATION_NAMES = [
   'ghPrMerge', 'ghPrView',
 ] as const;
 interface DesktopIpcDependencies {
-  app: Pick<App, 'quit'> & Partial<Pick<App, 'getPath' | 'getFileIcon'>>;
+  app: Pick<App, 'quit'> & Partial<Pick<App, 'getPath'>>;
   ipcMain: Pick<IpcMain, 'handle' | 'removeHandler' | 'on' | 'removeListener'>;
   dialog: Pick<Dialog, 'showOpenDialog' | 'showMessageBox'>
     & Partial<Pick<Dialog, 'showSaveDialog'>>;
   shell: Pick<Shell, 'openPath' | 'openExternal' | 'showItemInFolder' | 'trashItem'>;
   powerMonitor?: Pick<PowerMonitor, 'on' | 'removeListener'>;
-  nativeImage?: Pick<typeof import('electron').nativeImage, 'createThumbnailFromPath'>;
   settingsStore?: Pick<DesktopSettingsStore,
     'read' | 'update' | 'readZoom' | 'updateZoom' | 'readGitPreferences' | 'updateGitPreferences'>;
   /** Fires after a successful desktop-settings write (keep-awake wiring). */
@@ -182,6 +180,7 @@ interface DesktopIpcDependencies {
     'browserImportSources'
     | 'browserImport'
     | 'browserHistorySearch'
+    | 'releaseSession'
     | 'setGuestActive'
     | 'browserCredentialSuggestions'
     | 'browserCredentialFill'>;
@@ -218,7 +217,6 @@ export function registerDesktopIpc(
     dialog,
     shell,
     powerMonitor: powerMonitorRef,
-    nativeImage: nativeImageRef,
     settingsStore,
     onDesktopSettingsChanged,
     browserHost,
@@ -361,7 +359,7 @@ export function registerDesktopIpc(
     let grantsChanged = false;
     const rows: DesktopLocalPathEntry[] = [];
     for (const raw of value) {
-      const absolutePath = browsableFolderPath(raw);
+      const absolutePath = absoluteLocalPath(raw);
       const info = await fsStat(absolutePath);
       const row: DesktopLocalPathEntry = {
         absolutePath,
@@ -463,113 +461,9 @@ export function registerDesktopIpc(
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
-  handle(DESKTOP_IPC.chooseFolder, async () => {
-    // PARENTLESS on purpose: the window-parented modal can fail to present on
-    // Windows (IFileDialog silently auto-cancels ~5s later without ever
-    // creating a dialog window — reproduced with a minimal Electron app).
-    // The parentless dialog always presents; losing modality is acceptable.
-    const result = await dialog.showOpenDialog({
-      title: 'Open Folder',
-      properties: ['openDirectory'],
-    });
-    return result.canceled ? null : (result.filePaths[0] ?? null);
-  });
-  const requiredFolderPaths = (value: unknown): string[] => {
-    if (!Array.isArray(value) || value.length === 0 || value.length > 500) {
-      throw new TypeError('paths are invalid.');
-    }
-    return value.map((path) => browsableFolderPath(path));
-  };
-  handle(DESKTOP_IPC.listFolderDir, (_event, dir) =>
-    invokeDesktopOperation('listFolderDirAbs', [browsableFolderPath(dir)]));
-  handle(DESKTOP_IPC.createFolderEntry, (_event, dir, name, isDir) =>
-    invokeDesktopOperation(
-      'createFolderEntryAbs',
-      [browsableFolderPath(dir), requiredString(name, 'name', 255), isDir === true],
-    ));
-  handle(DESKTOP_IPC.renameFolderEntry, (_event, path, newName) =>
-    invokeDesktopOperation(
-      'renameFolderEntryAbs',
-      [browsableFolderPath(path), requiredString(newName, 'newName', 255)],
-    ));
-  handle(DESKTOP_IPC.moveFolderEntry, (_event, paths, targetDir, strategy) => {
-    const sources = requiredFolderPaths(paths);
-    const target = browsableFolderPath(targetDir);
-    const mode = strategy === 'replace' || strategy === 'keepBoth' || strategy === 'skip'
-      ? strategy
-      : 'ask';
-    // Replace keeps Electron's recoverable OS trash, but both the conflict
-    // scan and the actual move execute in the daemon. If the second scan sees
-    // a new race it reports conflicts instead of deleting anything.
-    if (mode === 'replace') {
-      return (async () => {
-        const moved: Array<{ from: string; to: string }> = [];
-        for (const source of sources) {
-          const first = await invokeDesktopOperation<{
-            conflicts?: string[]; moved: Array<{ from: string; to: string }>;
-          }>('moveFolderEntriesAbs', [[source], target, 'ask']);
-          if (first.moved.length) {
-            moved.push(...first.moved);
-            continue;
-          }
-          if (first.conflicts?.length) {
-            await shell.trashItem(resolvePath(target, pathBasename(first.conflicts[0])));
-            const second = await invokeDesktopOperation<{
-              conflicts?: string[]; moved: Array<{ from: string; to: string }>;
-            }>('moveFolderEntriesAbs', [[source], target, 'ask']);
-            if (second.conflicts?.length) return { conflicts: second.conflicts, moved };
-            moved.push(...second.moved);
-          }
-        }
-        return { moved };
-      })();
-    }
-    return invokeDesktopOperation(
-      'moveFolderEntriesAbs',
-      [sources, target, mode],
-    );
-  });
-  handle(DESKTOP_IPC.copyFolderEntry, (_event, paths, targetDir) =>
-    invokeDesktopOperation(
-      'copyFolderEntriesAbs',
-      [requiredFolderPaths(paths), browsableFolderPath(targetDir)],
-    ));
-  handle(DESKTOP_IPC.trashFolderEntry, async (_event, path) => {
-    await shell.trashItem(browsableFolderPath(path));
-  });
-  handle(DESKTOP_IPC.openFolderEntry, async (_event, path) => {
-    const failure = await shell.openPath(browsableFolderPath(path));
-    if (failure) throw new Error(failure);
-  });
-  handle(DESKTOP_IPC.revealFolderEntry, async (_event, path) => {
-    shell.showItemInFolder(browsableFolderPath(path));
-  });
-  handle(DESKTOP_IPC.folderPlaces, () =>
-    listFolderPlaces(typeof app.getPath === 'function'
-      ? (name) => app.getPath!(name)
-      : undefined));
-  handle(DESKTOP_IPC.folderEntryIcon, async (_event, path, thumbnail, size) => {
-    const target = browsableFolderPath(path);
-    const edge = Number.isFinite(Number(size))
-      ? Math.max(32, Math.min(1024, Math.round(Number(size))))
-      : 96;
-    if (thumbnail === true && nativeImageRef?.createThumbnailFromPath) {
-      try {
-        const thumb = await nativeImageRef.createThumbnailFromPath(target, { width: edge, height: edge });
-        if (!thumb.isEmpty()) return thumb.toDataURL();
-      } catch { /* fall back to the shell icon */ }
-    }
-    if (typeof app.getFileIcon === 'function') {
-      try {
-        const icon = await app.getFileIcon(target, { size: 'large' });
-        if (!icon.isEmpty()) return icon.toDataURL();
-      } catch { /* renderer falls back to a generic glyph */ }
-    }
-    return '';
-  });
   handle(DESKTOP_IPC.resolveLocalPaths, (_event, paths) => describeLocalPaths(paths));
   handle(DESKTOP_IPC.readLocalFile, async (_event, rawPath) => {
-    const file = browsableFolderPath(rawPath);
+    const file = absoluteLocalPath(rawPath);
     const info = await fsStat(file);
     if (!info.isFile()) throw new Error('Only files can be attached.');
     if (info.size > MAX_LOCAL_FILE_BYTES) {
@@ -583,13 +477,13 @@ export function registerDesktopIpc(
       data: data.toString('base64'),
     };
   });
-  // Explorer pane live refresh is daemon-owned and refcounted there.
+  // Project file refresh is daemon-owned and refcounted there.
   handle(DESKTOP_IPC.folderWatch, (_event, dirRaw, recursive) => {
-    const dir = browsableFolderPath(dirRaw);
+    const dir = absoluteLocalPath(dirRaw);
     return invokeDesktopOperation('folderWatch', [dir, recursive === true]);
   });
   handle(DESKTOP_IPC.folderUnwatch, (_event, dirRaw, recursive) => {
-    const dir = browsableFolderPath(dirRaw);
+    const dir = absoluteLocalPath(dirRaw);
     return invokeDesktopOperation('folderUnwatch', [dir, recursive === true]);
   });
   handle(DESKTOP_IPC.chooseFile, async (_event, defaultPath) => {
@@ -1014,8 +908,12 @@ export function registerDesktopIpc(
     if (typeof archived !== 'boolean') throw new TypeError('archived must be a boolean.');
     return host.setSessionArchived(requiredSessionId(sessionId), archived);
   });
-  handle(DESKTOP_IPC.deleteSession, (_event, sessionId) =>
-    host.deleteSession(requiredSessionId(sessionId)));
+  handle(DESKTOP_IPC.deleteSession, async (_event, sessionId) => {
+    const ownerSessionId = requiredSessionId(sessionId);
+    const snapshot = await host.deleteSession(ownerSessionId);
+    browserHost?.releaseSession(ownerSessionId);
+    return snapshot;
+  });
   handle(DESKTOP_IPC.prefetchSession, (_event, sessionId, itemLimit) =>
     host.prefetchSession(
       requiredSessionId(sessionId),
@@ -1159,16 +1057,14 @@ export function registerDesktopIpc(
       return saved;
     });
   });
-  handle(DESKTOP_IPC.browserSetActiveGuest, (_event, paneId, webContentsId, active) => {
+  handle(DESKTOP_IPC.browserSetActiveGuest, (_event, sessionId, webContentsId, active) => {
     if (!browserHost) throw new Error('Browser Use is unavailable in this app surface.');
-    if (typeof paneId !== 'string' || !/^browser_tab_[a-z0-9-]{4,120}$/i.test(paneId)) {
-      throw new TypeError('Browser pane id is invalid.');
-    }
+    const ownerSessionId = requiredSessionId(sessionId);
     if (!Number.isSafeInteger(webContentsId) || Number(webContentsId) <= 0) {
       throw new TypeError('Browser guest id is invalid.');
     }
     if (typeof active !== 'boolean') throw new TypeError('Browser guest activity is invalid.');
-    browserHost.setGuestActive(paneId, Number(webContentsId), active);
+    browserHost.setGuestActive(ownerSessionId, Number(webContentsId), active);
   });
   handle(DESKTOP_IPC.browserProfileImportSources, () => {
     if (!browserHost) throw new Error('Browser profile import is unavailable in this app surface.');
@@ -1211,16 +1107,16 @@ export function registerDesktopIpc(
     }
     return browserHost.browserHistorySearch(query);
   });
-  handle(DESKTOP_IPC.browserCredentialSuggestions, () => {
+  handle(DESKTOP_IPC.browserCredentialSuggestions, (_event, sessionId) => {
     if (!browserHost) throw new Error('Stored browser credentials are unavailable in this app surface.');
-    return browserHost.browserCredentialSuggestions();
+    return browserHost.browserCredentialSuggestions(requiredSessionId(sessionId));
   });
-  handle(DESKTOP_IPC.browserCredentialFill, (_event, credentialId) => {
+  handle(DESKTOP_IPC.browserCredentialFill, (_event, sessionId, credentialId) => {
     if (!browserHost) throw new Error('Stored browser credentials are unavailable in this app surface.');
     if (typeof credentialId !== 'string' || !/^[a-f0-9]{24}$/.test(credentialId)) {
       throw new TypeError('Stored browser credential id is invalid.');
     }
-    return browserHost.browserCredentialFill(credentialId);
+    return browserHost.browserCredentialFill(requiredSessionId(sessionId), credentialId);
   });
   handle(DESKTOP_IPC.readGitPreferences, () =>
     settingsStore?.readGitPreferences() ?? invokeDesktopOperation('readGitPreferences', []));

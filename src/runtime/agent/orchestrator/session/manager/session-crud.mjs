@@ -4,7 +4,7 @@
 // clear-fork), manual compaction, status update, and metric flush.
 import { loadSession, saveSessionAsync, setLiveSession, evictLiveSession, listStoredSessionSummaries } from '../store.mjs';
 import { estimateMessagesTokens, estimateTranscriptContextUsage } from '../context-utils.mjs';
-import { normalizeCompactType, DEFAULT_COMPACT_TYPE, SUMMARY_PREFIX } from '../compact.mjs';
+import { SUMMARY_PREFIX } from '../compact.mjs';
 import { runSessionCompaction, resolveSessionCompactionPolicy } from './compaction-runner.mjs';
 import {
     currentContextEstimateTokens,
@@ -89,20 +89,12 @@ export async function clearSessionMessages(sessionId, options = {}) {
     // Don't resurrect a closed session just to clear its messages.
     if (session.closed === true) return false;
     const clearOptions = options && typeof options === 'object' ? options : {};
-    const requestedCompactType = clearOptions.compactType ?? clearOptions.compact_type ?? clearOptions.type;
-    const compactBeforeClear = requestedCompactType != null && requestedCompactType !== false && String(requestedCompactType).trim() !== '';
+    const compactBeforeClear = clearOptions.compact === true;
     const keep = [];
     let messages = Array.isArray(session.messages) ? session.messages : [];
     const beforeMessageTokens = estimateMessagesTokens(messages);
-    let clearCompactType = null;
     let clearCompactError = null;
     if (compactBeforeClear && messages.length >= 3) {
-        clearCompactType = normalizeCompactType(requestedCompactType, DEFAULT_COMPACT_TYPE);
-        session.compaction = {
-            ...(session.compaction || {}),
-            type: clearCompactType,
-            compactType: clearCompactType,
-        };
         try {
             const compactResult = await runSessionCompaction(session, { mode: 'manual', force: true, sessionId });
             if (compactResult?.error) {
@@ -132,7 +124,6 @@ export async function clearSessionMessages(sessionId, options = {}) {
             lastCheckedAt: now,
             lastChanged: false,
             lastClearAt: session.compaction?.lastClearAt || null,
-            lastClearCompactType: clearCompactType || session.compaction?.compactType || null,
             lastClearCompactError: clearCompactError?.message || String(clearCompactError),
         };
         session.updatedAt = now;
@@ -269,7 +260,6 @@ export async function clearSessionMessages(sessionId, options = {}) {
         lastClearAfterTokens: afterTokens,
         lastClearBeforeMessageTokens: beforeMessageTokens,
         lastClearAfterMessageTokens: afterMessageTokens,
-        lastClearCompactType: clearCompactType || session.compaction?.compactType || null,
         lastClearCompactError: clearCompactError?.message || null,
     };
     if (summaryCarriedForward && postClearPolicy) {
@@ -297,17 +287,8 @@ export async function compactSessionMessages(sessionId) {
     const result = await runSessionCompaction(session, {
         mode: 'manual',
         force: true,
-        // No compactType/model override: follow the hard-locked per-session
-        // type (main = recall-fasttrack, agent = semantic). The former forced
-        // semantic + session.model here ran every manual /compact as a
-        // flagship-model summary call (27-38s measured); fasttrack is local
-        // (ingest + digest) and semantic remains only the degraded fallback
-        // inside the runner, where resolveSemanticSummaryModel downshifts the
-        // summary model.
-        // If the semantic fallback does run, filter older source history
-        // through the same pure-conversation filter as Memory ingest_session;
-        // protected system context and recent turns are still preserved
-        // separately by semantic compaction.
+        // One fresh-context path owns Main and Agent sessions. Main hydrates
+        // its canonical Memory handoff; Agent generates a session-local one.
         filterOldHistoryForIngest: true,
         provider: getProvider(session.provider),
         sessionId,

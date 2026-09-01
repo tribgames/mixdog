@@ -335,12 +335,14 @@ test('model-first PPTX plans preserve authored geometry, repair safe bounds, and
     }],
   });
   assert.notEqual(first.semantic[0].composition.id, second.semantic[0].composition.id);
-  assert.throws(() => expandOfficeDesignOperations({
+  const synthesized = expandOfficeDesignOperations({
     format: 'pptx',
     backend: 'microsoft-office-com',
     created: true,
     operations: [{ op: 'compose_slide', kind: 'cover', title: 'Missing plan' }],
-  }), /MODEL_COMPOSITION_PLAN_REQUIRED.*No template fallback was applied/);
+  });
+  assert.equal(synthesized.semantic[0].plan.name, 'frontier-editorial-opening');
+  assert.equal(synthesized.design.creative.standard, 'frontier-office-v1');
   assert.throws(() => normalizePptxModelPlan({
     kind: 'chart',
     title: 'Broken geometry',
@@ -352,6 +354,172 @@ test('model-first PPTX plans preserve authored geometry, repair safe bounds, and
       ],
     },
   }, resolveOfficeDesign('pptx', {}), 2), /MODEL_COMPOSITION_PLAN_OVERLAP.*No template fallback was applied/);
+});
+
+test('Creative Director synthesizes editable frontier visuals when scratch plans are omitted', () => {
+  const expanded = expandOfficeDesignOperations({
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    created: true,
+    operations: [
+      {
+        op: 'compose_slide',
+        kind: 'chart',
+        title: 'Revenue growth cleared the investment gate',
+        chart: {
+          categories: ['May', 'June', 'July'],
+          series: [{ name: 'Revenue', values: [100, 110, 124] }],
+        },
+        annotations: [{ label: 'July', value: 124, note: '+12.7% vs prior' }],
+      },
+      {
+        op: 'compose_slide',
+        kind: 'statement',
+        title: 'Three measures support the decision',
+        metrics: [
+          { label: 'Revenue', value: 124 },
+          { label: 'Profit', value: 18, detail: '백만원' },
+          { label: 'Margin', value: '14.5%', detail: '%' },
+        ],
+      },
+      {
+        op: 'compose_slide',
+        kind: 'comparison',
+        title: 'Fund both tracks',
+        allocations: [
+          { label: 'Growth', value: 50, displayValue: '$0.9m', detail: 'Release ≥ 13.5% margin · Stop < 13.5%' },
+          { label: 'Retention', value: 50, displayValue: '$0.9m', detail: 'Release ≤ 2.4% churn · Stop < NPS 52' },
+        ],
+      },
+      {
+        op: 'compose_slide',
+        kind: 'process',
+        title: 'Recheck the decision in 30 days',
+        steps: [
+          { phase: 'D1', title: 'Owner', detail: 'Assign accountability' },
+          { phase: 'D30', title: 'Gate', detail: 'Release or stop' },
+        ],
+      },
+    ],
+  });
+  assert.equal(expanded.design.creative.standard, 'frontier-office-v1');
+  assert.deepEqual(
+    expanded.semantic.map((entry) => entry.plan.visualType),
+    ['annotated-chart', 'scorecard', 'allocation', 'timeline'],
+  );
+  assert.deepEqual(
+    expanded.semantic.map((entry) => entry.backgroundRole),
+    ['canvas', 'canvas', 'inverse', 'canvas'],
+  );
+  const chart = expanded.operations.find((entry) => entry.op === 'add_chart');
+  assert.equal(chart.showValues, true);
+  assert.deepEqual(chart.series[0].pointColors, [
+    expanded.design.tokens.colors.accent,
+    expanded.design.tokens.colors.accent,
+    expanded.design.tokens.colors.accent2,
+  ]);
+  const renderedText = expanded.operations
+    .filter((entry) => entry.op === 'add_textbox')
+    .map((entry) => String(entry.text));
+  assert.ok(renderedText.includes('124'));
+  assert.ok(renderedText.includes('18'));
+  assert.ok(renderedText.includes('14.5%'));
+  assert.equal(renderedText.includes('%'), false);
+  assert.ok(renderedText.includes('DECISION SIGNALS'));
+  assert.ok(renderedText.includes('PRIMARY PROOF'));
+  assert.ok(renderedText.includes('SUPPORTING PROOF 02'));
+  assert.ok(renderedText.includes('SUPPORTING PROOF 03'));
+  assert.ok(renderedText.includes('RELEASE'));
+  assert.ok(renderedText.includes('STOP'));
+  assert.ok(renderedText.includes('CHECKPOINT'));
+  assert.ok(renderedText.includes('ACTION'));
+  assert.ok(renderedText.includes('CADENCE D1 / D30'));
+  assert.ok(renderedText.includes('CADENCE D30 / D30'));
+  const allocationValue = expanded.operations.find((entry) => (
+    entry.op === 'add_textbox' && entry.slide === 3 && entry.text === '$0.9m'
+  ));
+  const allocationGate = expanded.operations.find((entry) => (
+    entry.op === 'add_textbox' && entry.slide === 3 && entry.text === '≥ 13.5% margin'
+  ));
+  assert.equal(allocationValue.properties.color, expanded.design.tokens.colors.inverse);
+  assert.equal(allocationGate.properties.color, expanded.design.tokens.colors.inverse);
+  const chartValue = expanded.operations.find((entry) => (
+    entry.op === 'add_textbox' && entry.slide === 1 && entry.text === '124'
+  ));
+  const chartNote = expanded.operations.find((entry) => (
+    entry.op === 'add_textbox' && entry.slide === 1 && entry.text === '+12.7% vs prior'
+  ));
+  const profitValue = expanded.operations.find((entry) => (
+    entry.op === 'add_textbox' && entry.slide === 2 && entry.text === '18'
+  ));
+  const profitUnit = expanded.operations.find((entry) => (
+    entry.op === 'add_textbox' && entry.slide === 2 && entry.text === '백만원'
+  ));
+  assert.ok(chartNote.properties.top - (chartValue.properties.top + chartValue.properties.height) >= 7);
+  assert.ok(profitValue.properties.left + profitValue.properties.width <= profitUnit.properties.left);
+  const allocationConnectors = expanded.operations.filter((entry) => (
+    entry.op === 'add_shape'
+    && entry.slide === 3
+    && entry.properties.width <= 3
+    && entry.properties.height >= 8
+  ));
+  const timelineConnectors = expanded.operations.filter((entry) => (
+    entry.op === 'add_shape'
+    && entry.slide === 4
+    && entry.properties.width <= 3
+    && entry.properties.height >= 8
+  ));
+  assert.equal(allocationConnectors.length, 3);
+  assert.equal(timelineConnectors.length, 2);
+  assert.ok(expanded.operations.filter((entry) => entry.op === 'add_shape').length >= 22);
+  assert.equal(expanded.operations.some((entry) => entry.op === 'import_slides'), false);
+});
+
+test('model plans balance long titles and render closing allocations as a decision stamp', () => {
+  const coverTitle = 'July performance proves we can fund growth without sacrificing retention';
+  const expanded = expandOfficeDesignOperations({
+    format: 'pptx',
+    backend: 'microsoft-office-com',
+    created: true,
+    operations: [
+      {
+        op: 'compose_slide',
+        kind: 'cover',
+        title: coverTitle,
+        subtitle: 'A two-track investment decision',
+      },
+      {
+        op: 'compose_slide',
+        kind: 'closing',
+        title: 'Approve both investment tracks today',
+        subtitle: 'Recheck the release gates in 30 days',
+        visualText: '$1.8m',
+        visualLabel: 'Approval request',
+        allocations: [
+          { label: 'Growth', value: 50, displayValue: '$0.9m' },
+          { label: 'Retention', value: 50, displayValue: '$0.9m' },
+        ],
+      },
+    ],
+  });
+  const coverTitleOperation = expanded.operations.find((entry) => (
+    entry.op === 'add_textbox'
+    && entry.slide === 1
+    && String(entry.text).includes('July performance')
+  ));
+  assert.ok(coverTitleOperation);
+  assert.match(String(coverTitleOperation.text), /\n/u);
+  assert.equal(String(coverTitleOperation.text).replace(/\s*\n\s*/gu, ' '), coverTitle);
+  const closingText = expanded.operations
+    .filter((entry) => entry.op === 'add_textbox' && entry.slide === 2)
+    .map((entry) => String(entry.text));
+  assert.ok(closingText.includes('2 TRACKS · DECISION STAMP'));
+  assert.equal(closingText.filter((entry) => entry === '$0.9m').length, 2);
+  assert.ok(expanded.operations.some((entry) => (
+    entry.op === 'add_shape'
+    && entry.slide === 2
+    && entry.properties?.fillColor === expanded.design.tokens.colors.canvas
+  )));
 });
 
 test('purpose-aware composition varies structure from content topology and recent output history', () => {

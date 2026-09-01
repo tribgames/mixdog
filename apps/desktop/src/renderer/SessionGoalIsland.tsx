@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { liveAgentRows } from './AgentActivityPane';
 import type { GoalSnapshot, GoalTask, Snapshot } from './desktop-types';
@@ -119,6 +119,17 @@ function GoalTaskGlyph({ status }: { status?: GoalTask['status'] }) {
         // Parked on the user, not stalled by us.
         : status === 'awaiting_approval' ? 'paused' : 'pending';
   return <MxIcon name={name} size={14} />;
+}
+
+export function SessionGoalHost({
+  placement,
+  children,
+}: {
+  placement: 'composer' | 'diff';
+  children?: ReactNode;
+}) {
+  return <div className="session-goal-host"
+    data-goal-placement={placement}>{children}</div>;
 }
 
 export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {

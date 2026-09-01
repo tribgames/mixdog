@@ -45,18 +45,41 @@ export function expandXlsxSheet(operation, design, composition) {
   const dataLastColumn = columnLabel(dataColumns);
   let row = 1;
   if (operation.title) {
-    output.push({ op: 'set_cell', sheet, cell: 'A1', value: String(operation.title) });
-    if (columns > 1) output.push({ op: 'merge_cells', sheet, range: `A1:${lastColumn}1` });
+    if (dashboard) {
+      output.push({
+        op: 'set_cell',
+        sheet,
+        cell: 'A1',
+        value: String(operation.eyebrow || 'EXECUTIVE DECISION DASHBOARD'),
+      });
+      if (columns > 1) output.push({ op: 'merge_cells', sheet, range: `A1:${lastColumn}1` });
+      output.push({
+        op: 'set_style',
+        sheet,
+        range: `A1:${lastColumn}1`,
+        properties: {
+          fontName: type.data,
+          fontSize: 9,
+          bold: true,
+          color: colors.accent,
+          fillColor: colors.canvas,
+          verticalAlignment: 'center',
+        },
+      });
+      row += 1;
+    }
+    output.push({ op: 'set_cell', sheet, cell: `A${row}`, value: String(operation.title) });
+    if (columns > 1) output.push({ op: 'merge_cells', sheet, range: `A${row}:${lastColumn}${row}` });
     output.push({
       op: 'set_style',
       sheet,
-      range: `A1:${lastColumn}1`,
+      range: `A${row}:${lastColumn}${row}`,
       properties: {
         fontName: type.display,
         fontSize: Number(operation.titleSize) || format.title + (dashboard ? 2 : 0),
         bold: true,
-        color: analysisSheet ? colors.ink : narrativeScorecard ? colors.onAccent : colors.onInverse,
-        fillColor: analysisSheet ? colors.surface2 : narrativeScorecard ? colors.accent : colors.inverse,
+        color: analysisSheet || dashboard ? colors.ink : narrativeScorecard ? colors.onAccent : colors.onInverse,
+        fillColor: analysisSheet || dashboard ? colors.canvas : narrativeScorecard ? colors.accent : colors.inverse,
         verticalAlignment: 'center',
         wrapText: true,
       },

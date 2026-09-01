@@ -191,7 +191,6 @@ stdout; diagnostics remain on stderr.
 /mcp          manage MCP servers and tools
 /skills       choose a skill for the next request
 /plugins      manage local plugin integrations
-/hooks        manage before-tool hooks and events
 /setting      open runtime settings
 /profile      set your title and response language
 /update       check for updates

@@ -240,7 +240,6 @@ export function createUsageContextPanels({
           state: compactState,
           triggerTokens: compactTrigger,
           boundaryTokens: compactBoundary,
-          type: compaction.compactType || compaction.type || null,
           bufferTokens: (() => {
             const raw = Number(compaction.bufferTokens);
             if (Number.isFinite(raw)) return Math.max(0, raw);

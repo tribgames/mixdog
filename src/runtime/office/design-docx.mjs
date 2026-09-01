@@ -1,6 +1,7 @@
 import { plainObject, strings } from './design-tokens.mjs';
 import {
   addDocxDecisionCallout,
+  addDocxMetricStrip,
   addDocxRoadmap,
   addDocxSectionTable,
 } from './design-docx-components.mjs';
@@ -128,17 +129,44 @@ export function expandDocxDocument(operation, design, state, backend, compositio
       });
     }
   }
-  for (const section of Array.isArray(operation.sections) ? operation.sections : []) {
+  if (Array.isArray(operation.metrics) && operation.metrics.length) {
+    addDocxMetricStrip(output, state, operation.metrics, design);
+  }
+  const sections = Array.isArray(operation.sections) ? operation.sections : [];
+  for (const [sectionIndex, section] of sections.entries()) {
     const sectionKind = String(section.kind || '').trim().toLowerCase();
+    const spreadBreak = section.pageBreak === true
+      || (
+        section.pageBreak !== false
+        && decisionBrief
+        && sections.length >= 4
+        && sectionIndex === Math.ceil(sections.length / 2)
+      );
+    if (editorialReport || decisionBrief) {
+      append(`${String(sectionIndex + 1).padStart(2, '0')} / ${String(section.eyebrow || sectionKind || 'EVIDENCE').toUpperCase()}`, 'Normal', {
+        name: type.data,
+        size: 8,
+        bold: true,
+        color: colors.muted,
+        spacingBefore: compactMemo ? 5 : 10,
+        spacingAfter: 2,
+        keepWithNext: true,
+        pageBreakBefore: spreadBreak,
+      });
+    }
     append(section.heading || section.title, Number(section.level) === 2 ? 'Heading 2' : 'Heading 1', {
       name: type.display,
       size: (Number(section.level) === 2 ? format.heading2 : format.heading1) + (editorialReport ? 1 : 0),
       bold: true,
       color: section.accent === false || evidenceBrief ? colors.ink : colors.accent,
-      spacingBefore: compactMemo ? (Number(section.level) === 2 ? 6 : 10) : Number(section.level) === 2 ? 9 : 14,
+      spacingBefore: editorialReport || decisionBrief
+        ? 0
+        : compactMemo
+          ? (Number(section.level) === 2 ? 6 : 10)
+          : Number(section.level) === 2 ? 9 : 14,
       spacingAfter: editorialReport ? 7 : 5,
       keepWithNext: true,
-      pageBreakBefore: section.pageBreak === true,
+      pageBreakBefore: spreadBreak && !(editorialReport || decisionBrief),
     });
     for (const paragraph of strings(section.paragraphs || section.body)) {
       append(paragraph, 'Normal', {

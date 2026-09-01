@@ -1,7 +1,7 @@
 export type SettingsSection =
-  | 'profile' | 'autoclear' | 'autocompact' | 'compact-type' | 'output-style'
+  | 'profile' | 'autoclear' | 'autocompact' | 'output-style'
   | 'theme' | 'workflow' | 'model' | 'websearch' | 'providers' | 'mcp'
-  | 'plugins' | 'hooks' | 'skills' | 'memory' | 'voice' | 'update';
+  | 'plugins' | 'skills' | 'memory' | 'voice' | 'update';
 
 export type CommandSurface = 'context' | 'usage' | 'doctor' | 'inherit';
 
@@ -43,7 +43,6 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   { name: 'skills', usage: '/skills', description: 'Choose a skill for the next request', settingsRow: 'skills' },
   { name: 'memory', usage: '/memory', params: '[status|core ...]', description: 'List and edit core memories', settingsRow: 'memory' },
   { name: 'plugins', usage: '/plugins', description: 'Manage local plugin integrations', settingsRow: 'plugins' },
-  { name: 'hooks', usage: '/hooks', description: 'Manage before-tool hook rules and events', settingsRow: 'hooks' },
   { name: 'providers', usage: '/providers', description: 'Manage auth, API keys, OAuth, and local endpoints', settingsRow: 'providers' },
   { name: 'settings', usage: '/setting', aliases: ['setting', 'config'], aliasUsage: ['settings', 'config'], showAliasUsage: false, description: 'Open runtime settings', action: 'settings' },
   { name: 'profile', usage: '/profile', description: 'Set your title, development experience, and response language', settingsRow: 'profile' },

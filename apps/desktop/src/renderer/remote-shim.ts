@@ -66,12 +66,9 @@ import {
 } from './remote-connection-state';
 
 const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
-// OS-shell integrations (recoverable trash, open-with, reveal) are Electron
-// APIs the daemon behind the relay cannot reach. Reporting them keeps a remote
-// action honest instead of silently doing nothing.
+// Recoverable trash is an Electron API the daemon behind the relay cannot
+// reach. Reporting that keeps a remote action honest instead of doing nothing.
 const DESKTOP_ONLY_TRASH = 'Moving items to the trash is available in the desktop app only.';
-const DESKTOP_ONLY_OPEN = 'Opening a file in its default app is available in the desktop app only.';
-const DESKTOP_ONLY_REVEAL = 'Showing an item in the file manager is available in the desktop app only.';
 const TOKEN_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.token;
 const SERVER_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.server;
 const BROWSER_ID_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.browserId;
@@ -1640,9 +1637,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       try { window.open(target, '_blank', 'noopener'); } catch { /* popup blocked */ }
       return Promise.resolve();
     },
-    remoteBrowserFrame: (previousFrameId) =>
-      call('browserRemoteFrame', [previousFrameId ?? '']),
-    remoteBrowserControl: (input) => call('browserRemoteControl', [input]),
+    remoteBrowserFrame: (sessionId, previousFrameId) =>
+      call('browserRemoteFrame', [sessionId, previousFrameId ?? '']),
+    remoteBrowserControl: (sessionId, input) =>
+      call('browserRemoteControl', [sessionId, input]),
     renameProject: (projectPath, alias) => call('renameProject', [projectPath, alias]),
     removeProject: (projectPath) => call('removeProject', [projectPath]),
     listProjectDir: (projectPath, relDir) => call('listProjectDir', [projectPath, relDir]),
@@ -1697,25 +1695,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       laneSubscription('editor', lspDiagnosticsListeners, listener),
     subscribeLspStatus: (listener) =>
       laneSubscription('editor', lspStatusListeners, listener),
-    // ── Explorer pane (absolute-path local browsing) ───────────────────────
-    // Native pickers belong to the desktop window; every caller already reads
-    // null as "nothing was chosen".
-    chooseFolder: () => Promise.resolve(null),
     chooseWorkspace: () => Promise.resolve(null),
     saveWorkspace: (workspaceFile, folders) =>
       call('saveWorkspace', [workspaceFile ?? null, folders]),
-    listFolderDir: (dir) => call('listFolderDir', [dir]),
-    folderPlaces: () => call('folderPlaces'),
-    createFolderEntry: (dir, name, isDir) => call('createFolderEntry', [dir, name, isDir === true]),
-    renameFolderEntry: (path, newName) => call('renameFolderEntry', [path, newName]),
-    moveFolderEntry: (paths, targetDir, strategy) =>
-      call('moveFolderEntry', [paths, targetDir, strategy ?? 'ask']),
-    copyFolderEntry: (paths, targetDir) => call('copyFolderEntry', [paths, targetDir]),
-    trashFolderEntry: () => Promise.reject(new Error(DESKTOP_ONLY_TRASH)),
-    openFolderEntry: () => Promise.reject(new Error(DESKTOP_ONLY_OPEN)),
-    revealFolderEntry: () => Promise.reject(new Error(DESKTOP_ONLY_REVEAL)),
-    // Shell-rendered icons cannot cross the wire; the pane's own glyphs stand in.
-    folderEntryIcon: () => Promise.resolve(''),
     // Only Electron's webUtils can name an OS-dropped file. A browser drop
     // carries the File itself, which the composer reads without a path.
     folderPathForFile: () => '',

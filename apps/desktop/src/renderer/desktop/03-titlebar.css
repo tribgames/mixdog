@@ -22,11 +22,10 @@ html[data-mixdog-remote] .titlebar-caption-space {
   /* Center the 28px content row in the 35px bar so it shares the Windows
      caption buttons' optical center (y=17.5). The old flex-start + 8px top
      padding pushed content to y=24 — visibly low next to min/max/close.
-     Left 5px: with the flat flush layout (no 8px band inset) the toggle's
-     glyph center lines up with the sidebar's New task / Project icons. */
+     Left 5px keeps the frameless brand aligned with the sidebar rail. */
   align-items: center;
   column-gap: 6px;
-  /* The draggable run expands first; layout controls dock immediately before
+  /* The draggable run expands first; the updater docks immediately before
      the Windows caption reserve on the right. */
   padding: 0 0 0 5px;
   overflow: visible;
@@ -36,41 +35,8 @@ html[data-mixdog-remote] .titlebar-caption-space {
 }
 .topbar button,
 .topbar nav { -webkit-app-region: no-drag; }
-/* All three layout controls share one optical box in the right-edge cluster. */
-.topbar .toolbar-sidebar,
-.topbar .toolbar-panel,
-.topbar .toolbar-dock {
-  width: 36px;
-  height: 28px;
-  border-radius: var(--mx-radius-md);
-}
 /* The ◀ ▶ pane-cycle pair was removed from the bar (user: 좌우 이동 버튼
    의미 없는 듯 — 지우자); Alt+Left/Right keeps the same focus cycle. */
-/* Meet the Windows caption glyphs (─ ㅁ ×) halfway (user: 중간점으로
-   통일): ONE stroke weight for every window-bar glyph, so the whole bar
-   reads as a single line. The old 1.1px was a 24-grid value that inked only
-   0.73 device px — the lightest, blurriest stroke in the shell. */
-.topbar .titlebar-nav .sidebar-toggle-icon,
-.topbar .titlebar-controls .sidebar-toggle-icon { stroke-width: 1px; }
-/* One chrome ink for every window-bar control (user: 아이콘 색감 맞추자):
-   the sidebar toggle's full-ink override made it heavier than the arrows
-   and panel/dock glyphs beside it — all rest at --mx-icon, hover lifts. */
-.topbar .toolbar-sidebar { color: var(--mx-icon); }
-.topbar .toolbar-sidebar:hover,
-.topbar .toolbar-sidebar:focus-visible { color: var(--mx-text); }
-/* Beside the OS caption glyphs (~10px, Windows-drawn, untouchable) the 18px
-   frame read a full tier heavier (user: 최소·최대·닫기와 이질감). One step
-   down narrows the gap; pane-header clusters keep 18px. */
-.topbar .toolbar-sidebar .sidebar-toggle-icon,
-.topbar .toolbar-panel .sidebar-toggle-icon,
-.topbar .toolbar-dock .sidebar-toggle-icon {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
-  /* Stroke now comes from the pixel-snapped global. This slot used to hand-
-     compensate the 24-grid scale (1.5 SVG px ≈ 1 device px at 16px, after
-     user: 덜 선명해졌다) — non-scaling-stroke does that for every size. */
-}
 /* Chat-pane corner cluster (context, connector, review): overlays the
    surface's top-right, matching the retired header's control position. */
 .workspace-corner-controls {
@@ -161,7 +127,7 @@ html[data-mixdog-remote] .titlebar-caption-space {
    share the 18px frame (user: 사이드탭 아이콘이 더 작은 게 이해가 안 된다 —
    the dock tabs sat at 16px beside 18px header toggles). The stroke is the
    pixel-snapped 1px global; this cluster no longer thins it by hand. */
-/* The three layout toggles read one ink step QUIETER than content icons
+/* Layout toggles read one ink step QUIETER than content icons
    (user: 여는 메뉴만 눈에 띄게 밝다 — 색감 통일): codicon glyphs carry more
    ink than the old 1.25px lucide strokes, so soft ink restores the old
    optical weight; interaction states re-ink to full text. */

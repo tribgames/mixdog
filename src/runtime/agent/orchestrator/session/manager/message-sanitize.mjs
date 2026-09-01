@@ -90,7 +90,13 @@ function applyCompactFailurePersistToSession(activeSession, {
     if (activeSession.compaction && typeof activeSession.compaction === 'object'
         && (activeSession.compaction.lastStage === 'compacting'
             || activeSession.compaction.lastStage === 'overflow_failed')) {
-        const prev = activeSession.compaction;
+        const prev = { ...activeSession.compaction };
+        for (const key of [
+            'lastSemantic',
+            'lastSemanticError',
+            'lastRecallFastTrack',
+            'lastRecallFastTrackError',
+        ]) delete prev[key];
         const cause = error?.cause;
         const overflow = error?.code === 'AGENT_CONTEXT_OVERFLOW';
         activeSession.compaction = {
@@ -100,9 +106,7 @@ function applyCompactFailurePersistToSession(activeSession, {
                 : (overflow ? 'overflow_failed' : 'failed'),
             lastCheckedAt: Date.now(),
             lastError: prev.lastError || cause?.message || error?.message || null,
-            lastSemanticError: prev.lastSemanticError || cause?.message || null,
-            lastRecallFastTrackError: prev.lastRecallFastTrackError
-                || (cause?.message && String(cause?.name || '').includes('Recall') ? cause.message : null),
+            lastFreshContextError: prev.lastFreshContextError || cause?.message || error?.message || null,
         };
     }
     return true;

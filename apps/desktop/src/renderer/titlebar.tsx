@@ -1,7 +1,6 @@
 // Window title bar: a clean drag band. The workspace tab strips moved into
 // the panes themselves (WorkspaceTabStrip); the bar
-// keeps the draggable run, the updater badge plus the three global layout
-// toggles on its right edge, and the Windows caption reserve.
+// keeps the draggable run, the updater badge, and the Windows caption reserve.
 import { ArrowDown } from "lucide-react";
 
 import type { DesktopUpdaterState } from "../shared/contract";
@@ -9,35 +8,11 @@ import { t } from "./i18n";
 import { ProgressSpinner } from "./ProgressSpinner";
 
 interface DesktopTitlebarProps {
-  sidebarOpen: boolean;
-  onToggleSidebar(): void;
-  panelOpen?: boolean;
-  onTogglePanel?(): void;
-  dockOpen?: boolean;
-  onToggleDock?(): void;
-  sidebarLabel?: string;
-  dockLabel?: string;
   updaterState?: DesktopUpdaterState;
   onOpenUpdate?(): void;
 }
 
-function SidebarToggleIcon({ open }: { open: boolean }) {
-  // Codicon glyph (user: B안 — codicon 도입): font-rendered on
-  // the 16px grid so its lines land on device pixels, unlike lucide's 24-grid
-  // SVGs whose strokes go fractional when scaled to 16/18px boxes.
-  return <span className="sidebar-toggle-icon codicon codicon-layout-sidebar-left"
-    data-state={open ? "open" : "closed"} aria-hidden="true" />;
-}
-
 export function DesktopTitlebar({
-  sidebarOpen,
-  onToggleSidebar,
-  panelOpen = false,
-  onTogglePanel,
-  dockOpen = false,
-  onToggleDock,
-  sidebarLabel = "session sidebar",
-  dockLabel = "utility panel",
   updaterState,
   onOpenUpdate,
 }: DesktopTitlebarProps) {
@@ -48,8 +23,7 @@ export function DesktopTitlebar({
   const electronShell = typeof navigator !== "undefined"
     && /Electron/i.test(navigator.userAgent);
   const windowsCaptionControls = electronShell && /Windows/i.test(navigator.userAgent);
-  // Updater badge (user: 다운로드 아이콘을 사이드바 토글 왼쪽으로): the accent
-  // circle moved from the Activity Bar foot into the layout-control cluster.
+  // The updater stays window-global; layout controls belong to their panes.
   const updateVisible = Boolean(onOpenUpdate)
     && (updaterState?.status === "ready" || updaterState?.status === "installing");
   const updateInstalling = updaterState?.status === "installing";
@@ -66,12 +40,9 @@ export function DesktopTitlebar({
         </span>
       </div>
       <div className="titlebar-spacer" aria-hidden="true" />
-      {/* RIGHT cluster (user: 하단·오른쪽은 우측에, 코덱스와 달리 윗줄에):
-          updater badge + bottom-panel + right-dock toggles, ahead of the
-          native caption reserve. */}
+      {/* RIGHT cluster: updater badge ahead of the native caption reserve.
+          Layout surfaces use contextual pane entry points. */}
       <div className="titlebar-leading titlebar-controls" aria-label={t("Layout controls")}>
-        {/* The updater is the leftmost control; the layout controls follow
-            in primary-sidebar, panel, secondary-sidebar order. */}
         {updateVisible && (
           <button
             type="button"
@@ -87,40 +58,6 @@ export function DesktopTitlebar({
             {updateInstalling
               ? <ProgressSpinner size={12} className="sidebar-update-loader" aria-hidden="true" />
               : <ArrowDown size={16} strokeWidth={2.6} aria-hidden="true" />}
-          </button>
-        )}
-        <button
-          type="button"
-          className="icon-button toolbar-sidebar"
-          onClick={onToggleSidebar}
-          aria-label={t(sidebarOpen ? "Collapse {{label}}" : "Expand {{label}}", { label: t(sidebarLabel) })}
-          aria-expanded={sidebarOpen}
-          aria-controls="session-sidebar"
-        >
-          <SidebarToggleIcon open={sidebarOpen} />
-        </button>
-        {onTogglePanel && (
-          <button
-            type="button"
-            className="icon-button toolbar-panel"
-            onClick={onTogglePanel}
-            aria-pressed={panelOpen}
-            aria-label={t(panelOpen ? "Close panel" : "Open panel")}
-            data-tooltip={t(panelOpen ? "Close panel" : "Open panel")}
-          >
-            <span className="sidebar-toggle-icon codicon codicon-layout-panel" aria-hidden="true" />
-          </button>
-        )}
-        {onToggleDock && (
-          <button
-            type="button"
-            className="icon-button toolbar-dock"
-            onClick={onToggleDock}
-            aria-pressed={dockOpen}
-            aria-label={t(dockOpen ? "Close {{label}}" : "Open {{label}}", { label: t(dockLabel) })}
-            data-tooltip={t(dockOpen ? "Close {{label}}" : "Open {{label}}", { label: t(dockLabel) })}
-          >
-            <span className="sidebar-toggle-icon codicon codicon-layout-sidebar-right" aria-hidden="true" />
           </button>
         )}
       </div>

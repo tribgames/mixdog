@@ -60,7 +60,6 @@ export function ProjectsPane({
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState('');
   const [editConfirmRemove, setEditConfirmRemove] = useState(false);
-  const [editOpening, setEditOpening] = useState(false);
   const editOpenPendingRef = useRef(false);
   const editOpenRequestRef = useRef(0);
   const [memories, setMemories] = useState<CoreMemoryEntry[]>([]);
@@ -110,7 +109,6 @@ export function ProjectsPane({
     if (editOpenPendingRef.current) return;
     editOpenPendingRef.current = true;
     const requestId = ++editOpenRequestRef.current;
-    setEditOpening(true);
     setEditName(title);
     setEditIns(null);
     setEditError('');
@@ -119,6 +117,12 @@ export function ProjectsPane({
     setMemoryDrafts({});
     setAddingMemory(false);
     setConfirmDeleteMemory(null);
+    // The dialog opens on the click itself; instructions and memories stream
+    // into their existing Loading… placeholders below. Holding the dialog
+    // until these round-trips settled froze the row for as long as the
+    // daemon → memory service chain took to answer (user: 프로젝트 옵션
+    // 진입이 느림) — seconds whenever that service was cold or down.
+    setEditTarget({ path, title });
     const instructionsRequest: Promise<string | null> = canEditInstructions && onReadInstructions
       ? onReadInstructions(path).then((text) => String(text ?? ''))
       : Promise.resolve(null);
@@ -148,17 +152,14 @@ export function ProjectsPane({
             : String(memoriesResult.reason));
         }
         editOpenPendingRef.current = false;
-        setEditOpening(false);
         setEditInsLoading(false);
         setMemoriesLoading(false);
         setEditError(errors.join('\n'));
-        setEditTarget({ path, title });
       });
   };
   const resetEdit = () => {
     editOpenRequestRef.current += 1;
     editOpenPendingRef.current = false;
-    setEditOpening(false);
     setEditTarget(null);
     setEditName('');
     setEditIns(null);
@@ -443,7 +444,7 @@ export function ProjectsPane({
       </div>, document.body)}
       {canEditInstructions && <div className="schedules-list projects-list projects-common-instructions">
         <button type="button" className="schedules-row utilities-row projects-row"
-          disabled={editOpening} onClick={() => openEdit(null, 'Common Instructions')}>
+          onClick={() => openEdit(null, 'Common Instructions')}>
           <span className="schedules-row-copy utilities-row-copy">
             <b>{t('Common Instructions')}</b>
             <small>{t('Used for every project.')}</small>
@@ -456,7 +457,6 @@ export function ProjectsPane({
         const selected = projectIdentity(selectedProjectPath) === projectIdentity(project.path);
         return <button type="button" key={project.path}
           className={`schedules-row utilities-row projects-row${selected ? ' selected' : ''}`}
-          disabled={editOpening}
           aria-current={selected ? 'page' : undefined}
           aria-label={t('Edit {{name}}', { name: title })}
           onClick={() => openEdit(project.path, title)}

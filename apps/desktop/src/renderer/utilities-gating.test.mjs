@@ -24,40 +24,73 @@ window.matchMedia = () => ({
 });
 
 let settings = { browserInstalled: false };
+let pendingSettingsRead = null;
 window.mixdogDesktop = {
   setTitleBarDimmed() {},
   rendererDiagnostic() {},
-  readSettings: async () => settings,
+  readSettings: () => pendingSettingsRead ?? Promise.resolve(settings),
 };
 
 const { UtilitiesPane } = await import('./UtilitiesView.tsx');
+const { useBrowserFeatureInstalled } = await import('./browser-feature-install.ts');
 
 const rowLabels = () =>
   [...document.querySelectorAll('.utilities-row b')].map((row) => row.textContent);
 
-test('the Browser utility follows the Browser Use install marker', async () => {
+test('Utilities lists only the surfaces it still owns', async () => {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
   try {
     await act(async () => {
       root.render(React.createElement(UtilitiesPane, {
-        onOpenBrowser() {},
         onOpenStudio() {},
         onOpenTerminal() {},
-        onOpenExplorer() {},
       }));
     });
-    // Browser Use not installed: the pane offers no agent-driven browser entry.
-    assert.deepEqual(rowLabels(), ['Studio', 'Terminal', 'Explorer']);
+    // Browser left for its own rail launcher, so nothing here waits on an
+    // install marker: the list paints complete on first render.
+    assert.deepEqual(rowLabels(), ['Studio', 'Terminal']);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
 
-    // The settings panel announces the install; the entry appears live.
+test('the Browser launcher follows the Browser Use install marker', async () => {
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  const seen = [];
+  const Probe = () => {
+    seen.push(useBrowserFeatureInstalled());
+    return null;
+  };
+  try {
+    let resolveSettings;
+    pendingSettingsRead = new Promise((resolve) => { resolveSettings = resolve; });
+    await act(async () => {
+      root.render(React.createElement(Probe));
+    });
+    // Unknown marker: the caller hides the launcher rather than flash an icon
+    // that vanishes a frame later.
+    assert.equal(seen[0], null);
+
+    await act(async () => {
+      resolveSettings(settings);
+      await pendingSettingsRead;
+    });
+    pendingSettingsRead = null;
+    assert.equal(seen[seen.length - 1], false);
+
+    // The settings panel announces the install; the launcher appears live.
     settings = { browserInstalled: true };
     await act(async () => {
       window.dispatchEvent(new dom.window.Event('mixdog:built-in-features-changed'));
     });
-    assert.deepEqual(rowLabels(), ['Browser', 'Studio', 'Terminal', 'Explorer']);
+    assert.equal(seen[seen.length - 1], true);
   } finally {
+    pendingSettingsRead = null;
     await act(async () => root.unmount());
     host.remove();
   }

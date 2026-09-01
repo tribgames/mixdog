@@ -1,25 +1,37 @@
-import { parseJsonObjectArg, splitBridgeToolArgs } from '../shared/bridge-tool-args.mjs';
+import { splitBridgeToolArgs } from '../shared/bridge-tool-args.mjs';
+import {
+  COMPUTER_CORE_ACTION_SCHEMA,
+  validateComputerCoreActions,
+} from './core-actions.mjs';
 
 /** Actions that only observe the desktop. Naming them on the tool surface lets
  *  a caller repeat one without wondering whether it moved anything; the host
  *  enforces the same split when it decides which session owns a write. */
 export const COMPUTER_OBSERVATION_ACTIONS = Object.freeze([
-  'list', 'diagnose', 'capture', 'verify', 'wait',
+  'list', 'diagnose', 'capture', 'verify',
 ]);
 
-const MAX_TYPE_TEXT_LENGTH = 30_000;
-const MAX_KEY_SEQUENCE_LENGTH = 512;
 const MAX_CLIPBOARD_TEXT_LENGTH = 50_000;
+const MAX_TARGET_TOKEN_LENGTH = 4_096;
+const OCR_LANGUAGE_TAG_PATTERN = '^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$';
+
+const ocrLanguage = {
+  type: 'string',
+  minLength: 2,
+  maxLength: 64,
+  pattern: OCR_LANGUAGE_TAG_PATTERN,
+};
 
 const ACTIONS = [
   'list', 'diagnose', 'capture', 'verify',
-  'click', 'double_click', 'mouse_move', 'drag', 'type', 'key', 'scroll', 'wait',
-  'sequence', 'window', 'menu', 'clipboard', 'launch',
+  'act', 'window', 'menu', 'clipboard', 'launch',
 ];
 
 const windowTarget = {
   window_id: {
     type: 'string',
+    minLength: 1,
+    maxLength: MAX_TARGET_TOKEN_LENGTH,
     description: 'Exact id from list(kind="windows"), e.g. hwnd:0x123ABC.',
   },
 };
@@ -27,34 +39,9 @@ const windowTarget = {
 const appTarget = {
   app: {
     type: 'string',
+    minLength: 1,
+    maxLength: MAX_TARGET_TOKEN_LENGTH,
     description: 'Resolves to one exact window; ambiguous matches are refused.',
-  },
-};
-
-const elementTarget = {
-  ref: {
-    type: 'string',
-    description: 'Fresh semantic ref from capture.',
-  },
-  element: {
-    type: 'integer',
-    minimum: 1,
-    description: 'Fresh 1-based SOM mark, including OCR marks.',
-  },
-};
-
-const framePoint = {
-  frame_id: {
-    type: 'string',
-    description: 'Fresh frame id from capture.',
-  },
-  x: {
-    type: 'integer',
-    description: 'Frame-relative X.',
-  },
-  y: {
-    type: 'integer',
-    description: 'Frame-relative Y.',
   },
 };
 
@@ -64,21 +51,6 @@ const delivery = {
     enum: ['background', 'foreground'],
     description: 'Background by default; foreground is a visible escalation.',
   },
-};
-
-const captureAfter = {
-  type: 'object',
-  description: 'Optional settings for the mandatory fresh observation returned after a UI mutation.',
-  properties: {
-    delay_ms: { type: 'integer', minimum: 0, maximum: 2000 },
-    mode: { type: 'string', enum: ['state', 'som', 'vision', 'ax'] },
-    max_elements: { type: 'integer', minimum: 1, maximum: 1000 },
-    include_ocr: { type: 'boolean' },
-    ocr_language: { type: 'string' },
-    max_ocr_words: { type: 'integer', minimum: 1, maximum: 1000 },
-    image_output: { type: 'string', enum: ['inline', 'file'] },
-  },
-  additionalProperties: false,
 };
 
 function input(properties = {}, required = []) {
@@ -105,6 +77,8 @@ const captureProperties = {
   ...windowTarget,
   app: {
     type: 'string',
+    minLength: 1,
+    maxLength: MAX_TARGET_TOKEN_LENGTH,
     description: 'App name used only when it resolves to one exact window.',
   },
   screen: {
@@ -119,7 +93,9 @@ const captureProperties = {
   },
   frame_id: {
     type: 'string',
-    description: 'Required with mode="zoom".',
+    minLength: 1,
+    maxLength: MAX_TARGET_TOKEN_LENGTH,
+    description: 'Latest unexpired frame id; required with mode="zoom".',
   },
   region: {
     type: 'array',
@@ -130,10 +106,10 @@ const captureProperties = {
   },
   include_ocr: {
     type: 'boolean',
-    description: 'Allow offline Windows OCR only as a fallback when semantic accessibility targets are absent. OCR shares max_elements.',
+    description: 'State/SOM automatically use offline Windows OCR when semantic targets are absent; true always runs OCR even when semantic targets exist. OCR shares max_elements.',
   },
   ocr_language: {
-    type: 'string',
+    ...ocrLanguage,
     description: 'Installed Windows OCR language tag, e.g. ko or en-US.',
   },
   max_ocr_words: {
@@ -146,8 +122,8 @@ const captureProperties = {
     enum: ['inline', 'file'],
     description: 'inline (default) returns the frame here; file writes it beside the run and returns its path, keeping large pixels out of the conversation.',
   },
-  query: { type: 'string' },
-  role: { type: 'string' },
+  query: { type: 'string', maxLength: MAX_TARGET_TOKEN_LENGTH },
+  role: { type: 'string', maxLength: MAX_TARGET_TOKEN_LENGTH },
   visible_only: { type: 'boolean' },
   include_noninteractive: { type: 'boolean' },
   max_elements: {
@@ -156,7 +132,7 @@ const captureProperties = {
     maximum: 1000,
     description: 'Total returned accessibility + OCR element budget. state defaults to 80.',
   },
-  continuation: { type: 'string' },
+  continuation: { type: 'string', maxLength: MAX_TARGET_TOKEN_LENGTH },
   quality: {
     type: 'integer',
     minimum: 0,
@@ -169,84 +145,19 @@ const captureProperties = {
   },
 };
 
-const pointerProperties = {
-  ...windowTarget,
-  ...appTarget,
-  ...elementTarget,
-  ...framePoint,
-  modifiers: {
-    type: 'string',
-    description: 'ctrl, shift, alt, win, or a +-joined combination.',
-  },
-  ...delivery,
-};
-
-const sequenceStepSchemas = {
-  click: input({
-    ...elementTarget,
-    ...framePoint,
-    modifiers: {
-      type: 'string',
-      description: 'ctrl, shift, alt, win, or a +-joined combination.',
-    },
-    button: {
-      type: 'string',
-      enum: ['left', 'right', 'middle'],
-    },
-  }),
-  type: input({
-    ...elementTarget,
-    ...framePoint,
-    text: { type: 'string', maxLength: MAX_TYPE_TEXT_LENGTH },
-  }, ['text']),
-  key: input({
-    ref: elementTarget.ref,
-    keys: {
-      type: 'string',
-      maxLength: MAX_KEY_SEQUENCE_LENGTH,
-      description: 'SendKeys syntax. To key an OCR mark, use sequence with a targeted click first.',
-    },
-  }, ['keys']),
-  wait: input({
-    duration: {
-      type: 'number',
-      minimum: 0,
-      maximum: 30,
-    },
-  }, ['duration']),
-};
-
-const sequenceStep = {
-  type: 'object',
-  description: 'One focus-chain step. First: targeted click/type, or key by semantic ref. Later: untargeted type/key/wait. Use click then key for an OCR mark. Every nonfinal step must preserve the same target and focus.',
-  properties: {
-    action: { type: 'string', enum: ['click', 'type', 'key', 'wait'] },
-    ...elementTarget,
-    ...framePoint,
-    text: { type: 'string', maxLength: MAX_TYPE_TEXT_LENGTH },
-    keys: { type: 'string', maxLength: MAX_KEY_SEQUENCE_LENGTH },
-    duration: { type: 'number', minimum: 0, maximum: 30 },
-    modifiers: { type: 'string' },
-    button: { type: 'string', enum: ['left', 'right', 'middle'] },
-  },
-  required: ['action'],
-  additionalProperties: false,
-};
-
 export const COMPUTER_INPUT_SCHEMA = {
   type: 'object',
-  description: 'One high-level Computer Use action with only its action-specific fields.',
+  description: 'One compact Computer Use operation. Use act.actions to execute 1-6 simple actions and receive one fresh observation.',
   properties: {
     action: {
       type: 'string',
       enum: ACTIONS,
-      description: 'Use list for targets, capture for state/pixels/search/zoom, window for window lifecycle, and clipboard for clipboard I/O.',
+      description: 'Use capture to observe, act for simple input actions, and the remaining operations only for their named advanced capability.',
     },
     input: {
       type: 'object',
       description: 'Fields for the selected action.',
     },
-    capture_after: captureAfter,
   },
   required: ['action'],
   additionalProperties: false,
@@ -257,92 +168,29 @@ export const COMPUTER_INPUT_SCHEMA = {
     branch('diagnose', input({
       ...windowTarget,
       ocr_language: {
-        type: 'string',
+        ...ocrLanguage,
         description: 'Optional Windows OCR language tag to verify, e.g. ko or en-US.',
       },
     }), false),
     branch('capture', input(captureProperties), false),
-    branch('click', input({
-      ...pointerProperties,
-      button: {
+    branch('act', input({
+      ...windowTarget,
+      ...appTarget,
+      frame_id: {
         type: 'string',
-        enum: ['left', 'right', 'middle'],
-        description: 'Left + ref uses semantic activate/toggle. Left + element/frame and right/middle use pointer input.',
+        minLength: 1,
+        maxLength: MAX_TARGET_TOKEN_LENGTH,
+        description: 'Latest unexpired frame id shared by coordinate actions in this act call.',
       },
-    })),
-    branch('double_click', input(pointerProperties)),
-    branch('mouse_move', input(pointerProperties)),
-    branch('drag', input({
-      ...windowTarget,
-      ...appTarget,
-      ...elementTarget,
-      to: { type: 'string', description: 'Destination semantic ref.' },
-      to_element: { type: 'integer', minimum: 1 },
-      ...framePoint,
-      to_x: { type: 'integer' },
-      to_y: { type: 'integer' },
-      modifiers: { type: 'string' },
-      ...delivery,
-    })),
-    branch('type', input({
-      ...windowTarget,
-      ...appTarget,
-      ...elementTarget,
-      ...framePoint,
-      text: { type: 'string', maxLength: MAX_TYPE_TEXT_LENGTH },
-      mode: {
-        type: 'string',
-        enum: ['literal', 'set'],
-        description: 'literal (default) types text; set writes the value into a ref target with no focus. Web inputs ignore set.',
-      },
-      ...delivery,
-    }, ['text'])),
-    branch('key', input({
-      ...windowTarget,
-      ...appTarget,
-      ref: elementTarget.ref,
-      keys: {
-        type: 'string',
-        maxLength: MAX_KEY_SEQUENCE_LENGTH,
-        description: 'SendKeys syntax, e.g. "^s", "%{F4}", or "Hello{ENTER}". Modifiers and groups require delivery="foreground". To key an OCR mark, use sequence with a targeted click first.',
-      },
-      ...delivery,
-    }, ['keys'])),
-    branch('scroll', input({
-      ...windowTarget,
-      ...appTarget,
-      ...elementTarget,
-      ...framePoint,
-      direction: {
-        type: 'string',
-        enum: ['up', 'down', 'left', 'right'],
-      },
-      amount: {
-        type: 'integer',
-        minimum: 1,
-        maximum: 100,
-      },
-      ...delivery,
-    }, ['direction'])),
-    branch('wait', input({
-      duration: {
-        type: 'number',
-        minimum: 0,
-        maximum: 30,
-      },
-    }, ['duration'])),
-    branch('sequence', input({
-      ...windowTarget,
-      ...appTarget,
-      steps: {
+      actions: {
         type: 'array',
-        items: sequenceStep,
-        minItems: 2,
+        items: COMPUTER_CORE_ACTION_SCHEMA,
+        minItems: 1,
         maxItems: 6,
-        description: 'Prefer this over separate calls for a deterministic same-window focus chain. A transition-capable step must be final; execution stops on failure or target transition.',
+        description: 'Simple actions executed in order. A transition or failure halts the remaining actions.',
       },
       ...delivery,
-    }, ['steps'])),
+    }, ['actions'])),
     branch('window', input({
       ...windowTarget,
       ...appTarget,
@@ -360,7 +208,7 @@ export const COMPUTER_INPUT_SCHEMA = {
       ...appTarget,
       path: {
         type: 'array',
-        items: { type: 'string' },
+        items: { type: 'string', minLength: 1, maxLength: 512 },
         minItems: 1,
         maxItems: 8,
         description: 'Exact labels from the bar down, e.g. ["File","Save As"]. Missing, ambiguous, or disabled entries fail closed.',
@@ -377,9 +225,13 @@ export const COMPUTER_INPUT_SCHEMA = {
         items: {
           type: 'object',
           properties: {
-            present: { type: 'string', description: 'Text an element name or value must contain.' },
-            absent: { type: 'string' },
-            title_contains: { type: 'string' },
+            present: {
+              type: 'string',
+              maxLength: MAX_TARGET_TOKEN_LENGTH,
+              description: 'Text an element name or value must contain.',
+            },
+            absent: { type: 'string', maxLength: MAX_TARGET_TOKEN_LENGTH },
+            title_contains: { type: 'string', maxLength: MAX_TARGET_TOKEN_LENGTH },
             window_exists: { type: 'boolean' },
           },
           additionalProperties: false,
@@ -404,6 +256,8 @@ export const COMPUTER_INPUT_SCHEMA = {
     branch('launch', input({
       app: {
         type: 'string',
+        minLength: 1,
+        maxLength: MAX_TARGET_TOKEN_LENGTH,
         description: 'Executable name, exact path, file, or URL.',
       },
     }, ['app'])),
@@ -417,17 +271,11 @@ for (const actionBranch of COMPUTER_INPUT_SCHEMA.oneOf) {
   }
 }
 
-const CAPTURE_AFTER_ACTIONS = new Set([
-  'click', 'double_click', 'mouse_move', 'drag', 'type', 'key', 'scroll',
-  'sequence', 'window', 'menu', 'launch',
-]);
-
 // Actions that drive one exact window. They carry exactly one window target:
 // the exact window_id, or an app label the host resolves to one window and
 // refuses when it matches more than one.
 const WINDOW_TARGET_ACTIONS = new Set([
-  'click', 'double_click', 'mouse_move', 'drag', 'type', 'key', 'scroll',
-  'sequence', 'window', 'menu', 'verify',
+  'act', 'window', 'menu', 'verify',
 ]);
 
 function hasOwn(value, key) {
@@ -445,6 +293,9 @@ function schemaValueError(value, schema, path) {
     }
     if (schema.maxLength !== undefined && value.length > schema.maxLength) {
       return `${path} accepts at most ${schema.maxLength} characters`;
+    }
+    if (schema.pattern !== undefined && !new RegExp(schema.pattern).test(value)) {
+      return `${path} must match the required format`;
     }
   }
   if (schema.type === 'boolean' && typeof value !== 'boolean') return `${path} must be a boolean`;
@@ -484,35 +335,19 @@ function objectSchemaValueError(value, schema, path) {
   return null;
 }
 
-function validateTargetForm(name, inputValue, { required = true } = {}) {
-  const semantic = ['ref', 'element'].filter((key) => hasOwn(inputValue, key));
-  const pointFields = ['frame_id', 'x', 'y'].filter((key) => hasOwn(inputValue, key));
-  if (semantic.length > 1) return `${name} accepts only one of ref or element`;
-  if (pointFields.length && pointFields.length !== 3) {
-    return `${name} coordinate target requires frame_id, x, and y`;
-  }
-  const forms = semantic.length + (pointFields.length === 3 ? 1 : 0);
-  if (forms > 1) return `${name} accepts only one target form`;
-  if (required && forms === 0) return `${name} requires ref, element, or frame_id/x/y`;
-  return null;
-}
-
 /** Absorb the two transport shapes a provider can emit for a nested argument:
- *  a JSON-serialized `input` or `capture_after`, and input fields flattened
+ *  a JSON-serialized `input`, or input fields flattened
  *  onto the argument root. A shape that stays unresolved is left exactly as it
  *  arrived, so validation still reports it. */
 export function normalizeComputerToolArgs(args) {
   if (!args || typeof args !== 'object' || Array.isArray(args)) return args;
-  const { hasNestedInput, input } = splitBridgeToolArgs(args, ['action', 'capture_after']);
+  const { hasNestedInput, input } = splitBridgeToolArgs(args, ['action']);
   const normalized = { ...args };
   if (hasNestedInput) {
     normalized.input = input;
   } else if (Object.keys(input).length) {
     for (const key of Object.keys(input)) delete normalized[key];
     normalized.input = input;
-  }
-  if (hasOwn(args, 'capture_after')) {
-    normalized.capture_after = parseJsonObjectArg(args.capture_after);
   }
   return normalized;
 }
@@ -523,7 +358,7 @@ export function validateComputerToolArgs(rawArgs) {
   }
   const args = normalizeComputerToolArgs(rawArgs);
   const rootExtras = Object.keys(args).filter(
-    (key) => !['action', 'input', 'capture_after'].includes(key),
+    (key) => !['action', 'input'].includes(key),
   );
   if (rootExtras.length) {
     return `Computer Use does not accept root field(s): ${rootExtras.join(', ')}`;
@@ -558,13 +393,17 @@ export function validateComputerToolArgs(rawArgs) {
   }
 
   const inputObject = inputValue || {};
+  for (const field of ['window_id', 'app', 'frame_id']) {
+    if (hasOwn(inputObject, field)
+      && typeof inputObject[field] === 'string'
+      && !inputObject[field].trim()) {
+      return `Computer Use ${name} ${field} must not be empty`;
+    }
+  }
   if (WINDOW_TARGET_ACTIONS.has(name)) {
     const windowTargets = ['window_id', 'app'].filter((key) => hasOwn(inputObject, key));
     if (windowTargets.length !== 1) {
       return `Computer Use ${name} requires exactly one of window_id or app`;
-    }
-    if (hasOwn(inputObject, 'app') && !String(inputObject.app || '').trim()) {
-      return `Computer Use ${name} app must not be empty`;
     }
   }
   if (name === 'capture') {
@@ -574,9 +413,6 @@ export function validateComputerToolArgs(rawArgs) {
     );
     if (captureTargets.length > 1) {
       return 'Computer Use capture accepts at most one of window_id, app, or screen';
-    }
-    if (hasOwn(inputObject, 'app') && !String(inputObject.app || '').trim()) {
-      return 'Computer Use capture app must not be empty';
     }
     if (mode === 'zoom' && (!hasOwn(inputObject, 'frame_id') || !hasOwn(inputObject, 'region'))) {
       return 'Computer Use capture mode="zoom" requires input field(s): frame_id, region';
@@ -595,17 +431,6 @@ export function validateComputerToolArgs(rawArgs) {
     }
     if (hasOwn(inputObject, 'screen') && mode !== 'vision') {
       return 'Computer Use capture screen requires mode="vision"';
-    }
-  }
-  if (['click', 'double_click', 'mouse_move'].includes(name)) {
-    const targetError = validateTargetForm(name, inputObject);
-    if (targetError) return `Computer Use ${targetError}`;
-  }
-  if (name === 'type') {
-    const targetError = validateTargetForm(name, inputObject, { required: false });
-    if (targetError) return `Computer Use ${targetError}`;
-    if (inputObject.mode === 'set' && !hasOwn(inputObject, 'ref')) {
-      return 'Computer Use type mode="set" requires a semantic ref target';
     }
   }
   if (name === 'menu') {
@@ -645,73 +470,12 @@ export function validateComputerToolArgs(rawArgs) {
       }
     }
   }
-  if (name === 'key') {
-    const targetError = validateTargetForm(name, inputObject, { required: false });
-    if (targetError) return `Computer Use ${targetError}`;
-  }
-  if (name === 'scroll') {
-    const targetError = validateTargetForm(name, inputObject, { required: false });
-    if (targetError) return `Computer Use ${targetError}`;
-  }
-  if (name === 'drag') {
-    const semanticSource = ['ref', 'element'].filter((key) => hasOwn(inputObject, key));
-    const semanticDestination = ['to', 'to_element'].filter((key) => hasOwn(inputObject, key));
-    const pointFields = ['frame_id', 'x', 'y', 'to_x', 'to_y'].filter(
-      (key) => hasOwn(inputObject, key),
-    );
-    const semantic = semanticSource.length === 1 && semanticDestination.length === 1;
-    const coordinate = pointFields.length === 5;
-    if (semanticSource.length > 1 || semanticDestination.length > 1 || (semantic && coordinate)) {
-      return 'Computer Use drag accepts one matching semantic or coordinate target pair';
-    }
-    if (!semantic && !coordinate) {
-      return 'Computer Use drag requires ref/element plus to/to_element, or frame_id/x/y/to_x/to_y';
-    }
-  }
-  if (name === 'sequence') {
-    const steps = inputObject.steps || [];
-    for (let index = 0; index < steps.length; index += 1) {
-      const step = steps[index];
-      if (!step || typeof step !== 'object' || Array.isArray(step)) {
-        return `Computer Use sequence step ${index + 1} must be an object`;
-      }
-      const stepAction = String(step.action || '');
-      const stepSchema = sequenceStepSchemas[stepAction];
-      if (!stepSchema) {
-        return `Computer Use sequence step ${index + 1} action must be one of: click, type, key, wait`;
-      }
-      const allowed = new Set(['action', ...Object.keys(stepSchema.properties)]);
-      const extras = Object.keys(step).filter((key) => !allowed.has(key));
-      if (extras.length) {
-        return `Computer Use sequence step ${index + 1} does not accept field(s): ${extras.join(', ')}`;
-      }
-      const missing = (stepSchema.required || []).filter((key) => !hasOwn(step, key));
-      if (missing.length) {
-        return `Computer Use sequence step ${index + 1} requires field(s): ${missing.join(', ')}`;
-      }
-      const valueError = objectSchemaValueError(step, {
-        properties: { action: { type: 'string', enum: [stepAction] }, ...stepSchema.properties },
-      }, `Computer Use sequence step ${index + 1}`);
-      if (valueError) return valueError;
-      if (stepAction === 'click') {
-        const targetError = validateTargetForm('sequence click', step);
-        if (targetError) return `Computer Use ${targetError}`;
-      } else if (stepAction === 'type' || stepAction === 'key') {
-        const targetError = validateTargetForm(`sequence ${stepAction}`, step, { required: false });
-        if (targetError) return `Computer Use ${targetError}`;
-      }
-      if (index === 0 && stepAction === 'wait') {
-        return 'Computer Use sequence must start with click, type, or key';
-      }
-      if (index > 0) {
-        if (!['type', 'key', 'wait'].includes(stepAction)) {
-          return 'Computer Use sequence steps after the first must be type, key, or wait';
-        }
-        if (['ref', 'element', 'frame_id', 'x', 'y'].some((key) => hasOwn(step, key))) {
-          return 'Computer Use sequence steps after the first reuse focus and cannot carry a target';
-        }
-      }
-    }
+  if (name === 'act') {
+    const actionError = validateComputerCoreActions(inputObject.actions, {
+      frameId: String(inputObject.frame_id || ''),
+      delivery: String(inputObject.delivery || 'background'),
+    });
+    if (actionError) return actionError;
   }
   if (name === 'window' && inputObject.operation === 'move'
     && !['x', 'y', 'width', 'height'].some((key) => hasOwn(inputObject, key))) {
@@ -739,26 +503,6 @@ export function validateComputerToolArgs(rawArgs) {
       return 'Computer Use launch blocks shells, script hosts, and shortcut files; use an exact non-shell executable, document, or URL';
     }
   }
-  if (args.capture_after !== undefined) {
-    if (!CAPTURE_AFTER_ACTIONS.has(name)) {
-      return `Computer Use action "${name}" does not accept capture_after`;
-    }
-    if (!args.capture_after || typeof args.capture_after !== 'object'
-      || Array.isArray(args.capture_after)) {
-      return 'Computer Use capture_after must be an object';
-    }
-    const allowedAfter = new Set(Object.keys(captureAfter.properties));
-    const afterExtras = Object.keys(args.capture_after).filter((key) => !allowedAfter.has(key));
-    if (afterExtras.length) {
-      return `Computer Use capture_after does not accept field(s): ${afterExtras.join(', ')}`;
-    }
-    const afterValueError = objectSchemaValueError(
-      args.capture_after,
-      captureAfter,
-      'Computer Use capture_after',
-    );
-    if (afterValueError) return afterValueError;
-  }
   return null;
 }
 
@@ -775,29 +519,15 @@ export function toComputerHostCommand(rawArgs) {
       command.action = inputValue.mode === 'zoom' ? 'zoom' : 'capture';
       if (command.action === 'zoom') delete command.mode;
       break;
-    case 'click':
-      command.action = inputValue.button === 'right'
-        ? 'right_click'
-        : inputValue.button === 'middle'
-          ? 'middle_click'
-          : inputValue.ref
-            ? 'invoke'
-            : 'click';
-      delete command.button;
-      break;
-    case 'type':
-      // A set writes the value straight into the element; literal keeps typing.
-      command.action = inputValue.mode === 'set' ? 'set_value' : 'type';
-      delete command.mode;
-      break;
     case 'menu':
       command.action = 'invoke_menu';
       break;
-    case 'sequence':
+    case 'act':
       command.action = 'sequence';
-      command.steps = inputValue.steps.map((step) => {
-        const translated = { ...step };
-        if (step.action === 'click') {
+      command.steps = inputValue.actions.map((step) => {
+        const translated = { ...step, action: step.type };
+        delete translated.type;
+        if (step.type === 'click') {
           translated.action = step.button === 'right'
             ? 'right_click'
             : step.button === 'middle'
@@ -807,8 +537,15 @@ export function toComputerHostCommand(rawArgs) {
                 : 'click';
           delete translated.button;
         }
+        if (step.type === 'move') translated.action = 'mouse_move';
+        if (inputValue.frame_id
+          && ['x', 'y', 'to_x', 'to_y'].some((field) => hasOwn(step, field))) {
+          translated.frame_id = inputValue.frame_id;
+        }
         return translated;
       });
+      delete command.actions;
+      delete command.frame_id;
       break;
     case 'window':
       command.action = inputValue.operation === 'focus'
@@ -828,22 +565,5 @@ export function toComputerHostCommand(rawArgs) {
     default:
       command.action = args.action;
   }
-  if (args.capture_after) {
-    command.capture_after = true;
-    const afterFields = {
-      delay_ms: 'capture_delay_ms',
-      mode: 'capture_after_mode',
-      max_elements: 'capture_after_max_elements',
-      include_ocr: 'capture_after_include_ocr',
-      ocr_language: 'capture_after_ocr_language',
-      max_ocr_words: 'capture_after_max_ocr_words',
-      image_output: 'capture_after_image_output',
-    };
-    for (const [source, target] of Object.entries(afterFields)) {
-      if (hasOwn(args.capture_after, source)) command[target] = args.capture_after[source];
-    }
-  }
   return command;
 }
-
-export const COMPUTER_ACTIONS = Object.freeze([...ACTIONS]);

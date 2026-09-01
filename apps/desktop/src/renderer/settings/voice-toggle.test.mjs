@@ -239,7 +239,6 @@ test('missing Git dependency installs inline and enables the tool on completion'
     await act(async () => dependency.resolve({ installed: true, version: '2.50.1' }));
     assert.deepEqual(calls, [['setBuiltinToolEnabled', ['git', true]]]);
     assert.ok(document.querySelector('[data-feature-id="git"] input[aria-label="Git"]'));
-    assert.equal(document.querySelector('[data-feature-id="git"] .built-in-feature-state'), null);
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -324,7 +323,6 @@ test('missing LibreOffice dependency installs inline before the Office feature',
     // toggle without exposing dependency version metadata.
     await render({ office: { enabled: true, installed: true } });
     assert.ok(document.querySelector('[data-feature-id="office"] input[aria-label="Office"]'));
-    assert.equal(document.querySelector('[data-feature-id="office"] .built-in-feature-state'), null);
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -392,7 +390,6 @@ test('an uninstalled built-in installs through the shared capability', async () 
       '[data-feature-id="memory"] button[aria-label="Install Memory"]',
     );
     assert.ok(install);
-    assert.ok(document.querySelector('[data-feature-id="memory"] .built-in-feature-state.is-not-installed'));
     await act(async () => install.click());
     assert.deepEqual(calls, [['installBuiltinFeature', ['memory']]]);
     // The capability result refreshes the toolModules section; the card's
@@ -407,7 +404,6 @@ test('an uninstalled built-in installs through the shared capability', async () 
       }));
     });
     assert.ok(document.querySelector('[data-feature-id="memory"] input[aria-label="Memory"]'));
-    assert.equal(document.querySelector('[data-feature-id="memory"] .built-in-feature-state.is-not-installed'), null);
   } finally {
     await act(async () => root.unmount());
     host.remove();

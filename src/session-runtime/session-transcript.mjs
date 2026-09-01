@@ -22,8 +22,8 @@ export function createSessionTranscript({
   };
 
   // Every user-facing main session owns a conversation JSONL. The always-on
-  // memory watcher tails this same file, while agent-owned sessions retain
-  // semantic compaction and stay out of the user's recall pool.
+  // memory watcher tails this same file. Agent-owned sessions stay out of the
+  // user's recall pool and generate a session-local handoff when compacting.
   function ensureSessionTranscriptWriter() {
     const session = getSession();
     if (!session?.id || isAgentOwner(session)) return false;

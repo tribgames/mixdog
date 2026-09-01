@@ -33,17 +33,6 @@ export const DESKTOP_IPC = {
   trashProjectEntry: 'mixdog:trash-project-entry',
   moveProjectEntry: 'mixdog:move-project-entry',
   copyProjectEntry: 'mixdog:copy-project-entry',
-  chooseFolder: 'mixdog:choose-folder',
-  listFolderDir: 'mixdog:list-folder-dir',
-  createFolderEntry: 'mixdog:create-folder-entry',
-  renameFolderEntry: 'mixdog:rename-folder-entry',
-  moveFolderEntry: 'mixdog:move-folder-entry',
-  copyFolderEntry: 'mixdog:copy-folder-entry',
-  trashFolderEntry: 'mixdog:trash-folder-entry',
-  openFolderEntry: 'mixdog:open-folder-entry',
-  revealFolderEntry: 'mixdog:reveal-folder-entry',
-  folderPlaces: 'mixdog:folder-places',
-  folderEntryIcon: 'mixdog:folder-entry-icon',
   resolveLocalPaths: 'mixdog:resolve-local-paths',
   readLocalFile: 'mixdog:read-local-file',
   folderWatch: 'mixdog:folder-watch',
@@ -85,6 +74,7 @@ export const DESKTOP_IPC = {
   setZoomFactor: 'mixdog:set-zoom-factor',
   zoomFactorChanged: 'mixdog:zoom-factor-changed',
   browserOpenRequested: 'mixdog:browser-open-requested',
+  browserSessionReleased: 'mixdog:browser-session-released',
   browserSetActiveGuest: 'mixdog:browser-set-active-guest',
   browserProfileImportSources: 'mixdog:browser-profile-import-sources',
   browserProfileImportStart: 'mixdog:browser-profile-import-start',
@@ -626,14 +616,10 @@ export const DESKTOP_CAPABILITIES = [
   'setPluginEnabled',
   'removePlugin',
   'enablePluginMcp',
-  'hooksStatus',
   'contextStatus',
   'getTurnReviewDiff',
   'revertTurnReview',
   'revertTurnReviewFile',
-  'addHookRule',
-  'setHookRuleEnabled',
-  'deleteHookRule',
   'memoryControl',
   'recall',
   'runDoctor',
@@ -725,7 +711,6 @@ export const DESKTOP_READ_CAPABILITIES = [
   'skillsStatus',
   'skillContent',
   'pluginsStatus',
-  'hooksStatus',
   'contextStatus',
   'getTurnReviewDiff',
   'listPresets',
@@ -862,6 +847,12 @@ export interface DesktopBrowserCredentialFillResult {
   usernameFilled: boolean;
   passwordFilled: boolean;
   reason?: 'no-password-field' | 'password-field-unavailable';
+}
+
+export interface DesktopBrowserOpenRequest {
+  sessionId: string;
+  /** False creates or retains the surface without opening its session dock. */
+  reveal?: boolean;
 }
 
 export interface DesktopRemoteBrowserFrame {
@@ -1092,24 +1083,6 @@ export interface DesktopDirEntry {
   dir: boolean;
 }
 
-/** Explorer pane: one directory level with Windows-Explorer metadata. */
-export interface DesktopFolderEntry {
-  name: string;
-  dir: boolean;
-  size: number;
-  mtimeMs: number;
-}
-
-/** Explorer pane sidebar: a known user folder or a mounted drive root. */
-export interface DesktopFolderPlace {
-  name: string;
-  path: string;
-  kind: 'home' | 'desktop' | 'downloads' | 'documents' | 'pictures' | 'music' | 'videos' | 'drive';
-  /** Drive capacity (Explorer usage bar); omitted when unavailable. */
-  totalBytes?: number;
-  freeBytes?: number;
-}
-
 export type DesktopLspDocumentKind = 'open' | 'change' | 'save' | 'close';
 
 export interface DesktopLspDocumentInput {
@@ -1280,9 +1253,13 @@ export interface DesktopEditorBackup {
 
 export interface DesktopRendererFailureDiagnostic {
   kind?: 'failure';
-  phase: 'boundary' | 'window-error' | 'unhandled-rejection';
+  /** `notice` is an error the user actually saw on screen (toast/banner),
+   *  which otherwise vanishes without a trace when it auto-dismisses. */
+  phase: 'boundary' | 'window-error' | 'unhandled-rejection' | 'notice' | 'console';
   errorName: string;
   fingerprint: string;
+  /** Free text shown to the user; recorded only for notice/console phases. */
+  message?: string;
   failureCode?: string;
   components?: string[];
   source?: string;
@@ -1691,28 +1668,6 @@ export interface DesktopApi {
   moveProjectEntry?(projectPath: string, relPath: string, targetDirRel: string): Promise<void>;
   /** Explorer copy-paste: copy an entry; collisions get "name copy" names. */
   copyProjectEntry?(projectPath: string, relPath: string, targetDirRel: string): Promise<{ name: string }>;
-  /** Explorer pane (Windows-Explorer-style): absolute-path local filesystem
-   *  surface with terminal-equivalent trust; mutations refuse overwrites. */
-  chooseFolder?(): Promise<string | null>;
-  listFolderDir?(dir: string): Promise<DesktopFolderEntry[]>;
-  /** Creates with a collision-free name ("New folder (2)") and returns it. */
-  createFolderEntry?(dir: string, name: string, isDir: boolean): Promise<{ name: string }>;
-  renameFolderEntry?(path: string, newName: string): Promise<void>;
-  /** 'ask' (default) reports { conflicts } without moving; 'replace' trashes
-   *  the existing entries first, 'keepBoth' renames, 'skip' leaves them. */
-  moveFolderEntry?(
-    paths: string[],
-    targetDir: string,
-    strategy?: 'ask' | 'replace' | 'keepBoth' | 'skip',
-  ): Promise<{ conflicts?: string[]; moved: Array<{ from: string; to: string }> }>;
-  copyFolderEntry?(paths: string[], targetDir: string): Promise<{ created: string[] }>;
-  trashFolderEntry?(path: string): Promise<void>;
-  openFolderEntry?(path: string): Promise<void>;
-  revealFolderEntry?(path: string): Promise<void>;
-  folderPlaces?(): Promise<DesktopFolderPlace[]>;
-  /** Native shell icon (or image thumbnail) for a path, as a data URL.
-   *  `size` bounds the thumbnail edge (32-1024, default 96). */
-  folderEntryIcon?(path: string, thumbnail?: boolean, size?: number): Promise<string>;
   /** Absolute path of an OS-native dropped File (webUtils.getPathForFile). */
   folderPathForFile?(file: File): string;
   /** Resolve trusted local paths for file-tab opening and internal drag/drop. */
@@ -1951,11 +1906,21 @@ export interface DesktopApi {
   getZoomFactor(): Promise<number>;
   setZoomFactor(factor: number): Promise<number>;
   onZoomFactorChanged(listener: (factor: number) => void): () => void;
-  /** Agent browser bridge (desktop host only): a `browser` tool call arrived
-   *  while no in-app browser webview was live; present a browser surface. */
-  onBrowserOpenRequested?(listener: () => void): () => void;
-  /** Keep the main-process Browser Use target aligned with the focused pane. */
-  browserSetActiveGuest?(paneId: string, webContentsId: number, active: boolean): Promise<void>;
+  /** Agent browser bridge (desktop host only): retain the owning session's
+   *  Browser surface and optionally reveal its dock for a foreground call. */
+  onBrowserOpenRequested?(
+    listener: (request: DesktopBrowserOpenRequest) => void,
+  ): () => void;
+  /** A deleted conversation releases its parked Browser surface. */
+  onBrowserSessionReleased?(
+    listener: (sessionId: string) => void,
+  ): () => void;
+  /** Bind one persistent guest to its owning conversation session. */
+  browserSetActiveGuest?(
+    sessionId: string,
+    webContentsId: number,
+    active: boolean,
+  ): Promise<void>;
   /** Local Chrome profile import into the isolated Browser Use partition.
    *  Secrets stay in main/native processes; renderer receives metadata/counts. */
   browserProfileImportSources?(): Promise<DesktopBrowserImportSource[]>;
@@ -1966,13 +1931,24 @@ export interface DesktopApi {
     listener: (progress: DesktopBrowserImportProgress) => void,
   ): () => void;
   browserHistorySearch?(query: string): Promise<DesktopBrowserHistoryEntry[]>;
-  /** Current visible Browser Use page only. Passwords never cross this API. */
-  browserCredentialSuggestions?(): Promise<DesktopBrowserCredentialSuggestion[]>;
-  browserCredentialFill?(credentialId: string): Promise<DesktopBrowserCredentialFillResult>;
+  /** Current session's Browser Use page only. Passwords never cross this API. */
+  browserCredentialSuggestions?(
+    sessionId: string,
+  ): Promise<DesktopBrowserCredentialSuggestion[]>;
+  browserCredentialFill?(
+    sessionId: string,
+    credentialId: string,
+  ): Promise<DesktopBrowserCredentialFillResult>;
   /** Paired web app: pixels and bounded human input target the desktop's
    * current Browser Use guest, preserving its cookies and agent-visible page. */
-  remoteBrowserFrame?(previousFrameId?: string): Promise<DesktopRemoteBrowserFrame>;
-  remoteBrowserControl?(input: DesktopRemoteBrowserControl): Promise<void>;
+  remoteBrowserFrame?(
+    sessionId: string,
+    previousFrameId?: string,
+  ): Promise<DesktopRemoteBrowserFrame>;
+  remoteBrowserControl?(
+    sessionId: string,
+    input: DesktopRemoteBrowserControl,
+  ): Promise<void>;
   /** systemPreference keeps DWM on 'system' so OS theme tracking survives. */
   applyTitleBarTheme(theme: string, systemPreference?: boolean): Promise<void>;
   /** Scrim-composited WCO caption colors while a fullscreen modal is open;

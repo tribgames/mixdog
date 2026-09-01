@@ -6,9 +6,11 @@ export type ConnectionInfoApi = Partial<Pick<DesktopApi,
 interface ConnectionInfoCacheEntry {
   value?: DesktopRemoteAccessInfo | null;
   promise?: Promise<DesktopRemoteAccessInfo | null>;
+  requestVersion?: number;
 }
 
 const connectionInfoCache = new WeakMap<object, ConnectionInfoCacheEntry>();
+const DEFAULT_CONNECTION_INFO_TIMEOUT_MS = 2_000;
 
 /** True once the relay QR exists and the pairing card can paint. */
 export function connectionInfoReady(
@@ -41,26 +43,42 @@ export function setCachedConnectionInfo(
 
 export function preloadConnectionInfo(
   api: ConnectionInfoApi,
+  timeoutMs = DEFAULT_CONNECTION_INFO_TIMEOUT_MS,
 ): Promise<DesktopRemoteAccessInfo | null> {
   const entry = cacheEntry(api);
   // Null results stay cached for instant paint but are refetched on the next
-  // call, so a slow relay start never sticks as an empty card.
+  // call, so a slow relay start never sticks as an empty card. Each shared
+  // attempt has its own deadline: an IPC request that never answers must
+  // release the cache so the next poll can make a fresh request.
   if (connectionInfoReady(entry.value)) return Promise.resolve(entry.value);
   if (entry.promise) return entry.promise;
   if (!api.getRemoteAccessInfo) {
     entry.value = null;
     return Promise.resolve(null);
   }
-  entry.promise = api.getRemoteAccessInfo()
+  const requestVersion = (entry.requestVersion ?? 0) + 1;
+  entry.requestVersion = requestVersion;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  const request = api.getRemoteAccessInfo()
     .then((value) => {
+      if (entry.requestVersion !== requestVersion) return entry.value ?? null;
       entry.value = value ?? null;
       return entry.value;
     })
     // A transient IPC/startup failure must not poison later Settings opens:
     // keep the last known value and let the next call retry.
-    .catch(() => entry.value ?? null)
+    .catch(() => entry.value ?? null);
+  const deadline = new Promise<DesktopRemoteAccessInfo | null>((resolve) => {
+    deadlineTimer = setTimeout(
+      () => resolve(entry.value ?? null),
+      Number.isFinite(timeoutMs) ? Math.max(0, timeoutMs) : DEFAULT_CONNECTION_INFO_TIMEOUT_MS,
+    );
+  });
+  const attempt = Promise.race([request, deadline])
     .finally(() => {
-      entry.promise = undefined;
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+      if (entry.promise === attempt) entry.promise = undefined;
     });
-  return entry.promise;
+  entry.promise = attempt;
+  return attempt;
 }

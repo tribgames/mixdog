@@ -409,7 +409,6 @@
   inset: auto;
   padding: 0;
 }
-.workbench-terminal-panel .dock-terminal { width: 100%; height: 100%; }
 .problems-tree,
 .problems-table {
   min-width: 0;
@@ -519,16 +518,200 @@
 .problem-table-row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .problem-table-row > span:first-child { display: flex; align-items: center; gap: 6px; }
 
-/* Pane cells: chrome around each leaf inside the split workspace. */
+/* Pane cells: chrome around each leaf inside the split workspace.
+   A two-column grid: the strip and surface stack fill column one and the
+   per-pane side dock (icon strip + panel) hugs column two at full height. */
 .pane-cell {
   position: relative;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  /* The MAIN content keeps the workspace floor (user: 최소 넓이 보장) — side
+     columns yield or overlay before the conversation can be crushed. */
+  grid-template-columns: minmax(min(360px, 100%), 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   flex: 1 1 0%;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  /* No container-type here: layout containment would re-anchor fixed
+     descendants (Monaco context menus) to the cell. The dock host MEASURES
+     this cell directly (ResizeObserver), so no container query is needed. */
 }
+.pane-cell > .workspace-tabs-shell { grid-column: 1; grid-row: 1; }
+.pane-cell > .pane-surface-stack { grid-column: 1; grid-row: 2; }
+.pane-cell > .pane-side-dock { grid-column: 2; grid-row: 1 / -1; }
+
+/* ── Per-pane right dock ──
+   The former window-level right side panel now belongs to each pane (user:
+   오른쪽 사이드탭을 PANE에 종속된 탭으로 — PANE 오른쪽에 붙고, PANE마다
+   하나씩, 스트립 추가 없이). Closed it renders nothing; expanded it docks a
+   side surface with its own horizontal tab header to the pane's right edge. */
+.pane-side-dock {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+  background: var(--mx-window-band);
+}
+/* ONE unit-wide header line (user: 헤더 한 줄) — just the child icons,
+   spanning [diff | panel], height matched to the PANE tab strip. */
+.pane-side-dock-header {
+  flex: 0 0 35px;
+  height: 35px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--mx-border-muted);
+  border-left: 1px solid var(--mx-border-structure);
+}
+.pane-side-dock-header .workbench-side-icon-bar.is-horizontal { height: 100%; }
+/* Fold affordance (user: 오버레이까지 되는 판에 X가 있어야): the X folds the
+   unit; re-clicking the active icon does the same. */
+.pane-side-dock-close {
+  /* Island button parity: 28px box around a 20px lucide mark. */
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  margin-right: 4px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.pane-side-dock-close:hover { color: var(--mx-text); background: var(--mx-hover); }
+.pane-side-dock-main {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: visible;
+}
+.pane-side-dock .workbench-side-panel[data-embedded="true"] {
+  height: 100%;
+  /* Width is fully MEASURED by the dock host (user: 통합 넓이계산): the unit
+     always leaves the conversation its floor, so no band cap is needed. */
+  max-width: none;
+}
+/* ── Dock surface stack (browser / diff under the side-tab header) ──
+   The header's children render STANDALONE below it (user: 사이드탭 헤더
+   하위에 브라우저·DIFF — 탭줄 없이 단독). Surfaces stay mounted in a layer
+   stacked over the panel body — display:none would wedge a browser guest —
+   and the showing side wins by z-index/opacity, like pane surface slots. */
+.pane-side-dock .workbench-side-panel-surfaces {
+  position: absolute;
+  z-index: 1;
+  /* The unit header lives on the DOCK now; the embedded panel is headerless,
+     so the surface layer covers its whole body. */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+.pane-side-dock .workbench-side-panel-surfaces[data-active="true"] {
+  z-index: 3;
+  opacity: 1;
+  pointer-events: auto;
+}
+/* The phone sheet's header grows to the touch height; the surface layer
+   starts below whatever height the header actually has. */
+html[data-mixdog-mobile-tabs] .pane-side-dock .workbench-side-panel-surfaces {
+  top: var(--mx-touch);
+}
+.workbench-side-surface-slot {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--mx-workspace-sheet);
+}
+.workbench-side-surface-slot[data-surface-active="true"] { z-index: 2; }
+
+/* Narrow pane: even the minimum unit would crush the conversation below its
+   360px floor, so the WHOLE unit — header, panel, browser, diff pair — floats
+   over the pane instead (user: 한몸 오버레이). The dock host MEASURES its own
+   cell, so this replaces the old fixed 720px/940px band rules. */
+.pane-side-dock[data-overlay="true"] {
+  position: absolute;
+  z-index: 30;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  box-shadow: var(--mx-overlay);
+  background: var(--mx-window-band);
+}
+/* ── Diff pair column ──
+   A diff opens PAIRED to the LEFT of the panel view (user: 디프는 하단
+   소스제어 패널 왼쪽에 쌍으로), under the same header selection. The column
+   keeps its own draggable width; the unit total is the measured pair. */
+.pane-dock-diff-column {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  width: var(--pane-dock-diff-width, 480px);
+  flex: 0 0 var(--pane-dock-diff-width, 480px);
+  overflow: visible;
+  border-left: 1px solid var(--mx-border-structure);
+  background: var(--mx-workspace-sheet);
+}
+.pane-dock-diff-column[hidden] { display: none; }
+.pane-dock-diff-resize {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 8px;
+  cursor: col-resize;
+}
+.pane-dock-diff-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+/* 2뎁스 back step (user: 1단계는 디프를 패널에 올리고 뒤로가기): a slim row
+   above the stacked diff returns to the Source Control list. */
+.pane-dock-diff-back {
+  flex: 0 0 30px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--mx-border-muted);
+}
+.pane-dock-diff-back > button {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  cursor: pointer;
+}
+.pane-dock-diff-back > button:hover { color: var(--mx-text); }
+/* The phone keeps its fixed right sheet; the pair column has no place in
+   that band. */
+html[data-mixdog-mobile-tabs] .pane-dock-diff-column { display: none; }
 .pane-surface-stack {
   position: relative;
   display: flex;
@@ -700,9 +883,9 @@
    into nothing (user decision). Scoping the floor to an open panel keeps
    full-page takeover surfaces (settings/workflows) free to collapse the pane
    region exactly as before. */
-.main-panel:has(> .bottom-panel) > .pane-split,
-.main-panel:has(> .bottom-panel) > .pane-leaf,
-.main-panel:has(> .bottom-panel) > .pane-cell {
+.main-panel:has(.bottom-panel) > .pane-split,
+.main-panel:has(.bottom-panel) > .pane-leaf,
+.main-panel:has(.bottom-panel) > .pane-cell {
   min-height: var(--pane-min-height, 480px);
 }
 .pane-cell > .workspace-tabs-shell,
@@ -748,8 +931,8 @@
 }
 .pane-carousel > .pane-carousel-item { display: none; }
 .pane-carousel > .pane-carousel-item[data-carousel-active="true"] {
-  display: flex;
-  flex-direction: column;
+  /* The template itself comes from the .pane-cell grid rule. */
+  display: grid;
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;

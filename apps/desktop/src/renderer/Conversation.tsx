@@ -39,6 +39,7 @@ import { Composer, ProjectContextSelector, WorkflowSelect } from "./Composer";
 import { BrandTile } from "./WorkspaceEmptyState";
 import { EMPTY_TRANSCRIPT_ITEMS, type RecordValue, type Snapshot, type TranscriptItem } from "./desktop-types";
 import { InlineErrors } from "./notifications";
+import { SessionGoalHost } from "./SessionGoalIsland";
 import { asRecord } from "./text-format";
 import { TranscriptList } from "./TranscriptList";
 import {
@@ -223,6 +224,7 @@ export function Conversation({
   activeProjectLabel,
   onSelectProject,
   draftMode = false,
+  draftId = "",
   draftModelSelection,
   draftWorkflow,
   onDraftModelSelection,
@@ -231,6 +233,7 @@ export function Conversation({
   onOpenCommandSurface,
   streamingTailSlot,
   runtimeProgressSlot,
+  goalIsland,
   statusIsland,
   readOnly = false,
   reviewActive = true,
@@ -262,6 +265,9 @@ export function Conversation({
   activeProjectLabel: string;
   onSelectProject: (path: string) => void;
   draftMode?: boolean;
+  /** Distinct New Task pane identity: pressing New task mints a new one, so
+   *  the composer opens clean instead of inheriting the previous draft. */
+  draftId?: string;
   draftModelSelection?: DesktopModelSelection | null;
   draftWorkflow?: DesktopWorkflowState | null;
   onDraftModelSelection?: (selection: DesktopModelSelection) => void;
@@ -273,6 +279,9 @@ export function Conversation({
   /** Selector-driven runtime status; progress publications do not rerender the
    *  transcript/composer shell. */
   runtimeProgressSlot?: ReactNode;
+  /** Goal capsule routed to the composer unless the pane's visible DIFF owns
+   *  it instead. */
+  goalIsland?: ReactNode;
   /** Session status island: the context gauge and the live Agent/Shell chips
    *  as ONE capsule at the transcript's top-right corner, so neither readout
    *  competes with the composer for space. */
@@ -1123,6 +1132,7 @@ export function Conversation({
       </button>}
       </div>
       {!readOnly && <div className="composer-region">
+        <SessionGoalHost placement="composer">{goalIsland}</SessionGoalHost>
         {runtimeProgressSlot ?? (Boolean(asRecord(snapshot.progressHint)?.text)
           ? <div className="runtime-progress" role="status">
             {String(asRecord(snapshot.progressHint)?.text)}
@@ -1176,6 +1186,9 @@ export function Conversation({
           transitioning={transitioning}
           focusRequest={composerFocusRequest}
           historyScope={draftMode ? `new-task:${activeProjectPath || 'local'}`
+            : String(routeSnapshot.sessionId || routeSnapshot.currentProject ||
+              routeSnapshot.project || routeSnapshot.cwd || 'new-task')}
+          identityScope={draftMode ? `draft:${draftId || 'default'}`
             : String(routeSnapshot.sessionId || routeSnapshot.currentProject ||
               routeSnapshot.project || routeSnapshot.cwd || 'new-task')}
           recoveryScope={transcriptIdentity.current}

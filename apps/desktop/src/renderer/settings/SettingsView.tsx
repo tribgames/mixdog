@@ -12,7 +12,6 @@ import {
   SlidersHorizontal,
   Smartphone,
   Sparkles,
-  Webhook,
   Wrench,
   X,
 } from 'lucide-react';
@@ -67,7 +66,6 @@ const CATEGORY_ICONS = {
   connection: Smartphone,
   mcp: Plug,
   plugins: Blocks,
-  hooks: Webhook,
   skills: Sparkles,
   system: Wrench,
   shortcuts: Keyboard,

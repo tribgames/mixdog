@@ -770,6 +770,26 @@
 .session-dock-toggle:hover, .session-dock-toggle:focus-visible {
   background: var(--mx-hover);
 }
+/* Inside the status island the toggle follows its lucide neighbors' voice
+   (user: 아이콘 크기·색감 통일): muted rest ink that re-inks to text on
+   hover/open, a transparent plate like the work and context slots, and the
+   activity glyph's 1.75px stroke instead of the attribute ladder's step.
+   The box is one size UP from the header cluster's 18px: PanelRight only
+   inks 18 of its 24-unit grid, so an 18px box drew a 13.5px rect beside
+   the pulse's 15px span and the 19px gauge ring and read one optical step
+   small (user: 지금도 살짝 안 맞아). A 20px box lands the rect at 15px. */
+.session-status-island .session-status-dock-toggle { color: var(--mx-text-muted); }
+.session-status-island .session-status-dock-toggle svg.lucide {
+  width: var(--mx-icon-xl);
+  height: var(--mx-icon-xl);
+  stroke-width: 1.75px;
+}
+.session-status-island .session-status-dock-toggle:hover,
+.session-status-island .session-status-dock-toggle:focus-visible {
+  color: var(--mx-text);
+  background: transparent;
+}
+.session-status-island .session-status-dock-toggle[aria-pressed="true"] { color: var(--mx-text); }
 /* The context gauge dims when a session has no usage to report yet. */
 .session-context-indicator[data-active="false"] > button {
   color: var(--mx-text-faint);

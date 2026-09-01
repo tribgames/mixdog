@@ -47,6 +47,16 @@ export function embeddingWarmupCanStart() {
   return embeddingWarmupEnabled() && !memorySecondaryMode()
 }
 
+// On-demand embedding load (recall query embed, cold fan-out): allowed
+// whenever this process owns the model, regardless of MIXDOG_EMBED_WARMUP.
+// That env flag gates only the EAGER paths (boot-edge warmup, session-start
+// prewarm); reusing it for the on-demand path left the model permanently cold
+// under the daemon's lightweight-boot default (=0), so every recall silently
+// degraded to lexical-only results.
+export function embeddingOnDemandCanStart() {
+  return !memorySecondaryMode()
+}
+
 export function memoryLlmWorkerEnabled() {
   return !memorySecondaryMode() && !envFlagEnabled('MIXDOG_MEMORY_DISABLE_LLM_WORKER')
 }

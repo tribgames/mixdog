@@ -12,7 +12,7 @@ import { convertMessagesToResponsesInput } from './openai-responses-payload.mjs'
 import { toOpenAIMessages, toXaiResponsesInput } from './openai-compat-wire.mjs';
 import { estimateMessagesTokens } from '../session/context-utils.mjs';
 import { _sessionForDisk } from '../session/store/serialize.mjs';
-import { recallFastTrackCompactMessages } from '../session/compact.mjs';
+import { freshContextCompactMessages } from '../session/compact.mjs';
 
 function interleavedAnthropicBlocks() {
     const blocks = [{ type: 'thinking', thinking: '', signature: 'sig-a' }];
@@ -235,9 +235,9 @@ test('provider replay survives disk projection and contributes to context size',
     );
 });
 
-test('recall prose projection removes native calls whose tool outputs were removed', () => {
+test('fresh-context projection removes native calls whose tool outputs were removed', () => {
     const callId = 'call_compact_replay_orphan';
-    const compacted = recallFastTrackCompactMessages([
+    const compacted = freshContextCompactMessages([
         { role: 'system', content: 'system rules stay mandatory' },
         { role: 'user', content: 'older retained request' },
         {
@@ -262,9 +262,8 @@ test('recall prose projection removes native calls whose tool outputs were remov
         { role: 'user', content: 'newest request remains live' },
         { role: 'assistant', content: 'newest answer remains live' },
     ], 20_000, {
-        tailTurns: 2,
         force: true,
-        recallText: 'recall hit: older retained request',
+        handoffText: 'Memory hit: older retained request',
         query: 'provider replay projection',
         querySha: 'providerreplayprojection',
     });
@@ -273,9 +272,8 @@ test('recall prose projection removes native calls whose tool outputs were remov
         (message) => message?.role === 'assistant'
             && message.content === 'running the older shell command',
     );
-    assert.ok(projectedAssistant);
-    assert.equal(projectedAssistant.toolCalls, undefined);
-    assert.equal(projectedAssistant.providerReplay, undefined);
+    assert.equal(projectedAssistant, undefined);
+    assert.equal(JSON.stringify(compacted.messages).includes('providerReplay'), false);
 
     const wire = convertMessagesToResponsesInput(
         compacted.messages,

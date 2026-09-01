@@ -20,9 +20,7 @@ export function navigationKey(selection: WorkspaceSelection) {
       : `file:${selection.project}:${selection.rel}`;
   }
   if (selection.kind === "studio") return `studio:${selection.id}`;
-  if (selection.kind === "browser") return `browser:${selection.id}`;
   if (selection.kind === "terminal") return `terminal:${selection.id}`;
-  if (selection.kind === "folder") return `folder:${selection.id}`;
   if (selection.kind === "pull-request") {
     return `pull-request:${selection.project}:${selection.number}:${selection.mode}:${selection.instanceId || "default"}`;
   }
@@ -49,10 +47,6 @@ export function newStudioSelection(): Extract<WorkspaceSelection, { kind: "studi
   return { kind: "studio", id: workspaceInstanceId() };
 }
 
-export function newBrowserSelection(): Extract<WorkspaceSelection, { kind: "browser" }> {
-  return { kind: "browser", id: `browser_tab_${workspaceInstanceId()}` };
-}
-
 export function newTerminalSelection(
   cwd = "",
 ): Extract<WorkspaceSelection, { kind: "terminal" }> {
@@ -61,14 +55,6 @@ export function newTerminalSelection(
     id: `term_tab_${workspaceInstanceId()}`,
     ...(cwd ? { cwd } : {}),
   };
-}
-
-/** Folder-explorer pane tab: each open mints an independent instance so the
- *  same folder can sit side by side in a split (Q-Dir style). */
-export function newFolderSelection(
-  path: string,
-): Extract<WorkspaceSelection, { kind: "folder" }> {
-  return { kind: "folder", id: `folder_tab_${workspaceInstanceId()}`, path };
 }
 
 export function textOf(value: unknown): string {

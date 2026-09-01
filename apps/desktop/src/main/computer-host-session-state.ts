@@ -7,6 +7,14 @@
 import { screen } from 'electron';
 
 import type { ChromeUiaAncestor } from './browser-chrome-uia';
+import {
+  invalidateComputerActionTargets,
+  invalidateComputerWorkerGeneration,
+  isFreshComputerObservation,
+  rememberLatestComputerFrame,
+  releaseComputerSessionResources,
+  resolveFreshComputerObservationScope,
+} from './computer-host-session-resources';
 
 /** Actions that may address an element by alias, and the subset that can fall
  *  back to pixels when the alias resolves to a point. */
@@ -64,13 +72,12 @@ export function createSessionState(host: SessionStateHost) {
   }
 
   function rememberFrame(frame: CaptureFrame): void {
-    let frames = framesBySession.get(frame.sessionId);
-    if (!frames) {
-      frames = new Map();
-      framesBySession.set(frame.sessionId, frames);
-    }
-    frames.set(frame.id, frame);
-    while (frames.size > 8) frames.delete(frames.keys().next().value as string);
+    rememberLatestComputerFrame(
+      frame.sessionId,
+      frame.id,
+      frame,
+      framesBySession,
+    );
   }
 
   function rememberObservedWindowScope(
@@ -85,11 +92,53 @@ export function createSessionState(host: SessionStateHost) {
         primaryWindowId,
         ...relatedWindowIds.map(String).filter(Boolean),
       ])],
+      observedAt: performance.now(),
     });
+  }
+
+  function freshObservedWindowScope(command: ComputerCommand): ObservedWindowScope | undefined {
+    const sessionId = sessionIdFor(command);
+    const { scope, expired } = resolveFreshComputerObservationScope(
+      sessionId,
+      observedWindowBySession,
+      performance.now(),
+    );
+    if (expired) {
+      invalidateActionTargets(command);
+    }
+    return scope;
   }
 
   function forgetObservedWindowScope(command: ComputerCommand): void {
     observedWindowBySession.delete(sessionIdFor(command));
+  }
+
+  function invalidateActionTargets(command: ComputerCommand): void {
+    invalidateComputerActionTargets(sessionIdFor(command), {
+      framesBySession,
+      elementTargetsBySession,
+    });
+  }
+
+  function releaseSessionState(
+    sessionId: string,
+    releaseCaptureSession?: (releasedSessionId: string) => void,
+  ): void {
+    releaseComputerSessionResources(sessionId, {
+      framesBySession,
+      elementTargetsBySession,
+      observedWindowBySession,
+      lastCaptureBySession,
+    }, releaseCaptureSession);
+  }
+
+  function invalidateWorkerGeneration(sessionId: string): void {
+    invalidateComputerWorkerGeneration(sessionId, {
+      framesBySession,
+      elementTargetsBySession,
+      observedWindowBySession,
+      lastCaptureBySession,
+    });
   }
 
   function normalizeElementRecords(value: unknown): ComputerElementRecord[] {
@@ -154,7 +203,12 @@ export function createSessionState(host: SessionStateHost) {
           y: element.center_y,
         });
       } else {
-        targets.set(element.mark, { kind: 'ref', ref: element.ref });
+        targets.set(element.mark, {
+          kind: 'ref',
+          ref: element.ref,
+          x: element.center_x,
+          y: element.center_y,
+        });
       }
     }
     elementTargetsBySession.set(sessionIdFor(command), targets);
@@ -230,11 +284,28 @@ export function createSessionState(host: SessionStateHost) {
     };
   }
 
+  function visualPointForRef(
+    command: ComputerCommand,
+    ref: string | undefined,
+  ): { x: number; y: number } | undefined {
+    if (!ref) return undefined;
+    for (const target of elementTargetsBySession.get(sessionIdFor(command))?.values() || []) {
+      if (target.kind !== 'ref' || target.ref !== ref
+        || !Number.isFinite(target.x) || !Number.isFinite(target.y)) continue;
+      return { x: target.x as number, y: target.y as number };
+    }
+    return undefined;
+  }
+
   async function requireValidFrame(command: ComputerCommand): Promise<CaptureFrame> {
     const frameId = String(command.frame_id || '');
     if (!frameId) throw new Error('frame_id is required for pixel coordinates');
     const frame = framesBySession.get(sessionIdFor(command))?.get(frameId);
     if (!frame) throw new Error(`stale_frame: unknown frame_id ${frameId} in this session`);
+    if (!isFreshComputerObservation(frame.capturedAt, performance.now())) {
+      invalidateActionTargets(command);
+      throw new Error(`stale_frame: frame expired (${frame.id}); capture the target again`);
+    }
     if (frame.kind === 'window') {
       const bounds = await callPowerShell({
         action: 'window_bounds',
@@ -270,11 +341,16 @@ export function createSessionState(host: SessionStateHost) {
     sessionIdFor,
     rememberFrame,
     rememberObservedWindowScope,
+    freshObservedWindowScope,
     forgetObservedWindowScope,
+    invalidateActionTargets,
+    invalidateWorkerGeneration,
+    releaseSessionState,
     normalizeElementRecords,
     rememberElementTargets,
     elementTarget,
     resolveElementAliases,
+    visualPointForRef,
     requireValidFrame,
   };
 }

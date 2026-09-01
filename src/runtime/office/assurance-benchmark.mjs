@@ -311,11 +311,13 @@ async function semanticDeliverableQuality() {
       },
     }],
   });
+  const workbookChartRange = workbook.operations.find((entry) => entry.op === 'add_chart')?.range || '';
+  const workbookDataRange = workbook.operations.find((entry) => entry.op === 'set_range')?.range || '';
   return {
     category: 'semantic-deliverable-quality',
     passed: workbook.operations.some((entry) => entry.op === 'set_page_setup')
       && workbook.operations.some((entry) => entry.op === 'set_sheet_view')
-      && !/11$/.test(workbook.operations.find((entry) => entry.op === 'add_chart')?.range || '')
+      && workbookChartRange !== workbookDataRange
       && deck.operations.some((entry) => entry.op === 'add_chart' && entry.series.length === 1)
       && deck.operations.some((entry) => entry.op === 'set_notes' && /Source:/.test(entry.text)),
     evidence: {
@@ -403,6 +405,69 @@ async function contentAwareCompositionGate() {
   };
 }
 
+
+async function renderedAestheticsGate() {
+  const repeated = await reviewRenderedOfficePages(Array.from({ length: 6 }, (_, index) => (
+    renderedImage(index + 1, (context) => {
+      context.fillStyle = '#0B1118';
+      context.fillRect(0, 0, 800, 1_100);
+      context.fillStyle = '#F8FAFC';
+      context.fillRect(72, 96, 510, 54);
+      context.fillStyle = '#17212C';
+      context.fillRect(72, 250, 656, 520);
+      context.fillStyle = '#58A6FF';
+      context.fillRect(96, 286, 180, 300);
+    })
+  )), { format: 'pptx' });
+  const varied = await reviewRenderedOfficePages(Array.from({ length: 6 }, (_, index) => (
+    renderedImage(index + 1, (context) => {
+      if (index === 0 || index === 5) {
+        context.fillStyle = '#12233A';
+        context.fillRect(0, 0, 800, 1_100);
+        context.fillStyle = '#FFFFFF';
+        context.fillRect(76, 180, 470, 70);
+        return;
+      }
+      const accent = ['#1F7A55', '#A3425A', '#276FBF', '#8F5B24'][index - 1];
+      context.fillStyle = '#F7F9FC';
+      context.fillRect(0, 0, 800, 1_100);
+      context.fillStyle = '#17212C';
+      context.fillRect(64, 72, 560, 50);
+      context.fillStyle = accent;
+      if (index === 1) context.fillRect(64, 220, 250, 650);
+      if (index === 2) {
+        context.fillRect(64, 260, 650, 90);
+        context.fillRect(64, 400, 470, 90);
+        context.fillRect(64, 540, 330, 90);
+      }
+      if (index === 3) {
+        context.fillRect(430, 180, 300, 620);
+        context.fillStyle = '#DCE8F2';
+        context.fillRect(64, 180, 300, 240);
+      }
+      if (index === 4) {
+        context.fillRect(64, 230, 190, 430);
+        context.fillRect(304, 230, 190, 430);
+        context.fillRect(544, 230, 190, 430);
+      }
+    })
+  )), { format: 'pptx' });
+  const repeatedCodes = repeated.issues.map((entry) => entry.code);
+  const variedCodes = varied.issues.map((entry) => entry.code);
+  return {
+    category: 'rendered-aesthetics-gate',
+    passed: repeatedCodes.includes('flat_visual_rhythm')
+      && repeatedCodes.includes('repeated_render_composition')
+      && !variedCodes.includes('flat_visual_rhythm')
+      && !variedCodes.includes('repeated_render_composition'),
+    evidence: {
+      repeated: repeated.aesthetics,
+      varied: varied.aesthetics,
+    },
+  };
+}
+
+
 export async function runOfficeAssuranceBenchmark() {
   const cases = await Promise.all([
     spreadsheetBenchMini(),
@@ -415,10 +480,11 @@ export async function runOfficeAssuranceBenchmark() {
     semanticDeliverableQuality(),
     postSaveReleaseGate(),
     contentAwareCompositionGate(),
+    renderedAestheticsGate(),
   ]);
   const passed = cases.filter((entry) => entry.passed).length;
   return {
-    version: 3,
+    version: 4,
     createdAt: new Date().toISOString(),
     measurementKind: 'deterministic-office-assurance',
     categories: cases.length,

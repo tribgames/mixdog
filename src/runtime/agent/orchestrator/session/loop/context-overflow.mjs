@@ -38,7 +38,7 @@ export function agentContextOverflowError({ stage, sessionId, sessionRef, model,
 }
 
 // Distinct from AgentContextOverflowError: the compaction pipeline itself
-// failed (semantic-summary error, dead memory runtime, recall-fasttrack bail,
+// failed (handoff-summary error, dead Memory runtime,
 // etc.). This is NOT "latest turn cannot fit the context budget" — masking it
 // as AGENT_CONTEXT_OVERFLOW hides the real failure and misroutes downstream
 // overflow handling. Genuine provider send overflow keeps AgentContextOverflowError.

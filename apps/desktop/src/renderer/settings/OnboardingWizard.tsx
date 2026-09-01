@@ -1236,11 +1236,15 @@ function PairStep({ api }: { api: DesktopApi }) {
     let live = true;
     let timer = 0;
     const attempt = () => {
-      void preloadConnectionInfo(api).then((value) => {
+      const startedAt = Date.now();
+      void preloadConnectionInfo(api, PAIR_RETRY_MS).then((value) => {
         if (!live) return;
         setInfo(value);
         if (connectionInfoReady(value)) return;
-        timer = window.setTimeout(attempt, PAIR_RETRY_MS);
+        timer = window.setTimeout(
+          attempt,
+          Math.max(0, PAIR_RETRY_MS - (Date.now() - startedAt)),
+        );
       });
     };
     attempt();

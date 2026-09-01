@@ -107,10 +107,6 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
       mcpEnabled: true,
     }],
   },
-  hooksStatus: {
-    ruleCount: 1,
-    rules: [{ index: 0, tool: 'shell', action: 'ask', enabled: true }],
-  },
   skillsStatus: {
     count: 1,
     skills: [{ name: 'capture-skill', description: 'Capture layout skill', source: 'built-in' }],

@@ -34,9 +34,8 @@ export type PaneNode = PaneLeaf | PaneSplit;
 export const PANE_MIN_RATIO = 0.15;
 export const PANE_MAX_RATIO = 0.85;
 export const PANE_MIN_WIDTH = 320;
-/** Vertical floor = 1.5x the horizontal floor (user spec): a stacked pane
- *  must keep a readable content run, not survive as a crushed strip. */
-export const PANE_MIN_HEIGHT = 480;
+/** Keep stacked panes usable without excluding common laptop window heights. */
+export const PANE_MIN_HEIGHT = 320;
 export const PANE_RESIZE_HANDLE_SIZE = 4;
 /** Persistence guard: a deeper stored tree than any real split arrangement
  *  could produce is rejected as corrupt instead of recursed into. */
@@ -995,10 +994,6 @@ export function parseWorkspaceSelection(value: unknown): WorkspaceSelection | nu
       return typeof record.id === "string" && record.id
         ? { kind: "studio", id: record.id }
         : null;
-    case "browser":
-      return typeof record.id === "string" && record.id
-        ? { kind: "browser", id: record.id }
-        : null;
     case "terminal":
       return typeof record.id === "string" && record.id
         ? {
@@ -1006,11 +1001,6 @@ export function parseWorkspaceSelection(value: unknown): WorkspaceSelection | nu
           id: record.id,
           ...(typeof record.cwd === "string" && record.cwd ? { cwd: record.cwd } : {}),
         }
-        : null;
-    case "folder":
-      return typeof record.id === "string" && record.id
-        && typeof record.path === "string" && record.path
-        ? { kind: "folder", id: record.id, path: record.path }
         : null;
     case "pull-request":
       return typeof record.project === "string" && record.project
@@ -1065,6 +1055,10 @@ export function parsePaneLayout(value: unknown): PaneNode | null {
       const tabs: WorkspaceSelection[] = [];
       const keys = new Set<string>();
       for (const value of rawTabs) {
+        // Browser Use moved from a workspace tab to a session-owned dock.
+        // Drop only that retired selection while preserving the rest of the layout.
+        if (value && typeof value === "object"
+          && (value as Record<string, unknown>).kind === "browser") continue;
         const selection = parseWorkspaceSelection(value);
         if (!selection) return null;
         const key = navigationKey(selection);

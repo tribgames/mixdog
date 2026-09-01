@@ -54,6 +54,31 @@ export function createWindowTargeting(host: WindowTargetingHost) {
     throw new Error(`ambiguous_window_target: app "${command.app}" matched ${matches.length} windows (${candidates}); retry with one exact window_id`);
   }
 
+  async function resolveRecaptureWindowTarget(
+    command: ComputerCommand,
+    observedWindowId: string,
+  ): Promise<{ windowId: string; error?: string }> {
+    const explicitWindowId = String(command.window_id || '').trim();
+    if (explicitWindowId) return { windowId: explicitWindowId };
+    if (String(command.app || '').trim()) {
+      try {
+        return { windowId: await resolveAppWindowId(command) };
+      } catch (error) {
+        return {
+          windowId: '',
+          error: `exact app target is unavailable for recapture: ${(error as Error).message || String(error)}`,
+        };
+      }
+    }
+    const fallbackWindowId = String(observedWindowId || '').trim();
+    return fallbackWindowId
+      ? { windowId: fallbackWindowId }
+      : {
+          windowId: '',
+          error: 'exact target window is unavailable for recapture',
+        };
+  }
+
   async function resolveForegroundWindowId(command: ComputerCommand): Promise<string> {
     const windows = await readComputerWindows(command);
     const focused = windows?.filter((window) => window.focused) || [];
@@ -113,5 +138,10 @@ export function createWindowTargeting(host: WindowTargetingHost) {
     return { text: JSON.stringify({ apps }) };
   }
 
-  return { resolveAppWindowId, resolveForegroundWindowId, listComputerApps };
+  return {
+    resolveAppWindowId,
+    resolveRecaptureWindowTarget,
+    resolveForegroundWindowId,
+    listComputerApps,
+  };
 }

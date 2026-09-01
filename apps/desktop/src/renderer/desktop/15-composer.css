@@ -142,8 +142,15 @@
 }
 .composer textarea::placeholder { color: var(--mx-text-faint); }
 .composer-footer { height: 44px; gap: 0; padding: 0 8px; }
+/* This stable group owns right alignment. The mic is conditional, so making
+   the mic own the auto margin pulled Send left whenever voice was unavailable. */
+.composer-primary-actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
 /* Push-to-talk dictation states on the mic tool. */
-.composer-mic { margin-left: auto; margin-right: 8px; }
+.composer-mic { margin-right: 8px; }
 /* The live signal moved into the overlay below, so the mic stays a plain
    disc: the old expanding ring painted OUTSIDE the border box and read as a
    circle larger than the send disc beside it (user-flagged, desktop + phone).

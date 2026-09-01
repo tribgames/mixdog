@@ -2,15 +2,52 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  assertCaptureAfterOptions,
+  assertOcrLanguageTag,
   captureAfterImageIsRedundant,
   captureIdentityMap,
   captureMode,
   dedupeOcrWords,
   evaluateVerifyPredicate,
   framePoint,
+  recommendedRecovery,
   screenshotInteger,
+  shouldUseOcrFallback,
   summarizeCaptureChanges,
 } from './computer-host-observation.ts';
+
+test('OCR language tags stay bounded and use one host-wide grammar', () => {
+  for (const language of ['ko', 'en-US', 'zh-Hans', 'sr-Latn-RS']) {
+    assert.doesNotThrow(() => assertOcrLanguageTag(language), language);
+  }
+  for (const language of [
+    '',
+    'e',
+    ' en-US',
+    'en-US ',
+    'en_US',
+    'en--US',
+    'en-US!',
+    `en-${'a'.repeat(63)}`,
+  ]) {
+    assert.throws(
+      () => assertOcrLanguageTag(language),
+      /BCP-47 language tag/,
+      JSON.stringify(language),
+    );
+  }
+  assert.doesNotThrow(() => assertCaptureAfterOptions({
+    action: 'click',
+    capture_after_ocr_language: 'ko',
+  }));
+  assert.throws(
+    () => assertCaptureAfterOptions({
+      action: 'click',
+      capture_after_ocr_language: 'ko_KR',
+    }),
+    /capture_after_ocr_language.*BCP-47/,
+  );
+});
 
 function element(overrides = {}) {
   return {
@@ -128,6 +165,10 @@ test('the post-action image is dropped only when a semantic action has a named d
   // Every guard that means the pixels still carry evidence.
   assert.equal(captureAfterImageIsRedundant({ action: 'invoke', ref: 's1:e0', include_ocr: true }, changed), false);
   assert.equal(captureAfterImageIsRedundant({ action: 'invoke', ref: 's1:e0', capture_after_include_ocr: true }, changed), false);
+  assert.equal(captureAfterImageIsRedundant(
+    { action: 'invoke', ref: 's1:e0' },
+    { ...changed, ocr_elements: 2 },
+  ), false);
   assert.equal(
     captureAfterImageIsRedundant({ action: 'invoke', ref: 's1:e0' }, { ...changed, pixel_status: 'unavailable' }),
     false,
@@ -198,4 +239,23 @@ test('capture mode defaults to state and rejects anything the host cannot render
   assert.equal(captureMode({ mode: 'ax' }), 'ax');
   // zoom is a separate host command, never a capture mode at this point.
   assert.throws(() => captureMode({ mode: 'zoom' }), /must be state, som, vision, or ax/);
+});
+
+test('state and SOM automatically use OCR only when semantic accessibility is empty', () => {
+  assert.equal(shouldUseOcrFallback('state', false, false), true);
+  assert.equal(shouldUseOcrFallback('som', false, false), true);
+  assert.equal(shouldUseOcrFallback('state', true, false), false);
+  assert.equal(shouldUseOcrFallback('vision', false, false), false);
+  assert.equal(shouldUseOcrFallback('vision', false, true), true);
+});
+
+test('foreground-lock failures recommend pixel activation instead of permissions', () => {
+  assert.equal(
+    recommendedRecovery('key', 'suspected_noop', 'foreground_unavailable', 'foreground', null),
+    'pixel',
+  );
+  assert.equal(
+    recommendedRecovery('click', 'suspected_noop', 'foreground_changed', 'foreground', null),
+    'pixel',
+  );
 });

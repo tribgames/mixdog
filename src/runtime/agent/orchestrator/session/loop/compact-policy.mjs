@@ -1,7 +1,7 @@
 // Compaction policy resolution, pressure/target budgeting, telemetry
 // persistence, and event emission — extracted from loop.mjs.
-// runRecallFastTrackCompact stays in the loop (it drives the recall pipeline
-// against live session state).
+// The fresh-context runner drives the handoff pipeline against live session
+// state.
 import {
     contextMessagesShapeSignature,
     contextMessagesSignature,
@@ -12,35 +12,19 @@ import {
     toolSchemaSignature,
 } from '../context-utils.mjs';
 import {
-    compactTypeIsRecallFastTrack,
-    compactTypeIsSemantic,
-    DEFAULT_COMPACT_TYPE,
     DEFAULT_COMPACTION_KEEP_TOKENS,
     CONTEXT_SHARE_RATIO,
     COMPACT_TARGET_MIN_TOKENS,
     COMPACT_SAFETY_PERCENT,
-    COMPACT_TYPE_RECALL_FASTTRACK,
 } from '../compact.mjs';
 import { positiveTokenInt, envFlag, envTokenInt } from './env.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { providerInputExcludesCache } from '../../providers/registry.mjs';
 
 // Unified context-share rule (compact/constants.mjs CONTEXT_SHARE_RATIO): the
-// post-compaction target is 10% of the boundary/context window — the same 10%
-// the recall-fasttrack injection cap uses (loop.mjs recallTokenCap). One
+// post-compaction target is 50% of the boundary/context window — the same 50%
+// the handoff injection cap uses. One
 // number governs every "share of model context" budget.
-
-function resolveCompactTypeSetting(sessionRef, cfg = {}) {
-    // Agent-owned sessions are ALWAYS semantic. recall-fasttrack rebuilds
-    // context from Memory recall, which is scoped to the user's main-session
-    // history — an agent's tool-loop history is not in the recall pool, so a
-    // fasttrack compact would inject unrelated main-session memories and drop
-    // the agent's own working context. Env/config overrides do not apply.
-    if (isAgentOwner(sessionRef)) return DEFAULT_COMPACT_TYPE;
-    // Non-agent (main/user) sessions are ALWAYS recall-fasttrack. Hard-locked:
-    // config/env overrides no longer change the type.
-    return COMPACT_TYPE_RECALL_FASTTRACK;
-}
 
 function resolveCompactTargetRatio(cfg = {}) {
     const raw = cfg.targetPercent
@@ -112,7 +96,7 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
         : (explicitBoundary || contextWindow || autoLimit);
     if (!boundaryTokens) return null;
     const compactBoundaryTokens = Math.max(1, Math.floor(boundaryTokens * COMPACT_SAFETY_PERCENT));
-    // Shared session-compaction policy (context-utils): agent semantic keeps the
+    // Shared session-compaction policy (context-utils): agent sessions keep the
     // default early-trigger buffer (90%); main/user default to full-window
     // trigger (buffer 0 / 100%), still overridable via mainBuffer*;
     // a truly-explicit sub-boundary limit wins. explicitAutoCompactTokenLimit
@@ -131,9 +115,9 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
     // value. Operator reserve is local headroom, so preserve its early-compact
     // effect by lowering the threshold instead of inflating displayed usage.
     const singleShot = reserveTokens >= policy.triggerTokens;
-    // Main/user recall-fasttrack must not compact into its next trigger. Keep a
+    // Main/user Compact must not land inside its next trigger. Keep a
     // 1%-of-boundary (up to 1,024-token) gap above the effective post-compact
-    // target. Explicit sub-boundary limits and agent semantic triggers retain
+    // target. Explicit sub-boundary limits and agent triggers retain
     // their established precedence/behavior.
     const minMainTrigger = Math.min(
         compactBoundaryTokens,
@@ -146,12 +130,8 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
     const bufferTokens = Math.max(0, compactBoundaryTokens - triggerTokens);
     const bufferRatio = bufferTokens / compactBoundaryTokens;
     const keepTokens = resolveCompactKeepTokens(cfg);
-    const compactType = resolveCompactTypeSetting(sessionRef, cfg);
     return {
         auto: true,
-        type: compactType,
-        compactType,
-        prune: cfg.prune === true || envFlag('MIXDOG_AGENT_COMPACT_PRUNE', false),
         boundaryTokens: compactBoundaryTokens,
         triggerTokens,
         bufferTokens,
@@ -164,10 +144,7 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
             ? Number(sessionRef.effectiveContextWindowPercent ?? cfg.effectiveContextWindowPercent)
             : null,
         autoCompactTokenLimit: explicitAutoCompactTokenLimit,
-        semantic: compactTypeIsSemantic(compactType),
-        recallFastTrack: compactTypeIsRecallFastTrack(compactType),
-        semanticTimeoutMs: positiveTokenInt(cfg.timeoutMs) || envTokenInt('MIXDOG_AGENT_COMPACT_TIMEOUT_MS') || 30_000,
-        tailTurns: positiveTokenInt(cfg.tailTurns) || envTokenInt('MIXDOG_AGENT_COMPACT_TAIL_TURNS') || 1,
+        handoffTimeoutMs: positiveTokenInt(cfg.timeoutMs) || envTokenInt('MIXDOG_AGENT_COMPACT_TIMEOUT_MS') || 30_000,
         keepTokens,
         preserveRecentTokens: positiveTokenInt(cfg.preserveRecentTokens) || envTokenInt('MIXDOG_AGENT_COMPACT_PRESERVE_RECENT_TOKENS') || keepTokens,
         reserveTokens,
@@ -612,22 +589,25 @@ function providerReadingBelowTrigger(sessionRef, trigger) {
     if (compactAt > 0 && usageAt <= compactAt) return false;
     return true;
 }
-export function countPrunedToolOutputs(before, after) {
-    if (!Array.isArray(before) || !Array.isArray(after)) return 0;
-    let count = 0;
-    const n = Math.min(before.length, after.length);
-    for (let i = 0; i < n; i += 1) {
-        if (before[i]?.role !== 'tool' || after[i]?.role !== 'tool') continue;
-        if (before[i]?.content !== after[i]?.content && after[i]?.compactedKind === 'tool_output_prune') count += 1;
-    }
-    return count;
-}
 export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
     if (!sessionRef || !policy) return;
     const prev = sessionRef.compaction && typeof sessionRef.compaction === 'object'
-        ? sessionRef.compaction
+        ? { ...sessionRef.compaction }
         : {};
-    const changed = meta.compactChanged === true || meta.pruneCount > 0;
+    for (const key of [
+        'type',
+        'compactType',
+        'semantic',
+        'recallFastTrack',
+        'semanticModel',
+        'semanticTimeoutMs',
+        'tailTurns',
+        'lastSemantic',
+        'lastSemanticError',
+        'lastRecallFastTrack',
+        'lastRecallFastTrackError',
+    ]) delete prev[key];
+    const changed = meta.compactChanged === true;
     // Both are successful terminal pre-send states. In particular,
     // pre_send_check is the no-op path after a prior recovered/failing compact;
     // retaining its old component error makes status report a failure although
@@ -636,7 +616,6 @@ export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
     sessionRef.compaction = {
         ...prev,
         auto: policy.auto !== false,
-        prune: policy.prune === true,
         reservedTokens: policy.configuredReserveTokens || prev.reservedTokens || null,
         requestReserveTokens: policy.requestReserveTokens || 0,
         reserveTokens: policy.reserveTokens || 0,
@@ -648,13 +627,7 @@ export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         rawContextWindow: policy.rawContextWindow || null,
         effectiveContextWindowPercent: policy.effectiveContextWindowPercent ?? null,
         autoCompactTokenLimit: policy.autoCompactTokenLimit || null,
-        type: policy.compactType || policy.type || DEFAULT_COMPACT_TYPE,
-        compactType: policy.compactType || policy.type || DEFAULT_COMPACT_TYPE,
-        semantic: policy.semantic === true ? 'auto' : false,
-        recallFastTrack: policy.recallFastTrack === true,
-        semanticModel: policy.semanticModel || null,
-        semanticTimeoutMs: policy.semanticTimeoutMs || null,
-        tailTurns: policy.tailTurns || null,
+        handoffTimeoutMs: policy.handoffTimeoutMs || null,
         keepTokens: policy.keepTokens || null,
         preserveRecentTokens: policy.preserveRecentTokens || null,
         lastCheckedAt: Date.now(),
@@ -673,24 +646,18 @@ export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         lastStage: meta.stage || prev.lastStage || null,
         lastChanged: changed,
         lastTrigger: meta.trigger || prev.lastTrigger || null,
-        lastSemantic: meta.semanticCompact === true,
-        lastSemanticError: terminalSuccess
+        lastFreshContext: meta.freshContext === true,
+        lastFreshContextError: terminalSuccess
             ? null
-            : Object.hasOwn(meta, 'semanticError')
-                ? (meta.semanticError ?? null)
-                : (prev.lastSemanticError ?? null),
-        lastRecallFastTrack: meta.recallFastTrack === true,
-        lastRecallFastTrackError: terminalSuccess
-            ? null
-            : Object.hasOwn(meta, 'recallFastTrackError')
-                ? (meta.recallFastTrackError ?? null)
-                : (prev.lastRecallFastTrackError ?? null),
+            : Object.hasOwn(meta, 'freshContextError')
+                ? (meta.freshContextError ?? null)
+                : (prev.lastFreshContextError ?? null),
+        lastHandoffSource: meta.handoffSource || prev.lastHandoffSource || null,
         lastError: terminalSuccess
             ? null
             : Object.hasOwn(meta, 'compactError') || Object.hasOwn(meta, 'lastError')
                 ? (meta.compactError ?? meta.lastError ?? null)
                 : (prev.lastError ?? null),
-        lastPruneCount: meta.pruneCount || 0,
         lastDurationMs: meta.durationMs != null && Number.isFinite(Number(meta.durationMs))
             ? Math.max(0, Math.round(Number(meta.durationMs)))
             : null,
@@ -746,20 +713,15 @@ export function emitCompactEvent(opts, event = {}) {
     catch { /* best-effort UI/log hook */ }
 }
 
-export function compactEventType(policy, fallback = DEFAULT_COMPACT_TYPE) {
-    return policy?.compactType || policy?.type || fallback;
-}
-
-// Semantic-summary model override. NO automatic downshift: the runtime cannot
+// Handoff-summary model override. NO automatic downshift: the runtime cannot
 // know which models a given account/gateway can actually serve (an OAuth plan
 // or relay may not expose Haiku at all), so guessing a cheaper model risks a
 // hard compact failure. The summary runs on the session's own model unless an
-// operator explicitly configures compaction.semanticModel (or the
-// MIXDOG_AGENT_COMPACT_SEMANTIC_MODEL env) — that opt-in is the only override.
-export function resolveSemanticSummaryModel(sessionRef, _opts = {}) {
+// operator explicitly configures compaction.summaryModel.
+export function resolveHandoffSummaryModel(sessionRef, _opts = {}) {
     const cfg = sessionRef?.compaction && typeof sessionRef.compaction === 'object' ? sessionRef.compaction : {};
-    const explicit = String(cfg.semanticModel || '').trim()
-        || String(process.env.MIXDOG_AGENT_COMPACT_SEMANTIC_MODEL || '').trim();
+    const explicit = String(cfg.summaryModel || '').trim()
+        || String(process.env.MIXDOG_AGENT_COMPACT_SUMMARY_MODEL || '').trim();
     if (explicit) return explicit;
     return null;
 }

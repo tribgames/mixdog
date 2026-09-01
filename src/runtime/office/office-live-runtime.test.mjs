@@ -125,7 +125,7 @@ test('persistent Excel sessions own one document and preserve UTF-8 text', {
   assert.equal(background.ownership, 'owned');
   assert.equal(background.visible, false);
 
-  value(await executeOfficeTool({
+  const backgroundBatch = value(await executeOfficeTool({
     action: 'batch',
     session: background.session,
     operations: [
@@ -134,8 +134,18 @@ test('persistent Excel sessions own one document and preserve UTF-8 text', {
       { op: 'set_range', sheet: 'Sheet1', range: 'C1:D1', values: [[true, 22.5]] },
       { op: 'append_row', sheet: 'Sheet1', values: ['추가 행', 23] },
       { op: 'add_validation', sheet: 'Sheet1', range: 'E1:E3', formula1: 'Yes,No', inputMessage: 'Choose a value' },
+      { op: 'freeze_panes', sheet: 'Sheet1', row: 1 },
+      { op: 'set_sheet_view', sheet: 'Sheet1', showGridlines: false, zoom: 95 },
     ],
   }, { cwd }));
+  assert.deepEqual(backgroundBatch.backgroundIsolation?.observedVisibleWindows, [], JSON.stringify(backgroundBatch));
+  assert.equal(backgroundBatch.backgroundIsolation?.hiddenWindows, 0, JSON.stringify(backgroundBatch));
+  assert.equal(backgroundBatch.backgroundIsolation?.focusRestorations, 0, JSON.stringify(backgroundBatch));
+  assert.equal(
+    backgroundBatch.backgroundIsolation?.foregroundAfter,
+    backgroundBatch.backgroundIsolation?.foregroundBefore,
+    JSON.stringify(backgroundBatch),
+  );
   const backgroundCell = value(await executeOfficeTool({
     action: 'get',
     session: background.session,
@@ -484,7 +494,17 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
     format: 'pptx',
     mode: 'background',
   }, { cwd }));
-  value(await executeOfficeTool({
+  assert.equal(powerpoint.backgroundIsolation?.strict, true, JSON.stringify(powerpoint));
+  assert.equal(powerpoint.backgroundIsolation?.isolatedProcess, true, JSON.stringify(powerpoint));
+  assert.deepEqual(powerpoint.backgroundIsolation?.observedVisibleWindows, [], JSON.stringify(powerpoint));
+  assert.equal(
+    powerpoint.backgroundIsolation?.foregroundAfter,
+    powerpoint.backgroundIsolation?.foregroundBefore,
+    JSON.stringify(powerpoint),
+  );
+  assert.equal(powerpoint.backgroundIsolation?.visibleOwnedWindows, 0, JSON.stringify(powerpoint));
+  assert.equal(powerpoint.backgroundIsolation?.ownedForeground, false, JSON.stringify(powerpoint));
+  const powerpointBatch = value(await executeOfficeTool({
     action: 'batch',
     session: powerpoint.session,
     operations: [
@@ -575,6 +595,17 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
       { op: 'fill_template', tokens: { title: '실제 템플릿', owner: 'Mixdog' }, strict: true },
     ],
   }, { cwd }));
+  assert.equal(powerpointBatch.backgroundIsolation?.strict, true, JSON.stringify(powerpointBatch));
+  assert.deepEqual(powerpointBatch.backgroundIsolation?.observedVisibleWindows, [], JSON.stringify(powerpointBatch));
+  assert.equal(
+    powerpointBatch.backgroundIsolation?.foregroundAfter,
+    powerpointBatch.backgroundIsolation?.foregroundBefore,
+    JSON.stringify(powerpointBatch),
+  );
+  assert.equal(powerpointBatch.backgroundIsolation?.visibleOwnedWindows, 0, JSON.stringify(powerpointBatch));
+  assert.equal(powerpointBatch.backgroundIsolation?.ownedForeground, false, JSON.stringify(powerpointBatch));
+  assert.equal(powerpointBatch.backgroundIsolation?.hiddenWindows, 0, JSON.stringify(powerpointBatch));
+  assert.equal(powerpointBatch.backgroundIsolation?.focusRestorations, 0, JSON.stringify(powerpointBatch));
   const powerpointSnapshot = value(await executeOfficeTool({
     action: 'snapshot',
     session: powerpoint.session,
@@ -803,6 +834,10 @@ test('attach selects the exact workbook across multiple Excel instances', {
   assert.equal(automatic.mode, 'background');
   assert.equal(automatic.ownership, 'owned');
   assert.equal(automatic.visible, false);
+  assert.equal(automatic.backgroundIsolation?.strict, true, JSON.stringify(automatic));
+  assert.equal(automatic.backgroundIsolation?.isolatedProcess, true, JSON.stringify(automatic));
+  assert.equal(automatic.backgroundIsolation?.visibleOwnedWindows, 0, JSON.stringify(automatic));
+  assert.equal(automatic.backgroundIsolation?.ownedForeground, false, JSON.stringify(automatic));
   assert.notEqual(automatic.windowHwnd, secondExternal.hWnd);
   value(await executeOfficeTool({ action: 'close', session: automatic.session }, { cwd }));
 

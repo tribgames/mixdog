@@ -43,9 +43,9 @@ const CONTRACT_ROWS = [
   ]),
   contract('cookies', [
     ...PAGE_TARGET, 'operation', 'url', 'name', 'value', 'domain', 'path',
-    'secure', 'httpOnly', 'sameSite', 'expirationDate',
+    'secure', 'httpOnly', 'sameSite', 'expirationDate', 'confirm',
   ]),
-  contract('storage', [...PAGE_TARGET, 'operation', 'storageType', 'name', 'value']),
+  contract('storage', [...PAGE_TARGET, 'operation', 'storageType', 'name', 'value', 'confirm']),
   contract('performance', [...PAGE_TARGET, 'operation', 'reload']),
   contract(
     'click',
@@ -424,6 +424,23 @@ export function validateBrowserToolArgs(args) {
   }
   if (action === 'upload' && input.confirm !== true) {
     return { ok: false, error: 'browser action "upload" requires input.confirm=true after path approval' };
+  }
+  if (action === 'cookies' || action === 'storage') {
+    const operation = String(input.operation || 'list').trim().toLowerCase();
+    const sharedClear = operation === 'clear'
+      && (action === 'cookies' || String(input.storageType || 'local').toLowerCase() === 'local');
+    if (sharedClear && input.confirm !== true) {
+      return {
+        ok: false,
+        error: `browser action "${action}" shared clear requires input.confirm=true after explicit approval`,
+      };
+    }
+    if (!sharedClear && Object.hasOwn(input, 'confirm')) {
+      return {
+        ok: false,
+        error: `browser action "${action}" input.confirm belongs only to shared clear`,
+      };
+    }
   }
   if (action === 'sequence') {
     const error = validateSequenceSteps(input.steps);

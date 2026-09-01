@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.renderer.json",
+  "files": [
+    "../../src/preload/index.d.ts",
+    "../../src/renderer/desktop-api.d.ts",
+    "../../src/renderer/fontsource.d.ts",
+    "../../src/renderer/monaco-basic-languages.d.ts",
+    "../../src/renderer/monaco-locales.d.ts",
+    "../../src/renderer/renderer-logic.d.mts",
+    "entry.tsx"
+  ]
+}

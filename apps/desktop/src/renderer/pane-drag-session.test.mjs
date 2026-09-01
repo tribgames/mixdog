@@ -209,3 +209,56 @@ test("a foreign tab strip wins over overlapping workspace edge zones", () => {
   );
   dom.window.close();
 });
+
+test("a single pane can split vertically at 700px content height", () => {
+  const dom = new JSDOM(`<!doctype html><html><body>
+    <div id="panel">
+      <div class="workspace-tabs-shell"></div>
+      <div id="editor"></div>
+    </div>
+  </body></html>`);
+  const panel = dom.window.document.getElementById("panel");
+  const editor = dom.window.document.getElementById("editor");
+  panel.getBoundingClientRect = () => ({
+    left: 0,
+    right: 800,
+    top: 0,
+    bottom: 700,
+    width: 800,
+    height: 700,
+  });
+  const source = { kind: "session", id: "one", title: "One" };
+  const leaf = {
+    type: "leaf",
+    id: "leaf-a",
+    tabs: [
+      source,
+      { kind: "session", id: "two", title: "Two" },
+    ],
+    activeKey: "session:one",
+  };
+
+  const intent = resolvePaneDropIntent({
+    phase: "move",
+    kind: "tab",
+    key: "session:one",
+    title: "One",
+    selection: source,
+    sourceLeafId: "leaf-a",
+    x: 400,
+    y: 5,
+    target: editor,
+  }, {
+    layout: leaf,
+    leaves: [leaf],
+  }, panel);
+
+  assert.deepEqual(intent?.action, {
+    type: "move-tab-to-node-edge",
+    sourceLeafId: "leaf-a",
+    key: "session:one",
+    targetPath: "",
+    zone: "top",
+  });
+  dom.window.close();
+});

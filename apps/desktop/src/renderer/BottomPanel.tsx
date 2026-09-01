@@ -17,6 +17,11 @@ import {
   reportBootSurfaceReady,
   reportBootSurfaceStage,
 } from "./boot-metrics";
+import {
+  bottomPanelOpenForPane,
+  restoreBottomPanelOpenPaneIds,
+  setBottomPanelPaneOpen,
+} from "./bottom-panel-pane-state";
 import { usePageHideFlush } from "./layout-persistence";
 
 const BOTTOM_PANEL_KEY = "mixdog.desktop.bottom-panel.v1";
@@ -45,22 +50,31 @@ export interface BottomPanelState {
 
 export type BottomPanelMotion = "animated" | "instant";
 
-export function useBottomPanelState(defaultTab = "") {
-  // Open state and height carry across reloads; the ACTIVE TAB never does
-  // (user: 좌·우·하단 도크 전부 첫 메뉴로 초기화). Every reconnect opens the
-  // panel on its leading tab.
-  const [state, setState] = useState<BottomPanelState>(() => {
+interface StoredBottomPanelState {
+  openPaneIds: ReadonlySet<string>;
+  height: number;
+  tab: string;
+}
+
+export function useBottomPanelState(activePaneId: string, defaultTab = "problems") {
+  // Height and each PANE's open state carry across reloads; the ACTIVE TAB
+  // never does. The legacy global `open` flag migrates to the focused PANE.
+  const [state, setState] = useState<StoredBottomPanelState>(() => {
     try {
       const record = JSON.parse(
         window.localStorage.getItem(BOTTOM_PANEL_KEY) || "",
       ) as Record<string, unknown>;
       return {
-        open: record.open === true,
+        openPaneIds: restoreBottomPanelOpenPaneIds(record, activePaneId),
         height: clampBottomPanelHeight(Number(record.height), window.innerHeight),
         tab: defaultTab,
       };
     } catch {
-      return { open: false, height: BOTTOM_PANEL_DEFAULT_HEIGHT, tab: defaultTab };
+      return {
+        openPaneIds: new Set(),
+        height: BOTTOM_PANEL_DEFAULT_HEIGHT,
+        tab: defaultTab,
+      };
     }
   });
   const [motion, setMotion] = useState<BottomPanelMotion>("animated");
@@ -68,12 +82,15 @@ export function useBottomPanelState(defaultTab = "") {
     try {
       window.localStorage.setItem(
         BOTTOM_PANEL_KEY,
-        JSON.stringify({ open: state.open, height: state.height }),
+        JSON.stringify({
+          openPaneIds: [...state.openPaneIds],
+          height: state.height,
+        }),
       );
     } catch {
       // Panel persistence is a convenience only.
     }
-  }, [state.height, state.open]);
+  }, [state.height, state.openPaneIds]);
   usePageHideFlush(persistState);
   useEffect(() => {
     const timer = window.setTimeout(persistState, 120);
@@ -84,11 +101,30 @@ export function useBottomPanelState(defaultTab = "") {
     nextMotion: BottomPanelMotion = "animated",
   ) => {
     setMotion(nextMotion);
-    setState((prev) => ({ ...prev, open }));
-  }, []);
+    setState((prev) => ({
+      ...prev,
+      openPaneIds: setBottomPanelPaneOpen(prev.openPaneIds, activePaneId, open),
+    }));
+  }, [activePaneId]);
   const toggle = useCallback((nextMotion: BottomPanelMotion = "animated") => {
     setMotion(nextMotion);
-    setState((prev) => ({ ...prev, open: !prev.open }));
+    setState((prev) => ({
+      ...prev,
+      openPaneIds: setBottomPanelPaneOpen(
+        prev.openPaneIds,
+        activePaneId,
+        !bottomPanelOpenForPane(prev.openPaneIds, activePaneId),
+      ),
+    }));
+  }, [activePaneId]);
+  // A pane's OWN close/open control targets that pane, focused or not — the
+  // panel is the file editor's sub-panel now (user: DIFF처럼 스크립트에
+  // 종속), so every pane renders its own instance from openPaneIds.
+  const setOpenFor = useCallback((paneId: string, open: boolean) => {
+    setState((prev) => ({
+      ...prev,
+      openPaneIds: setBottomPanelPaneOpen(prev.openPaneIds, paneId, open),
+    }));
   }, []);
   const setHeight = useCallback((height: number) => {
     setState((prev) => ({ ...prev, height: clampBottomPanelHeight(height, window.innerHeight) }));
@@ -98,9 +134,24 @@ export function useBottomPanelState(defaultTab = "") {
     nextMotion: BottomPanelMotion = "animated",
   ) => {
     setMotion(nextMotion);
-    setState((prev) => ({ ...prev, tab, open: true }));
-  }, []);
-  return { ...state, motion, setOpen, toggle, setHeight, setTab };
+    setState((prev) => ({
+      ...prev,
+      tab,
+      openPaneIds: setBottomPanelPaneOpen(prev.openPaneIds, activePaneId, true),
+    }));
+  }, [activePaneId]);
+  return {
+    open: bottomPanelOpenForPane(state.openPaneIds, activePaneId),
+    openPaneIds: state.openPaneIds,
+    height: state.height,
+    tab: state.tab,
+    motion,
+    setOpen,
+    setOpenFor,
+    toggle,
+    setHeight,
+    setTab,
+  };
 }
 
 export function BottomPanel({
@@ -179,6 +230,10 @@ export function BottomPanel({
     setDragging(true);
     handle.setPointerCapture(event.pointerId);
     const panel = handle.parentElement as HTMLElement | null;
+    // The panel grows UPWARD from its own bottom edge — the pane bottom now,
+    // the window bottom before. Measure that anchor once: it never moves
+    // during the drag, while window math broke for panes above a split.
+    const anchorBottom = panel?.getBoundingClientRect().bottom ?? window.innerHeight;
     let pendingHeight: number | null = null;
     const applyPreview = (): void => {
       if (panel && pendingHeight !== null) {
@@ -188,10 +243,8 @@ export function BottomPanel({
     };
     const onPointerMove = (moveEvent: PointerEvent): void => {
       if (!handle.hasPointerCapture(event.pointerId)) return;
-      // The panel is glued to the window bottom, so its height is simply the
-      // distance from the pointer to the bottom edge.
       pendingHeight = clampBottomPanelHeight(
-        window.innerHeight - moveEvent.clientY,
+        anchorBottom - moveEvent.clientY,
         window.innerHeight,
       );
       scheduleLayoutFrame(resizeFrameKey.current, applyPreview);

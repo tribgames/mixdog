@@ -21,8 +21,8 @@ import {
   renderSessionGroupedLines,
   collapseNearDuplicateRows,
   compactDigestRows,
-  compactHandoffRows,
 } from './recall-format.mjs'
+import { compactHandoffRows } from './compact-handoff.mjs'
 import { searchRelevantHybrid } from './memory-recall-store.mjs'
 import { fetchEntriesByIdsScoped } from './memory-recall-id-patch.mjs'
 import { retrieveEntries } from './memory-retrievers.mjs'
@@ -61,7 +61,7 @@ export function createQueryHandlers({
   getDb,
   log,
   resolveProjectScope,
-  embeddingWarmupCanStart,
+  embeddingOnDemandCanStart,
   getBootTimestamp,
   getTraceDb,
 }) {
@@ -245,9 +245,19 @@ export function createQueryHandlers({
         }
       }
     }
-    if (compactHandoff) rows = compactHandoffRows(rows, limit)
+    if (compactHandoff) {
+      rows = compactHandoffRows(rows, {
+        preserveLatestUserTurns: args.preserveLatestUserTurns,
+      })
+    }
     else if (compactDigest) rows = compactDigestRows(rows, limit)
-    return { text: renderEntryLines(rows, { pendingMarks: !compactDigest && !compactHandoff }) }
+    return {
+      text: renderEntryLines(rows, {
+        pendingMarks: !compactDigest && !compactHandoff,
+        recencyOrder: compactHandoff,
+        maxBodyChars: compactHandoff ? null : 8000,
+      }),
+    }
   }
 
   async function recallCoreRows(query, { projectScope, category, limit, tsFrom, tsTo } = {}) {
@@ -435,7 +445,7 @@ export function createQueryHandlers({
           // embedding worker would previously park here indefinitely because
           // the timer hadn't been started yet from the fan-out's perspective.
           await Promise.race([embedTexts(queries, { inputType: 'query' }), deadlineRace])
-        } else if (embeddingWarmupCanStart()) {
+        } else if (embeddingOnDemandCanStart()) {
           void warmupEmbeddingProvider().catch((err) => {
             log(`[memory-service] embedding warmup after cold fan-out skipped dense search: ${err?.message || err}\n`)
           })
@@ -549,7 +559,7 @@ export function createQueryHandlers({
       if (signal?.aborted) throw signal.reason ?? new Error('aborted')
       const embedding = await embedRecallQuery(retrievalQuery, {
         isReady: isEmbeddingModelReady,
-        canWarmup: embeddingWarmupCanStart,
+        canWarmup: embeddingOnDemandCanStart,
         warmup: warmupEmbeddingProvider,
         embed: embedText,
         signal,

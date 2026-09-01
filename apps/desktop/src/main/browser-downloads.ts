@@ -23,8 +23,8 @@ export interface TrackedBrowserDownload {
 }
 
 export interface BrowserDownloadsHost {
-  /** Newest first, as the session recorded them. */
-  downloads(): TrackedBrowserDownload[];
+  /** Newest first, isolated to the addressed browser session. */
+  downloads(sessionId: string): TrackedBrowserDownload[];
   pause(ms: number, signal?: AbortSignal): Promise<void>;
   /** Above this a file is reported by path instead of attached. */
   attachMaxBytes: number;
@@ -105,6 +105,7 @@ export function createBrowserDownloads(host: BrowserDownloadsHost) {
   const { downloads, pause, attachMaxBytes } = host;
 
   async function listDownloads(
+    sessionId: string,
     command: {
       downloadId?: string;
       wait?: boolean;
@@ -122,7 +123,7 @@ export function createBrowserDownloads(host: BrowserDownloadsHost) {
     );
     if (command.wait) {
       const startedAt = Date.now();
-      while (!downloads().some((download) => (
+      while (!downloads(sessionId).some((download) => (
         (!command.downloadId || download.id === command.downloadId)
         && download.state !== 'in_progress'
       ))) {
@@ -130,7 +131,7 @@ export function createBrowserDownloads(host: BrowserDownloadsHost) {
         await pause(WAIT_POLL_MS, signal);
       }
     }
-    const recorded = downloads();
+    const recorded = downloads(sessionId);
     if (recorded.length === 0) return { text: 'No downloads this session.' };
     const lines = recorded.map((entry) => {
       const bytes = entry.total > 0 ? entry.total : entry.received;

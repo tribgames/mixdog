@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createEagerDispatcher } from './eager-dispatch.mjs';
 import { processToolBatch } from './tool-batch.mjs';
+import { makeToolEnvelope } from './tool-envelope.mjs';
 import {
     _repeatFailurePatternWouldContinue,
     _repeatFailureSig,
@@ -186,4 +187,48 @@ test('Computer Use batch returns an error result for every blocked extra call', 
     assert.equal(results[0].toolKind, 'normal');
     assert.equal(results[1].toolKind, 'error');
     assert.match(results[1].content, /computer-call-cardinality/);
+});
+
+test('structured explicit failure reaches the transcript as an error with media intact', async () => {
+    const calls = [{ id: 'computer-1', name: 'computer', arguments: { value: 1 } }];
+    const results = [];
+    const structured = {
+        content: [
+            { type: 'text', text: '{"ok":false,"action":"act"}' },
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } },
+        ],
+    };
+    await processToolBatch({
+        calls,
+        messages: [],
+        tools: [],
+        cwd: process.cwd(),
+        sessionId: null,
+        sessionRef: {},
+        signal: null,
+        opts: {},
+        iterations: 1,
+        assistantTurnMsg: { role: 'assistant', content: '', toolCalls: calls },
+        pending: new Map(),
+        epoch: { mutation: 0 },
+        startEagerRun: () => {},
+        crossTurnCalls: new Map(),
+        crossTurnCap: 100,
+        sessionAgent: null,
+        pushToolResultMessage: (message) => results.push(message),
+        throwIfAborted: () => {},
+        repeatFailLimit: 3,
+        dedupStubTotal: 0,
+        editCount: 0,
+        executeToolFn: async () => makeToolEnvelope(
+            structured,
+            [],
+            { explicitFailure: true },
+        ),
+    });
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0].toolKind, 'error');
+    assert.equal(results[0].content, structured);
+    assert.equal(results[0].content.content[1].type, 'image');
 });

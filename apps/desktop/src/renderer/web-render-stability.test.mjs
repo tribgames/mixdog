@@ -14,7 +14,7 @@ test("focused web composer keeps the native value across a scope snapshot", () =
   assert.equal(composerDraftAfterScopeChange({
     currentDraft: "입력",
     liveDomDraft: "입력 중",
-    preserveDraft: false,
+    freshDraft: false,
     typingLive: true,
   }), "입력 중");
 });
@@ -23,8 +23,17 @@ test("inactive composer still clears a draft when its scope changes", () => {
   assert.equal(composerDraftAfterScopeChange({
     currentDraft: "old session",
     liveDomDraft: "old session",
-    preserveDraft: false,
+    freshDraft: false,
     typingLive: false,
+  }), "");
+});
+
+test("a fresh New Task pane opens clean even while the user is typing", () => {
+  assert.equal(composerDraftAfterScopeChange({
+    currentDraft: "이전 작업 입력",
+    liveDomDraft: "이전 작업 입력 중",
+    freshDraft: true,
+    typingLive: true,
   }), "");
 });
 

@@ -23,7 +23,10 @@ window.HTMLElement.prototype.attachEvent = () => {};
 window.HTMLElement.prototype.detachEvent = () => {};
 
 const { BrowserImportDialog } = await import('./BrowserImportDialog.tsx');
-const { watchBrowserForegroundReturns } = await import('./browser-foreground-lifecycle.ts');
+const {
+  scheduleBrowserForegroundRepaint,
+  watchBrowserForegroundReturns,
+} = await import('./browser-foreground-lifecycle.ts');
 const { default: RemoteBrowserPane } = await import('./RemoteBrowserPane.tsx');
 
 test('Browser Use refreshes on visible foreground returns and detaches cleanly', () => {
@@ -56,6 +59,36 @@ test('Browser Use refreshes on visible foreground returns and detaches cleanly',
   dispose();
   returnWindow.dispatchEvent(new dom.window.Event('focus'));
   assert.equal(reports, 3);
+});
+
+test('Browser Use repaints after the foreground dock layout settles', () => {
+  let nextFrame = 0;
+  const frames = new Map();
+  const frameWindow = {
+    requestAnimationFrame(callback) {
+      nextFrame += 1;
+      frames.set(nextFrame, callback);
+      return nextFrame;
+    },
+    cancelAnimationFrame(frame) {
+      frames.delete(frame);
+    },
+  };
+  let reports = 0;
+  const dispose = scheduleBrowserForegroundRepaint(frameWindow, () => {
+    reports += 1;
+  });
+
+  const layoutFrame = frames.get(1);
+  frames.delete(1);
+  layoutFrame(0);
+  assert.equal(reports, 0);
+  const paintFrame = frames.get(2);
+  frames.delete(2);
+  paintFrame(0);
+  assert.equal(reports, 1);
+  dispose();
+  assert.equal(frames.size, 0);
 });
 
 function chromeSource({
@@ -212,7 +245,9 @@ test('import dialog closes with Escape and restores the trigger focus', async ()
 test('remote Browser Use renders a frame and forwards reload, tap, and page text', async () => {
   const controls = [];
   window.mixdogDesktop = {
-    remoteBrowserFrame: async () => ({
+    remoteBrowserFrame: async (sessionId) => {
+      assert.equal(sessionId, 'browser-remote-session');
+      return {
       frameId: 'frame-1',
       url: 'https://example.test/',
       title: 'Remote fixture',
@@ -222,9 +257,10 @@ test('remote Browser Use renders a frame and forwards reload, tap, and page text
       width: 100,
       height: 50,
       image: { mimeType: 'image/jpeg', data: 'AA==' },
-    }),
-    remoteBrowserControl: async (input) => {
-      controls.push(input);
+      };
+    },
+    remoteBrowserControl: async (sessionId, input) => {
+      controls.push({ sessionId, input });
     },
     openExternal: async () => {},
   };
@@ -235,7 +271,7 @@ test('remote Browser Use renders a frame and forwards reload, tap, and page text
   try {
     await act(async () => {
       root.render(React.createElement(RemoteBrowserPane, {
-        paneId: 'browser-remote',
+        sessionId: 'browser-remote-session',
         active: true,
         foreground: true,
       }));
@@ -257,7 +293,10 @@ test('remote Browser Use renders a frame and forwards reload, tap, and page text
     const reload = document.querySelector('button[aria-label="Reload"]');
     assert.ok(reload);
     await act(async () => reload.click());
-    assert.deepEqual(controls.at(-1), { type: 'reload' });
+    assert.deepEqual(controls.at(-1), {
+      sessionId: 'browser-remote-session',
+      input: { type: 'reload' },
+    });
 
     const content = document.querySelector('.browser-remote-content');
     content.setPointerCapture = () => {};
@@ -276,10 +315,13 @@ test('remote Browser Use renders a frame and forwards reload, tap, and page text
       content.dispatchEvent(pointer('pointerup'));
     });
     assert.deepEqual(controls.at(-1), {
-      type: 'tap',
-      frameId: 'frame-1',
-      x: 25,
-      y: 12.5,
+      sessionId: 'browser-remote-session',
+      input: {
+        type: 'tap',
+        frameId: 'frame-1',
+        x: 25,
+        y: 12.5,
+      },
     });
 
     const keyboard = document.querySelector('button[aria-label="페이지에 입력"]');
@@ -292,9 +334,12 @@ test('remote Browser Use renders a frame and forwards reload, tap, and page text
       pageInput.dispatchEvent(new window.Event('input', { bubbles: true }));
     });
     assert.deepEqual(controls.at(-1), {
-      type: 'text',
-      frameId: 'frame-1',
-      text: 'A',
+      sessionId: 'browser-remote-session',
+      input: {
+        type: 'text',
+        frameId: 'frame-1',
+        text: 'A',
+      },
     });
   } finally {
     await act(async () => root.unmount());

@@ -37,6 +37,7 @@ function eagerSettlementFailed(settled) {
     if (!settled?.ok) return true;
     try {
         const normalized = normalizeToolEnvelope(settled.value);
+        if (normalized.explicitFailure) return true;
         return classifyResultKind(normalized.result, normalized.explicitSuccess) === 'error';
     } catch {
         return true;

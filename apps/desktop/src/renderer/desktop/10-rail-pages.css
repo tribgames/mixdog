@@ -474,6 +474,10 @@
   background: var(--mx-rail-item-surface);
   box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
 }
+.utility-dock .agent-activity-page :is(.agent-session-heading, .agent-pool-row) {
+  user-select: none;
+  -webkit-user-select: none;
+}
 .utility-dock .agent-activity-page .agent-pool-row {
   color: inherit;
   font: inherit;

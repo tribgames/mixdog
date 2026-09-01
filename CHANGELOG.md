@@ -5,6 +5,25 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Computer Use now coordinates foreground target leases, recaptures after
+  window transitions, validates bounded action sequences, and exposes a
+  user-takeover overlay. Capture, keyboard, targeting, and recovery paths are
+  split into focused modules with broader host and bridge coverage.
+
+- Browser Use gains session-scoped registries and persistent per-conversation
+  surfaces. Browser, diff, and utility views can stay attached to each
+  conversation's side dock, while local file reads replace the retired
+  duplicate folder-explorer path.
+
+- Fresh-context compaction now carries a bounded Memory handoff, preserves
+  active-turn continuation and tool-envelope state, and keeps provider cache
+  layouts stable across compaction. Memory ingestion projects the compacted
+  transcript consistently instead of relying on the retired fast-track path.
+
+- Office deck generation adds creative direction, layout grammar, semantic
+  visual flow, rendered-aesthetic review, and a release-quality score so
+  presentation output is more varied and catches weak composition earlier.
+
 - Verification and release plumbing churn drops sharply: the 3,500-line
   tool-smoke monolith is now fourteen focused `node --test` suites under
   `scripts/tool-contracts/` with brittle exact-wording assertions relaxed to

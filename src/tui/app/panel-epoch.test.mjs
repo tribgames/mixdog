@@ -115,7 +115,6 @@ function createSettingsHarness({ store: storeOverrides = {}, host = null } = {})
     openProfilePicker: noop,
     openMcpPicker: noop,
     openPluginsPicker: noop,
-    openHooksPicker: noop,
     openSkillsPicker: noop,
     openMemoryCorePicker: noop,
     openUpdatePicker: noop,
@@ -135,7 +134,7 @@ test('panel handover: close and replacement supersede, rebuild and first open do
   assert.equal(shouldSupersedePanelEpoch(settings, null), true);
   // Replacement by a DIFFERENT panel: the gap this suite closes.
   assert.equal(shouldSupersedePanelEpoch(settings, { title: 'Core memories' }), true);
-  assert.equal(shouldSupersedePanelEpoch({ _kind: 'hooks', title: 'Hooks' }, { _kind: 'skills', title: 'Hooks' }), true);
+  assert.equal(shouldSupersedePanelEpoch({ _kind: 'mcp-servers', title: 'Extensions' }, { _kind: 'skills', title: 'Extensions' }), true);
   // Rebuild of the same surface (light refresh / toggle re-render): keeps
   // ownership so its own deferred refresh still lands.
   assert.equal(shouldSupersedePanelEpoch(settings, { title: 'Settings', items: [] }), false);
@@ -231,13 +230,13 @@ test('a deferred Settings refresh cannot clobber the panel that replaced Setting
   const host = createPanelHost();
   const harness = createSettingsHarness({
     host,
-    store: { setRecapEnabled: () => writeGate.promise },
+    store: { setWebSearchEnabled: () => writeGate.promise },
   });
   await harness.openSettingsPicker();
   assert.equal(host.current().title, 'Settings');
 
   // Toggle a row: the refresh epoch is captured on this keypress.
-  lastPanel(harness.painted).onRight({ _action: 'memory-cycles' });
+  lastPanel(harness.painted).onRight({ _action: 'web-search-enabled' });
   // The user opens a nested panel over Settings (object → object).
   host.setPicker({ title: 'Core memories' });
   const paintedBefore = host.painted.length;
@@ -255,11 +254,11 @@ test('a Settings rebuild keeps ownership, so its own deferred refresh still land
   const host = createPanelHost();
   const harness = createSettingsHarness({
     host,
-    store: { setRecapEnabled: () => writeGate.promise },
+    store: { setWebSearchEnabled: () => writeGate.promise },
   });
   await harness.openSettingsPicker();
 
-  lastPanel(harness.painted).onRight({ _action: 'memory-cycles' });
+  lastPanel(harness.painted).onRight({ _action: 'web-search-enabled' });
   // Same surface, rebuilt (a light refresh from another chain): not a handover.
   host.setPicker({ title: 'Settings', items: [] });
   const paintedBefore = host.painted.length;
@@ -412,14 +411,14 @@ test('Esc during a pending Settings open leaves the surface untouched', async ()
   assert.equal(host.painted.length, paintedBefore);
 });
 
-test('Esc during a pending Hooks open keeps the panel off the surface', async () => {
+test('Esc during a pending Plugins open keeps the panel off the surface', async () => {
   supersedePanelEpoch();
   const host = createPanelHost();
   host.setPicker({ title: 'Settings' });
   const statusGate = deferred();
   const noop = () => {};
-  const { openHooksPicker } = createExtensionPickers({
-    store: { pushNotice: () => {}, hooksStatus: () => statusGate.promise },
+  const { openPluginsPicker } = createExtensionPickers({
+    store: { pushNotice: () => {}, pluginsStatus: () => statusGate.promise },
     theme: {},
     clean: (value) => value,
     copyToClipboard: noop,
@@ -431,11 +430,11 @@ test('Esc during a pending Hooks open keeps the panel off the surface', async ()
     setDisabledSkills: noop,
   });
 
-  void openHooksPicker();
+  void openPluginsPicker();
   host.setPicker(null);
   const paintedBefore = host.painted.length;
 
-  statusGate.resolve({ rules: [], events: [], recent: [] });
+  statusGate.resolve({ count: 0, plugins: [] });
   await flush();
 
   assert.equal(host.current(), null);
@@ -447,8 +446,8 @@ test('an uninterrupted open still paints and keeps repainting', async () => {
   const host = createPanelHost();
   const statusGate = deferred();
   const noop = () => {};
-  const { openHooksPicker } = createExtensionPickers({
-    store: { pushNotice: () => {}, hooksStatus: () => statusGate.promise },
+  const { openPluginsPicker } = createExtensionPickers({
+    store: { pushNotice: () => {}, pluginsStatus: () => statusGate.promise },
     theme: {},
     clean: (value) => value,
     copyToClipboard: noop,
@@ -460,18 +459,18 @@ test('an uninterrupted open still paints and keeps repainting', async () => {
     setDisabledSkills: noop,
   });
 
-  void openHooksPicker();
-  statusGate.resolve({ rules: [{ index: 0, tool: 'shell', action: 'ask', enabled: true }], events: [], recent: [] });
+  void openPluginsPicker();
+  statusGate.resolve({ count: 1, plugins: [{ name: 'demo', source: 'local' }] });
   await flush();
-  assert.equal(host.current()._kind, 'hooks');
+  assert.equal(host.current().title, 'Plugins');
 
   // A same-surface reopen (the toggle path) still paints: the guard only
   // blocks opens whose surface was handed over while they were pending.
   const paintedBefore = host.painted.length;
-  void openHooksPicker();
+  void openPluginsPicker();
   await flush();
   assert.ok(host.painted.length > paintedBefore);
-  assert.equal(host.current()._kind, 'hooks');
+  assert.equal(host.current().title, 'Plugins');
 });
 
 // ── Late REPAINTS must prove ownership too, not just the first paint ─────────

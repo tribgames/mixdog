@@ -220,8 +220,8 @@ export function createPromptSubmit({
       }
     }
     // Channel token/target and hook-rule text prompts are retired: channels
-    // moved to the PWA and hook rules are edited in the Hooks picker, so no
-    // opener sets those prompts any more.
+    // moved to the PWA and hooks lost their user-facing surface entirely
+    // (config file / runtime API only), so no opener sets those prompts.
     if (settingsPrompt) {
       if (state.commandBusy) {
         store.pushNotice('wait for the current command to finish', 'warn');

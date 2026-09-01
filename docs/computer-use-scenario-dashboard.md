@@ -219,13 +219,15 @@ Mixdog therefore exposes one `computer` tool with 17 actions:
   every pass costs a whole turn.
 - `menu(path)` invokes an exact application-menu path through accessibility,
   resolving one live level at a time. Missing, ambiguous, or disabled segments
-  fail closed; it never degrades into a blind pixel click.
+  fail closed; the bridge returns one deterministic recovery capture so the
+  caller can use a fresh OCR mark or frame point instead of retrying blindly.
 - `type(mode)` chooses between typing literal text and writing the value
   straight into a `ref` target, which needs no focus. Web inputs ignore the
   write, so the escalation ladder reports it and literal typing remains.
 - `diagnose` probes Windows window enumeration, target UIA, installed OCR
   languages, displays, delivery modes, and permission constraints without
-  returning screen pixels.
+  returning screen pixels. An empty or timed-out target tree is reported as
+  unusable even when the provider itself is installed.
 - `sequence` owns only a bounded 2–6 step same-window focus chain. The first
   step may use a fresh ref/mark/frame; later steps are untargeted type/key/wait.
   It stops on the first failure or target transition and captures once at the
@@ -252,7 +254,8 @@ The model-facing usage contract is:
    coordinates use pointer input and require the latest observation from that
    same window.
 4. Use background delivery by default and foreground only as an explicit
-   escalation.
+   escalation. Foreground pointer work keeps task focus for a follow-up; the
+   cursor is restored immediately and session release restores prior focus.
 5. Use one `sequence` call for a deterministic same-window focus chain, but
    emit at most one Computer Use call per model turn. Popup, dialog, launch,
    close, and cross-window transitions run alone before inspecting fresh state.
@@ -447,9 +450,10 @@ observation exceed the turn target:
 
 No arbitrary mutation-list API was added. `type` can focus one element and
 send literal text atomically, and every mutation still returns one mandatory
-fresh capture. `capture_after_include_ocr` can run bounded fallback OCR in that
-same capture; accessibility and OCR continue to share
-`capture_after_max_elements`.
+fresh capture. State and SOM captures automatically run bounded fallback OCR
+when the target exposes no semantic elements; explicit OCR options still
+select the language and limit. Accessibility and OCR share the same element
+budget.
 
 ### Same-window sequence efficiency
 
@@ -513,8 +517,8 @@ descendants from Win32. App-owned Electron and exact-HWND capture paths avoid
 full desktop enumeration when possible. Modern Chromium accessibility is
 budgeted and does not enter the legacy MSAA fallback; resource guards fail
 closed instead of allowing capture calls to hang. Native launch uses bounded
-adaptive polling, and foreground input verifies focus/cursor recovery while the
-desktop lease is still held.
+adaptive polling, and foreground input verifies cursor recovery immediately
+while session release owns prior-focus recovery.
 
 Final action latency was capture p50 297 ms / p95 938 ms, click p50 286 ms /
 p95 1,541 ms, type p50 17 ms / p95 739 ms, launch p50 1,691 ms / p95 3,201 ms,
@@ -540,7 +544,7 @@ and window listing p50 123 ms / p95 148 ms.
 | S14 | App-owned Electron background type and fresh OCR | Pass | Pass |
 | S15 | Korean OCR produces an actionable mark | Pass | Pass |
 | S16 | OCR clutter stays within the shared element budget | Pass | Pass |
-| S17 | Foreground input restores focus and cursor | Pass | Pass |
+| S17 | Foreground pointer keeps task focus until session release | Pass | Pass |
 | S18 | Popup mutation reports a deterministic next target | **Fail** | Pass |
 | S19 | External Electron background type is truthful | Pass | Pass |
 | S20 | Native text app capture and close | Pass | Pass |

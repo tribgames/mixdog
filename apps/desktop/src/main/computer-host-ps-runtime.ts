@@ -83,9 +83,10 @@ function Get-InputRecoveryState($req) {
 }
 
 function Restore-InputRecoveryState($req) {
+  $restoreFocus = $req.restore_focus -ne $false
   $restore = [MixWin32]::ParseWindowId([string]$req.restore_window_id)
-  $restoredTarget = 'original'
-  if (-not [MixWin32]::IsWindowHandle($restore)) {
+  $restoredTarget = if ($restoreFocus) { 'original' } else { 'preserved' }
+  if ($restoreFocus -and -not [MixWin32]::IsWindowHandle($restore)) {
     # The action can close the very window that held focus. Its owner is the
     # truthful next home for focus instead of wherever Windows happened to land.
     $owner = [MixWin32]::ParseWindowId([string]$req.restore_owner_window_id)
@@ -95,7 +96,7 @@ function Restore-InputRecoveryState($req) {
     $restore = $owner
     $restoredTarget = 'owner'
   }
-  if ([MixWin32]::Foreground() -ne $restore) {
+  if ($restoreFocus -and [MixWin32]::Foreground() -ne $restore) {
     [void][MixWin32]::Focus($restore)
   }
   [void][MixWin32]::SetCursorPos([int]$req.cursor_x, [int]$req.cursor_y)

@@ -2,10 +2,12 @@ import {
   Braces,
   ChevronLeft,
   ChevronRight,
+  CircleX,
   File as FileIcon,
   Folder,
   FolderOpen,
   Save,
+  TriangleAlert,
   Undo2,
 } from "lucide-react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -14,6 +16,7 @@ import { useMobileBack } from "./mobile-back";
 import { type EditorFileLoad } from "./editor-file-loader";
 import { type EditorOutlineItem } from "./editor-language-store";
 import { normalizedFilePath } from "./editor-lsp-conversion";
+import { t } from "./i18n";
 import {
   breadcrumbPickerAnchor,
   type BreadcrumbFileItem,
@@ -34,8 +37,10 @@ export function EditorBreadcrumbs({
   reverting,
   cursorLine,
   outline,
+  problemStatus,
   onSave,
   onRevert,
+  onShowProblems,
   onOpenAt,
   onFocusEditor,
   onRevealSymbol,
@@ -50,8 +55,10 @@ export function EditorBreadcrumbs({
   reverting: boolean;
   cursorLine: number;
   outline: EditorOutlineItem[];
+  problemStatus: { errors: number; warnings: number };
   onSave(): void;
   onRevert(): void;
+  onShowProblems(): void;
   onOpenAt?(relPath: string, line: number): void;
   onFocusEditor(): void;
   onRevealSymbol(item: EditorOutlineItem): void;
@@ -71,6 +78,7 @@ export function EditorBreadcrumbs({
   for (const item of containing) byLevel.set(item.level, item);
   const symbols = [...byLevel.values()];
   const symbol = symbols[symbols.length - 1];
+  const editable = Boolean(load && !preview && !load.binary && !load.tooLarge);
 
   const closePicker = useCallback((restoreFocus = false) => {
     const sourceIndex = picker?.anchor.sourceIndex ?? focusIndex;
@@ -366,13 +374,20 @@ export function EditorBreadcrumbs({
         })}
       </span>
       <span className="editor-breadcrumb-actions">
-        {load && !preview && !load.binary && !load.tooLarge
-          && <button type="button" disabled={!dirty || saving || reverting} onClick={onSave}
+        {editable && <button type="button" className="editor-problems-action"
+          onClick={onShowProblems} aria-label={t("Problems")} data-tooltip={t("Problems")}>
+          <span className="editor-problems-count is-error" aria-hidden="true">
+            <CircleX size={14} /><b>{problemStatus.errors}</b>
+          </span>
+          <span className="editor-problems-count is-warning" aria-hidden="true">
+            <TriangleAlert size={14} /><b>{problemStatus.warnings}</b>
+          </span>
+        </button>}
+        {editable && <button type="button" disabled={!dirty || saving || reverting} onClick={onSave}
             aria-label="Save" data-tooltip="Save (Ctrl+S)">
             <Save size={16} aria-hidden="true" />
           </button>}
-        {load && !preview && !load.binary && !load.tooLarge && dirty
-          && <button type="button" className="editor-revert-action" disabled={saving || reverting}
+        {editable && dirty && <button type="button" className="editor-revert-action" disabled={saving || reverting}
             onClick={onRevert} aria-label="Revert" data-tooltip="Revert File">
             <Undo2 size={18} aria-hidden="true" />
           </button>}

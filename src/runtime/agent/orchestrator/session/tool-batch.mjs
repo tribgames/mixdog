@@ -47,6 +47,7 @@ import { restoreToolCallBodyForId } from './loop/stored-tool-args.mjs';
 
 function classifyToolReturn(value, toolName = '') {
     const normalized = normalizeToolEnvelope(value);
+    if (normalized.explicitFailure) return 'error';
     return classifyResultKind(normalized.result, normalized.explicitSuccess, toolName);
 }
 

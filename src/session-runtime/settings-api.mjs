@@ -28,7 +28,6 @@ export function createSettingsApi({
   normalizeAutoClearConfig,
   autoClearIdleMsForProvider,
   normalizeCompactionConfig,
-  normalizeCompactTypeSetting,
   normalizeSystemShellConfig,
   normalizeSystemShellCommand,
   autoClearProviderDefaults,
@@ -192,14 +191,8 @@ export function createSettingsApi({
       const next = { ...current };
       if (hasOwn(input, 'auto')) next.auto = input.auto !== false;
       if (hasOwn(input, 'enabled')) next.auto = input.enabled !== false;
-      if (hasOwn(input, 'type') || hasOwn(input, 'compactType') || hasOwn(input, 'compact_type')) {
-        const requestedType = input.type ?? input.compactType ?? input.compact_type;
-        const compactType = normalizeCompactTypeSetting(requestedType, current.compactType || current.type || 'recall-fasttrack');
-        next.type = compactType;
-        next.compactType = compactType;
-      }
-      // These controls apply only to main/user recall-fasttrack sessions;
-      // agent-owned semantic sessions retain their existing `buffer*` policy.
+      // Legacy Compact type fields are intentionally ignored. There is one
+      // fresh-context Compact contract for every session.
       for (const key of ['mainBufferTokens', 'mainBuffer', 'mainBufferPercent', 'mainBufferPct', 'mainBufferRatio', 'mainBufferFraction']) {
         if (hasOwn(input, key)) next[key] = input[key];
       }
@@ -209,8 +202,17 @@ export function createSettingsApi({
       const config2 = getConfig();
       const session = getSession();
       if (session) {
+        const currentSessionCompaction = { ...(session.compaction || {}) };
+        for (const key of [
+          'type', 'compactType', 'compact_type', 'semantic', 'semanticModel', 'prune', 'tailTurns',
+          'recallMemoryTimeoutMs', 'recallIngestLimit', 'recallChunkLimit', 'recallLimit',
+          'recallCycle1BatchSize', 'recallRowsPerSession', 'recallWindowSize',
+          'recallConcurrency', 'recallCycle1DeadlineMs',
+        ]) {
+          delete currentSessionCompaction[key];
+        }
         session.compaction = {
-          ...(session.compaction || {}),
+          ...currentSessionCompaction,
           ...normalizeCompactionConfig(config2.compaction),
         };
       }
@@ -218,8 +220,8 @@ export function createSettingsApi({
       return normalizeCompactionConfig(config2.compaction);
     },
     // Recap toggle: user-facing switch that gates ONLY the background memory
-    // cycles (1/2/3). The memory module (transcript watcher/ingest, on-demand
-    // recall/fasttrack drains) is always-on. Persisted via the same
+    // cycles (1/2/3). The memory module (transcript watcher/ingest and on-demand
+    // reads) is always-on. Persisted via the same
     // saveConfigAndAdopt path as compaction/autoClear. The memory runtime
     // re-reads recap from the agent config section each cycle tick, so toggling
     // takes effect without a restart (no memory-service stop/start here).

@@ -982,6 +982,12 @@ function Snapshot-PowerPoint($presentation, $payload) {
             paragraphSpacing = [double]$shape.TextFrame.TextRange.ParagraphFormat.SpaceAfter
           }
         } catch { $null })
+        textBounds = $(try {
+          [ordered]@{
+            width = [double]$shape.TextFrame2.TextRange.BoundWidth
+            height = [double]$shape.TextFrame2.TextRange.BoundHeight
+          }
+        } catch { $null })
         font = $(try {
           [ordered]@{
             name = [string]$shape.TextFrame.TextRange.Font.Name
@@ -2014,13 +2020,29 @@ function Excel-Sheet($book, $op) {
 }
 
 function Activate-ExcelSheetWindow($book, $sheet) {
-  $null = $book.Activate()
+  $appVisible = [bool]$book.Application.Visible
   $window = $book.Windows.Item(1)
-  if (-not [bool]$book.Application.Visible) {
-    try { $window.WindowState = -4137 } catch {}
+  if ($appVisible) {
+    $null = $book.Activate()
+    $null = $window.Activate()
+    $null = $sheet.Activate()
+    return $window
   }
-  $null = $window.Activate()
-  $null = $sheet.Activate()
+  try { $book.Application.ScreenUpdating = $false } catch {}
+  try { $null = $sheet.Activate() } catch {}
+  if ('MixdogOfficeInterop' -as [type]) {
+    $hWnd = $(try { [long]$book.Application.Hwnd } catch { 0 })
+    if ($hWnd) {
+      try { $null = [MixdogOfficeInterop]::HideWindow($hWnd) } catch {}
+      for ($attempt = 0; $attempt -lt 20 -and [MixdogOfficeInterop]::WindowVisible($hWnd); $attempt++) {
+        Start-Sleep -Milliseconds 25
+        try { $null = [MixdogOfficeInterop]::HideWindow($hWnd) } catch {}
+      }
+      if ([MixdogOfficeInterop]::WindowVisible($hWnd)) {
+        throw 'Background Excel view window remained visible after sheet activation.'
+      }
+    }
+  }
   return $window
 }
 
@@ -2701,7 +2723,11 @@ function Invoke-PowerPointComRetry([scriptblock]$operation, [string]$label) {
 $script:PowerPointChartExcelApplications = @{}
 $script:PowerPointChartExcelProcessIds = @{}
 
-function Register-PowerPointChartExcelApplication($workbook, [int[]]$processIdsBefore) {
+function Register-PowerPointChartExcelApplication(
+  $workbook,
+  [int[]]$processIdsBefore,
+  [bool]$requireIsolated = $false
+) {
   $application = $null
   try {
     $application = $workbook.Application
@@ -2719,6 +2745,13 @@ function Register-PowerPointChartExcelApplication($workbook, [int[]]$processIdsB
     $processId = 0
     if ($hWnd -and ('MixdogOfficeInterop' -as [type])) {
       try { $processId = [MixdogOfficeInterop]::ProcessIdForWindow($hWnd) } catch {}
+    }
+    $knownOwnedProcess = $processId -gt 0 -and $script:PowerPointChartExcelProcessIds.ContainsKey([int]$processId)
+    if ($processId -gt 0 -and $processIdsBefore -contains [int]$processId -and -not $knownOwnedProcess) {
+      if ($requireIsolated) {
+        throw 'Background PowerPoint chart data refused an embedded workbook that reused an existing user Excel process.'
+      }
+      return
     }
     if ($processId -gt 0) { $script:PowerPointChartExcelProcessIds[[int]$processId] = $true }
     foreach ($process in @(Get-Process -Name EXCEL -ErrorAction SilentlyContinue)) {
@@ -2861,7 +2894,7 @@ function Set-PowerPointChartData(
         $worksheets = $candidateWorksheets
         $worksheet = $candidateWorksheet
         $source = $candidateSource
-        Register-PowerPointChartExcelApplication $candidateWorkbook $excelProcessIdsBefore
+        Register-PowerPointChartExcelApplication $candidateWorkbook $excelProcessIdsBefore (-not $allowUiActivation)
         $candidateWorkbook = $null
         $candidateWorksheets = $null
         $candidateWorksheet = $null
@@ -2890,11 +2923,32 @@ function Set-PowerPointChartData(
     $seriesCount = [int](Invoke-PowerPointComRetry { $chart.SeriesCollection().Count } 'PowerPoint chart series')
     for ($seriesIndex = 1; $seriesIndex -le [Math]::Min($specs.Count, $seriesCount); $seriesIndex++) {
       $spec = $specs[$seriesIndex - 1]
+      $series = $chart.SeriesCollection().Item($seriesIndex)
       if ($spec.color) {
         try {
-          $chart.SeriesCollection().Item($seriesIndex).Format.Fill.ForeColor.RGB = Color-Value ([string]$spec.color)
-          $chart.SeriesCollection().Item($seriesIndex).Format.Line.ForeColor.RGB = Color-Value ([string]$spec.color)
+          $series.Format.Fill.ForeColor.RGB = Color-Value ([string]$spec.color)
+          $series.Format.Line.ForeColor.RGB = Color-Value ([string]$spec.color)
         } catch {}
+      }
+      $pointColors = @($spec.pointColors)
+      if ($pointColors.Count -gt 0) {
+        $seriesPointCount = $(try { [int]$series.Points().Count } catch { 0 })
+        for ($pointIndex = 1; $pointIndex -le [Math]::Min($pointColors.Count, $seriesPointCount); $pointIndex++) {
+          $pointColor = [string]$pointColors[$pointIndex - 1]
+          if ([string]::IsNullOrWhiteSpace($pointColor)) { continue }
+          $point = $null
+          try {
+            $point = $series.Points().Item($pointIndex)
+            $point.Format.Fill.Solid()
+            $point.Format.Fill.ForeColor.RGB = Color-Value $pointColor
+            $point.Format.Line.ForeColor.RGB = Color-Value $pointColor
+          } catch {
+          } finally {
+            if ($null -ne $point) {
+              try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($point) } catch {}
+            }
+          }
+        }
       }
     }
     $legendVisible = $specs.Count -gt 1
@@ -3436,6 +3490,42 @@ function Apply-PowerPointOperation(
         $chartResult = Set-PowerPointChartData $shape.Chart $op.categories $seriesProperty.Value $allowUiActivation
       }
       if ($op.title) { $shape.Chart.HasTitle = $true; $shape.Chart.ChartTitle.Text = [string]$op.title }
+      $chart = $shape.Chart
+      $seriesCount = [int]$chart.SeriesCollection().Count
+      for ($seriesIndex = 1; $seriesIndex -le $seriesCount; $seriesIndex++) {
+        $series = $chart.SeriesCollection().Item($seriesIndex)
+        if ([bool]$op.showValues) {
+          try {
+            $series.ApplyDataLabels()
+            $labels = $series.DataLabels()
+            $labels.ShowValue = $true
+            $labels.ShowCategoryName = $false
+            if ($op.valueNumberFormat) { $labels.NumberFormat = [string]$op.valueNumberFormat }
+            if ($op.dataLabelPosition) {
+              $labels.Position = switch (([string]$op.dataLabelPosition).ToLowerInvariant()) {
+                'center' { -4108 }
+                'inside_base' { 4 }
+                'inside_end' { 3 }
+                'outside_end' { 2 }
+                default { 2 }
+              }
+            }
+            if ($op.dataLabelColor) { $labels.Font.Color = Color-Value ([string]$op.dataLabelColor) }
+          } catch {}
+        }
+      }
+      if ($null -ne $op.showLegend) {
+        try { $chart.HasLegend = [bool]$op.showLegend } catch {}
+      }
+      try { $chart.ChartArea.Format.Line.Visible = 0 } catch {}
+      try { $chart.PlotArea.Format.Fill.Visible = 0 } catch {}
+      try {
+        $valueAxis = $chart.Axes(2, 1)
+        if ([bool]$op.zeroBaseline) { $valueAxis.MinimumScale = 0 }
+        if ($op.valueNumberFormat) { $valueAxis.TickLabels.NumberFormat = [string]$op.valueNumberFormat }
+        $valueAxis.MajorGridlines.Format.Line.ForeColor.RGB = Color-Value 'D9E2DF'
+      } catch {}
+      try { $chart.ChartGroups(1).GapWidth = 72 } catch {}
       return [ordered]@{
         op = 'add_chart'
         changed = $true

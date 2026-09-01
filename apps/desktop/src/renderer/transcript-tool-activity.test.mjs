@@ -102,6 +102,12 @@ test('desktop and mobile tool groups share details and a static task icon', asyn
           ?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
       });
       assert.equal(group?.querySelectorAll('.tool-activity-details').length, 1);
+      assert.equal(group?.querySelectorAll('.tool-activity-category').length, 1);
+      assert.equal(group?.querySelectorAll('.tool-activity-item').length, 0);
+      await act(async () => {
+        group?.querySelector('.tool-activity-category-header')
+          ?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+      });
       assert.equal(group?.querySelectorAll('.tool-activity-item').length, 1);
       assert.equal(group?.querySelectorAll('.tool-card').length, 0);
     } finally {

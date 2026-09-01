@@ -61,7 +61,7 @@ import {
   requiredWorkspaceSearchOptions,
   requiredWorkspaceTextWrites,
 } from './ipc-validation';
-import { browsableFolderPath } from './folder-explorer';
+import { absoluteLocalPath } from './local-files';
 import {
   commonInstructionsFile,
   legacyCommonInstructionsFile,
@@ -130,7 +130,7 @@ export interface RemoteMethodDependencies {
     write(id: string, data: string): void;
     resize(id: string, cols: number, rows: number): void;
   };
-  browserRemote?: (method: 'frame' | 'control', args: unknown[]) => Promise<unknown>;
+  browserRemote?: (method: 'frame' | 'control' | 'release', args: unknown[]) => Promise<unknown>;
 }
 
 export type RemoteMethod = (params: unknown[]) => unknown;
@@ -210,12 +210,6 @@ export function createRemoteMethods(
     if (projectPath == null || projectPath === '') return commonInstructionsFile();
     const directory = await host.projectDirectory(requiredString(projectPath, 'projectPath'));
     return projectInstructionsFile(directory);
-  };
-  const requiredFolderPaths = (value: unknown): string[] => {
-    if (!Array.isArray(value) || value.length === 0 || value.length > 500) {
-      throw new TypeError('paths are invalid.');
-    }
-    return value.map((path) => browsableFolderPath(path));
   };
   // Remote access is a transport client, not another service. Keep its
   // existing validation grammar while every Git mutation executes in the same
@@ -357,7 +351,13 @@ export function createRemoteMethods(
       if (typeof archived !== 'boolean') throw new TypeError('archived must be a boolean.');
       return host.setSessionArchived(requiredSessionId(sessionId), archived);
     },
-    deleteSession: ([sessionId]) => host.deleteSession(requiredSessionId(sessionId)),
+    deleteSession: async ([sessionId]) => {
+      const ownerSessionId = requiredSessionId(sessionId);
+      const snapshot = await host.deleteSession(ownerSessionId);
+      // Session deletion remains authoritative when Browser Use is unavailable.
+      if (browserRemote) await browserRemote('release', [ownerSessionId]).catch(() => undefined);
+      return snapshot;
+    },
     // Cold-lane fill for the remote surface: a canonical session.read whose
     // replay frame returns through the broadcast sessionState lane.
     prefetchSession: ([sessionId, itemLimit]) =>
@@ -420,13 +420,19 @@ export function createRemoteMethods(
       for (const request of requests) assertRemoteCapability(request.capability);
       return host.readCapabilities(requests);
     },
-    browserRemoteFrame: ([previousFrameId]) => requiredBrowserRemote()(
+    browserRemoteFrame: ([sessionId, previousFrameId]) => requiredBrowserRemote()(
       'frame',
-      [normalizeRemoteBrowserFrameId(previousFrameId)],
+      [
+        requiredSessionId(sessionId),
+        normalizeRemoteBrowserFrameId(previousFrameId),
+      ],
     ),
-    browserRemoteControl: ([input]) => requiredBrowserRemote()(
+    browserRemoteControl: ([sessionId, input]) => requiredBrowserRemote()(
       'control',
-      [normalizeRemoteBrowserControl(input)],
+      [
+        requiredSessionId(sessionId),
+        normalizeRemoteBrowserControl(input),
+      ],
     ),
     gitStatus: ([cwd, options]) => {
       const record = options && typeof options === 'object'
@@ -609,45 +615,13 @@ export function createRemoteMethods(
     ),
     githubCliLogout: () => invokeDesktopOperation('githubCliLogout', []),
     githubCliAccount: () => invokeDesktopOperation('githubCliAccount', []),
-    // ── Explorer pane: absolute-path local browsing ────────────────────────
-    // The daemon owns every filesystem operation here. OS-shell integrations
-    // (trash, open-with, reveal, native icons) belong to Electron and stay
-    // desktop-only; the remote shim reports them instead of failing silently.
-    listFolderDir: ([dir]) => invokeDesktopOperation(
-      'listFolderDirAbs',
-      [browsableFolderPath(dir)],
-    ),
-    folderPlaces: () => invokeDesktopOperation('listFolderPlaces', []),
-    createFolderEntry: ([dir, name, isDir]) => invokeDesktopOperation(
-      'createFolderEntryAbs',
-      [browsableFolderPath(dir), requiredString(name, 'name', 255), isDir === true],
-    ),
-    renameFolderEntry: ([path, newName]) => invokeDesktopOperation(
-      'renameFolderEntryAbs',
-      [browsableFolderPath(path), requiredString(newName, 'newName', 255)],
-    ),
-    moveFolderEntry: ([paths, targetDir, strategy]) => {
-      const sources = requiredFolderPaths(paths);
-      const target = browsableFolderPath(targetDir);
-      if (strategy === 'replace') {
-        // 'replace' trashes the existing entry first, and the recoverable OS
-        // trash is an Electron integration the daemon cannot reach.
-        throw new Error('Replacing existing entries is available in the desktop app only.');
-      }
-      const mode = strategy === 'keepBoth' || strategy === 'skip' ? strategy : 'ask';
-      return invokeDesktopOperation('moveFolderEntriesAbs', [sources, target, mode]);
-    },
-    copyFolderEntry: ([paths, targetDir]) => invokeDesktopOperation(
-      'copyFolderEntriesAbs',
-      [requiredFolderPaths(paths), browsableFolderPath(targetDir)],
-    ),
     folderWatch: ([dir, recursive]) => invokeDesktopOperation(
       'folderWatch',
-      [browsableFolderPath(dir), recursive === true],
+      [absoluteLocalPath(dir), recursive === true],
     ),
     folderUnwatch: ([dir, recursive]) => invokeDesktopOperation(
       'folderUnwatch',
-      [browsableFolderPath(dir), recursive === true],
+      [absoluteLocalPath(dir), recursive === true],
     ),
     // File tabs and attachments for paths outside any project: the same
     // describe-then-grant grammar the desktop uses for a chosen file.
@@ -660,7 +634,7 @@ export function createRemoteMethods(
       for (const raw of paths) {
         const entry = await invokeDesktopOperation(
           'statLocalEntryAbs',
-          [browsableFolderPath(raw)],
+          [absoluteLocalPath(raw)],
         ) as { absolutePath: string; name: string; dir: boolean; size: number };
         const row: DesktopLocalPathEntry = {
           absolutePath: entry.absolutePath,
@@ -697,7 +671,7 @@ export function createRemoteMethods(
     },
     readLocalFile: ([path]) => invokeDesktopOperation(
       'readLocalFileAbs',
-      [browsableFolderPath(path)],
+      [absoluteLocalPath(path)],
     ),
     // ── Project entries and the editor ─────────────────────────────────────
     createProjectEntry: ([projectPath, relDir, name, dir]) => host.createProjectEntry(

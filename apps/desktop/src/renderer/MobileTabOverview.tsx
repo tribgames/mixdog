@@ -21,7 +21,6 @@ function tabKindGlyph(tab: WorkspaceTab): string {
   switch (tab.selection.kind) {
     case "file": return "file";
     case "diff": return "diff";
-    case "folder": return "folder";
     case "terminal": return "terminal";
     case "studio": return "wand";
     case "pull-request": return "git-pull-request";
@@ -35,7 +34,6 @@ function tabKindMeta(tab: WorkspaceTab): string {
   switch (selection.kind) {
     case "file": return selection.rel;
     case "diff": return selection.rel;
-    case "folder": return selection.path;
     case "terminal": return t("Terminal");
     case "studio": return t("Studio");
     case "pull-request": return `#${selection.number}`;

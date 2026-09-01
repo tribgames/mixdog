@@ -99,9 +99,8 @@ function boundedPercent(value, fallback = null) {
 }
 
 export function defaultEffectiveContextWindowPercent(_provider) {
-  // Gateway/statusline should report the full model boundary. The 10% safety
-  // headroom belongs to semantic-agent compact triggers, not to the main
-  // recall-fasttrack denominator.
+  // Gateway/statusline reports the full model boundary. Trigger headroom is a
+  // Compact policy concern and must not shrink the displayed denominator.
   void _provider;
   return 100;
 }

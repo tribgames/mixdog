@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import test from 'node:test';
 
 import { createPackageWithOptions, statFile } from '@electron/asar';
@@ -24,6 +24,7 @@ import {
   resolveRendererWatchIdleMs,
 } from './dev-renderer-watch-config.mjs';
 
+const repoRoot = resolve(import.meta.dirname, '../../..');
 const groups = Object.fromEntries(
   ['renderer', 'main', 'preload', 'daemon', 'runtime', 'runtimeDependencies', 'package'].map((name) => [
     name,
@@ -318,27 +319,27 @@ test('runtime package metadata still invalidates the packaged application', () =
 
 test('runtime fingerprint excludes developer-only package files but keeps build inputs', () => {
   assert.equal(
-    runtimePackageFileForFingerprint(join(process.cwd(), 'scripts', 'bench', 'trace.mjs')),
+    runtimePackageFileForFingerprint(join(repoRoot, 'scripts', 'bench', 'trace.mjs')),
     false,
   );
   assert.equal(
-    runtimePackageFileForFingerprint(join(process.cwd(), 'scripts', 'release-gate.mjs')),
+    runtimePackageFileForFingerprint(join(repoRoot, 'scripts', 'release-gate.mjs')),
     true,
   );
   assert.equal(
     runtimePackageFileForFingerprint(
-      join(process.cwd(), 'scripts', 'runtime-dependency-cache-key.mjs'),
+      join(repoRoot, 'scripts', 'runtime-dependency-cache-key.mjs'),
     ),
     true,
   );
   assert.equal(
     runtimePackageFileForFingerprint(
-      join(process.cwd(), 'scripts', 'lib', 'stage-postgres-runtime-windows.ps1'),
+      join(repoRoot, 'scripts', 'lib', 'stage-postgres-runtime-windows.ps1'),
     ),
     true,
   );
   assert.equal(
-    runtimePackageFileForFingerprint(join(process.cwd(), 'scripts', 'local-only.ps1')),
+    runtimePackageFileForFingerprint(join(repoRoot, 'scripts', 'local-only.ps1')),
     false,
   );
 });

@@ -121,6 +121,37 @@ export function reportRendererFailure(
   }
 }
 
+const noticeReportedAt = new Map<string, number>();
+
+/** Record an error the user actually saw. Toasts auto-dismiss and the bridge
+ *  banner disappears the moment the daemon attaches, so without this the only
+ *  witness to a startup failure is whoever happened to be looking. */
+export function reportRendererNotice(
+  text: unknown,
+  options: { bridge?: boolean } = {},
+): void {
+  const message = String(text ?? "").trim();
+  if (!message) return;
+  const fingerprint = rendererFailureFingerprint(message);
+  const now = Date.now();
+  const seenAt = noticeReportedAt.get(fingerprint) ?? 0;
+  // The same banner re-mounts on every rerender; one line per occurrence is
+  // the signal, a line per frame is noise.
+  if (now - seenAt < 30_000) return;
+  if (noticeReportedAt.size > 100) noticeReportedAt.clear();
+  noticeReportedAt.set(fingerprint, now);
+  try {
+    window.mixdogDesktop?.rendererDiagnostic?.({
+      phase: "notice",
+      errorName: options.bridge ? "BridgeError" : "ToastError",
+      fingerprint,
+      message,
+    });
+  } catch {
+    // Diagnostics must never become a second renderer failure.
+  }
+}
+
 export function installGlobalRendererDiagnostics(): () => void {
   type DiagnosticsHost = Window & {
     __mixdogLongTaskObserver?: PerformanceObserver;

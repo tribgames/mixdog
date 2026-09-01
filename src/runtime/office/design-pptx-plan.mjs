@@ -6,6 +6,7 @@ import {
   strings,
 } from './design-tokens.mjs';
 import {
+  balancedPptTitle,
   pptBodyParagraphs,
   pptBulletParagraphs,
   pptShape,
@@ -13,6 +14,7 @@ import {
   pptTitleSize,
 } from './design-pptx-primitives.mjs';
 import { measuredTextHeight, packedTextStack } from './design-pptx-stack.mjs';
+import { PPTX_SEMANTIC_ROLES, renderPptxSemanticRegion } from './design-pptx-semantic-visuals.mjs';
 
 const PLAN_UNITS = new Set(['percent', 'points']);
 const PLAN_ROLES = new Set([
@@ -30,6 +32,10 @@ const PLAN_ROLES = new Set([
   'visual',
   'process',
   'comparison',
+  'annotated-chart',
+  'allocation',
+  'timeline',
+  'scorecard',
   'shape',
   'source',
 ]);
@@ -42,6 +48,10 @@ const EVIDENCE_ROLES = new Set([
   'visual',
   'process',
   'comparison',
+  'annotated-chart',
+  'allocation',
+  'timeline',
+  'scorecard',
 ]);
 const TEXT_ROLES = new Set(['eyebrow', 'title', 'subtitle', 'meta', 'body', 'bullets', 'source']);
 const ALIGNMENTS = new Set(['left', 'center', 'right']);
@@ -62,6 +72,10 @@ const REGION_MINIMUMS = Object.freeze({
   visual: [120, 90],
   process: [220, 120],
   comparison: [220, 120],
+  'annotated-chart': [300, 150],
+  allocation: [220, 120],
+  timeline: [260, 120],
+  scorecard: [260, 140],
   shape: [36, 24],
   source: [120, 16],
 });
@@ -351,7 +365,7 @@ export function normalizePptxModelPlan(operation, design, slide) {
     throw planError(
       'EVIDENCE_REGION_REQUIRED',
       slide,
-      'The operation contains evidence but the plan has no metric, chart, table, image, visual, process, or comparison region.',
+      'The operation contains evidence but the plan has no semantic evidence region.',
     );
   }
   const readingOrder = strings(source.readingOrder).length
@@ -487,6 +501,7 @@ function renderTextRegion(region, operation, design, slide) {
   const style = regionStyle(region, design, defaults);
   let paragraphs = null;
   let text = textForRegion(region, operation);
+  if (region.role === 'title') text = balancedPptTitle(text);
   if (region.role === 'body') {
     paragraphs = pptBodyParagraphs(region.text ?? operation.body, design, {
       size: style.fontSize,
@@ -708,7 +723,14 @@ function renderVisualRegion(region, operation, design, slide) {
   const alignment = region.style?.align ? style.alignment : 'center';
   const labelSize = clamp(region.style?.labelSize || MIN_VISIBLE_FONT_SIZE, MIN_VISIBLE_FONT_SIZE, 22);
   const stackFor = (valueSize) => packedTextStack(region, [
-    { id: 'value', text, fontName: style.fontName, fontSize: valueSize, bold: style.bold },
+    {
+      id: 'value',
+      text,
+      fontName: style.fontName,
+      fontSize: valueSize,
+      bold: style.bold,
+      widthScale: /[\u1100-\u11ff\u2e80-\u9fff\uac00-\ud7af]/u.test(text) ? 1.35 : 1.08,
+    },
     {
       id: 'label',
       text: label,
@@ -921,6 +943,9 @@ function renderShapeRegion(region, operation, design, slide) {
 }
 
 function renderRegion(region, operation, design, slide) {
+  if (PPTX_SEMANTIC_ROLES.has(region.role)) {
+    return renderPptxSemanticRegion(region, operation, design, slide);
+  }
   if (TEXT_ROLES.has(region.role)) return renderTextRegion(region, operation, design, slide);
   if (region.role === 'metric') return renderMetricRegion(region, operation, design, slide);
   if (region.role === 'metrics') return renderMetricsRegion(region, operation, design, slide);

@@ -10,6 +10,7 @@ import { mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 
 import { join } from 'node:path';
 
 import { powershellHostProgram, RESPONSE_MARKER } from './computer-host-program';
+import { BLOCKED_COMPUTER_KEY_PATTERN_SOURCE } from './computer-host-input-guards';
 import type { PowerShellResponse } from './computer-host-types';
 
 /** Per-command ceiling for the PowerShell host round trip. */
@@ -23,10 +24,16 @@ export interface WorkerPoolHost {
   /** A spare is only worth keeping while the bridge would use it. */
   isBridgeEnabled(): boolean;
   isDisposed(): boolean;
+  onSessionRetired?(sessionId: string): void;
 }
 
 export function createWorkerPool(host: WorkerPoolHost) {
-  const { dataDirectory, isBridgeEnabled, isDisposed } = host;
+  const {
+    dataDirectory,
+    isBridgeEnabled,
+    isDisposed,
+    onSessionRetired,
+  } = host;
 
   let hostScriptPath: string | null = null;
   let hostScriptBuild = '';
@@ -109,6 +116,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
         if (activeChild !== child) continue;
         powerShellBySession.delete(id);
         workerLastUsedAt.delete(id);
+        try { onSessionRetired?.(id); } catch { /* host cleanup is best effort */ }
       }
       for (const [id, entry] of pending) {
         if (entry.child !== child) continue;
@@ -143,10 +151,12 @@ export function createWorkerPool(host: WorkerPoolHost) {
   }
 
   function retirePowerShell(child: ChildProcessWithoutNullStreams, error: Error): void {
+    const retiredSessionIds: string[] = [];
     for (const [sessionId, activeChild] of powerShellBySession) {
       if (activeChild !== child) continue;
       powerShellBySession.delete(sessionId);
       workerLastUsedAt.delete(sessionId);
+      retiredSessionIds.push(sessionId);
     }
     for (const [id, entry] of pending) {
       if (entry.child !== child) continue;
@@ -155,6 +165,9 @@ export function createWorkerPool(host: WorkerPoolHost) {
       pending.delete(id);
     }
     try { child.kill(); } catch { /* already gone */ }
+    for (const sessionId of retiredSessionIds) {
+      try { onSessionRetired?.(sessionId); } catch { /* host cleanup is best effort */ }
+    }
   }
 
   function handlePsLine(json: string): void {
@@ -171,15 +184,24 @@ export function createWorkerPool(host: WorkerPoolHost) {
     entry.resolve(parsed);
   }
 
-  function callPowerShell(request: Record<string, unknown>): Promise<PowerShellResponse> {
+  function callPowerShell(
+    request: Record<string, unknown>,
+    timeoutMs = COMMAND_TIMEOUT_MS,
+  ): Promise<PowerShellResponse> {
     const sessionId = String(request.session_id || 'default');
     const child = ensurePowerShell(sessionId);
     const id = nextId++;
     const line = `${JSON.stringify({ ...request, id })}\n`;
+    const commandTimeoutMs = Number.isFinite(timeoutMs)
+      ? Math.max(50, Math.min(COMMAND_TIMEOUT_MS, Math.round(timeoutMs)))
+      : COMMAND_TIMEOUT_MS;
     return new Promise<PowerShellResponse>((resolve, reject) => {
       const timer = setTimeout(() => {
-        retirePowerShell(child, new Error('computer command timed out; the input host was restarted'));
-      }, COMMAND_TIMEOUT_MS);
+        retirePowerShell(
+          child,
+          new Error(`computer_command_timeout: command exceeded ${commandTimeoutMs}ms; the input host was restarted`),
+        );
+      }, commandTimeoutMs);
       pending.set(id, { resolve, reject, timer, child });
       try {
         child.stdin.write(line);
@@ -277,8 +299,8 @@ export function createWorkerPool(host: WorkerPoolHost) {
       -not [string]::IsNullOrWhiteSpace([string]$request.to)) {
     throw 'privileged worker requires frame-bound coordinates or direct keys/text'
   }
-  $normalizedKeys = ([string]$request.keys) -replace '\\s+', ''
-  if ($normalizedKeys -match '(?i:%\\{F4\\}|\\^%\\{(?:DEL|DELETE)\\}|#(?:L|\\{L\\}))') {
+  $normalizedKeys = ([string]$request.keys).Trim()
+  if ($normalizedKeys -match '(?i)${BLOCKED_COMPUTER_KEY_PATTERN_SOURCE}') {
     throw 'privileged worker blocked a destructive or session-ending key combination'
   }
   $workerDirectory = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'Mixdog\ComputerWorker'

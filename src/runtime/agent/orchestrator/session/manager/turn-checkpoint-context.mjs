@@ -16,8 +16,6 @@ function nonNegativeCount(value) {
 function compactCheckpointState(compaction) {
     if (!compaction || typeof compaction !== 'object') return null;
     const state = {};
-    const compactType = compaction.compactType || compaction.type;
-    if (compactType) state.compactType = compactType;
     for (const key of [
         'boundaryTokens',
         'triggerTokens',

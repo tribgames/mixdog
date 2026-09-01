@@ -1,5 +1,5 @@
 /**
- * extension-pickers.mjs — MCP / Skills / Plugins / Hooks picker cluster.
+ * extension-pickers.mjs — MCP / Skills / Plugins picker cluster.
  *
  * Extracted from App.jsx behavior-preservingly as a dependency-injection
  * factory. These openers drive the panel surface + setSettingsPrompt and read
@@ -497,60 +497,6 @@ export function createExtensionPickers({
     });
   };
 
-  const openHooksPicker = async () => {
-    const own = surface.claim();
-    let status;
-    try {
-      status = (await store.hooksStatus?.()) || { events: [], recent: [] };
-    } catch (e) {
-      store.pushNotice(`hooks status failed: ${e?.message || e}`, 'error');
-      return;
-    }
-    const rules = status.rules || [];
-    const items = [
-      ...(rules.length ? rules.map((rule) => ({
-        value: `rule:${rule.index}`,
-        label: `${rule.tool} -> ${rule.action}`,
-        marker: rule.enabled ? '●' : '○',
-        markerColor: rule.enabled ? theme.success : theme.inactive,
-        description: `${rule.match ? `match ${rule.match} · ` : ''}${rule.reason || 'Enter toggle'}`,
-        _action: 'rule',
-        _rule: rule,
-      })) : [{
-        value: 'rules:none',
-        label: 'No rules',
-        description: status.rulesPath || 'hooks.json not configured',
-        _action: 'noop',
-      }]),
-    ];
-    if (!own.owns()) return;
-    setProviderPrompt(null);
-    setSettingsPrompt(null);
-    const toggleRule = (item) => {
-      if (item._action !== 'rule') return;
-      // setHookRuleEnabled is a daemon write: reloading before it resolves
-      // re-rendered the OLD rule state (toggle looked ineffective) and a
-      // rejection escaped as an unhandled rejection. The reload is bound to
-      // the claim of this keypress, so a write acking after Esc cannot re-open
-      // the Hooks picker the user just closed.
-      void Promise.resolve(store.setHookRuleEnabled?.(item._rule.index, !item._rule.enabled))
-        .then(own.defer(() => openHooksPicker()))
-        .catch((e) => store.pushNotice(`hook toggle failed: ${e?.message || e}`, 'error'));
-    };
-    own.paint({
-      _kind: 'hooks',
-      title: 'Hooks',
-      description: 'Before-tool hook rules; Enter toggles a rule.',
-      items,
-      onSelect: (_value, item) => toggleRule(item),
-      onLeft: (item) => toggleRule(item),
-      onRight: (item) => toggleRule(item),
-      onCancel: () => {
-        own.close();
-      },
-    });
-  };
-
   return {
     openMcpServersPicker,
     openMcpPicker,
@@ -561,6 +507,5 @@ export function createExtensionPickers({
     openPluginDetailPicker,
     openInstalledPluginsPicker,
     openPluginsPicker,
-    openHooksPicker,
   };
 }

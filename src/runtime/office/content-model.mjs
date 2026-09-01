@@ -160,7 +160,7 @@ export function bindOfficeContent(operation, model) {
       };
     });
   }
-  for (const key of ['rows', 'table', 'chart', 'columns', 'steps']) {
+  for (const key of ['rows', 'table', 'chart', 'columns', 'steps', 'allocations', 'annotations', 'gates', 'actions']) {
     if (bound[key] != null) bound[key] = resolveValue(bound[key]);
   }
   const sources = [...used]

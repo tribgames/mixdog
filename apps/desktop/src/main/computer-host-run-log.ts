@@ -76,9 +76,22 @@ export function computerRunRecord(
   record.bytes = result.text.length;
   try {
     const payload = JSON.parse(result.text) as Record<string, unknown>;
-    for (const key of ['effect', 'verified', 'code', 'verdict', 'window_id', 'pixel_status']) {
+    if (typeof payload.ok === 'boolean') record.ok = payload.ok;
+    for (const key of [
+      'effect', 'verified', 'goal_verified', 'code', 'path', 'escalation',
+      'window_id', 'pixel_status', 'accessibility_status',
+    ]) {
       const value = payload[key];
       if (value !== undefined && (typeof value !== 'object' || value === null)) record[key] = value;
+    }
+    const verdict = payload.verdict;
+    if (verdict && typeof verdict === 'object' && !Array.isArray(verdict)) {
+      const decision = (verdict as Record<string, unknown>).decision;
+      const recommended = (verdict as Record<string, unknown>).recommended;
+      record.verdict = {
+        ...(typeof decision === 'string' ? { decision } : {}),
+        ...(typeof recommended === 'string' ? { recommended } : {}),
+      };
     }
   } catch {
     // Plain-text discovery results carry no structured verdict.

@@ -15,6 +15,7 @@ import {
 import { createPortal } from "react-dom";
 import { t } from "./i18n";
 import { acquireModalLayer } from "./modal-layer";
+import { reportRendererNotice } from "./RendererRecovery";
 import { acquireTitleBarDim } from "./titlebar-dim";
 
 import { type Toast } from "./desktop-types";
@@ -277,6 +278,20 @@ export function DesktopToastRegion({ bridgeError, toasts, onDismissBridgeError }
       resizeObserver?.disconnect();
     };
   }, []);
+  // Errors reach the user through this region and nowhere else. Whatever is
+  // painted here is also written to the desktop diagnostics log, so a banner
+  // that flashes during startup can still be read afterwards.
+  const shownErrors = entries
+    .filter((entry) => entry.tone === 'error')
+    .map((entry) => `${entry.bridge ? 'bridge' : 'toast'}\u0001${entry.text}`)
+    .join('\u0000');
+  useEffect(() => {
+    if (!shownErrors) return;
+    for (const shown of shownErrors.split('\u0000')) {
+      const [origin, text] = shown.split('\u0001');
+      reportRendererNotice(text, { bridge: origin === 'bridge' });
+    }
+  }, [shownErrors]);
   if (!entries.length) return null;
   return createPortal(<section className="mx-toast-region" aria-label={t("Notifications")} aria-live="polite"
     data-count={entries.length} style={placement}>

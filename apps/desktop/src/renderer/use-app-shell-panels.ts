@@ -4,18 +4,7 @@ import { getSidePanelMode, sidePanelLayout, subscribeSidePanelMode, type SidePan
 import type { CommandSurface as CommandSurfaceName } from "./slash-commands";
 import type { SettingsSection as SettingsViewSection } from "./settings/SettingsView";
 import { useBottomPanelState } from "./BottomPanel";
-import {
-  desktopFeatureEnabled,
-  desktopUtilityDockTabEnabled,
-  firstEnabledDesktopUtilityDockTab,
-  hasDesktopUtilityDockFeature,
-} from "./desktop-feature-config";
-import {
-  clampDockWidth,
-  DOCK_STATE_KEY,
-  readDockState,
-  type UtilityDockTab,
-} from "./utility-dock-state";
+import { desktopFeatureEnabled } from "./desktop-feature-config";
 import { DEFAULT_PROBLEMS_PANEL_FILTER, type ProblemsPanelFilter } from "./WorkbenchProblems";
 import {
   createExtensionsPane,
@@ -33,7 +22,7 @@ import { useResponsiveShellBands } from "./use-responsive-shell-bands";
 
 const SIDEBAR_OPEN_KEY = "mixdog.desktop-sidebar-open.v1";
 
-export function useAppShellPanels() {
+export function useAppShellPanels(activeBottomPanelPaneId: string) {
   const preferredSidePanelMode = useSyncExternalStore(
     subscribeSidePanelMode,
     getSidePanelMode,
@@ -108,16 +97,9 @@ export function useAppShellPanels() {
       surface === "context" || surface === "inherit" ? sessionId : "");
     setCommandSurface(surface);
   }, []);
-  // The utility dock persists its tab and width; the side-panel policy owns
-  // whether either edge starts open.
-  const [dockOpen, setDockOpen] = useState<boolean>(() =>
-    hasDesktopUtilityDockFeature
-      && (activeSidePanelLayout.dockLockedOpen ? true : readDockState().open));
-  const [dockTab, setDockTab] = useState<UtilityDockTab>(() =>
-    firstEnabledDesktopUtilityDockTab() ?? "agents");
-  const [dockWidth, setDockWidth] = useState<number>(() => readDockState().width);
-  const desktopDockOpen = useRef(dockOpen);
-  const bottomPanel = useBottomPanelState("terminal");
+  // The right dock is now PER-PANE state (pane-side-dock.tsx); this hook
+  // keeps the window-level drawer, bottom panel, and rail surfaces only.
+  const bottomPanel = useBottomPanelState(activeBottomPanelPaneId);
   const [problemsFilter, setProblemsFilter] = useState<ProblemsPanelFilter>(
     () => ({ ...DEFAULT_PROBLEMS_PANEL_FILTER }),
   );
@@ -126,7 +108,6 @@ export function useAppShellPanels() {
   // the user's latest intent separately so rapid toggles never read a stale
   // rendered state or let an older close completion reverse the newest input.
   const sidebarOpenIntent = useRef(sidebarOpen);
-  const dockOpenIntent = useRef(dockOpen);
   const [sidebarMotion, setSidebarMotion] = useState<"animated" | "instant">("animated");
   const applySidebarOpen = useCallback((
     open: boolean,
@@ -135,18 +116,6 @@ export function useAppShellPanels() {
     sidebarOpenIntent.current = open;
     setSidebarMotion(motion);
     setSidebarOpen(open);
-  }, []);
-  // The right sheet slides like the drawer, so it needs the drawer's motion
-  // signal too: a 940px band correction must apply its state without playing
-  // the slide (user rule: 해상도 전환엔 애니 없음).
-  const [dockMotion, setDockMotion] = useState<"animated" | "instant">("animated");
-  const applyDockOpen = useCallback((
-    open: boolean,
-    motion: "animated" | "instant" = "animated",
-  ) => {
-    dockOpenIntent.current = open;
-    setDockMotion(motion);
-    setDockOpen(open);
   }, []);
   // The bottom panel is the SAME kind of narrow-band surface as the side
   // sheets (user: 하단 탭도 좌우 탭과 같은 취급 — 겹치면 안 된다): while a
@@ -159,27 +128,6 @@ export function useAppShellPanels() {
       bottomPanel.setOpen(false);
     }
   }, [bottomPanel]);
-  // A band change re-applies the sheet media rules to the ALREADY-open dock,
-  // which used to replay the slide-in (user: 해상도 바뀔 때 굳이 애니 나올
-  // 필요 없다). Once the fresh-open animation has run, `data-entering`
-  // pins animation/transition off for the rest of the mount.
-  const [dockSettled, setDockSettled] = useState(false);
-  useEffect(() => {
-    if (!dockOpen) { setDockSettled(false); return undefined; }
-    const timer = window.setTimeout(() => setDockSettled(true), 400);
-    return () => window.clearTimeout(timer);
-  }, [dockOpen]);
-  const openDockTab = useCallback((tab: UtilityDockTab) => {
-    if (!desktopUtilityDockTabEnabled(tab)) return;
-    setDockTab(tab);
-    // Narrow shells keep ONE sheet: the last-pressed side wins (user).
-    if (narrowShellRef.current && sidebarOpenIntent.current) applySidebarOpen(false);
-    dismissBottomPanelForSheet("dock");
-    applyDockOpen(true);
-  }, [applyDockOpen, applySidebarOpen, dismissBottomPanelForSheet]);
-  const resizeDock = useCallback((value: number) => {
-    setDockWidth(clampDockWidth(value));
-  }, []);
   const appliedSidePanelMode = useRef(activeSidePanelMode);
   useEffect(() => {
     // Existing installs retain their last folding state on launch. A mode
@@ -187,7 +135,7 @@ export function useAppShellPanels() {
     if (appliedSidePanelMode.current === activeSidePanelMode) return;
     appliedSidePanelMode.current = activeSidePanelMode;
     applySidebarOpen(activeSidePanelLayout.sidebarOpen && desktopFeatureEnabled("sessions"));
-    applyDockOpen(activeSidePanelLayout.dockOpen && hasDesktopUtilityDockFeature);
+    // The dock half of the policy applies inside usePaneSideDocks.
   }, [activeSidePanelMode]);
   // Manual toggles ALWAYS win (user: a dead open/close button reads as a
   // bug). The keep-open policy re-applies on the next navigation instead of
@@ -202,11 +150,9 @@ export function useAppShellPanels() {
   const openSidebar = useCallback(() => {
     if (sidebarOpenIntent.current) return;
     sidebarOpenIntent.current = true;
-    // Narrow shells keep ONE sheet: opening the drawer dismisses the dock.
-    if (narrowShellRef.current && dockOpenIntent.current) applyDockOpen(false);
     dismissBottomPanelForSheet("drawer");
     beginSidePanelOpen("sidebar", () => applySidebarOpen(true));
-  }, [applyDockOpen, applySidebarOpen, beginSidePanelOpen, dismissBottomPanelForSheet]);
+  }, [applySidebarOpen, beginSidePanelOpen, dismissBottomPanelForSheet]);
   // Toggle spam queues expensive panel mounts and replays them after the
   // clicks stop (user: 연타하면 예약되어서 여러 번 열린다): clicks inside
   // one motion window coalesce into the FIRST one instead of stacking.
@@ -228,35 +174,19 @@ export function useAppShellPanels() {
     const nextOpen = !sidebarOpenIntent.current;
     sidebarOpenIntent.current = nextOpen;
     if (nextOpen) {
-      if (narrowShellRef.current && dockOpenIntent.current) applyDockOpen(false);
       dismissBottomPanelForSheet("drawer");
       beginSidePanelOpen("sidebar", () => applySidebarOpen(true));
     } else {
       beginSidePanelClose("sidebar", () => applySidebarOpen(false));
     }
-  }, [applyDockOpen, applySidebarOpen, beginSidePanelClose, beginSidePanelOpen, dismissBottomPanelForSheet, sidePanelToggleReady]);
-  const toggleDock = useCallback((event?: { timeStamp?: number }) => {
-    if (!dockOpenIntent.current && !hasDesktopUtilityDockFeature) return;
-    if (!sidePanelToggleReady(event?.timeStamp)) return;
-    const nextOpen = !dockOpenIntent.current;
-    dockOpenIntent.current = nextOpen;
-    if (nextOpen) {
-      if (narrowShellRef.current && sidebarOpenIntent.current) applySidebarOpen(false);
-      dismissBottomPanelForSheet("dock");
-      beginSidePanelOpen("dock", () => applyDockOpen(true));
-    } else {
-      beginSidePanelClose("dock", () => applyDockOpen(false));
-    }
-  }, [applyDockOpen, applySidebarOpen, beginSidePanelClose, beginSidePanelOpen, dismissBottomPanelForSheet, sidePanelToggleReady]);
+  }, [applySidebarOpen, beginSidePanelClose, beginSidePanelOpen, dismissBottomPanelForSheet, sidePanelToggleReady]);
   // Expanding the bottom panel in the sheet band dismisses the overlay
-  // sheets — last press wins (user: 좁은 폭일 때 아래쪽 탭을 확장하면
-  // 오른쪽은 사라져야지). The dock floats as a sheet ≤940px, the drawer
-  // ≤760px; wide inline layouts coexist and stay untouched.
+  // drawer — last press wins. The right dock lives INSIDE each pane now, so
+  // it no longer competes with the bottom panel as a window sheet.
   const dismissSheetsForBottomPanel = useCallback(() => {
     if (window.matchMedia?.("(max-width: 940px)").matches !== true) return;
-    if (dockOpenIntent.current) applyDockOpen(false);
     if (narrowShellRef.current && sidebarOpenIntent.current) applySidebarOpen(false);
-  }, [applyDockOpen, applySidebarOpen]);
+  }, [applySidebarOpen]);
   const toggleBottomPanel = useCallback(() => {
     if (!bottomPanel.open) dismissSheetsForBottomPanel();
     bottomPanel.toggle();
@@ -278,10 +208,7 @@ export function useAppShellPanels() {
     if (desktopSidebarOpen.current !== sidebarOpenIntent.current) {
       applySidebarOpen(desktopSidebarOpen.current, "instant");
     }
-    if (desktopDockOpen.current !== dockOpenIntent.current) {
-      applyDockOpen(desktopDockOpen.current, "instant");
-    }
-  }, [narrowShell, applyDockOpen, applySidebarOpen]);
+  }, [narrowShell, applySidebarOpen]);
   // Bottom panel band (≤940px = the width where it becomes an overlay
   // sheet): hide on shrink, restore the stored wide state on expand.
   const wasBottomSheetBand = useRef(bottomSheetBand);
@@ -294,9 +221,6 @@ export function useAppShellPanels() {
   useEffect(() => {
     if (wasBottomSheetBand.current === bottomSheetBand) return;
     wasBottomSheetBand.current = bottomSheetBand;
-    // A 940px mode crossing must never replay the right Dock's sheet
-    // animation, even when it happens inside the initial settle window.
-    if (dockOpenIntent.current) setDockSettled(true);
     if (bottomSheetBand) {
       if (bottomPanel.open) bottomPanel.setOpen(false, "instant");
       return;
@@ -460,28 +384,7 @@ export function useAppShellPanels() {
     sidebarOpenIntent.current = false;
     beginSidePanelClose("sidebar", () => applySidebarOpen(false));
   }, [applySidebarOpen, beginSidePanelClose, closeSidebarPanels]);
-  const persistDockState = useCallback(() => {
-    if (narrowShell || wasNarrowShell.current) return;
-    desktopDockOpen.current = dockOpen;
-    try {
-      window.localStorage.setItem(
-        DOCK_STATE_KEY,
-        JSON.stringify({ open: dockOpen, width: dockWidth }),
-      );
-    } catch { /* dock state is a convenience only */ }
-  }, [dockOpen, dockWidth, narrowShell]);
-  usePageHideFlush(persistDockState);
-  useEffect(() => {
-    // Same transience rule as the sidebar: drawer-band dock toggles never
-    // overwrite the desktop dock preference or the restore target.
-    if (narrowShell || wasNarrowShell.current) return;
-    const timer = window.setTimeout(persistDockState, 120);
-    return () => window.clearTimeout(timer);
-  }, [narrowShell, persistDockState]);
-
-
   return {
-    applyDockOpen,
     applySidebarOpen,
     bottomPanel,
     bottomSheetBand,
@@ -491,12 +394,6 @@ export function useAppShellPanels() {
     commandSurfaceLane,
     commandSurfaceSessionId,
     dismissSheetsForBottomPanel,
-    dockMotion,
-    dockOpen,
-    dockOpenIntent,
-    dockSettled,
-    dockTab,
-    dockWidth,
     failedSidebarPanels,
     loadedSidebarPanels,
     mainPanelRef,
@@ -504,7 +401,6 @@ export function useAppShellPanels() {
     mountSidebarPanel,
     mountedSidebarPanels,
     openConversationCommandSurface,
-    openDockTab,
     openProjects,
     openSchedules,
     openSidebar,
@@ -514,12 +410,10 @@ export function useAppShellPanels() {
     problemsCollapseNonce,
     problemsFilter,
     projectsOpen,
-    resizeDock,
     retrySidebarPanel,
     schedulesOpen,
     setCommandSurface,
     setCommandSurfaceSessionId,
-    setDockTab,
     setProblemsCollapseNonce,
     setProblemsFilter,
     setSettingsOpen,
@@ -531,7 +425,6 @@ export function useAppShellPanels() {
     sidebarOpenIntent,
     sidebarPanes,
     toggleBottomPanel,
-    toggleDock,
     toggleSidebar,
     trackSidebarPanelModule,
     utilitiesOpen,

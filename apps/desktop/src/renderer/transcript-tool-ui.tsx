@@ -200,14 +200,6 @@ function ToolActivityDetails({
           item,
           index: itemIndex++,
         }));
-        if (group.items.length <= 1) {
-          const entry = groupItems[0];
-          if (!entry) return null;
-          const key = activityItemKey(entry.item, entry.index);
-          return <ToolActivityItem key={key} item={entry.item}
-            open={openItem === key} onToggle={() => toggleItem(key)}
-            contentId={`${contentId}-item-${entry.index}`} />;
-        }
         const categoryOpen = openCategory === group.unitKey;
         const categoryPending = group.items.some((item) => !toolItemDone(item));
         const categoryContentId = `${contentId}-category-${groupIndex}`;

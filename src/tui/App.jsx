@@ -65,7 +65,6 @@ import {
 } from './app/slash-commands.mjs';
 import { isCompletedTranscriptTailAppendedThisCommit, isLiveSpinnerMetaVisible } from './app/live-spinner-visibility.mjs';
 import {
-  parseHookRuleInput,
   parseMcpServerInput,
   parseSkillInput,
   parseMemoryCommand,
@@ -400,7 +399,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   }
   const surface = surfaceRef.current;
   // Cache of the last computed heavy settings-picker status objects (MCP,
-  // hooks, plugins, skills, channel provider). ←/→ cycle/toggle handlers in
+  // plugins, skills, channel provider). ←/→ cycle/toggle handlers in
   // openSettingsPicker() pass { light: true } to reuse this cache instead of
   // re-querying these heavy getters on every keystroke; only a full open
   // (initial /config or Esc-return) recomputes them.
@@ -609,7 +608,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     openPluginDetailPicker,
     openInstalledPluginsPicker,
     openPluginsPicker,
-    openHooksPicker,
     openUpdatePicker,
     openAutoClearPicker,
     openProfilePicker,

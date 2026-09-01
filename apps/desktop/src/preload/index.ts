@@ -90,24 +90,7 @@ const api: DesktopApi = {
     ipcRenderer.invoke(DESKTOP_IPC.writeInstructions, projectPath, content),
   listProjectDir: (projectPath, relDir) =>
     ipcRenderer.invoke(DESKTOP_IPC.listProjectDir, projectPath, relDir),
-  chooseFolder: () => ipcRenderer.invoke(DESKTOP_IPC.chooseFolder),
-  listFolderDir: (dir) => ipcRenderer.invoke(DESKTOP_IPC.listFolderDir, dir),
-  createFolderEntry: (dir, name, isDir) =>
-    ipcRenderer.invoke(DESKTOP_IPC.createFolderEntry, dir, name, isDir),
-  renameFolderEntry: (path, newName) =>
-    ipcRenderer.invoke(DESKTOP_IPC.renameFolderEntry, path, newName),
-  moveFolderEntry: (paths, targetDir, strategy) =>
-    ipcRenderer.invoke(DESKTOP_IPC.moveFolderEntry, paths, targetDir, strategy),
-  copyFolderEntry: (paths, targetDir) =>
-    ipcRenderer.invoke(DESKTOP_IPC.copyFolderEntry, paths, targetDir),
-  trashFolderEntry: (path) => ipcRenderer.invoke(DESKTOP_IPC.trashFolderEntry, path),
-  openFolderEntry: (path) => ipcRenderer.invoke(DESKTOP_IPC.openFolderEntry, path),
-  revealFolderEntry: (path) => ipcRenderer.invoke(DESKTOP_IPC.revealFolderEntry, path),
-  folderPlaces: () => ipcRenderer.invoke(DESKTOP_IPC.folderPlaces),
-  folderEntryIcon: (path, thumbnail, size) =>
-    ipcRenderer.invoke(DESKTOP_IPC.folderEntryIcon, path, thumbnail === true, size),
-  // Explorer pane: absolute path for an OS-native file drop (File.path was
-  // removed in modern Electron; webUtils must resolve it in the preload).
+  // File.path was removed in modern Electron; webUtils resolves native drops.
   folderPathForFile: (file) => {
     try { return webUtils.getPathForFile(file); } catch { return ''; }
   },
@@ -547,12 +530,21 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener(DESKTOP_IPC.zoomFactorChanged, receive);
   },
   onBrowserOpenRequested: (listener) => {
-    const receive = (): void => listener();
+    const receive = (
+      _event: Electron.IpcRendererEvent,
+      request: Parameters<typeof listener>[0],
+    ): void => listener(request);
     ipcRenderer.on(DESKTOP_IPC.browserOpenRequested, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.browserOpenRequested, receive);
   },
-  browserSetActiveGuest: (paneId, webContentsId, active) =>
-    ipcRenderer.invoke(DESKTOP_IPC.browserSetActiveGuest, paneId, webContentsId, active),
+  onBrowserSessionReleased: (listener) => {
+    const receive = (_event: Electron.IpcRendererEvent, sessionId: string): void =>
+      listener(sessionId);
+    ipcRenderer.on(DESKTOP_IPC.browserSessionReleased, receive);
+    return () => ipcRenderer.removeListener(DESKTOP_IPC.browserSessionReleased, receive);
+  },
+  browserSetActiveGuest: (sessionId, webContentsId, active) =>
+    ipcRenderer.invoke(DESKTOP_IPC.browserSetActiveGuest, sessionId, webContentsId, active),
   browserProfileImportSources: () =>
     ipcRenderer.invoke(DESKTOP_IPC.browserProfileImportSources),
   browserProfileImportStart: (request) =>
@@ -567,10 +559,10 @@ const api: DesktopApi = {
   },
   browserHistorySearch: (query) =>
     ipcRenderer.invoke(DESKTOP_IPC.browserHistorySearch, query),
-  browserCredentialSuggestions: () =>
-    ipcRenderer.invoke(DESKTOP_IPC.browserCredentialSuggestions),
-  browserCredentialFill: (credentialId) =>
-    ipcRenderer.invoke(DESKTOP_IPC.browserCredentialFill, credentialId),
+  browserCredentialSuggestions: (sessionId) =>
+    ipcRenderer.invoke(DESKTOP_IPC.browserCredentialSuggestions, sessionId),
+  browserCredentialFill: (sessionId, credentialId) =>
+    ipcRenderer.invoke(DESKTOP_IPC.browserCredentialFill, sessionId, credentialId),
   invokeCapability: (request) => ipcRenderer.invoke(DESKTOP_IPC.invokeCapability, request),
   readCapabilities: (requests) => ipcRenderer.invoke(DESKTOP_IPC.readCapabilities, requests),
   // Byte lane for gallery media: a plain URL the DOM fetches itself (cached

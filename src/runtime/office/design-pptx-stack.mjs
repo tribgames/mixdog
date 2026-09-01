@@ -1,4 +1,4 @@
-import { measureTextBlock } from './text-metrics.mjs';
+import { measureTextBlock, measureTextWidth } from './text-metrics.mjs';
 
 export function measuredTextHeight(text, {
   width = 0,
@@ -24,16 +24,22 @@ export function packedTextStack({ top, height, width }, entries = [], {
   align = 'center',
 } = {}) {
   const measured = entries
-    .map((entry) => ({
-      ...entry,
-      height: Math.ceil(entry.height ?? measuredTextHeight(entry.text, {
-        width: entry.width ?? width,
+    .map((entry) => {
+      const font = {
         fontName: entry.fontName,
         fontSize: entry.fontSize,
         bold: entry.bold,
         italic: entry.italic,
-      })),
-    }))
+      };
+      return {
+        ...entry,
+        height: Math.ceil(entry.height ?? measuredTextHeight(entry.text, {
+        width: entry.width ?? width,
+        ...font,
+        })),
+        measuredWidth: measureTextWidth(String(entry.text ?? '').replace(/\n/g, ' '), font),
+      };
+    })
     .filter((entry) => entry.height > 0);
   const total = measured.reduce(
     (sum, entry, index) => sum + entry.height + (index ? (entry.gapBefore ?? gap) : 0),
@@ -46,5 +52,7 @@ export function packedTextStack({ top, height, width }, entries = [], {
     cursor += entry.height;
     return positioned;
   });
-  return { entries: placed, total, overflow: total > height + 0.5 };
+  const widthOverflow = measured.some((entry) => Number(entry.widthScale) > 0
+    && entry.measuredWidth * Number(entry.widthScale) > (entry.width ?? width) + 0.5);
+  return { entries: placed, total, overflow: total > height + 0.5 || widthOverflow };
 }

@@ -285,26 +285,31 @@ export function normalizeAutoClearConfig(value = {}) {
   };
 }
 
-export function normalizeCompactTypeSetting(value, fallback = 'recall-fasttrack') {
-  const raw = clean(value).toLowerCase().replace(/_/g, '-');
-  if (!raw) return fallback;
-  if (raw === '1' || raw === 'type1' || raw === 'type-1' || raw === 'semantic' || raw === 'summary' || raw === 'default') return 'semantic';
-  if (raw === '2' || raw === 'type2' || raw === 'type-2' || raw === 'recall' || raw === 'recall-fast' || raw === 'recall-fasttrack' || raw === 'recall-fast-track' || raw === 'fasttrack' || raw === 'fast-track') return 'recall-fasttrack';
-  return fallback;
-}
-
 export function normalizeCompactionConfig(value = {}) {
   const raw = value && typeof value === 'object' ? value : {};
-  const compactType = normalizeCompactTypeSetting(raw.type, 'recall-fasttrack');
   const next = { ...raw };
+  if (!next.summaryModel && raw.semanticModel) next.summaryModel = raw.semanticModel;
+  if (!next.memoryTimeoutMs && raw.recallMemoryTimeoutMs) next.memoryTimeoutMs = raw.recallMemoryTimeoutMs;
+  delete next.type;
   delete next.compactType;
   delete next.compact_type;
+  delete next.semantic;
+  delete next.semanticModel;
+  delete next.prune;
+  delete next.tailTurns;
+  delete next.recallMemoryTimeoutMs;
+  delete next.recallIngestLimit;
+  delete next.recallChunkLimit;
+  delete next.recallLimit;
+  delete next.recallCycle1BatchSize;
+  delete next.recallRowsPerSession;
+  delete next.recallWindowSize;
+  delete next.recallConcurrency;
+  delete next.recallCycle1DeadlineMs;
   delete next.enabled;
   return {
     ...next,
     auto: raw.auto !== false && raw.enabled !== false,
-    type: compactType,
-    compactType,
   };
 }
 

@@ -75,7 +75,6 @@ function settingsDeps(host, store, opened = {}) {
     openProfilePicker: noop,
     openMcpPicker: noop,
     openPluginsPicker: noop,
-    openHooksPicker: noop,
     openSkillsPicker: noop,
     openMemoryCorePicker: noop,
     openUpdatePicker: noop,

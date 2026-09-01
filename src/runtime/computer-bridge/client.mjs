@@ -15,6 +15,10 @@ import {
   toComputerHostCommand,
   validateComputerToolArgs,
 } from './action-schema.mjs';
+import {
+  computerResultRecovery,
+  formatComputerToolError,
+} from './error-recovery.mjs';
 
 const DISCOVERY_FILE = 'computer-bridge.json';
 const DISCOVERY_VERSION = 1;
@@ -23,6 +27,7 @@ const DISCOVERY_MAX_AGE_MS = 5 * 60_000;
 // bridge's own per-action timeouts so its specific error wins over a bare abort.
 const REQUEST_TIMEOUT_MS = 150_000;
 const SESSION_ABORT_TIMEOUT_MS = 8_000;
+const EXECUTION_END_TIMEOUT_MS = 3_000;
 const SESSION_RELEASE_TIMEOUT_MS = 60_000;
 const DEFERRED_SESSION_RELEASE_MS = 2 * 60_000;
 // Shutdown stays bounded: an unresponsive host must not hold the exit path open
@@ -45,11 +50,11 @@ const deferredComputerSessionReleases = new Map();
 // ones that never enter activeComputerSessions. The host reaps those only on an
 // explicit release, so shutdown needs the full set.
 const hostBoundComputerSessions = new Set();
-
+const activeComputerExecutions = new Set();
 const BRIDGE_UNAVAILABLE_MESSAGE =
   'computer use is unavailable; open the Mixdog desktop app and enable Computer Use in settings';
 
-function canonicalResultText(text, args) {
+export function canonicalComputerResultText(text, args) {
   if (args.action === 'clipboard' && args.input?.operation === 'read') return text;
   let value;
   try {
@@ -64,10 +69,52 @@ function canonicalResultText(text, args) {
   value.action = args.action;
   if (args.action === 'list') value.kind = args.input?.kind;
   if (args.action === 'capture') value.mode = args.input?.mode || 'state';
-  if (args.action === 'click') value.button = args.input?.button || 'left';
   if (args.action === 'window') value.operation = args.input?.operation;
   if (args.action === 'clipboard') value.operation = args.input?.operation;
+  if (args.action === 'act') {
+    value.completed_actions = value.completed_steps;
+    value.total_actions = value.total_steps;
+    value.actions = Array.isArray(value.steps)
+      ? value.steps.map((row, index) => {
+          const normalized = { ...row };
+          normalized.type = args.input?.actions?.[index]?.type || normalized.action;
+          normalized.status = ['succeeded', 'failed', 'skipped'].includes(normalized.status)
+            ? normalized.status
+            : normalized.ok === false ? 'failed' : 'succeeded';
+          delete normalized.action;
+          delete normalized.ok;
+          return normalized;
+        })
+      : value.steps;
+    delete value.completed_steps;
+    delete value.total_steps;
+    delete value.steps;
+  }
+  if (value.capture_after && value.observation === undefined) {
+    value.observation = value.capture_after;
+    delete value.capture_after;
+  }
+  if (value.ok === false && value.recovery === undefined) {
+    const recovery = computerResultRecovery(value, args);
+    if (recovery) value.recovery = recovery;
+  }
   return JSON.stringify(value);
+}
+
+function canonicalComputerResultIsError(text, args) {
+  if (args.action === 'clipboard' && args.input?.operation === 'read') return false;
+  try {
+    const value = JSON.parse(text);
+    return Boolean(
+      value
+      && typeof value === 'object'
+      && !Array.isArray(value)
+      && value.action === args.action
+      && value.ok === false,
+    );
+  } catch {
+    return false;
+  }
 }
 
 function discoveryPath() {
@@ -118,6 +165,7 @@ export async function executeComputerTool(rawArgs, context = {}) {
   cancelDeferredComputerSessionRelease(sessionId);
   const action = String(command?.action || '');
   if (sessionId) hostBoundComputerSessions.add(sessionId);
+  if (sessionId) activeComputerExecutions.add(sessionId);
   if (sessionId && !isReplaySafeComputerCommand(command) && command?.read_only !== true) {
     activeComputerSessions.add(sessionId);
   }
@@ -215,12 +263,13 @@ export async function executeComputerTool(rawArgs, context = {}) {
   }
   if (!body?.ok) {
     const message = String(body?.error || `computer bridge request failed (HTTP ${response.status})`);
-    return { content: [{ type: 'text', text: message.startsWith('Error:') ? message : `Error: ${message}` }], isError: true };
+    return { content: [{ type: 'text', text: formatComputerToolError(message, args) }], isError: true };
   }
   const value = body.value || {};
+  const text = canonicalComputerResultText(String(value.text || 'OK'), args);
   const content = [{
     type: 'text',
-    text: canonicalResultText(String(value.text || 'OK'), args),
+    text,
   }];
   if (value.image?.data && value.image?.mimeType) {
     content.push({
@@ -232,7 +281,10 @@ export async function executeComputerTool(rawArgs, context = {}) {
       },
     });
   }
-  return { content };
+  return {
+    content,
+    ...(canonicalComputerResultIsError(text, args) ? { isError: true } : {}),
+  };
 }
 
 async function sendComputerSessionControl(sessionId, action, timeoutMs) {
@@ -264,10 +316,21 @@ async function abortComputerSession(sessionId) {
   cancelDeferredComputerSessionRelease(id);
   const aborted = await sendComputerSessionControl(id, 'session_abort', SESSION_ABORT_TIMEOUT_MS);
   if (aborted) {
+    activeComputerExecutions.delete(id);
     activeComputerSessions.delete(id);
     hostBoundComputerSessions.delete(id);
   }
   return aborted;
+}
+
+/** End the visible Computer Use execution at agent-turn settlement without
+ * dropping the warm worker and observation refs kept for a possible follow-up. */
+export async function endComputerExecution(sessionId) {
+  const id = String(sessionId || '').trim();
+  if (!id || !activeComputerExecutions.has(id)) return false;
+  const ended = await sendComputerSessionControl(id, 'execution_end', EXECUTION_END_TIMEOUT_MS);
+  if (ended) activeComputerExecutions.delete(id);
+  return ended;
 }
 
 function cancelDeferredComputerSessionRelease(sessionId) {
@@ -302,6 +365,7 @@ export async function releaseComputerSession(sessionId) {
   const id = String(sessionId || '').trim();
   if (!id) return false;
   cancelDeferredComputerSessionRelease(id);
+  activeComputerExecutions.delete(id);
   activeComputerSessions.delete(id);
   const released = await sendComputerSessionControl(id, 'session_release', SESSION_RELEASE_TIMEOUT_MS);
   if (released) hostBoundComputerSessions.delete(id);
@@ -323,6 +387,7 @@ export async function releaseAllComputerSessions(timeoutMs = SHUTDOWN_SESSION_RE
   const outcomes = await Promise.all(ids.map(async (id) => {
     const released = await sendComputerSessionControl(id, 'session_release', timeout);
     if (released) {
+      activeComputerExecutions.delete(id);
       hostBoundComputerSessions.delete(id);
       activeComputerSessions.delete(id);
     }

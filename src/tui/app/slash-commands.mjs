@@ -25,7 +25,6 @@ export const SLASH_COMMANDS = [
   { name: 'skills', usage: '/skills', description: 'Choose a skill for the next request' },
   { name: 'memory', usage: '/memory', params: '[status|core ...]', description: 'List and edit core memories' },
   { name: 'plugins', usage: '/plugins', description: 'Manage local plugin integrations' },
-  { name: 'hooks', usage: '/hooks', description: 'Manage before-tool hook rules and events' },
   { name: 'providers', usage: '/providers', description: 'Manage auth, API keys, OAuth, and local endpoints' },
   { name: 'settings', usage: '/setting', aliases: ['setting', 'config'], aliasUsage: ['settings', 'config'], showAliasUsage: false, description: 'Open runtime settings' },
   { name: 'profile', usage: '/profile', description: 'Set your title, development experience, and response language' },

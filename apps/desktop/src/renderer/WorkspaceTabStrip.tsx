@@ -18,7 +18,6 @@ import {
   FileText,
   FileDiff,
   Folder,
-  Globe,
   MessageCircle,
   Sparkles,
   Terminal,
@@ -93,9 +92,7 @@ function tabGlyph(tab: WorkspaceTab, size = 14) {
     case "file": return <FileText size={size} />;
     case "diff": return <FileDiff size={size} />;
     case "studio": return <Sparkles size={size} />;
-    case "browser": return <Globe size={size} />;
     case "terminal": return <Terminal size={size} />;
-    case "folder": return <Folder size={size} />;
     default: return <MessageCircle size={size} />;
   }
 }
@@ -110,6 +107,11 @@ function tabGlyph(tab: WorkspaceTab, size = 14) {
 const TAB_STANDARD_WIDTH = 160;
 const TAB_MIN_ACTIVE_WIDTH = 56;
 const TAB_MIN_INACTIVE_WIDTH = 28;
+/* Glyph-only floor, matched by the tab's CSS min-width. The sliver floor
+ * above is a PREFERRED cell: once the run no longer fits, inactive cells keep
+ * giving width down to this floor so the strip never overflows and
+ * reveal-active never has to scroll a tab half out of view. */
+const TAB_HARD_MIN_WIDTH = 20;
 
 function calculateChromeTabWidths(
   count: number,
@@ -144,6 +146,30 @@ function calculateChromeTabWidths(
     let extra = Math.floor(available) - widths.reduce((sum, width) => sum + width, 0);
     for (let index = 0; index < widths.length && extra > 0; index += 1, extra -= 1) {
       widths[index] += 1;
+    }
+  }
+  // Hard fit: past the sliver floor the run exceeded the strip, and
+  // reveal-active then scrolled it right, leaving the leading tab sliced in
+  // half against the rail edge (user: 창 크기를 줄이면 위쪽 라벨 왼쪽이 잘려
+  // 보인다). Inactive cells surrender the surplus evenly, down to the glyph
+  // floor, so the whole run stays inside the strip.
+  const room = Math.floor(available);
+  const inactiveCount = count - 1;
+  if (widths.reduce((sum, width) => sum + width, 0) > room && inactiveCount > 0) {
+    const budget = room - widths[activeIndex];
+    const each = Math.max(TAB_HARD_MIN_WIDTH, Math.floor(budget / inactiveCount));
+    let spare = budget - each * inactiveCount;
+    for (let index = 0; index < count; index += 1) {
+      if (index === activeIndex) continue;
+      widths[index] = each + (spare > 0 ? 1 : 0);
+      if (spare > 0) spare -= 1;
+    }
+    // Still past the floor, so the run genuinely has to scroll. Pad the ACTIVE
+    // cell until the scrolled-out run is a whole number of sliver cells:
+    // reveal-active then lands on a cell boundary instead of slicing the
+    // leading tab down the middle.
+    if (widths.reduce((sum, width) => sum + width, 0) > room) {
+      widths[activeIndex] += ((room - widths[activeIndex]) % each + each) % each;
     }
   }
   return widths;
@@ -679,12 +705,8 @@ export function WorkspaceTabStrip({
                             ? <FileDiff size={14} />
                           : tab.selection.kind === "studio"
                             ? <Sparkles size={14} />
-                            : tab.selection.kind === "browser"
-                              ? <Globe size={14} />
                             : tab.selection.kind === "terminal"
                               ? <Terminal size={14} />
-                              : tab.selection.kind === "folder"
-                                ? <Folder size={14} />
                               /* Chat/new-task tabs keep the bubble icon
                                  (user: 탭 앞 아이콘은 롤백). */
                                 : <MessageCircle size={14} />}

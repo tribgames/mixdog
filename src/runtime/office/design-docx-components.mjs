@@ -35,7 +35,7 @@ function pushTable(output, state, values, design, variant) {
       color: design.tokens.colors.ink,
       spacingAfter: 0,
       columnWidths: tableWidths(columns, variant),
-      ...(variant === 'roadmap' ? { rowHeights: values.map(() => 108) } : {}),
+      ...(variant === 'roadmap' ? { rowHeights: values.map(() => 92) } : {}),
       borders: tableBorders(design.tokens.colors),
       alignment: 'center',
     },
@@ -95,6 +95,65 @@ export function addDocxDecisionCallout(output, state, text, design, {
       verticalAlignment: 'center',
     },
   });
+}
+
+export function addDocxMetricStrip(output, state, metrics, design) {
+  const entries = (Array.isArray(metrics) ? metrics : []).slice(0, 4);
+  if (!entries.length) return false;
+  const colors = design.tokens.colors;
+  const values = [
+    entries.map((entry) => String(entry?.label || '')),
+    entries.map((entry) => String(entry?.value ?? '')),
+    entries.map((entry) => String(entry?.detail || entry?.unit || '')),
+  ];
+  const { table, columns } = pushTable(output, state, values, design, 'scorecard');
+  for (let column = 1; column <= columns; column += 1) {
+    output.push({
+      op: 'set_table_cell_style',
+      table,
+      row: 1,
+      col: column,
+      properties: {
+        fillColor: colors.inverse,
+        color: colors.onInverse,
+        fontName: design.tokens.typography.data,
+        fontSize: 8.5,
+        bold: true,
+        horizontalAlignment: 'center',
+        verticalAlignment: 'center',
+      },
+    });
+    output.push({
+      op: 'set_table_cell_style',
+      table,
+      row: 2,
+      col: column,
+      properties: {
+        fillColor: column === 1 ? colors.accent : colors.surface,
+        color: column === 1 ? colors.onAccent : colors.ink,
+        fontName: design.tokens.typography.data,
+        fontSize: Math.max(15, design.format.body + 4),
+        bold: true,
+        horizontalAlignment: 'center',
+        verticalAlignment: 'center',
+      },
+    });
+    output.push({
+      op: 'set_table_cell_style',
+      table,
+      row: 3,
+      col: column,
+      properties: {
+        fillColor: column % 2 === 0 ? colors.canvas : colors.surface,
+        color: colors.muted,
+        fontName: design.tokens.typography.body,
+        fontSize: 8.5,
+        horizontalAlignment: 'center',
+        verticalAlignment: 'center',
+      },
+    });
+  }
+  return true;
 }
 
 

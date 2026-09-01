@@ -107,6 +107,9 @@ export function createBrowserPageState(host: BrowserPageStateHost) {
       return { text: `Deleted cookie ${JSON.stringify(command.name)} for ${redactBrowserUrl(currentUrl)}.` };
     }
     if (operation === 'clear') {
+      if (command.confirm !== true) {
+        throw new Error('cookies shared clear requires confirm=true after explicit approval');
+      }
       const cookies = await partitionSession.cookies.get({ url: currentUrl });
       for (const cookie of cookies) {
         const host = String(cookie.domain || new URL(currentUrl).hostname).replace(/^\./, '');
@@ -127,6 +130,9 @@ export function createBrowserPageState(host: BrowserPageStateHost) {
     const storageType = String(command.storageType || 'local').toLowerCase();
     if (!['local', 'session'].includes(storageType)) {
       throw new Error('storageType must be local or session');
+    }
+    if (operation === 'clear' && storageType === 'local' && command.confirm !== true) {
+      throw new Error('localStorage shared clear requires confirm=true after explicit approval');
     }
     const script = `(() => {
       const store = ${storageType === 'local' ? 'localStorage' : 'sessionStorage'};

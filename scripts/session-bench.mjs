@@ -1157,47 +1157,43 @@ function buildCompactDiagnostics(rows, selectedIds) {
     meta_rows: metaRows.length,
     recent_meta: metaRows.slice(0, 10).map((r) => {
       const details = field(r, 'details') || {};
-      const semantic = details?.semantic || null;
-      const recall = details?.recallFastTrack || null;
-      const pipe = recall?.pipeline || null;
+      const fresh = details?.freshContext || null;
+      const pipe = fresh?.pipeline || null;
       return {
         session_id: sessionId(r),
         ts: r.ts || null,
         iteration: num(r, 'iteration'),
         stage: field(r, 'stage'),
         trigger: field(r, 'trigger'),
-        compact_type: field(r, 'compact_type'),
         changed: field(r, 'compact_changed') === true,
         before_tokens: num(r, 'message_tokens_est'),
         pressure_tokens: num(r, 'pressure_tokens'),
         trigger_tokens: num(r, 'trigger_tokens'),
         boundary_tokens: num(r, 'boundary_tokens') ?? num(r, 'budget_tokens'),
         target_budget_tokens: num(r, 'target_budget_tokens'),
-        after_tokens: recall?.finalTokens ?? semantic?.finalTokens ?? null,
+        after_tokens: fresh?.finalTokens ?? null,
         before_messages: num(r, 'before_count'),
         after_messages: num(r, 'after_count'),
         duration_ms: num(r, 'duration_ms'),
         error: field(r, 'error'),
-        recall_pipeline: pipe ? {
+        handoff_pipeline: pipe ? {
           ingest_ms: pipe.ingestMs ?? null,
           initial_dump_ms: pipe.initialDumpMs ?? null,
           initial_raw_pending: pipe.initialRawPending ?? null,
           cycle1_ms: pipe.cycle1Ms ?? null,
           cycle1_passes: pipe.cycle1Passes ?? null,
           cycle1_raw_remaining: pipe.cycle1RawRemaining ?? null,
-          final_recall_kb: pipe.finalRecallBytes != null ? Math.round(pipe.finalRecallBytes / 1024) : null,
+          final_handoff_kb: pipe.finalHandoffBytes != null ? Math.round(pipe.finalHandoffBytes / 1024) : null,
         } : null,
-        fit: recall || semantic ? {
-          head_messages: (recall || semantic).headMessages ?? null,
-          tail_messages: (recall || semantic).tailMessages ?? null,
-          mandatory_cost: (recall || semantic).mandatoryCost ?? null,
-          remaining_tokens: (recall || semantic).remainingTokens ?? null,
-          budget_raised: (recall || semantic).budgetRaised === true,
-          final_tokens: (recall || semantic).finalTokens ?? null,
-          recall_chars: recall?.recallChars ?? null,
-          prior_chars: recall?.priorChars ?? null,
-          tail_truncated: recall?.tailTruncated ?? null,
-          summary_repaired: semantic?.summaryRepaired ?? null,
+        fit: fresh ? {
+          head_messages: fresh.headMessages ?? null,
+          tail_messages: fresh.tailMessages ?? null,
+          mandatory_cost: fresh.mandatoryCost ?? null,
+          remaining_tokens: fresh.remainingTokens ?? null,
+          budget_raised: fresh.budgetRaised === true,
+          final_tokens: fresh.finalTokens ?? null,
+          handoff_chars: fresh.handoffChars ?? null,
+          tail_truncated: fresh.tailTruncated ?? null,
         } : null,
       };
     }),
@@ -1516,24 +1512,23 @@ function renderText(report) {
     if (report.compact.recent_meta?.length) {
       lines.push('compact meta:');
       for (const m of report.compact.recent_meta.slice(0, Math.min(opts.limit, 10))) {
-        const pipe = m.recall_pipeline;
+        const pipe = m.handoff_pipeline;
         const fit = m.fit;
         const parts = [
-          `- ${shortId(m.session_id)} it=${m.iteration ?? '-'} ${m.compact_type || '-'} ${fmtMs(m.duration_ms)} ${fmtTok(m.before_tokens)}→${fmtTok(m.after_tokens)}`,
+          `- ${shortId(m.session_id)} it=${m.iteration ?? '-'} ${fmtMs(m.duration_ms)} ${fmtTok(m.before_tokens)}→${fmtTok(m.after_tokens)}`,
           `pressure=${fmtTok(m.pressure_tokens)}/${fmtTok(m.trigger_tokens)}/${fmtTok(m.boundary_tokens)}`,
           `target=${fmtTok(m.target_budget_tokens)} changed=${m.changed}`,
         ];
         if (m.error) parts.push(`error=${compactText(m.error, 120)}`);
         lines.push(parts.join(' '));
         if (pipe) {
-          lines.push(`  recall pipeline: ingest=${fmtMs(pipe.ingest_ms)} dump=${fmtMs(pipe.initial_dump_ms)} raw=${pipe.initial_raw_pending ?? '-'} cycle1=${fmtMs(pipe.cycle1_ms)} passes=${pipe.cycle1_passes ?? '-'} rawLeft=${pipe.cycle1_raw_remaining ?? '-'} recall=${pipe.final_recall_kb ?? '-'}KB`);
+          lines.push(`  handoff pipeline: ingest=${fmtMs(pipe.ingest_ms)} dump=${fmtMs(pipe.initial_dump_ms)} raw=${pipe.initial_raw_pending ?? '-'} cycle1=${fmtMs(pipe.cycle1_ms)} passes=${pipe.cycle1_passes ?? '-'} rawLeft=${pipe.cycle1_raw_remaining ?? '-'} handoff=${pipe.final_handoff_kb ?? '-'}KB`);
         }
         if (fit) {
-          const recallPart = fit.recall_chars != null
-            ? ` recallChars=${fit.recall_chars} priorChars=${fit.prior_chars ?? 0} tailTrunc=${fit.tail_truncated}`
+          const handoffPart = fit.handoff_chars != null
+            ? ` handoffChars=${fit.handoff_chars} tailTrunc=${fit.tail_truncated}`
             : '';
-          const semanticPart = fit.summary_repaired != null ? ` repaired=${fit.summary_repaired}` : '';
-          lines.push(`  fit: head=${fit.head_messages ?? '-'} tail=${fit.tail_messages ?? '-'} mandatory=${fmtTok(fit.mandatory_cost)} remain=${fmtTok(fit.remaining_tokens)} final=${fmtTok(fit.final_tokens)} raised=${fit.budget_raised}${recallPart}${semanticPart}`);
+          lines.push(`  fit: head=${fit.head_messages ?? '-'} tail=${fit.tail_messages ?? '-'} mandatory=${fmtTok(fit.mandatory_cost)} remain=${fmtTok(fit.remaining_tokens)} final=${fmtTok(fit.final_tokens)} raised=${fit.budget_raised}${handoffPart}`);
         }
       }
     }

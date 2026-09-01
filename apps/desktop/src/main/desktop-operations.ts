@@ -5,11 +5,11 @@ import { dirname, resolve } from 'node:path';
 
 import { childEnvironment } from './child-environment';
 import * as editorBackups from './editor-backups';
-import * as folderExplorer from './folder-explorer';
 import * as gh from './gh-cli';
 import * as git from './git-cli';
 import * as github from './github-cli';
 import { LanguageServerManager } from './language-server-manager';
+import * as localFiles from './local-files';
 import * as libreoffice from './libreoffice';
 import * as projectFiles from './project-files';
 import { listShellProfiles, resolveShellProfileSpawn } from './shell-profiles';
@@ -67,8 +67,6 @@ async function starGithub(): Promise<{ starred: boolean }> {
 }
 
 const STATIC_OPERATIONS = {
-  copyFolderEntriesAbs: folderExplorer.copyFolderEntriesAbs,
-  createFolderEntryAbs: folderExplorer.createFolderEntryAbs,
   deleteEditorBackup: editorBackups.deleteEditorBackup,
   ghPrCheckout: gh.ghPrCheckout,
   ghPrCreate: gh.ghPrCreate,
@@ -131,16 +129,12 @@ const STATIC_OPERATIONS = {
   gitSync: git.gitSync,
   gitUndoLastCommit: git.gitUndoLastCommit,
   gitUnstage: git.gitUnstage,
-  listFolderDirAbs: folderExplorer.listFolderDirAbs,
-  listFolderPlaces: folderExplorer.listFolderPlaces,
-  moveFolderEntriesAbs: folderExplorer.moveFolderEntriesAbs,
   readEditorBackup: editorBackups.readEditorBackup,
-  readLocalFileAbs: folderExplorer.readLocalFileAbs,
-  statLocalEntryAbs: folderExplorer.statLocalEntryAbs,
+  readLocalFileAbs: localFiles.readLocalFileAbs,
+  statLocalEntryAbs: localFiles.statLocalEntryAbs,
   readProjectTextFileIn: projectFiles.readProjectTextFileIn,
   readScopedEditorSettings: workspaceConfig.readScopedEditorSettings,
   readWorkspaceFile: workspaceConfig.readWorkspaceFile,
-  renameFolderEntryAbs: folderExplorer.renameFolderEntryAbs,
   replaceWorkspaceTextIn: workspaceSearch.replaceWorkspaceTextIn,
   searchWorkspaceTextIn: workspaceSearch.searchWorkspaceTextIn,
   statProjectFileIn: projectFiles.statProjectFileIn,
@@ -337,7 +331,7 @@ export function createDesktopOperations({
       return null;
     }
     if (name === 'folderWatch') {
-      const dir = folderExplorer.browsableFolderPath(args[0]);
+      const dir = localFiles.absoluteLocalPath(args[0]);
       const recursive = args[1] === true;
       const key = `${watchKey(dir)}\0${recursive ? 'recursive' : 'direct'}`;
       const existing = folderWatchers.get(key);
@@ -362,7 +356,7 @@ export function createDesktopOperations({
       return null;
     }
     if (name === 'folderUnwatch') {
-      const dir = folderExplorer.browsableFolderPath(args[0]);
+      const dir = localFiles.absoluteLocalPath(args[0]);
       const recursive = args[1] === true;
       const key = `${watchKey(dir)}\0${recursive ? 'recursive' : 'direct'}`;
       const state = folderWatchers.get(key);

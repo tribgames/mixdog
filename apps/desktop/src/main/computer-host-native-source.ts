@@ -241,6 +241,9 @@ public class MixWin32 {
   [DllImport("user32.dll")] public static extern void mouse_event(uint f, int dx, int dy, int d, IntPtr e);
   [DllImport("user32.dll")] public static extern IntPtr FindWindow(string c, string n);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
+  [DllImport("user32.dll")] static extern IntPtr SetActiveWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
   [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hwnd, int x, int y, int w, int height, bool repaint);
   [DllImport("user32.dll", SetLastError = true)] static extern bool SystemParametersInfo(uint action, uint param, IntPtr value, uint winIni);
@@ -767,6 +770,8 @@ public class MixWin32 {
       case "DOWN": return 0x28;
       case "INSERT": case "INS": return 0x2D;
       case "DELETE": case "DEL": return 0x2E;
+      case "PLUS": return 0xBB;
+      case "MINUS": return 0xBD;
     }
     if (name.Length >= 2 && name[0] == 'F') {
       int number;
@@ -878,15 +883,25 @@ public class MixWin32 {
   static bool TryFocusAttached(IntPtr h) {
     IntPtr foreground = GetForegroundWindow();
     uint foregroundThread = GetWindowThreadProcessId(foreground, IntPtr.Zero);
+    uint targetThread = GetWindowThreadProcessId(h, IntPtr.Zero);
     uint currentThread = GetCurrentThreadId();
-    bool attached = foregroundThread != 0 && foregroundThread != currentThread;
-    if (attached) AttachThreadInput(currentThread, foregroundThread, true);
+    bool attachedForeground = foregroundThread != 0
+      && foregroundThread != currentThread
+      && AttachThreadInput(currentThread, foregroundThread, true);
+    bool attachedTarget = targetThread != 0
+      && targetThread != currentThread
+      && targetThread != foregroundThread
+      && AttachThreadInput(currentThread, targetThread, true);
     try {
       RestoreIfMinimized(h);
+      BringWindowToTop(h);
       SetForegroundWindow(h);
+      SetActiveWindow(h);
+      SetFocus(h);
       return GetForegroundWindow() == h;
     } finally {
-      if (attached) AttachThreadInput(currentThread, foregroundThread, false);
+      if (attachedTarget) AttachThreadInput(currentThread, targetThread, false);
+      if (attachedForeground) AttachThreadInput(currentThread, foregroundThread, false);
     }
   }
   // SW_RESTORE un-maximizes a maximized window, so restore only what is truly

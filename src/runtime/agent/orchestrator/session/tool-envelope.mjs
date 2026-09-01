@@ -6,7 +6,7 @@
  *   - an envelope object:
  *       { __toolEnvelope: true, result: <string|structured>,
  *         newMessages: [{ role:'user', content:'...' }, ...],
- *         explicitSuccess?: true }
+ *         explicitSuccess?: true, explicitFailure?: true }
  *
  * The `__toolEnvelope` marker is deliberately namespaced so it can NEVER be
  * confused with the existing structured media content objects that
@@ -43,13 +43,15 @@ export function makeToolEnvelope(result, newMessages = [], options = {}) {
         [TOOL_ENVELOPE_MARKER]: true,
         result,
         newMessages: Array.isArray(newMessages) ? newMessages.filter(isValidNewMessage) : [],
-        ...(options.explicitSuccess === true ? { explicitSuccess: true } : {}),
+        ...(options.explicitFailure === true
+            ? { explicitFailure: true }
+            : options.explicitSuccess === true ? { explicitSuccess: true } : {}),
     };
 }
 
 /**
- * Split a tool return value into `{ result, newMessages, explicitSuccess }`.
- *   - legacy string/object → { result: value, newMessages: [], explicitSuccess: false }
+ * Split a tool return value into `{ result, newMessages, explicitSuccess, explicitFailure }`.
+ *   - legacy string/object → outcome flags are false
  *   - envelope             → { result, newMessages } (newMessages validated)
  */
 export function normalizeToolEnvelope(value) {
@@ -57,7 +59,17 @@ export function normalizeToolEnvelope(value) {
         const newMessages = Array.isArray(value.newMessages)
             ? value.newMessages.filter(isValidNewMessage)
             : [];
-        return { result: value.result, newMessages, explicitSuccess: value.explicitSuccess === true };
+        return {
+            result: value.result,
+            newMessages,
+            explicitSuccess: value.explicitSuccess === true && value.explicitFailure !== true,
+            explicitFailure: value.explicitFailure === true,
+        };
     }
-    return { result: value, newMessages: [], explicitSuccess: false };
+    return {
+        result: value,
+        newMessages: [],
+        explicitSuccess: false,
+        explicitFailure: false,
+    };
 }

@@ -20,8 +20,8 @@ export function createSessionFlow(bag) {
   // stalled compaction wedges autoClearRunning/commandBusy forever, which
   // suppresses the input drain. On timeout we abandon this attempt.
   // NOTE: this bounds how long the INPUT stays blocked (commandBusy), not the
-  // compaction itself — the clear path's worst case (recall cold retries ~38s
-  // + size-scaled semantic up to 120s) may exceed it, and that is fine: the
+  // compaction itself — the clear path's worst case (Memory cold retries plus
+  // a size-scaled handoff summary call) may exceed it, and that is fine: the
   // abandoned promise keeps running and the late-fulfillment path below
   // (autoClearInFlight / pendingClearedSessionUi) applies the clear when it
   // settles. Do NOT raise this to cover compaction worst cases.
@@ -523,8 +523,8 @@ export function createSessionFlow(bag) {
   }
 
   // Shared session-clear body.
-  // useCompaction=true mirrors auto-clear (summarize via configured
-  // compactType, context carries forward); false is a plain /clear wipe.
+  // useCompaction=true mirrors auto-clear (fresh-context handoff carries
+  // forward); false is a plain /clear wipe.
   async function performSessionClear({
     verb, doneLabel, skipLabel, surface, useCompaction,
     compactTimeoutMs = AUTO_CLEAR_COMPACT_TIMEOUT_MS,
@@ -542,13 +542,8 @@ export function createSessionFlow(bag) {
       // Without this, long idle clears can look like a frozen prompt followed by
       // an already-complete status row.
       await new Promise((resolve) => setTimeout(resolve, 0));
-      let compactType = null;
-      if (useCompaction) {
-        const compaction = runtime.getCompactionSettings();
-        compactType = compaction.compactType || compaction.type || null;
-      }
       let clearResult;
-      if (compactType) {
+      if (useCompaction) {
         // Bounded watchdog around the compacting clear. On timeout we throw so
         // the catch below keeps the conversation, surfaces a user-visible
         // notice, and the finally releases autoClearRunning/commandBusy so
@@ -558,7 +553,7 @@ export function createSessionFlow(bag) {
         // late fulfillment we run the same post-success UI sync as the normal
         // path so the UI cannot diverge from a runtime session that actually
         // got cleared. Late rejection or a false result is a no-op.
-        const clearPromise = runtime.clear({ compactType, requireCompactSuccess: true });
+        const clearPromise = runtime.clear({ compact: true, requireCompactSuccess: true });
         let timer = null;
         const timeout = new Promise((_, reject) => {
           timer = setTimeout(

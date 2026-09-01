@@ -7,14 +7,42 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { ABORT_CLEANUP_PROGRAM, powershellHostProgram } from './computer-host-program.ts';
-import { assertSafeComputerInput } from './computer-host-input-guards.ts';
-import { appendComputerRunRecord } from './computer-host-run-log.ts';
+import {
+  assertSafeComputerInput,
+  BLOCKED_COMPUTER_KEY_PATTERN_SOURCE,
+} from './computer-host-input-guards.ts';
+import { normalizeComputerKeySequence } from './computer-host-keyboard.ts';
+import {
+  createOcrCapturePreferenceStore,
+  createVisualOnlyCapabilityStore,
+} from './computer-host-capability-policy.ts';
+import {
+  buildRecaptureRequiredPayload,
+  isFreshRecaptureObservation,
+  recaptureRequirementCode,
+} from './computer-host-recapture.ts';
+import {
+  invalidateComputerActionTargets,
+  invalidateComputerWorkerGeneration,
+  isFreshComputerObservation,
+  MAX_COMPUTER_OBSERVATION_AGE_MS,
+  rememberLatestComputerFrame,
+  releaseComputerSessionResources,
+  resolveFreshComputerObservationScope,
+} from './computer-host-session-resources.ts';
+import { createInspection } from './computer-host-inspect.ts';
+import { appendComputerRunRecord, computerRunRecord } from './computer-host-run-log.ts';
 import { createWorkerPool } from './computer-host-worker-pool.ts';
 import {
   computeComputerWindowTransition,
   launchTransitionConfirmsTarget,
   relatedWindowIdsForFrame,
 } from './computer-window-transition.ts';
+import {
+  filterComputerUseInternalWindows,
+  filterComputerUseWindowListText,
+  registerComputerUseInternalWindow,
+} from './computer-use-internal-windows.ts';
 
 const execFileAsync = promisify(execFile);
 // The host is a set of modules now. Every invariant below is a property of the
@@ -46,6 +74,120 @@ function windowRecord(id, overrides = {}) {
     ...overrides,
   };
 }
+
+test('Computer Use overlay windows never become automation transition targets', () => {
+  const handle = Buffer.alloc(8);
+  handle.writeBigUInt64LE(0xB305CAn);
+  const unregister = registerComputerUseInternalWindow({
+    getNativeWindowHandle: () => handle,
+  });
+  try {
+    const target = windowRecord('hwnd:0x2F1B18', { pid: 44224 });
+    const cursorOverlay = windowRecord('hwnd:0xB305CA', {
+      pid: 44224,
+      width: 210,
+      height: 82,
+    });
+    const after = filterComputerUseInternalWindows([target, cursorOverlay]);
+    const transition = computeComputerWindowTransition(
+      [target],
+      after,
+      target.id,
+    );
+    assert.deepEqual(after.map((window) => window.id), [target.id]);
+    assert.equal(transition.opened_windows.length, 0);
+    assert.equal(transition.next_target, undefined);
+    assert.equal(
+      filterComputerUseWindowListText(
+        `Windows:\r\n${target.id} | app=fixture\r\n${cursorOverlay.id} | app=Mixdog`,
+        after,
+      ),
+      `Windows:\r\n${target.id} | app=fixture`,
+    );
+  } finally {
+    unregister();
+  }
+});
+
+test('run history records semantic failure and its recovery verdict truthfully', () => {
+  const record = computerRunRecord(
+    { action: 'click', window_id: 'hwnd:0x1', delivery: 'foreground' },
+    performance.now(),
+    {
+      text: JSON.stringify({
+        ok: false,
+        action: 'click',
+        effect: 'suspected_noop',
+        verified: false,
+        goal_verified: false,
+        code: 'foreground_unavailable',
+        path: 'foreground',
+        escalation: 'pixel',
+        verdict: { decision: 'escalate', recommended: 'pixel' },
+      }),
+    },
+  );
+  assert.equal(record.ok, false);
+  assert.equal(record.code, 'foreground_unavailable');
+  assert.equal(record.escalation, 'pixel');
+  assert.deepEqual(record.verdict, { decision: 'escalate', recommended: 'pixel' });
+});
+
+test('inspection reports empty target semantics and bounds each provider call', async () => {
+  const calls = [];
+  const inspection = createInspection({
+    callPowerShell: async (request, timeoutMs) => {
+      calls.push({ action: request.action, timeoutMs });
+      if (request.action === 'snapshot') return { ok: true, result: { elements: [] } };
+      if (request.action === 'ocr_status') {
+        return {
+          ok: true,
+          result: {
+            available: true,
+            requested_language: 'ko',
+            active_language: 'ko',
+            installed_languages: ['ko'],
+          },
+        };
+      }
+      return {
+        ok: true,
+        result: { exists: true, title: 'Fixture', elements: [] },
+      };
+    },
+    sessionIdFor: () => 'inspection-test',
+    assertExecutionNotAborted: () => {},
+    readComputerWindows: async () => [
+      windowRecord('hwnd:0x1', { focused: true, title: 'Fixture' }),
+    ],
+    readDisplays: () => [
+      { index: 0, id: 'display-1', primary: true, scale_factor: 1, width: 1920, height: 1080 },
+    ],
+    isObserveOnly: () => false,
+  });
+  const diagnosis = JSON.parse((await inspection.diagnoseComputer({
+    action: 'diagnose',
+    window_id: 'hwnd:0x1',
+    ocr_language: 'ko',
+  })).text);
+  assert.equal(diagnosis.capabilities.semantic_accessibility.available, false);
+  assert.equal(diagnosis.capabilities.semantic_accessibility.provider_available, true);
+  assert.equal(diagnosis.capabilities.semantic_accessibility.state, 'empty');
+  assert.equal(diagnosis.capabilities.semantic_accessibility.fallback, 'ocr_or_pixels');
+  assert.match(diagnosis.issues.join('\n'), /no semantic accessibility elements/);
+  assert.equal(calls.find((call) => call.action === 'snapshot').timeoutMs, 2_500);
+
+  const verification = JSON.parse((await inspection.verifyWindowState({
+    action: 'verify',
+    window_id: 'hwnd:0x1',
+    expect: [{ title_contains: 'Fixture' }],
+    timeout_ms: 100,
+    stable_samples: 1,
+  })).text);
+  assert.equal(verification.decision, 'satisfied');
+  const predicateCall = calls.find((call) => call.action === 'window_predicates');
+  assert.ok(predicateCall.timeoutMs > 0 && predicateCall.timeoutMs <= 100);
+});
 
 test('focus recovery falls back to the owner when the action closed its window', () => {
   // The owner is recorded while the window still exists: a destroyed handle can
@@ -92,16 +234,19 @@ test('retiring a host worker releases its session and process', {
   skip: process.platform !== 'win32',
 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-computer-worker-pool-'));
+  const retiredSessions = [];
   const pool = createWorkerPool({
     dataDirectory: () => directory,
     isBridgeEnabled: () => false,
     isDisposed: () => false,
+    onSessionRetired: (sessionId) => { retiredSessions.push(sessionId); },
   });
   try {
     const child = pool.ensurePowerShell('warm-up-race');
     const exited = Promise.race([once(child, 'exit'), once(child, 'error')]);
     pool.retirePowerShell(child, new Error('bridge disabled during warm-up'));
     assert.equal(pool.powerShellBySession.has('warm-up-race'), false);
+    assert.deepEqual(retiredSessions, ['warm-up-race']);
     let timeout;
     try {
       await Promise.race([
@@ -116,6 +261,33 @@ test('retiring a host worker releases its session and process', {
     } finally {
       clearTimeout(timeout);
     }
+  } finally {
+    pool.releaseSpareWorker();
+    pool.removeHostScript();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('a per-command timeout retires a stuck provider instead of waiting for the global ceiling', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-computer-worker-timeout-'));
+  const pool = createWorkerPool({
+    dataDirectory: () => directory,
+    isBridgeEnabled: () => false,
+    isDisposed: () => false,
+  });
+  try {
+    await assert.rejects(
+      pool.callPowerShell({
+        action: 'wait',
+        duration: 1,
+        session_id: 'provider-timeout',
+        read_only: true,
+      }, 100),
+      /computer_command_timeout: command exceeded 100ms/,
+    );
+    assert.equal(pool.powerShellBySession.has('provider-timeout'), false);
   } finally {
     pool.releaseSpareWorker();
     pool.removeHostScript();
@@ -225,7 +397,125 @@ test('run history keeps its byte ceiling across process-state resets', async () 
 
 test('oversized key, type, and clipboard writes fail before dispatch', () => {
   assert.throws(
+    () => assertSafeComputerInput({ action: { name: 'capture' } }),
+    /invalid_action: action must be a non-empty string/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'key', keys: ['CTRL', 'A'] }),
+    /invalid_key_chord: keys must be a string/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'type', text: { value: 'hello' } }),
+    /invalid_input: type text must be a string/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'clipboard_write', text: 123 }),
+    /invalid_input: clipboard text must be a string/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'click', modifiers: ['ctrl'] }),
+    /invalid_modifiers: modifiers must be a string/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'click', delivery: 'automatic' }),
+    /invalid_delivery: delivery must be background or foreground/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'scroll', direction: 'sideways' }),
+    /invalid_scroll: direction must be up, down, left, or right/,
+  );
+  for (const amount of ['3', 0, 101, 1.5]) {
+    assert.throws(
+      () => assertSafeComputerInput({ action: 'scroll', amount }),
+      /invalid_scroll: amount must be an integer from 1 to 100/,
+    );
+  }
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'move_window', x: '100' }),
+    /invalid_window_bounds: x must be an integer/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'move_window', width: 0 }),
+    /invalid_window_bounds: width must be positive/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'window_state', state: 'fullscreen' }),
+    /invalid_window_state: state must be minimize, maximize, or restore/,
+  );
+  assert.throws(
     () => assertSafeComputerInput({ action: 'key', keys: 'a'.repeat(513) }),
+    /input_too_large: key sequence exceeds 512 characters/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'click', ref: 'r'.repeat(4_097) }),
+    /input_too_large: ref exceeds 4096 characters/,
+  );
+  assert.doesNotThrow(
+    () => assertSafeComputerInput({ action: 'click', ref: 'r'.repeat(4_096) }),
+  );
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'capture', app: '   ' }),
+    /invalid_target: app must not be empty/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'capture', app: { name: 'Notepad' } }),
+    /invalid_target: app must be a string/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'capture', query: ['button'] }),
+    /invalid_input: query must be a string/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'invoke_menu', path: ['m'.repeat(513)] }),
+    /input_too_large: menu label exceeds 512 characters/,
+  );
+  assert.doesNotThrow(
+    () => assertSafeComputerInput({ action: 'invoke_menu', path: ['m'.repeat(512)] }),
+  );
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'invoke_menu', path: [' '] }),
+    /invalid_menu_path: menu labels must not be empty/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({
+      action: 'invoke_menu',
+      path: Array.from({ length: 9 }, () => 'menu'),
+    }),
+    /invalid_menu_path: path must contain 1\.\.8 labels/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({
+      action: 'verify',
+      expect: [{ present: 'v'.repeat(4_097) }],
+    }),
+    /input_too_large: verify text exceeds 4096 characters/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({
+      action: 'verify',
+      expect: [{ present: ['value'] }],
+    }),
+    /invalid_verify: present must be a string/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({
+      action: 'verify',
+      expect: [{ custom: 'value' }],
+    }),
+    /invalid_verify: unknown predicate field custom/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({
+      action: 'key',
+      keys: `ctrl${' '.repeat(512)}+A`,
+    }),
+    /input_too_large: key sequence exceeds 512 characters/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({
+      action: 'key',
+      keys: `${' '.repeat(513)}A`,
+    }),
     /input_too_large: key sequence exceeds 512 characters/,
   );
   assert.throws(
@@ -235,6 +525,538 @@ test('oversized key, type, and clipboard writes fail before dispatch', () => {
   assert.throws(
     () => assertSafeComputerInput({ action: 'clipboard_write', text: 'a'.repeat(50_001) }),
     /input_too_large: clipboard text exceeds 50000 characters/,
+  );
+  assert.doesNotThrow(() => assertSafeComputerInput({
+    action: 'click',
+    modifiers: 'CTRL+shift+alt',
+    delivery: 'foreground',
+  }));
+  for (const modifiers of [
+    '',
+    ' ctrl',
+    'win',
+    'super',
+    'control',
+    'ctrl+ctrl',
+    'ctrl++shift',
+    'ctrl+delete',
+    `ctrl+${'shift+'.repeat(8)}alt`,
+  ]) {
+    assert.throws(
+      () => assertSafeComputerInput({ action: 'click', modifiers }),
+      /invalid_modifiers|input_too_large/,
+      modifiers,
+    );
+  }
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'click', modifiers: 'ctrl+alt' }),
+    /invalid_modifiers: alt pointer input requires foreground delivery/,
+  );
+});
+
+test('canonical key chords become IME-safe Windows key sequences', () => {
+  assert.equal(normalizeComputerKeySequence('CTRL+ALT+ESC'), '^%{ESC}');
+  assert.equal(normalizeComputerKeySequence('ctrl-alt-escape'), '^%{ESC}');
+  assert.equal(normalizeComputerKeySequence('ctrl+alt-escape'), '^%{ESC}');
+  assert.equal(normalizeComputerKeySequence('ctrl+{ESC}'), '^{ESC}');
+  assert.equal(normalizeComputerKeySequence('CmdOrCtrl+Shift+P'), '^+P');
+  assert.equal(normalizeComputerKeySequence('ctrl+ctrl+p'), '^P');
+  assert.equal(normalizeComputerKeySequence('ctrl+-'), '^{MINUS}');
+  assert.equal(normalizeComputerKeySequence('ctrl++'), '^{PLUS}');
+  assert.equal(normalizeComputerKeySequence('return'), '{ENTER}');
+  assert.equal(normalizeComputerKeySequence('page-down'), '{PGDN}');
+  assert.equal(normalizeComputerKeySequence('/'), '/');
+  assert.equal(normalizeComputerKeySequence('한'), '한');
+  assert.equal(normalizeComputerKeySequence('^%{DELETE}'), '^%{DELETE}');
+  assert.equal(normalizeComputerKeySequence('{TAB 3}'), '{TAB 3}');
+  for (const codePoint of [
+    ...Array.from({ length: 32 }, (_, index) => index),
+    ...Array.from({ length: 33 }, (_, index) => 0x7f + index),
+  ]) {
+    assert.throws(
+      () => normalizeComputerKeySequence(`A${String.fromCharCode(codePoint)}B`),
+      /invalid_key_chord: key sequence contains control characters/,
+      `U+${codePoint.toString(16).padStart(4, '0')}`,
+    );
+  }
+  assert.throws(
+    () => normalizeComputerKeySequence('win+r'),
+    /invalid_key_chord: unsupported modifier 'win'/,
+  );
+  assert.throws(
+    () => normalizeComputerKeySequence('cmd-shift-p'),
+    /invalid_key_chord: unsupported modifier 'cmd'/,
+  );
+  for (const malformed of [
+    '',
+    'ctrl+',
+    'ctrl+a+b',
+    'word',
+    '{UNKNOWN}',
+    '{TAB 0}',
+    '{TAB 101}',
+    '{TAB',
+    'foo{ESC}',
+    '(abc)',
+    '\u001b',
+    'ctrl+\tA',
+    'ctrl+\nA',
+  ]) {
+    assert.throws(
+      () => normalizeComputerKeySequence(malformed),
+      /invalid_key_chord/,
+      JSON.stringify(malformed),
+    );
+  }
+  assert.doesNotThrow(() => assertSafeComputerInput({
+    action: 'key',
+    keys: 'CTRL+ALT+ESC',
+  }));
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'key', keys: 'ALT+F4' }),
+    /blocked_input/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'key', keys: 'CTRL+ALT+DELETE' }),
+    /blocked_input/,
+  );
+  assert.throws(
+    () => assertSafeComputerInput({ action: 'key', keys: 'ctrl-alt-delete' }),
+    /blocked_input/,
+  );
+  for (const keys of [
+    'shift+delete',
+    'ctrl+shift+delete',
+    '+{DELETE}',
+    'ALT+CTRL+DELETE',
+    'CTRL+ALT+END',
+    'alt-control-end',
+    '%^{END 2}',
+    'shift+alt+f4',
+    '%+{F4}',
+    '%{F4 2}',
+    '+{DELETE 2}',
+    '{TAB}+{DELETE}',
+    '^A%^{DELETE}',
+  ]) {
+    assert.throws(
+      () => assertSafeComputerInput({ action: 'key', keys }),
+      /blocked_input/,
+      keys,
+    );
+  }
+  for (const control of ['ctrl', 'control', 'CmdOrCtrl']) {
+    for (const alt of ['alt', 'option']) {
+      for (const separator of ['+', '-']) {
+        for (const modifiers of [[control, alt], [alt, control]]) {
+          const keys = [...modifiers, 'delete'].join(separator);
+          assert.throws(
+            () => assertSafeComputerInput({ action: 'key', keys }),
+            /blocked_input/,
+            keys,
+          );
+        }
+      }
+    }
+  }
+  for (const keys of [
+    'ALT+F4',
+    'CTRL+ALT+F4',
+    'ALT+SHIFT+F4',
+    'OPTION-CTRL-SHIFT-F4',
+    '%%{F4}',
+    '%+^{F4 100}',
+    '^{TAB}%{F4 2}',
+    '++{DELETE 001}',
+    '^{TAB}+^{DELETE 100}',
+  ]) {
+    assert.throws(
+      () => assertSafeComputerInput({ action: 'key', keys }),
+      /blocked_input/,
+      keys,
+    );
+  }
+  for (const keys of [
+    'CTRL+DELETE',
+    'ALT+DELETE',
+    'SHIFT+F4',
+    'CTRL+F4',
+    'CTRL+END',
+    'SHIFT+END',
+    '%{END}',
+    '^{END}',
+    '%{F3 2}',
+    '+{BACKSPACE}',
+    '^{DELETE}',
+    '{TAB}{DELETE}',
+  ]) {
+    assert.doesNotThrow(
+      () => assertSafeComputerInput({ action: 'key', keys }),
+      keys,
+    );
+  }
+});
+
+test('stale recapture invalidates action targets while session release also clears OCR state', () => {
+  const sessionId = 'lifecycle-session';
+  const otherSessionId = 'other-session';
+  const preferences = createOcrCapturePreferenceStore();
+  const stores = {
+    framesBySession: new Map([
+      [sessionId, new Map([['frame-old', {}]])],
+      [otherSessionId, new Map([['frame-other', {}]])],
+    ]),
+    elementTargetsBySession: new Map([
+      [sessionId, new Map([[1, {}]])],
+      [otherSessionId, new Map([[2, {}]])],
+    ]),
+    observedWindowBySession: new Map([
+      [sessionId, {
+        primaryWindowId: 'hwnd:0x1',
+        relatedWindowIds: ['hwnd:0x1'],
+      }],
+      [otherSessionId, {
+        primaryWindowId: 'hwnd:0x2',
+        relatedWindowIds: ['hwnd:0x2'],
+      }],
+    ]),
+    lastCaptureBySession: new Map([
+      [sessionId, {
+        windowId: 'hwnd:0x1',
+        baselineKey: 'baseline',
+        elements: new Map(),
+        refIdentities: new Map(),
+      }],
+      [otherSessionId, {
+        windowId: 'hwnd:0x2',
+        baselineKey: 'other-baseline',
+        elements: new Map(),
+        refIdentities: new Map(),
+      }],
+    ]),
+  };
+  preferences.remember(sessionId, {
+    includeOcr: true,
+    ocrLanguage: 'ko',
+    maxOcrWords: 40,
+  });
+  preferences.remember(otherSessionId, {
+    includeOcr: true,
+    ocrLanguage: 'en-US',
+    maxOcrWords: 20,
+  });
+
+  invalidateComputerActionTargets(sessionId, stores);
+  assert.equal(stores.framesBySession.has(sessionId), false);
+  assert.equal(stores.elementTargetsBySession.has(sessionId), false);
+  assert.equal(stores.observedWindowBySession.has(sessionId), true);
+  assert.equal(stores.lastCaptureBySession.has(sessionId), true);
+  assert.equal(preferences.resolve(sessionId, {}).includeOcr, true);
+  assert.equal(stores.framesBySession.has(otherSessionId), true);
+  assert.equal(stores.elementTargetsBySession.has(otherSessionId), true);
+
+  stores.framesBySession.set(sessionId, new Map([['frame-worker', {}]]));
+  stores.elementTargetsBySession.set(sessionId, new Map([[1, {}]]));
+  invalidateComputerWorkerGeneration(sessionId, stores);
+  assert.equal(stores.framesBySession.has(sessionId), false);
+  assert.equal(stores.elementTargetsBySession.has(sessionId), false);
+  assert.equal(stores.observedWindowBySession.has(sessionId), false);
+  assert.equal(stores.lastCaptureBySession.has(sessionId), false);
+  assert.equal(preferences.resolve(sessionId, {}).includeOcr, true);
+
+  stores.framesBySession.set(sessionId, new Map([['frame-fresh', {}]]));
+  stores.elementTargetsBySession.set(sessionId, new Map([[1, {}]]));
+  stores.observedWindowBySession.set(sessionId, {
+    primaryWindowId: 'hwnd:0x1',
+    relatedWindowIds: ['hwnd:0x1'],
+  });
+  stores.lastCaptureBySession.set(sessionId, {
+    windowId: 'hwnd:0x1',
+    baselineKey: 'baseline',
+    elements: new Map(),
+    refIdentities: new Map(),
+  });
+  releaseComputerSessionResources(sessionId, stores, preferences.release);
+  assert.equal(stores.framesBySession.has(sessionId), false);
+  assert.equal(stores.elementTargetsBySession.has(sessionId), false);
+  assert.equal(stores.observedWindowBySession.has(sessionId), false);
+  assert.equal(stores.lastCaptureBySession.has(sessionId), false);
+  assert.deepEqual(preferences.resolve(sessionId, {}), { includeOcr: false });
+  assert.equal(stores.observedWindowBySession.has(otherSessionId), true);
+  assert.equal(stores.lastCaptureBySession.has(otherSessionId), true);
+  assert.deepEqual(preferences.resolve(otherSessionId, {}), {
+    includeOcr: true,
+    ocrLanguage: 'en-US',
+    maxOcrWords: 20,
+  });
+});
+
+test('a newer capture supersedes only its own session frame', () => {
+  const framesBySession = new Map([
+    ['session-a', new Map([['frame-old', { id: 'frame-old' }]])],
+    ['session-b', new Map([['frame-other', { id: 'frame-other' }]])],
+  ]);
+  rememberLatestComputerFrame(
+    'session-a',
+    'frame-fresh',
+    { id: 'frame-fresh' },
+    framesBySession,
+  );
+  assert.deepEqual(
+    [...framesBySession.get('session-a').keys()],
+    ['frame-fresh'],
+  );
+  assert.deepEqual(
+    [...framesBySession.get('session-b').keys()],
+    ['frame-other'],
+  );
+});
+
+test('visual-only capability cache retains recently used targets and releases a session', () => {
+  const store = createVisualOnlyCapabilityStore(2);
+  store.remember('session-a\u0000window-1', { misses: 2, expiresAt: 100 });
+  store.remember('session-b\u0000window-2', { misses: 2, expiresAt: 100 });
+  assert.equal(store.resolve('session-a\u0000window-1', 10).cacheHit, true);
+  store.remember('session-c\u0000window-3', { misses: 2, expiresAt: 100 });
+  assert.equal(store.resolve('session-b\u0000window-2', 10).capability, undefined);
+  assert.equal(store.resolve('session-a\u0000window-1', 10).cacheHit, true);
+  store.releasePrefix('session-a\u0000');
+  assert.equal(store.resolve('session-a\u0000window-1', 10).capability, undefined);
+});
+
+test('frames and observed scopes expire on one bounded freshness budget', () => {
+  const observedAt = 10_000;
+  assert.equal(isFreshComputerObservation(observedAt, observedAt), true);
+  assert.equal(
+    isFreshComputerObservation(
+      observedAt,
+      observedAt + MAX_COMPUTER_OBSERVATION_AGE_MS,
+    ),
+    true,
+  );
+  assert.equal(
+    isFreshComputerObservation(
+      observedAt,
+      observedAt + MAX_COMPUTER_OBSERVATION_AGE_MS + 1,
+    ),
+    false,
+  );
+  assert.equal(isFreshComputerObservation(Number.NaN, observedAt), false);
+  assert.equal(isFreshComputerObservation(observedAt, observedAt - 1), false);
+  const scopes = new Map([
+    ['session-a', { observedAt, primaryWindowId: 'hwnd:0x1' }],
+  ]);
+  assert.deepEqual(
+    resolveFreshComputerObservationScope(
+      'session-a',
+      scopes,
+      observedAt + MAX_COMPUTER_OBSERVATION_AGE_MS + 1,
+    ),
+    { expired: true },
+  );
+  assert.equal(scopes.has('session-a'), false);
+});
+
+test('legacy SendKeys modifier groups cannot hide dangerous chords', () => {
+  const modifierRuns = [''];
+  for (const first of ['^', '%', '+']) modifierRuns.push(first);
+  for (const first of ['^', '%', '+']) {
+    for (const second of ['^', '%', '+']) modifierRuns.push(first + second);
+  }
+  for (const first of ['^', '%', '+']) {
+    for (const second of ['^', '%', '+']) {
+      for (const third of ['^', '%', '+']) {
+        modifierRuns.push(first + second + third);
+      }
+    }
+  }
+  for (const prefix of ['', '{TAB}', '^A']) {
+    for (const suffix of ['', '{ENTER}']) {
+      for (const modifiers of modifierRuns) {
+        for (const key of ['F4', 'DELETE', 'END']) {
+          for (const repeat of ['', ' 1', ' 2', ' 100']) {
+            const keys = `${prefix}${modifiers}{${key}${repeat}}${suffix}`;
+            const dangerous = (key === 'F4' && modifiers.includes('%'))
+              || (key === 'DELETE' && (
+                modifiers.includes('+')
+                || (modifiers.includes('^') && modifiers.includes('%'))
+              ))
+              || (key === 'END'
+                && modifiers.includes('^')
+                && modifiers.includes('%'));
+            if (dangerous) {
+              assert.throws(
+                () => assertSafeComputerInput({ action: 'key', keys }),
+                /blocked_input/,
+                keys,
+              );
+            } else {
+              assert.doesNotThrow(
+                () => assertSafeComputerInput({ action: 'key', keys }),
+                keys,
+              );
+            }
+          }
+        }
+      }
+    }
+  }
+});
+
+test('shared dangerous key grammar has JavaScript and PowerShell regex parity', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const cases = [
+    { keys: '^%{DELETE}', blocked: true },
+    { keys: '%^{END 2}', blocked: true },
+    { keys: '{TAB}+{DELETE 100}', blocked: true },
+    { keys: '^%+{F4}', blocked: true },
+    { keys: '^{DELETE}', blocked: false },
+    { keys: '%{END}', blocked: false },
+    { keys: '+{F4}', blocked: false },
+    { keys: '{TAB}{DELETE}', blocked: false },
+  ];
+  const patternBase64 = Buffer.from(
+    BLOCKED_COMPUTER_KEY_PATTERN_SOURCE,
+    'utf8',
+  ).toString('base64');
+  const casesBase64 = Buffer.from(JSON.stringify(cases), 'utf8').toString('base64');
+  const script = `
+$pattern = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${patternBase64}'))
+$cases = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${casesBase64}')) | ConvertFrom-Json
+$results = @($cases | ForEach-Object {
+  [bool](([string]$_.keys) -match ('(?i)' + $pattern))
+})
+[Console]::Out.Write(($results | ConvertTo-Json -Compress))
+`;
+  const encoded = Buffer.from(script, 'utf16le').toString('base64');
+  const { stdout } = await execFileAsync('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-EncodedCommand',
+    encoded,
+  ], {
+    windowsHide: true,
+    timeout: 5_000,
+    maxBuffer: 1024 * 1024,
+  });
+  assert.deepEqual(
+    JSON.parse(stdout),
+    cases.map((entry) => entry.blocked),
+  );
+});
+
+test('recapture-required failures carry one fresh observation without dispatching the mutation', () => {
+  const error = new Error(
+    'computer_foreground_available_recapture_required: foreground lane acquired after queue_position=1',
+  );
+  assert.equal(
+    recaptureRequirementCode(error),
+    'computer_foreground_available_recapture_required',
+  );
+  assert.deepEqual(
+    buildRecaptureRequiredPayload('click', error, {
+      ok: true,
+      action: 'capture',
+      frame_id: 'frame-2',
+      window_id: 'hwnd:0x1',
+    }),
+    {
+      ok: false,
+      action: 'click',
+      code: 'computer_foreground_available_recapture_required',
+      error: error.message,
+      verdict: {
+        decision: 'escalate',
+        recommended: 'retry_fresh_action',
+      },
+      recovery: {
+        next: 'retry_from_observation',
+        guidance: 'Review the fresh observation and issue a new action; the stale mutation was not dispatched.',
+      },
+      observation: {
+        ok: true,
+        action: 'capture',
+        frame_id: 'frame-2',
+        window_id: 'hwnd:0x1',
+      },
+    },
+  );
+  assert.equal(
+    isFreshRecaptureObservation({
+      ok: true,
+      action: 'capture',
+      window_id: 'hwnd:0x1',
+    }, 'hwnd:0x1'),
+    true,
+  );
+  assert.equal(
+    isFreshRecaptureObservation({
+      ok: true,
+      action: 'capture',
+      window_id: 'hwnd:0x2',
+    }, 'hwnd:0x1'),
+    false,
+  );
+  const mismatchedTargetPayload = buildRecaptureRequiredPayload(
+    'click',
+    error,
+    {
+      ok: true,
+      action: 'capture',
+      frame_id: 'frame-wrong-target',
+      window_id: 'hwnd:0x2',
+    },
+    'hwnd:0x1',
+  );
+  assert.equal(mismatchedTargetPayload.verdict.recommended, 'recapture');
+  assert.equal('observation' in mismatchedTargetPayload, false);
+  assert.equal(
+    isFreshRecaptureObservation({
+      ok: true,
+      action: 'click',
+      window_id: 'hwnd:0x1',
+    }),
+    false,
+  );
+  assert.equal(buildRecaptureRequiredPayload('click', new Error('other')), undefined);
+  assert.equal(
+    recaptureRequirementCode(
+      'Error: computer_target_available_recapture_required: hwnd:0x2 lease acquired',
+    ),
+    'computer_target_available_recapture_required',
+  );
+  assert.deepEqual(
+    buildRecaptureRequiredPayload(
+      'click',
+      new Error('computer_target_available_recapture_required: target lease acquired'),
+      {
+        ok: false,
+        action: 'capture',
+        error: 'target closed',
+        frame_id: 'frame-stale',
+        elements: [{ mark: 1 }],
+      },
+    ),
+    {
+      ok: false,
+      action: 'click',
+      code: 'computer_target_available_recapture_required',
+      error: 'computer_target_available_recapture_required: target lease acquired',
+      verdict: {
+        decision: 'escalate',
+        recommended: 'recapture',
+      },
+      recovery: {
+        next: 'capture',
+        guidance: 'The stale mutation was not dispatched and a fresh observation was unavailable; capture the exact target again.',
+      },
+      observation: {
+        ok: false,
+        action: 'capture',
+        error: 'target closed',
+      },
+    },
   );
 });
 
@@ -702,10 +1524,21 @@ public sealed class MixdogMsaaActionFixture : Control {
   $buttonPoint = $button.PointToScreen((New-Object System.Drawing.Point(10, 10)))
   $nativePointerTarget = [MixWin32]::BackgroundPointer(
     $form.Handle, $buttonPoint.X, $buttonPoint.Y, 'click', '')
-  [System.Windows.Forms.Application]::DoEvents()
+  $nativePointerDeadline = [DateTime]::UtcNow.AddMilliseconds(200)
+  do {
+    [System.Windows.Forms.Application]::DoEvents()
+    if ($script:nativeClickCount -ge 1) { break }
+    Start-Sleep -Milliseconds 5
+  } while ([DateTime]::UtcNow -lt $nativePointerDeadline)
   $nativePointerOk = $script:nativeClickCount -eq 1 -and
     $nativePointerTarget -eq [MixWin32]::WindowId($button.Handle)
-  [void]$probeResults.Add(@{ name = 'background-native-pointer'; ok = $nativePointerOk; error = '' })
+  $nativePointerError = 'clicks={0}; target={1}; expected={2}' -f
+    $script:nativeClickCount, $nativePointerTarget, [MixWin32]::WindowId($button.Handle)
+  [void]$probeResults.Add(@{
+    name = 'background-native-pointer'
+    ok = $nativePointerOk
+    error = $nativePointerError
+  })
   $textPoint = $textBox.PointToScreen((New-Object System.Drawing.Point(20, 10)))
   $textEnd = $textBox.PointToScreen((New-Object System.Drawing.Point(120, 10)))
   $moveTarget = [MixWin32]::BackgroundPointer(
@@ -738,19 +1571,25 @@ public sealed class MixdogMsaaActionFixture : Control {
   [void]$probeResults.Add(@{ name = 'background-native-click-honest-unverifiable'; ok = $verifiedClickOk; error = $verifiedClickError })
   $checkBox.Checked = $false
   [System.Windows.Forms.Application]::DoEvents()
-  $semanticSnapshot = Snapshot-Window ([pscustomobject]@{
-    window_id = [MixWin32]::WindowId($form.Handle)
-    window = $null
-    query = 'verify'
-    role = ''
-    visible_only = $false
-    include_noninteractive = $false
-    max_elements = 20
-    continuation = $null
-  })
-  $semanticMatch = [regex]::Match(
-    $semanticSnapshot.text,
-    '\[(?<ref>s\d+:e\d+)\] (?:CheckBox|Button) "verify"')
+  $semanticDeadline = [DateTime]::UtcNow.AddMilliseconds(200)
+  do {
+    $semanticSnapshot = Snapshot-Window ([pscustomobject]@{
+      window_id = [MixWin32]::WindowId($form.Handle)
+      window = $null
+      query = 'verify'
+      role = ''
+      visible_only = $false
+      include_noninteractive = $false
+      max_elements = 20
+      continuation = $null
+    })
+    $semanticMatch = [regex]::Match(
+      $semanticSnapshot.text,
+      '\[(?<ref>s\d+:e\d+)\] (?:CheckBox|Button) "verify"')
+    if ($semanticMatch.Success) { break }
+    [System.Windows.Forms.Application]::DoEvents()
+    [System.Threading.Thread]::Sleep(10)
+  } while ([DateTime]::UtcNow -lt $semanticDeadline)
   $semanticClick = if ($semanticMatch.Success) {
     Do-Invoke $semanticMatch.Groups['ref'].Value
   } else { $null }

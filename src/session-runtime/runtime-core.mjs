@@ -142,7 +142,6 @@ import {
   parseDurationMs,
   modelMetaLooksResolved,
   modelSettingsFor,
-  normalizeCompactTypeSetting,
 } from './config-helpers.mjs';
 import { builtinFeatureActive, featureDisallowedToolsFor } from './builtin-features.mjs';
 import {
@@ -285,6 +284,7 @@ import { TOOL_DEFS as BROWSER_BRIDGE_TOOL_DEFS } from '../runtime/browser-bridge
 import {
   computerBridgeAvailableSync,
   deferComputerSessionRelease,
+  endComputerExecution,
   executeComputerTool,
 } from '../runtime/computer-bridge/client.mjs';
 import { TOOL_DEFS as COMPUTER_BRIDGE_TOOL_DEFS } from '../runtime/computer-bridge/tool-defs.mjs';
@@ -1517,7 +1517,6 @@ export async function createMixdogSessionRuntime({
     autoClearIdleMsForProvider,
     autoClearProviderDefaults,
     normalizeCompactionConfig,
-    normalizeCompactTypeSetting,
     normalizeSystemShellConfig,
     normalizeSystemShellCommand,
     setConfiguredShell,
@@ -1777,6 +1776,7 @@ export async function createMixdogSessionRuntime({
     getReservedSessionId: () => rt.reservedSessionId,
     registerActiveTurnController,
     sessionTitles,
+    endComputerExecution,
     deferComputerSessionRelease,
   });
 

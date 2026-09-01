@@ -98,26 +98,12 @@ function FeatureCard({
   const Icon = FEATURE_ICONS[feature.id];
   const installing = action?.status === 'installing';
   const failed = action?.status === 'failed';
-  const status = !ready
-    ? ''
-    : !available
-    ? 'Unavailable'
-    : failed
-      ? 'Failed'
-      : !installed
-        ? 'Not installed'
-        : '';
   return <article className="built-in-feature-card" data-feature-id={feature.id}
     aria-busy={installing || action?.status === 'toggling' || undefined}>
     <header>
       <span className="built-in-feature-title">
         <Icon className="built-in-feature-title-icon" size={14} aria-hidden="true" />
         <b>{t(feature.title)}</b>
-        {status
-          ? <span className={`built-in-feature-state is-${status.toLowerCase().replaceAll(' ', '-')}`}>
-              {t(status)}
-            </span>
-          : null}
       </span>
       <span className="built-in-feature-control">
         {!ready
@@ -202,8 +188,7 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api }: Pane
     if (!api.updateSetting) return false;
     const saved = await api.updateSetting(key, next);
     setSettings(saved);
-    // Surfaces outside Settings (Utilities → Browser) follow the install
-    // markers live instead of polling.
+    // Session Browser surfaces follow the install markers live instead of polling.
     window.dispatchEvent(new Event('mixdog:built-in-features-changed'));
     return saved[key] === next;
   };

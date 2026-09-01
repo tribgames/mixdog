@@ -93,7 +93,7 @@ const CATALOG = {
     },
     properties: {
       shape: ['left', 'top', 'width', 'height', 'rotation', 'fillColor', 'fillTransparency', 'lineColor', 'lineTransparency', 'shadow', 'marginLeft', 'marginTop', 'marginRight', 'marginBottom', 'fontName', 'fontSize', 'bold', 'italic', 'color', 'paragraphSpacing'],
-      chart: ['chartType', 'left', 'top', 'width', 'height', 'title', 'series', 'axis', 'dataLabels', 'seriesType', 'secondaryAxis', 'trendline', 'errorBars'],
+      chart: ['chartType', 'left', 'top', 'width', 'height', 'title', 'series', 'axis', 'dataLabels', 'seriesType', 'secondaryAxis', 'trendline', 'errorBars', 'showValues', 'showLegend', 'zeroBaseline', 'valueNumberFormat', 'dataLabelPosition', 'dataLabelColor'],
       slide: ['background', 'layout', 'layoutName'],
       placeholder: ['type', 'index'],
       table: ['rows', 'columns', 'values', 'fontName', 'fontSize', 'color', 'headerFillColor', 'headerColor', 'bodyFillColor', 'headerRowHeight', 'bodyRowHeight'],
@@ -147,7 +147,7 @@ const COMMON_SIGNATURES = {
 
 const FORMAT_SIGNATURES = {
   docx: {
-    compose_document: signature(['title'], ['claimId', 'purpose', 'expressionMode', 'variant', 'subtitle', 'summary', 'summaryLabel', 'meta', 'sections', 'footer', 'orientation', 'pageNumbers'], {
+    compose_document: signature(['title'], ['claimId', 'purpose', 'expressionMode', 'variant', 'subtitle', 'summary', 'summaryLabel', 'meta', 'metrics', 'sections', 'footer', 'orientation', 'pageNumbers'], {
       propertySets: ['design'],
       notes: 'Purpose-aware native Word composition; variant is optional because content topology selects the default.',
     }),
@@ -194,7 +194,7 @@ const FORMAT_SIGNATURES = {
     add_provenance: signature(['paragraph', 'source'], [], { propertySets: ['provenance'] }),
   },
   xlsx: {
-    compose_sheet: signature(['rows'], ['claimId', 'purpose', 'expressionMode', 'variant', 'sheet', 'kind', 'title', 'subtitle', 'source', 'headers', 'metrics', 'insights', 'decision', 'gates', 'actions', 'columnFormats', 'tableName', 'tableStyle', 'chart'], {
+    compose_sheet: signature(['rows'], ['claimId', 'purpose', 'expressionMode', 'variant', 'sheet', 'kind', 'eyebrow', 'title', 'subtitle', 'source', 'headers', 'metrics', 'insights', 'decision', 'gates', 'actions', 'columnFormats', 'tableName', 'tableStyle', 'chart'], {
       propertySets: ['design'],
       notes: 'Purpose-aware native Excel composition with content-selected dashboard, trend, comparison, scorecard, or analysis layout.',
     }),
@@ -251,9 +251,9 @@ const FORMAT_SIGNATURES = {
     add_provenance: signature(['cell', 'source'], ['sheet'], { propertySets: ['provenance'] }),
   },
   pptx: {
-    compose_slide: signature(['kind'], ['claimId', 'purpose', 'expressionMode', 'title', 'subtitle', 'takeaway', 'eyebrow', 'body', 'bullets', 'metrics', 'columns', 'steps', 'chart', 'table', 'image', 'imagePath', 'visualText', 'visualLabel', 'meta', 'notes', 'source', 'background', 'backgroundRole', 'slideRole', 'plan', 'create', 'slide', 'layoutId', 'variant', 'titleSize'], {
+    compose_slide: signature(['kind'], ['claimId', 'purpose', 'expressionMode', 'title', 'subtitle', 'takeaway', 'eyebrow', 'body', 'bullets', 'metrics', 'columns', 'steps', 'allocations', 'annotations', 'gates', 'actions', 'chart', 'table', 'image', 'imagePath', 'visualText', 'visualLabel', 'allocationLabel', 'allocationNumberFormat', 'meta', 'notes', 'source', 'background', 'backgroundRole', 'slideRole', 'plan', 'create', 'slide', 'layoutId', 'variant', 'titleSize'], {
       propertySets: ['design'],
-      notes: 'Model-first semantic slide. New scratch slides require plan.regions with 0-100 x/y/w/h boxes and roles: eyebrow, title, subtitle, meta, body, bullets, metric, metrics, chart, table, image, visual, process, comparison, shape, source. The renderer repairs safe bounds and small collisions; invalid plans fail for replanning and never fall back to a template. Native templates run only when layoutId or design.deck.templateMode prefer/strict is explicitly requested.',
+      notes: 'Creative Director synthesizes missing scratch plans. Explicit 0-100 plan.regions may use text, native evidence, annotated-chart, allocation, timeline, or scorecard roles. Invalid explicit plans fail; templates run only when requested.',
     }),
     set_text: signature(['slide', 'shape', 'text']),
     add_textbox: signature(['slide', 'text'], ['paragraphs', 'left', 'top', 'width', 'height', 'fontName', 'fontSize', 'color', 'properties'], { propertySets: ['shape', 'authoring'] }),
@@ -283,7 +283,7 @@ const FORMAT_SIGNATURES = {
     apply_theme: signature(['path']),
     set_transition: signature(['slide'], ['effect', 'duration', 'advanceOnTime', 'advanceTime'], { propertySets: ['transition'] }),
     add_animation: signature(['slide', 'shape'], ['effect', 'trigger', 'duration', 'delay'], { propertySets: ['animation'] }),
-    add_chart: signature(['slide'], ['chartType', 'title', 'categories', 'series', 'left', 'top', 'width', 'height'], { propertySets: ['chart'] }),
+    add_chart: signature(['slide'], ['chartType', 'title', 'categories', 'series', 'left', 'top', 'width', 'height', 'showValues', 'showLegend', 'zeroBaseline', 'valueNumberFormat', 'dataLabelPosition', 'dataLabelColor'], { propertySets: ['chart'] }),
     fit_text: signature(['slide', 'shape'], ['minFontSize', 'allowNoChange']),
     add_shape: signature(['slide', 'shapeType'], ['text', 'paragraphs', 'left', 'top', 'width', 'height', 'fillColor', 'lineColor', 'properties'], { propertySets: ['shape', 'authoring'] }),
     add_table: signature(['slide', 'values'], ['rows', 'columns', 'left', 'top', 'width', 'height', 'properties'], { propertySets: ['table'] }),

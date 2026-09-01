@@ -19,7 +19,15 @@ import {
     consumeCompatResponsesStream,
 } from '../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
 import { useXaiResponsesWebSocket } from '../src/runtime/agent/orchestrator/providers/openai-compat-xai.mjs';
-import { deepseekReplaysReasoningContent, toOpenAIMessages } from '../src/runtime/agent/orchestrator/providers/openai-compat-wire.mjs';
+import {
+    deepseekReplaysReasoningContent,
+    toOpenAIMessages,
+    toOpenAITools,
+} from '../src/runtime/agent/orchestrator/providers/openai-compat-wire.mjs';
+import { toOpenAIResponsesTool } from '../src/runtime/agent/orchestrator/providers/openai-responses-payload.mjs';
+import { requestAnthropicTools } from '../src/runtime/agent/orchestrator/providers/lib/anthropic-request-utils.mjs';
+import { toGeminiTools } from '../src/runtime/agent/orchestrator/providers/gemini-schema.mjs';
+import { TOOL_DEFS as COMPUTER_TOOL_DEFS } from '../src/runtime/computer-bridge/tool-defs.mjs';
 import { classifyError } from '../src/runtime/agent/orchestrator/providers/retry-classifier.mjs';
 import { GrokOAuthProvider } from '../src/runtime/agent/orchestrator/providers/grok-oauth.mjs';
 import { sendViaWebSocket } from '../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
@@ -54,6 +62,38 @@ import {
 } from '../src/runtime/agent/orchestrator/providers/registry.mjs';
 import { providerCachedModelMetadataSync } from '../src/runtime/agent/orchestrator/providers/provider-catalog-cache.mjs';
 import { readRuntimeTunables } from '../src/session-runtime/runtime-tunables.mjs';
+
+test('Computer Use stays one shared custom-tool contract across providers', () => {
+    const tool = COMPUTER_TOOL_DEFS[0];
+    const schemas = [
+        toOpenAITools([tool])[0].function.parameters,
+        toOpenAIResponsesTool(tool).parameters,
+        requestAnthropicTools(
+            [tool],
+            [],
+            {
+                providerToolSnapshotAuthoritative: true,
+                providerNativeToolPrefixCount: 0,
+            },
+            'anthropic',
+        )[0].input_schema,
+        toGeminiTools([tool]).functionDeclarations[0].parameters,
+    ];
+    for (const schema of schemas) {
+        assert.deepEqual(schema.properties.action.enum, [
+            'list', 'diagnose', 'capture', 'verify', 'act',
+            'window', 'menu', 'clipboard', 'launch',
+        ]);
+        assert.equal(JSON.stringify(schema).includes('computer_use_preview'), false);
+        assert.equal(JSON.stringify(schema).includes('computer_20250124'), false);
+    }
+    const anthropicInput = schemas[2].properties.input;
+    assert.ok(anthropicInput.properties.actions);
+    assert.deepEqual(anthropicInput.properties.actions.items.properties.type.enum, [
+        'click', 'double_click', 'move', 'drag', 'scroll', 'type', 'key', 'wait',
+    ]);
+    assert.deepEqual(schemas[2].required, ['action']);
+});
 
 test('OpenRouter model sanitizer applies hosted filters with a nine-month default cutoff', () => {
     const previousStaleMonths = process.env.MIXDOG_MODEL_STALE_MONTHS;

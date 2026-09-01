@@ -32,6 +32,24 @@ const CAPTURE_IMAGE_SKIP_MIN_ELEMENTS = 3;
 /** A predicate is proven, disproven, or unobserved. Unknown is never success. */
 export type VerifyStatus = 'satisfied' | 'unsatisfied' | 'unknown';
 
+const OCR_LANGUAGE_TAG_PATTERN = /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/;
+
+export function assertOcrLanguageTag(
+  value: unknown,
+  field = 'ocr_language',
+): void {
+  if (value === undefined || value === null) return;
+  if (typeof value !== 'string'
+    || value.length < 2
+    || value.length > 64
+    || value !== value.trim()
+    || !OCR_LANGUAGE_TAG_PATTERN.test(value)) {
+    throw new Error(
+      `${field} must be a 2-64 character BCP-47 language tag such as ko or en-US`,
+    );
+  }
+}
+
 export function framePoint(frame: CaptureFrame, x: number, y: number): { x: number; y: number } {
   if (!Number.isInteger(x) || !Number.isInteger(y)
     || x < 0 || y < 0 || x >= frame.captureWidth || y >= frame.captureHeight) {
@@ -60,6 +78,10 @@ export function screenshotInteger(
 /** The post-action capture accepts exactly the bounds the capture itself
  *  enforces, and is rejected before the mutation runs rather than after. */
 export function assertCaptureAfterOptions(command: ComputerCommand): void {
+  assertOcrLanguageTag(
+    command.capture_after_ocr_language,
+    'capture_after_ocr_language',
+  );
   screenshotInteger(
     command.capture_delay_ms,
     DEFAULT_CAPTURE_AFTER_DELAY_MS,
@@ -300,7 +322,9 @@ export function captureAfterImageIsRedundant(
   metadata: Record<string, unknown>,
   targetIdentity?: string,
 ): boolean {
-  if (command.include_ocr || command.capture_after_include_ocr) return false;
+  if (command.include_ocr
+    || command.capture_after_include_ocr
+    || Number(metadata.ocr_elements || 0) > 0) return false;
   if (!command.ref || !['invoke', 'set_value', 'toggle'].includes(command.action)) return false;
   if (metadata.pixel_status !== 'available') return false;
   const mode = String(metadata.mode || 'state');
@@ -394,6 +418,15 @@ export function transitionConfirmsSemanticAction(
     || transition.next_target !== undefined;
 }
 
+export function shouldUseOcrFallback(
+  mode: string,
+  semanticAccessibilityAvailable: boolean,
+  explicitlyRequested: boolean,
+): boolean {
+  return explicitlyRequested
+    || (!semanticAccessibilityAvailable && (mode === 'state' || mode === 'som'));
+}
+
 export function recommendedRecovery(
   action: string,
   effect: string,
@@ -405,6 +438,9 @@ export function recommendedRecovery(
   if (transition?.next_target) return 'switch_target';
   if (code === 'target_mismatch' || code === 'stale_target' || code === 'stale_frame') {
     return 'recapture';
+  }
+  if (code === 'foreground_unavailable' || code === 'foreground_changed') {
+    return 'pixel';
   }
   const browserTarget = targetWindow
     && /^(chrome|msedge|edge|brave)$/i.test(targetWindow.app)

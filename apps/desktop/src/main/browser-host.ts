@@ -70,7 +70,6 @@ import {
   redactBrowserKnownSecrets,
   redactBrowserText,
   redactBrowserUrl,
-  selectAndRefreshActiveBrowserGuest,
 } from './browser-host-policy';
 import {
   describeBrowserPostcondition,
@@ -117,6 +116,11 @@ import {
   type VisualGrounding,
 } from './browser-ref-points';
 import { createBrowserCommandQueue } from './browser-command-queue';
+import {
+  BrowserSessionRegistry,
+  DEFAULT_BROWSER_SESSION_ID,
+  browserSessionId,
+} from './browser-session-registry';
 import { createBrowserUrlAdmission } from './browser-url-admission';
 import { createBrowserTabs, type BackgroundPage } from './browser-tabs';
 import { createBrowserSettle } from './browser-settle';
@@ -366,19 +370,29 @@ export interface BrowserHost {
    *  it down (server, discovery file, agent offscreen pages). The browser
    *  pane infrastructure stays live either way. */
   setBridgeEnabled(enabled: boolean): void;
-  setGuestActive(paneId: string, webContentsId: number, active: boolean): void;
+  releaseSession(sessionId: string): void;
+  setGuestActive(sessionId: string, webContentsId: number, active: boolean): void;
   browserImportSources(): Promise<BrowserImportSource[]>;
   browserImport(request: BrowserImportRequest): Promise<BrowserImportResult>;
   browserHistorySearch(query: string): Promise<BrowserHistoryEntry[]>;
-  browserCredentialSuggestions(): Promise<BrowserCredentialSuggestion[]>;
-  browserCredentialFill(credentialId: string): Promise<BrowserCredentialFillResult>;
-  remoteBrowserFrame(previousFrameId?: string): Promise<DesktopRemoteBrowserFrame>;
-  remoteBrowserControl(input: DesktopRemoteBrowserControl): Promise<void>;
+  browserCredentialSuggestions(sessionId: string): Promise<BrowserCredentialSuggestion[]>;
+  browserCredentialFill(
+    sessionId: string,
+    credentialId: string,
+  ): Promise<BrowserCredentialFillResult>;
+  remoteBrowserFrame(
+    sessionId: string,
+    previousFrameId?: string,
+  ): Promise<DesktopRemoteBrowserFrame>;
+  remoteBrowserControl(
+    sessionId: string,
+    input: DesktopRemoteBrowserControl,
+  ): Promise<void>;
   dispose(): Promise<void>;
 }
 
 export function createBrowserHost(window: BrowserWindow): BrowserHost {
-  const guests = new Set<WebContents>();
+  const browserSessions = new BrowserSessionRegistry();
   const attachedDebuggers = new WeakSet<WebContents>();
   const debuggerReady = new WeakMap<WebContents, Promise<Electron.Debugger>>();
   const debuggerListeners = new WeakMap<WebContents, (...args: unknown[]) => void>();
@@ -401,8 +415,6 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     resolveBrowserActionsPerTurn(process.env.MIXDOG_BROWSER_MAX_ACTIONS_PER_TURN),
   );
   let nextPageId = 0;
-  let currentGuest: WebContents | null = null;
-  let attachWaiters: Array<(guest: WebContents) => void> = [];
   let backgroundReclaimTimer: NodeJS.Timeout | null = null;
   let disposed = false;
   let bridgeWanted = false;
@@ -576,10 +588,19 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
 
   // Agent-visible download ledger: downloads auto-save into the user's
   // Downloads folder (no dialog), and the `downloads` action reports them.
-  const downloads: TrackedBrowserDownload[] = [];
+  const downloadsBySession = new Map<string, TrackedBrowserDownload[]>();
+  const downloadedBytesBySession = new Map<string, number>();
   let nextDownloadId = 0;
-  let sessionDownloadedBytes = 0;
-  const onWillDownload = (_event: Electron.Event, item: Electron.DownloadItem): void => {
+  const downloadsForSession = (sessionId: string): TrackedBrowserDownload[] =>
+    downloadsBySession.get(sessionId) ?? [];
+  const onWillDownload = (
+    _event: Electron.Event,
+    item: Electron.DownloadItem,
+    webContents?: WebContents,
+  ): void => {
+    const ownerSessionId = webContents
+      ? browserSessions.sessionIdForGuest(webContents) ?? DEFAULT_BROWSER_SESSION_ID
+      : DEFAULT_BROWSER_SESSION_ID;
     const directory = app.getPath('downloads');
     const destination = browserDownloadSavePath(directory, item.getFilename());
     item.setSavePath(destination.path);
@@ -593,9 +614,13 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
       received: 0,
       total: item.getTotalBytes(),
     };
+    const downloads = downloadsForSession(ownerSessionId);
     downloads.unshift(entry);
     if (downloads.length > 20) downloads.length = 20;
-    sessionDownloadedBytes += Math.max(0, entry.received);
+    downloadsBySession.set(ownerSessionId, downloads);
+    let sessionDownloadedBytes =
+      (downloadedBytesBySession.get(ownerSessionId) ?? 0) + Math.max(0, entry.received);
+    downloadedBytesBySession.set(ownerSessionId, sessionDownloadedBytes);
     let sizeLimitExceeded = browserDownloadExceedsLimit(
       entry.received,
       entry.total,
@@ -604,6 +629,7 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     item.on('updated', () => {
       const received = item.getReceivedBytes();
       sessionDownloadedBytes += Math.max(0, received - entry.received);
+      downloadedBytesBySession.set(ownerSessionId, sessionDownloadedBytes);
       entry.received = received;
       entry.total = item.getTotalBytes();
       if (!sizeLimitExceeded && browserDownloadExceedsLimit(
@@ -618,6 +644,7 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     item.once('done', (_doneEvent, state) => {
       const received = item.getReceivedBytes();
       sessionDownloadedBytes += Math.max(0, received - entry.received);
+      downloadedBytesBySession.set(ownerSessionId, sessionDownloadedBytes);
       sizeLimitExceeded ||= browserDownloadExceedsLimit(
         received,
         entry.total,
@@ -668,7 +695,7 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
       try {
         if (url !== 'about:blank') normalizePageUrl(url, browserUrlPolicy);
         reclaimIdleBackgroundPages();
-        assertBackgroundTabCapacity(offscreenPages.size);
+        assertBackgroundTabCapacity(browserSessions.backgroundCount());
         return {
           action: 'allow',
           outlivesOpener: true,
@@ -696,7 +723,7 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     guest.on('did-create-window', (child) => {
       reclaimIdleBackgroundPages();
       try {
-        assertBackgroundTabCapacity(offscreenPages.size);
+        assertBackgroundTabCapacity(browserSessions.backgroundCount());
       } catch (error) {
         pushBounded(
           diagnosticsFor(guest).networkFailures,
@@ -705,8 +732,11 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
         try { child.destroy(); } catch { /* creation already failed */ }
         return;
       }
+      const ownerSessionId =
+        browserSessions.sessionIdForGuest(guest) ?? DEFAULT_BROWSER_SESSION_ID;
       trackBackgroundPage(
-        nextPopupTabName(),
+        ownerSessionId,
+        nextPopupTabName(ownerSessionId),
         child,
         'popup',
         stablePageId(guest),
@@ -735,45 +765,29 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     }
   }
 
-  function notifyAttachWaiters(guest: WebContents): void {
-    const waiters = attachWaiters;
-    attachWaiters = [];
-    for (const resolve of waiters) resolve(guest);
-  }
-
   window.webContents.on('did-attach-webview', (_event, guest) => {
     if (guest.session !== browserPartitionSession) return;
     initializeGuest(guest);
-    guests.add(guest);
+    browserSessions.registerVisibleGuest(guest);
     guest.on('focus', () => {
-      currentGuest = guest;
+      const sessionId = browserSessions.sessionIdForGuest(guest);
+      if (sessionId) browserSessions.selectGuest(sessionId, guest);
     });
     guest.once('destroyed', () => {
-      guests.delete(guest);
-      if (currentGuest === guest) currentGuest = null;
+      browserSessions.unregisterVisibleGuest(guest);
     });
-    notifyAttachWaiters(guest);
   });
 
-  function liveGuest(): WebContents | null {
-    if (currentGuest && !currentGuest.isDestroyed()) return currentGuest;
-    currentGuest = null;
-    return null;
-  }
-
-  /** Visible pane guests in stable attach order (list_tabs "v1", "v2", …). */
-  function visibleGuests(): WebContents[] {
-    return [...guests].filter((guest) => !guest.isDestroyed());
-  }
-
   // Background targets: never-shown BrowserWindows on the SAME partition, so
-  // offscreen pages are logged in exactly like the visible tab. Keyed by tab
-  // name ("bg" by default) for parallel pages; created lazily on first use.
-  const offscreenPages = new Map<string, BackgroundPage>();
-  let nextPopupId = 0;
+  // offscreen pages remain logged in, but their names and lifecycle are scoped
+  // to the owning conversation session.
+  const nextPopupIdsBySession = new Map<string, number>();
 
-  function backgroundEntryByPageId(pageId: string): [string, BackgroundPage] | null {
-    for (const entry of offscreenPages) {
+  function backgroundEntryByPageId(
+    sessionId: string,
+    pageId: string,
+  ): [string, BackgroundPage] | null {
+    for (const entry of browserSessions.backgroundPages(sessionId)) {
       if (!entry[1].window.isDestroyed()
         && stablePageId(entry[1].window.webContents).toLowerCase() === pageId.toLowerCase()) {
         return entry;
@@ -782,35 +796,51 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     return null;
   }
 
-  function destroyBackgroundPage(name: string, entry: BackgroundPage): void {
+  function destroyBackgroundPage(
+    sessionId: string,
+    name: string,
+    entry: BackgroundPage,
+  ): void {
     if (!entry.window.isDestroyed()) {
       try { entry.window.destroy(); } catch { /* teardown already won */ }
     }
-    if (offscreenPages.get(name) === entry) offscreenPages.delete(name);
+    browserSessions.deleteBackgroundPage(sessionId, name, entry);
+  }
+
+  function releaseBrowserSessionResources(sessionId: string): void {
+    for (const [name, entry] of [...browserSessions.backgroundPages(sessionId)]) {
+      destroyBackgroundPage(sessionId, name, entry);
+    }
+    downloadsBySession.delete(sessionId);
+    downloadedBytesBySession.delete(sessionId);
+    nextPopupIdsBySession.delete(sessionId);
   }
 
   function reclaimIdleBackgroundPages(now = Date.now()): void {
-    for (const [name, entry] of offscreenPages) {
+    for (const [sessionId, name, entry] of browserSessions.allBackgroundEntries()) {
       if (entry.window.isDestroyed()) {
-        offscreenPages.delete(name);
+        browserSessions.deleteBackgroundPage(sessionId, name, entry);
         continue;
       }
       if (backgroundPageIdle(entry.lastUsedAt, now)
-        && !commandChains.has(`background:${name}`)) {
-        destroyBackgroundPage(name, entry);
+        && !commandChains.has(`session:${sessionId}:background:${name}`)) {
+        destroyBackgroundPage(sessionId, name, entry);
       }
     }
   }
 
-  function nextPopupTabName(): string {
+  function nextPopupTabName(sessionId: string): string {
+    let nextPopupId = nextPopupIdsBySession.get(sessionId) ?? 0;
     let name = '';
     do {
       name = `popup-${++nextPopupId}`;
-    } while (offscreenPages.has(name));
+    } while (browserSessions.backgroundPages(sessionId).has(name));
+    nextPopupIdsBySession.set(sessionId, nextPopupId);
     return name;
   }
 
   function trackBackgroundPage(
+    sessionId: string,
     name: string,
     win: BrowserWindow,
     kind: BackgroundPage['kind'],
@@ -818,27 +848,28 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
   ): BackgroundPage {
     const entry: BackgroundPage = {
       window: win,
+      guest: win.webContents,
       lastUsedAt: Date.now(),
       kind,
       openerPageId,
     };
-    offscreenPages.set(name, entry);
-    initializeGuest(win.webContents);
+    browserSessions.setBackgroundPage(sessionId, name, entry);
+    initializeGuest(entry.guest);
     win.once('closed', () => {
-      if (offscreenPages.get(name) === entry) offscreenPages.delete(name);
+      browserSessions.deleteBackgroundPage(sessionId, name, entry);
     });
     return entry;
   }
 
-  function ensureOffscreen(rawName = ''): BackgroundPage {
+  function ensureOffscreen(sessionId: string, rawName = ''): BackgroundPage {
     const name = normalizeBackgroundTabName(rawName);
-    const existing = offscreenPages.get(name);
+    const existing = browserSessions.backgroundPages(sessionId).get(name);
     if (existing && !existing.window.isDestroyed()) {
       existing.lastUsedAt = Date.now();
       return existing;
     }
     reclaimIdleBackgroundPages();
-    assertBackgroundTabCapacity(offscreenPages.size);
+    assertBackgroundTabCapacity(browserSessions.backgroundCount());
     // Never shown: the page runs fully (navigate/click/snapshot are JS, not
     // frames). Screenshots go through CDP Page.captureScreenshot, which renders
     // server-side in the Blink compositor and does not need an on-screen
@@ -856,7 +887,7 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
         backgroundThrottling: false,
       },
     });
-    return trackBackgroundPage(name, win, 'agent');
+    return trackBackgroundPage(sessionId, name, win, 'agent');
   }
 
   async function hasUsableViewport(guest: WebContents): Promise<boolean> {
@@ -871,33 +902,49 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     }
   }
 
-  /** Ask the renderer to present a browser surface whenever the retained
-   * webview is hidden at 0x0, not only when no WebContents exists. */
-  async function ensureGuest(): Promise<WebContents> {
-    const existing = liveGuest();
-    if (existing && await hasUsableViewport(existing)) return existing;
+  function requestBrowserSurface(sessionId: string, reveal: boolean): void {
     if (window.isDestroyed() || window.webContents.isDestroyed()) {
       throw new Error('desktop window is unavailable');
     }
-    const attached = existing
-      ? null
-      : new Promise<WebContents>((resolve) => attachWaiters.push(resolve));
-    window.webContents.send(DESKTOP_IPC.browserOpenRequested);
+    window.webContents.send(DESKTOP_IPC.browserOpenRequested, { sessionId, reveal });
+  }
+
+  /** Create a parked session surface when no live guest exists. Foreground
+   * agent actions also reveal an existing guest beside its owner session. */
+  async function ensureGuest(
+    sessionId: string,
+    options: { reveal?: boolean } = {},
+  ): Promise<WebContents> {
+    const reveal = options.reveal !== false;
+    const existing = browserSessions.liveGuest(sessionId);
+    if (existing && await hasUsableViewport(existing)) {
+      if (reveal) requestBrowserSurface(sessionId, true);
+      return existing;
+    }
+    let cancelWaiter = () => {};
+    const attached = existing ? null : new Promise<WebContents>((resolve) => {
+      cancelWaiter = browserSessions.waitForGuest(sessionId, resolve);
+    });
+    requestBrowserSurface(sessionId, reveal);
     let guest = existing;
-    if (attached) {
-      guest = await Promise.race([
-        attached,
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), OPEN_SURFACE_TIMEOUT_MS)),
-      ]);
+    try {
+      if (attached) {
+        guest = await Promise.race([
+          attached,
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), OPEN_SURFACE_TIMEOUT_MS)),
+        ]);
+      }
+    } finally {
+      cancelWaiter();
     }
     const deadline = Date.now() + OPEN_SURFACE_TIMEOUT_MS;
     while (guest && Date.now() < deadline) {
-      const current = liveGuest() || guest;
+      const current = browserSessions.liveGuest(sessionId) || guest;
       if (await hasUsableViewport(current)) return current;
       await pause(25);
-      guest = liveGuest() || guest;
+      guest = browserSessions.liveGuest(sessionId) || guest;
     }
-    throw new Error('the browser pane did not open with a usable viewport; open Utilities → Browser Use in the Mixdog desktop app');
+    throw new Error(`Browser Use for session ${sessionId} did not create a usable page`);
   }
 
   async function bounded<T>(
@@ -1093,7 +1140,9 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
   const { executeSerialized } = createBrowserCommandQueue({
     chains: commandChains,
     pendingReads,
-    backgroundEntryByPageId: (pageId) => backgroundEntryByPageId(pageId),
+    sessionId: (command) => browserSessionId(command.session_id),
+    backgroundEntryByPageId: (sessionId, pageId) =>
+      backgroundEntryByPageId(sessionId, pageId),
     run: (command, signal) => runCommand(command, signal),
     bounded: (operation, timeoutMs, label, signal, onTimeout) => bounded(
       operation,
@@ -1107,14 +1156,16 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
   });
 
   const { resolveTargetGuest, listTabs, closeBackgroundTab } = createBrowserTabs({
-    offscreenPages,
-    visibleGuests: () => visibleGuests(),
-    backgroundEntryByPageId: (pageId) => backgroundEntryByPageId(pageId),
-    ensureOffscreen: (rawName) => ensureOffscreen(rawName),
-    destroyBackgroundPage: (name, entry) => destroyBackgroundPage(name, entry),
+    visibleGuests: (sessionId) => browserSessions.visibleGuests(sessionId),
+    backgroundPages: (sessionId) => browserSessions.backgroundPages(sessionId),
+    backgroundEntryByPageId: (sessionId, pageId) =>
+      backgroundEntryByPageId(sessionId, pageId),
+    ensureOffscreen: (sessionId, rawName) => ensureOffscreen(sessionId, rawName),
+    destroyBackgroundPage: (sessionId, name, entry) =>
+      destroyBackgroundPage(sessionId, name, entry),
     pageId: (guest) => stablePageId(guest),
-    currentGuest: () => currentGuest,
-    selectGuest: (guest) => { currentGuest = guest; },
+    currentGuest: (sessionId) => browserSessions.currentGuest(sessionId),
+    selectGuest: (sessionId, guest) => browserSessions.selectGuest(sessionId, guest),
   });
 
   const { handleDialog, diagnosticsResult } = createBrowserDialogReport({
@@ -1243,7 +1294,7 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
   });
 
   const { listDownloads } = createBrowserDownloads({
-    downloads: () => downloads,
+    downloads: (sessionId) => downloadsForSession(sessionId),
     pause: (ms, signal) => pause(ms, signal),
     attachMaxBytes: DOWNLOAD_ATTACH_MAX_BYTES,
   });
@@ -1877,6 +1928,7 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
   ): Promise<BrowserCommandResult> {
     const action = String(command.action || '').trim().toLowerCase();
     if (!action) throw new Error('browser command requires action');
+    const ownerSessionId = browserSessionId(command.session_id);
     const hasScreenshotOptions = ['fullPage', 'format', 'quality'].some(
       (name) => Object.hasOwn(command, name),
     );
@@ -1892,18 +1944,21 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     }
     // A sequence pays one budget unit; its steps ARE that unit.
     if (command.internalStep !== true) actionBudget.consume(command, action);
-    // Foreground drives the visible tab (auto-opened if needed); background
-    // drives a hidden offscreen page on the same partition.
+    // Foreground drives and reveals the visible tab; background drives a
+    // hidden offscreen page on the same partition without taking the screen.
     const background = command.background === true;
     const tab = String(command.tab || '').trim();
     // Tab-less bookkeeping actions never open or create a page.
-    if (action === 'list_tabs') return listTabs();
-    if (action === 'downloads') return await listDownloads(command, signal);
-    if (action === 'close_tab') return closeBackgroundTab(tab);
-    const target = resolveTargetGuest(background, tab);
-    const guest = target?.guest ?? await ensureGuest();
-    await recoverCrashedGuest(guest, signal);
+    if (action === 'list_tabs') return listTabs(ownerSessionId);
+    if (action === 'downloads') {
+      return await listDownloads(ownerSessionId, command, signal);
+    }
+    if (action === 'close_tab') return closeBackgroundTab(ownerSessionId, tab);
+    const target = resolveTargetGuest(ownerSessionId, background, tab);
     const targetIsBackground = target?.background === true;
+    if (target && !targetIsBackground) requestBrowserSurface(ownerSessionId, true);
+    const guest = target?.guest ?? await ensureGuest(ownerSessionId);
+    await recoverCrashedGuest(guest, signal);
     const refRecovery: BrowserRefRecoveryContext = {
       source: latestRefSetsByGuest.get(guest),
       replacements: new Map(),
@@ -1927,10 +1982,7 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
       }));
     switch (action) {
       case 'open':
-        if (!targetIsBackground && !window.isDestroyed() && !window.webContents.isDestroyed()) {
-          window.webContents.send(DESKTOP_IPC.browserOpenRequested);
-        }
-        return { text: targetIsBackground ? 'Background browser page is ready.' : 'Browser Use pane is open.' };
+        return { text: targetIsBackground ? 'Background browser page is ready.' : 'Browser Use page is ready.' };
       case 'navigate': {
         if (command.reload === true) {
           if (command.url) throw new Error('navigate accepts url or reload=true, not both');
@@ -1955,7 +2007,8 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
           if (/ERR_ABORTED/.test(String(error?.message))) return;
           if (/ERR_FAILED/.test(String(error?.message))) {
             for (let attempt = 0; attempt < 20; attempt += 1) {
-              if (downloads.some((download) => download.url === url)) return;
+              if (downloadsForSession(ownerSessionId)
+                .some((download) => download.url === url)) return;
               await pause(25, signal);
             }
           }
@@ -2747,7 +2800,7 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
   // Computer Use; the pane infrastructure above runs regardless of the toggle.
   function startBridge(): void {
     if (disposed) return;
-    for (const guest of visibleGuests()) {
+    for (const guest of browserSessions.visibleGuests()) {
       void guestDebugger(guest).catch((error) => diagnosticsFor(guest).console.recordError(
         `CDP initialization failed: ${(error as Error).message}`,
       ));
@@ -2758,8 +2811,9 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
   async function stopBridge(): Promise<void> {
     await bridgeServer.stop();
     commandChains.clear();
+    pendingReads.clear();
     actionBudget.clear();
-    for (const guest of visibleGuests()) {
+    for (const guest of browserSessions.visibleGuests()) {
       if (!guest.debugger.isAttached()) continue;
       try {
         await guest.debugger.sendCommand('Runtime.evaluate', {
@@ -2771,10 +2825,10 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     }
     // Agent-only surfaces die with the bridge; visible pane tabs belong to
     // the user and stay open.
-    for (const [name, page] of offscreenPages) {
-      destroyBackgroundPage(name, page);
+    for (const [sessionId, name, page] of browserSessions.allBackgroundEntries()) {
+      destroyBackgroundPage(sessionId, name, page);
     }
-    offscreenPages.clear();
+    browserSessions.clearBackgroundPages();
   }
 
   return {
@@ -2784,14 +2838,19 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
       if (enabled) startBridge();
       else void stopBridge().catch(() => {});
     },
-    setGuestActive(_paneId: string, webContentsId: number, active: boolean): void {
-      currentGuest = selectAndRefreshActiveBrowserGuest(
-        guests,
-        currentGuest,
+    releaseSession(sessionId: string): void {
+      const ownerSessionId = browserSessionId(sessionId);
+      releaseBrowserSessionResources(ownerSessionId);
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+        window.webContents.send(DESKTOP_IPC.browserSessionReleased, ownerSessionId);
+      }
+    },
+    setGuestActive(sessionId: string, webContentsId: number, active: boolean): void {
+      browserSessions.bindVisibleGuest(
+        browserSessionId(sessionId),
         webContentsId,
         active,
       );
-      if (active && currentGuest?.id === webContentsId) notifyAttachWaiters(currentGuest);
     },
     async browserImportSources(): Promise<BrowserImportSource[]> {
       return await browserProfileImporter.sources();
@@ -2806,13 +2865,18 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
     async browserHistorySearch(query: string): Promise<BrowserHistoryEntry[]> {
       return await browserProfileImporter.searchHistory(query);
     },
-    async browserCredentialSuggestions(): Promise<BrowserCredentialSuggestion[]> {
-      const guest = liveGuest();
+    async browserCredentialSuggestions(
+      sessionId: string,
+    ): Promise<BrowserCredentialSuggestion[]> {
+      const guest = browserSessions.liveGuest(browserSessionId(sessionId));
       if (!guest) return [];
       return await browserProfileImporter.credentialSuggestions(guest.getURL());
     },
-    async browserCredentialFill(credentialId: string): Promise<BrowserCredentialFillResult> {
-      const guest = liveGuest();
+    async browserCredentialFill(
+      sessionId: string,
+      credentialId: string,
+    ): Promise<BrowserCredentialFillResult> {
+      const guest = browserSessions.liveGuest(browserSessionId(sessionId));
       if (!guest) throw new Error('Open a Browser Use page before filling a stored credential.');
       return await browserProfileImporter.useCredential(
         guest.getURL(),
@@ -2820,8 +2884,11 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
         (credential) => fillCredentialInGuest(guest, credential),
       );
     },
-    async remoteBrowserFrame(previousFrameId = ''): Promise<DesktopRemoteBrowserFrame> {
-      const guest = await ensureGuest();
+    async remoteBrowserFrame(
+      sessionId: string,
+      previousFrameId = '',
+    ): Promise<DesktopRemoteBrowserFrame> {
+      const guest = await ensureGuest(browserSessionId(sessionId), { reveal: false });
       await waitForInitialDocument(guest);
       const capture = await browserScreenshots.capture(guest, false, {
         format: 'jpeg',
@@ -2856,8 +2923,11 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
         ...(previousFrameId === current.frameId ? {} : { image: current.image }),
       };
     },
-    async remoteBrowserControl(input: DesktopRemoteBrowserControl): Promise<void> {
-      const guest = await ensureGuest();
+    async remoteBrowserControl(
+      sessionId: string,
+      input: DesktopRemoteBrowserControl,
+    ): Promise<void> {
+      const guest = await ensureGuest(browserSessionId(sessionId), { reveal: false });
       if (['tap', 'swipe', 'scroll', 'text', 'key'].includes(input.type)) {
         const frame = remoteFramesByGuest.get(guest);
         if (!frame || !('frameId' in input) || input.frameId !== frame.frameId) {
@@ -2925,7 +2995,7 @@ export function createBrowserHost(window: BrowserWindow): BrowserHost {
       browserPartitionSession.removeListener('will-download', onWillDownload);
       clearBrowserPermissionHandlers(browserPartitionSession);
       browserPartitionSession.webRequest.onBeforeRequest(null);
-      for (const guest of visibleGuests()) {
+      for (const guest of browserSessions.visibleGuests()) {
         if (guest.debugger.isAttached()) {
           try { guest.debugger.detach(); } catch { /* already detached */ }
         }

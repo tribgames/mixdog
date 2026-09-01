@@ -20,12 +20,10 @@ export const SETTINGS_ITEMS = [
   { value: 'web-search-enabled', label: 'Web search', description: 'Expose web search and fetch tools to new sessions.', kind: 'toggle' },
   { value: 'memory-enabled', label: 'Memory', description: 'Memory tools, core-memory injection, and background upkeep.', kind: 'toggle' },
   { value: 'autocompact', label: 'Auto-compact', description: 'Compact when context is high.', kind: 'toggle' },
-  { value: 'compact-type', label: 'Compact type', description: 'Uses Memory recall to rebuild context faster on large histories.', kind: 'static' },
   { value: 'autoclear', label: 'Auto-clear', description: 'Idle auto-clear disabled. Enter for options.', kind: 'toggle' },
   { value: 'providers', label: 'Providers', description: 'Auth, API keys, OAuth, local.', kind: 'open' },
   { value: 'mcp', label: 'MCP servers', description: '0/0 connected', kind: 'open' },
   { value: 'plugins', label: 'Plugins', description: '0 detected', kind: 'open' },
-  { value: 'hooks', label: 'Hooks', description: '0 before-tool rules', kind: 'open' },
   { value: 'skills', label: 'Skills', description: '0 available', kind: 'open' },
   // Voice transcription graduated from the retired Channels page into General
   // (user: 음성전사만 일반으로): the managed Whisper runtime powers voice input.
@@ -40,7 +38,7 @@ export type SettingsItemValue = typeof SETTINGS_ITEMS[number]['value'];
 
 export type SettingsCategory =
   | 'general' | 'context' | 'output-style'
-  | 'providers' | 'git' | 'connection' | 'mcp' | 'plugins' | 'hooks' | 'skills'
+  | 'providers' | 'git' | 'connection' | 'mcp' | 'plugins' | 'skills'
   | 'system' | 'shortcuts' | 'about';
 
 export interface SettingsCategoryItem {
@@ -63,7 +61,7 @@ export const SETTINGS_CATEGORIES = [
     value: 'context',
     label: 'Context',
     group: 'Mixdog',
-    items: ['autocompact', 'compact-type', 'autoclear'],
+    items: ['autocompact', 'autoclear'],
   },
   {
     value: 'providers',
@@ -102,12 +100,6 @@ export const SETTINGS_CATEGORIES = [
     label: 'Output style',
     group: 'Mixdog',
     items: ['output-style'],
-  },
-  {
-    value: 'hooks',
-    label: 'Hooks',
-    group: 'Integrations',
-    items: ['hooks'],
   },
   {
     value: 'system',

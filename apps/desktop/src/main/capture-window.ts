@@ -158,7 +158,7 @@ async function captureWindow(): Promise<void> {
         tab: rect('.workspace-tab'),
         tabsShell: rect('.workspace-tabs'),
         sidebar: rect('.session-sidebar'),
-        toggle: rect('.toolbar-sidebar'),
+        toggle: rect('.toolbar-dock'),
         composer: rect('.composer'),
       };
     })()`;
@@ -184,7 +184,7 @@ async function captureWindow(): Promise<void> {
     // rail, so open the session sidebar before any geometry pass.
     await window.webContents.executeJavaScript(`(() => {
       if (document.querySelector('.app-shell.sidebar-collapsed')) {
-        const toggle = document.querySelector('.toolbar-sidebar');
+        const toggle = document.querySelector('.sessions-link');
         if (toggle instanceof HTMLElement) toggle.click();
       }
       return true;
@@ -201,7 +201,7 @@ async function captureWindow(): Promise<void> {
     window.setSize(720, 650);
     await new Promise((resolve) => setTimeout(resolve, 250));
     await window.webContents.executeJavaScript(`(() => {
-      const toggle = document.querySelector('.toolbar-sidebar');
+      const toggle = document.querySelector('.sessions-link');
       if (toggle instanceof HTMLButtonElement && toggle.getAttribute('aria-expanded') !== 'true') {
         toggle.click();
       }
@@ -295,7 +295,7 @@ async function captureWindow(): Promise<void> {
     await waitForRenderer(
       window,
       `(() => {
-        const icon = document.querySelector('.toolbar-sidebar');
+        const icon = document.querySelector('.toolbar-dock');
         if (!(icon instanceof HTMLElement)) return false;
         const probe = document.createElement('span');
         probe.style.color = 'var(--mx-text)';
@@ -317,7 +317,7 @@ async function captureWindow(): Promise<void> {
     // navigation close). Reopen it so the light frame shows the full rail.
     await window.webContents.executeJavaScript(`(() => {
       if (document.querySelector('.app-shell.sidebar-collapsed')) {
-        const toggle = document.querySelector('.toolbar-sidebar');
+        const toggle = document.querySelector('.sessions-link');
         if (toggle instanceof HTMLElement) toggle.click();
       }
       return true;
@@ -399,7 +399,7 @@ async function captureWindow(): Promise<void> {
     window.setMinimumSize(DESKTOP_WINDOW_OPTIONS.minWidth, DESKTOP_WINDOW_OPTIONS.minHeight);
     window.setSize(targetSize.width, targetSize.height);
     await window.webContents.executeJavaScript(
-      "document.querySelector('.toolbar-sidebar[aria-expanded=\"false\"]')?.click()",
+      "document.querySelector('.sessions-link[aria-expanded=\"false\"]')?.click()",
     );
     await new Promise((resolve) => setTimeout(resolve, 500));
     const finalBounds = window.getBounds();

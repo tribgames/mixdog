@@ -170,22 +170,6 @@
 .mobile-tab-card-close:active { background: var(--mx-pressed); }
 .workbench-side-panel[data-side="left"] { border-right: 1px solid var(--mx-border-structure); }
 .workbench-side-panel[data-side="right"] { border-left: 1px solid var(--mx-border-structure); }
-.workbench-side-empty-drop {
-  position: absolute;
-  z-index: 9;
-  top: 0;
-  bottom: 0;
-  width: 14px;
-}
-.workbench-side-empty-drop[data-side="right"] { right: 0; }
-.workbench-side-empty-drop > .workbench-side-icon-bar {
-  width: 100%;
-  height: 100%;
-  min-height: 100%;
-}
-.workbench-side-empty-drop:has(.workbench-side-icon-bar:hover) {
-  background: color-mix(in srgb, var(--mx-focus) 18%, transparent);
-}
 .workbench-side-panel-resize {
   position: absolute;
   z-index: 5;
@@ -445,44 +429,10 @@
   > .workflows-models:first-child > .workflows-section-head {
   margin-top: 0;
 }
-@media (max-width: 940px) {
-  .workbench-side-panel[data-side="right"] {
-    position: fixed;
-    z-index: 38;
-    top: var(--titlebar-height);
-    right: 0;
-    /* As a SHEET this panel kept the width dragged on the desktop (up to
-       SIDE_PANEL_MAX_WIDTH 560px), so a ~600px window handed nearly the whole
-       screen to it and the thread behind it vanished (user: 최대 값이 없어서
-       너무 넓어지는 케이스). The shared sheet grammar caps it against the
-       viewport; the stored width still wins whenever it is the narrower of
-       the two, and the panel's own min-width no longer fights the cap. */
-    width: min(var(--workbench-side-panel-width), var(--mx-side-sheet-width));
-    min-width: 0;
-    max-width: none;
-    /* Anchored to `bottom`, this sheet resolved against the LAYOUT viewport —
-       on a mobile browser the URL-bar-hidden height — so its last rows and its
-       pinned footer sat below the fold, exactly the defect the phone sheets
-       fixed. It takes the same visible-height ceiling, minus the title band it
-       starts below. */
-    bottom: auto;
-    height: calc(var(--mx-visible-height) - var(--titlebar-height));
-    box-shadow: var(--mx-overlay);
-    /* Narrow desktop windows get the same in/out slide as the phone sheet. */
-    transform: translateX(0);
-    visibility: visible;
-    transition: transform var(--mx-sheet-motion), visibility var(--mx-sheet-motion);
-  }
-  .workbench-side-panel[data-side="right"][hidden] {
-    display: flex;
-    transform: translateX(100%);
-    visibility: hidden;
-    pointer-events: none;
-  }
-  .workbench-side-panel[data-side="right"][data-motion="instant"] {
-    transition: none;
-  }
-}
+/* The ≤940px right-sheet rules retired with the pane-embedded dock
+   (pane-side-dock): a narrow PANE overlays its own panel via the container
+   query in pane-layout.css, and the phone keeps its fixed sheet in
+   07-mobile-chrome.css. */
 @media (max-width: 760px) {
   .sidebar-drawer-frame > .workbench-side-panel {
     /* The frame is `display: contents` in this band, so this percentage

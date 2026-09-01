@@ -92,6 +92,7 @@ import {
   envFlagEnabled,
   memorySecondaryMode,
   embeddingWarmupCanStart,
+  embeddingOnDemandCanStart,
   memoryLlmWorkerEnabled,
   memoryCyclesEnabled,
   secondaryPgAdvertised as _secondaryPgAdvertised,
@@ -527,7 +528,7 @@ const __queryHandlers = createQueryHandlers({
   getDb: () => db,
   log: __mixdogMemoryLog,
   resolveProjectScope,
-  embeddingWarmupCanStart,
+  embeddingOnDemandCanStart,
   getBootTimestamp: () => _bootTimestamp,
   getTraceDb: () => _traceDb,
 })

@@ -77,3 +77,21 @@ export function acknowledgePendingGoalReminder(session, revision) {
   session.updatedAt = Date.now();
   return true;
 }
+
+export function prependGoalReminderToLatestUserMessage(messages, content) {
+  const reminder = clean(content);
+  const out = Array.isArray(messages) ? [...messages] : [];
+  if (!reminder) return out;
+  for (let index = out.length - 1; index >= 0; index -= 1) {
+    const message = out[index];
+    if (message?.role !== 'user') continue;
+    const current = message.content;
+    const nextContent = Array.isArray(current)
+      ? [{ type: 'text', text: `${reminder}\n\n` }, ...current]
+      : `${reminder}\n\n${String(current ?? '')}`;
+    out[index] = { ...message, content: nextContent };
+    return out;
+  }
+  out.push({ role: 'user', content: reminder });
+  return out;
+}

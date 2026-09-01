@@ -37,10 +37,10 @@ const MAX_STRUCTURED_STRING_TOTAL = 32_000_000;
 const CAPABILITY_SET = new Set<string>(DESKTOP_CAPABILITIES);
 const READ_CAPABILITY_SET = new Set<string>(DESKTOP_READ_CAPABILITIES);
 const BOOLEAN_FIRST_CAPABILITIES = new Set<DesktopCapability>([
-  'setAutoUpdate', 'setRecapEnabled', 'setWebSearchEnabled', 'setMemoryToolsEnabled',
+  'setAutoUpdate', 'setRecapEnabled', 'setWebSearchEnabled', 'setMemoryToolsEnabled', 'toggleVoice',
 ]);
 const BOOLEAN_SECOND_CAPABILITIES = new Set<DesktopCapability>([
-  'setMcpServerEnabled', 'setPluginEnabled', 'setHookRuleEnabled', 'setScheduleEnabled', 'setWebhookEnabled',
+  'setMcpServerEnabled', 'setPluginEnabled', 'setScheduleEnabled', 'setWebhookEnabled',
   'setBuiltinToolEnabled',
 ]);
 const SUBMIT_OPTION_KEYS = new Set([
@@ -61,15 +61,15 @@ const CAPABILITY_ARITY = {
   getCompactionSettings: [0, 0], setCompactionSettings: [0, 1], getRecapSettings: [0, 0],
   setRecapEnabled: [1, 1], getToolModuleSettings: [0, 0], setWebSearchEnabled: [1, 1], setMemoryToolsEnabled: [1, 1],
   setBuiltinToolEnabled: [2, 2], installBuiltinFeature: [1, 1],
-  getVoiceStatus: [0, 0], toggleVoice: [0, 0],
+  getVoiceStatus: [0, 0], toggleVoice: [1, 1],
   agentControl: [0, 2], taskControl: [0, 1], goalControl: [0, 1], toolsStatus: [0, 1], selectTools: [1, 1], getSystemShell: [0, 0],
   setSystemShell: [1, 1], mcpStatus: [0, 0], getMcpServerConfig: [1, 1], reconnectMcp: [0, 0], addMcpServer: [1, 1],
   saveMcpServer: [1, 1],
   removeMcpServer: [1, 1], setMcpServerEnabled: [2, 2], getDisabledSkills: [0, 0],
   setDisabledSkills: [1, 1], skillsStatus: [0, 0], skillContent: [1, 1], addSkill: [1, 1],
   saveSkill: [1, 1], reloadSkills: [0, 0], pluginsStatus: [0, 0], reloadPlugins: [0, 0], addPlugin: [1, 1],
-  updatePlugin: [1, 1], setPluginEnabled: [2, 2], removePlugin: [1, 1], enablePluginMcp: [1, 1], hooksStatus: [0, 0],
-  contextStatus: [0, 0], addHookRule: [1, 1], setHookRuleEnabled: [2, 2], deleteHookRule: [1, 1],
+  updatePlugin: [1, 1], setPluginEnabled: [2, 2], removePlugin: [1, 1], enablePluginMcp: [1, 1],
+  contextStatus: [0, 0],
   memoryControl: [0, 2], recall: [1, 2], runDoctor: [0, 0], compact: [0, 0], listPresets: [0, 0],
   setModel: [1, 1],
   getWebSearchRoute: [0, 0], listWebSearchModels: [0, 1], setWebSearchRoute: [1, 1], listAgents: [0, 0],

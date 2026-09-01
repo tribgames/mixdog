@@ -90,31 +90,33 @@ test("phone sheets preserve unread activity until the conversation is visible ag
   }), "session-a");
 });
 
-test("an open Goal card stays inside its transcript pane and owns vertical overflow", () => {
-  assert.match(
-    markdownSource,
-    /\.transcript-shell > \.session-goal-island\[data-open="true"\]\s*\{[^}]*bottom:\s*var\(--pane-chrome-inset\);[^}]*pointer-events:\s*none;/su,
+test("an open Goal card expands away from its host and keeps task overflow", () => {
+  const dom = new JSDOM(`<!doctype html><html><head><style>${markdownSource}</style></head><body>
+    <div class="session-goal-host" data-goal-placement="composer">
+      <div class="session-goal-island" data-open="true">
+        <section class="session-goal-popover"><div class="session-goal-tasks"><ul></ul></div></section>
+      </div>
+    </div>
+    <div class="session-goal-host" data-goal-placement="diff">
+      <div class="session-goal-island" data-open="true">
+        <section class="session-goal-popover"></section>
+      </div>
+    </div>
+  </body></html>`);
+  const composerPopover = dom.window.document.querySelector(
+    '[data-goal-placement="composer"] .session-goal-popover',
   );
-  assert.match(
-    markdownSource,
-    /\.session-goal-island\[data-open="true"\] \.session-goal-popover\s*\{[^}]*max-height:\s*calc\(100% - var\(--session-goal-capsule-height\) - 6px\);[^}]*overflow:\s*hidden;/su,
+  const diffPopover = dom.window.document.querySelector(
+    '[data-goal-placement="diff"] .session-goal-popover',
   );
-  assert.match(
-    markdownSource,
-    /\.session-goal-tasks ul\s*\{[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior:\s*contain;/su,
-  );
-  assert.match(
-    markdownSource,
-    /html\[data-mixdog-mobile-tabs\] \.transcript-shell > \.session-goal-island\s*\{[^}]*--session-goal-trigger-height:[^;}]*36px[^;}]*--mx-device-scale/su,
-  );
-  assert.match(
-    markdownSource,
-    /\.session-goal-title-region\s*\{[^}]*grid-template-columns:\s*var\(--mx-icon-md\) minmax\(0, 1fr\);[^}]*gap:\s*3px;/su,
-  );
-  assert.match(
-    markdownSource,
-    /\.session-goal-meta\s*\{[^}]*justify-content:\s*flex-end;[^}]*font-size:\s*var\(--mx-font-meta\);[^}]*line-height:\s*var\(--mx-line-minor\);[^}]*white-space:\s*nowrap;/su,
-  );
+  const taskList = dom.window.document.querySelector(".session-goal-tasks ul");
+
+  assert.equal(dom.window.getComputedStyle(composerPopover).top, "auto");
+  assert.equal(dom.window.getComputedStyle(composerPopover).bottom, "calc(100% + 6px)");
+  assert.equal(dom.window.getComputedStyle(diffPopover).top, "calc(100% + 6px)");
+  assert.equal(dom.window.getComputedStyle(diffPopover).bottom, "auto");
+  assert.equal(dom.window.getComputedStyle(taskList).overflowY, "auto");
+  dom.window.close();
 });
 
 test("the narrow-band dock sheet never re-frames the panel-nested dock", () => {
@@ -390,16 +392,12 @@ test("every screen-pinned sheet takes the visible-height ceiling", () => {
     mobileChromeSource,
     /\.desktop-body > \.utility-dock\s*\{[^}]*height:\s*calc\(var\(--mx-visible-height\) \/ var\(--mx-device-scale, 2\.5\)\);/su,
   );
-  // Narrow desktop/tablet band: the same sheet used to anchor to `bottom`,
-  // which resolves against the LAYOUT viewport and dropped its footer below
-  // the fold on every mobile browser.
-  assert.match(
-    mobileTabsSource,
-    /@media \(max-width: 940px\)\s*\{[^}]*\.workbench-side-panel\[data-side="right"\]\s*\{[^}]*height:\s*calc\(var\(--mx-visible-height\) - var\(--titlebar-height\)\);/su,
-  );
+  // The narrow-band right sheet retired with the pane-embedded dock: a
+  // narrow PANE overlays its own panel (pane-layout.css container query), so
+  // no window-level fixed right sheet may return to the tab layer.
   assert.doesNotMatch(
     mobileTabsSource,
-    /\.workbench-side-panel\[data-side="right"\]\s*\{[^}]*bottom:\s*0;/su,
+    /\.workbench-side-panel\[data-side="right"\][^{]*\{[^}]*position:\s*fixed/su,
   );
 });
 

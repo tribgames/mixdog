@@ -128,9 +128,22 @@ export class DesktopSettingsStore {
           ...record(agent.compaction),
           auto: enabled,
         };
+        if (!compaction.summaryModel && compaction.semanticModel) {
+          compaction.summaryModel = compaction.semanticModel;
+        }
+        if (!compaction.memoryTimeoutMs && compaction.recallMemoryTimeoutMs) {
+          compaction.memoryTimeoutMs = compaction.recallMemoryTimeoutMs;
+        }
         // `enabled` was an old alias. Remove it so it cannot override the
         // canonical `auto` field when a legacy config is switched back on.
-        delete compaction.enabled;
+        for (const legacyKey of [
+          'enabled', 'type', 'compactType', 'compact_type', 'semantic', 'semanticModel', 'prune', 'tailTurns',
+          'recallMemoryTimeoutMs', 'recallIngestLimit', 'recallChunkLimit', 'recallLimit',
+          'recallCycle1BatchSize', 'recallRowsPerSession', 'recallWindowSize',
+          'recallConcurrency', 'recallCycle1DeadlineMs',
+        ]) {
+          delete compaction[legacyKey];
+        }
         agent.compaction = compaction;
       } else if (key === 'keepAwake') {
         next.desktop = { ...record(next.desktop), keepAwake: enabled };

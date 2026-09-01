@@ -104,3 +104,134 @@ test("a persistent pane portal mounts layout-sensitive children after its target
     }
   }
 });
+
+test("a newly opened Studio mounts its gallery and composer in the tab-switch commit", async () => {
+  const dom = new JSDOM("<!doctype html><html><body><main id=\"root\"></main></body></html>", {
+    url: "https://mixdog.test/",
+  });
+  const globals = ["window", "document", "navigator", "Element", "HTMLElement",
+    "IS_REACT_ACT_ENVIRONMENT"];
+  const previous = new Map(globals.map((key) =>
+    [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  Object.defineProperty(globalThis, "window", { configurable: true, value: dom.window });
+  Object.defineProperty(globalThis, "document", { configurable: true, value: dom.window.document });
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: dom.window.navigator,
+  });
+  Object.defineProperty(globalThis, "Element", {
+    configurable: true,
+    value: dom.window.Element,
+  });
+  Object.defineProperty(globalThis, "HTMLElement", {
+    configurable: true,
+    value: dom.window.HTMLElement,
+  });
+  Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
+    configurable: true,
+    value: true,
+  });
+  dom.window.matchMedia = () => ({
+    matches: false,
+    addEventListener() {},
+    removeEventListener() {},
+  });
+  let nextFrame = 1;
+  const pendingFrames = new Map();
+  dom.window.requestAnimationFrame = (callback) => {
+    const frame = nextFrame++;
+    pendingFrames.set(frame, callback);
+    return frame;
+  };
+  dom.window.cancelAnimationFrame = (frame) => pendingFrames.delete(frame);
+
+  const [{ PaneWorkspace }, { PersistentPanePortal }] = await Promise.all([
+    import("./PaneWorkspace.tsx"),
+    import("./PaneSurfaceGate.tsx"),
+  ]);
+  const studioA = { kind: "studio", id: "studio-a" };
+  const studioB = { kind: "studio", id: "studio-b" };
+  const leafA = {
+    type: "leaf",
+    id: "pane-1",
+    tabs: [studioA],
+    activeKey: "studio:studio-a",
+  };
+  const leafB = {
+    ...leafA,
+    tabs: [studioA, studioB],
+    activeKey: "studio:studio-b",
+  };
+  const noop = () => {};
+  const workspaceFor = (leaf) => ({
+    layout: leaf,
+    restoredFromStorage: true,
+    restorePending: false,
+    leaves: [leaf],
+    focusedLeaf: leaf,
+    focusedLeafId: leaf.id,
+    focusLeaf: noop,
+    openInFocused: noop,
+    openInLeaf: noop,
+    promoteInLeaf: noop,
+    pinTab: noop,
+    pinTabByKey: noop,
+    activateTab: noop,
+    reorderTab: noop,
+    closeTab: noop,
+    closeTabByKey: noop,
+    splitFocused: noop,
+    splitLeafAt: noop,
+    moveTab: noop,
+    mergeGroup: noop,
+    moveGroupAt: noop,
+    moveGroupToRootEdge: noop,
+    moveGroupToNodeEdge: noop,
+    moveTabToRootEdge: noop,
+    moveTabToNodeEdge: noop,
+    closeLeaf: noop,
+    setRatio: noop,
+  });
+  const renderUtilityTabs = (leaf) => leaf.tabs.map((selection) =>
+    React.createElement("div", {
+      key: selection.id,
+      id: `studio-slot:${selection.id}`,
+      "data-studio-slot": selection.id,
+      "data-surface-active": leaf.activeKey === `studio:${selection.id}` ? "true" : "false",
+    }));
+  const render = (leaf) => React.createElement(React.Fragment, null,
+    React.createElement(PaneWorkspace, {
+      workspace: workspaceFor(leaf),
+      renderActive: () => null,
+      renderUtilityTabs,
+      onFocusSelection: noop,
+    }),
+    ...leaf.tabs.map((selection) => React.createElement(PersistentPanePortal, {
+      key: selection.id,
+      targetId: `studio-slot:${selection.id}`,
+    }, React.createElement("section", {
+      "data-studio-frame": selection.id,
+    },
+    React.createElement("div", { "data-studio-thumbnails": selection.id }),
+    React.createElement("form", { "data-studio-composer": selection.id })))),
+  );
+
+  const root = createRoot(document.getElementById("root"));
+  try {
+    await act(async () => root.render(render(leafA)));
+    await act(async () => root.render(render(leafB)));
+    assert.ok(document.querySelector(
+      '[data-studio-frame="studio-b"] [data-studio-thumbnails="studio-b"]',
+    ), "the destination Studio gallery must mount without waiting for a handoff frame");
+    assert.ok(document.querySelector(
+      '[data-studio-frame="studio-b"] [data-studio-composer="studio-b"]',
+    ), "the destination Studio composer must mount without waiting for a handoff frame");
+  } finally {
+    await act(async () => root.unmount());
+    dom.window.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+  }
+});

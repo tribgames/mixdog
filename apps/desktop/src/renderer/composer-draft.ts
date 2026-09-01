@@ -52,27 +52,28 @@ export function takeRejectedComposerSubmissionRecoveries(
   }));
 }
 
-export function shouldPreserveComposerDraftOnScopeChange(
-  previousScope: string,
-  nextScope: string,
-): boolean {
-  return previousScope.startsWith("new-task:")
-    && nextScope.startsWith("new-task:");
+/** A composer identity that belongs to a freshly opened New Task pane.
+ *  Pressing New task mints a distinct draft identity, and a fresh draft
+ *  ALWAYS opens clean — carrying the previous pane's text and attachments
+ *  into it was a reported bug. */
+export function composerScopeOpensFreshDraft(nextScope: string): boolean {
+  return nextScope.startsWith("draft:");
 }
 
 export function composerDraftAfterScopeChange({
   currentDraft,
   liveDomDraft,
-  preserveDraft,
+  freshDraft,
   typingLive,
 }: {
   currentDraft: string;
   liveDomDraft: string;
-  preserveDraft: boolean;
+  freshDraft: boolean;
   typingLive: boolean;
 }): string {
+  if (freshDraft) return "";
   const candidate = typingLive ? liveDomDraft : currentDraft;
-  return (preserveDraft || typingLive) && candidate.trim() ? candidate : "";
+  return typingLive && candidate.trim() ? candidate : "";
 }
 
 export function nextComposerSubmissionId(): string {

@@ -8,7 +8,6 @@ import { getProvider } from '../../providers/registry.mjs';
 import { readStreamOutcome } from '../../providers/lib/stream-outcome.mjs';
 import { cloneProviderReplay } from '../../providers/lib/provider-replay.mjs';
 import { classifyError } from '../../providers/retry-classifier.mjs';
-import { normalizeCompactType, DEFAULT_COMPACT_TYPE } from '../compact.mjs';
 import { loadSession, saveSession, saveSessionAsync, saveSessionAsyncDeferred, readSessionLifecycleFromDisk } from '../store.mjs';
 import { createAbortController } from '../../../../shared/abort-controller.mjs';
 import { estimateJsonBytes } from '../../../../shared/json-metrics.mjs';
@@ -513,12 +512,24 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             session.effectiveContextWindowPercent = contextMeta.effectiveContextWindowPercent;
             session.autoCompactTokenLimit = contextMeta.autoCompactTokenLimit;
             session.compactBoundaryTokens = contextMeta.compactBoundaryTokens;
+            const compactState = { ...(session.compaction || {}) };
+            if (!compactState.summaryModel && compactState.semanticModel) {
+                compactState.summaryModel = compactState.semanticModel;
+            }
+            if (!compactState.memoryTimeoutMs && compactState.recallMemoryTimeoutMs) {
+                compactState.memoryTimeoutMs = compactState.recallMemoryTimeoutMs;
+            }
+            for (const key of [
+                'type', 'compactType', 'compact_type', 'semantic', 'semanticModel', 'prune', 'tailTurns',
+                'recallMemoryTimeoutMs', 'recallIngestLimit', 'recallChunkLimit', 'recallLimit',
+                'recallCycle1BatchSize', 'recallRowsPerSession', 'recallWindowSize',
+                'recallConcurrency', 'recallCycle1DeadlineMs',
+            ]) {
+                delete compactState[key];
+            }
             session.compaction = {
-                ...(session.compaction || {}),
+                ...compactState,
                 auto: session.compaction?.auto !== false,
-                semantic: session.compaction?.semantic ?? 'auto',
-                type: normalizeCompactType(session.compaction?.type ?? session.compaction?.compactType ?? session.compaction?.compact_type, DEFAULT_COMPACT_TYPE),
-                compactType: normalizeCompactType(session.compaction?.type ?? session.compaction?.compactType ?? session.compaction?.compact_type, DEFAULT_COMPACT_TYPE),
                 boundaryTokens: contextMeta.compactBoundaryTokens,
                 bufferTokens: positiveContextWindow(session.compaction?.bufferTokens ?? session.compaction?.buffer) || session.compaction?.bufferTokens || null,
                 keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens) || session.compaction?.keepTokens || null,

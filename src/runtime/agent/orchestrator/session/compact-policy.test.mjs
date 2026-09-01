@@ -29,6 +29,7 @@ test('Cursor main sessions preserve the configured 200k compact boundary', () =>
     assert.equal(policy.boundaryTokens, 200_000);
     assert.equal(policy.triggerTokens, 200_000);
     assert.equal(policy.bufferTokens, 0);
+    assert.equal(policy.compactTargetTokens, 100_000);
 });
 
 test('successful compaction publishes post-compact pressure and invalidates the old baseline', () => {

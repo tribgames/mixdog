@@ -20,13 +20,33 @@ import type { UtilityDockTab } from "./UtilityDock";
 import { t } from "./i18n";
 
 export type WorkbenchSide = "left" | "right";
-export type WorkbenchSideViewId = "sessions" | SidebarPanelKey | UtilityDockTab;
+/** Launchers open a WORKSPACE TAB instead of a side panel (user: 스튜디오를
+ *  단독 메뉴로). They ride the same rail as every other view — same icon, same
+ *  order, same drag — but they never become an active side view and never
+ *  combine into another view's group, because they have no panel body. */
+export const WORKBENCH_SIDE_LAUNCHER_IDS = ["studio"] as const;
+export type WorkbenchSideLauncherId = (typeof WORKBENCH_SIDE_LAUNCHER_IDS)[number];
+/** The browser is a pane-dock child view (user: 사이드탭 헤더 하위에 브라우저
+ *  단독으로): its header icon is selectable like any view, but its body is a
+ *  persistent surface stacked over the panel body, not a classic panel. */
+export type WorkbenchSideViewId =
+  | "sessions"
+  | SidebarPanelKey
+  | UtilityDockTab
+  | WorkbenchSideLauncherId
+  | "browser";
 export type WorkbenchSideViewGroup = readonly WorkbenchSideViewId[];
 export type WorkbenchSideTitleDragProps = {
-  draggable: true;
+  draggable: boolean;
   onDragStart(event: ReactDragEvent<HTMLElement>): void;
   onDragEnd(): void;
 };
+
+export function isWorkbenchSideLauncher(
+  id: WorkbenchSideViewId,
+): id is WorkbenchSideLauncherId {
+  return (WORKBENCH_SIDE_LAUNCHER_IDS as readonly string[]).includes(id);
+}
 export type WorkbenchSideViewPlacement =
   | "before"
   | "after"
@@ -41,10 +61,11 @@ export type WorkbenchSideViewLayout = Readonly<Record<
 export const WORKBENCH_SIDE_VIEW_MIME = "application/x-mixdog-side-view";
 export const WORKBENCH_SIDE_GROUP_MIME = "application/x-mixdog-side-group";
 const WORKBENCH_SIDE_LAYOUT_KEY = "mixdog.desktop.workbench-side-view-layout.v1";
-const UTILITIES_RIGHT_MIGRATION_KEY =
-  "mixdog.desktop.workbench-side-view-layout.utilities-right.v1";
-const UTILITIES_FOURTH_MIGRATION_KEY =
-  "mixdog.desktop.workbench-side-view-layout.utilities-fourth.v1";
+/** The rail order and the pane-scoped right side replace every earlier
+ *  placement rule, so one shot drops the stored arrangement instead of
+ *  patching it (user: 기본값 내 설정값도 바꿔주고). */
+const PANE_BOUND_RIGHT_MIGRATION_KEY =
+  "mixdog.desktop.workbench-side-view-layout.pane-bound-right.v1";
 const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
   "sessions",
   "projects",
@@ -53,25 +74,33 @@ const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
   "schedules",
   "webhooks",
   "utilities",
+  "studio",
+  "browser",
   "agents",
   "search",
   "source-control",
   "pull-requests",
 ];
 
+/** The left rail carries every destination in the requested order; the right
+ *  side belongs to the PANE now (user: 오른쪽 사이드탭은 이제 PANE 종속이라),
+ *  so it holds only the two views a pane's own content drives. Disabled
+ *  features (webhooks, pull-requests) trail their side and drop out entirely
+ *  while their flag is off. */
 export const DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT: WorkbenchSideViewLayout = {
   left: [
+    ["agents"],
     ["sessions"],
-    ["projects"],
-    ["workflows"],
-    ["extensions"],
     ["schedules"],
+    ["studio"],
+    ["workflows"],
+    ["utilities"],
+    ["search"],
+    ["extensions"],
+    ["projects"],
     ["webhooks"],
   ],
-  // Utilities sits FOURTH on the right (user: 오른쪽 사이드 탭에 유틸리티를
-  // 네 번째로): the working tabs take the leading slots a phone reaches first,
-  // and with pull-requests disabled Utilities lands on the trailing icon.
-  right: [["agents"], ["search"], ["source-control"], ["utilities"], ["pull-requests"]],
+  right: [["source-control"], ["browser"], ["pull-requests"]],
 };
 
 function isViewId(value: unknown): value is WorkbenchSideViewId {
@@ -156,16 +185,59 @@ function locateGroup(
   return null;
 }
 
+/**
+ * Rearranging is a LEFT-side gesture only (user: 이제 오른쪽 사이드탭으로는
+ * 이동불가하게하고 왼쪽에서만 이동가능하게). The right side ships with the
+ * views its pane drives, so a move that starts there or lands there is a no-op.
+ */
+function movableWithinLeft(
+  layout: WorkbenchSideViewLayout,
+  sourceId: WorkbenchSideViewId,
+  targetSide: WorkbenchSide,
+): boolean {
+  return targetSide === "left" && locateGroup(layout, sourceId)?.side === "left";
+}
+
+function groupMembers(
+  layout: WorkbenchSideViewLayout,
+  id: WorkbenchSideViewId,
+): readonly WorkbenchSideViewId[] {
+  const found = locateGroup(layout, id);
+  return found ? layout[found.side][found.index] : [];
+}
+
+/** A launcher has no panel body to share, so an "inside" drop involving one
+ *  degrades to a plain neighbouring slot instead of building a dead group. */
+function resolvePlacement(
+  layout: WorkbenchSideViewLayout,
+  sourceMembers: readonly WorkbenchSideViewId[],
+  targetRoot: WorkbenchSideViewId | null,
+  placement: WorkbenchSideViewPlacement,
+): WorkbenchSideViewPlacement {
+  if (!placement.startsWith("inside")) return placement;
+  const combines = sourceMembers.some(isWorkbenchSideLauncher)
+    || (targetRoot ? groupMembers(layout, targetRoot).some(isWorkbenchSideLauncher) : false);
+  if (!combines) return placement;
+  return placement === "inside-before" ? "before" : "after";
+}
+
 export function moveWorkbenchSideGroup(
   layout: WorkbenchSideViewLayout,
   sourceRoot: WorkbenchSideViewId,
   targetSide: WorkbenchSide,
   targetRoot: WorkbenchSideViewId | null,
-  placement: WorkbenchSideViewPlacement,
+  requestedPlacement: WorkbenchSideViewPlacement,
 ): WorkbenchSideViewLayout {
   const source = locateGroup(layout, sourceRoot);
   if (!source || layout[source.side][source.index][0] !== sourceRoot) return layout;
+  if (!movableWithinLeft(layout, sourceRoot, targetSide)) return layout;
   if (targetRoot && layout[source.side][source.index].includes(targetRoot)) return layout;
+  const placement = resolvePlacement(
+    layout,
+    layout[source.side][source.index],
+    targetRoot,
+    requestedPlacement,
+  );
   const next = mutableLayout(layout);
   const [sourceGroup] = next[source.side].splice(source.index, 1);
   if (!targetRoot) {
@@ -197,11 +269,13 @@ export function moveWorkbenchSideView(
   sourceId: WorkbenchSideViewId,
   targetSide: WorkbenchSide,
   targetRoot: WorkbenchSideViewId | null,
-  placement: WorkbenchSideViewPlacement,
+  requestedPlacement: WorkbenchSideViewPlacement,
 ): WorkbenchSideViewLayout {
   const source = locateGroup(layout, sourceId);
   if (!source) return layout;
   if (targetRoot === sourceId) return layout;
+  if (!movableWithinLeft(layout, sourceId, targetSide)) return layout;
+  const placement = resolvePlacement(layout, [sourceId], targetRoot, requestedPlacement);
   const next = mutableLayout(layout);
   next[source.side][source.index] = next[source.side][source.index]
     .filter((id) => id !== sourceId);
@@ -246,69 +320,28 @@ export function initialActiveWorkbenchSideViews(
   };
 }
 
-/** Fourth slot, clamped to the end of a shorter right side. */
-const UTILITIES_RIGHT_INDEX = 3;
-
-function insertUtilitiesRightGroup(right: readonly unknown[]): unknown[] {
-  const next = [...right];
-  next.splice(Math.min(UTILITIES_RIGHT_INDEX, next.length), 0, ["utilities"]);
-  return next;
-}
-
-export function migrateDefaultUtilitiesToRight(value: unknown): unknown {
-  if (!value || typeof value !== "object") return value;
-  const record = value as Record<string, unknown>;
-  const left = Array.isArray(record.left) ? record.left : [];
-  const right = Array.isArray(record.right) ? record.right : [];
-  const utilityIndex = left.findIndex((group) =>
-    Array.isArray(group) && group.length === 1 && group[0] === "utilities");
-  const alreadyRight = right.some((group) =>
-    Array.isArray(group) && group.includes("utilities"));
-  if (utilityIndex < 0 || alreadyRight) return value;
-  return {
-    ...record,
-    left: left.filter((_, index) => index !== utilityIndex),
-    right: insertUtilitiesRightGroup(right),
-  };
-}
-
 /**
- * Installs that already moved Utilities to the right kept it in the LEADING
- * slot, so the new default alone would never reach them. One shot re-seats that
- * exact shape to the fourth position; a right side that does not START with the
- * Utilities singleton was arranged by hand and is left untouched.
+ * Every stored placement predates the pane-scoped right side, so patching one
+ * shape at a time can no longer land the new arrangement. This drops the stored
+ * value once — the defaults then apply to existing installs exactly as they do
+ * to a fresh profile — and leaves later hand-arranged left rails untouched.
  */
-export function migrateLeadingUtilitiesToFourth(value: unknown): unknown {
-  if (!value || typeof value !== "object") return value;
-  const record = value as Record<string, unknown>;
-  const right = Array.isArray(record.right) ? record.right : [];
-  const leading = right[0];
-  if (!Array.isArray(leading) || leading.length !== 1 || leading[0] !== "utilities") {
-    return value;
-  }
-  return { ...record, right: insertUtilitiesRightGroup(right.slice(1)) };
+export function discardLayoutForPaneBoundRight(
+  storage: Pick<Storage, "getItem" | "setItem" | "removeItem">,
+  value: unknown,
+): unknown {
+  if (storage.getItem(PANE_BOUND_RIGHT_MIGRATION_KEY) === "1") return value;
+  storage.setItem(PANE_BOUND_RIGHT_MIGRATION_KEY, "1");
+  storage.removeItem(WORKBENCH_SIDE_LAYOUT_KEY);
+  return null;
 }
 
 function readLayout(): unknown {
   try {
-    let value: unknown = JSON.parse(
-      window.localStorage.getItem(WORKBENCH_SIDE_LAYOUT_KEY) || "null",
+    return discardLayoutForPaneBoundRight(
+      window.localStorage,
+      JSON.parse(window.localStorage.getItem(WORKBENCH_SIDE_LAYOUT_KEY) || "null"),
     );
-    let migrated = false;
-    if (window.localStorage.getItem(UTILITIES_RIGHT_MIGRATION_KEY) !== "1") {
-      value = migrateDefaultUtilitiesToRight(value);
-      window.localStorage.setItem(UTILITIES_RIGHT_MIGRATION_KEY, "1");
-      migrated = true;
-    }
-    if (window.localStorage.getItem(UTILITIES_FOURTH_MIGRATION_KEY) !== "1") {
-      value = migrateLeadingUtilitiesToFourth(value);
-      window.localStorage.setItem(UTILITIES_FOURTH_MIGRATION_KEY, "1");
-      migrated = true;
-    }
-    if (migrated) {
-      window.localStorage.setItem(WORKBENCH_SIDE_LAYOUT_KEY, JSON.stringify(value));
-    }
-    return value;
   } catch {
     return null;
   }
@@ -424,6 +457,48 @@ export function workbenchSideBarDropPlacement(
   return previous ?? (point <= .5 ? "before" : "after");
 }
 
+export function workbenchSideBarDropTarget(
+  items: readonly {
+    root: WorkbenchSideViewId;
+    start: number;
+    end: number;
+  }[],
+  point: number,
+  previous: {
+    root: WorkbenchSideViewId;
+    placement: "before" | "after";
+  } | null,
+): {
+  root: WorkbenchSideViewId;
+  placement: "before" | "after";
+} | null {
+  const first = items[0];
+  if (!first) return null;
+  if (point <= first.start) return { root: first.root, placement: "before" };
+  const last = items[items.length - 1];
+  if (point >= last.end) return { root: last.root, placement: "after" };
+
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index];
+    if (point >= item.start && point <= item.end) {
+      return {
+        root: item.root,
+        placement: workbenchSideBarDropPlacement(
+          (point - item.start) / Math.max(1, item.end - item.start),
+          previous?.root === item.root ? previous.placement : null,
+        ),
+      };
+    }
+    const next = items[index + 1];
+    if (next && point > item.end && point < next.start) {
+      return point <= (item.end + next.start) / 2
+        ? { root: item.root, placement: "after" }
+        : { root: next.root, placement: "before" };
+    }
+  }
+  return { root: last.root, placement: "after" };
+}
+
 export function WorkbenchSideIconBar({
   side,
   groups,
@@ -457,23 +532,88 @@ export function WorkbenchSideIconBar({
     root: WorkbenchSideViewId;
     placement: WorkbenchSideViewPlacement;
   } | null>(null);
-  return <div className={`workbench-side-icon-bar is-${orientation}`}
+  const barRef = useRef<HTMLDivElement | null>(null);
+  const renderedGroups = groups.filter((group) => descriptors.has(group[0]));
+  // Only the left rail rearranges (user: 왼쪽에서만 이동가능하게): the
+  // pane-scoped right strip neither starts a drag nor accepts one.
+  const movable = side === "left";
+  const acceptsDrag = (event: ReactDragEvent<HTMLElement>): boolean => {
+    if (!movable) return false;
+    const types = Array.from(event.dataTransfer.types);
+    return types.includes(WORKBENCH_SIDE_GROUP_MIME)
+      || types.includes(WORKBENCH_SIDE_VIEW_MIME);
+  };
+  const targetAt = (
+    clientX: number,
+    clientY: number,
+    previous: {
+      root: WorkbenchSideViewId;
+      placement: "before" | "after";
+    } | null,
+  ) => {
+    const buttons = Array.from(barRef.current?.children ?? []) as HTMLButtonElement[];
+    const items: Array<{
+      root: WorkbenchSideViewId;
+      start: number;
+      end: number;
+    }> = [];
+    buttons.forEach((button, index) => {
+      const root = renderedGroups[index]?.[0];
+      if (!root) return;
+      const bounds = button.getBoundingClientRect();
+      items.push({
+        root,
+        start: orientation === "vertical" ? bounds.top : bounds.left,
+        end: orientation === "vertical" ? bounds.bottom : bounds.right,
+      });
+    });
+    return workbenchSideBarDropTarget(
+      items,
+      orientation === "vertical" ? clientY : clientX,
+      previous,
+    );
+  };
+  return <div ref={barRef} className={`workbench-side-icon-bar is-${orientation}`}
     role="navigation"
     aria-label={t(side === "left" ? "Sidebar" : "Utility panel tabs")}
     onDragOver={(event) => {
-      if (!groups.length && (
-        Array.from(event.dataTransfer.types).includes(WORKBENCH_SIDE_GROUP_MIME)
-        || Array.from(event.dataTransfer.types).includes(WORKBENCH_SIDE_VIEW_MIME)
-      )) event.preventDefault();
+      if (!acceptsDrag(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      setDrop((current) => targetAt(
+        event.clientX,
+        event.clientY,
+        current?.placement === "before" || current?.placement === "after"
+          ? current as { root: WorkbenchSideViewId; placement: "before" | "after" }
+          : null,
+      ));
+    }}
+    onDragLeave={(event) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+        setDrop(null);
+      }
     }}
     onDrop={(event) => {
-      if (groups.length) return;
-      event.preventDefault();
+      if (!movable) return;
       const payload = dragPayload(event);
-      if (payload?.type === "group") onMoveGroup(payload.id, side, null, "after");
-      if (payload?.type === "view") onMoveView(payload.id, side, null, "after");
+      if (!payload) return;
+      event.preventDefault();
+      const target = targetAt(
+        event.clientX,
+        event.clientY,
+        drop?.placement === "before" || drop?.placement === "after"
+          ? drop as { root: WorkbenchSideViewId; placement: "before" | "after" }
+          : null,
+      );
+      if (payload.type === "group") {
+        onMoveGroup(payload.id, side, target?.root ?? null, target?.placement ?? "after");
+      } else {
+        onMoveView(payload.id, side, target?.root ?? null, target?.placement ?? "after");
+      }
+      activeWorkbenchSideDrag = null;
+      setDrop(null);
     }}>
-    {groups.map((group) => {
+    {renderedGroups.map((group) => {
       const root = group[0];
       const descriptor = descriptors.get(root);
       if (!descriptor) return null;
@@ -485,58 +625,28 @@ export function WorkbenchSideIconBar({
         aria-current={active ? "page" : undefined}
         data-tooltip={t(descriptor.tooltip || descriptor.label)}
         data-drop-position={drop?.root === root ? drop.placement : undefined}
-        draggable
+        draggable={movable}
         onPointerEnter={descriptor.onPrefetch}
         onFocus={descriptor.onPrefetch}
         onPointerDown={(event) => {
           if (event.button === 0) descriptor.onPrefetch?.();
         }}
         onDragStart={(event) => {
+          if (!movable) return;
           activeWorkbenchSideDrag = { type: "group", id: root };
           event.dataTransfer.effectAllowed = "move";
           event.dataTransfer.setData(WORKBENCH_SIDE_GROUP_MIME, root);
           event.dataTransfer.setData("text/plain", root);
           setWorkbenchSideIconDragImage(event);
         }}
-        onDragOver={(event) => {
-          const types = Array.from(event.dataTransfer.types);
-          const groupDrag = types.includes(WORKBENCH_SIDE_GROUP_MIME);
-          const viewDrag = types.includes(WORKBENCH_SIDE_VIEW_MIME);
-          if (!groupDrag && !viewDrag) return;
-          event.preventDefault();
-          event.dataTransfer.dropEffect = "move";
-          const bounds = event.currentTarget.getBoundingClientRect();
-          const point = orientation === "vertical"
-            ? (event.clientY - bounds.top) / Math.max(1, bounds.height)
-            : (event.clientX - bounds.left) / Math.max(1, bounds.width);
-          setDrop((current) => ({
-            root,
-            placement: workbenchSideBarDropPlacement(
-              point,
-              current?.root === root ? current.placement as "before" | "after" : null,
-            ),
-          }));
-        }}
-        onDragLeave={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-            setDrop((current) => current?.root === root ? null : current);
-          }
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          const payload = dragPayload(event);
-          const placement = drop?.root === root ? drop.placement : "inside";
-          if (payload?.type === "group") onMoveGroup(payload.id, side, root, placement);
-          if (payload?.type === "view") onMoveView(payload.id, side, root, placement);
-          setDrop(null);
-          if (placement === "inside") onSelect(root);
-        }}
         onDragEnd={() => {
           activeWorkbenchSideDrag = null;
           setDrop(null);
         }}
         onClick={() => onSelect(root)}>
-        <Icon size={orientation === "vertical" ? 24 : 18} aria-hidden="true" />
+        {/* Horizontal bars share the status island's 20px lucide tier (user:
+            아이콘들도 사이드탭쪽이 더 얇은 것 같고 — 크기를 맞춰야). */}
+        <Icon size={orientation === "vertical" ? 24 : 20} aria-hidden="true" />
       </button>;
     })}
   </div>;
@@ -545,6 +655,7 @@ export function WorkbenchSideIconBar({
 function WorkbenchSideSection({
   id,
   active,
+  movable,
   sectioned,
   order,
   basis,
@@ -552,6 +663,9 @@ function WorkbenchSideSection({
 }: {
   id: WorkbenchSideViewId;
   active: boolean;
+  /** Left-side panels hand their title bar a live drag handle; the pane-scoped
+   *  right side hands it an inert one. */
+  movable: boolean;
   sectioned: boolean;
   order: number;
   basis: number;
@@ -561,8 +675,9 @@ function WorkbenchSideSection({
   ): ReactNode;
 }) {
   const titleDragProps: WorkbenchSideTitleDragProps = {
-    draggable: true,
+    draggable: movable,
     onDragStart: (event) => {
+      if (!movable) return;
       activeWorkbenchSideDrag = { type: "view", id };
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData(WORKBENCH_SIDE_VIEW_MIME, id);
@@ -661,8 +776,16 @@ export function WorkbenchSidePanel({
   side,
   open,
   motion = "animated",
+  embedded = false,
+  widthStorageKey,
+  widthRange,
+  widthOverride,
+  onWidthDrag,
+  hideTabs = false,
   groups,
   activeRoot,
+  surfaces,
+  surfacesActive = false,
   descriptors,
   onSelect,
   onMoveGroup,
@@ -673,8 +796,31 @@ export function WorkbenchSidePanel({
   open: boolean;
   /** Narrow-band sheets slide; a responsive fold applies its state instantly. */
   motion?: "animated" | "instant";
+  /** Pane-embedded panel (per-pane right dock): keeps the horizontal tabs
+   *  header for view switching, is exempt from the window sheet-band CSS,
+   *  and skips idle pre-retain — one hidden mount per pane would multiply
+   *  across the split tree. */
+  embedded?: boolean;
+  /** Width preference override; pane docks share one key across panes. */
+  widthStorageKey?: string;
+  /** Width clamp override; pane docks widen past the window panel ceiling
+   *  because browser/diff surfaces need the room. */
+  widthRange?: { min: number; max: number; initial: number };
+  /** Controlled width (pane docks): the owner measures the pane and hands
+   *  the clamped width down; the resize handle reports through onWidthDrag
+   *  and the owner persists its own preference. */
+  widthOverride?: number;
+  onWidthDrag?(width: number, commit: boolean): void;
+  /** Pane docks render ONE unit-wide header themselves (user: 헤더 한 줄),
+   *  so the panel's own tab header stays off. */
+  hideTabs?: boolean;
   groups: readonly WorkbenchSideViewGroup[];
   activeRoot: WorkbenchSideViewId | null;
+  /** Persistent surface stack (browser/diff) kept mounted over the panel
+   *  body — display:none would wedge a browser guest, so `surfacesActive`
+   *  swaps the showing layer by z-index/opacity instead. */
+  surfaces?: ReactNode;
+  surfacesActive?: boolean;
   descriptors: ReadonlyMap<WorkbenchSideViewId, WorkbenchSideViewDescriptor>;
   onSelect(id: WorkbenchSideViewId): void;
   onMoveGroup: Parameters<typeof WorkbenchSideIconBar>[0]["onMoveGroup"];
@@ -688,6 +834,7 @@ export function WorkbenchSidePanel({
   const selectedGroup = groups.find((group) =>
     activeRoot !== null && group.includes(activeRoot)) ?? groups[0] ?? [];
   const root = selectedGroup[0] ?? null;
+  const movable = side === "left";
   const [retainedRoots, setRetainedRoots] = useState<readonly WorkbenchSideViewId[]>([]);
   useEffect(() => {
     setRetainedRoots((current) => {
@@ -699,8 +846,10 @@ export function WorkbenchSidePanel({
   // Idle pre-retain (user: 메뉴 이동할 때 깜빡 — 바로바로 나오게): shortly
   // after the panel settles, EVERY destination hidden-mounts, so the first
   // visit to each menu swaps attributes on a live tree instead of mounting
-  // from scratch and flashing an empty frame.
+  // from scratch and flashing an empty frame. Pane-embedded docks skip this:
+  // visited views still retain, but a full hidden mount per pane is too heavy.
   useEffect(() => {
+    if (embedded) return undefined;
     const timer = window.setTimeout(() => {
       setRetainedRoots((current) => {
         const next = groups
@@ -711,24 +860,30 @@ export function WorkbenchSidePanel({
       });
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [groups]);
+  }, [embedded, groups]);
   const retainedGroups = groups.filter((group) =>
     group[0] !== root && retainedRoots.includes(group[0]));
   const splitKey = `mixdog.desktop.side-view-split.${side}.${selectedGroup.join("+")}.v1`;
   const [splitSizesByKey, setSplitSizesByKey] = useState<Record<string, number[]>>({});
   const splitSizes = splitSizesByKey[splitKey]
     ?? readSideSplitSizes(splitKey, selectedGroup.length);
+  const widthKey = widthStorageKey ?? SIDE_PANEL_WIDTH_KEY[side];
+  const widthMin = widthRange?.min ?? SIDE_PANEL_MIN_WIDTH[side];
+  const widthMax = widthRange?.max ?? SIDE_PANEL_MAX_WIDTH[side];
+  const widthInitial = widthRange?.initial ?? SIDE_PANEL_DEFAULT_WIDTH[side];
   const [width, setWidth] = useState(() => {
     try {
-      const stored = Number(window.localStorage.getItem(SIDE_PANEL_WIDTH_KEY[side]));
+      const stored = Number(window.localStorage.getItem(widthKey));
       return Number.isFinite(stored) && stored > 0
-        ? Math.max(SIDE_PANEL_MIN_WIDTH[side], Math.min(SIDE_PANEL_MAX_WIDTH[side], stored))
-        : SIDE_PANEL_DEFAULT_WIDTH[side];
+        ? Math.max(widthMin, Math.min(widthMax, stored))
+        : widthInitial;
     } catch {
-      return SIDE_PANEL_DEFAULT_WIDTH[side];
+      return widthInitial;
     }
   });
+  const effectiveWidth = widthOverride ?? width;
   const resizeStart = useRef<{ x: number; width: number } | null>(null);
+  const dragPending = useRef<number | null>(null);
   const panelBodyRef = useRef<HTMLDivElement | null>(null);
   const [paneDrop, setPaneDrop] = useState<{
     targetRoot: WorkbenchSideViewId;
@@ -789,44 +944,58 @@ export function WorkbenchSidePanel({
   return <aside className="workbench-side-panel"
     data-side={side}
     data-motion={motion}
+    data-embedded={embedded ? "true" : undefined}
     hidden={!open}
     aria-hidden={open ? undefined : true}
     inert={open ? undefined : true}
     style={{
-      "--workbench-side-panel-width": `${width}px`,
-      "--workbench-side-panel-min-width": `${SIDE_PANEL_MIN_WIDTH[side]}px`,
-      "--workbench-side-panel-max-width": `${SIDE_PANEL_MAX_WIDTH[side]}px`,
+      "--workbench-side-panel-width": `${effectiveWidth}px`,
+      "--workbench-side-panel-min-width": `${widthMin}px`,
+      "--workbench-side-panel-max-width": `${widthMax}px`,
     } as React.CSSProperties}>
     <div className="workbench-side-panel-resize" role="separator"
       aria-orientation="vertical"
       onPointerDown={(event) => {
         if (event.button !== 0) return;
-        resizeStart.current = { x: event.clientX, width };
+        resizeStart.current = { x: event.clientX, width: effectiveWidth };
+        dragPending.current = null;
         event.currentTarget.setPointerCapture(event.pointerId);
       }}
       onPointerMove={(event) => {
         const start = resizeStart.current;
         if (!start || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
         const delta = side === "left" ? event.clientX - start.x : start.x - event.clientX;
-        setWidth(Math.max(
-          SIDE_PANEL_MIN_WIDTH[side],
-          Math.min(SIDE_PANEL_MAX_WIDTH[side], Math.round(start.width + delta)),
-        ));
+        const next = Math.max(
+          widthMin,
+          Math.min(widthMax, Math.round(start.width + delta)),
+        );
+        if (onWidthDrag) {
+          dragPending.current = next;
+          onWidthDrag(next, false);
+        } else setWidth(next);
       }}
       onPointerUp={(event) => {
         if (!resizeStart.current) return;
         resizeStart.current = null;
         try { event.currentTarget.releasePointerCapture(event.pointerId); } catch {}
-        try { window.localStorage.setItem(SIDE_PANEL_WIDTH_KEY[side], String(width)); } catch {}
+        if (onWidthDrag) {
+          onWidthDrag(dragPending.current ?? effectiveWidth, true);
+          dragPending.current = null;
+          return;
+        }
+        try { window.localStorage.setItem(widthKey, String(width)); } catch {}
       }} />
     <div className="workbench-side-panel-content">
-    {side === "right" && <header className="workbench-side-panel-tabs">
+    {side === "right" && !hideTabs && <header className="workbench-side-panel-tabs">
       <WorkbenchSideIconBar side="right" groups={groups}
         activeRoot={root} descriptors={descriptors} orientation="horizontal"
         onSelect={onSelect} onMoveGroup={onMoveGroup} onMoveView={onMoveView} />
     </header>}
     <div key={root} className="workbench-side-panel-body" ref={panelBodyRef}
+      inert={surfacesActive ? true : undefined}
+      aria-hidden={surfacesActive ? true : undefined}
       onDragOver={(event) => {
+        if (!movable) return;
         const types = Array.from(event.dataTransfer.types);
         if (!types.includes(WORKBENCH_SIDE_GROUP_MIME)
           && !types.includes(WORKBENCH_SIDE_VIEW_MIME)) return;
@@ -885,7 +1054,7 @@ export function WorkbenchSidePanel({
         }
       }}
       onDrop={(event) => {
-        if (!paneDrop) return;
+        if (!movable || !paneDrop) return;
         const payload = dragPayload(event);
         if (!payload) {
           setPaneDrop(null);
@@ -909,7 +1078,7 @@ export function WorkbenchSidePanel({
         const descriptor = descriptors.get(id);
         if (!descriptor) return null;
         return <Fragment key={id}>
-          <WorkbenchSideSection id={id} active={open}
+          <WorkbenchSideSection id={id} active={open} movable={movable}
             sectioned={sectioned} order={index * 2}
             basis={splitSizes[index] ?? 100 / selectedGroup.length}>
             {(active, titleDragProps) => renderView(id, active, titleDragProps)}
@@ -932,7 +1101,7 @@ export function WorkbenchSidePanel({
       return <div key={retainedRoot} className="workbench-side-panel-body"
         hidden inert aria-hidden="true">
         {group.map((id, index) => descriptors.has(id)
-          ? <WorkbenchSideSection key={id} id={id} active={false}
+          ? <WorkbenchSideSection key={id} id={id} active={false} movable={movable}
               sectioned={group.length > 1} order={index * 2}
               basis={retainedSizes[index] ?? 100 / group.length}>
               {(active, titleDragProps) => renderView(id, active, titleDragProps)}
@@ -940,6 +1109,10 @@ export function WorkbenchSidePanel({
           : null)}
       </div>;
     })}
+    {surfaces && <div className="workbench-side-panel-surfaces"
+      data-active={surfacesActive ? "true" : "false"}>
+      {surfaces}
+    </div>}
     </div>
   </aside>;
 }

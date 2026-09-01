@@ -1,31 +1,20 @@
-// Session compaction runner — recall-fasttrack / semantic / prune-fallback.
+// Session compaction runner — one fresh-context Compact contract.
 // Extracted verbatim from manager.mjs (behavior-preserving). Self-contained:
 // operates on a live `session` object + opts, using pure compact/context
 // helpers. No runtime-liveness (_runtimeState) coupling — manager.mjs still
 // owns scheduling / stage gating and simply calls runSessionCompaction().
-import { createHash } from 'crypto';
 import { getProvider } from '../../providers/registry.mjs';
-import {
-    semanticCompactMessages,
-    pruneToolOutputsUnanchored,
-    effectiveBudget as compactEffectiveBudget,
-    compactTypeIsRecallFastTrack,
-    compactTypeIsSemantic,
-    normalizeCompactType,
-} from '../compact.mjs';
 import { estimateMessagesTokens, estimateRequestReserveTokens, estimateTranscriptContextUsage, resolveCompactBufferRatio } from '../context-utils.mjs';
 import { executeInternalTool } from '../../internal-tools.mjs';
 import {
     callMemoryColdStart,
-    recallMemoryTimeoutMs,
-    runRecallFastTrackCompact,
-} from '../loop/recall-fasttrack.mjs';
+    memoryHandoffTimeoutMs,
+    runFreshContextCompact,
+} from '../loop/fresh-context.mjs';
 import {
     positiveContextWindow,
-    semanticCompactionEnabledForSession,
-    compactTypeForSession,
 } from './context-meta.mjs';
-import { resolveSemanticSummaryModel } from '../loop/compact-policy.mjs';
+import { resolveHandoffSummaryModel } from '../loop/compact-policy.mjs';
 import { traceAgentCompact, messagePrefixHash } from '../../agent-trace.mjs';
 import { uncachedInputTokensForProvider } from './usage-metrics.mjs';
 import { pruneOffloadSession } from '../tool-result-offload.mjs';
@@ -42,8 +31,8 @@ import {
 } from '../loop/compact-policy.mjs';
 import { snapshotProviderRequestTools } from '../../../../../session-runtime/tool-catalog.mjs';
 
-// 'compacting' is a transient in-flight stage written just before semantic /
-// recall-fasttrack compaction runs. If the process crashes or only partially
+// 'compacting' is a transient in-flight stage written just before Compact
+// runs. If the process crashes or only partially
 // saves while it is set, a later load/resume reads a session that is NOT
 // actually compacting but whose UI marker (App.jsx / ContextPanel) shows
 // "Compacting conversation" permanently. Normalize that stale transient stage
@@ -90,30 +79,38 @@ function addCompactUsageToSession(session, usage) {
     session.totalUncachedInputTokens = (session.totalUncachedInputTokens || 0) + uncachedInputTokens;
     session.tokensCumulative = (session.tokensCumulative || 0) + inputTokens + outputTokens;
 }
-// Recall-fasttrack memory bounds live with the pipeline itself
-// (loop/recall-fasttrack.mjs) so every caller — this one and the pre-send
+
+function withoutLegacyCompactFields(value) {
+    const next = value && typeof value === 'object' ? { ...value } : {};
+    for (const key of [
+        'type',
+        'compactType',
+        'semantic',
+        'semanticModel',
+        'semanticTimeoutMs',
+        'tailTurns',
+        'lastCompactType',
+        'lastSemantic',
+        'lastSemanticError',
+        'lastRecallFastTrack',
+        'lastRecallFastTrackError',
+        'lastRecallFastTrackQuerySha',
+        'lastSemanticUsage',
+    ]) delete next[key];
+    return next;
+}
+// Memory bounds live with the fresh-context pipeline, so every caller
+// — this one and the pre-send
 // compaction — shares one timeout contract instead of each wiring its own.
-// Semantic-compact timeout scales with transcript size (clear/manual path):
+// Handoff-summary timeout scales with transcript size (clear/manual path):
 // default max(30s, ~10s per 25k estimated message tokens) capped at 120s, so a
 // large (~100k-token) transcript no longer dies on a fixed 30s bound.
 // session.compaction.timeoutMs still overrides.
-function semanticCompactTimeoutMs(session, messageTokens) {
+function handoffSummaryTimeoutMs(session, messageTokens) {
     const override = positiveContextWindow(session?.compaction?.timeoutMs);
     if (override) return override;
     const scaled = Math.ceil((messageTokens || 0) / 25_000) * 10_000;
     return Math.min(120_000, Math.max(30_000, scaled));
-}
-// Element-identity change detection (same approach as loop.mjs messagesArrayChanged): two
-// arrays are "unchanged" only when same length AND every slot is the same object
-// reference. Used to reject a no-op prune (which returns a fresh array whose
-// elements are the untouched originals) from being accepted as a recovery.
-function messagesChanged(before, after) {
-    if (!Array.isArray(before) || !Array.isArray(after)) return before !== after;
-    if (before.length !== after.length) return true;
-    for (let i = 0; i < before.length; i += 1) {
-        if (before[i] !== after[i]) return true;
-    }
-    return false;
 }
 export async function runSessionCompaction(session, opts = {}) {
     if (!session || session.closed === true) return null;
@@ -160,17 +157,9 @@ export async function runSessionCompaction(session, opts = {}) {
     const beforeTokens = (alignedPolicy
         ? resolveGaugeContextTokens(beforeMessageTokens, alignedPolicy, { messages, sessionRef: session })
         : 0) || pressureTokens;
-    // Manual /compact may explicitly request the original semantic path:
-    // summarize THIS session's transcript directly without hydrating/searching
-    // Memory first. Automatic and auto-clear compaction keep their configured
-    // recall-fasttrack behavior unless their caller explicitly changes it.
-    const compactType = mode === 'manual' && opts.compactType != null
-        ? normalizeCompactType(opts.compactType)
-        : compactTypeForSession(session);
     if (!force && pressureTokens < triggerTokens) return {
         changed: false,
         reason: 'below threshold',
-        compactType,
         beforeMessages: messages.length,
         afterMessages: messages.length,
         beforeTokens,
@@ -185,7 +174,7 @@ export async function runSessionCompaction(session, opts = {}) {
         budgetTokens: boundary,
         targetBudgetTokens,
         reserveTokens,
-        semanticCompact: false,
+        freshContext: false,
     };
     const budget = targetBudgetTokens;
     const compactStartedAt = Date.now();
@@ -193,18 +182,16 @@ export async function runSessionCompaction(session, opts = {}) {
     const provider = opts.provider || getProvider(session.provider) || null;
     let compacted;
     let compactError = null;
-    let semanticCompactResult = null;
-    let semanticCompactError = null;
-    let recallFastTrackResult = null;
-    let recallFastTrackError = null;
-    if (compactTypeIsRecallFastTrack(compactType)) {
+    let freshContextResult = null;
+    let freshContextError = null;
+    {
         try {
             const contextWindow = positiveContextWindow(session.contextWindow) || boundary;
-            const memoryTimeoutMs = recallMemoryTimeoutMs(session);
+            const memoryTimeoutMs = memoryHandoffTimeoutMs(session);
             const executeMemory = typeof opts.executeInternalToolFn === 'function'
                 ? opts.executeInternalToolFn
                 : executeInternalTool;
-            recallFastTrackResult = await runRecallFastTrackCompact({
+            freshContextResult = await runFreshContextCompact({
                 sessionRef: session,
                 messages,
                 compactBudgetTokens: budget,
@@ -214,100 +201,36 @@ export async function runSessionCompaction(session, opts = {}) {
                     boundaryTokens: boundary,
                     keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
                     preserveRecentTokens: positiveContextWindow(session.compaction?.preserveRecentTokens),
+                    handoffTimeoutMs: handoffSummaryTimeoutMs(session, beforeMessageTokens),
                 },
                 sessionId: resolvedSessionId,
                 signal: opts.signal || null,
+                provider,
+                model: opts.model || resolveHandoffSummaryModel(session, { budgetTokens: budget }) || session.model,
+                sendOpts: { session },
                 executeMemorySearch: (args, callerCtx) => (
                     callMemoryColdStart(args, callerCtx, memoryTimeoutMs, executeMemory)
                 ),
             });
-            if (Array.isArray(recallFastTrackResult?.messages)) {
-                compacted = recallFastTrackResult.messages;
+            if (Array.isArray(freshContextResult?.messages)) {
+                compacted = freshContextResult.messages;
+                addCompactUsageToSession(session, freshContextResult.usage);
             }
         } catch (err) {
-            recallFastTrackError = err;
+            freshContextError = err;
             compactError = err;
             try {
-                process.stderr.write(`[session] recall-fasttrack ${mode} compact failed (sess=${session.id || 'unknown'}): ${err?.message || err}\n`);
-            } catch { /* best-effort */ }
-        }
-    } else if (compactTypeIsSemantic(compactType)) {
-        try {
-            if (!semanticCompactionEnabledForSession(session)) {
-                throw new Error('semantic compact is disabled for this session');
-            }
-            if (!provider || typeof provider.send !== 'function') {
-                throw new Error(`semantic compact provider unavailable: ${session.provider || 'unknown'}`);
-            }
-            semanticCompactResult = await semanticCompactMessages(
-                provider,
-                messages,
-                opts.model || resolveSemanticSummaryModel(session, { budgetTokens: budget }) || session.model,
-                budget,
-                {
-                    reserveTokens,
-                    providerName: session.provider || provider?.name || null,
-                    sessionId: resolvedSessionId,
-                    cwd: session.cwd,
-                    signal: opts.signal || null,
-                    // Same-session wire identity: one prefix-cache slot for
-                    // turns and their summaries alike.
-                    sendOpts: { session },
-                    promptCacheKey: session.promptCacheKey || null,
-                    providerCacheKey: session.promptCacheKey || null,
-                    timeoutMs: semanticCompactTimeoutMs(session, beforeMessageTokens),
-                    tailTurns: positiveContextWindow(session.compaction?.tailTurns) || 2,
-                    keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
-                    preserveRecentTokens: positiveContextWindow(session.compaction?.preserveRecentTokens),
-                    filterOldHistoryForIngest: opts.filterOldHistoryForIngest === true,
-                    force: true,
-                },
-            );
-            if (Array.isArray(semanticCompactResult?.messages)) {
-                compacted = semanticCompactResult.messages;
-                addCompactUsageToSession(session, semanticCompactResult.usage);
-            }
-        } catch (err) {
-            semanticCompactError = err;
-            compactError = err;
-            try {
-                process.stderr.write(`[session] semantic ${mode} compact failed (sess=${session.id || 'unknown'}): ${err?.message || err}\n`);
+                process.stderr.write(`[session] fresh-context ${mode} compact failed (sess=${session.id || 'unknown'}): ${err?.message || err}\n`);
             } catch { /* best-effort */ }
         }
     }
     if (!compacted && !compactError) {
-        compactError = new Error(`${compactType} compact produced no messages`);
-    }
-    // Anchor-independent prune safety net (mirror loop.mjs compact catch): when a
-    // non-recall (semantic) compact failed, try one non-LLM prune that needs no
-    // user anchor before recording failure, so Lead manual / auto-clear paths
-    // recover the same transcripts the loop path does. Gated off the recall
-    // path — a recall failure keeps its original contract (no silent prune).
-    if (!compacted && !recallFastTrackError) {
-        try {
-            const acceptThreshold = compactEffectiveBudget(budget, { reserveTokens });
-            const salvaged = pruneToolOutputsUnanchored(messages, budget, { reserveTokens });
-            // pruneToolOutputsUnanchored ALWAYS returns a fresh reconciled array
-            // (never the input identity), so `salvaged !== messages` is always
-            // true and cannot detect a no-op. Compare by element identity so a
-            // transcript that already fit (nothing pruned) is NOT falsely accepted
-            // as a recovery — that would clear compactError and unconditionally
-            // invalidate providerState for an unchanged transcript.
-            if (Array.isArray(salvaged)
-                && messagesChanged(messages, salvaged)
-                && estimateMessagesTokens(salvaged) <= acceptThreshold) {
-                compacted = salvaged;
-                compactError = null;
-                try {
-                    process.stderr.write(`[session] compact fallback prune recovered (sess=${session.id || 'unknown'}, mode=${mode})\n`);
-                } catch { /* best-effort */ }
-            }
-        } catch { /* fall through to failure record */ }
+        compactError = new Error('fresh-context compact produced no messages');
     }
     if (!compacted) {
         const now = Date.now();
         session.compaction = {
-            ...(session.compaction || {}),
+            ...withoutLegacyCompactFields(session.compaction),
             auto: mode === 'auto' ? true : session.compaction?.auto !== false,
             boundaryTokens: boundary,
             triggerTokens,
@@ -323,14 +246,9 @@ export async function runSessionCompaction(session, opts = {}) {
             currentEstimatedTokens: beforeTokens,
             lastCheckedAt: now,
             lastChanged: false,
-            type: compactType,
-            compactType,
-            lastCompactType: compactType,
-            lastSemantic: false,
-            lastSemanticError: semanticCompactError?.message || null,
-            lastRecallFastTrack: false,
-            lastRecallFastTrackError: recallFastTrackError?.message || null,
-            lastError: compactError?.message || semanticCompactError?.message || recallFastTrackError?.message || String(compactError || semanticCompactError || recallFastTrackError || 'compact failed'),
+            lastFreshContext: false,
+            lastFreshContextError: freshContextError?.message || null,
+            lastError: compactError?.message || freshContextError?.message || String(compactError || freshContextError || 'compact failed'),
         };
         // compact_meta parity with the loop's pre-send pass: the out-of-loop
         // (post-turn/manual) compaction failure was previously invisible to
@@ -339,7 +257,6 @@ export async function runSessionCompaction(session, opts = {}) {
             sessionId: resolvedSessionId,
             stage: mode === 'auto' ? 'post_turn' : 'manual',
             trigger: mode,
-            compact_type: compactType,
             compact_changed: false,
             before_count: messages.length,
             after_count: messages.length,
@@ -360,7 +277,6 @@ export async function runSessionCompaction(session, opts = {}) {
         return {
             changed: false,
             error: session.compaction.lastError,
-            compactType,
             beforeMessages: messages.length,
             afterMessages: messages.length,
             beforeTokens,
@@ -375,10 +291,8 @@ export async function runSessionCompaction(session, opts = {}) {
             budgetTokens: boundary,
             targetBudgetTokens: budget,
             reserveTokens,
-            semanticCompact: false,
-            semanticError: semanticCompactError?.message || null,
-            recallFastTrack: false,
-            recallFastTrackError: recallFastTrackError?.message || null,
+            freshContext: false,
+            freshContextError: freshContextError?.message || null,
         };
     }
     let beforeEncoded = '';
@@ -414,7 +328,7 @@ export async function runSessionCompaction(session, opts = {}) {
     }
     session.providerState = undefined;
     session.compaction = {
-        ...(session.compaction || {}),
+        ...withoutLegacyCompactFields(session.compaction),
         auto: mode === 'auto' ? true : session.compaction?.auto !== false,
         boundaryTokens: boundary,
         triggerTokens,
@@ -422,9 +336,6 @@ export async function runSessionCompaction(session, opts = {}) {
         bufferRatio,
         requestReserveTokens: postCompactPolicy?.requestReserveTokens || 0,
         reserveTokens: postCompactPolicy?.reserveTokens ?? reserveTokens,
-        type: compactType,
-        compactType,
-        lastCompactType: compactType,
         lastStage: mode === 'auto' ? 'post_turn' : 'manual',
         lastBeforeTokens: beforeTokens,
         lastAfterTokens: afterTokens,
@@ -436,20 +347,15 @@ export async function runSessionCompaction(session, opts = {}) {
         lastChanged: changed,
         lastChangedAt: changed ? now : session.compaction?.lastChangedAt || null,
         lastCompactAt: changed ? now : session.compaction?.lastCompactAt || null,
-        lastSemantic: semanticCompactResult?.semantic === true,
-        // This is a terminal success record. A failed component may have been
-        // recovered by semantic compaction or pruning, but must not remain as a
-        // status/UI failure after the final compacted transcript is accepted.
-        lastSemanticError: null,
-        lastRecallFastTrack: recallFastTrackResult?.recallFastTrack === true,
-        lastRecallFastTrackError: null,
+        lastFreshContext: freshContextResult?.freshContext === true,
+        lastFreshContextError: null,
         lastError: null,
-        lastRecallFastTrackQuerySha: recallFastTrackResult?.query ? createHash('sha256').update(recallFastTrackResult.query).digest('hex').slice(0, 16) : null,
-        lastSemanticUsage: semanticCompactResult?.usage ? {
-            inputTokens: semanticCompactResult.usage.inputTokens || 0,
-            outputTokens: semanticCompactResult.usage.outputTokens || 0,
-            cachedTokens: semanticCompactResult.usage.cachedTokens || 0,
-            cacheWriteTokens: semanticCompactResult.usage.cacheWriteTokens || 0,
+        lastHandoffSource: freshContextResult?.handoffSource || 'memory',
+        lastSummaryUsage: freshContextResult?.usage ? {
+            inputTokens: freshContextResult.usage.inputTokens || 0,
+            outputTokens: freshContextResult.usage.outputTokens || 0,
+            cachedTokens: freshContextResult.usage.cachedTokens || 0,
+            cacheWriteTokens: freshContextResult.usage.cacheWriteTokens || 0,
         } : null,
         compactCount: (session.compaction?.compactCount || 0) + (changed ? 1 : 0),
     };
@@ -476,7 +382,6 @@ export async function runSessionCompaction(session, opts = {}) {
         sessionId: pruneSessionId || null,
         stage: mode === 'auto' ? 'post_turn' : 'manual',
         trigger: mode,
-        compact_type: compactType,
         compact_changed: changed,
         input_prefix_hash: beforePrefixHash,
         before_count: messages.length,
@@ -501,7 +406,6 @@ export async function runSessionCompaction(session, opts = {}) {
     return {
         changed,
         reason: unchangedReason,
-        compactType,
         beforeMessages: messages.length,
         afterMessages: compacted.length,
         beforeTokens,
@@ -516,10 +420,9 @@ export async function runSessionCompaction(session, opts = {}) {
         budgetTokens: boundary,
         targetBudgetTokens: budget,
         reserveTokens,
-        semanticCompact: semanticCompactResult?.semantic === true,
-        semanticError: null,
-        recallFastTrack: recallFastTrackResult?.recallFastTrack === true,
-        recallFastTrackError: null,
-        usage: semanticCompactResult?.usage || null,
+        freshContext: freshContextResult?.freshContext === true,
+        freshContextError: null,
+        handoffSource: freshContextResult?.handoffSource || 'memory',
+        usage: freshContextResult?.usage || null,
     };
 }

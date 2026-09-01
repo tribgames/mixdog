@@ -1,12 +1,9 @@
-// Summarization system prompt, schema validation/repair, semantic + recall
-// fast-track summary-message construction and fitting, root-block fitting, and
-// the recall query builder. Extracted verbatim from compact.mjs
-// (behavior-preserving).
+// Handoff summarization, schema validation/repair, and fresh-context
+// summary-message fitting.
 import { estimateMessagesTokens } from '../context-utils.mjs';
 import {
     SUMMARY_PREFIX,
-    COMPACT_TYPE_SEMANTIC,
-    COMPACT_TYPE_RECALL_FASTTRACK,
+    SUMMARY_PREFIX_ANCHOR,
 } from './constants.mjs';
 import {
     extractText,
@@ -24,12 +21,12 @@ import {
 import {
     summaryIsSchemaValid,
     summaryHasUnrecognizedHeadings,
-    repairSemanticSummary,
+    repairCompactSummary,
     minimalSchemaSummary,
     truncateSummaryBySections,
 } from './summary-schema.mjs';
 
-export { repairSemanticSummary } from './summary-schema.mjs';
+export { repairCompactSummary } from './summary-schema.mjs';
 
 const COMPACTION_INPUT_MAX_CHARS = 2_000;
 
@@ -141,7 +138,7 @@ function normalizePriorSummaryForCompactionPrompt(fullBody) {
     const text = String(fullBody || '');
     if (!text.trim()) return '';
     if (!priorSummaryNeedsNormalization(text)) return text;
-    return repairSemanticSummary(text, { head: [], tail: [] });
+    return repairCompactSummary(text, { head: [], tail: [] });
 }
 
 // Shrink or drop a prior anchored summary so the compaction provider prompt fits
@@ -325,19 +322,18 @@ export function extractResponseText(response) {
 // is missing ANY required section anchor (fully or partially malformed) repair
 // it deterministically so a non-empty-but-broken response is never injected as
 // the sole summary. Returns { summary, repaired }.
-export function enforceSemanticSummarySchema(summary, ctx = {}) {
+export function enforceCompactSummarySchema(summary, ctx = {}) {
     const text = String(summary || '').trim();
     if (!text) return { summary: text, repaired: false };
     if (summaryIsSchemaValid(text)) {
         return { summary: text, repaired: false };
     }
-    return { summary: repairSemanticSummary(text, ctx), repaired: true };
+    return { summary: repairCompactSummary(text, ctx), repaired: true };
 }
 
-function makeSemanticSummaryMessage(oldHistory, summary, semanticMeta = {}, preservedFacts = '') {
+function makeGeneratedHandoffMessage(oldHistory, summary, handoffMeta = {}, preservedFacts = '') {
     const header = compactHeader(oldHistory);
-    header.push(`compact_type=${COMPACT_TYPE_SEMANTIC}`);
-    header.push(`semantic=true provider=${semanticMeta.provider || 'unknown'} model=${semanticMeta.model || 'unknown'}`);
+    header.push(`generated_handoff=true provider=${handoffMeta.provider || 'unknown'} model=${handoffMeta.model || 'unknown'}`);
     const facts = String(preservedFacts || '').trim();
     const body = String(summary || '').trim();
     const parts = [header.join('\n')];
@@ -346,20 +342,20 @@ function makeSemanticSummaryMessage(oldHistory, summary, semanticMeta = {}, pres
     return makeSummaryMessage(parts.join('\n\n'));
 }
 
-// Fit the structured semantic summary into the remaining token budget WITHOUT
+// Fit the structured handoff summary into the remaining token budget WITHOUT
 // dropping any required section. The incoming `summary` is already schema-valid
-// (enforceSemanticSummarySchema ran upstream); here we shrink section bodies via
+// (enforceCompactSummarySchema ran upstream); here we shrink section bodies via
 // section-aware truncation, fall back to a headings-only schema-valid summary,
 // and finally revalidate so the injected SUMMARY_PREFIX message always carries
 // every required anchor. Returns null only when even the minimal schema-valid
 // summary cannot fit (caller throws).
-export function fitSemanticSummaryMessage(oldHistory, summary, remainingTokens, semanticMeta, preservedFacts = '') {
+export function fitGeneratedHandoffMessage(oldHistory, summary, remainingTokens, handoffMeta, preservedFacts = '') {
     const tryFit = (factsText) => {
         const text = String(summary || '').trim();
         // Minimal schema-valid body (headings + "(none)"). If even this does
         // not fit, this facts variant cannot produce a valid message.
         const minimalBody = text ? minimalSchemaSummary() : '';
-        const minimal = makeSemanticSummaryMessage(oldHistory, minimalBody, semanticMeta, factsText);
+        const minimal = makeGeneratedHandoffMessage(oldHistory, minimalBody, handoffMeta, factsText);
         if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
         if (!text) return minimal;
         // Binary search the per-section body budget; keep all anchors intact.
@@ -369,7 +365,7 @@ export function fitSemanticSummaryMessage(oldHistory, summary, remainingTokens, 
         while (lo <= hi) {
             const mid = Math.floor((lo + hi) / 2);
             const body = truncateSummaryBySections(text, mid);
-            const candidate = makeSemanticSummaryMessage(oldHistory, body, semanticMeta, factsText);
+            const candidate = makeGeneratedHandoffMessage(oldHistory, body, handoffMeta, factsText);
             if (estimateMessagesTokens([candidate]) <= remainingTokens && summaryIsSchemaValid(body)) {
                 best = candidate;
                 lo = mid + 1;
@@ -385,12 +381,8 @@ export function fitSemanticSummaryMessage(oldHistory, summary, remainingTokens, 
     return result;
 }
 
-export const RECALL_TAIL_TRUNCATION_MARKER = '[... truncated during recall tail preservation ...]';
-export const RECALL_TAIL_SHORT_TRUNCATION_MARKER = '[truncated]';
-
-// Peel the structural summary header off a prior summary body so semantic
-// compaction can feed bare text into its <previous-summary> block. Sessions
-// stored before recall-fasttrack stopped chaining summaries may still carry a
+// Peel the structural summary header off a prior summary body so handoff
+// generation can feed bare text into its <previous-summary> block. Old sessions may still carry a
 // <prior-compacted-context> wrapper, so those boundary lines are dropped too.
 export function stripNestedSummaryHeaderLines(text) {
     const raw = String(text ?? '');
@@ -419,7 +411,7 @@ export function stripNestedSummaryHeaderLines(text) {
     const out = [];
     let followsStructuralHeader = false;
     for (const line of lines) {
-        if (line.startsWith(SUMMARY_PREFIX)) {
+        if (line.startsWith(SUMMARY_PREFIX_ANCHOR)) {
             followsStructuralHeader = true;
             continue;
         }
@@ -428,6 +420,10 @@ export function stripNestedSummaryHeaderLines(text) {
             continue;
         }
         if (/^compact_type=/.test(line.trim())) {
+            followsStructuralHeader = true;
+            continue;
+        }
+        if (/^(?:generated_handoff|semantic)=/.test(line.trim())) {
             followsStructuralHeader = true;
             continue;
         }
@@ -456,23 +452,22 @@ export function stripNestedSummaryHeaderLines(text) {
     return out.join('\n');
 }
 
-function makeRecallFastTrackSummaryMessageParts(oldHistory, recallPart, recallMeta = {}) {
+function makeFreshContextSummaryMessageParts(oldHistory, handoffPart) {
     const header = compactHeader(oldHistory);
-    header.push(`compact_type=${COMPACT_TYPE_RECALL_FASTTRACK} source=recall-fasttrack query_sha=${recallMeta.querySha || 'none'}`);
     const parts = [header.join('\n')];
-    const recall = String(recallPart || '').trim();
-    if (recall) parts.push(recall);
+    const handoff = String(handoffPart || '').trim();
+    if (handoff) parts.push(handoff);
     return makeSummaryMessage(parts.join('\n\n'));
 }
 
-export function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remainingTokens, recallMeta = {}) {
-    const recall = String(recallText || '').trim();
+export function fitFreshContextSummaryMessage(oldHistory, handoffText, remainingTokens) {
+    const handoff = String(handoffText || '').trim();
 
-    const minimal = makeRecallFastTrackSummaryMessageParts(oldHistory, '', recallMeta);
+    const minimal = makeFreshContextSummaryMessageParts(oldHistory, '');
     if (estimateMessagesTokens([minimal]) > remainingTokens) return null;
-    if (!recall) return minimal;
+    if (!handoff) return minimal;
 
-    const { preamble, blocks } = splitRecallRootBlocks(recall);
+    const { preamble, blocks } = splitMemoryHandoffRootBlocks(handoff);
     if (blocks.length > 0) {
         // Root-block granularity fit: drop the OLDEST blocks WHOLE (never cut
         // a `# chunk` / `# raw_pending` / `# raw_terminal` block mid-entry);
@@ -484,7 +479,7 @@ export function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remaini
         while (loB <= hiB) {
             const midB = Math.floor((loB + hiB) / 2);
             const body = [preamble, ...blocks.slice(midB)].filter(Boolean).join('\n\n');
-            const candidate = makeRecallFastTrackSummaryMessageParts(oldHistory, body, recallMeta);
+            const candidate = makeFreshContextSummaryMessageParts(oldHistory, body);
             if (estimateMessagesTokens([candidate]) <= remainingTokens) {
                 bestLo = midB;
                 hiB = midB - 1;
@@ -494,11 +489,11 @@ export function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remaini
         }
         if (bestLo >= 0) {
             const body = [preamble, ...blocks.slice(bestLo)].filter(Boolean).join('\n\n');
-            return makeRecallFastTrackSummaryMessageParts(oldHistory, body, recallMeta);
+            return makeFreshContextSummaryMessageParts(oldHistory, body);
         }
         // Even the preamble alone overflows: try it, else the minimal message.
         if (preamble) {
-            const preambleOnly = makeRecallFastTrackSummaryMessageParts(oldHistory, preamble, recallMeta);
+            const preambleOnly = makeFreshContextSummaryMessageParts(oldHistory, preamble);
             if (estimateMessagesTokens([preambleOnly]) <= remainingTokens) return preambleOnly;
         }
         return minimal;
@@ -507,17 +502,16 @@ export function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remaini
     // Plain newest-first handoff: preserve complete lines whenever possible,
     // dropping only the oldest trailing lines. A single oversized line falls
     // through to the character fit below.
-    const lines = recall.split('\n');
+    const lines = handoff.split('\n');
     if (lines.length > 1) {
         let loL = 1;
         let hiL = lines.length;
         let bestLines = 0;
         while (loL <= hiL) {
             const midL = Math.floor((loL + hiL) / 2);
-            const candidate = makeRecallFastTrackSummaryMessageParts(
+            const candidate = makeFreshContextSummaryMessageParts(
                 oldHistory,
                 lines.slice(0, midL).join('\n'),
-                recallMeta,
             );
             if (estimateMessagesTokens([candidate]) <= remainingTokens) {
                 bestLines = midL;
@@ -527,20 +521,19 @@ export function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remaini
             }
         }
         if (bestLines > 0) {
-            return makeRecallFastTrackSummaryMessageParts(
+            return makeFreshContextSummaryMessageParts(
                 oldHistory,
                 lines.slice(0, bestLines).join('\n'),
-                recallMeta,
             );
         }
     }
 
     let lo = 0;
-    let hi = recall.length;
+    let hi = handoff.length;
     let best = minimal;
     while (lo <= hi) {
         const mid = Math.floor((lo + hi) / 2);
-        const candidate = makeRecallFastTrackSummaryMessageParts(oldHistory, recall.slice(0, mid), recallMeta);
+        const candidate = makeFreshContextSummaryMessageParts(oldHistory, handoff.slice(0, mid));
         if (estimateMessagesTokens([candidate]) <= remainingTokens) {
             best = candidate;
             lo = mid + 1;
@@ -551,7 +544,7 @@ export function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remaini
     return best;
 }
 
-// --- Root-block splitting for the recall digest ----------------------------
+// --- Root-block splitting for the Memory handoff ---------------------------
 //
 // A memory digest renders chunks TIME-ORDERED (oldest first), each root/raw
 // block starting with one of:
@@ -561,16 +554,16 @@ export function fitRecallFastTrackSummaryMessage(oldHistory, recallText, remaini
 // and blocks joined by "\n\n", after an optional preamble that is kept verbatim
 // as a non-block segment.
 //
-// fitRecallFastTrackSummaryMessage drops whole blocks instead of cutting one
+// fitFreshContextSummaryMessage drops whole blocks instead of cutting one
 // mid-entry, since losing half a root's content silently corrupts that entry.
 // Boundaries come from the label pattern, which stays robust to blank lines
 // inside member/raw content.
-const RECALL_ROOT_BLOCK_HEADER_RE = /^# (?:chunk \d+ root=\d+(?: category=\S+)?|raw_pending \d+ id=\d+|raw_terminal \d+ id=\d+)[ \t]*$/;
+const MEMORY_ROOT_BLOCK_HEADER_RE = /^# (?:chunk \d+ root=\d+(?: category=\S+)?|raw_pending \d+ id=\d+|raw_terminal \d+ id=\d+)[ \t]*$/;
 
-function splitRecallRootBlocks(text) {
+function splitMemoryHandoffRootBlocks(text) {
     const value = String(text || '');
     if (!value.trim()) return { preamble: '', blocks: [] };
-    const re = new RegExp(RECALL_ROOT_BLOCK_HEADER_RE.source, 'gm');
+    const re = new RegExp(MEMORY_ROOT_BLOCK_HEADER_RE.source, 'gm');
     const starts = [];
     let m;
     while ((m = re.exec(value)) !== null) {

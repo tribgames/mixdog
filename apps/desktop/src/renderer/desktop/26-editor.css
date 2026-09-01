@@ -35,6 +35,22 @@
   color: var(--mx-text);
   cursor: pointer;
 }
+.editor-breadcrumb-actions .editor-problems-action {
+  width: auto;
+  min-width: 28px;
+  display: inline-flex;
+  gap: 5px;
+  padding: 0 6px;
+}
+.editor-problems-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--mx-font-micro);
+}
+.editor-problems-count b { font-weight: var(--mx-weight-regular); }
+.editor-problems-count.is-error > svg { color: var(--mx-danger); }
+.editor-problems-count.is-warning > svg { color: var(--mx-warning); }
 /* Same 18px optical frame as the header cluster (context/remote/panel):
    the previous 16px glyph read visibly lighter than the TASK-side icons in
    the row above (user: 파일쪽 아이콘이 훨씬 잘 안 보인다). */

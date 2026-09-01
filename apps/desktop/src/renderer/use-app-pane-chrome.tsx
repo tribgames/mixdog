@@ -1,4 +1,4 @@
-import type { Dispatch, MutableRefObject, SetStateAction } from "react";
+import type { Dispatch, MutableRefObject, ReactNode, SetStateAction } from "react";
 
 import type { DesktopSessionSummary } from "../shared/contract";
 import { sessionSummaryTitle } from "../shared/session-title.mjs";
@@ -10,14 +10,13 @@ import {
 } from "./navigation";
 import type { PaneLeaf } from "./pane-layout";
 import type { usePaneWorkspace } from "./pane-workspace-state";
-import { displayProject, navigationKey } from "./text-format";
+import { navigationKey } from "./text-format";
 
 type PaneWorkspace = ReturnType<typeof usePaneWorkspace>;
 
 export function useAppPaneChrome({
   tabs,
   sessions,
-  folderPaneTitles,
   paneWorkspace,
   dirtyFileKeys,
   workingSessionIds,
@@ -33,11 +32,11 @@ export function useAppPaneChrome({
   navigateTab,
   closeTab,
   pinPaneTab,
+  stripTrailing,
   lastSessionStorageKey,
 }: {
   tabs: WorkspaceTab[];
   sessions: DesktopSessionSummary[];
-  folderPaneTitles: ReadonlyMap<string, string>;
   paneWorkspace: PaneWorkspace;
   dirtyFileKeys: ReadonlySet<string>;
   workingSessionIds: ReadonlySet<string>;
@@ -53,6 +52,8 @@ export function useAppPaneChrome({
   navigateTab(tab: WorkspaceTab): void;
   closeTab(leafId: string, tab: WorkspaceTab): void;
   pinPaneTab(leafId: string, key: string): void;
+  /** Right-edge strip controls per leaf (desktop status island). */
+  stripTrailing?(leaf: PaneLeaf): ReactNode;
   lastSessionStorageKey: string;
 }) {
   const stripTitleFor = (key: string, selection: WorkspaceSelection): string => {
@@ -73,23 +74,17 @@ export function useAppPaneChrome({
                   : selection.title || `Pull Request #${selection.number}`)
                 : selection.kind === "studio"
                   ? "Studio"
-                  : selection.kind === "browser"
-                    ? "Browser Use"
                   : selection.kind === "terminal"
                     ? "Terminal"
-                    : selection.kind === "folder"
-                      ? (folderPaneTitles.get(navigationKey(selection))
-                        || displayProject(selection.path).name || selection.path)
                       : selection.kind === "project"
-                        ? (selection.path.replace(/[\\/]+$/, "").split(/[\\/]/).at(-1)
-                          || selection.path)
+                      ? (selection.path.replace(/[\\/]+$/, "").split(/[\\/]/).at(-1)
+                        || selection.path)
                         : "New task");
   };
 
   const activatePaneSurface = (paneSelection: WorkspaceSelection) => {
     if (paneSelection.kind === "studio"
       || paneSelection.kind === "terminal"
-      || paneSelection.kind === "folder" || paneSelection.kind === "browser"
       || paneSelection.kind === "diff" || paneSelection.kind === "pull-request") return;
     if (paneSelection.kind === "session") {
       try { window.localStorage.setItem(lastSessionStorageKey, paneSelection.id); } catch {}
@@ -134,6 +129,7 @@ export function useAppPaneChrome({
         unreadSessionIds={unreadSessionIds}
         focused={leaf.id === paneWorkspace.focusedLeafId}
         paneId={leaf.id}
+        trailing={stripTrailing?.(leaf)}
         onSelectTab={(tab) => {
           paneWorkspace.focusLeaf(leaf.id);
           paneWorkspace.activateTab(leaf.id, tab.key);

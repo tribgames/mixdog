@@ -1,15 +1,19 @@
 import { normalizeOfficeContentModel, summarizeOfficeContentModel } from './content-model.mjs';
 import { resolveOfficeCompositionContext } from './composition-system.mjs';
+import { resolveOfficeArtDirection } from './design-art-direction.mjs';
 const PPTX_BACKGROUND_MODES = new Set(['sandwich', 'light', 'dark', 'custom']);
 
 const PPTX_TEMPLATE_MODES = new Set(['prefer', 'strict', 'scratch']);
 const PPTX_COMPOSITION_MODES = new Set(['model', 'legacy']);
 
-function resolvePptxDeckPlan(input, tokens) {
+function resolvePptxDeckPlan(input, tokens, artDirection) {
   const source = plainObject(input.deck) ? input.deck : {};
+  const direction = artDirection?.applyTokens ? artDirection.selected?.deck || {} : {};
   const backgroundMode = PPTX_BACKGROUND_MODES.has(String(source.backgroundMode || '').toLowerCase())
     ? String(source.backgroundMode).toLowerCase()
-    : 'sandwich';
+    : PPTX_BACKGROUND_MODES.has(String(direction.backgroundMode || '').toLowerCase())
+      ? String(direction.backgroundMode).toLowerCase()
+      : 'sandwich';
   const defaults = backgroundMode === 'dark'
     ? { cover: 'inverse', content: 'inverse', section: 'inverse', closing: 'inverse' }
     : backgroundMode === 'light'
@@ -26,8 +30,17 @@ function resolvePptxDeckPlan(input, tokens) {
   return {
     backgroundMode,
     dominantColorRole: Object.hasOwn(tokens.colors, dominantColorRole) ? dominantColorRole : roles.content,
-    motif: String(source.motif || input.signature || ''),
+    motif: String(source.motif || direction.motif || input.signature || ''),
     spacingScale: String(source.spacingScale || 'consistent'),
+    imageTreatment: String(source.imageTreatment || direction.imageTreatment || 'contained-evidence'),
+    layoutBias: strings(source.layoutBias).length ? strings(source.layoutBias) : strings(direction.layoutBias),
+    grid: String(source.grid || direction.grid || 'twelve-column editorial grid'),
+    shapeLanguage: String(source.shapeLanguage || direction.shapeLanguage || 'native evidence fields'),
+    chartTreatment: String(source.chartTreatment || direction.chartTreatment || 'native annotated chart'),
+    densityPattern: strings(source.densityPattern).length ? strings(source.densityPattern) : strings(direction.densityPattern),
+    motifRules: strings(source.motifRules).length ? strings(source.motifRules) : strings(direction.motifRules),
+    directionId: String(artDirection?.selected?.id || ''),
+    directionCandidates: (artDirection?.candidates || []).map((candidate) => candidate.id),
     sectionSlides: slideNumbers(source.sectionSlides),
     roles,
     templateMode: PPTX_TEMPLATE_MODES.has(requestedTemplateMode) ? requestedTemplateMode : 'scratch',
@@ -256,6 +269,8 @@ export function compactDesign(design) {
     expressionMode: design.expressionMode,
     signature: design.signature,
     source: design.source,
+    artDirection: design.artDirection,
+    creative: design.creative,
     library: design.library,
     tokens: design.tokens,
     format: design.format,
@@ -342,19 +357,28 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
   if (!pack) {
     throw new Error(`Unknown Office design profile "${profile}". Use one of: ${Object.keys(packs).join(', ')}`);
   }
+  const composition = resolveOfficeCompositionContext(normalizedFormat, input, {
+    recentCompositions: library?.recentCompositions,
+  });
+  const artDirection = resolveOfficeArtDirection(normalizedFormat, input, {
+    profile,
+    purpose: composition.purpose,
+    expressionMode: composition.expressionMode,
+  });
+  const directionTokens = artDirection.applyTokens ? {
+    colors: artDirection.selected.palette,
+    typography: artDirection.selected.typography,
+  } : {};
   const palette = plainObject(input.palette) ? input.palette : {};
   const typography = plainObject(input.typography) ? input.typography : {};
-  const tokens = merge(pack.tokens, {
+  const tokens = merge(merge(pack.tokens, directionTokens), {
     colors: Object.fromEntries(Object.entries(palette).map(([key, value]) => [
       key,
       hex(value, pack.tokens.colors[key] || pack.tokens.colors.ink),
     ])),
     typography,
   });
-  const composition = resolveOfficeCompositionContext(normalizedFormat, input, {
-    recentCompositions: library?.recentCompositions,
-  });
-  const deck = normalizedFormat === 'pptx' ? resolvePptxDeckPlan(input, tokens) : null;
+  const deck = normalizedFormat === 'pptx' ? resolvePptxDeckPlan(input, tokens, artDirection) : null;
   return {
     profile,
     label: pack.label,
@@ -370,6 +394,8 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
     recentCompositions: composition.recentCompositions,
     signature: String(input.signature || ''),
     source: String(input.source || library?.source || 'mixdog-starter'),
+    artDirection,
+    creative: plainObject(input.creative) ? clone(input.creative) : null,
     content: normalizeOfficeContentModel(input.content),
     library: compactLibrary(library),
     layouts: Array.isArray(library?.layouts) ? clone(library.layouts) : [],
@@ -388,6 +414,8 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
       allowRepetition: input.allowRepetition === true,
       allowDecorativeLines: input.allowDecorativeLines === true,
       allowSyntheticVisuals: input.allowSyntheticVisuals === true,
+      allowFlatRhythm: input.allowFlatRhythm === true,
+      frontier: input.frontier !== false && Boolean(input.content || input.creative),
     },
   };
 }

@@ -182,10 +182,14 @@ export class DesktopServiceClient implements DesktopService {
     this.transport = transport;
     this.generation += 1;
     transport.on('message', (message: unknown) => this.handleMessage(transport, message));
-    transport.on('error', (type: unknown, location: unknown) => {
+    transport.on('error', (type: unknown, detail: unknown) => {
+      // The detail carries the daemon's own line — the only description of
+      // what actually failed. Dropping it left boot-time transport errors
+      // unexplainable after the fact.
       this.options.onDiagnostic?.('desktop-transport-error', {
         type: String(type || ''),
-        location: String(location || ''),
+        detail: String(detail || ''),
+        generation: this.generation,
       });
     });
     transport.on('diagnostic', (event: unknown, details: unknown) => {

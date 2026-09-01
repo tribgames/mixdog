@@ -105,6 +105,9 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
   const [cursorPosition, setCursorPosition] = useState({ line: 1, column: 1 });
   const [selectionStatus, setSelectionStatus] = useState({ selections: 1, characters: 0 });
   const [problemStatus, setProblemStatus] = useState({ errors: 0, warnings: 0 });
+  const showProblems = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("mixdog:show-problems"));
+  }, []);
   const [editorFormat, setEditorFormat] = useState({
     tabSize: 4,
     insertSpaces: true,
@@ -577,8 +580,10 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
     reverting={reverting}
     cursorLine={cursorPosition.line}
     outline={breadcrumbOutline}
+    problemStatus={problemStatus}
     onSave={() => { void save(); }}
     onRevert={() => { void revertFromDisk(); }}
+    onShowProblems={showProblems}
     onOpenAt={onOpenAt}
     onFocusEditor={() => editorRef.current?.focus()}
     onRevealSymbol={revealBreadcrumbSymbol}
@@ -702,7 +707,7 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
       <div className="editor-statusbar-left">
         <button type="button" aria-label="Show Problems"
           data-tooltip={`${problemStatus.errors} Errors, ${problemStatus.warnings} Warnings`}
-          onClick={() => window.dispatchEvent(new CustomEvent("mixdog:show-problems"))}>
+          onClick={showProblems}>
           <span aria-hidden="true">×</span> {problemStatus.errors}
           <span aria-hidden="true">△</span> {problemStatus.warnings}
         </button>

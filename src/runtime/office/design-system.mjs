@@ -1,6 +1,8 @@
 import { bindOfficeContent, summarizeOfficeContentModel } from './content-model.mjs';
 import { planOfficeComposition, summarizeOfficeCompositions } from './composition-system.mjs';
+import { applyOfficeCreativeBrief, creativeBriefForOperation, directOfficeStory } from './design-creative-director.mjs';
 import { expandDocxDocument } from './design-docx.mjs';
+import { synthesizePptxFrontierPlan } from './design-layout-grammar.mjs';
 import { coalesceCreatedPptxTemplateImports, expandPptxSlide, expandTemplatePptxSlide, pptxBackgroundSpec, pptxSlidePlan, selectPptxLayout } from './design-pptx.mjs';
 import { expandPptxModelSlide } from './design-pptx-plan.mjs';
 import { compactDesign, merge, resolveOfficeDesign } from './design-tokens.mjs';
@@ -23,7 +25,9 @@ export function expandOfficeDesignOperations({
   snapshotVersion = 0,
 } = {}) {
   const normalizedFormat = String(format || '').toLowerCase();
-  const design = resolveOfficeDesign(normalizedFormat, request, { library });
+  const resolvedDesign = resolveOfficeDesign(normalizedFormat, request, { library });
+  const creative = directOfficeStory(normalizedFormat, operations, resolvedDesign);
+  const design = { ...resolvedDesign, creative };
   const output = [];
   const semantic = [];
   let nextSlide = created && Number(snapshotVersion || 0) === 0 ? 1 : null;
@@ -31,11 +35,19 @@ export function expandOfficeDesignOperations({
   const composedSheets = new Set();
   const layoutUsage = new Map();
   const compositionUsage = new Map();
-  for (const operation of operations || []) {
-    const bound = bindOfficeContent(operation, design.content);
-    const contentOperation = bound.operation;
+  for (const [operationIndex, operation] of (operations || []).entries()) {
+    const directedOperation = applyOfficeCreativeBrief(operation, creative, operationIndex);
+    const bound = bindOfficeContent(directedOperation, design.content);
+    let contentOperation = bound.operation;
     const name = String(contentOperation?.op || '');
     if (normalizedFormat === 'pptx' && name === 'compose_slide') {
+      if (design.deck.compositionMode !== 'legacy') {
+        contentOperation = synthesizePptxFrontierPlan(
+          contentOperation,
+          design,
+          creativeBriefForOperation(creative, operationIndex),
+        );
+      }
       const composition = planOfficeComposition(normalizedFormat, contentOperation, design, {
         usage: compositionUsage,
       });

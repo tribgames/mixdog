@@ -5,7 +5,7 @@
 export const MAX_HTTP_BODY_BYTES = 1024 * 1024
 
 // /api/tool carries whole-session transcripts (ingest_session hydration for
-// recall-fasttrack compaction). A near-window transcript projects to several
+// fresh-context Compact). A near-window transcript projects to several
 // MB of JSON, and rejecting it with 413 silently disabled auto-compaction:
 // the loop fail-safe kept full history, so long sessions never shrank and
 // every turn resent the entire context. The service binds loopback-only and

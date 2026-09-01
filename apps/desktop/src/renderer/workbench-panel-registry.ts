@@ -1,14 +1,10 @@
-export type WorkbenchPanelId =
-  | "problems"
-  | "terminal";
+export type WorkbenchPanelId = "problems";
 
 export const WORKBENCH_PANEL_REGISTRY: ReadonlyArray<{
   id: WorkbenchPanelId;
   label: string;
   requiresProject?: boolean;
 }> = Object.freeze([
-  // Tab order is user-specified: Terminal leads, Problems follows.
-  { id: "terminal", label: "Terminal" },
   { id: "problems", label: "Problems", requiresProject: true },
 ]);
 

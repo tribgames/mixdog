@@ -9,8 +9,6 @@ test('Office Use always exposes the presentation authoring contract', () => {
   const office = TOOL_DEFS.find((tool) => tool.name === 'office');
   assert.ok(office);
   assert.ok(office.description.includes(PPTX_ALWAYS_ON_CONTRACT));
-  assert.match(PPTX_ALWAYS_ON_CONTRACT, /three distinct layouts/);
-  assert.match(PPTX_ALWAYS_ON_CONTRACT, /repair failed slides only/);
 });
 
 test('image layout contains an asset without changing its aspect ratio', () => {

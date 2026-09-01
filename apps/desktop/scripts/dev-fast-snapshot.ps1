@@ -156,6 +156,7 @@ if ($CleanupOnly) {
   exit 0
 }
 
+$failure = $null
 try {
   Push-Location $repoRoot
 
@@ -194,7 +195,7 @@ try {
       $snapshotPaths = @(
         '.npmignore', 'package.json', 'package-lock.json', 'README.md', 'NOTICE.md',
         'LICENSE', 'LICENSES', 'scripts', 'src', 'vendor',
-        'native/mixdog-browser-import', 'apps/desktop'
+        'native/mixdog-browser-import', 'apps/desktop', 'apps/relay'
       )
       & git -c core.safecrlf=false add -A -- @snapshotPaths
       if ($LASTEXITCODE -ne 0) { throw "git add exited with $LASTEXITCODE" }
@@ -214,8 +215,13 @@ try {
     & git worktree add --detach --no-checkout $snapshotRoot $snapshot | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "git worktree add exited with $LASTEXITCODE" }
     & git -C $snapshotRoot sparse-checkout set --cone `
-      apps/desktop src scripts vendor native/mixdog-browser-import LICENSES | Out-Null
+      apps/desktop apps/relay src scripts vendor native/mixdog-browser-import LICENSES | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "git sparse-checkout exited with $LASTEXITCODE" }
+    # `worktree add --no-checkout` leaves the directory empty. Defining the
+    # sparse paths configures the index but does not materialize HEAD on every
+    # Git version, so explicitly populate the frozen tree before linking deps.
+    & git -C $snapshotRoot checkout --force HEAD | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "git checkout exited with $LASTEXITCODE" }
     Save-Timing 'checkoutMs' $stepTimer
 
     Write-Step 'linking dependency trees'
@@ -237,12 +243,13 @@ try {
     $stepTimer = [Diagnostics.Stopwatch]::StartNew()
     Push-Location (Join-Path $snapshotRoot 'apps\desktop')
     try {
-      & npm.cmd run typecheck:node 2>&1 | Out-Null
+      $typecheckOutput = @(& npm.cmd run typecheck:node 2>&1)
       $compiles = $LASTEXITCODE -eq 0
     } finally { Pop-Location }
     Save-Timing 'snapshotTypecheckMs' $stepTimer
     if ($compiles) { break }
     if ($attempt -ge 3) {
+      $typecheckOutput | ForEach-Object { Write-Host $_ -ForegroundColor Red }
       throw 'The working tree did not compile in three snapshots; let the in-flight edit finish and retry.'
     }
     Write-Host '  frozen copy does not compile (an edit was mid-save); retaking in 20s' -ForegroundColor Yellow
@@ -300,8 +307,14 @@ try {
     if ($status -eq 'failed') { throw "FastDirect worker failed: $($receipt.detail)" }
   }
   if ($status -ne 'completed') { throw "FastDirect worker did not finish within 15 minutes (last status: $status)" }
+} catch {
+  $failure = $_
 } finally {
   Pop-Location -ErrorAction SilentlyContinue
   if (Test-Path -LiteralPath $snapshotRoot) { Write-Step 'removing the snapshot worktree' }
   Remove-SnapshotWorktree $snapshotRoot
+}
+if ($failure) {
+  Write-Error $failure -ErrorAction Continue
+  exit 1
 }

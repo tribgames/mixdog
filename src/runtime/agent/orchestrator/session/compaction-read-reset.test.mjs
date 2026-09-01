@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { executeBuiltinTool } from '../tools/builtin.mjs';
-import { COMPACT_TYPE_SEMANTIC } from './compact.mjs';
 import { runSessionCompaction } from './manager/compaction-runner.mjs';
 import { runPreSendCompactPass } from './pre-send-compact.mjs';
 import { resetReadStateAfterCompaction } from './read-dedup.mjs';
@@ -60,7 +59,7 @@ async function establishUnchangedSnapshot({ dir, file, sessionId }) {
     assert.equal(duplicate, `[file unchanged: ${file.replaceAll('\\', '/')}]`);
 }
 
-function semanticProvider(name) {
+function handoffProvider(name) {
     return {
         name,
         async send() {
@@ -110,17 +109,13 @@ test('manual compaction starts a fresh read epoch', async (t) => {
                 inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
             },
         ],
-        compaction: {
-            type: COMPACT_TYPE_SEMANTIC,
-            compactType: COMPACT_TYPE_SEMANTIC,
-            tailTurns: 1,
-        },
+        owner: 'agent',
+        compaction: {},
     };
     const result = await runSessionCompaction(session, {
         mode: 'manual',
         force: true,
-        compactType: COMPACT_TYPE_SEMANTIC,
-        provider: semanticProvider('compact-read-manual'),
+        provider: handoffProvider('compact-read-manual'),
         model: 'fake-model',
     });
 
@@ -153,10 +148,10 @@ test('automatic pre-send compaction resets reads only after transcript change', 
             { role: 'assistant', content: 'small answer' },
         ],
         tools: [],
-        compaction: { auto: true, tailTurns: 1 },
+        compaction: { auto: true },
     };
     const state = {
-        provider: semanticProvider('compact-read-auto'),
+        provider: handoffProvider('compact-read-auto'),
         messages: session.messages,
         model: session.model,
         requestTools: [],

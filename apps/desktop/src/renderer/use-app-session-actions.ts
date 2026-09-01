@@ -29,6 +29,7 @@ export function useAppSessionActions({
   invalidateSessionListings,
   applySnapshot,
   activateSelection,
+  onSessionDeleted,
   navigationEpoch,
   setRequestedSessionId,
 }: {
@@ -49,6 +50,7 @@ export function useAppSessionActions({
     title: string,
     replaceKey?: string,
   ): void;
+  onSessionDeleted(sessionId: string): void;
   navigationEpoch: MutableRefObject<number>;
   setRequestedSessionId: Dispatch<SetStateAction<string>>;
 }) {
@@ -149,6 +151,7 @@ export function useAppSessionActions({
       setError(reason instanceof Error ? reason.message : String(reason));
       throw reason;
     }
+    onSessionDeleted(sessionId);
     invalidateSessionListings();
     pendingRenames.current.delete(sessionId);
     applySnapshot(next);
@@ -172,6 +175,7 @@ export function useAppSessionActions({
     applySnapshot,
     invalidateSessionListings,
     navigationEpoch,
+    onSessionDeleted,
     pendingDeletes,
     pendingRenames,
     refreshSessions,

@@ -113,11 +113,27 @@ function design(content, profile = 'executive', purpose = 'explain') {
     expressionMode: 'strong-fit',
     audience: content.audience,
     intent: content.objective,
-    tone: 'executive',
+    tone: 'editorial executive financial decision',
     density: 'balanced',
-    signature: 'source-bound July operating review',
+    signature: 'decision ledger with measured evidence windows',
     content,
   };
+}
+
+function persistedReviewDesign(created, fallback) {
+  const batch = created?.batch || {};
+  const resolved = batch.design || created?.design || fallback;
+  const semantic = batch.semanticOperations || created?.semanticOperations || [];
+  const slidePlans = semantic
+    .filter((entry) => entry?.plan && Number(entry?.slide) > 0)
+    .map((entry) => ({
+      ...entry.plan,
+      slide: Number(entry.slide),
+      kind: entry.kind,
+      slideRole: entry.slideRole,
+      backgroundRole: entry.backgroundRole,
+    }));
+  return slidePlans.length ? { ...resolved, slidePlans } : resolved;
 }
 
 async function createWorkbook(directory, content) {
@@ -228,26 +244,26 @@ async function createWorkbook(directory, content) {
         이탈률: '0.0%',
         NPS: '0',
       },
-      chart: { type: 'column', title: '월별 매출 추이', range: 'A10:B13' },
+      chart: { type: 'column', title: '월별 매출 추이', range: 'A11:B14' },
     },
-    { op: 'set_formula', sheet: 'Dashboard', cell: 'B11', formula: '=Source!B2' },
-    { op: 'set_formula', sheet: 'Dashboard', cell: 'C11', formula: '=Source!C2' },
-    { op: 'set_formula', sheet: 'Dashboard', cell: 'D11', formula: '=C11/B11' },
-    { op: 'set_formula', sheet: 'Dashboard', cell: 'E11', formula: '=Source!E2' },
-    { op: 'set_formula', sheet: 'Dashboard', cell: 'F11', formula: '=Source!F2' },
-    { op: 'set_formula', sheet: 'Dashboard', cell: 'B12', formula: '=Source!B3' },
-    { op: 'set_formula', sheet: 'Dashboard', cell: 'C12', formula: '=Source!C3' },
+    { op: 'set_formula', sheet: 'Dashboard', cell: 'B12', formula: '=Source!B2' },
+    { op: 'set_formula', sheet: 'Dashboard', cell: 'C12', formula: '=Source!C2' },
     { op: 'set_formula', sheet: 'Dashboard', cell: 'D12', formula: '=C12/B12' },
-    { op: 'set_formula', sheet: 'Dashboard', cell: 'E12', formula: '=Source!E3' },
-    { op: 'set_formula', sheet: 'Dashboard', cell: 'F12', formula: '=Source!F3' },
-    { op: 'set_formula', sheet: 'Dashboard', cell: 'B13', formula: '=Source!B4' },
-    { op: 'set_formula', sheet: 'Dashboard', cell: 'C13', formula: '=Source!C4' },
+    { op: 'set_formula', sheet: 'Dashboard', cell: 'E12', formula: '=Source!E2' },
+    { op: 'set_formula', sheet: 'Dashboard', cell: 'F12', formula: '=Source!F2' },
+    { op: 'set_formula', sheet: 'Dashboard', cell: 'B13', formula: '=Source!B3' },
+    { op: 'set_formula', sheet: 'Dashboard', cell: 'C13', formula: '=Source!C3' },
     { op: 'set_formula', sheet: 'Dashboard', cell: 'D13', formula: '=C13/B13' },
-    { op: 'set_formula', sheet: 'Dashboard', cell: 'E13', formula: '=Source!E4' },
-    { op: 'set_formula', sheet: 'Dashboard', cell: 'F13', formula: '=Source!F4' },
-    { op: 'set_formula', sheet: 'Dashboard', cell: 'B14', formula: '=SUM(B11:B13)' },
-    { op: 'set_formula', sheet: 'Dashboard', cell: 'C14', formula: '=SUM(C11:C13)' },
+    { op: 'set_formula', sheet: 'Dashboard', cell: 'E13', formula: '=Source!E3' },
+    { op: 'set_formula', sheet: 'Dashboard', cell: 'F13', formula: '=Source!F3' },
+    { op: 'set_formula', sheet: 'Dashboard', cell: 'B14', formula: '=Source!B4' },
+    { op: 'set_formula', sheet: 'Dashboard', cell: 'C14', formula: '=Source!C4' },
     { op: 'set_formula', sheet: 'Dashboard', cell: 'D14', formula: '=C14/B14' },
+    { op: 'set_formula', sheet: 'Dashboard', cell: 'E14', formula: '=Source!E4' },
+    { op: 'set_formula', sheet: 'Dashboard', cell: 'F14', formula: '=Source!F4' },
+    { op: 'set_formula', sheet: 'Dashboard', cell: 'B15', formula: '=SUM(B12:B14)' },
+    { op: 'set_formula', sheet: 'Dashboard', cell: 'C15', formula: '=SUM(C12:C14)' },
+    { op: 'set_formula', sheet: 'Dashboard', cell: 'D15', formula: '=C15/B15' },
     { op: 'set_sheet_visibility', sheet: 'Source', visibility: 'hidden' },
     { op: 'set_sheet_visibility', sheet: 'Calculation', visibility: 'hidden' },
     { op: 'set_sheet_visibility', sheet: 'Checks', visibility: 'hidden' },
@@ -265,8 +281,8 @@ async function createWorkbook(directory, content) {
     session: created.value.session,
     auditProfile: 'financial-model',
     assertions: [
-      { kind: 'cell-value', sheet: 'Dashboard', cell: 'B13', equals: 5660 },
-      { kind: 'cell-value', sheet: 'Dashboard', cell: 'C13', equals: 802 },
+      { kind: 'cell-value', sheet: 'Dashboard', cell: 'B14', equals: 5660 },
+      { kind: 'cell-value', sheet: 'Dashboard', cell: 'C14', equals: 802 },
       { kind: 'cell-value', sheet: 'Calculation', cell: 'B9', equals: 180 },
       { kind: 'no-errors' },
     ],
@@ -275,7 +291,7 @@ async function createWorkbook(directory, content) {
     ?.find((sheet) => sheet.name === 'Dashboard');
   assert.deepEqual(persistedDashboard?.freezePanes, {
     frozen: true,
-    splitRow: 11,
+    splitRow: 12,
     splitColumn: 1,
   });
   await office({ action: 'close', session: created.value.session }, directory, 'close workbook');
@@ -287,7 +303,7 @@ async function createWorkbook(directory, content) {
     prefix: '01-dashboard-preview',
     task: '7월 경영회의 실적 대시보드',
     auditProfile: 'financial-model',
-    design: designRequest,
+    design: persistedReviewDesign(created.value, designRequest),
   });
   return { path, created: created.value, qa: qa.value, validation: validation.value, images };
 }
@@ -371,7 +387,7 @@ async function createDocument(directory, content) {
     output: join(directory, '02-decision-brief-preview.pdf'),
     prefix: '02-decision-brief-preview',
     task: '7월 경영회의 의사결정 브리프',
-    design: designRequest,
+    design: persistedReviewDesign(created.value, designRequest),
   });
   return { path, created: created.value, qa: qa.value, validation: validation.value, images };
 }
@@ -398,15 +414,16 @@ async function createPresentation(directory, content) {
       source: '01-dashboard.xlsx#Dashboard',
       plan: {
         name: 'decision-cover-asymmetric',
-        rationale: 'Keep the investment claim dominant while the meeting context stays quiet.',
-        visualType: 'typography',
+        rationale: 'Open with an editorial investment thesis and one numeric signal without repeating the close.',
+        visualType: 'editorial-opening',
         regions: [
           { id: 'eyebrow', role: 'eyebrow', x: 6, y: 9, w: 42, h: 5 },
-          { id: 'message', role: 'title', x: 6, y: 23, w: 58, h: 28 },
-          { id: 'support', role: 'subtitle', x: 6, y: 62, w: 54, h: 12 },
+          { id: 'message', role: 'title', x: 6, y: 23, w: 60, h: 28 },
+          { id: 'support', role: 'subtitle', x: 6, y: 62, w: 56, h: 12 },
+          { id: 'signal', role: 'visual', x: 74, y: 24, w: 18, h: 32, text: '1.8억', label: 'DECISION SIZE', style: { align: 'center', fillRole: 'accent', colorRole: 'onAccent' } },
           { id: 'context', role: 'meta', x: 72, y: 76, w: 22, h: 6, style: { align: 'right' } },
         ],
-        readingOrder: ['eyebrow', 'message', 'support', 'context'],
+        readingOrder: ['eyebrow', 'message', 'signal', 'support', 'context'],
       },
     },
     {
@@ -415,15 +432,19 @@ async function createPresentation(directory, content) {
       claimId: 'growth-case',
       title: '매출 5,660백만원이 성장 투자의 여력을 만들었습니다',
       subtitle: '영업이익 802백만원 · 영업이익률 14.2%',
-      metrics: [{ factId: 'revenue' }],
+      metrics: [
+        { factId: 'revenue' },
+        { factId: 'operating-profit' },
+        { factId: 'operating-margin' },
+      ],
       plan: {
-        name: 'claim-with-focal-metric',
-        rationale: 'Pair the investment claim with one source-bound metric instead of a generic statement template.',
-        visualType: 'metrics',
+        name: 'asymmetric-growth-scorecard',
+        rationale: 'Use revenue as the dominant proof and profit plus margin as supporting evidence.',
+        visualType: 'scorecard',
         regions: [
-          { id: 'message', role: 'title', x: 6, y: 16, w: 57, h: 30 },
-          { id: 'support', role: 'subtitle', x: 6, y: 58, w: 57, h: 10 },
-          { id: 'evidence', role: 'metric', x: 71, y: 23, w: 22, h: 42, style: { align: 'center' } },
+          { id: 'message', role: 'title', x: 6, y: 7, w: 88, h: 17 },
+          { id: 'support', role: 'subtitle', x: 6, y: 25.2, w: 64, h: 8 },
+          { id: 'evidence', role: 'scorecard', x: 6, y: 36, w: 88, h: 51 },
         ],
         readingOrder: ['message', 'evidence', 'support'],
       },
@@ -439,17 +460,24 @@ async function createPresentation(directory, content) {
         title: '월별 매출(백만원)',
         categories: ['5월', '6월', '7월'],
         series: [{ name: '매출', values: [5000, 5300, 5660] }],
+        showValues: true,
+        showLegend: false,
+        valueNumberFormat: '#,##0',
       },
+      annotations: [
+        { label: '7월 매출', value: 5660, numberFormat: '#,##0', note: '전월 대비 +6.8%' },
+        { label: '영업이익', value: 802, numberFormat: '#,##0', note: '3개월 연속 개선' },
+        { label: '영업이익률', value: '14.2%', note: '투자 gate 13.5% 상회' },
+      ],
       plan: {
-        name: 'evidence-left-commentary-right',
-        rationale: 'Lead with the native trend and place the interpretation in a narrow commentary rail.',
-        visualType: 'chart',
+        name: 'native-chart-with-decision-rail',
+        rationale: 'Use a native trend chart with direct labels and a decision-relevant annotation rail.',
+        visualType: 'annotated-chart',
         regions: [
-          { id: 'evidence', role: 'chart', x: 5, y: 18, w: 58, h: 70 },
-          { id: 'message', role: 'title', x: 68, y: 12, w: 26, h: 30 },
-          { id: 'support', role: 'body', x: 68, y: 51, w: 26, h: 30 },
+          { id: 'message', role: 'title', x: 6, y: 7, w: 88, h: 16 },
+          { id: 'evidence', role: 'annotated-chart', x: 6, y: 27, w: 88, h: 62 },
         ],
-        readingOrder: ['evidence', 'message', 'support'],
+        readingOrder: ['message', 'evidence'],
       },
     },
     {
@@ -458,21 +486,22 @@ async function createPresentation(directory, content) {
       claimId: 'retention-risk',
       title: '성장과 고객 유지 중 하나를 포기할 이유가 없습니다',
       subtitle: '두 트랙은 서로 다른 위험을 줄입니다',
-      table: [
-        ['트랙', 'Release 기준', 'Stop 기준'],
-        ['성장 0.9억원', '영업이익률 13.5% 이상', '13.5% 미만'],
-        ['고객 유지 0.9억원', '이탈률 2.4% 이하 경로', 'NPS 52 미만'],
+      allocations: [
+        { label: '성장 가속', value: 90, displayValue: '0.9억', numberFormat: '#,##0', detail: 'Release ≥ 영업이익률 13.5% · Stop < 13.5%' },
+        { label: '고객 유지', value: 90, displayValue: '0.9억', numberFormat: '#,##0', detail: 'Release ≤ 이탈률 2.4% 경로 · Stop < NPS 52' },
       ],
+      visualText: '1.8억',
+      allocationLabel: 'TWO-TRACK INVESTMENT',
       plan: {
-        name: 'decision-matrix-with-side-claim',
-        rationale: 'Use the gate matrix as primary evidence and keep the interpretation separate.',
-        visualType: 'table',
+        name: 'two-track-allocation-field',
+        rationale: 'Make the equal allocation and asymmetric release/stop logic visible without a raw table.',
+        visualType: 'allocation',
         regions: [
           { id: 'message', role: 'title', x: 6, y: 7, w: 88, h: 16 },
-          { id: 'evidence', role: 'table', x: 6, y: 30, w: 60, h: 58 },
-          { id: 'support', role: 'subtitle', x: 72, y: 35, w: 22, h: 22, style: { fontSize: 18, bold: true } },
+          { id: 'support', role: 'subtitle', x: 6, y: 23, w: 70, h: 8 },
+          { id: 'evidence', role: 'allocation', x: 6, y: 34, w: 88, h: 55 },
         ],
-        readingOrder: ['message', 'evidence', 'support'],
+        readingOrder: ['message', 'support', 'evidence'],
       },
     },
     {
@@ -480,19 +509,19 @@ async function createPresentation(directory, content) {
       kind: 'process',
       title: '30일 안에 두 트랙의 성과를 다시 판정합니다',
       steps: [
-        { title: 'Owner 확정', detail: '채널·cohort별 책임 지정' },
-        { title: 'Leading 지표', detail: '전환·이탈 조기 점검' },
-        { title: '재배분', detail: '저효율 집행 중단' },
-        { title: 'Gate 판정', detail: '월말 release / stop' },
+        { phase: 'D1', title: 'Owner 확정', detail: '채널·cohort별 책임 지정' },
+        { phase: 'D7', title: 'Leading 지표', detail: '전환·이탈 조기 점검' },
+        { phase: 'D14', title: '재배분', detail: '저효율 집행 중단' },
+        { phase: 'D30', title: 'Gate 판정', detail: '월말 release / stop' },
       ],
       source: '02-decision-brief.docx#4. 30일 실행계획',
       plan: {
-        name: 'wide-operating-flow',
-        rationale: 'Give the execution sequence a full-width stage distinct from the evidence slides.',
-        visualType: 'process',
+        name: 'thirty-day-operating-timeline',
+        rationale: 'Turn the four actions into one continuous operating timeline with explicit checkpoints.',
+        visualType: 'timeline',
         regions: [
           { id: 'message', role: 'title', x: 6, y: 7, w: 88, h: 16 },
-          { id: 'evidence', role: 'process', x: 6, y: 32, w: 88, h: 52, direction: 'row' },
+          { id: 'evidence', role: 'timeline', x: 6, y: 28, w: 88, h: 59 },
         ],
         readingOrder: ['message', 'evidence'],
       },
@@ -505,14 +534,18 @@ async function createPresentation(directory, content) {
       subtitle: '성장 0.9억원 · 고객 유지 0.9억원 · 월말 gate 재판정',
       visualText: '1.8억',
       visualLabel: '승인 요청',
+      allocations: [
+        { label: '성장', value: 90, displayValue: '0.9억', numberFormat: '#,##0' },
+        { label: '고객 유지', value: 90, displayValue: '0.9억', numberFormat: '#,##0' },
+      ],
       plan: {
-        name: 'decision-close-number-right',
-        rationale: 'End on the approval sentence with the amount isolated as the final visual signal.',
-        visualType: 'statement',
+        name: 'decision-close-allocation-stamp',
+        rationale: 'Close with a distinct approval stamp that preserves the two-track allocation.',
+        visualType: 'allocation',
         regions: [
-          { id: 'message', role: 'title', x: 7, y: 22, w: 60, h: 30 },
-          { id: 'support', role: 'subtitle', x: 7, y: 65, w: 58, h: 12 },
-          { id: 'decision', role: 'visual', x: 74, y: 28, w: 18, h: 36, style: { align: 'center', fillRole: 'accent', colorRole: 'onAccent' } },
+          { id: 'message', role: 'title', x: 7, y: 15, w: 55, h: 30 },
+          { id: 'support', role: 'subtitle', x: 7, y: 56, w: 54, h: 13 },
+          { id: 'decision', role: 'allocation', x: 66, y: 16, w: 27, h: 57, style: { compact: true } },
         ],
         readingOrder: ['message', 'decision', 'support'],
       },
@@ -540,7 +573,7 @@ async function createPresentation(directory, content) {
     prefix: '03-executive-deck-preview',
     task: '7월 경영회의 6장 발표',
     auditProfile: 'model-backed-deck',
-    design: designRequest,
+    design: persistedReviewDesign(created.value, designRequest),
   });
   const categorySpacing = evaluatePowerPointCategorySpacing(
     await extractPdfTextLayout(qa.value.preview.output, { pages: [3] }),
@@ -571,6 +604,13 @@ function compactResult(entry) {
     images: entry.images,
     pageCount: entry.qa.preview?.pageCount || 0,
     qaOk: entry.qa.ok,
+    aestheticOk: entry.qa.review?.render?.aesthetics?.ok !== false,
+    aestheticScore: entry.qa.review?.render?.aesthetics?.score ?? null,
+    aestheticDimensions: entry.qa.review?.render?.aesthetics?.dimensions ?? null,
+    aestheticRhythm: entry.qa.review?.render?.aesthetics?.rhythm ?? null,
+    qualityScore: entry.qa.review?.quality?.score ?? null,
+    qualityDimensions: entry.qa.review?.quality?.dimensions ?? null,
+    qualityConfidence: entry.qa.review?.quality?.confidence ?? null,
     validationOk: entry.validation.ok,
     issueCodes: issues.map((issue) => issue.code),
     criticalIssues: [...new Set(criticalIssues)],
@@ -578,6 +618,9 @@ function compactResult(entry) {
       || entry.created.batch?.design?.content?.fingerprint
       || entry.created.design?.content?.fingerprint
       || '',
+    backgroundIsolation: entry.created.batch?.backgroundIsolation
+      || entry.created.backgroundIsolation
+      || null,
     postSaveGate: entry.validation.postSaveGate,
     ...(entry.categorySpacing ? { categorySpacing: entry.categorySpacing } : {}),
   };
@@ -600,6 +643,12 @@ export async function runOfficeQualityLiveBenchmark({ output = '' } = {}) {
   const fingerprints = Object.values(results).map((entry) => entry.contentFingerprint).filter(Boolean);
   const crossAppConsistent = fingerprints.length === 3 && new Set(fingerprints).size === 1;
   const criticalCount = Object.values(results).reduce((total, entry) => total + entry.criticalIssues.length, 0);
+  const pptxQualityTarget = {
+    aestheticMinimum: 0.78,
+    qualityMinimum: 0.84,
+    met: Number(results.pptx?.aestheticScore) >= 0.78
+      && Number(results.pptx?.qualityScore) >= 0.84,
+  };
   const report = {
     version: 1,
     createdAt: new Date().toISOString(),
@@ -612,10 +661,15 @@ export async function runOfficeQualityLiveBenchmark({ output = '' } = {}) {
     },
     crossAppConsistent,
     criticalCount,
+    qualityTargets: {
+      pptx: pptxQualityTarget,
+    },
     automatedPass: crossAppConsistent
       && criticalCount === 0
+      && pptxQualityTarget.met
       && Object.values(results).every((entry) => (
         entry.qaOk
+        && entry.aestheticOk
         && entry.validationOk
         && entry.categorySpacing?.ok !== false
       )),

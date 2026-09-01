@@ -1,34 +1,8 @@
 /**
  * input-parsers.mjs — pure text-to-structure parsers for slash-command inputs
- * (hook rules, MCP servers, skills, memory commands + memory row tables).
+ * (MCP servers, skills, memory commands + memory row tables).
  * Extracted verbatim from App.jsx; no hooks, no App state, no closures.
  */
-export function parseHookRuleInput(text) {
-  const parts = String(text || '').split('|').map((part) => part.trim());
-  const [tool, actionRaw, match, reason, patchText] = parts;
-  const action = String(actionRaw || '').toLowerCase();
-  if (!tool || !action) return { error: 'usage: tool | allow|deny|modify | match(optional) | reason(optional) | json patch(optional)' };
-  if (!['allow', 'deny', 'block', 'modify', 'rewrite'].includes(action)) {
-    return { error: 'hook action must be allow, deny, block, modify, or rewrite' };
-  }
-  const rule = { tool, action };
-  if (match) rule.match = match;
-  if (reason) rule.reason = reason;
-  if (patchText) {
-    try {
-      const patch = JSON.parse(patchText);
-      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { error: 'json patch must be an object' };
-      rule.patch = patch;
-    } catch (e) {
-      return { error: `invalid json patch: ${e?.message || e}` };
-    }
-  }
-  if ((action === 'modify' || action === 'rewrite') && !rule.patch) {
-    return { error: 'modify/rewrite needs a json patch object in the last field' };
-  }
-  return { rule };
-}
-
 export function parseMcpServerInput(text) {
   const parts = String(text || '').split('|').map((part) => part.trim());
   const [name, commandOrUrl, argsText = '', cwd = ''] = parts;

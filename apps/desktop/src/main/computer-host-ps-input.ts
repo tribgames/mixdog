@@ -395,43 +395,47 @@ function Get-PointArg($req) {
   return @($x, $y, [MixWin32]::WindowAtPoint($x, $y))
 }
 
-function Invoke-ForegroundInput($targetHandle, $action, $body) {
+function Invoke-ForegroundInput($targetHandle, $action, $body, [bool]$pointerMayActivate = $false) {
   if (-not [MixWin32]::IsWindowHandle($targetHandle)) {
     return New-ActionResult $action 'foreground' 'suspected_noop' $false "$action target window is invalid" 'target_required' 'foreground' $null
   }
+  $state = Get-CurrentSession
   $previous = [MixWin32]::Foreground()
   $cursor = [MixWin32]::Cursor()
-  if (-not [MixWin32]::Focus($targetHandle)) {
-    return New-ActionResult $action 'foreground' 'suspected_noop' $false "could not temporarily focus target window" 'foreground_unavailable' 'foreground' ([MixWin32]::WindowId($targetHandle))
+  if ($state.OriginalFocus -eq [IntPtr]::Zero -and $previous -ne $targetHandle) {
+    $state.OriginalFocus = $previous
   }
-  if ($previous -ne $targetHandle) {
+  $focused = [MixWin32]::Focus($targetHandle)
+  if (-not $focused -and -not $pointerMayActivate) {
+    return New-ActionResult $action 'foreground' 'suspected_noop' $false "Windows foreground lock prevented target activation; no input was sent" 'foreground_unavailable' 'foreground' ([MixWin32]::WindowId($targetHandle))
+  }
+  if ($focused -and $previous -ne $targetHandle) {
     # SetForegroundWindow can report success before the target message loop is
-    # ready for keyboard or pointer input. Keep a bounded focus-settle interval
-    # between the verified switch and input dispatch.
+    # ready for input. Keep a bounded focus-settle interval before dispatch.
     [System.Threading.Thread]::Sleep(120)
   }
-  if ([MixWin32]::Foreground() -ne $targetHandle) {
+  if ($focused -and [MixWin32]::Foreground() -ne $targetHandle) {
     return New-ActionResult $action 'foreground' 'suspected_noop' $false "foreground changed before input dispatch; no input was sent" 'foreground_changed' 'foreground' ([MixWin32]::WindowId($targetHandle))
   }
   try {
     & $body
     # SendInput only enqueues events. Custom renderers such as Chromium consume
-    # them asynchronously, so keep the exact target foreground through a
-    # bounded input-settle interval before restoring the user's prior window.
+    # them asynchronously, so keep the target stable through a bounded settle.
     [System.Threading.Thread]::Sleep(240)
-    return New-ActionResult $action 'foreground_sendinput' 'unverifiable' $false "$action input dispatched; refresh state before treating it as complete" $null 'foreground' ([MixWin32]::WindowId($targetHandle))
+    $current = [MixWin32]::Foreground()
+    if ($current -ne $previous -and [MixWin32]::IsWindowHandle($current)) {
+      $state.LastFocus = $current
+    } elseif ($current -eq $targetHandle) {
+      $state.LastFocus = $targetHandle
+    }
+    $path = if ($focused) { 'foreground_sendinput' } else { 'foreground_pointer_activation' }
+    return New-ActionResult $action $path 'unverifiable' $false "$action input dispatched; inspect the fresh capture before treating it as complete" $null 'foreground' ([MixWin32]::WindowId($targetHandle))
   } finally {
-    $stillTargeted = [MixWin32]::Foreground() -eq $targetHandle
-    if ($stillTargeted) {
-      [void][MixWin32]::SetCursorPos($cursor.x, $cursor.y)
-      # Focus restoration can enqueue a final Chromium cursor move after
-      # SetCursorPos returns. Reassert once after that queue drains.
-      [System.Threading.Thread]::Sleep(30)
-      [void][MixWin32]::SetCursorPos($cursor.x, $cursor.y)
-    }
-    if ($stillTargeted -and $previous -ne [IntPtr]::Zero -and $previous -ne $targetHandle -and [MixWin32]::IsWindowHandle($previous)) {
-      [void][MixWin32]::Focus($previous)
-    }
+    [void][MixWin32]::SetCursorPos($cursor.x, $cursor.y)
+    # Keep focus for a popup or keyboard follow-up; session_release restores
+    # the original window once the bounded Computer Use chain is finished.
+    [System.Threading.Thread]::Sleep(30)
+    [void][MixWin32]::SetCursorPos($cursor.x, $cursor.y)
   }
 }
 
@@ -518,7 +522,7 @@ function Do-ClickFamily($req, $kind) {
     } finally {
       for ($i = $vks.Count - 1; $i -ge 0; $i--) { [MixWin32]::KeyUp([System.UInt16]$vks[$i]) }
     }
-  }
+  } $true
 }
 
 function Do-MouseMove($req) {
@@ -554,7 +558,7 @@ function Do-Drag($req) {
     }
     return Invoke-ForegroundInput $info.Handle 'drag' {
       [MixWin32]::Drag($x1, $y1, $x2, $y2)
-    }
+    } $true
   }
   if (-not $req.to) { throw 'drag requires to (destination ref)' }
   $refRecord = Get-RefRecord $req.ref
@@ -575,7 +579,7 @@ function Do-Drag($req) {
   }
   return Invoke-ForegroundInput $a[2] 'drag' {
     [MixWin32]::Drag($a[0], $a[1], $b[0], $b[1])
-  }
+  } $true
 }
 
 function Do-Scroll($req) {
@@ -616,7 +620,7 @@ function Do-Scroll($req) {
       [void][MixWin32]::SetCursorPos($x, $y)
       if ($horizontal) { [MixWin32]::MouseHWheel($wheelClicks) }
       else { [MixWin32]::MouseWheel($wheelClicks) }
-    }
+    } $true
   }
   if ($req.ref) {
     $refRecord = Get-RefRecord $req.ref
@@ -657,7 +661,7 @@ function Do-Scroll($req) {
       [void][MixWin32]::SetCursorPos($p[0], $p[1])
       if ($horizontal) { [MixWin32]::MouseHWheel($wheelClicks) }
       else { [MixWin32]::MouseWheel($wheelClicks) }
-    }
+    } $true
   }
   if ($req.delivery -ne 'foreground') {
     if (-not $req.window_id -and -not $req.window) {
@@ -680,7 +684,7 @@ function Do-Scroll($req) {
     [void][MixWin32]::SetCursorPos($x, $y)
     if ($horizontal) { [MixWin32]::MouseHWheel($wheelClicks) }
     else { [MixWin32]::MouseWheel($wheelClicks) }
-  }
+  } $true
 }
 
 function Do-Focus($req) {
@@ -905,21 +909,13 @@ function Do-InvokeMenu($req) {
     $walked = @()
     for ($i = 0; $i -lt $path.Count; $i++) {
       $segment = $path[$i]
-      $candidates = Get-MenuCandidates $root $segment
-      if ($candidates.Count -eq 0 -and $i -gt 0) {
-        # An opened submenu is often a popup window owned by the app rather than a
-        # child of the item that opened it. Only one menu can be open at a time.
-        $candidates = Get-MenuCandidates ($AE::RootElement) $segment
+      # Native applications usually expose menu state through MSAA immediately.
+      # Use that exact path before asking UIA to walk an entire provider tree.
+      $msaaCandidates = Get-MsaaMenuCandidates $info $segment
+      if ($msaaCandidates.Count -gt 1) {
+        throw "menu_path_ambiguous: '$segment' matched $($msaaCandidates.Count) entries; use a more exact path"
       }
-      $msaaCandidates = @()
-      if ($candidates.Count -eq 0) {
-        $msaaCandidates = Get-MsaaMenuCandidates $info $segment
-        if ($msaaCandidates.Count -eq 0) {
-          throw "menu_path_not_found: no enabled menu entry named '$segment' after $($walked -join ' > ')"
-        }
-        if ($msaaCandidates.Count -gt 1) {
-          throw "menu_path_ambiguous: '$segment' matched $($msaaCandidates.Count) entries; use a more exact path"
-        }
+      if ($msaaCandidates.Count -eq 1) {
         $walked += $segment
         try {
           $msaaCandidates[0].DoDefaultAction()
@@ -937,6 +933,15 @@ function Do-InvokeMenu($req) {
         Start-Sleep -Milliseconds 120
         $root = $win
         continue
+      }
+      $candidates = Get-MenuCandidates $root $segment
+      if ($candidates.Count -eq 0 -and $i -gt 0) {
+        # An opened submenu is often a popup window owned by the app rather than a
+        # child of the item that opened it. Only one menu can be open at a time.
+        $candidates = Get-MenuCandidates ($AE::RootElement) $segment
+      }
+      if ($candidates.Count -eq 0) {
+        throw "menu_path_not_found: no enabled menu entry named '$segment' after $($walked -join ' > ')"
       }
       if ($candidates.Count -gt 1) {
         throw "menu_path_ambiguous: '$segment' matched $($candidates.Count) entries; use a more exact path"

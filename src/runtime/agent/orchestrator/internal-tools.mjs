@@ -66,11 +66,16 @@ function _normalize(result) {
         const normalized = normalizeToolEnvelope(_normalize(result.result));
         return makeToolEnvelope(normalized.result, result.newMessages, {
             explicitSuccess: normalized.explicitSuccess || result.explicitSuccess === true,
+            explicitFailure: normalized.explicitFailure || result.explicitFailure === true,
         });
     }
     if (result && typeof result === 'object' && Array.isArray(result.content)) {
         const hasStructuredMedia = result.content.some((part) => part && typeof part === 'object' && part.type !== 'text');
-        if (hasStructuredMedia && result.isError !== true) return result;
+        if (hasStructuredMedia) {
+            return result.isError === true
+                ? makeToolEnvelope(result, [], { explicitFailure: true })
+                : result;
+        }
         const text = result.content
             .map((c) => (c?.type === 'text' ? c.text || '' : JSON.stringify(c)))
             .join('\n');

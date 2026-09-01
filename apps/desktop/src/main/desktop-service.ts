@@ -147,7 +147,10 @@ export async function createDesktopService(
     reject(error: Error): void;
     timer: NodeJS.Timeout;
   }>();
-  const requestBrowserRemote = (method: 'frame' | 'control', args: unknown[]): Promise<unknown> => {
+  const requestBrowserRemote = (
+    method: 'frame' | 'control' | 'release',
+    args: unknown[],
+  ): Promise<unknown> => {
     const id = `browser_remote_${++nextBrowserRemoteRequestId}`;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {

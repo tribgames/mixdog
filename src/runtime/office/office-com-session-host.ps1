@@ -9,6 +9,7 @@ Remove-Item Env:MIXDOG_OFFICE_HOST_LIBRARY -ErrorAction SilentlyContinue
 if (-not ('MixdogOfficeInterop' -as [type])) {
   Add-Type -TypeDefinition @'
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
@@ -137,6 +138,66 @@ public static class MixdogOfficeInterop
         return unchecked((int)processId);
     }
 
+    public static long ForegroundWindow()
+    {
+        return GetForegroundWindow().ToInt64();
+    }
+
+    public static int HideVisibleWindowsForProcess(int processId)
+    {
+        int hidden = 0;
+        if (processId <= 0) return hidden;
+        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+        {
+            uint owner;
+            GetWindowThreadProcessId(hWnd, out owner);
+            if (owner == unchecked((uint)processId) && IsWindowVisible(hWnd))
+            {
+                if (ShowWindowAsync(hWnd, 0)) hidden++;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return hidden;
+    }
+
+    public static int VisibleWindowCountForProcess(int processId)
+    {
+        int visible = 0;
+        if (processId <= 0) return visible;
+        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+        {
+            uint owner;
+            GetWindowThreadProcessId(hWnd, out owner);
+            if (owner == unchecked((uint)processId) && IsWindowVisible(hWnd)) visible++;
+            return true;
+        }, IntPtr.Zero);
+        return visible;
+    }
+
+    public static string[] VisibleWindowDescriptionsForProcess(int processId)
+    {
+        List<string> windows = new List<string>();
+        if (processId <= 0) return windows.ToArray();
+        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+        {
+            uint owner;
+            GetWindowThreadProcessId(hWnd, out owner);
+            if (owner != unchecked((uint)processId) || !IsWindowVisible(hWnd)) return true;
+            StringBuilder className = new StringBuilder(128);
+            StringBuilder title = new StringBuilder(1024);
+            GetClassName(hWnd, className, className.Capacity);
+            GetWindowText(hWnd, title, title.Capacity);
+            windows.Add(className.ToString() + "|" + title.ToString());
+            return true;
+        }, IntPtr.Zero);
+        return windows.ToArray();
+    }
+
+    public static bool RestoreForegroundWindow(long hWnd)
+    {
+        return ActivateWindow(hWnd);
+    }
+
     public static long FindWindowByClassAndTitle(string expectedClass, string titlePart)
     {
         IntPtr found = IntPtr.Zero;
@@ -198,13 +259,109 @@ public static class MixdogOfficeInterop
 '@
 }
 
+function Office-ProcessName([string]$format) {
+  switch ($format) {
+    'docx' { return 'WINWORD' }
+    'xlsx' { return 'EXCEL' }
+    'pptx' { return 'POWERPNT' }
+  }
+  return ''
+}
+
+function Office-ProcessIds([string]$format) {
+  $name = Office-ProcessName $format
+  if (-not $name) { return @() }
+  return @(
+    Get-Process -Name $name -ErrorAction SilentlyContinue | ForEach-Object {
+      try { [int]$_.Id } finally { try { $_.Dispose() } catch {} }
+    }
+  )
+}
+
+function Background-OwnedProcessIds($state) {
+  $ids = New-Object 'System.Collections.Generic.HashSet[int]'
+  if ([int]$state.AppPid -gt 0) { [void]$ids.Add([int]$state.AppPid) }
+  if ($state.Format -eq 'pptx' -and $null -ne $script:PowerPointChartExcelProcessIds) {
+    foreach ($processId in @($script:PowerPointChartExcelProcessIds.Keys)) {
+      if ([int]$processId -gt 0) { [void]$ids.Add([int]$processId) }
+    }
+  }
+  return @($ids)
+}
+
+function Enforce-BackgroundIsolation($state) {
+  if ($state.Mode -ne 'background') { return $null }
+  $processIds = @(Background-OwnedProcessIds $state)
+  $foregroundBefore = [long]$state.ForegroundBeforeAction
+  $observedVisibleWindows = @()
+  $hidden = 0
+  $visible = 0
+  for ($attempt = 0; $attempt -lt 20; $attempt++) {
+    $visible = 0
+    foreach ($processId in $processIds) {
+      if ($attempt -eq 0) {
+        $observedVisibleWindows += @(
+          [MixdogOfficeInterop]::VisibleWindowDescriptionsForProcess([int]$processId)
+        )
+      }
+      $visible += [int][MixdogOfficeInterop]::VisibleWindowCountForProcess([int]$processId)
+    }
+    if ($visible -eq 0) { break }
+    foreach ($processId in $processIds) {
+      $hidden += [int][MixdogOfficeInterop]::HideVisibleWindowsForProcess([int]$processId)
+    }
+    Start-Sleep -Milliseconds 25
+  }
+  $foregroundCurrent = [long][MixdogOfficeInterop]::ForegroundWindow()
+  $foregroundProcess = if ($foregroundCurrent) {
+    [MixdogOfficeInterop]::ProcessIdForWindow($foregroundCurrent)
+  } else {
+    0
+  }
+  $ownedForeground = $processIds -contains [int]$foregroundProcess
+  $focusRestored = $false
+  if ($ownedForeground -and $foregroundBefore -and $foregroundCurrent -ne $foregroundBefore) {
+    $focusRestored = [bool][MixdogOfficeInterop]::RestoreForegroundWindow($foregroundBefore)
+    Start-Sleep -Milliseconds 25
+  }
+  $foregroundAfter = [long][MixdogOfficeInterop]::ForegroundWindow()
+  $foregroundAfterProcess = if ($foregroundAfter) {
+    [MixdogOfficeInterop]::ProcessIdForWindow($foregroundAfter)
+  } else {
+    0
+  }
+  $ownedForegroundRemaining = $processIds -contains [int]$foregroundAfterProcess
+  $state.BackgroundIsolationChecks = [int]$state.BackgroundIsolationChecks + 1
+  $state.BackgroundHiddenWindows = [int]$state.BackgroundHiddenWindows + $hidden
+  if ($focusRestored) {
+    $state.BackgroundFocusRestorations = [int]$state.BackgroundFocusRestorations + 1
+  }
+  if ($visible -gt 0 -or $ownedForegroundRemaining) {
+    throw "Background Office isolation failed: $visible owned window(s) remain visible and ownedForeground=$ownedForegroundRemaining."
+  }
+  return [ordered]@{
+    strict = $true
+    isolatedProcess = [bool]$state.IsolatedProcess
+    checks = [int]$state.BackgroundIsolationChecks
+    hiddenWindows = [int]$state.BackgroundHiddenWindows
+    focusRestorations = [int]$state.BackgroundFocusRestorations
+    observedVisibleWindows = @($observedVisibleWindows)
+    foregroundBefore = $foregroundBefore
+    foregroundAfter = $foregroundAfter
+    visibleOwnedWindows = $visible
+    ownedForeground = $ownedForegroundRemaining
+  }
+}
+
 function Session-Response($state, $value) {
+  $isolation = Enforce-BackgroundIsolation $state
   $result = [ordered]@{
     ok = $true
     session = [string]$state.Id
     mode = [string]$state.Mode
     backend = 'microsoft-office-com'
   }
+  if ($null -ne $isolation) { $result.backgroundIsolation = $isolation }
   foreach ($entry in $value.GetEnumerator()) { $result[$entry.Key] = $entry.Value }
   return $result
 }
@@ -364,9 +521,12 @@ function Open-SessionState($payload) {
   $create = [bool]$payload.create
   if ($create -and $mode -eq 'attach') { throw 'create does not support attach mode' }
 
+  $foregroundBefore = [long][MixdogOfficeInterop]::ForegroundWindow()
+  $baselineProcessIds = @(Office-ProcessIds $format)
   $app = $null
   $document = $null
   $ownership = 'owned'
+  $sharedBackgroundProcess = $false
   try {
     if (-not $create -and @('attach', 'visible') -contains $mode) {
       $document = Find-RunningDocumentExact $format $path
@@ -410,7 +570,23 @@ function Open-SessionState($payload) {
     }
     $foregroundActivated = $mode -eq 'visible' -and $format -eq 'pptx' -and (Set-OfficeForeground $hWnd)
     $processId = if ($hWnd) { [MixdogOfficeInterop]::ProcessIdForWindow($hWnd) } else { 0 }
-    return [pscustomobject]@{
+    if ($mode -eq 'background' -and -not $processId) {
+      for ($attempt = 0; -not $processId -and $attempt -lt 20; $attempt++) {
+        $newProcessIds = @(
+          Office-ProcessIds $format | Where-Object { $baselineProcessIds -notcontains [int]$_ }
+        )
+        if ($newProcessIds.Count -eq 1) { $processId = [int]$newProcessIds[0] }
+        if (-not $processId) { Start-Sleep -Milliseconds 50 }
+      }
+    }
+    $isolatedProcess = $mode -ne 'background' -or (
+      $processId -gt 0 -and $baselineProcessIds -notcontains [int]$processId
+    )
+    if ($mode -eq 'background' -and -not $isolatedProcess) {
+      $sharedBackgroundProcess = $true
+      throw 'Background Office refused a COM application that reused an existing user Office process.'
+    }
+    $state = [pscustomobject]@{
       Id = $id
       Format = $format
       Path = $path
@@ -422,17 +598,23 @@ function Open-SessionState($payload) {
       AppPid = $processId
       WindowHwnd = $hWnd
       ForegroundActivated = [bool]$foregroundActivated
+      ForegroundBeforeAction = $foregroundBefore
+      IsolatedProcess = [bool]$isolatedProcess
+      BackgroundIsolationChecks = 0
+      BackgroundHiddenWindows = 0
+      BackgroundFocusRestorations = 0
       ExcelDpiRepairs = 0
       PptxExports = 0
       DocumentId = "${format}:$($path.ToLowerInvariant())"
     }
+    return $state
   } catch {
     if ($null -ne $document) {
       if ($ownership -eq 'owned') { try { $document.Close($false) } catch {} }
       try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($document) } catch {}
     }
     if ($null -ne $app) {
-      if ($ownership -eq 'owned') { try { $app.Quit() } catch {} }
+      if ($ownership -eq 'owned' -and -not $sharedBackgroundProcess) { try { $app.Quit() } catch {} }
       try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($app) } catch {}
     }
     throw
@@ -894,6 +1076,7 @@ try {
       } else {
         if ($null -eq $state) { throw 'Office session host has no open document' }
         if ([string]$payload.session -ne [string]$state.Id) { throw 'Office session id does not match this host' }
+        $state.ForegroundBeforeAction = [long][MixdogOfficeInterop]::ForegroundWindow()
         if ($payload.action -eq 'close_session') {
           if ([bool]$payload.save) { Save-Document $state.Document $state.Format }
           $result = Session-Response $state ([ordered]@{

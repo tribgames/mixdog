@@ -89,6 +89,43 @@ test('an unmatched or unreadable target fails closed with its own reason', async
   );
 });
 
+test('stale recapture preserves the requested target instead of reusing another observed app', async () => {
+  const exact = targeting([
+    windowRecord('hwnd:0x1', { app: 'chrome', title: 'Old observation' }),
+    windowRecord('hwnd:0x2', { app: 'notepad', title: 'Requested target' }),
+  ]);
+  assert.deepEqual(
+    await exact.resolveRecaptureWindowTarget(
+      { app: 'notepad' },
+      'hwnd:0x1',
+    ),
+    { windowId: 'hwnd:0x2' },
+  );
+  assert.deepEqual(
+    await exact.resolveRecaptureWindowTarget(
+      { window_id: 'hwnd:0x3', app: 'notepad' },
+      'hwnd:0x1',
+    ),
+    { windowId: 'hwnd:0x3' },
+  );
+  assert.deepEqual(
+    await exact.resolveRecaptureWindowTarget({}, 'hwnd:0x1'),
+    { windowId: 'hwnd:0x1' },
+  );
+
+  const ambiguous = targeting([
+    windowRecord('hwnd:0x4', { app: 'notepad', title: 'a.txt' }),
+    windowRecord('hwnd:0x5', { app: 'notepad', title: 'b.txt' }),
+  ]);
+  const refused = await ambiguous.resolveRecaptureWindowTarget(
+    { app: 'notepad' },
+    'hwnd:0x1',
+  );
+  assert.equal(refused.windowId, '');
+  assert.match(refused.error, /ambiguous_window_target/);
+  assert.doesNotMatch(refused.error, /hwnd:0x1/);
+});
+
 test('the foreground target resolves only when exactly one window has focus', async () => {
   const one = targeting([
     windowRecord('hwnd:0x1', { focused: true }),

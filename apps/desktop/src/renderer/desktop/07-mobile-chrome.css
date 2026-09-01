@@ -309,6 +309,10 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island {
   gap: var(--session-status-gap);
   padding: calc(36px * 2 / 28 * var(--mx-device-scale, 2.5));
 }
+/* The compact mobile tab strip already owns a 44dp utility-dock button. */
+html[data-mixdog-mobile-tabs] .session-status-dock-toggle {
+  display: none;
+}
 html[data-mixdog-mobile-tabs] .session-status-island .session-context-indicator,
 html[data-mixdog-mobile-tabs] .session-status-island .session-context-indicator > button,
 html[data-mixdog-mobile-tabs] .session-work-indicator,
@@ -683,11 +687,6 @@ html[data-mixdog-mobile-tabs] .workbench-side-panel[data-side="right"]::after {
    corners (user: 둥근 테두리 뒤에 긴 선) — both drawers hide it; the sheet
    width is fixed by ratio on the phone anyway. */
 html[data-mixdog-mobile-tabs] .workbench-side-panel-resize { display: none; }
-/* Desktop's 14px right-edge drop strip (a drag target for restoring a
-   dragged-out view) is invisible on the phone yet still catches edge taps
-   and flashes its hover wash (user: 오른쪽 끝을 누르면 회색이 되는 버그).
-   Phones do not rearrange views by edge drag, so the strip goes away. */
-html[data-mixdog-mobile-tabs] .workbench-side-empty-drop { display: none; }
 /* Mobile scrollbars are overlay feedback, not layout — the transcript already
    hides its bar. The drawer/sheet lists still painted the 8px desktop bar on
    their right edge, where it darkens on touch and even drags (user: 오른쪽

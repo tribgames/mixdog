@@ -1,4 +1,4 @@
-import { FileText, Minus, Plus, RefreshCw } from "lucide-react";
+import { FileText, Minus, Plus, RefreshCw, X } from "lucide-react";
 import {
   lazy,
   Suspense,
@@ -39,11 +39,15 @@ export function GitDiffPane({
   selection,
   active,
   onOpenFile,
+  onClose,
   onReady,
 }: {
   selection: GitDiffSelection;
   active: boolean;
   onOpenFile?(project: string, rel: string): void;
+  /** Pane-dock host: the diff owns its close affordance (user: DIFF 탭 없이
+   *  창 자체에 X). */
+  onClose?(): void;
   onReady?(): void;
 }) {
   const api = window.mixdogDesktop;
@@ -200,6 +204,10 @@ export function GitDiffPane({
         <button type="button" aria-label={t("Refresh diff")} onClick={() => void load()}>
           <RefreshCw size={14} aria-hidden="true" />
         </button>
+        {onClose && <button type="button" aria-label={t("Close diff")}
+          data-tooltip={t("Close diff")} onClick={onClose}>
+          <X size={14} aria-hidden="true" />
+        </button>}
       </div>
     </header>
     <div className="workspace-git-diff-body">

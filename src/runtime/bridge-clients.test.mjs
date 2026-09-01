@@ -23,13 +23,20 @@ import {
 } from './browser-bridge/action-schema.mjs';
 import { TOOL_DEFS as BROWSER_TOOL_DEFS } from './browser-bridge/tool-defs.mjs';
 import {
+  canonicalComputerResultText,
   computerBridgeAvailableSync,
   deferComputerSessionRelease,
+  endComputerExecution,
   executeComputerTool,
   isReplaySafeComputerCommand,
   releaseAllComputerSessions,
   releaseComputerSession,
 } from './computer-bridge/client.mjs';
+import {
+  computerResultRecovery,
+  computerToolErrorRecovery,
+  formatComputerToolError,
+} from './computer-bridge/error-recovery.mjs';
 import {
   COMPUTER_OBSERVATION_ACTIONS,
   toComputerHostCommand,
@@ -121,6 +128,7 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   assert.equal(propertyFor('navigate', 'maxChars').maximum, 30_000);
   assert.equal(propertyFor('upload', 'paths').maxItems, 10);
   assert.ok(propertyFor('upload', 'confirm'));
+  assert.ok(propertyFor('cookies', 'confirm'));
   assert.ok(propertyFor('wait', 'textGone'));
   assert.equal(propertyFor('navigate', 'expect').properties.timeoutMs.maximum, 20_000);
   assert.equal(propertyFor('navigate', 'settleMs').maximum, 5_000);
@@ -128,6 +136,9 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   assert.equal(propertyFor('snapshot', 'includeScreenshot').type, 'boolean');
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('untrusted data'));
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('mode=both'));
+  assert.ok(BROWSER_TOOL_DEFS[0].description.includes('session-local'));
+  assert.ok(BROWSER_TOOL_DEFS[0].description.includes('never provide session_id'));
+  assert.ok(propertyFor('background', 'background').description.includes('without revealing'));
 });
 
 test('browser action contract validates compact flat-schema calls', () => {
@@ -236,6 +247,22 @@ test('browser action contract validates compact flat-schema calls', () => {
     validateBrowserToolArgs({ action: 'upload', input: { ref: 'p1-s1-e1', paths: ['C:\\tmp\\a.txt'], confirm: false } }).error,
     /requires input\.confirm=true/,
   );
+  assert.match(
+    validateBrowserToolArgs({ action: 'snapshot', input: { session_id: 'other' } }).error,
+    /does not accept input field\(s\): session_id/,
+  );
+  assert.match(
+    validateBrowserToolArgs({ action: 'cookies', input: { operation: 'clear' } }).error,
+    /shared clear requires input\.confirm=true/,
+  );
+  assert.equal(validateBrowserToolArgs({
+    action: 'cookies',
+    input: { operation: 'clear', confirm: true },
+  }).ok, true);
+  assert.equal(validateBrowserToolArgs({
+    action: 'storage',
+    input: { operation: 'clear', storageType: 'session' },
+  }).ok, true);
 });
 
 test('browser sequence chains only deterministic same-page gestures', () => {
@@ -503,9 +530,7 @@ test('the observation-only actions named on each tool surface are valid actions'
   for (const action of COMPUTER_OBSERVATION_ACTIONS) {
     const input = action === 'list'
       ? { kind: 'windows' }
-      : action === 'wait'
-        ? { duration: 1 }
-        : action === 'verify'
+      : action === 'verify'
           ? { window_id: 'hwnd:0x1', expect: [{ present: 'Saved' }] }
           : { window_id: 'hwnd:0x1' };
     const command = toComputerHostCommand({ action, input });
@@ -568,35 +593,22 @@ test('computer runtime manifest stays in parity with host command handlers', asy
     { action: 'diagnose', input: { window_id: 'hwnd:0x1' } },
     { action: 'capture', input: { window_id: 'hwnd:0x1' } },
     { action: 'capture', input: { mode: 'zoom', frame_id: 'frame:1', region: [0, 0, 4, 4] } },
-    { action: 'click', input: { window_id: 'hwnd:0x1', ref: 'ref:1' } },
-    { action: 'click', input: { window_id: 'hwnd:0x1', element: 1, button: 'left' } },
-    { action: 'click', input: { window_id: 'hwnd:0x1', element: 1, button: 'right' } },
-    { action: 'click', input: { window_id: 'hwnd:0x1', element: 1, button: 'middle' } },
-    { action: 'double_click', input: { window_id: 'hwnd:0x1', element: 1 } },
-    { action: 'mouse_move', input: { window_id: 'hwnd:0x1', element: 1 } },
-    { action: 'drag', input: { window_id: 'hwnd:0x1', ref: 'ref:1', to: 'ref:2' } },
-    { action: 'type', input: { window_id: 'hwnd:0x1', text: 'value' } },
-    { action: 'key', input: { window_id: 'hwnd:0x1', keys: '^s' } },
-    { action: 'scroll', input: { window_id: 'hwnd:0x1', direction: 'down' } },
-    { action: 'wait', input: { duration: 1 } },
     {
-      action: 'sequence',
+      action: 'act',
       input: {
         window_id: 'hwnd:0x1',
-        steps: [
-          { action: 'click', ref: 'ref:1' },
-          { action: 'type', text: 'value' },
+        actions: [
+          { type: 'click', ref: 'ref:1' },
+          { type: 'type', text: 'value' },
         ],
       },
     },
     {
-      action: 'sequence',
+      action: 'act',
       input: {
         window_id: 'hwnd:0x1',
-        steps: [
-          { action: 'click', element: 1, button: 'right' },
-          { action: 'key', keys: '{ENTER}' },
-        ],
+        frame_id: 'frame:1',
+        actions: [{ type: 'drag', x: 1, y: 2, to_x: 3, to_y: 4 }],
       },
     },
     ...['focus', 'minimize', 'maximize', 'restore', 'close'].map((operation) => ({
@@ -607,7 +619,6 @@ test('computer runtime manifest stays in parity with host command handlers', asy
     { action: 'clipboard', input: { operation: 'read' } },
     { action: 'clipboard', input: { operation: 'write', text: 'value' } },
     { action: 'launch', input: { app: 'notepad.exe' } },
-    { action: 'type', input: { window_id: 'hwnd:0x1', ref: 'ref:1', text: 'value', mode: 'set' } },
     { action: 'menu', input: { window_id: 'hwnd:0x1', path: ['File', 'Save As'] } },
     { action: 'verify', input: { window_id: 'hwnd:0x1', expect: [{ present: 'Saved' }] } },
   ];
@@ -634,25 +645,25 @@ test('computer runtime manifest stays in parity with host command handlers', asy
 
 test('computer window targets take one exact window_id or one app fallback', () => {
   assert.equal(validateComputerToolArgs({
-    action: 'click',
-    input: { app: 'Notepad', ref: 'ref:1' },
-  }), null);
-  assert.equal(validateComputerToolArgs({
-    action: 'sequence',
+    action: 'act',
     input: {
       app: 'Notepad',
-      steps: [{ action: 'click', ref: 'ref:1' }, { action: 'type', text: 'value' }],
+      actions: [{ type: 'click', ref: 'ref:1' }, { type: 'type', text: 'value' }],
     },
   }), null);
   // Neither target, both targets, and an empty app are all refused up front.
   assert.match(
-    validateComputerToolArgs({ action: 'click', input: { ref: 'ref:1' } }),
+    validateComputerToolArgs({ action: 'act', input: { actions: [{ type: 'click', ref: 'ref:1' }] } }),
     /exactly one of window_id or app/,
   );
   assert.match(
     validateComputerToolArgs({
-      action: 'type',
-      input: { window_id: 'hwnd:0x1', app: 'Notepad', text: 'value' },
+      action: 'act',
+      input: {
+        window_id: 'hwnd:0x1',
+        app: 'Notepad',
+        actions: [{ type: 'type', text: 'value' }],
+      },
     }),
     /exactly one of window_id or app/,
   );
@@ -676,14 +687,18 @@ test('computer window targets take one exact window_id or one app fallback', () 
   );
   // The host resolves the label, so the app target travels through unchanged.
   assert.deepEqual(toComputerHostCommand({
-    action: 'type',
-    input: { app: 'Notepad', text: 'value' },
-  }), { app: 'Notepad', text: 'value', action: 'type' });
+    action: 'act',
+    input: { app: 'Notepad', actions: [{ type: 'type', text: 'value' }] },
+  }), {
+    app: 'Notepad',
+    steps: [{ action: 'type', text: 'value' }],
+    action: 'sequence',
+  });
 });
 
 test('computer tool contract exposes stable targets, frames, and explicit delivery', () => {
   const schema = COMPUTER_TOOL_DEFS[0].inputSchema;
-  assert.deepEqual(Object.keys(schema.properties), ['action', 'input', 'capture_after']);
+  assert.deepEqual(Object.keys(schema.properties), ['action', 'input']);
   assert.deepEqual(schema.required, ['action']);
   assert.ok(Array.isArray(schema.oneOf));
   const inputFor = (action) => schema.oneOf.find(
@@ -692,17 +707,13 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
   const list = inputFor('list');
   const diagnose = inputFor('diagnose');
   const capture = inputFor('capture');
-  const click = inputFor('click');
-  const drag = inputFor('drag');
-  const key = inputFor('key');
-  const scroll = inputFor('scroll');
-  const sequence = inputFor('sequence');
+  const act = inputFor('act');
+  const core = act.properties.actions.items;
   const window = inputFor('window');
   const clipboard = inputFor('clipboard');
   assert.deepEqual(schema.properties.action.enum, [
-    'list', 'diagnose', 'capture', 'verify',
-    'click', 'double_click', 'mouse_move', 'drag', 'type', 'key', 'scroll', 'wait',
-    'sequence', 'window', 'menu', 'clipboard', 'launch',
+    'list', 'diagnose', 'capture', 'verify', 'act',
+    'window', 'menu', 'clipboard', 'launch',
   ]);
   // verify waits on state without pixels; menu resolves an exact label path.
   assert.deepEqual(
@@ -712,41 +723,56 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
   assert.equal(inputFor('verify').properties.expect.maxItems, 8);
   assert.equal(inputFor('verify').properties.stable_samples.maximum, 5);
   assert.equal(inputFor('menu').properties.path.maxItems, 8);
-  assert.deepEqual(inputFor('type').properties.mode.enum, ['literal', 'set']);
   assert.deepEqual(list.properties.kind.enum, ['windows', 'apps']);
   assert.ok(diagnose.properties.ocr_language);
   assert.ok(capture.properties.window_id);
-  assert.ok(click.properties.frame_id);
-  assert.deepEqual(click.properties.button.enum, ['left', 'right', 'middle']);
-  assert.deepEqual(click.properties.delivery.enum, ['background', 'foreground']);
+  assert.ok(act.properties.frame_id);
+  assert.deepEqual(core.properties.type.enum, [
+    'click', 'double_click', 'move', 'drag', 'scroll', 'type', 'key', 'wait',
+  ]);
+  assert.deepEqual(core.properties.button.enum, ['left', 'right', 'middle']);
+  assert.deepEqual(act.properties.delivery.enum, ['background', 'foreground']);
   assert.ok(capture.properties.continuation);
   assert.ok(capture.properties.include_noninteractive);
   assert.deepEqual(capture.properties.mode.enum, ['state', 'som', 'vision', 'ax', 'zoom']);
-  assert.ok(click.properties.element);
-  assert.ok(drag.properties.to_element);
-  assert.ok(drag.properties.to_x);
-  assert.ok(drag.properties.to_y);
-  assert.ok(key.properties.keys.description.includes('"^s"'));
+  assert.ok(core.properties.element);
+  assert.ok(core.properties.to_element);
+  assert.ok(core.properties.to_x);
+  assert.ok(core.properties.to_y);
+  assert.equal(core.properties.keys.maxLength, 512);
+  assert.equal(core.properties.modifiers.maxLength, 32);
   assert.ok(capture.properties.include_ocr);
+  assert.equal(capture.properties.ocr_language.maxLength, 64);
+  assert.equal(capture.properties.ocr_language.pattern, '^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$');
   assert.equal(capture.properties.max_ocr_words.maximum, 1000);
-  assert.deepEqual(scroll.properties.direction.enum, ['up', 'down', 'left', 'right']);
-  assert.equal(sequence.properties.steps.minItems, 2);
-  assert.equal(sequence.properties.steps.maxItems, 6);
+  assert.deepEqual(core.properties.direction.enum, ['up', 'down', 'left', 'right']);
+  assert.equal(act.properties.actions.minItems, 1);
+  assert.equal(act.properties.actions.maxItems, 6);
   assert.deepEqual(window.properties.operation.enum, [
     'focus', 'move', 'minimize', 'maximize', 'restore', 'close',
   ]);
   assert.deepEqual(clipboard.properties.operation.enum, ['read', 'write']);
-  assert.equal(schema.properties.capture_after.properties.delay_ms.maximum, 2000);
-  assert.equal(schema.properties.capture_after.properties.max_elements.maximum, 1000);
   assert.equal(validateComputerToolArgs({ action: 'capture' }), null);
   assert.equal(validateComputerToolArgs({
-    action: 'click',
-    input: { window_id: 'hwnd:0x123', element: 2 },
+    action: 'capture',
+    input: { mode: 'state', include_ocr: true, ocr_language: 'en-US' },
   }), null);
   assert.match(validateComputerToolArgs({
-    action: 'click',
-    input: { window_id: 'hwnd:0x123' },
-  }), /requires ref, element, or frame_id\/x\/y/i);
+    action: 'capture',
+    input: { mode: 'state', include_ocr: true, ocr_language: 'en_US' },
+  }), /ocr_language must match the required format/i);
+  assert.match(validateComputerToolArgs({
+    action: 'diagnose',
+    input: { ocr_language: `en-${'a'.repeat(63)}` },
+  }), /ocr_language accepts at most 64 characters/i);
+  assert.equal(validateComputerToolArgs({
+    action: 'act',
+    input: { window_id: 'hwnd:0x123', actions: [{ type: 'click', element: 2 }] },
+  }), null);
+  assert.match(validateComputerToolArgs({
+    action: 'act',
+    input: { window_id: 'hwnd:0x123', actions: [{ type: 'click' }] },
+  }), /requires ref, element, or x\/y/i);
   assert.match(validateComputerToolArgs({
     action: 'capture',
     input: { text: 'wrong action' },
@@ -760,13 +786,13 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     input: { operation: 'write' },
   }), /requires.*text/i);
   assert.match(validateComputerToolArgs({
-    action: 'wait',
-    input: { duration: 1 },
+    action: 'act',
+    input: { window_id: 'hwnd:0x123', actions: [{ type: 'wait', duration: 1 }] },
     capture_after: {},
-  }), /does not accept capture_after/i);
+  }), /does not accept root field/i);
   assert.match(validateComputerToolArgs({
-    action: 'wait',
-    input: { duration: 1 },
+    action: 'act',
+    input: { window_id: 'hwnd:0x123', actions: [{ type: 'type', text: 'value' }] },
     duration: 1,
   }), /does not accept root field/i);
   assert.match(validateComputerToolArgs({
@@ -774,24 +800,130 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     input: { kind: 'files' },
   }), /kind must be one of: windows, apps/i);
   assert.match(validateComputerToolArgs({
-    action: 'click',
-    input: { window_id: 'hwnd:0x123', ref: 'ref:1', button: 'primary' },
-  }), /button must be one of: left, right, middle/i);
-  assert.match(validateComputerToolArgs({
-    action: 'key',
+    action: 'act',
     input: {
       window_id: 'hwnd:0x123',
-      element: 2,
-      keys: '{ENTER}',
+      actions: [{ type: 'click', ref: 'ref:1', button: 'primary' }],
     },
-  }), /does not accept input field.*element/i);
+  }), /button must be one of: left, right, middle/i);
   assert.match(validateComputerToolArgs({
-    action: 'key',
-    input: { window_id: 'hwnd:0x123', keys: 'a'.repeat(513) },
+    action: 'capture',
+    input: { app: '' },
+  }), /app requires at least 1 characters/i);
+  assert.match(validateComputerToolArgs({
+    action: 'capture',
+    input: { window_id: ' ' },
+  }), /window_id must not be empty/i);
+  assert.match(validateComputerToolArgs({
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x123',
+      actions: [{ type: 'click', ref: 'r'.repeat(4_097) }],
+    },
+  }), /ref accepts at most 4096 characters/i);
+  assert.equal(validateComputerToolArgs({
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x123',
+      actions: [{ type: 'click', ref: 'r'.repeat(4_096) }],
+    },
+  }), null);
+  assert.match(validateComputerToolArgs({
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x123',
+      actions: [{ type: 'click', ref: ' ' }],
+    },
+  }), /ref must not be empty/i);
+  assert.match(validateComputerToolArgs({
+    action: 'menu',
+    input: { window_id: 'hwnd:0x123', path: ['m'.repeat(513)] },
+  }), /path\[0\] accepts at most 512 characters/i);
+  assert.equal(validateComputerToolArgs({
+    action: 'menu',
+    input: { window_id: 'hwnd:0x123', path: ['m'.repeat(512)] },
+  }), null);
+  assert.match(validateComputerToolArgs({
+    action: 'menu',
+    input: { window_id: 'hwnd:0x123', path: [' '] },
+  }), /menu path segments must be non-empty labels/i);
+  assert.match(validateComputerToolArgs({
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x123',
+      actions: [{ type: 'key', element: 2, keys: '{ENTER}' }],
+    },
+  }), /type="key" does not accept field.*element/i);
+  assert.match(validateComputerToolArgs({
+    action: 'act',
+    input: { window_id: 'hwnd:0x123', actions: [{ type: 'key', keys: 'a'.repeat(513) }] },
   }), /keys accepts at most 512 characters/i);
   assert.match(validateComputerToolArgs({
-    action: 'type',
-    input: { window_id: 'hwnd:0x123', text: 'a'.repeat(30_001) },
+    action: 'act',
+    input: { window_id: 'hwnd:0x123', actions: [{ type: 'key', keys: 'ctrl+\nA' }] },
+  }), /keys must match the required format/i);
+  for (const codePoint of [
+    ...Array.from({ length: 32 }, (_, index) => index),
+    ...Array.from({ length: 33 }, (_, index) => 0x7f + index),
+  ]) {
+    assert.match(validateComputerToolArgs({
+      action: 'act',
+      input: {
+        window_id: 'hwnd:0x123',
+        actions: [{ type: 'key', keys: `A${String.fromCharCode(codePoint)}B` }],
+      },
+    }), /keys must match the required format/i, `U+${codePoint.toString(16).padStart(4, '0')}`);
+  }
+  assert.match(validateComputerToolArgs({
+    action: 'act',
+    input: { window_id: 'hwnd:0x123', actions: [{ type: 'key', keys: '' }] },
+  }), /keys requires at least 1 characters/i);
+  assert.match(validateComputerToolArgs({
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x123',
+      actions: [{ type: 'click', element: 1, modifiers: 'win' }],
+    },
+  }), /modifiers must match the required format/i);
+  assert.match(validateComputerToolArgs({
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x123',
+      actions: [{ type: 'click', element: 1, modifiers: 'ctrl+shift+alt+ctrl+shift+alt+ctrl' }],
+    },
+  }), /modifiers accepts at most 32 characters/i);
+  assert.equal(validateComputerToolArgs({
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x123',
+      actions: [{ type: 'click', element: 1, modifiers: 'ctrl+shift' }],
+    },
+  }), null);
+  assert.match(validateComputerToolArgs({
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x123',
+      actions: [{ type: 'click', element: 1, modifiers: 'alt' }],
+    },
+  }), /alt requires act\.input\.delivery="foreground"/i);
+  assert.match(validateComputerToolArgs({
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x123',
+      actions: [{ type: 'click', element: 1, modifiers: 'ctrl+ctrl' }],
+    },
+  }), /modifiers must not repeat a modifier/i);
+  assert.equal(validateComputerToolArgs({
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x123',
+      delivery: 'foreground',
+      actions: [{ type: 'click', element: 1, modifiers: 'alt' }],
+    },
+  }), null);
+  assert.match(validateComputerToolArgs({
+    action: 'act',
+    input: { window_id: 'hwnd:0x123', actions: [{ type: 'type', text: 'a'.repeat(30_001) }] },
   }), /text accepts at most 30000 characters/i);
   assert.match(validateComputerToolArgs({
     action: 'clipboard',
@@ -835,48 +967,73 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     input: { mode: 'zoom', frame_id: 'frame:1', region: [1, 2, 3] },
   }), /region requires at least 4 items/i);
   assert.match(validateComputerToolArgs({
-    action: 'click',
-    input: { window_id: 'hwnd:0x123', ref: 'ref:1' },
-    capture_after: { mode: 'tree' },
-  }), /capture_after.mode must be one of/i);
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x123',
+      actions: [{ type: 'click', x: 10, y: 20 }],
+    },
+  }), /requires act\.input\.frame_id/i);
   assert.equal(validateComputerToolArgs({
     action: 'diagnose',
     input: { ocr_language: 'ko' },
   }), null);
   assert.equal(validateComputerToolArgs({
-    action: 'sequence',
+    action: 'act',
     input: {
       window_id: 'hwnd:0x123',
-      steps: [
-        { action: 'click', frame_id: 'frame:1', x: 10, y: 20 },
-        { action: 'type', text: 'hello' },
-        { action: 'key', keys: '{ENTER}' },
+      frame_id: 'frame:1',
+      actions: [
+        { type: 'click', x: 10, y: 20 },
+        { type: 'type', text: 'hello' },
+        { type: 'key', keys: '{ENTER}' },
       ],
     },
   }), null);
   assert.match(validateComputerToolArgs({
-    action: 'sequence',
+    action: 'act',
     input: {
       window_id: 'hwnd:0x123',
-      steps: [
-        { action: 'click', ref: 'ref:1' },
-        { action: 'click', ref: 'ref:2' },
+      actions: [
+        { type: 'click', ref: 'ref:1' },
+        { type: 'click', ref: 'ref:2' },
       ],
     },
-  }), /steps after the first must be type, key, or wait/i);
+  }), /actions after the first must be type, key, or wait/i);
   assert.match(validateComputerToolArgs({
-    action: 'sequence',
+    action: 'act',
     input: {
       window_id: 'hwnd:0x123',
-      steps: [
-        { action: 'click', ref: 'ref:1' },
-        { action: 'type', ref: 'ref:2', text: 'hello' },
+      actions: [
+        { type: 'click', ref: 'ref:1' },
+        { type: 'type', ref: 'ref:2', text: 'hello' },
       ],
     },
   }), /reuse focus and cannot carry a target/i);
   assert.match(validateComputerToolArgs({
-    action: 'click',
-    input: { window_id: 'hwnd:0x123', ref: 'ref:1' },
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x123',
+      actions: [
+        { type: 'click', ref: 'ref:1' },
+        { type: 'wait', duration: 4 },
+        { type: 'wait', duration: 4 },
+        { type: 'wait', duration: 3 },
+      ],
+    },
+  }), /at most 10 total seconds/i);
+  assert.match(validateComputerToolArgs({
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x123',
+      actions: [
+        { type: 'click', ref: 'ref:1' },
+        { type: 'wait', duration: 6 },
+      ],
+    },
+  }), /duration must be at most 5/i);
+  assert.match(validateComputerToolArgs({
+    action: 'act',
+    input: { window_id: 'hwnd:0x123', actions: [{ type: 'click', ref: 'ref:1' }] },
     safety: {
       decision: 'confirm',
     },
@@ -932,54 +1089,39 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     { action: 'list_windows' },
   );
   assert.equal(validateComputerToolArgs({
-    action: 'click',
-    input: '{"window_id":"hwnd:0x123","ref":"ref:1"}',
-    capture_after: '{"mode":"ax"}',
+    action: 'act',
+    input: '{"window_id":"hwnd:0x123","actions":[{"type":"click","ref":"ref:1"}]}',
   }), null);
-  assert.deepEqual(toComputerHostCommand({
-    action: 'click',
-    input: '{"window_id":"hwnd:0x123","ref":"ref:1"}',
-    capture_after: '{"mode":"ax"}',
-  }), {
-    window_id: 'hwnd:0x123',
-    ref: 'ref:1',
-    action: 'invoke',
-    capture_after: true,
-    capture_after_mode: 'ax',
-  });
   assert.match(validateComputerToolArgs({
-    action: 'click',
+    action: 'act',
     window_id: 'hwnd:0x123',
-  }), /requires ref, element, or frame_id\/x\/y/i);
+  }), /requires input/i);
   // A string that cannot be resolved stays a string and still fails.
   assert.match(validateComputerToolArgs({
     action: 'list',
     input: '{"kind":"windows"',
   }), /input must be an object/i);
-  assert.match(validateComputerToolArgs({
-    action: 'click',
-    input: { window_id: 'hwnd:0x123', ref: 'ref:1' },
-    capture_after: '{"mode":"ax"',
-  }), /capture_after must be an object/i);
   assert.deepEqual(toComputerHostCommand({
-    action: 'click',
-    input: { window_id: 'hwnd:0x123', ref: 'ref:1', button: 'right' },
-    capture_after: { mode: 'ax', include_ocr: false },
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x123',
+      actions: [{ type: 'click', ref: 'ref:1', button: 'right' }],
+    },
   }), {
     window_id: 'hwnd:0x123',
-    ref: 'ref:1',
-    action: 'right_click',
-    capture_after: true,
-    capture_after_mode: 'ax',
-    capture_after_include_ocr: false,
+    steps: [{ action: 'right_click', ref: 'ref:1' }],
+    action: 'sequence',
   });
   assert.deepEqual(toComputerHostCommand({
-    action: 'click',
-    input: { window_id: 'hwnd:0x123', ref: 'ref:1', button: 'left' },
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x123',
+      actions: [{ type: 'click', ref: 'ref:1', button: 'left' }],
+    },
   }), {
     window_id: 'hwnd:0x123',
-    ref: 'ref:1',
-    action: 'invoke',
+    steps: [{ action: 'invoke', ref: 'ref:1' }],
+    action: 'sequence',
   });
   assert.deepEqual(toComputerHostCommand({
     action: 'window',
@@ -990,12 +1132,12 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     state: 'minimize',
   });
   assert.deepEqual(toComputerHostCommand({
-    action: 'sequence',
+    action: 'act',
     input: {
       window_id: 'hwnd:0x123',
-      steps: [
-        { action: 'click', ref: 'ref:1', button: 'left' },
-        { action: 'type', text: 'value' },
+      actions: [
+        { type: 'click', ref: 'ref:1', button: 'left' },
+        { type: 'type', text: 'value' },
       ],
     },
   }), {
@@ -1046,14 +1188,11 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     })),
     /image_output requires a mode that returns pixels/,
   );
-  assert.equal(
-    toComputerHostCommand({
-      action: 'click',
-      input: { window_id: 'hwnd:0x123', element: 2 },
-      capture_after: { image_output: 'file' },
-    }).capture_after_image_output,
-    'file',
-  );
+  assert.match(validateComputerToolArgs({
+    action: 'act',
+    input: { window_id: 'hwnd:0x123', actions: [{ type: 'click', element: 2 }] },
+    capture_after: { image_output: 'file' },
+  }), /does not accept root field/i);
   assert.deepEqual([
     ['focus', 'focus_window'],
     ['move', 'move_window'],
@@ -1072,14 +1211,128 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     'focus_window', 'move_window', 'window_state',
     'window_state', 'window_state', 'close_window',
   ]);
-  // 17 actions with one strict input shape each. The budget bounds what every
-  // request pays for the tool definition, so it moves only with a new action.
-  assert.ok(Buffer.byteLength(JSON.stringify(COMPUTER_TOOL_DEFS[0])) <= 18_000);
+  // Nine public operations and one compact core-action item keep every provider
+  // on the same affordable custom-tool contract.
+  assert.ok(Buffer.byteLength(JSON.stringify(COMPUTER_TOOL_DEFS[0])) <= 14_000);
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('list targets first'));
-  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('instead of recapturing by default'));
+  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('settle, verification, and fresh observation internally'));
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('pixel_unavailable'));
+  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('OCR marks when semantics are empty'));
+  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('not a permission error'));
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('Browser Use'));
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('at most one computer call per model turn'));
+});
+
+test('computer act result is normalized to actions plus one observation', () => {
+  const value = canonicalComputerResultText(JSON.stringify({
+    ok: true,
+    action: 'sequence',
+    completed_steps: 2,
+    total_steps: 2,
+    steps: [
+      { index: 1, action: 'invoke', ok: true, effect: 'confirmed' },
+      { index: 2, action: 'type', ok: true, effect: 'unverifiable' },
+    ],
+    capture_after: { ok: true, action: 'capture', frame_id: 'frame:2' },
+    verdict: { decision: 'verify_fresh_state' },
+  }), {
+    action: 'act',
+    input: {
+      window_id: 'hwnd:0x123',
+      actions: [{ type: 'click', ref: 'ref:1' }, { type: 'type', text: 'value' }],
+    },
+  });
+  assert.deepEqual(JSON.parse(value), {
+    ok: true,
+    action: 'act',
+    completed_actions: 2,
+    total_actions: 2,
+    actions: [
+      { index: 1, type: 'click', status: 'succeeded', effect: 'confirmed' },
+      { index: 2, type: 'type', status: 'succeeded', effect: 'unverifiable' },
+    ],
+    observation: { ok: true, action: 'capture', frame_id: 'frame:2' },
+    verdict: { decision: 'verify_fresh_state' },
+  });
+});
+
+test('computer errors return one deterministic recovery instead of permission guesses', () => {
+  const menu = computerToolErrorRecovery(
+    "menu_path_not_found: no enabled menu entry named 'Window'",
+    { action: 'menu', input: { window_id: 'hwnd:0x123' } },
+  );
+  assert.deepEqual(menu, {
+    code: 'menu_path_not_found',
+    next: 'capture',
+    guidance: 'Capture window hwnd:0x123 again; empty accessibility automatically uses OCR. Use a fresh OCR mark or frame point and do not retry the same menu path unchanged.',
+  });
+  const focus = formatComputerToolError(
+    'foreground_unavailable: could not focus target',
+    {
+      action: 'act',
+      input: {
+        window_id: 'hwnd:0x123',
+        actions: [{ type: 'key', keys: '{ENTER}' }],
+      },
+    },
+  );
+  assert.match(focus, /Windows foreground-lock failure, not a permission error/);
+  const stale = formatComputerToolError(
+    'stale_frame: unknown frame_id frame-1',
+    {
+      action: 'act',
+      input: {
+        app: 'Unity',
+        actions: [{ type: 'click', x: 1, y: 1 }],
+      },
+    },
+  );
+  assert.match(stale, /Capture app "Unity" again/);
+  assert.deepEqual(
+    computerResultRecovery(
+      { ok: false, code: 'menu_path_not_found' },
+      { action: 'menu', input: { window_id: 'hwnd:0x123' } },
+    ),
+    menu,
+  );
+  assert.match(
+    formatComputerToolError('Error: foreground_unavailable: target remained covered'),
+    /Windows foreground-lock failure/,
+  );
+  assert.deepEqual(
+    computerToolErrorRecovery(
+      'computer_target_available_recapture_required: lease acquired',
+      { action: 'act', input: { window_id: 'hwnd:0x123' } },
+    ),
+    {
+      code: 'computer_target_available_recapture_required',
+      next: 'capture',
+      guidance: 'The target lease is now available. Capture window hwnd:0x123 again before issuing any input.',
+    },
+  );
+  assert.deepEqual(
+    computerToolErrorRecovery(
+      'computer_foreground_available_recapture_required: lane acquired',
+      { action: 'act', input: { app: 'Unity' } },
+    ),
+    {
+      code: 'computer_foreground_available_recapture_required',
+      next: 'capture',
+      guidance: 'The foreground lane is now available. Capture app "Unity" again before issuing any input.',
+    },
+  );
+  assert.deepEqual(
+    computerToolErrorRecovery('computer_user_control_active: paused'),
+    {
+      code: 'computer_user_control_active',
+      next: 'user',
+      guidance: 'The user has taken control. Do not issue more Computer Use commands until they explicitly resume automation.',
+    },
+  );
+  assert.match(
+    formatComputerToolError('foreground_changed: user switched windows'),
+    /Wait for an explicit resume/,
+  );
 });
 
 test('bridge clients only surface fresh, compatible discovery records', async () => {
@@ -1163,13 +1416,16 @@ test('bridge clients authenticate and preserve text plus image results', async (
         port: address.port,
         token: `${client.name}-token`,
       })}\n`);
-      const action = client.name === 'computer' ? 'click' : 'snapshot';
+      const action = client.name === 'computer' ? 'act' : 'snapshot';
       const result = await client.execute(
         client.name === 'browser'
           ? { action, input: { tab: 'schema-test' } }
           : {
               action,
-              input: { window_id: 'hwnd:0x123', ref: 'ref:1', button: 'left' },
+              input: {
+                window_id: 'hwnd:0x123',
+                actions: [{ type: 'click', ref: 'ref:1', button: 'left' }],
+              },
             },
         client.name === 'computer'
           ? { sessionId: 'computer-session-1' }
@@ -1180,7 +1436,7 @@ test('bridge clients authenticate and preserve text plus image results', async (
         {
           type: 'text',
           text: client.name === 'computer'
-            ? '{"ok":true,"action":"click","button":"left"}'
+            ? '{"ok":true,"action":"act"}'
             : 'bridge ok',
         },
         {
@@ -1211,6 +1467,8 @@ test('bridge clients authenticate and preserve text plus image results', async (
       { sessionId: 'computer-session-1' },
     );
     assert.equal(continued.isError, undefined);
+    assert.equal(await endComputerExecution('computer-session-1'), true);
+    assert.equal(await endComputerExecution('computer-session-1'), false);
     await new Promise((resolve) => setTimeout(resolve, 40));
     assert.equal(seen.filter((entry) => entry.body.action === 'session_release').length, 0);
     assert.equal(deferComputerSessionRelease('computer-session-1', 20), true);
@@ -1221,15 +1479,15 @@ test('bridge clients authenticate and preserve text plus image results', async (
     assert.deepEqual(seen, [...CLIENTS.map((client) => ({
       authorization: `Bearer ${client.name}-token`,
       body: {
-        action: client.name === 'computer' ? 'click' : 'snapshot',
+        action: client.name === 'computer' ? 'sequence' : 'snapshot',
         ...(client.name === 'browser'
           ? { tab: 'schema-test', session_id: 'browser-session-1', turn_id: 7 }
           : {}),
         ...(client.name === 'computer'
           ? {
               window_id: 'hwnd:0x123',
-              ref: 'ref:1',
-              action: 'invoke',
+              steps: [{ action: 'invoke', ref: 'ref:1' }],
+              action: 'sequence',
               session_id: 'computer-session-1',
             }
           : {}),
@@ -1244,6 +1502,12 @@ test('bridge clients authenticate and preserve text plus image results', async (
       authorization: 'Bearer computer-token',
       body: {
         action: 'list_windows',
+        session_id: 'computer-session-1',
+      },
+    }, {
+      authorization: 'Bearer computer-token',
+      body: {
+        action: 'execution_end',
         session_id: 'computer-session-1',
       },
     }, {
@@ -1320,7 +1584,10 @@ test('computer client propagates caller cancellation to same-session host abort'
     })}\n`);
     const controller = new AbortController();
     const execution = executeComputerTool(
-      { action: 'wait', input: { duration: 30 } },
+      {
+        action: 'act',
+        input: { window_id: 'hwnd:0x123', actions: [{ type: 'key', keys: '{ENTER}' }] },
+      },
       { sessionId: 'cancel-session', signal: controller.signal },
     );
     await commandSeen;
@@ -1330,7 +1597,12 @@ test('computer client propagates caller cancellation to same-session host abort'
     assert.equal(result.isError, true);
     assert.match(result.content[0].text, /computer command aborted; input state and session resources were released/);
     assert.deepEqual(seen, [
-      { action: 'wait', duration: 30, session_id: 'cancel-session' },
+      {
+        window_id: 'hwnd:0x123',
+        steps: [{ action: 'key', keys: '{ENTER}' }],
+        action: 'sequence',
+        session_id: 'cancel-session',
+      },
       { action: 'session_abort', session_id: 'cancel-session' },
     ]);
   } finally {
@@ -1395,7 +1667,7 @@ test('browser bridge replacement retries observations but never replays mutation
     const mutation = await executeBrowserTool({
       action: 'click',
       input: { ref: 'p1-s1-e1' },
-    });
+    }, { sessionId: 'replacement-session' });
     assert.equal(mutation.isError, true);
     assert.match(mutation.content[0].text, /may have executed and was not replayed/);
     assert.equal(oldRequests, 1);
@@ -1405,7 +1677,7 @@ test('browser bridge replacement retries observations but never replays mutation
     const observation = await executeBrowserTool({
       action: 'snapshot',
       input: { tab: 'p1' },
-    });
+    }, { sessionId: 'replacement-session' });
     assert.equal(observation.isError, undefined);
     assert.equal(observation.content[0].text, 'replacement observation');
     assert.equal(oldRequests, 2);
@@ -1432,9 +1704,15 @@ test('browser client rejects oversized commands before dispatch', async () => {
         text: 'x'.repeat(10_000),
       })),
     },
-  });
+  }, { sessionId: 'size-session' });
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, /exceeds 262144 bytes/);
+});
+
+test('browser client fails closed without runtime session ownership', async () => {
+  const result = await executeBrowserTool({ action: 'list_tabs' });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /session context is unavailable/);
 });
 
 test('browser client propagates caller cancellation and budget identity', {
@@ -1559,8 +1837,11 @@ test('computer client retries once against a republished bridge endpoint', {
     await publish(staleServer.address().port, 'stale-token');
     const sameEndpointMutationExecution = executeComputerTool(
       {
-        action: 'click',
-        input: { window_id: 'hwnd:0x123', ref: 'ref:1' },
+        action: 'act',
+        input: {
+          window_id: 'hwnd:0x123',
+          actions: [{ type: 'click', ref: 'ref:1' }],
+        },
       },
       { sessionId: 'retry-session' },
     );
@@ -1575,8 +1856,11 @@ test('computer client retries once against a republished bridge endpoint', {
     await publish(staleServer.address().port, 'stale-token');
     const mutationExecution = executeComputerTool(
       {
-        action: 'click',
-        input: { window_id: 'hwnd:0x123', ref: 'ref:1' },
+        action: 'act',
+        input: {
+          window_id: 'hwnd:0x123',
+          actions: [{ type: 'click', ref: 'ref:1' }],
+        },
       },
       { sessionId: 'retry-session' },
     );
@@ -1662,7 +1946,13 @@ test('computer client releases every host-bound session on shutdown', {
       { sessionId: 'shutdown-read-session' },
     );
     await executeComputerTool(
-      { action: 'click', input: { window_id: 'hwnd:0x123', ref: 'ref:1' } },
+      {
+        action: 'act',
+        input: {
+          window_id: 'hwnd:0x123',
+          actions: [{ type: 'click', ref: 'ref:1' }],
+        },
+      },
       { sessionId: 'shutdown-write-session' },
     );
     // The deferred timer is unref'd and would never fire on the exit path.

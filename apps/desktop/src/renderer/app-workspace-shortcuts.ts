@@ -24,7 +24,6 @@ export interface WorkspaceShortcutActions {
   toggleSidebar: () => void;
   toggleDock: () => void;
   togglePanel: () => void;
-  openTerminalPanel: () => void;
   openQuickAccess: () => void;
   openCommandPalette: () => void;
   openFindInFiles: () => void;
@@ -99,11 +98,6 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       if (key === "n") return () => actionsRef.current.startTask();
       if (key === ",") return () => actionsRef.current.openSettings();
       if (key === "j") return () => actionsRef.current.togglePanel();
-      // Ctrl+T and Ctrl+` TOGGLE the bottom terminal panel (user: 다시 눌러
-      // 닫혀야 함); the tab strip no longer steals Ctrl+T for a new task.
-      if (key === "t" || event.key === "`") {
-        return () => actionsRef.current.openTerminalPanel();
-      }
       if (key === "w" || key === "q") return closeActiveTab;
       return null;
     };

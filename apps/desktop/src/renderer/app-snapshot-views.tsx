@@ -37,6 +37,7 @@ import {
   conversationMarkdownPending,
 } from "./first-submit-stability";
 import { readTranscriptVirtualSnapshot } from "./transcript-virtual-cache";
+import { isMobileRemoteSurface } from "./mobile-surface";
 import { SessionGoalIsland } from "./SessionGoalIsland";
 import { SessionStatusIsland } from "./SessionStatusIsland";
 import { TranscriptRow } from "./TranscriptView";
@@ -149,16 +150,22 @@ type PaneConversationProps =
     focused: boolean;
     sessionId: string;
     hidden: boolean;
+    dockOpen?: boolean;
+    onToggleDock?: () => void;
     transcriptPending?: boolean;
     reconcileOnMount?: boolean;
+    goalDockedToDiff?: boolean;
   };
 
 export const PaneConversation = memo(function PaneConversation({
   focused,
   sessionId,
   hidden,
+  dockOpen = false,
+  onToggleDock,
   transcriptPending = false,
   reconcileOnMount = true,
+  goalDockedToDiff = false,
   draftMode = false,
   ...props
 }: PaneConversationProps) {
@@ -297,6 +304,8 @@ export const PaneConversation = memo(function PaneConversation({
   // Keep Conversation mounted at its final geometry, but do not expose its
   // empty shell followed by a bulk Markdown/virtualizer insertion. The opaque
   // cover leaves only after the authoritative lane and composed frames settle.
+  // Desktop docks status at the strip's right end; only the projected phone
+  // keeps that capsule floating over the transcript.
   return <>
     <Conversation
       snapshot={paneSnapshot}
@@ -313,10 +322,16 @@ export const PaneConversation = memo(function PaneConversation({
         sessionId={sessionId}
         hidden={hidden} />}
       {...props}
-      statusIsland={<PaneStatusIsland
-        sessionId={presentedSessionId}
-        hidden={hidden}
-        onInherit={() => props.onOpenCommandSurface("inherit")} />}
+      goalIsland={goalDockedToDiff
+        ? undefined
+        : <PaneGoalIsland sessionId={presentedSessionId} hidden={hidden} />}
+      statusIsland={isMobileRemoteSurface() ? <PaneStatusIsland
+          sessionId={presentedSessionId}
+          hidden={hidden}
+          dockOpen={dockOpen}
+          onToggleDock={onToggleDock}
+          onInherit={() => props.onOpenCommandSurface("inherit")} />
+        : undefined}
     />
     <PaneSurfaceCover ready={surfaceReady} label={t("Loading conversation…")}
       transitionKey={coverKey} showSpinner={false} />
@@ -401,24 +416,50 @@ if (typeof window !== "undefined") {
  *  reads its own lane through a single subscription — the gauge and the chips
  *  share the same header-scoped comparator, so one lane read now feeds both.
  *  Focus never changes data ownership. */
-export function PaneStatusIsland({ sessionId, hidden, onInherit }: {
-  sessionId: string;
-  hidden: boolean;
-  onInherit?: () => void;
-}) {
+function usePaneIslandSnapshot(sessionId: string, hidden: boolean): Snapshot {
   const lane = useSessionLane(
     sessionId,
     defaultSessionLaneStore,
     desktopHeaderSnapshotsEqual,
     !hidden && Boolean(sessionId),
   );
-  const visibleSnapshot = hidden || !sessionId
-    ? EMPTY_SNAPSHOT
-    : lane ?? EMPTY_SNAPSHOT;
-  return <>
-    <SessionGoalIsland snapshot={visibleSnapshot} />
-    <SessionStatusIsland snapshot={visibleSnapshot} onInherit={onInherit} />
-  </>;
+  return hidden || !sessionId ? EMPTY_SNAPSHOT : lane ?? EMPTY_SNAPSHOT;
+}
+
+/** Goal capsule snapshot owner; the pane routes its host between composer and
+ *  visible DIFF without duplicating Goal state. */
+export function PaneGoalIsland({
+  sessionId,
+  hidden,
+}: {
+  sessionId: string;
+  hidden: boolean;
+}) {
+  return <SessionGoalIsland snapshot={usePaneIslandSnapshot(sessionId, hidden)} />;
+}
+
+/** Status capsule (work chips, context gauge, dock toggle). The DESKTOP tab
+ *  strip docks it at the row's right end so its buttons share the side-tab
+ *  header's center line (user: 아일랜드 버튼을 라벨줄 가운데 정렬에 맞춰);
+ *  the phone keeps it floating over the transcript. */
+export function PaneStatusIsland({
+  sessionId,
+  hidden,
+  dockOpen = false,
+  onToggleDock,
+  onInherit,
+}: {
+  sessionId: string;
+  hidden: boolean;
+  dockOpen?: boolean;
+  onToggleDock?: () => void;
+  onInherit?: () => void;
+}) {
+  const visibleSnapshot = usePaneIslandSnapshot(sessionId, hidden);
+  return <SessionStatusIsland snapshot={visibleSnapshot}
+    dockOpen={dockOpen}
+    onToggleDock={onToggleDock}
+    onInherit={onInherit} />;
 }
 
 

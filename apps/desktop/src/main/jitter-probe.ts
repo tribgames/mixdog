@@ -95,7 +95,7 @@ export async function runJitterProbe({
     // New Task is the Sessions header "+" itself: open the panel and reach
     // for the entry again.
     if (!(link instanceof HTMLElement)) {
-      const sidebar = document.querySelector('.toolbar-sidebar');
+      const sidebar = document.querySelector('.sessions-link');
       if (sidebar instanceof HTMLElement) {
         sidebar.click();
         await new Promise((resolve) => setTimeout(resolve, 200));
@@ -163,7 +163,7 @@ export async function runJitterProbe({
         composer: document.querySelectorAll('.composer').length,
         sidebar: document.querySelectorAll('.session-sidebar').length,
         create: document.querySelectorAll('.session-new-task').length,
-        rail: document.querySelectorAll('.toolbar-sidebar').length,
+        rail: document.querySelectorAll('.activity-rail').length,
         newTask: document.querySelectorAll('button[aria-label="New task"]').length,
         panes: document.querySelectorAll('[data-pane-id]').length,
         text: (document.body.innerText || '').slice(0, 200).replace(/\\s+/g, ' '),

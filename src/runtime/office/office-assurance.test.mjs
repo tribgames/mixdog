@@ -239,6 +239,61 @@ test('format-specific Office review catches orphan headings, chart totals, and s
   assert.ok(powerpoint.some((entry) => entry.code === 'small_font'));
 });
 
+test('PowerPoint review detects text that disappears against a containing surface', () => {
+  const issues = reviewOfficeStructure({
+    format: 'pptx',
+    document: {
+      slideWidth: 960,
+      slideHeight: 540,
+      slides: [{
+        path: '/slide[1]',
+        index: 1,
+        background: { color: '172C2C' },
+        shapes: [
+          {
+            path: '/slide[1]/shape[1]',
+            index: 1,
+            text: null,
+            left: 100,
+            top: 100,
+            width: 320,
+            height: 120,
+            fillColor: 16777215,
+            fillTransparency: 0,
+          },
+          {
+            path: '/slide[1]/shape[2]',
+            index: 2,
+            text: 'Unreadable condition',
+            left: 120,
+            top: 125,
+            width: 260,
+            height: 30,
+            fillColor: 16777215,
+            fillTransparency: 1,
+            font: { size: 14, color: 16777215 },
+          },
+          {
+            path: '/slide[1]/shape[3]',
+            index: 3,
+            text: 'Readable condition',
+            left: 120,
+            top: 170,
+            width: 260,
+            height: 30,
+            fillColor: 16777215,
+            fillTransparency: 1,
+            font: { size: 14, color: 2894871 },
+          },
+        ],
+      }],
+    },
+  });
+  const contrastIssues = issues.filter((entry) => entry.code === 'low_contrast');
+  assert.equal(contrastIssues.length, 1);
+  assert.equal(contrastIssues[0].path, '/slide[1]/shape[2]');
+});
+
 test('critical Office review rejects persisted empty charts and formula errors', () => {
   const workbook = reviewOfficeStructure({
     format: 'xlsx',
@@ -360,7 +415,8 @@ test('one content model binds the same sourced facts across Word, Excel, and Pow
   });
   const fingerprints = [word, excel, powerpoint].map((entry) => entry.content.fingerprint);
   assert.equal(new Set(fingerprints).size, 1);
-  assert.equal(excel.operations.find((entry) => entry.op === 'set_cell' && entry.cell === 'A1')?.value, '7월 실적');
+  assert.ok(excel.operations.some((entry) => entry.op === 'set_cell' && entry.value === '7월 실적'));
+  assert.equal(excel.operations.find((entry) => entry.op === 'set_cell' && entry.cell === 'A1')?.value, 'EXECUTIVE DECISION DASHBOARD');
   assert.ok(excel.operations.some((entry) => entry.op === 'set_cell' && entry.value === 5660));
   assert.deepEqual(powerpoint.semantic[0].contentBinding.factIds, ['revenue']);
   assert.ok(powerpoint.operations.some((entry) => entry.op === 'set_notes' && /Raw!B8/.test(entry.text)));
@@ -371,21 +427,32 @@ test('semantic composers emit editorial rhythm, dashboard print setup, and nativ
     format: 'docx',
     backend: 'microsoft-office-com',
     created: true,
+    design: { profile: 'executive', purpose: 'decide' },
     operations: [{
       op: 'compose_document',
+      variant: 'decision-brief',
       title: '의사결정 브리프',
       subtitle: '2026년 7월',
       summary: '투자 집행 여부를 결정해야 합니다.',
-      sections: [{
-        heading: '권고안',
-        paragraphs: ['핵심 근거를 검토했습니다.'],
-        table: [['항목', '판정'], ['투자', '승인']],
-      }],
+      sections: [
+        {
+          heading: '권고안',
+          paragraphs: ['핵심 근거를 검토했습니다.'],
+          table: [['항목', '판정'], ['투자', '승인']],
+        },
+        { heading: '핵심 실적', paragraphs: ['성과 흐름을 확인했습니다.'] },
+        { heading: '재검토 기준', paragraphs: ['정량 gate로 재판정합니다.'] },
+        { heading: '실행 계획', paragraphs: ['30일 안에 실행합니다.'] },
+      ],
     }],
   });
   assert.equal(word.operations.find((entry) => entry.op === 'append_text' && entry.text === '2026년 7월')?.style, 'Normal');
   assert.ok(word.operations.some((entry) => entry.op === 'append_text' && entry.properties.keepWithNext));
   assert.ok(word.operations.some((entry) => entry.op === 'fit_table'));
+  assert.equal(
+    word.operations.find((entry) => entry.op === 'append_text' && entry.text === '03 / EVIDENCE')?.properties.pageBreakBefore,
+    true,
+  );
 
   const workbook = expandOfficeDesignOperations({
     format: 'xlsx',
@@ -511,7 +578,7 @@ test('formula-consistency assertions honor the requested range', () => {
 
 test('Office assurance benchmark covers spreadsheet, slide, document, cross-app, locale, and Brand kit gates', async () => {
   const report = await runOfficeAssuranceBenchmark();
-  assert.equal(report.categories, 10);
+  assert.equal(report.categories, 11);
   assert.equal(report.failed, 0, JSON.stringify(report, null, 2));
   assert.equal(report.passRate, 1);
 });

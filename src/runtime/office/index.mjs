@@ -147,6 +147,7 @@ export async function executeOfficeTool(args = {}, {
               appPid: session.appPid,
               windowHwnd: session.windowHwnd,
               foregroundActivated: session.foregroundActivated === true,
+              backgroundIsolation: session.backgroundIsolation || null,
               documentId: session.documentId,
               batch: initialEdit,
             }
@@ -162,6 +163,7 @@ export async function executeOfficeTool(args = {}, {
             created: action === 'create',
             reused: session.reused === true,
             foregroundActivated: session.foregroundActivated === true,
+            backgroundIsolation: initialEdit?.backgroundIsolation || session.backgroundIsolation || null,
           },
           { action, session, startedAt },
         ));

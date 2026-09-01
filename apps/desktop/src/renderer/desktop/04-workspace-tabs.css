@@ -134,6 +134,12 @@
      tabs keep shrinking to a favicon sliver — no mode switch, no scroll.
      The frozen width variable still pins cells during pointer closes. */
   container-type: inline-size;
+  /* The computed cell is BOTH floor and ceiling. Relaxing this floor was
+     tried and measured: `.workspace-tabs` is an auto-width flex item, so a
+     shrinkable floor collapses the whole run to its min-content width (four
+     160px tabs rendered as 20px slivers). The run therefore fits by
+     CALCULATION — calculateChromeTabWidths clamps to the strip — never by
+     flex shrink. */
   min-width: var(--workspace-tab-current-width, 30px);
   max-width: var(--workspace-tab-current-width, 160px);
   flex: 1 1 var(--workspace-tab-current-width, 160px);
@@ -257,6 +263,16 @@
   /* Foreground and focused selection share the top-band grammar below.
      Avoid a side contour: boxing the label fights the pane hairlines. */
 }
+/* PANE strips: ONE body with the content (user: VS코드처럼 라벨쪽과 패널
+   사이에 줄 없고 배경색 구분도 없이 일체) — the strip band and the active
+   tab both take the workspace sheet, so the label row flows straight into
+   the transcript/editor. Tabs still read through ink steps, cell dividers,
+   the hover pill, and the 2px active top band. */
+.pane-cell > .workspace-tabs-shell { background: var(--mx-workspace-sheet); }
+.pane-cell .workspace-tab,
+.pane-cell .workspace-tab.active {
+  --workspace-tab-surface: var(--mx-workspace-sheet);
+}
 .workspace-tab.active::after {
   content: "";
   position: absolute;
@@ -298,6 +314,8 @@
   width: 14px;
   height: 14px;
   flex: 0 0 14px;
+  position: relative;
+  top: -1px;
   color: currentColor;
 }
 /* Tabs stay on the shared 13px item tier. Selection adds the 500 label
@@ -374,6 +392,8 @@
 /* Working tab: the tab glyph itself becomes a progress spinner. */
 .workspace-tab-main .workspace-tab-status {
   flex: 0 0 auto;
+  position: relative;
+  top: -1px;
   color: var(--mx-text-muted);
   animation: spin 1.1s linear infinite;
 }
@@ -423,6 +443,10 @@
 .workspace-tab-close svg {
   width: 14px;
   height: 14px;
+}
+.workspace-tab-close > :is(svg, .codicon, .workspace-tab-dirty-glyph) {
+  position: relative;
+  top: -1px;
 }
 /* Codicon close at its native 16px (tab grammar) — pixel-aligned. */
 .workspace-tab-close .codicon { font-size: 16px; }

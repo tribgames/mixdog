@@ -36,17 +36,14 @@ rather than shape:
 
 Two suites asserting the same contract drift apart instead of reinforcing each
 other. `compact-smoke.mjs` and `suite-compact-test.mjs` both covered
-recall-fasttrack prior-summary handling; when the pipeline moved to rebuilding
-context from Memory, only the suite was updated and the smoke stayed red for
-months while asserting the opposite contract.
+prior-summary handling; when Compact moved to one fresh-context contract, both
+suites were reduced to distinct observable boundaries instead of carrying the
+retired execution paths forward.
 
-The boundary today: `suite-compact-test.mjs` owns the manager-level
-recall-fasttrack contracts (`runSessionCompaction` — Memory handoff shape,
-tail policy, no semantic fallback) and runs in the release gate;
-`compact-smoke.mjs` owns the compact-message functions underneath (redaction,
-byte-exact no-ops, alias normalization, manual-override semantics) and runs in
-the weekly sweep. Integration above, functions below — one invariant must not
-be asserted on both sides of that line.
+The boundary today: `suite-compact-test.mjs` owns the fresh-context layout,
+legacy-setting migration, Reference manifest, and fail-closed handoff budget;
+`compact-smoke.mjs` owns one short end-to-end sanity pass. Deeper Main/Agent
+source behavior lives in `compact-fresh-context.test.mjs`.
 
 ## A contract suite runs in CI or it drifts
 

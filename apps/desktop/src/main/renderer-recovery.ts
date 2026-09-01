@@ -50,11 +50,27 @@ function componentToken(value: unknown): string {
   return /^[A-Za-z][A-Za-z0-9_.$:-]{0,79}$/.test(text) ? text : "";
 }
 
+/** Free text a user already read on screen. Control characters and runaway
+ *  length are the only real risks, so both are bounded and nothing else is. */
+function noticeMessage(value: unknown): string {
+  return String(value || "")
+    .replace(/[\u0000-\u001f\u007f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 300);
+}
+
 export function normalizeRendererDiagnostic(input: unknown): Record<string, unknown> {
   const record = input && typeof input === "object"
     ? input as Record<string, unknown>
     : {};
-  const allowedPhases = new Set(["boundary", "window-error", "unhandled-rejection"]);
+  const allowedPhases = new Set([
+    "boundary",
+    "window-error",
+    "unhandled-rejection",
+    "notice",
+    "console",
+  ]);
   const phase = allowedPhases.has(String(record.phase)) ? String(record.phase) : "unknown";
   const details: Record<string, unknown> = {
     phase,
@@ -75,6 +91,12 @@ export function normalizeRendererDiagnostic(input: unknown): Record<string, unkn
   if (source) details.source = source;
   if (line !== undefined) details.line = line;
   if (column !== undefined) details.column = column;
+  // A crash report is identified by its fingerprint; a notice is only useful
+  // if the sentence the user saw survives with it.
+  if (phase === "notice" || phase === "console") {
+    const message = noticeMessage(record.message);
+    if (message) details.message = message;
+  }
   return details;
 }
 

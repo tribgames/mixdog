@@ -513,7 +513,7 @@ export async function readPhoneSettingsAssertions(window: BrowserWindow): Promis
 export async function readLightThemeAssertions(window: BrowserWindow): Promise<LightThemeAssertions> {
   return window.webContents.executeJavaScript(`(() => {
     const root = document.documentElement;
-    const icon = document.querySelector('.toolbar-sidebar');
+    const icon = document.querySelector('.toolbar-dock');
     const activeTab = document.querySelector('.workspace-tab.active');
     if (!(icon instanceof HTMLElement) || !(activeTab instanceof HTMLElement)) {
       return {
@@ -533,7 +533,7 @@ export async function readLightThemeAssertions(window: BrowserWindow): Promise<L
     };
     const titlebarIconColor = getComputedStyle(icon).color;
     const activeTabColor = getComputedStyle(activeTab).color;
-    // The rail toggle carries the LABEL ink (user: icons match text color).
+    // The remaining titlebar dock toggle carries the label ink.
     const iconTokenColor = resolveColor('--mx-text');
     const textTokenColor = resolveColor('--mx-text');
     return {

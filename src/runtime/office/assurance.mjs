@@ -3,6 +3,7 @@ import { extname } from 'node:path';
 
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 import JSZip from 'jszip';
+import { reviewRenderedOfficeAesthetics } from './design-aesthetics.mjs';
 
 const OFFICE_XML_PARTS = Object.freeze({
   docx: /^word\/(?:document|comments|commentsExtended|header\d+|footer\d+|footnotes|endnotes)\.xml$/i,
@@ -541,6 +542,68 @@ function overlapRatio(left, right) {
   return smallest > 0 ? (width * height) / smallest : 0;
 }
 
+function officeColorRgb(value) {
+  if (typeof value === 'string') {
+    const hex = value.trim().replace(/^#/u, '');
+    if (/^[0-9a-f]{6}$/iu.test(hex)) {
+      return [
+        Number.parseInt(hex.slice(0, 2), 16),
+        Number.parseInt(hex.slice(2, 4), 16),
+        Number.parseInt(hex.slice(4, 6), 16),
+      ];
+    }
+  }
+  const color = Number(value);
+  if (!Number.isFinite(color) || color < 0 || color > 0xFFFFFF) return null;
+  return [
+    color & 255,
+    (color >> 8) & 255,
+    (color >> 16) & 255,
+  ];
+}
+
+function relativeLuminance(rgb) {
+  if (!rgb) return null;
+  const channels = rgb.map((entry) => {
+    const channel = entry / 255;
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  return (0.2126 * channels[0]) + (0.7152 * channels[1]) + (0.0722 * channels[2]);
+}
+
+function colorContrastRatio(left, right) {
+  const leftLuminance = relativeLuminance(officeColorRgb(left));
+  const rightLuminance = relativeLuminance(officeColorRgb(right));
+  if (!Number.isFinite(leftLuminance) || !Number.isFinite(rightLuminance)) return null;
+  const lighter = Math.max(leftLuminance, rightLuminance);
+  const darker = Math.min(leftLuminance, rightLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function solidShapeFill(shape) {
+  const transparency = Number(shape?.fillTransparency);
+  if (!officeColorRgb(shape?.fillColor) || !Number.isFinite(transparency) || transparency >= 0.2) return null;
+  return shape.fillColor;
+}
+
+function containingSurface(textShape, shapes) {
+  const centerX = textShape.left + (textShape.width / 2);
+  const centerY = textShape.top + (textShape.height / 2);
+  return (shapes || [])
+    .filter((shape) => (
+      Number(shape?.index) < Number(textShape.index)
+      && !String(shape?.text || '').trim()
+      && solidShapeFill(shape) != null
+      && Number(shape.left) <= centerX
+      && Number(shape.top) <= centerY
+      && Number(shape.left) + Number(shape.width) >= centerX
+      && Number(shape.top) + Number(shape.height) >= centerY
+    ))
+    .sort((left, right) => (
+      (Number(left.width) * Number(left.height)) - (Number(right.width) * Number(right.height))
+    ))[0] || null;
+}
+
 function reviewPptxStructure(document, auditProfile = '') {
   const issues = [];
   const width = Number(document?.slideWidth) || 0;
@@ -570,6 +633,18 @@ function reviewPptxStructure(document, auditProfile = '') {
     for (const shape of textShapes) {
       if (Number(shape.font?.size) > 0 && Number(shape.font.size) < 12) {
         issues.push(issue('small_font', shape.path || slide.path, 'Text is smaller than 12 pt.'));
+      }
+      const surface = containingSurface(shape, slide.shapes || []);
+      const backgroundColor = solidShapeFill(shape)
+        ?? solidShapeFill(surface)
+        ?? slide.background?.color;
+      const contrast = colorContrastRatio(shape.font?.color, backgroundColor);
+      if (Number.isFinite(contrast) && contrast < 1.8) {
+        issues.push(issue(
+          'low_contrast',
+          shape.path || slide.path,
+          `Text contrast is ${contrast.toFixed(2)}:1 against ${surface?.path || 'the slide background'}; the text is visually indistinguishable from its surface.`,
+        ));
       }
       if (width > 0 && height > 0 && (
         shape.left < 18
@@ -706,6 +781,7 @@ async function renderedPageMetric(image) {
 
 export async function reviewRenderedOfficePages(images = [], {
   format = '',
+  pageRoles = {},
 } = {}) {
   const normalized = String(format || '').toLowerCase();
   const pages = [];
@@ -769,10 +845,16 @@ export async function reviewRenderedOfficePages(images = [], {
       ));
     }
   }
+  const aesthetics = await reviewRenderedOfficeAesthetics(images, {
+    format: normalized,
+    pageRoles,
+  });
+  issues.push(...aesthetics.issues);
   return {
     ok: issues.length === 0,
     format: normalized,
     pages,
+    aesthetics,
     issues,
   };
 }

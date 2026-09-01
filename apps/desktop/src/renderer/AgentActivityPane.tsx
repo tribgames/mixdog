@@ -517,27 +517,27 @@ export function visibleAgentTreeRows(
     : [node, ...visibleAgentTreeRows(node.children, collapsedSessionIds)]));
 }
 
-/** Ordering signal for the dock: the moment an agent LAST WENT IDLE (user
- *  decision: 유휴시간으로만). A working agent has no idle stamp, so it keeps
- *  its previous position and the list only reshuffles when work actually
- *  settles — the session catalog's activityAt reordered rows mid-turn. */
-function poolRowIdleAt(agent: DesktopAgentPoolRow): number {
+/** Seed placement for a group the dock has never ranked: the moment it was
+ *  CREATED (user decision: 생성기준으로 정렬). A row that already settled
+ *  carries its idle stamp instead, so a completed session seeds where its
+ *  work actually finished rather than where it began. */
+function poolRowSeedAt(agent: DesktopAgentPoolRow): number {
   const idle = timeMs(agent.idleSince);
   if (idle) return idle;
   // A working row has NO idle stamp, and its updatedAt is the live heartbeat:
   // ranking on it made every running session climb on each tick, so cards
-  // leapfrogged mid-turn (user: 위아래로 튄다). The turn/start stamps are
-  // frozen for the whole turn, so a live row holds its place until it stops.
-  return timeMs(agent.turnStartedAt)
+  // leapfrogged mid-turn (user: 위아래로 튄다). Creation is frozen for the
+  // whole lifetime, so a live row holds its place until it stops.
+  return timeMs(agent.createdAt)
     || timeMs(agent.startedAt)
-    || timeMs(agent.createdAt);
+    || timeMs(agent.turnStartedAt);
 }
 
 /** Sticky ordering stamp for one owner group. The pool decides `working` from
  *  a 2-minute heartbeat freshness window, so `idleSince` can vanish and come
  *  back mid-turn and a raw ranking swapped rows on every flip (user: 하트비트
  *  때문에 뒤죽박죽). A group's stamp therefore only ever ADVANCES, and only
- *  when a genuinely newer turn start or idle moment lands. */
+ *  when a genuinely newer turn start or completion lands. */
 export function stickyGroupOrder(
   previous: ReadonlyMap<string, number>,
   ownerId: string,
@@ -554,9 +554,9 @@ export function stickyGroupOrder(
   );
   if (moment > prior) return moment;
   if (prior) return prior;
-  // First sighting while still working: seed from the frozen turn/start stamps
-  // so a new group lands in a sane slot instead of the bottom.
-  return Math.max(0, ...agents.map(poolRowIdleAt));
+  // First sighting: seed from the frozen creation stamp so a brand-new group
+  // lands at the top by age instead of the bottom.
+  return Math.max(0, ...agents.map(poolRowSeedAt));
 }
 
 export function visibleAgentActivityRow(agent: DesktopAgentPoolRow): boolean {

@@ -5,6 +5,7 @@ import { nextTranscriptHistoryLimit } from "./transcript-history.ts";
 import {
   shouldDeferTranscriptScrollAdjustment,
   transcriptSelectionAutoScrollDelta,
+  transcriptSelectionPointerRegion,
 } from "./TranscriptList.tsx";
 import {
   boundaryGestureReached,
@@ -133,6 +134,18 @@ test("selection edge scrolling is smooth, directional, and releases upward follo
   assert.equal(transcriptSelectionAutoScrollDelta(300, 100, 500), 0);
   assert.equal(selectionAutoScrollShouldReleaseFollow(nearTop), true);
   assert.equal(selectionAutoScrollShouldReleaseFollow(nearBottom), false);
+});
+
+test("selection outside the transcript stays on one stable boundary", () => {
+  const region = (x, y) =>
+    transcriptSelectionPointerRegion(x, y, 100, 100, 500, 500);
+  assert.equal(region(300, 99), "above");
+  assert.equal(region(101, -900), "above");
+  assert.equal(region(300, 501), "below");
+  assert.equal(region(499, 1_400), "below");
+  assert.equal(region(99, 300), "side");
+  assert.equal(region(501, 300), "side");
+  assert.equal(region(300, 300), "inside");
 });
 
 test("only a chrome-pointer upward move counts as a reader scroll release", () => {

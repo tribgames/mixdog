@@ -10,21 +10,12 @@ import {
     currentContextEstimateTokens,
     compactTargetBudget,
     shouldCompactForSession,
-    countPrunedToolOutputs,
     rememberCompactTelemetry,
     recordContextUsageSnapshot,
     emitCompactEvent,
-    compactEventType,
-    resolveSemanticSummaryModel,
+    resolveHandoffSummaryModel,
 } from './loop/compact-policy.mjs';
-import {
-    pruneToolOutputs,
-    pruneToolOutputsUnanchored,
-    semanticCompactMessages,
-    effectiveBudget as compactEffectiveBudget,
-    DEFAULT_COMPACT_TYPE,
-} from './compact.mjs';
-import { runRecallFastTrackCompact } from './loop/recall-fasttrack.mjs';
+import { runFreshContextCompact } from './loop/fresh-context.mjs';
 import { estimateMessagesTokensSafe } from './loop/compact-debug.mjs';
 import { messagesArrayChanged } from './loop/tool-helpers.mjs';
 import { normalizeUsage, addUsage } from './loop/usage.mjs';
@@ -35,26 +26,11 @@ import { traceAgentCompact, messagePrefixHash } from '../agent-trace.mjs';
 import { invalidateProviderRequestToolsScope } from '../../../../session-runtime/provider-request-tools.mjs';
 import { bumpUsageMetricsEpoch } from './manager.mjs';
 import { resetReadStateAfterCompaction } from './read-dedup.mjs';
-import { markPendingGoalReminder } from '../../../../session-runtime/goal-reminder.mjs';
-
-const RECOVERED_ERROR_MESSAGE_MAX_CHARS = 300;
-const ANSI_ESCAPE_RE = /[\u001B\u009B][[\]()#;?]*(?:(?:[a-zA-Z\d]*(?:;[-a-zA-Z\d/#&.:=?%@~_]+)*)?\u0007|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\\dA-PR-TZcf-nq-uy=><~]))/g;
-
-function compactRecoveredError(err) {
-    const rawMessage = err?.message || String(err);
-    const message = String(rawMessage)
-        .replace(ANSI_ESCAPE_RE, '')
-        .replace(/[\r\n]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    return {
-        // Preserve machine-readable codes exactly; only the display payload is bounded.
-        code: err?.code ?? null,
-        message: message.length > RECOVERED_ERROR_MESSAGE_MAX_CHARS
-            ? `${message.slice(0, 299)}…`
-            : message,
-    };
-}
+import {
+    acknowledgePendingGoalReminder,
+    markPendingGoalReminder,
+    snapshotPendingGoalReminder,
+} from '../../../../session-runtime/goal-reminder.mjs';
 
 export async function runPreSendCompactPass(state) {
     const {
@@ -159,82 +135,41 @@ export async function runPreSendCompactPass(state) {
                     trigger: compactTrigger,
                 });
                 let compacted;
-                let pruneCount = 0;
                 let summaryChanged = false;
-                let semanticCompactResult = null;
-                let semanticCompactError = null;
-                let recallFastTrackResult = null;
-                let recallFastTrackError = null;
-                let recoveredError = null;
+                let freshContextResult = null;
+                let freshContextError = null;
+                let inlineGoalReminder = null;
                 try {
                     let compactInputMessages = messages;
-                    if (compactPolicy.prune) {
-                        const pruned = pruneToolOutputs(messages, compactPolicy.boundaryTokens, {
-                            reserveTokens: compactPolicy.reserveTokens,
-                        });
-                        pruneCount = countPrunedToolOutputs(messages, pruned);
-                        compactInputMessages = pruned;
+                    try {
+                        markPendingGoalReminder(sessionRef, 'compaction');
+                        inlineGoalReminder = snapshotPendingGoalReminder(sessionRef);
+                    } catch {
+                        inlineGoalReminder = null;
                     }
-                    if (compactPolicy.recallFastTrack) {
+                    {
                         try {
-                            recallFastTrackResult = await runRecallFastTrackCompact({
+                            freshContextResult = await runFreshContextCompact({
                                 sessionRef,
                                 messages: compactInputMessages,
                                 compactBudgetTokens,
                                 compactPolicy,
                                 sessionId,
                                 signal,
-                            });
-                            const recallMessages = Array.isArray(recallFastTrackResult?.messages)
-                                ? recallFastTrackResult.messages
-                                : null;
-                            if (!recallMessages) throw new Error('recall-fasttrack compact produced no messages');
-                            compacted = recallMessages;
-                        } catch (recallErr) {
-                            recallFastTrackError = recallErr;
-                            try {
-                                process.stderr.write(
-                                    `[loop] recall-fasttrack compact failed (sess=${sessionId || 'unknown'}): ` +
-                                    `${recallErr?.message || recallErr}\n`,
-                                );
-                            } catch { /* best-effort */ }
-                            // Main/user compaction stays recall-fasttrack-only.
-                            // If stored Memory is unavailable, preserve the live
-                            // head and surface the failure instead of silently
-                            // changing the compaction contract to semantic.
-                            throw recallErr;
-                        }
-                    } else if (compactPolicy.semantic) {
-                        try {
-                            semanticCompactResult = await semanticCompactMessages(
                                 provider,
-                                compactInputMessages,
-                                resolveSemanticSummaryModel(sessionRef, { budgetTokens: compactBudgetTokens }) || model,
-                                compactBudgetTokens,
-                                {
-                                    reserveTokens: compactPolicy.reserveTokens,
-                                    providerName: sessionRef.provider || provider?.name || null,
-                                    sessionId,
-                                    cwd: sessionRef?.cwd,
-                                    signal,
-                                    sendOpts: opts,
-                                    promptCacheKey: opts.promptCacheKey || null,
-                                    providerCacheKey: opts.providerCacheKey || null,
-                                    timeoutMs: compactPolicy.semanticTimeoutMs,
-                                    tailTurns: compactPolicy.tailTurns,
-                                    keepTokens: compactPolicy.keepTokens,
-                                    preserveRecentTokens: compactPolicy.preserveRecentTokens,
-                                    force: true,
-                                },
-                            );
-                            const semanticMessages = Array.isArray(semanticCompactResult?.messages)
-                                ? semanticCompactResult.messages
+                                model: resolveHandoffSummaryModel(sessionRef, { budgetTokens: compactBudgetTokens }) || model,
+                                sendOpts: opts,
+                                goalReminderText: inlineGoalReminder?.content || '',
+                                activeTurn: true,
+                            });
+                            const freshMessages = Array.isArray(freshContextResult?.messages)
+                                ? freshContextResult.messages
                                 : null;
-                            if (!semanticMessages) throw new Error('semantic compact produced no messages');
-                            compacted = semanticMessages;
-                            if (semanticCompactResult?.usage) {
-                                lastUsage = addUsage(lastUsage, semanticCompactResult.usage);
-                                if (!firstTurnUsage) firstTurnUsage = normalizeUsage(semanticCompactResult.usage);
+                            if (!freshMessages) throw new Error('fresh-context compact produced no messages');
+                            compacted = freshMessages;
+                            if (freshContextResult?.usage) {
+                                lastUsage = addUsage(lastUsage, freshContextResult.usage);
+                                if (!firstTurnUsage) firstTurnUsage = normalizeUsage(freshContextResult.usage);
                                 if (sessionId && opts.onUsageDelta) {
                                     try {
                                         opts.onUsageDelta({
@@ -242,80 +177,36 @@ export async function runPreSendCompactPass(state) {
                                             iterationIndex: iterations + 1,
                                             usageMetricsTurnId: loopUsageMetricsTurnId(),
                                             usageMetricsEpoch: loopUsageMetricsEpoch(),
-                                            deltaInput: semanticCompactResult.usage.inputTokens || 0,
-                                            deltaOutput: semanticCompactResult.usage.outputTokens || 0,
-                                            deltaCachedRead: semanticCompactResult.usage.cachedTokens || 0,
-                                            deltaCacheWrite: semanticCompactResult.usage.cacheWriteTokens || 0,
-                                            source: 'semantic_compact',
+                                            deltaInput: freshContextResult.usage.inputTokens || 0,
+                                            deltaOutput: freshContextResult.usage.outputTokens || 0,
+                                            deltaCachedRead: freshContextResult.usage.cachedTokens || 0,
+                                            deltaCacheWrite: freshContextResult.usage.cacheWriteTokens || 0,
+                                            source: 'fresh_context_compact',
                                             ts: Date.now(),
                                         });
                                     } catch { /* best-effort */ }
                                 }
                             }
-                        } catch (semanticErr) {
-                            semanticCompactError = semanticErr;
+                        } catch (freshErr) {
+                            freshContextError = freshErr;
                             try {
                                 process.stderr.write(
-                                    `[loop] semantic compact failed (sess=${sessionId || 'unknown'}): ` +
-                                    `${semanticErr?.message || semanticErr}\n`,
+                                    `[loop] fresh-context compact failed (sess=${sessionId || 'unknown'}): ` +
+                                    `${freshErr?.message || freshErr}\n`,
                                 );
                             } catch { /* best-effort */ }
-                            throw semanticErr;
+                            throw freshErr;
                         }
-                    } else {
-                        throw new Error(`compact type ${compactPolicy.compactType || compactPolicy.type || DEFAULT_COMPACT_TYPE} is unavailable for auto compact`);
                     }
                     summaryChanged = messagesArrayChanged(compactInputMessages, compacted);
                 } catch (compactErr) {
-                    // Anchor-independent prune safety net. When SEMANTIC compact
-                    // throws (e.g. a degenerate single-turn transcript, or a
-                    // summary that cannot fit), attempt one non-LLM prune that
-                    // needs no user anchor: middle-truncate the oldest oversized
-                    // tool_result bodies until the transcript fits the budget.
-                    // If it shrinks the transcript we continue with that result
-                    // instead of escalating to overflow. Structure/pairing is
-                    // preserved (only string content shrinks) and the result is
-                    // re-reconciled inside the helper.
-                    //
-                    // GATED to the non-recall path: a recall-fasttrack failure
-                    // must NOT be silently recovered by this prune (that would
-                    // change the type-2 path's contract by shipping a pruned
-                    // transcript with no recall output). When recallFastTrackError
-                    // is set the fallback is skipped and the original overflow
-                    // escalation runs unchanged.
-                    if (!recallFastTrackError) {
-                        try {
-                            // Accept only if the pruned transcript fits the SAME
-                            // effective budget the prune targets (compactBudgetTokens
-                            // minus the request reserve) — comparing against the raw
-                            // compactBudgetTokens would accept a result with no
-                            // reserve headroom and overflow on the very next send.
-                            const acceptThreshold = compactEffectiveBudget(compactBudgetTokens, {
-                                reserveTokens: compactPolicy.reserveTokens,
-                            });
-                            const salvaged = pruneToolOutputsUnanchored(messages, compactBudgetTokens, {
-                                reserveTokens: compactPolicy.reserveTokens,
-                            });
-                            if (messagesArrayChanged(messages, salvaged)
-                                && estimateMessagesTokensSafe(salvaged) <= acceptThreshold) {
-                                compacted = salvaged;
-                                pruneCount = countPrunedToolOutputs(messages, salvaged);
-                                summaryChanged = true;
-                            }
-                        } catch { /* fall through to overflow escalation */ }
+                    if (inlineGoalReminder) {
+                        try { acknowledgePendingGoalReminder(sessionRef, inlineGoalReminder.revision); }
+                        catch { /* best-effort cleanup after failed compaction */ }
                     }
-                    if (compacted !== undefined) {
-                        recoveredError = compactRecoveredError(compactErr);
-                        try {
-                            process.stderr.write(
-                                `[loop] compact fallback prune recovered (sess=${sessionId || 'unknown'}): ` +
-                                `${compactErr?.message || compactErr}\n`,
-                            );
-                        } catch { /* best-effort */ }
-                    } else {
                     // A genuine cancellation/abort surfaced from the compact
-                    // pipeline is NOT a context overflow. The recall-fasttrack
-                    // pipeline (loop/recall-fasttrack.mjs) deliberately rethrows
+                    // pipeline is NOT a context overflow. The fresh-context
+                    // pipeline deliberately rethrows
                     // the original abort error unchanged so the session records a
                     // clean cancellation — and the manual/auto-clear runner
                     // (manager/compaction-runner.mjs) likewise never fabricates an
@@ -339,8 +230,7 @@ export async function runPreSendCompactPass(state) {
                         throw compactErr;
                     }
                     const compactFailMsg = compactErr && compactErr.message ? compactErr.message : String(compactErr);
-                    const semanticFailMsg = semanticCompactError?.message || null;
-                    const recallFailMsg = recallFastTrackError?.message || null;
+                    const freshFailMsg = freshContextError?.message || null;
                     const compactFailCode = compactErr?.code
                         || (compactErr?.name === 'AgentContextOverflowError' ? 'AGENT_CONTEXT_OVERFLOW' : null)
                         || 'compact_failed';
@@ -351,10 +241,8 @@ export async function runPreSendCompactPass(state) {
                         messageTokensEst,
                         pressureTokens,
                         trigger: compactTrigger,
-                        semanticError: semanticFailMsg,
-                        recallFastTrackError: recallFailMsg,
-                        compactError: semanticFailMsg || recallFailMsg || compactFailMsg,
-                        pruneCount,
+                        freshContextError: freshFailMsg,
+                        compactError: freshFailMsg || compactFailMsg,
                         durationMs: Date.now() - compactStartedAt,
                     });
                     traceAgentCompact({
@@ -362,8 +250,6 @@ export async function runPreSendCompactPass(state) {
                         iteration: iterations + 1,
                         stage: 'pre_send',
                         trigger: compactTrigger,
-                        compact_type: compactPolicy.compactType || compactPolicy.type || DEFAULT_COMPACT_TYPE,
-                        prune_count: pruneCount,
                         compact_changed: false,
                         input_prefix_hash: beforePrefixHash,
                         before_count: beforeCount,
@@ -384,10 +270,8 @@ export async function runPreSendCompactPass(state) {
                         error: compactFailMsg,
                         error_code: compactFailCode,
                         details: {
-                            semantic: semanticCompactResult?.diagnostics || null,
-                            recallFastTrack: recallFastTrackResult?.diagnostics || null,
-                            semanticError: semanticFailMsg,
-                            recallFastTrackError: recallFailMsg,
+                            freshContext: freshContextResult?.diagnostics || null,
+                            freshContextError: freshFailMsg,
                         },
                     });
                     emitCompactEvent(opts, {
@@ -395,7 +279,6 @@ export async function runPreSendCompactPass(state) {
                         stage: 'pre_send',
                         trigger: compactTrigger,
                         status: 'failed',
-                        compactType: compactEventType(compactPolicy),
                         beforeTokens: gaugeBeforeTokens,
                         afterTokens: gaugeBeforeTokens,
                         messageTokensEst,
@@ -406,17 +289,15 @@ export async function runPreSendCompactPass(state) {
                         boundaryTokens: compactPolicy.boundaryTokens,
                         targetBudgetTokens: compactBudgetTokens,
                         reserveTokens: compactPolicy.reserveTokens,
-                        semantic: compactPolicy.semantic === true,
-                        recallFastTrack: compactPolicy.recallFastTrack === true,
-                        pruneCount,
+                        freshContext: true,
                         durationMs: Date.now() - compactStartedAt,
                         error: compactErr && compactErr.message ? compactErr.message : String(compactErr),
                     });
                     // Only a GENUINE provider context-overflow surfaced from the
-                    // compact pipeline (e.g. the semantic-summary send itself
+                    // compact pipeline (e.g. the handoff-summary send itself
                     // overflowed the model window) deserves AGENT_CONTEXT_OVERFLOW.
                     // Every other compact-stage failure (dead memory runtime,
-                    // recall-fasttrack bail, semantic summary error) is a compact
+                    // Memory or handoff-summary failure) is a compact
                     // failure, not "latest turn cannot fit" — mislabeling it as
                     // overflow hides the real cause and misroutes downstream
                     // overflow handling. Surface an explicit compact-failed error.
@@ -440,13 +321,16 @@ export async function runPreSendCompactPass(state) {
                         sessionRef,
                         model,
                     }, compactErr);
-                    }
                 }
                 try { await opts.onStageChange?.('requesting'); } catch { /* best-effort */ }
                 compactChanged = messagesArrayChanged(messages, compacted);
                 if (compactChanged) {
                     messages.length = 0;
                     messages.push(...compacted);
+                    if (inlineGoalReminder) {
+                        try { acknowledgePendingGoalReminder(sessionRef, inlineGoalReminder.revision); }
+                        catch { /* reminder is already present in the compacted transcript */ }
+                    }
                     resetReadStateAfterCompaction(sessionId);
                     // This attempt's provider-tool scope was keyed to the old
                     // transcript shape. Invalidate it synchronously before any
@@ -485,15 +369,13 @@ export async function runPreSendCompactPass(state) {
                     messageTokensEst,
                     pressureTokens,
                     compactChanged: compactChanged || summaryChanged,
-                    semanticCompact: semanticCompactResult?.semantic === true,
-                    semanticError: semanticCompactError?.message || null,
-                    recallFastTrack: recallFastTrackResult?.recallFastTrack === true,
-                    recallFastTrackError: recallFastTrackError?.message || null,
+                    freshContext: freshContextResult?.freshContext === true,
+                    freshContextError: freshContextError?.message || null,
+                    handoffSource: freshContextResult?.handoffSource || null,
                     compactError: null,
-                    pruneCount,
                     durationMs: compactDurationMs,
                 });
-                if (compactChanged || summaryChanged || pruneCount > 0) {
+                if (compactChanged || summaryChanged) {
                     recordContextUsageSnapshot(sessionRef, compactPolicy, {
                         messages,
                         usedTokens: afterTokens,
@@ -508,8 +390,6 @@ export async function runPreSendCompactPass(state) {
                     iteration: iterations + 1,
                     stage: 'pre_send',
                     trigger: compactTrigger,
-                    compact_type: compactPolicy.compactType || compactPolicy.type || DEFAULT_COMPACT_TYPE,
-                    prune_count: pruneCount,
                     compact_changed: compactChanged || summaryChanged,
                     input_prefix_hash: beforePrefixHash,
                     before_count: beforeCount,
@@ -527,19 +407,15 @@ export async function runPreSendCompactPass(state) {
                     duration_ms: compactDurationMs,
                     provider: sessionRef.provider,
                     model: sessionRef.model || model,
-                    recovered_error: recoveredError,
                     details: {
-                        semantic: semanticCompactResult?.diagnostics || null,
-                        recallFastTrack: recallFastTrackResult?.diagnostics || null,
-                        recovered_error_code: recoveredError?.code ?? null,
+                        freshContext: freshContextResult?.diagnostics || null,
                     },
                 });
                 emitCompactEvent(opts, {
                     sessionId,
                     stage: 'pre_send',
                     trigger: compactTrigger,
-                    status: compactChanged || summaryChanged || pruneCount > 0 ? 'compacted' : 'no_change',
-                    compactType: compactEventType(compactPolicy),
+                    status: compactChanged || summaryChanged ? 'compacted' : 'no_change',
                     beforeTokens: gaugeBeforeTokens,
                     afterTokens,
                     beforeMessages: beforeCount,
@@ -550,9 +426,8 @@ export async function runPreSendCompactPass(state) {
                     targetBudgetTokens: compactBudgetTokens,
                     reserveTokens: compactPolicy.reserveTokens,
                     changed: compactChanged || summaryChanged,
-                    semantic: semanticCompactResult?.semantic === true,
-                    recallFastTrack: recallFastTrackResult?.recallFastTrack === true,
-                    pruneCount,
+                    freshContext: freshContextResult?.freshContext === true,
+                    handoffSource: freshContextResult?.handoffSource || null,
                     durationMs: compactDurationMs,
                 });
             }
@@ -567,12 +442,6 @@ export async function runPreSendCompactPass(state) {
                     catch { /* best-effort: PostCompact hook must never break the loop */ }
                 }
             }
-            // Compaction drops the Goal's own tool results, so the durable task
-            // snapshot vanishes mid-objective and the model keeps working
-            // without its checklist. Mark one tail-injected state reminder for
-            // the next turn; it clears when that turn is accepted.
-            try { markPendingGoalReminder(sessionRef, 'compaction'); }
-            catch { /* best-effort: a Goal reminder must never break compaction */ }
         }
     return {
         iterations,

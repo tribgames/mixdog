@@ -1,12 +1,11 @@
-import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DesktopProjectSummary } from "../shared/contract";
 import { SidebarPanelBoundary } from "./sidebar-panel-surface";
-import { SidebarPanelSection } from "./session-sidebar";
 import type { SidebarPanelKey } from "./app-shell-components";
 import type { ExtensionsSection } from "./extension-sections";
 import type { useAppShellPanels } from "./use-app-shell-panels";
 import { useStableEvent } from "./use-stable-event";
-import type { SidebarViewGroup, SidebarViewPlacement } from "./sidebar-view-layout";
+import type { SidebarViewGroup } from "./sidebar-view-layout";
 
 type ShellPanels = ReturnType<typeof useAppShellPanels>;
 
@@ -18,8 +17,6 @@ export function useAppSidebarSurface({
   workflowsOpen,
   sidebarOpen,
   viewGroups,
-  getViewDragProps,
-  onMoveView,
   loadedSidebarPanels,
   failedSidebarPanels,
   mountedSidebarPanels,
@@ -34,10 +31,8 @@ export function useAppSidebarSurface({
   closeSidebarForNavigation,
   startTask,
   openSession,
-  openBrowserTab,
   openStudioTab,
   openTerminalTab,
-  openFolderTab,
   refreshProjects,
   renameProject,
   removeProject,
@@ -49,12 +44,6 @@ export function useAppSidebarSurface({
   workflowsOpen: boolean;
   sidebarOpen: boolean;
   viewGroups: readonly SidebarViewGroup[];
-  getViewDragProps(panel: SidebarPanelKey): React.HTMLAttributes<HTMLElement>;
-  onMoveView(
-    sourceId: SidebarPanelKey,
-    targetId: SidebarPanelKey,
-    placement: SidebarViewPlacement,
-  ): void;
   loadedSidebarPanels: ReadonlySet<string>;
   failedSidebarPanels: ReadonlySet<string>;
   mountedSidebarPanels: ReadonlySet<string>;
@@ -69,10 +58,8 @@ export function useAppSidebarSurface({
   closeSidebarForNavigation(): void;
   startTask(): unknown;
   openSession(sessionId: string): unknown;
-  openBrowserTab(): unknown;
   openStudioTab(): unknown;
   openTerminalTab(): unknown;
-  openFolderTab(): unknown;
   refreshProjects(): Promise<DesktopProjectSummary[]>;
   renameProject(path: string, alias: string): unknown;
   removeProject(path: string): unknown;
@@ -192,9 +179,6 @@ export function useAppSidebarSurface({
   const presentedSidebarPanel = presentedSidebarSurface === "sessions"
     ? null
     : presentedSidebarGroup[0] ?? presentedSidebarSurface;
-  const activeSidebarPanels = sidebarOpen
-    ? new Set<SidebarPanelKey>(presentedSidebarGroup)
-    : new Set<SidebarPanelKey>();
   const SchedulesPane = sidebarPanes.schedules;
   const WebhooksPane = sidebarPanes.webhooks;
   const ProjectsPane = sidebarPanes.projects;
@@ -225,10 +209,8 @@ export function useAppSidebarSurface({
   // Utilities rows launch tabs WITHOUT resetting the rail to Sessions: the
   // panel stays selected so repeated launches need no re-entry (user: 한번
   // 누르면 세션창으로 이동되는데 그냥 유지되도록).
-  const utilitiesOpenBrowser = useStableEvent(() => openBrowserTab());
   const utilitiesOpenStudio = useStableEvent(() => openStudioTab());
   const utilitiesOpenTerminal = useStableEvent(() => openTerminalTab());
-  const utilitiesOpenExplorer = useStableEvent(() => openFolderTab());
   const projectsCreate = useStableEvent(async (path: string, name?: string) => {
     const host = window.mixdogDesktop;
     if (!host) throw new Error("Desktop bridge is unavailable.");
@@ -258,10 +240,8 @@ export function useAppSidebarSurface({
       : "Workflows";
     const content = panel === "utilities"
       ? <UtilitiesPane active={active}
-          onOpenBrowser={utilitiesOpenBrowser}
           onOpenStudio={utilitiesOpenStudio}
-          onOpenTerminal={utilitiesOpenTerminal}
-          onOpenExplorer={utilitiesOpenExplorer} />
+          onOpenTerminal={utilitiesOpenTerminal} />
       : panel === "schedules"
         ? <SchedulesPane active={active} runningNames={runningAutomationNames.schedule} />
         : panel === "webhooks"
@@ -291,110 +271,11 @@ export function useAppSidebarSurface({
       <Suspense fallback={null}>{content}</Suspense>
     </SidebarPanelBoundary>;
   };
-  const sidebarPanelChildren = useMemo(() => {
-    const sectioned = presentedSidebarGroup.length > 1;
-    const panelSurface = (
-      panel: SidebarPanelKey,
-      label: string,
-      render: (active: boolean) => React.ReactNode,
-    ) => {
-      const active = activeSidebarPanels.has(panel);
-      return <SidebarPanelSection key={panel} id={panel} title={label}
-        active={active} sectioned={sectioned && active}
-        order={active ? presentedSidebarGroup.indexOf(panel) : undefined}
-        dragProps={getViewDragProps(panel)} onMoveView={onMoveView}>
-        {(sectionActive) => (
-          <SidebarPanelBoundary label={label} active={sectionActive}
-            onFailure={() => markSidebarPanelFailed(panel)}
-            onRetry={() => retrySidebarPanel(panel)}>
-            <Suspense fallback={null}>{render(sectionActive)}</Suspense>
-          </SidebarPanelBoundary>
-        )}
-      </SidebarPanelSection>;
-    };
-    return <>
-    {/* One bounded boundary per destination: a rejected chunk becomes a
-        compact panel-local unavailable state instead of escaping to the
-        root and replacing the whole app. */}
-    {mountedSidebarPanels.has("utilities") && (
-    panelSurface("utilities", "Utilities", (active) =>
-      <UtilitiesPane active={active}
-        onOpenBrowser={utilitiesOpenBrowser}
-        onOpenStudio={utilitiesOpenStudio}
-        onOpenTerminal={utilitiesOpenTerminal}
-        onOpenExplorer={utilitiesOpenExplorer} />)
-    )}
-    {mountedSidebarPanels.has("schedules") && (
-    panelSurface("schedules", "Schedules", (active) =>
-      <SchedulesPane active={active}
-        runningNames={runningAutomationNames.schedule} />)
-    )}
-    {mountedSidebarPanels.has("webhooks") && (
-    panelSurface("webhooks", "Webhooks", (active) =>
-      <WebhooksPane active={active}
-        runningNames={runningAutomationNames.webhook} />)
-    )}
-    {mountedSidebarPanels.has("workflows") && (
-    panelSurface("workflows", "Workflows", (active) =>
-      <WorkflowsPane active={active} />)
-    )}
-    {mountedSidebarPanels.has("extensions") && (
-    panelSurface("extensions", "Extensions", (active) =>
-      <ExtensionsPane active={active} section={extensionsSection}
-        onSectionChange={onExtensionsSectionChange} />)
-    )}
-    {mountedSidebarPanels.has("projects") && (
-    panelSurface("projects", "Projects", (active) =>
-      <ProjectsPane active={active}
-        projects={projects} selectedProjectPath={selectedProjectPath}
-        onChooseFolder={async () => (await window.mixdogDesktop?.chooseProject()) ?? null}
-        onCreateProject={projectsCreate}
-        onRename={projectsRename}
-        onRemove={projectsRemove}
-        instructionsSupported={!!window.mixdogDesktop?.readInstructions}
-        onReadInstructions={async (path) => (await window.mixdogDesktop?.readInstructions?.(path)) ?? ''}
-        onSaveInstructions={projectsSaveInstructions}
-        onMemoryControl={async (input) => (await window.mixdogDesktop.invokeCapability({
-          capability: 'memoryControl',
-          args: [input, { silent: true }],
-        })).value} />)
-    )}
-  </>;
-  }, [
-    ProjectsPane,
-    SchedulesPane,
-    UtilitiesPane,
-    WebhooksPane,
-    WorkflowsPane,
-    ExtensionsPane,
-    activeSidebarPanels,
-    getViewDragProps,
-    markSidebarPanelFailed,
-    mountedSidebarPanels,
-    projects,
-    projectsCreate,
-    projectsRemove,
-    projectsRename,
-    projectsSaveInstructions,
-    retrySidebarPanel,
-    runningAutomationNames,
-    selectedProjectPath,
-    extensionsSection,
-    onExtensionsSectionChange,
-    onMoveView,
-    presentedSidebarGroup,
-    utilitiesOpenBrowser,
-    utilitiesOpenExplorer,
-    utilitiesOpenStudio,
-    utilitiesOpenTerminal,
-  ]);
-
 
   return {
     presentedSidebarPanel,
     sidebarNewTask,
     sidebarPanel,
-    sidebarPanelChildren,
     sidebarPanelTitle,
     sidebarResumeSession,
     sidebarTreeMounted,

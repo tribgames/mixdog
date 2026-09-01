@@ -66,6 +66,7 @@ import {
   useUtilityDockViewLayout,
   type UtilityDockViewPlacement,
 } from "./utility-dock-view-layout";
+import { viewGroupContainerDropProps } from "./view-group-layout";
 
 const MemoSourceControlDock = memo(SourceControlDock);
 const EMPTY_CHANGED_FILES = new Set<string>();
@@ -490,6 +491,7 @@ export const UtilityDock = memo(function UtilityDock({
   contentReady = true,
   side = "right",
   showTabs = true,
+  showTitle = true,
   title,
   titleDragProps,
   metricSurface = side === "left" ? "sidebar" : "dock",
@@ -527,6 +529,9 @@ export const UtilityDock = memo(function UtilityDock({
   side?: "left" | "right";
   /** Activity Bar owns view selection in the coding workbench. */
   showTabs?: boolean;
+  /** Pane docks drop the tool-title row so content tops align with the
+   *  shared unit header (user: 소스 제어 타이틀 줄 제거). */
+  showTitle?: boolean;
   title?: string;
   titleDragProps?: React.HTMLAttributes<HTMLElement>;
   metricSurface?: "sidebar" | "dock";
@@ -548,6 +553,19 @@ export const UtilityDock = memo(function UtilityDock({
     target: UtilityDockTab;
     placement: UtilityDockViewPlacement;
   } | null>(null);
+  // Same no-drop-cursor fix as the activity rail: the tab strip between and
+  // around the buttons accepts the drag and a gap drop lands on the nearest
+  // tab instead of cancelling.
+  const dockGapDropProps = viewGroupContainerDropProps<UtilityDockTab>({
+    viewMime: UTILITY_DOCK_VIEW_MIME,
+    groupMime: UTILITY_DOCK_GROUP_MIME,
+    axis: "x",
+    viewDragId: utilityDockViewDragId,
+    groupDragId: utilityDockGroupDragId,
+    setDrop: setDockDrop,
+    moveGroup: dockViewLayout.moveGroup,
+    moveView: dockViewLayout.moveView,
+  });
   // A controlled App shares one selection across Search / Source Control /
   // Pull Requests. Standalone mounts retain the historical local override.
   const [localProjectOverride, setLocalProjectOverride] = useState("");
@@ -977,7 +995,8 @@ export const UtilityDock = memo(function UtilityDock({
     aria-label={t("Utility panel")}>
     <div className="utility-dock-resize" role="separator" aria-orientation="vertical"
       aria-label={t("Resize utility panel")} onPointerDown={startResize} />
-    {showTabs && <header className="utility-dock-tabs-header" data-active-tab={presentedTab}>
+    {showTabs && <header className="utility-dock-tabs-header" data-active-tab={presentedTab}
+      {...dockGapDropProps}>
       <nav className="utility-dock-tabs" aria-label={t("Utility panel tabs")}>
         {dockViewLayout.groups.map((group) => {
           const root = group[0];
@@ -989,6 +1008,7 @@ export const UtilityDock = memo(function UtilityDock({
             aria-label={t(descriptor.label)}
             aria-current={active ? "page" : undefined}
             data-tooltip={t(descriptor.tooltip)}
+            data-view-group={root}
             data-drop-position={dockDrop?.target === root ? dockDrop.placement : undefined}
             draggable
             onDragStart={(event) => {
@@ -1035,7 +1055,7 @@ export const UtilityDock = memo(function UtilityDock({
         })}
       </nav>
     </header>}
-    {!showTabs && <header {...titleDragProps} className="utility-dock-header">
+    {!showTabs && showTitle && <header {...titleDragProps} className="utility-dock-header">
       <b>{dockTitle}</b>
     </header>}
     <div className="stable-surface-switch utility-dock-body"
@@ -1070,7 +1090,11 @@ export const UtilityDock = memo(function UtilityDock({
       {showTabs && !dockSectioned && <header className="utility-dock-header" data-panel-header="search">
         <div className="utility-dock-title"><b>{t(title || "Search")}</b></div>
       </header>}
-      {showTabs && dockProjectOptions.length > 0 && <div className="utility-dock-project-row"
+      {/* The project switcher rides above the search field and its filters in
+          EVERY host. The workbench side view renders the dock WITHOUT its tab
+          strip (showTabs=false), so gating this row on tabs erased Search's
+          project picker there (user: 검색창 필터 위에 프로젝트 선택이 사라짐). */}
+      {dockProjectOptions.length > 0 && <div className="utility-dock-project-row"
         title={dockProjectPath || t("Select project")}>
         {projectSelectControl}
       </div>}

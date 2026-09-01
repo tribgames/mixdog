@@ -8,15 +8,11 @@ import {
 } from "react";
 
 import type { WorkspaceSelection, WorkspaceTab } from "./navigation";
-import { paneActiveSelection } from "./pane-layout";
 import type { usePaneWorkspace } from "./pane-workspace-state";
-import { prefetchTerminalPane } from "./lazy-widgets";
 import { navigationKey } from "./text-format";
 import { useWorkspaceShortcuts } from "./app-workspace-shortcuts";
-import type { useAppShellPanels } from "./use-app-shell-panels";
 
 type PaneWorkspace = ReturnType<typeof usePaneWorkspace>;
-type BottomPanel = ReturnType<typeof useAppShellPanels>["bottomPanel"];
 
 export function useAppWorkspaceNavigation({
   paneWorkspace,
@@ -24,11 +20,8 @@ export function useAppWorkspaceNavigation({
   focusedPaneSelection,
   activeTabKey,
   navigateTab,
-  focusPaneTypingSurface,
   focusSiblingPane,
   focusVerticalPane,
-  bottomPanel,
-  dismissSheetsForBottomPanel,
   startTask,
   openSettings,
   toggleSidebar,
@@ -46,8 +39,6 @@ export function useAppWorkspaceNavigation({
   focusPaneTypingSurface(leafId: string, selection: WorkspaceSelection | null | undefined): void;
   focusSiblingPane(offset: number): void;
   focusVerticalPane(direction: "up" | "down"): void;
-  bottomPanel: BottomPanel;
-  dismissSheetsForBottomPanel(): void;
   startTask(): void;
   openSettings(): void;
   toggleSidebar(): void;
@@ -135,38 +126,6 @@ export function useAppWorkspaceNavigation({
     };
   }, [tabSwitcher, focusedLeafTabs, focusedActiveTabKey, navigateFocusedPaneTab]);
 
-  const panelTerminalFocusGeneration = useRef(0);
-  const focusPanelTerminal = () => {
-    const generation = ++panelTerminalFocusGeneration.current;
-    let tries = 600;
-    const attempt = () => {
-      if (generation !== panelTerminalFocusGeneration.current) return;
-      const target = document.querySelector<HTMLTextAreaElement>(
-        ".workbench-terminal-panel .xterm-helper-textarea",
-      );
-      if (target && target.getClientRects().length > 0) {
-        target.focus({ preventScroll: true });
-        if (document.activeElement === target) return;
-      }
-      if (tries-- > 0) window.requestAnimationFrame(attempt);
-    };
-    window.requestAnimationFrame(attempt);
-  };
-
-  const toggleTerminalPanel = () => {
-    if (bottomPanel.open && bottomPanel.tab === "terminal") {
-      bottomPanel.setOpen(false);
-      panelTerminalFocusGeneration.current += 1;
-      const leaf = paneWorkspace.leaves.find((item) => item.id === paneWorkspace.focusedLeafId);
-      if (leaf) focusPaneTypingSurface(leaf.id, paneActiveSelection(leaf));
-      return;
-    }
-    void prefetchTerminalPane().catch(() => {});
-    dismissSheetsForBottomPanel();
-    bottomPanel.setTab("terminal");
-    focusPanelTerminal();
-  };
-
   useWorkspaceShortcuts({
     tabs: focusedLeafTabs,
     activeTabKey: focusedActiveTabKey,
@@ -178,7 +137,6 @@ export function useAppWorkspaceNavigation({
     toggleSidebar,
     toggleDock,
     togglePanel: toggleBottomPanel,
-    openTerminalPanel: toggleTerminalPanel,
     openQuickAccess: () => setQuickAccessMode("files"),
     openCommandPalette: () => setQuickAccessMode("commands"),
     openFindInFiles: () => {
@@ -194,6 +152,5 @@ export function useAppWorkspaceNavigation({
     focusedLeafForShortcuts,
     focusedLeafTabs,
     tabSwitcher,
-    toggleTerminalPanel,
   };
 }

@@ -135,7 +135,12 @@ test('writes are atomic core updates that retain unrelated config and nested fie
     agent: {
       profile: { title: 'Owner' },
       autoClear: { idleMs: 60000 },
-      compaction: { type: 'semantic', enabled: false },
+      compaction: {
+        type: 'semantic',
+        enabled: false,
+        semanticModel: 'legacy-summary-model',
+        recallMemoryTimeoutMs: 12_000,
+      },
     },
     unrelated: { retained: true },
   };
@@ -168,7 +173,11 @@ test('writes are atomic core updates that retain unrelated config and nested fie
   assert.deepEqual(value.agent, {
     profile: { title: 'Owner' },
     autoClear: { idleMs: 60000, enabled: false },
-    compaction: { type: 'semantic', auto: true },
+    compaction: {
+      auto: true,
+      summaryModel: 'legacy-summary-model',
+      memoryTimeoutMs: 12_000,
+    },
   });
   assert.equal(value.autoClear, undefined);
   assert.equal(value.compaction, undefined);
@@ -212,6 +221,31 @@ test('desktop capability validation exposes Recap and rejects the retired Memory
     capability: 'setMemoryEnabled',
     args: [false],
   }), /unavailable/);
+});
+
+test('desktop capability validation accepts explicit voice enablement only', () => {
+  assert.deepEqual(requiredDesktopCapabilityRequest({
+    capability: 'toggleVoice',
+    args: [true],
+  }), {
+    capability: 'toggleVoice',
+    args: [true],
+  });
+  assert.deepEqual(requiredDesktopCapabilityRequest({
+    capability: 'toggleVoice',
+    args: [false],
+  }), {
+    capability: 'toggleVoice',
+    args: [false],
+  });
+  assert.throws(() => requiredDesktopCapabilityRequest({
+    capability: 'toggleVoice',
+    args: [],
+  }), /invalid number of arguments/);
+  assert.throws(() => requiredDesktopCapabilityRequest({
+    capability: 'toggleVoice',
+    args: ['on'],
+  }), /requires a boolean/);
 });
 
 test('updateSetting IPC enforces sender, key, boolean, success, and store rejection', async () => {

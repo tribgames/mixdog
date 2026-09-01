@@ -3,7 +3,7 @@ import {
 } from '../shared/tool-execution-contract.mjs';
 import { OFFICE_ACTIONS } from './capabilities.mjs';
 
-export const PPTX_ALWAYS_ON_CONTRACT = 'PPTX: one sourced claim/slide. New design: make three distinct layouts for a representative slide; self-select for direct execution, otherwise render for selection. Lock canvas, margins, fonts, palette, grid, spacing, and image/chart treatment; vary roles. Scratch slides require plan.regions. Use contain for full images, cover+focus to fill. Render all, critique, list failures, repair failed slides only, rerender changes, run issues, finalize. Templates only when requested; preserve masters/layouts.';
+export const PPTX_ALWAYS_ON_CONTRACT = 'PPTX: one sourced claim/slide. Creative Director sets the thesis, story arc, evidence map, and one of three subject-specific directions. Preserve its motif, grid, shape language, chart treatment, and rhythm. Prefer annotated-chart, allocation, timeline, and scorecard. Missing scratch plans are synthesized; explicit plans stay authoritative. Render all; frontier metrics and per-slide critique must pass. Templates only when requested.';
 
 export const TOOL_DEFS = [
   {

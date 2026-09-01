@@ -32,6 +32,7 @@ import {
   type SidebarViewGroup,
   type SidebarViewPlacement,
 } from "./sidebar-view-layout";
+import { viewGroupContainerDropProps } from "./view-group-layout";
 
 /** Pin mode survives restarts: the rail button keeps showing the per-brand
  *  usage stack until the pin is switched off again (user: 핀 온오프). */
@@ -132,6 +133,19 @@ export function ActivityRail({
     target: SidebarPanelKey;
     placement: SidebarViewPlacement;
   } | null>(null);
+  // The rail column between and around the tab buttons accepts the drag too:
+  // without this every gap flashed the browser's no-drop cursor mid-reorder
+  // (user: 드래그할 때 자꾸 금지 표기가 떠) and a slightly-off drop cancelled.
+  const railGapDropProps = viewGroupContainerDropProps<SidebarPanelKey>({
+    viewMime: SIDEBAR_VIEW_MIME,
+    groupMime: SIDEBAR_GROUP_MIME,
+    axis: "y",
+    viewDragId: sidebarViewDragId,
+    groupDragId: sidebarGroupDragId,
+    setDrop: setRailDrop,
+    moveGroup: onMoveViewGroup,
+    moveView: onMoveView,
+  });
   // Subscription usage moved off the session panel (user decision): the rail
   // hosts an account toggle and the panel stays a pure session
   // list. Only the dashboard MARKUP is flyout-scoped; its data lives in the
@@ -229,7 +243,7 @@ export function ActivityRail({
     };
   }, [usageOpen]);
   return (
-    <aside className="activity-rail" aria-label={t("Activity Bar")}>
+    <aside className="activity-rail" aria-label={t("Activity Bar")} {...railGapDropProps}>
       <nav className="sidebar-primary-nav" aria-label={t("Sidebar")}>
         {primaryNavigation ?? <>
         {/* The Sessions toggle behaves like an Explorer button: pressing it
@@ -254,6 +268,7 @@ export function ActivityRail({
               className={`projects-link ${selected ? "selected" : ""}`}
               aria-label={t(label)} aria-current={selected ? "page" : undefined}
               data-tooltip={t(tooltip)}
+              data-view-group={rootId}
               data-drop-position={railDrop?.target === rootId ? railDrop.placement : undefined}
               draggable
               onDragStart={(event) => {

@@ -1,8 +1,6 @@
-// In-app Chromium browser pane (Utilities → Browser Use). Hosts one <webview>
-// guest on the shared persistent partition, so login sessions survive app
-// restarts and the agent bridge in the main process can drive the same page
-// the user sees. The pane owns only the chrome (address bar, nav buttons);
-// guest control for agents lives in main/browser-host.ts via CDP.
+// One Chromium surface per conversation session on a shared persistent
+// partition. Login survives and is shared; page, tab, and target state is not.
+// The pane owns only the chrome; agent control lives in main/browser-host.ts.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -21,7 +19,10 @@ import {
 import { t } from "./i18n";
 import { normalizeAddressInput } from "./browser-address";
 import { BrowserImportDialog } from "./BrowserImportDialog";
-import { watchBrowserForegroundReturns } from "./browser-foreground-lifecycle";
+import {
+  scheduleBrowserForegroundRepaint,
+  watchBrowserForegroundReturns,
+} from "./browser-foreground-lifecycle";
 import RemoteBrowserPane from "./RemoteBrowserPane";
 import type {
   DesktopBrowserCredentialSuggestion,
@@ -64,22 +65,29 @@ interface WebviewElement extends HTMLElement {
 
 /** Fit-width viewport: fixed-width desktop layouts (portals commonly assume
  *  ~1100-1200px) zoom out inside a narrow pane instead of clipping behind a
- *  horizontal scrollbar. A pane at least this wide renders at 100%. */
+ *  horizontal scrollbar. A pane at least this wide renders at 100%. Below
+ *  RESPONSIVE_FIT_WIDTH even 50% cannot hold the desktop layout, so the pane
+ *  renders at 100% instead and responsive sites reflow like a phone
+ *  (user: 모바일도 고려 — Claude 패널 방식). */
 const FIT_CONTENT_WIDTH = 1160;
 const MIN_FIT_ZOOM = 0.5;
+const RESPONSIVE_FIT_WIDTH = 580;
 
 export { normalizeAddressInput } from "./browser-address";
 
 export interface BrowserPaneProps {
-  paneId: string;
+  sessionId: string;
   active: boolean;
   foreground: boolean;
+  parked?: boolean;
+  focusAddressOnActivate?: boolean;
 }
 
 function DesktopBrowserPane({
-  paneId,
+  sessionId,
   active,
-  foreground,
+  parked = false,
+  focusAddressOnActivate = true,
 }: BrowserPaneProps) {
   const webviewRef = useRef<WebviewElement | null>(null);
   const addressRef = useRef<HTMLInputElement | null>(null);
@@ -98,6 +106,7 @@ function DesktopBrowserPane({
   const [pageFailure, setPageFailure] = useState<BrowserPageFailure | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const desktopApi = window.mixdogDesktop;
+  const ownerSessionId = sessionId;
 
   useEffect(() => {
     const view = webviewRef.current;
@@ -109,36 +118,40 @@ function DesktopBrowserPane({
         const webContentsId = view.getWebContentsId();
         if (!Number.isSafeInteger(webContentsId) || webContentsId <= 0) return;
         reportedId = webContentsId;
-        void setGuestActive(paneId, webContentsId, foreground).catch(() => {});
+        void setGuestActive(ownerSessionId, webContentsId, active).catch(() => {});
       } catch { /* guest not attached yet; did-attach/dom-ready retries */ }
     };
     report();
-    const stopForegroundReturnReporting = foreground
+    const stopForegroundReturnReporting = active
       ? watchBrowserForegroundReturns(window, document, report)
+      : () => {};
+    const stopSettledForegroundRepaint = active
+      ? scheduleBrowserForegroundRepaint(window, report)
       : () => {};
     view.addEventListener("did-attach", report);
     view.addEventListener("dom-ready", report);
     return () => {
       stopForegroundReturnReporting();
+      stopSettledForegroundRepaint();
       view.removeEventListener("did-attach", report);
       view.removeEventListener("dom-ready", report);
-      if (reportedId) void setGuestActive(paneId, reportedId, false).catch(() => {});
+      if (reportedId) void setGuestActive(ownerSessionId, reportedId, false).catch(() => {});
     };
-  }, [desktopApi, foreground, paneId]);
+  }, [active, desktopApi, ownerSessionId]);
 
   const refreshCredentialSuggestions = useCallback(() => {
     if (!desktopApi?.browserCredentialSuggestions) {
       setCredentialSuggestions([]);
       return;
     }
-    void desktopApi.browserCredentialSuggestions().then((suggestions) => {
+    void desktopApi.browserCredentialSuggestions(ownerSessionId).then((suggestions) => {
       setCredentialSuggestions(suggestions);
       if (!suggestions.length) setCredentialMenuOpen(false);
     }).catch(() => {
       setCredentialSuggestions([]);
       setCredentialMenuOpen(false);
     });
-  }, [desktopApi]);
+  }, [desktopApi, ownerSessionId]);
 
   useEffect(() => {
     const view = webviewRef.current;
@@ -249,7 +262,9 @@ function DesktopBrowserPane({
     };
     const syncZoom = (width: number, force = false) => {
       if (!width) return;
-      const zoom = Math.min(1, Math.max(MIN_FIT_ZOOM, width / FIT_CONTENT_WIDTH));
+      const zoom = width < RESPONSIVE_FIT_WIDTH
+        ? 1
+        : Math.min(1, Math.max(MIN_FIT_ZOOM, width / FIT_CONTENT_WIDTH));
       const changed = Math.abs(zoom - desiredZoom.current) >= 0.01;
       if (changed) desiredZoom.current = zoom;
       if (changed || force) applyZoom();
@@ -284,8 +299,8 @@ function DesktopBrowserPane({
 
   // A fresh, blank browser tab is for typing an address first.
   useEffect(() => {
-    if (active && !currentUrl) addressRef.current?.focus();
-  }, [active, currentUrl]);
+    if (active && focusAddressOnActivate && !currentUrl) addressRef.current?.focus();
+  }, [active, currentUrl, focusAddressOnActivate]);
 
   const navigate = useCallback((rawInput: string) => {
     const url = normalizeAddressInput(rawInput);
@@ -329,14 +344,14 @@ function DesktopBrowserPane({
     setCredentialBusy(true);
     setCredentialMenuOpen(false);
     setCredentialStatus("idle");
-    void desktopApi.browserCredentialFill(credentialId).then((result) => {
+    void desktopApi.browserCredentialFill(ownerSessionId, credentialId).then((result) => {
       setCredentialStatus(result.passwordFilled ? "success" : "error");
     }).catch(() => setCredentialStatus("error"))
       .finally(() => setCredentialBusy(false));
-  }, [credentialBusy, desktopApi]);
+  }, [credentialBusy, desktopApi, ownerSessionId]);
 
-  return <div className="browser-pane" data-pane-instance={paneId}
-    data-surface-active={active ? "true" : "false"}>
+  return <div className="browser-pane" data-pane-instance={sessionId}
+    data-surface-active={active || parked ? "true" : "false"}>
     <div className="browser-pane-toolbar">
       <button type="button" className="browser-pane-nav-button"
         disabled={!canGoBack}

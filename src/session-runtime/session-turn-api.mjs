@@ -49,6 +49,7 @@ export function createSessionTurnApi(deps) {
     activeToolSurface, applyResolvedCwd, resolveCwdPath, agentStatusState, notificationListeners,
     awaitInitialMcpConnect, mcpTurnGraceMs = 0, awaitRoutePreparation,
     getReservedSessionId, sessionTitles, registerActiveTurnController,
+    endComputerExecution = async () => false,
     deferComputerSessionRelease = () => false,
     beginTurnSnapshotForTurn = beginTurnSnapshot,
     cancelTurnSnapshotForTurn = cancelTurnSnapshot,
@@ -423,7 +424,10 @@ export function createSessionTurnApi(deps) {
         } catch { /* best-effort: StopFailure hook must never break teardown */ }
         throw error;
       } finally {
-        try { deferComputerSessionRelease(session0.id); } catch {
+        try { await endComputerExecution(session0?.id); } catch {
+          /* visual Computer Use teardown never overrides turn settlement */
+        }
+        try { deferComputerSessionRelease(session0?.id); } catch {
           /* deferred computer lease cleanup never overrides turn settlement */
         }
         releaseFirstTitle?.();

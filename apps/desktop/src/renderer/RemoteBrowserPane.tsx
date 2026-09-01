@@ -29,8 +29,12 @@ import type { BrowserPaneProps } from "./BrowserPane.lazy";
 const ACTIVE_POLL_MS = 350;
 const IDLE_POLL_MS = 900;
 
-export default function RemoteBrowserPane({ active }: BrowserPaneProps) {
+export default function RemoteBrowserPane({
+  sessionId,
+  active,
+}: BrowserPaneProps) {
   const api = window.mixdogDesktop;
+  const ownerSessionId = sessionId;
   const addressFocused = useRef(false);
   const frameId = useRef("");
   const imageRef = useRef<HTMLImageElement | null>(null);
@@ -63,7 +67,7 @@ export default function RemoteBrowserPane({ active }: BrowserPaneProps) {
       polling = true;
       let delay = 1_500;
       try {
-        const next = await api.remoteBrowserFrame?.(frameId.current);
+        const next = await api.remoteBrowserFrame?.(ownerSessionId, frameId.current);
         if (cancelled || !next) return;
         frameId.current = next.frameId;
         setFrame(next);
@@ -100,7 +104,7 @@ export default function RemoteBrowserPane({ active }: BrowserPaneProps) {
       window.clearTimeout(timer);
       wakePoll.current = null;
     };
-  }, [active, api]);
+  }, [active, api, ownerSessionId]);
 
   useEffect(() => {
     if (keyboardOpen) inputRef.current?.focus();
@@ -109,13 +113,13 @@ export default function RemoteBrowserPane({ active }: BrowserPaneProps) {
   const control = useCallback(async (input: DesktopRemoteBrowserControl) => {
     if (!api?.remoteBrowserControl) return;
     try {
-      await api.remoteBrowserControl(input);
+      await api.remoteBrowserControl(ownerSessionId, input);
       setFailure("");
       refreshSoon();
     } catch (error) {
       setFailure(error instanceof Error ? error.message : String(error));
     }
-  }, [api, refreshSoon]);
+  }, [api, ownerSessionId, refreshSoon]);
 
   const navigate = useCallback((raw: string) => {
     const url = normalizeAddressInput(raw);

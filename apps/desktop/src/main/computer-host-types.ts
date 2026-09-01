@@ -99,6 +99,7 @@ export interface ComputerCommandResult {
 export interface CaptureFrame {
   id: string;
   sessionId: string;
+  capturedAt: number;
   kind: 'screen' | 'window';
   sourceId: string;
   windowId?: string;
@@ -170,6 +171,7 @@ export interface ElementAliasTarget {
 export interface ObservedWindowScope {
   primaryWindowId: string;
   relatedWindowIds: string[];
+  observedAt: number;
 }
 
 export interface ScreenshotCapture {

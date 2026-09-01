@@ -5,7 +5,7 @@ import {
   initialPaneWorkspaceState,
   mobilePaneWorkspaceState,
 } from "./pane-workspace-state.ts";
-import { paneTabAcrossVisualBoundary } from "./pane-layout.ts";
+import { paneTabAcrossVisualBoundary, parsePaneLayout } from "./pane-layout.ts";
 
 const mobileStored = {
   layout: {
@@ -61,6 +61,23 @@ test("session validation keeps the persisted pane geometry on first paint", () =
     focusedLeafId: "right",
   };
   assert.strictEqual(initialPaneWorkspaceState(stored, null), stored);
+});
+
+test("legacy Browser tabs are dropped without discarding the surrounding layout", () => {
+  assert.deepEqual(parsePaneLayout({
+    type: "leaf",
+    id: "main",
+    tabs: [
+      { kind: "browser", id: "browser_tab_legacy" },
+      { kind: "session", id: "session-a" },
+    ],
+    activeKey: "browser:browser_tab_legacy",
+  }), {
+    type: "leaf",
+    id: "main",
+    tabs: [{ kind: "session", id: "session-a" }],
+    activeKey: "session:session-a",
+  });
 });
 
 test("forward pane traversal enters at the first tab instead of the last active tab", () => {

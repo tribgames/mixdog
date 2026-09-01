@@ -40,7 +40,6 @@ export function createSlashDispatch({
   openMcpPicker,
   openSkillsPicker,
   openPluginsPicker,
-  openHooksPicker,
   openProviderSetupPicker,
   openMemoryCorePicker,
   parseMemoryCommand,
@@ -288,9 +287,6 @@ export function createSlashDispatch({
         return true;
       case 'plugins':
         openSlashPanel('plugins', 'Plugins', () => openPluginsPicker());
-        return true;
-      case 'hooks':
-        openSlashPanel('hooks', 'Hooks', () => openHooksPicker());
         return true;
       case 'providers':
         openSlashPanel('providers', 'Providers', () => openProviderSetupPicker());

@@ -9,13 +9,11 @@ const importEditorPane = async () => {
   await loadMonacoLocale();
   return import("./EditorPane.lazy");
 };
-const importFolderPane = () => import("./FolderPane.lazy");
 const importBrowserPane = () => import("./BrowserPane.lazy");
 
 export const DiffView = lazy(importDiffView);
 export const TerminalPane = lazy(importTerminalPane);
 export const EditorPane = lazy(importEditorPane);
-export const FolderPane = lazy(importFolderPane);
 export const BrowserPane = lazy(importBrowserPane);
 
 export async function disposeTerminalPane(id: string): Promise<void> {
@@ -33,7 +31,6 @@ let prefetched = false;
 let diffPrefetch: Promise<unknown> | null = null;
 let terminalPrefetch: Promise<unknown> | null = null;
 let editorPrefetch: Promise<unknown> | null = null;
-let folderPrefetch: Promise<unknown> | null = null;
 export function prefetchDiffView(): Promise<unknown> {
   diffPrefetch ||= importDiffView().catch((error) => {
     diffPrefetch = null;
@@ -47,13 +44,6 @@ export function prefetchTerminalPane(): Promise<unknown> {
     throw error;
   });
   return terminalPrefetch;
-}
-export function prefetchFolderPane(): Promise<unknown> {
-  folderPrefetch ||= importFolderPane().catch((error) => {
-    folderPrefetch = null;
-    throw error;
-  });
-  return folderPrefetch;
 }
 let browserPrefetch: Promise<unknown> | null = null;
 export function prefetchBrowserPane(): Promise<unknown> {
@@ -75,7 +65,7 @@ export function prefetchEditorPane(): Promise<unknown> {
  * Start the chunk a selection is about to need, without waiting for it.
  *
  * Pointer surfaces call this from hover/focus. A phone has neither, so its
- * first open of a file/terminal/diff/folder tab paid the ENTIRE fetch and
+ * first open of a file/terminal/diff tab paid the ENTIRE fetch and
  * evaluate at open time — over the relay that is ~1MB brotli for Monaco alone
  * (user: 창 들어갈 때 지연). Touch-down is the phone's equivalent intent
  * signal, and because every prefetch here returns the same shared promise the
@@ -88,11 +78,7 @@ export function prefetchSurfaceForSelection(selection: WorkspaceSelection): void
       ? prefetchDiffView()
       : selection.kind === "terminal"
         ? prefetchTerminalPane()
-        : selection.kind === "folder"
-          ? prefetchFolderPane()
-          : selection.kind === "browser"
-            ? prefetchBrowserPane()
-            : null;
+        : null;
   void promise?.catch(() => undefined);
 }
 

@@ -4,10 +4,13 @@
  * wait reads predicate state only, so it never invalidates the refs the caller
  * is holding and never returns pixels.
  */
-import { screen } from 'electron';
-
 import { elapsedMs } from './computer-host-shared';
-import { evaluateVerifyPredicate, screenshotInteger, type VerifyStatus } from './computer-host-observation';
+import {
+  assertOcrLanguageTag,
+  evaluateVerifyPredicate,
+  screenshotInteger,
+  type VerifyStatus,
+} from './computer-host-observation';
 import type { ComputerWindowRecord } from './computer-window-transition';
 import type { ComputerCommand, ComputerCommandResult } from './computer-host-types';
 
@@ -15,9 +18,12 @@ const DEFAULT_VERIFY_TIMEOUT_MS = 5_000;
 const MAX_VERIFY_TIMEOUT_MS = 30_000;
 const DEFAULT_VERIFY_STABLE_SAMPLES = 2;
 const VERIFY_POLL_INTERVAL_MS = 250;
+const DIAGNOSE_ACCESSIBILITY_TIMEOUT_MS = 2_500;
+const DIAGNOSE_OCR_TIMEOUT_MS = 3_000;
+const VERIFY_PROVIDER_TIMEOUT_MS = 2_000;
 
 export interface InspectHost {
-  callPowerShell(request: Record<string, unknown>): Promise<{
+  callPowerShell(request: Record<string, unknown>, timeoutMs?: number): Promise<{
     ok: boolean;
     result?: Record<string, unknown>;
     error?: string;
@@ -28,6 +34,7 @@ export interface InspectHost {
     command: ComputerCommand,
     includeApp?: boolean,
   ): Promise<ComputerWindowRecord[] | null>;
+  readDisplays(): Array<Record<string, unknown>>;
   isObserveOnly(): boolean;
 }
 
@@ -37,10 +44,12 @@ export function createInspection(host: InspectHost) {
     sessionIdFor,
     assertExecutionNotAborted,
     readComputerWindows,
+    readDisplays,
     isObserveOnly,
   } = host;
 
   async function diagnoseComputer(command: ComputerCommand): Promise<ComputerCommandResult> {
+    assertOcrLanguageTag(command.ocr_language);
     const startedAt = performance.now();
     const windows = await readComputerWindows(command, true);
     const requestedWindowId = String(command.window_id || '');
@@ -60,23 +69,40 @@ export function createInspection(host: InspectHost) {
           visible_only: true,
           session_id: sessionIdFor(command),
           read_only: true,
-        });
+        }, DIAGNOSE_ACCESSIBILITY_TIMEOUT_MS);
+        const returnedElements = Array.isArray(probe.result?.elements)
+          ? probe.result.elements.length
+          : 0;
         accessibility = probe.ok
-          ? {
-              available: true,
-              target_window_id: target.id,
-              returned_elements: Array.isArray(probe.result?.elements)
-                ? probe.result.elements.length
-                : 0,
-            }
+          ? returnedElements > 0
+            ? {
+                available: true,
+                provider_available: true,
+                state: 'usable',
+                target_window_id: target.id,
+                returned_elements: returnedElements,
+              }
+            : {
+                available: false,
+                provider_available: true,
+                state: 'empty',
+                target_window_id: target.id,
+                returned_elements: 0,
+                reason: 'target exposes no semantic accessibility elements; state capture will use OCR/pixels',
+                fallback: 'ocr_or_pixels',
+              }
           : {
               available: false,
+              provider_available: false,
+              state: 'error',
               target_window_id: target.id,
               reason: probe.error || 'accessibility probe failed',
             };
       } catch (error) {
         accessibility = {
           available: false,
+          provider_available: false,
+          state: 'error',
           target_window_id: target.id,
           reason: (error as Error).message || String(error),
         };
@@ -89,7 +115,7 @@ export function createInspection(host: InspectHost) {
         ocr_language: command.ocr_language ?? null,
         session_id: sessionIdFor(command),
         read_only: true,
-      });
+      }, DIAGNOSE_OCR_TIMEOUT_MS);
       ocr = probe.ok
         ? {
             available: probe.result?.available === true,
@@ -103,14 +129,7 @@ export function createInspection(host: InspectHost) {
     } catch (error) {
       ocr = { available: false, reason: (error as Error).message || String(error) };
     }
-    const displays = screen.getAllDisplays().map((display, index) => ({
-      index,
-      id: String(display.id),
-      primary: display.id === screen.getPrimaryDisplay().id,
-      scale_factor: display.scaleFactor,
-      width: display.size.width,
-      height: display.size.height,
-    }));
+    const displays = readDisplays();
     const issues: string[] = [];
     if (!windows) issues.push('window enumeration failed');
     if (requestedWindowId && !target) issues.push(`requested window is unavailable: ${requestedWindowId}`);
@@ -137,6 +156,7 @@ export function createInspection(host: InspectHost) {
           delivery_modes: ['background', 'foreground'],
           input_mode: isObserveOnly() ? 'observation_only' : 'enabled',
           focus_cursor_restore: true,
+          focus_recovery: 'session_release',
           app_owned_electron_text: true,
           browser_content_route: 'browser_use',
           capture_probe: 'run capture against an exact target; diagnostics does not expose screen pixels',
@@ -180,22 +200,34 @@ export function createInspection(host: InspectHost) {
     let statuses: VerifyStatus[] = predicates.map(() => 'unknown');
     let title = '';
     let observedElements = 0;
+    let providerError = '';
     const needsElementText = predicates.some(
       (predicate) => typeof (predicate as Record<string, unknown>).present === 'string'
         || typeof (predicate as Record<string, unknown>).absent === 'string',
     );
     for (;;) {
       assertExecutionNotAborted();
-      const response = await callPowerShell({
-        action: 'window_predicates',
-        window: command.window ?? null,
-        window_id: command.window_id ?? null,
-        max_elements: 400,
-        include_elements: needsElementText,
-        session_id: sessionIdFor(command),
-        read_only: true,
-      });
+      const remainingMs = Math.max(1, deadline - performance.now());
+      let response;
+      try {
+        response = await callPowerShell({
+          action: 'window_predicates',
+          window: command.window ?? null,
+          window_id: command.window_id ?? null,
+          max_elements: 400,
+          include_elements: needsElementText,
+          session_id: sessionIdFor(command),
+          read_only: true,
+        }, Math.min(VERIFY_PROVIDER_TIMEOUT_MS, remainingMs));
+      } catch (error) {
+        providerError = (error as Error).message || String(error);
+        break;
+      }
       samples += 1;
+      if (!response.ok) {
+        providerError = response.error || 'window predicate provider failed';
+        break;
+      }
       const elements = (Array.isArray(response.result?.elements)
         ? response.result.elements
         : []) as Array<Record<string, unknown>>;
@@ -234,6 +266,7 @@ export function createInspection(host: InspectHost) {
         samples,
         stable_samples: stableSamples,
         observed_elements: observedElements,
+        ...(providerError ? { provider_error: providerError } : {}),
         results: predicates.map((predicate, index) => ({
           predicate,
           status: statuses[index],

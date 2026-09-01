@@ -11,6 +11,7 @@ import {
     anthropicFallbackProviderMetadata,
     parseAnthropicFallbackBlock,
 } from '../anthropic-server-fallback.mjs';
+import { SUMMARY_PREFIX_ANCHOR } from '../../session/compact/constants.mjs';
 
 export const ANTHROPIC_CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };
 export const ANTHROPIC_CACHE_TTL_VOLATILE = { type: 'ephemeral' };
@@ -294,6 +295,39 @@ export function normalizeAnthropicNonStreamingResponse(message, fallbackModel = 
     };
 }
 
+function mergeAnthropicFlatProperty(current, incoming) {
+    if (!current || typeof current !== 'object') return structuredClone(incoming);
+    if (!incoming || typeof incoming !== 'object') return structuredClone(current);
+    const merged = { ...structuredClone(incoming), ...structuredClone(current) };
+    if (Array.isArray(current.enum) || Array.isArray(incoming.enum)) {
+        merged.enum = [...new Set([
+            ...(Array.isArray(current.enum) ? current.enum : []),
+            ...(Array.isArray(incoming.enum) ? incoming.enum : []),
+        ])];
+    }
+    if (current.properties || incoming.properties) {
+        merged.properties = {};
+        for (const [name, property] of Object.entries(current.properties || {})) {
+            merged.properties[name] = structuredClone(property);
+        }
+        for (const [name, property] of Object.entries(incoming.properties || {})) {
+            merged.properties[name] = mergeAnthropicFlatProperty(
+                merged.properties[name],
+                property,
+            );
+        }
+    }
+    if (Array.isArray(current.required) && Array.isArray(incoming.required)) {
+        const incomingRequired = new Set(incoming.required);
+        const sharedRequired = current.required.filter((name) => incomingRequired.has(name));
+        if (sharedRequired.length) merged.required = sharedRequired;
+        else delete merged.required;
+    } else {
+        delete merged.required;
+    }
+    return merged;
+}
+
 export function sanitizeAnthropicInputSchema(schema, toolName, logTag) {
     if (!schema || typeof schema !== 'object') {
         return { type: 'object', properties: {} };
@@ -304,7 +338,9 @@ export function sanitizeAnthropicInputSchema(schema, toolName, logTag) {
     const branchDescs = [];
     for (const branch of Array.isArray(compound) ? compound : []) {
         if (branch && typeof branch === 'object' && branch.properties) {
-            Object.assign(mergedProps, branch.properties);
+            for (const [name, property] of Object.entries(branch.properties)) {
+                mergedProps[name] = mergeAnthropicFlatProperty(mergedProps[name], property);
+            }
         }
         if (branch && typeof branch === 'object') {
             const parts = [];
@@ -336,6 +372,10 @@ export function sanitizeAnthropicInputSchema(schema, toolName, logTag) {
         type: 'object',
         ...(description ? { description } : {}),
         properties: mergedProps,
+        ...(Array.isArray(schema.required) && schema.required.length
+            ? { required: [...schema.required] }
+            : {}),
+        ...(schema.additionalProperties === false ? { additionalProperties: false } : {}),
     };
 }
 
@@ -470,10 +510,20 @@ export function applyAnthropicCacheMarkers(sanitizedMessages, {
         const tailIdx = sanitizedMessages.length - 1;
         return hasUserText(sanitizedMessages[tailIdx]) ? tailIdx : -1;
     };
+    const compactSummaryIdx = () => {
+        for (let i = sanitizedMessages.length - 1; i >= 0; i--) {
+            const message = sanitizedMessages[i];
+            if (message?.role === 'user' && firstText(message.content).startsWith(SUMMARY_PREFIX_ANCHOR)) return i;
+        }
+        return -1;
+    };
     if (messageTtl !== null) {
         const slots = Math.max(0, Math.min(4, Number(messageSlots) || 0));
         const marked = new Set();
-        const candidates = [currentTailUserIdx(), latestToolResultTailIdx(), previousUserTextAnchorIdx(), firstRequestUserPromptIdx()];
+        // A post-compact summary is the largest stable session-specific prefix:
+        // reserve the first available message slot for it. Additional slots
+        // still advance through the normal live-tail candidates.
+        const candidates = [compactSummaryIdx(), currentTailUserIdx(), latestToolResultTailIdx(), previousUserTextAnchorIdx(), firstRequestUserPromptIdx()];
         for (const idx of candidates) {
             if (slots <= 0) break;
             if (idx < 0 || marked.has(idx)) continue;

@@ -134,6 +134,7 @@ export async function openSession(args, cwd, dataDir) {
       appPid: opened.appPid,
       windowHwnd: opened.windowHwnd,
       foregroundActivated: opened.foregroundActivated === true,
+      backgroundIsolation: opened.backgroundIsolation || null,
       documentId: opened.documentId,
     });
   }
@@ -301,6 +302,7 @@ export async function createSession(args, cwd, dataDir) {
     appPid: opened.appPid,
     windowHwnd: opened.windowHwnd,
     foregroundActivated: opened.foregroundActivated === true,
+    backgroundIsolation: opened.backgroundIsolation || null,
     documentId: opened.documentId,
     snapshotVersion: 0,
     designRequest,

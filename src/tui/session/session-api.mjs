@@ -36,7 +36,6 @@ export function createSessionApi(bag) {
     };
     if (heavy) {
       snapshot.mcp = await read(api.mcpStatus);
-      snapshot.hooks = await read(api.hooksStatus);
       snapshot.plugins = await read(api.pluginsStatus);
       snapshot.skills = await read(api.skillsStatus);
     }
@@ -812,8 +811,8 @@ export function createSessionApiA(bag) {
               afterTokens: result.afterTokens,
               beforeMessages: result.beforeMessages,
               afterMessages: result.afterMessages,
-              semantic: result.semanticCompact,
-              recallFastTrack: result.recallFastTrack,
+              freshContext: result.freshContext,
+              handoffSource: result.handoffSource,
               durationMs: Date.now() - startedAt,
               error: result.error,
             }),

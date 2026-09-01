@@ -14,6 +14,7 @@
  * The PowerShell recipes (UIA tree walk, InvokePattern/ValuePattern, Win32
  * input) follow the public Microsoft UI Automation and user32 APIs.
  */
+import { screen } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -30,6 +31,10 @@ import { appendComputerRunRecord, computerRunRecord } from './computer-host-run-
 import { createBridgeDiscovery } from './computer-host-discovery';
 import { createWorkerPool } from './computer-host-worker-pool';
 import { createCaptureEngine } from './computer-host-capture';
+import {
+  classifyComputerSequenceObservation,
+  executeComputerSequenceSteps,
+} from './computer-host-sequence';
 import { createSessionState } from './computer-host-session-state';
 import { createInspection } from './computer-host-inspect';
 import {
@@ -49,7 +54,16 @@ import type {
   PowerShellResponse,
   ObservedWindowScope,
 } from './computer-host-types';
-import { assertSafeComputerInput } from './computer-host-input-guards';
+import {
+  assertSafeComputerInput,
+  assertSafeComputerTargetTokens,
+} from './computer-host-input-guards';
+import { normalizeComputerKeySequence } from './computer-host-keyboard';
+import {
+  buildRecaptureRequiredPayload,
+  isFreshRecaptureObservation,
+  recaptureRequirementCode,
+} from './computer-host-recapture';
 import {
   assertCaptureAfterOptions,
   captureAfterImageIsRedundant,
@@ -66,11 +80,21 @@ import {
   type ComputerWindowTransition,
 } from './computer-window-transition';
 import { beginComputerOperation } from './human-only-approval';
+import {
+  computerResultHasCode,
+  computerUseCoordinator,
+  queuedForegroundRequiresRecapture,
+} from './computer-use-coordinator';
+import {
+  filterComputerUseInternalWindows,
+  filterComputerUseWindowListText,
+} from './computer-use-internal-windows';
 
 const HEARTBEAT_MS = 60_000;
 const ABORT_CLEANUP_TIMEOUT_MS = 5_000;
 const LAUNCH_SUCCESSOR_TIMEOUT_MS = 4_000;
 const LAUNCH_POLL_INTERVAL_MS = 100;
+const MENU_ACTION_TIMEOUT_MS = 3_000;
 /** The session the bridge warms up under, before any caller exists. */
 const HOST_WARMUP_SESSION_ID = '__computer_host_warmup__';
 const suppressedSequenceCaptures = new WeakSet<object>();
@@ -81,6 +105,10 @@ const OBSERVATION_BOUND_INPUT_ACTIONS = new Set([
   'click', 'double_click', 'right_click', 'middle_click', 'triple_click',
   'mouse_move', 'drag', 'type', 'key', 'scroll',
 ]);
+const FOCUS_CONTINUATION_ACTIONS = new Set([
+  'click', 'double_click', 'right_click', 'middle_click', 'triple_click',
+  'drag', 'scroll',
+]);
 const AUTO_CAPTURE_ACTIONS = new Set([
   ...OBSERVATION_BOUND_INPUT_ACTIONS,
   'focus_window', 'move_window', 'window_state', 'close_window', 'launch', 'invoke_menu',
@@ -88,6 +116,7 @@ const AUTO_CAPTURE_ACTIONS = new Set([
 
 interface InputRecoveryState {
   targetWindowId: string;
+  foregroundWindowId: string;
   restoreWindowId: string;
   /** Owner of the restore window, recorded while it still exists. */
   restoreOwnerWindowId: string;
@@ -102,13 +131,21 @@ const OBSERVE_ONLY_ALLOWED_ACTIONS = new Set([
   'verify', 'window_predicates',
   'snapshot', 'find', 'screenshot', 'window_bounds', 'window_snapshot', 'related_windows',
   'window_capture', 'window_integrity', 'input_recovery_state', 'ocr_image', 'ocr_status',
-  'session_release', 'session_abort',
+  'execution_end', 'session_release', 'session_abort',
 ]);
 
 export interface PowerShellComputerHost {
   setBridgeEnabled(enabled: boolean): void;
   /** Observation-only opt-in: reads stay available, input is refused. */
   setObserveOnly(enabled: boolean): void;
+  /** Yield all desktop control immediately without restoring stale input state. */
+  takeOver(reason?: string): void;
+  /** Allow new Computer Use commands after an explicit user takeover. */
+  resumeAfterTakeover(): void;
+  /** Stop one session and perform its normal input-state cleanup. */
+  abortSession(sessionId: string): Promise<void>;
+  /** Stop every live or paused Computer Use session. */
+  stopAllSessions(): Promise<void>;
   /** Live native worker PIDs, retained until each child actually exits. */
   residentWorkerPids(): number[];
   inspectChromeRemoteDebuggingTarget(): Promise<ChromeRemoteDebuggingTarget>;
@@ -135,6 +172,7 @@ export function createPowerShellComputerHost(
   let observeOnly = options.observeOnly === true;
   let bridgeGeneration = 0;
   let disposed = false;
+  let onSessionWorkerRetired = (_sessionId: string): void => {};
 
   // Agent-scoped resident PowerShell workers + their shared pending-request table.
   const {
@@ -151,10 +189,12 @@ export function createPowerShellComputerHost(
     dataDirectory: mixdogDataDirectory,
     isBridgeEnabled: () => bridgeWanted,
     isDisposed: () => disposed,
+    onSessionRetired: (sessionId) => onSessionWorkerRetired(sessionId),
   });
 
   const commandChainsBySession = new Map<string, Promise<unknown>>();
   let foregroundChain: Promise<unknown> = Promise.resolve();
+  let foregroundQueueDepth = 0;
   const {
     framesBySession,
     elementTargetsBySession,
@@ -164,15 +204,18 @@ export function createPowerShellComputerHost(
     sessionIdFor,
     rememberFrame,
     rememberObservedWindowScope,
+    freshObservedWindowScope,
     forgetObservedWindowScope,
+    invalidateActionTargets,
+    invalidateWorkerGeneration,
+    releaseSessionState,
     normalizeElementRecords,
     rememberElementTargets,
     resolveElementAliases,
+    visualPointForRef,
     requireValidFrame,
   } = createSessionState({ callPowerShell });
 
-  const targetClaims = new Map<string, { sessionId: string; lastUsedAt: number }>();
-  const targetsBySession = new Map<string, Set<string>>();
   const activeExecutionsBySession = new Map<string, {
     sessionId: string;
     aborted: boolean;
@@ -185,30 +228,21 @@ export function createPowerShellComputerHost(
   }>();
   const sessionAbortEpochs = new Map<string, number>();
   const sessionRecoveryBySession = new Map<string, InputRecoveryState>();
-  const TARGET_CLAIM_STALE_MS = 10 * 60_000;
-  // A resident worker holds a PowerShell process plus its window claims. A
-  // runtime that dies without releasing its session would pin both forever, so
-  // idle workers expire on the same clock as the claims they hold.
-  const WORKER_IDLE_STALE_MS = TARGET_CLAIM_STALE_MS;
-
-  function expireStaleTargetClaims(now = Date.now()): void {
-    for (const [windowId, claim] of targetClaims) {
-      if (now - claim.lastUsedAt < TARGET_CLAIM_STALE_MS) continue;
-      targetClaims.delete(windowId);
-      const sessionTargets = targetsBySession.get(claim.sessionId);
-      sessionTargets?.delete(windowId);
-      if (sessionTargets?.size === 0) targetsBySession.delete(claim.sessionId);
-    }
-  }
+  onSessionWorkerRetired = (sessionId: string): void => {
+    invalidateWorkerGeneration(sessionId);
+    sessionRecoveryBySession.delete(sessionId);
+    releaseTargetClaims(sessionId);
+  };
+  // Resident workers remain warm longer than target leases. A window lease is
+  // deliberately short-lived in the coordinator so an abandoned session
+  // cannot reserve a user's app for this whole worker-idle period.
+  const WORKER_IDLE_STALE_MS = 10 * 60_000;
 
   function reapIdleSessionWorkers(now = Date.now()): void {
     for (const [sessionId, child] of powerShellBySession) {
       if (activeExecutionsBySession.has(sessionId)) continue;
       if (now - (workerLastUsedAt.get(sessionId) || 0) < WORKER_IDLE_STALE_MS) continue;
-      framesBySession.delete(sessionId);
-      elementTargetsBySession.delete(sessionId);
-      observedWindowBySession.delete(sessionId);
-      lastCaptureBySession.delete(sessionId);
+      releaseSessionState(sessionId, releaseCaptureSession);
       sessionRecoveryBySession.delete(sessionId);
       releaseTargetClaims(sessionId);
       retirePowerShell(child, new Error('computer session worker reclaimed after idle timeout'));
@@ -216,45 +250,69 @@ export function createPowerShellComputerHost(
   }
 
   function touchTargetClaims(sessionId: string): void {
-    const now = Date.now();
-    expireStaleTargetClaims(now);
-    for (const windowId of targetsBySession.get(sessionId) || []) {
-      const claim = targetClaims.get(windowId);
-      if (claim?.sessionId === sessionId) claim.lastUsedAt = now;
-    }
+    computerUseCoordinator.touchTargets(sessionId);
   }
 
-  function claimComputerTargets(command: ComputerCommand, windowIds: Array<string | undefined>): void {
+  async function claimComputerTargets(
+    command: ComputerCommand,
+    windowIds: Array<string | undefined>,
+  ): Promise<void> {
     const sessionId = sessionIdFor(command);
-    const now = Date.now();
-    expireStaleTargetClaims(now);
-    const exactWindowIds = [...new Set(windowIds.map((value) => String(value || '')).filter(Boolean))];
-    for (const windowId of exactWindowIds) {
-      const claim = targetClaims.get(windowId);
-      if (claim && claim.sessionId !== sessionId) {
-        throw new Error(`computer_target_in_use: ${windowId} is reserved by another agent`);
+    const lease = await computerUseCoordinator.acquireTargets(sessionId, windowIds);
+    if (lease.status === 'acquired') {
+      if (lease.queued) {
+        throw new Error(
+          `computer_target_available_recapture_required: ${lease.windowIds.join(', ')} lease acquired`
+          + ` after ${lease.waitedMs}ms; discard the stale action and capture fresh state`,
+        );
       }
+      return;
     }
-    let sessionTargets = targetsBySession.get(sessionId);
-    if (!sessionTargets) {
-      sessionTargets = new Set();
-      targetsBySession.set(sessionId, sessionTargets);
+    if (lease.status === 'user_takeover') {
+      throw new Error('computer_user_takeover: queued target request was cancelled because the user took control');
     }
-    for (const windowId of exactWindowIds) {
-      targetClaims.set(windowId, { sessionId, lastUsedAt: now });
-      sessionTargets.add(windowId);
+    if (lease.status === 'cancelled') {
+      throw new Error('computer_session_aborted: queued target request was cancelled');
     }
+    throw new Error(
+      `computer_target_in_use: ${lease.windowIds.join(', ')} is reserved by another agent;`
+      + ` queue_position=${lease.queuePosition}; retry from a fresh capture`,
+    );
   }
 
   function releaseTargetClaims(sessionId: string): void {
-    for (const windowId of targetsBySession.get(sessionId) || []) {
-      if (targetClaims.get(windowId)?.sessionId === sessionId) targetClaims.delete(windowId);
-    }
-    targetsBySession.delete(sessionId);
+    computerUseCoordinator.cancelSession(sessionId);
   }
 
-  function runForegroundExclusive<T>(operation: () => Promise<T>): Promise<T> {
-    const run = foregroundChain.then(operation);
+  function runForegroundExclusive<T>(
+    sessionId: string,
+    operation: () => Promise<T>,
+    options: {
+      requireFreshAfterWait?: boolean;
+      assertRunnable?: () => void;
+      allowWhileUserControl?: boolean;
+    } = {},
+  ): Promise<T> {
+    const queuePosition = foregroundQueueDepth;
+    foregroundQueueDepth += 1;
+    if (queuePosition > 0) computerUseCoordinator.queueForeground(sessionId, queuePosition);
+    const run = foregroundChain.then(async () => {
+      computerUseCoordinator.activateForeground(sessionId);
+      try {
+        options.assertRunnable?.();
+        if (!options.allowWhileUserControl) computerUseCoordinator.assertAutomationAllowed();
+        if (options.requireFreshAfterWait !== false
+          && queuedForegroundRequiresRecapture(queuePosition)) {
+          throw new Error(
+            `computer_foreground_available_recapture_required: foreground lane acquired`
+            + ` after queue_position=${queuePosition}; discard the stale command and capture fresh state`,
+          );
+        }
+        return await operation();
+      } finally {
+        foregroundQueueDepth = Math.max(0, foregroundQueueDepth - 1);
+      }
+    });
     foregroundChain = run.catch(() => undefined);
     return run;
   }
@@ -274,10 +332,7 @@ export function createPowerShellComputerHost(
       if (child && !child.killed) {
         retirePowerShell(child, new Error('computer session released'));
       }
-      framesBySession.delete(sessionId);
-      elementTargetsBySession.delete(sessionId);
-      observedWindowBySession.delete(sessionId);
-      lastCaptureBySession.delete(sessionId);
+      releaseSessionState(sessionId, releaseCaptureSession);
       sessionRecoveryBySession.delete(sessionId);
       releaseTargetClaims(sessionId);
     }
@@ -332,15 +387,54 @@ export function createPowerShellComputerHost(
       retirePowerShell(child, new Error('computer_session_aborted: command stopped by session cancellation'));
     }
     activeExecutionsBySession.delete(sessionId);
-    framesBySession.delete(sessionId);
-    elementTargetsBySession.delete(sessionId);
-    observedWindowBySession.delete(sessionId);
-    lastCaptureBySession.delete(sessionId);
+    releaseSessionState(sessionId, releaseCaptureSession);
     sessionRecoveryBySession.delete(sessionId);
     releaseTargetClaims(sessionId);
-    await runForegroundExclusive(() => cleanupAbortedInput(recovery));
+    await runForegroundExclusive(
+      sessionId,
+      () => cleanupAbortedInput(recovery),
+      { requireFreshAfterWait: false, allowWhileUserControl: true },
+    );
     if (!commandChainsBySession.has(sessionId)) sessionAbortEpochs.delete(sessionId);
     return { text: 'computer session aborted; input state and session resources were released' };
+  }
+
+  function takeOverComputer(reason = 'user_takeover'): void {
+    const queuedOrActiveSessionIds = new Set([
+      ...commandChainsBySession.keys(),
+      ...activeExecutionsBySession.keys(),
+    ]);
+    const sessionIds = new Set([
+      ...computerUseCoordinator.pauseForUser(reason, queuedOrActiveSessionIds),
+      ...queuedOrActiveSessionIds,
+    ]);
+    for (const sessionId of sessionIds) {
+      sessionAbortEpochs.set(sessionId, (sessionAbortEpochs.get(sessionId) || 0) + 1);
+      const execution = activeExecutionsBySession.get(sessionId);
+      if (execution) execution.aborted = true;
+      const child = powerShellBySession.get(sessionId);
+      if (child && !child.killed) {
+        retirePowerShell(child, new Error('computer_user_takeover: command stopped without input recovery'));
+      }
+      activeExecutionsBySession.delete(sessionId);
+      invalidateWorkerGeneration(sessionId);
+      sessionRecoveryBySession.delete(sessionId);
+    }
+  }
+
+  async function stopAllComputerSessions(): Promise<void> {
+    const sessionIds = new Set([
+      ...powerShellBySession.keys(),
+      ...activeExecutionsBySession.keys(),
+      ...computerUseCoordinator.snapshot().activities.map((activity) => activity.sessionId),
+    ]);
+    await Promise.allSettled([...sessionIds]
+      .filter((sessionId) => sessionId !== HOST_WARMUP_SESSION_ID)
+      .map((sessionId) => abortComputerSession({
+        action: 'session_abort',
+        session_id: sessionId,
+      })));
+    computerUseCoordinator.resumeAfterUserTakeover();
   }
 
   /** Write the host program once and point the workers at a per-build native
@@ -380,7 +474,9 @@ export function createPowerShellComputerHost(
         read_only: true,
       });
       if (!response.ok) return null;
-      return normalizeComputerWindowRecords(response.result?.windows);
+      return filterComputerUseInternalWindows(
+        normalizeComputerWindowRecords(response.result?.windows),
+      );
     } catch {
       return null;
     }
@@ -388,6 +484,7 @@ export function createPowerShellComputerHost(
 
   const {
     resolveAppWindowId,
+    resolveRecaptureWindowTarget,
     resolveForegroundWindowId,
     listComputerApps,
   } = createWindowTargeting({ readComputerWindows });
@@ -397,6 +494,17 @@ export function createPowerShellComputerHost(
     sessionIdFor,
     assertExecutionNotAborted,
     readComputerWindows,
+    readDisplays: () => {
+      const primaryId = screen.getPrimaryDisplay().id;
+      return screen.getAllDisplays().map((display, index) => ({
+        index,
+        id: String(display.id),
+        primary: display.id === primaryId,
+        scale_factor: display.scaleFactor,
+        width: display.size.width,
+        height: display.size.height,
+      }));
+    },
     isObserveOnly: () => observeOnly,
   });
 
@@ -405,6 +513,7 @@ export function createPowerShellComputerHost(
     captureZoom,
     captureComputer,
     captureAfterAction,
+    releaseCaptureSession,
   } = createCaptureEngine({
     callPowerShell,
     sessionIdFor,
@@ -457,6 +566,7 @@ export function createPowerShellComputerHost(
     const result = response.result || {};
     const recovery: InputRecoveryState = {
       targetWindowId: String(result.target_window_id || ''),
+      foregroundWindowId: String(result.foreground_window_id || ''),
       restoreWindowId: String(result.restore_window_id || result.foreground_window_id || ''),
       restoreOwnerWindowId: String(result.restore_owner_window_id || ''),
       cursorX: Number(result.cursor_x),
@@ -473,8 +583,8 @@ export function createPowerShellComputerHost(
     const windowId = String(command.window_id || '');
     const steps = Array.isArray(command.steps) ? command.steps : [];
     if (!windowId) throw new Error('sequence requires exact window_id');
-    if (steps.length < 2 || steps.length > 6) throw new Error('sequence requires 2..6 steps');
-    const observedScope = observedWindowBySession.get(sessionIdFor(command));
+    if (steps.length < 1 || steps.length > 6) throw new Error('sequence requires 1..6 steps');
+    const observedScope = freshObservedWindowScope(command);
     if (!observedScope?.relatedWindowIds.includes(windowId)) {
       throw new Error(
         `stale_target: sequence targets ${windowId}, but the latest observation is `
@@ -486,6 +596,16 @@ export function createPowerShellComputerHost(
       click: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'modifiers']),
       right_click: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'modifiers']),
       middle_click: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'modifiers']),
+      double_click: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'modifiers']),
+      mouse_move: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'modifiers']),
+      drag: new Set([
+        'action', 'ref', 'element', 'to', 'to_element',
+        'frame_id', 'x', 'y', 'to_x', 'to_y', 'modifiers',
+      ]),
+      scroll: new Set([
+        'action', 'ref', 'element', 'frame_id', 'x', 'y',
+        'direction', 'amount', 'modifiers',
+      ]),
       type: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'text']),
       key: new Set(['action', 'ref', 'keys']),
       wait: new Set(['action', 'duration']),
@@ -496,8 +616,11 @@ export function createPowerShellComputerHost(
       }
       const stepAction = String(step.action || '');
       if (index === 0) {
-        if (!['invoke', 'click', 'right_click', 'middle_click', 'type', 'key'].includes(stepAction)) {
-          throw new Error('sequence first step must be click, type, or key');
+        if (![
+          'invoke', 'click', 'right_click', 'middle_click', 'double_click',
+          'mouse_move', 'drag', 'scroll', 'type', 'key',
+        ].includes(stepAction)) {
+          throw new Error('sequence first step must be a supported input action');
         }
       } else if (!['type', 'key', 'wait'].includes(stepAction)) {
         throw new Error('sequence continuation steps must be type, key, or wait');
@@ -531,8 +654,8 @@ export function createPowerShellComputerHost(
         && (typeof step.duration !== 'number'
           || !Number.isFinite(step.duration)
           || step.duration < 0
-          || step.duration > 30)) {
-        throw new Error(`sequence step ${index + 1} requires duration from 0 to 30 seconds`);
+          || step.duration > 5)) {
+        throw new Error(`sequence step ${index + 1} requires duration from 0 to 5 seconds`);
       }
       const stepCommand: ComputerCommand = {
         ...step,
@@ -544,50 +667,47 @@ export function createPowerShellComputerHost(
       assertSafeComputerInput(stepCommand);
       return stepCommand;
     });
-    const rows: Array<Record<string, unknown>> = [];
-    let stoppedReason = '';
-    let finalWindowId = windowId;
-    let lastTransition: ComputerWindowTransition | null = null;
-    let completedSteps = 0;
-    for (let index = 0; index < stepCommands.length; index += 1) {
-      const stepCommand = stepCommands[index];
-      const stepAction = String(stepCommand.action || '');
-      suppressedSequenceCaptures.add(stepCommand);
-      if (index > 0) trustedSequenceContinuations.add(stepCommand);
-      const result = await runCommand(stepCommand);
-      let payload: Record<string, unknown>;
-      try {
-        payload = JSON.parse(result.text) as Record<string, unknown>;
-      } catch {
-        payload = { ok: true, action: stepAction, message: result.text };
-      }
-      completedSteps += 1;
-      const transition = payload.window_transition as ComputerWindowTransition | undefined;
-      lastTransition = transition || null;
-      if (transition?.next_target?.id) finalWindowId = transition.next_target.id;
-      rows.push({
-        index: index + 1,
-        action: stepAction,
-        ok: payload.ok !== false,
-        effect: payload.effect || 'unverifiable',
-        path: payload.path || 'unknown',
-        verdict: payload.verdict || null,
-        ...(transition ? { window_transition: transition } : {}),
-      });
-      const verdict = payload.verdict as Record<string, unknown> | undefined;
-      if (payload.ok === false || verdict?.decision === 'escalate') {
-        stoppedReason = String(payload.code || payload.escalation || 'step_failed');
-        break;
-      }
-      if (transition?.next_target && index < steps.length - 1) {
-        stoppedReason = 'target_transition';
-        break;
-      }
+    const totalWaitSeconds = stepCommands.reduce(
+      (total, step) => total + (step.action === 'wait' ? Number(step.duration) || 0 : 0),
+      0,
+    );
+    if (totalWaitSeconds > 10) {
+      throw new Error('sequence wait steps accept at most 10 total seconds; use verify for longer conditions');
     }
+    const sequence = await executeComputerSequenceSteps(
+      stepCommands,
+      windowId,
+      async (stepCommand, index) => {
+        const stepAction = String(stepCommand.action || '');
+        suppressedSequenceCaptures.add(stepCommand);
+        if (index > 0) trustedSequenceContinuations.add(stepCommand);
+        const result = await runCommand(stepCommand);
+        try {
+          return JSON.parse(result.text) as Record<string, unknown>;
+        } catch {
+          return { ok: true, action: stepAction, message: result.text };
+        }
+      },
+    );
+    const {
+      rows,
+      completedSteps,
+      stoppedReason,
+      finalWindowId,
+      lastTransition,
+    } = sequence;
     const completed = completedSteps === steps.length && !stoppedReason;
     const capture = await captureAfterAction(command, finalWindowId, 0, 0);
+    const {
+      unavailable: observationUnavailable,
+      pixelUnavailable,
+    } = classifyComputerSequenceObservation(capture.metadata);
+    const resultCode = stoppedReason
+      || (observationUnavailable
+        ? String(capture.metadata.code || 'observation_unavailable')
+        : '');
     const payload: Record<string, unknown> = {
-      ok: completed,
+      ok: completed && !observationUnavailable,
       action: 'sequence',
       window_id: windowId,
       completed,
@@ -595,13 +715,19 @@ export function createPowerShellComputerHost(
       total_steps: steps.length,
       steps: rows,
       ...(stoppedReason ? { stopped_reason: stoppedReason } : {}),
+      ...(resultCode ? { code: resultCode } : {}),
       ...(lastTransition ? { window_transition: lastTransition } : {}),
       goal_verified: false,
-      verdict: completed
-        ? { decision: 'verify_fresh_state' }
+      verdict: completed && !observationUnavailable
+        ? {
+            decision: 'verify_fresh_state',
+            ...(pixelUnavailable ? { recommended: 'use_semantic_target' } : {}),
+          }
         : {
             decision: 'escalate',
-            recommended: stoppedReason === 'target_transition' ? 'switch_target' : 'inspect_failed_step',
+            recommended: stoppedReason === 'target_transition'
+              ? 'switch_target'
+              : observationUnavailable ? 'recapture' : 'inspect_failed_step',
           },
       capture_after: {
         ...capture.metadata,
@@ -639,6 +765,43 @@ export function createPowerShellComputerHost(
     };
   }
 
+  async function recaptureRequiredReply(
+    command: ComputerCommand,
+    error: unknown,
+  ): Promise<ComputerCommandResult | null> {
+    if (!recaptureRequirementCode(error)) return null;
+    invalidateActionTargets(command);
+    const recaptureTarget = await resolveRecaptureWindowTarget(
+      command,
+      freshObservedWindowScope(command)?.primaryWindowId || '',
+    );
+    const windowId = recaptureTarget.windowId;
+    const capture = windowId
+      ? await captureAfterAction(command, windowId, 0, 0)
+      : {
+          metadata: {
+            ok: false,
+            action: 'capture',
+            error: recaptureTarget.error || 'exact target window is unavailable for recapture',
+          },
+        };
+    const recaptureSucceeded = isFreshRecaptureObservation(capture.metadata, windowId);
+    if (!recaptureSucceeded) invalidateActionTargets(command);
+    const payload = buildRecaptureRequiredPayload(
+      String(command.action || 'computer'),
+      error,
+      capture.metadata,
+      windowId,
+    );
+    if (!payload) return null;
+    return {
+      text: JSON.stringify(payload),
+      ...(recaptureSucceeded && 'image' in capture && capture.image
+        ? { image: capture.image }
+        : {}),
+    };
+  }
+
   /** Where an input lands and whether it may be sent there: frame-bound
    *  coordinates become physical screen ones, and an observation-bound action
    *  must still target the window scope this session last observed. */
@@ -651,6 +814,10 @@ export function createPowerShellComputerHost(
     physicalY?: number;
     physicalToX?: number;
     physicalToY?: number;
+    cursorX?: number;
+    cursorY?: number;
+    cursorToX?: number;
+    cursorToY?: number;
     targetWindowId?: string;
     allowedWindowIds: string[];
     observedScope?: ObservedWindowScope;
@@ -662,6 +829,8 @@ export function createPowerShellComputerHost(
     let targetWindowId = command.window_id;
     let allowedWindowIds: string[] = [];
     let observedScope: ObservedWindowScope | undefined;
+    const semanticPoint = visualPointForRef(command, command.ref);
+    const semanticDestination = visualPointForRef(command, command.to);
     const pixelActions = new Set(['click', 'double_click', 'right_click', 'middle_click', 'triple_click', 'mouse_move']);
     if ((pixelActions.has(action)
         || (action === 'type' && command.x !== undefined && command.y !== undefined))
@@ -706,7 +875,7 @@ export function createPowerShellComputerHost(
       allowedWindowIds = frame.relatedWindowIds || [targetWindowId];
     }
     if (OBSERVATION_BOUND_INPUT_ACTIONS.has(action)) {
-      observedScope = observedWindowBySession.get(sessionIdFor(command));
+      observedScope = freshObservedWindowScope(command);
       if (!observedScope && !(trustedSequenceContinuation && targetWindowId)) {
         throw new Error(`${action} requires a fresh capture/snapshot/find of the exact target window first`);
       }
@@ -725,6 +894,10 @@ export function createPowerShellComputerHost(
       physicalY,
       physicalToX,
       physicalToY,
+      cursorX: physicalX ?? semanticPoint?.x,
+      cursorY: physicalY ?? semanticPoint?.y,
+      cursorToX: physicalToX ?? semanticDestination?.x,
+      cursorToY: physicalToY ?? semanticDestination?.y,
       targetWindowId,
       allowedWindowIds,
       observedScope,
@@ -744,16 +917,21 @@ export function createPowerShellComputerHost(
     let reasserted = false;
     let restoredTarget = '';
     let readbackError = '';
+    const preserveFocusForFollowup = FOCUS_CONTINUATION_ACTIONS.has(
+      String(command.action || ''),
+    );
     try {
       current = await readInputRecovery(command, targetWindowId, false);
     } catch (error) {
       readbackError = (error as Error).message || String(error);
     }
     try {
-      if (!current
-        || current.restoreWindowId !== inputRecovery.restoreWindowId
+      const focusDrifted = !current
+        || current.foregroundWindowId !== inputRecovery.restoreWindowId;
+      const cursorDrifted = !current
         || current.cursorX !== inputRecovery.cursorX
-        || current.cursorY !== inputRecovery.cursorY) {
+        || current.cursorY !== inputRecovery.cursorY;
+      if (!current || cursorDrifted || (focusDrifted && !preserveFocusForFollowup)) {
         const recoveryStartedAt = performance.now();
         const restored = await callPowerShell({
           action: 'restore_input_state',
@@ -761,6 +939,7 @@ export function createPowerShellComputerHost(
           restore_owner_window_id: inputRecovery.restoreOwnerWindowId,
           cursor_x: inputRecovery.cursorX,
           cursor_y: inputRecovery.cursorY,
+          restore_focus: !preserveFocusForFollowup,
           session_id: sessionIdFor(command),
         });
         timings.input_recovery_ms = elapsedMs(recoveryStartedAt);
@@ -768,7 +947,8 @@ export function createPowerShellComputerHost(
         restoredTarget = String(restored.result?.restored_target || '');
         current = {
           targetWindowId: inputRecovery.targetWindowId,
-          restoreWindowId: String(restored.result?.foreground_window_id || ''),
+          foregroundWindowId: String(restored.result?.foreground_window_id || ''),
+          restoreWindowId: inputRecovery.restoreWindowId,
           restoreOwnerWindowId: inputRecovery.restoreOwnerWindowId,
           cursorX: Number(restored.result?.cursor_x),
           cursorY: Number(restored.result?.cursor_y),
@@ -777,18 +957,23 @@ export function createPowerShellComputerHost(
       }
       // Landing on the owner is the honest outcome when the action closed the
       // window that held focus; any other destination is still a miss.
-      const focusRestored = current.restoreWindowId === inputRecovery.restoreWindowId
+      const focusRestored = current.foregroundWindowId === inputRecovery.restoreWindowId
         || (restoredTarget === 'owner'
           && inputRecovery.restoreOwnerWindowId !== ''
-          && current.restoreWindowId === inputRecovery.restoreOwnerWindowId);
+          && current.foregroundWindowId === inputRecovery.restoreOwnerWindowId);
+      const focusPreservedForFollowup = preserveFocusForFollowup
+        && current.foregroundWindowId !== ''
+        && !focusRestored;
       const cursorRestored = current.cursorX === inputRecovery.cursorX
         && current.cursorY === inputRecovery.cursorY;
       return {
-        ok: focusRestored && cursorRestored,
+        ok: (focusRestored || focusPreservedForFollowup) && cursorRestored,
         focus_restored: focusRestored,
+        focus_preserved_for_followup: focusPreservedForFollowup,
+        focus_recovery: focusPreservedForFollowup ? 'session_release' : 'immediate',
         cursor_restored: cursorRestored,
         expected_focus_window_id: inputRecovery.restoreWindowId,
-        actual_focus_window_id: current.restoreWindowId,
+        actual_focus_window_id: current.foregroundWindowId,
         expected_cursor: [inputRecovery.cursorX, inputRecovery.cursorY],
         actual_cursor: [current.cursorX, current.cursorY],
         reasserted,
@@ -896,7 +1081,12 @@ export function createPowerShellComputerHost(
     if (action === 'sequence' && command.read_only) {
       throw new Error("read_only run: 'sequence' is a mutation");
     }
+    if (action === 'execution_end') {
+      computerUseCoordinator.endExecution(sessionIdFor(command));
+      return { text: 'computer execution ended' };
+    }
     if (action === 'session_release') return await releaseComputerSession(command);
+    assertSafeComputerInput(command);
     if (action === 'diagnose') return await diagnoseComputer(command);
     if (command.app?.trim() && !['launch', 'list_apps', 'capture'].includes(action)) {
       command = {
@@ -931,10 +1121,10 @@ export function createPowerShellComputerHost(
     }
     assertExactWindowCommandTarget(command);
     command = resolveElementAliases(command);
+    assertSafeComputerTargetTokens(command);
     const semanticTargetIdentity = command.ref
       ? lastCaptureBySession.get(sessionIdFor(command))?.refIdentities.get(command.ref)
       : undefined;
-    assertSafeComputerInput(command);
     if (action === 'verify') return await verifyWindowState(command);
     if (action === 'list_apps') return await listComputerApps(command);
     if (action === 'capture') {
@@ -993,12 +1183,16 @@ export function createPowerShellComputerHost(
       physicalY,
       physicalToX,
       physicalToY,
+      cursorX,
+      cursorY,
+      cursorToX,
+      cursorToY,
       targetWindowId,
       allowedWindowIds,
       observedScope,
     } = await resolveInputTarget(command, action, trustedSequenceContinuation);
     const logicalTargetWindowId = observedScope?.primaryWindowId || targetWindowId;
-    if (isMutation) claimComputerTargets(command, [logicalTargetWindowId, targetWindowId]);
+    if (isMutation) await claimComputerTargets(command, [logicalTargetWindowId, targetWindowId]);
     let inputRecovery: InputRecoveryState | undefined;
     if (action === 'focus_window' || command.delivery === 'foreground') {
       inputRecovery = await readInputRecovery(command, targetWindowId);
@@ -1012,6 +1206,35 @@ export function createPowerShellComputerHost(
     const windowsBefore = isMutation ? await readComputerWindows(command) : null;
     if (isMutation) actionTimings.before_windows_ms = elapsedMs(beforeWindowsStartedAt);
     const targetWindowBefore = windowsBefore?.find((window) => window.id === targetWindowId);
+    const cursorEffect = action === 'double_click'
+      ? 'double_click'
+      : action === 'drag'
+        ? 'drag'
+        : action === 'scroll'
+          ? 'scroll'
+          : action === 'type'
+            ? 'type'
+            : action === 'mouse_move'
+              ? 'move'
+              : 'click';
+    if (['click', 'double_click', 'right_click', 'middle_click', 'triple_click',
+      'mouse_move', 'drag', 'scroll', 'type'].includes(action)
+      && cursorX !== undefined && cursorY !== undefined) {
+      computerUseCoordinator.showCursor({
+        sessionId: sessionIdFor(command),
+        x: cursorX,
+        y: cursorY,
+        ...(cursorToX !== undefined && cursorToY !== undefined
+          ? { toX: cursorToX, toY: cursorToY }
+          : {}),
+        action,
+        effect: cursorEffect,
+        ...(['up', 'down', 'left', 'right'].includes(String(command.direction || ''))
+          ? { direction: command.direction as 'up' | 'down' | 'left' | 'right' }
+          : {}),
+        mode: command.delivery === 'foreground' ? 'foreground' : 'background',
+      });
+    }
     let response: PowerShellResponse;
     const deliveryStartedAt = performance.now();
     try {
@@ -1070,7 +1293,9 @@ export function createPowerShellComputerHost(
           ref: command.ref ?? null,
           to: command.to ?? null,
           text: command.text ?? null,
-          keys: command.keys ?? null,
+          keys: action === 'key'
+            ? normalizeComputerKeySequence(String(command.keys || ''))
+            : command.keys ?? null,
           dy: command.dy ?? null,
           amount: command.amount ?? null,
           direction: command.direction ?? null,
@@ -1107,7 +1332,10 @@ export function createPowerShellComputerHost(
         const usePrivilegedWorker = integrity.known && integrity.higher;
         response = usePrivilegedWorker
           ? await callPowerShellElevated(powerShellRequest)
-          : await callPowerShell(powerShellRequest);
+          : await callPowerShell(
+              powerShellRequest,
+              action === 'invoke_menu' ? MENU_ACTION_TIMEOUT_MS : undefined,
+            );
         if (usePrivilegedWorker && response.result) {
           response.result.path = `uac_elevated_${String(response.result.path || 'foreground_input')}`;
           response.result.privilege = {
@@ -1130,6 +1358,11 @@ export function createPowerShellComputerHost(
     assertExecutionNotAborted();
     if (!response.ok) throw new Error(response.error || 'computer command failed');
     const result = response.result || {};
+    if (action === 'list_windows' && Array.isArray(result.windows)) {
+      const windows = filterComputerUseInternalWindows(result.windows);
+      result.windows = windows;
+      result.text = filterComputerUseWindowListText(result.text, windows);
+    }
     const inputRecoveryVerification = inputRecovery
       ? await verifyInputRecovery(command, targetWindowId, inputRecovery, actionTimings)
       : undefined;
@@ -1156,7 +1389,7 @@ export function createPowerShellComputerHost(
       settleDelayMs = settled.settleDelayMs;
     }
     if (isMutation && windowTransition?.next_target?.id) {
-      claimComputerTargets(command, [windowTransition.next_target.id]);
+      await claimComputerTargets(command, [windowTransition.next_target.id]);
     }
     if (action === 'focus_window' && inputRecovery && result.verified === true && !result.code) {
       sessionRecoveryBySession.set(sessionIdFor(command), inputRecovery);
@@ -1354,6 +1587,12 @@ export function createPowerShellComputerHost(
     return { text };
   }
 
+  function isComputerLifecycleControl(command: ComputerCommand): boolean {
+    return ['execution_end', 'session_release', 'session_abort'].includes(
+      String(command.action || ''),
+    );
+  }
+
   function requiresForegroundLane(command: ComputerCommand): boolean {
     const action = String(command.action || '');
     return command.delivery === 'foreground'
@@ -1369,24 +1608,50 @@ export function createPowerShellComputerHost(
 
   function executeSerialized(command: ComputerCommand): Promise<ComputerCommandResult> {
     const sessionId = sessionIdFor(command);
-    touchTargetClaims(sessionId);
+    const lifecycleControl = isComputerLifecycleControl(command);
+    if (!lifecycleControl) touchTargetClaims(sessionId);
     const queuedEpoch = sessionAbortEpochs.get(sessionId) || 0;
     const previous = commandChainsBySession.get(sessionId) || Promise.resolve();
     const run = previous.then(async () => {
       if ((sessionAbortEpochs.get(sessionId) || 0) !== queuedEpoch) {
         throw new Error('computer_session_aborted: queued command was cancelled before execution');
       }
-      const releaseHumanApprovalGuard = command.action === 'session_release'
+      const releaseHumanApprovalGuard = lifecycleControl
         ? () => {}
         : beginComputerOperation();
+      const foreground = requiresForegroundLane(command);
+      const tracksActivity = !lifecycleControl;
+      if (tracksActivity) {
+        try {
+          computerUseCoordinator.beginCommand({
+            sessionId,
+            action: String(command.action || 'computer'),
+            target: String(command.window || command.window_id || command.app || ''),
+            mode: foreground ? 'foreground' : 'background',
+          });
+        } catch (error) {
+          releaseHumanApprovalGuard();
+          throw error;
+        }
+      }
+      if (lifecycleControl) return await runCommand(command);
       const execution = { sessionId, aborted: false };
       activeExecutionsBySession.set(sessionId, execution);
       const recordStartedAt = performance.now();
       try {
         const operation = () => executionContext.run(execution, () => runCommand(command));
-        const outcome = requiresForegroundLane(command)
-          ? await runForegroundExclusive(operation)
+        const outcome = foreground
+          ? await runForegroundExclusive(sessionId, operation, {
+            assertRunnable: () => {
+              if (execution.aborted) {
+                throw new Error('computer_session_aborted: command stopped by session cancellation');
+              }
+            },
+          })
           : await operation();
+        if (computerResultHasCode(outcome.text, 'foreground_changed')) {
+          takeOverComputer('foreground_changed');
+        }
         appendComputerRunRecord(sessionId, computerRunRecord(command, recordStartedAt, outcome));
         return outcome;
       } catch (error) {
@@ -1395,11 +1660,14 @@ export function createPowerShellComputerHost(
           ok: false,
           error: String((error as Error)?.message || error).slice(0, 300),
         });
+        const recapture = await recaptureRequiredReply(command, error);
+        if (recapture) return recapture;
         throw error;
       } finally {
         if (activeExecutionsBySession.get(sessionId) === execution) {
           activeExecutionsBySession.delete(sessionId);
         }
+        if (tracksActivity) computerUseCoordinator.finishCommand(sessionId);
         releaseHumanApprovalGuard();
       }
     });
@@ -1460,6 +1728,7 @@ export function createPowerShellComputerHost(
             session_id: sessionId,
           })),
       );
+      computerUseCoordinator.reset();
     })();
     try {
       await bridgeStopPromise;
@@ -1498,8 +1767,7 @@ export function createPowerShellComputerHost(
         const abortOnDisconnect = (): void => {
           if (clientGone) return;
           clientGone = true;
-          const pendingAction = String(command.action || '');
-          if (pendingAction === 'session_abort' || pendingAction === 'session_release') return;
+          if (isComputerLifecycleControl(command)) return;
           void abortComputerSession(command).catch(() => { /* host already idle */ });
         };
         request.once('aborted', abortOnDisconnect);
@@ -1572,6 +1840,16 @@ export function createPowerShellComputerHost(
     setObserveOnly(enabled: boolean): void {
       observeOnly = enabled === true;
     },
+    takeOver(reason = 'user_takeover'): void {
+      takeOverComputer(reason);
+    },
+    resumeAfterTakeover(): void {
+      computerUseCoordinator.resumeAfterUserTakeover();
+    },
+    async abortSession(sessionId: string): Promise<void> {
+      await abortComputerSession({ action: 'session_abort', session_id: sessionId });
+    },
+    stopAllSessions: stopAllComputerSessions,
     residentWorkerPids,
     inspectChromeRemoteDebuggingTarget,
     prepareChromeRemoteDebugging,
@@ -1589,6 +1867,7 @@ export function createPowerShellComputerHost(
         }
       }
       powerShellBySession.clear();
+      computerUseCoordinator.reset();
       removeHostScript();
     },
   };

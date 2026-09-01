@@ -105,6 +105,20 @@ function caretPointFromPointer(x: number, y: number): SelectionPoint | null {
 const SELECTION_SCROLL_EDGE_PX = 56;
 const SELECTION_SCROLL_MAX_STEP_PX = 28;
 
+export function transcriptSelectionPointerRegion(
+  pointerX: number,
+  pointerY: number,
+  left: number,
+  top: number,
+  right: number,
+  bottom: number,
+): "inside" | "above" | "below" | "side" {
+  if (pointerY < top) return "above";
+  if (pointerY > bottom) return "below";
+  if (pointerX < left || pointerX > right) return "side";
+  return "inside";
+}
+
 /** One vertical selection-scroll velocity for both viewport edges. */
 export function transcriptSelectionAutoScrollDelta(
   pointerY: number,
@@ -615,6 +629,12 @@ export function TranscriptList({
     const extendSelectionToViewportEdge = () => {
       if (!selecting || !seed) return;
       const view = root.getBoundingClientRect();
+      const pointerRegion = transcriptSelectionPointerRegion(
+        lastPointer.x, lastPointer.y, view.left, view.top, view.right, view.bottom);
+      if (pointerRegion === "side") {
+        clampOutside();
+        return;
+      }
       const goingDown = lastPointer.y >= seedY;
       const visibleRows = [
         ...root.querySelectorAll<HTMLElement>(".transcript-virtual-row"),
@@ -629,7 +649,12 @@ export function TranscriptList({
         : (seedRow ? (goingDown ? firstTextPoint(seedRow) : lastTextPoint(seedRow)) : null);
       const pointerX = Math.min(view.right - 1, Math.max(view.left + 1, lastPointer.x));
       const pointerY = Math.min(view.bottom - 1, Math.max(view.top + 1, lastPointer.y));
-      const pointed = caretPointFromPointer(pointerX, pointerY);
+      // Once the pointer leaves vertically, distance and horizontal jitter no
+      // longer choose a fresh caret on every pixel. The visible edge is one
+      // stable boundary until the rAF scroll reveals a different edge row.
+      const pointed = pointerRegion === "inside"
+        ? caretPointFromPointer(pointerX, pointerY)
+        : null;
       const focus = pointed && root.contains(pointed.node) && endpointForNode(pointed.node)
         ? pointed
         : (edgeRow ? (goingDown ? lastTextPoint(edgeRow) : firstTextPoint(edgeRow)) : null);
@@ -659,7 +684,11 @@ export function TranscriptList({
       extendSelectionToViewportEdge();
       selectionScrollFrame = window.requestAnimationFrame(selectionAutoScrollStep);
     };
-    const updateSelectionAutoScroll = () => {
+    const updateSelectionAutoScroll = (allowed = true) => {
+      if (!allowed) {
+        stopSelectionAutoScroll();
+        return false;
+      }
       const view = root.getBoundingClientRect();
       const delta = transcriptSelectionAutoScrollDelta(
         lastPointer.y, view.top, view.bottom);
@@ -737,12 +766,18 @@ export function TranscriptList({
     const handlePointerMove = (event: PointerEvent) => {
       if (!selecting) return;
       lastPointer = { x: event.clientX, y: event.clientY };
-      if (updateSelectionAutoScroll()) {
+      const view = root.getBoundingClientRect();
+      const pointerRegion = transcriptSelectionPointerRegion(
+        lastPointer.x, lastPointer.y, view.left, view.top, view.right, view.bottom);
+      const overRow = pointerRegion === "inside" && pointerOverTranscriptRow();
+      const verticalOutside = pointerRegion === "above" || pointerRegion === "below";
+      if (updateSelectionAutoScroll(overRow || verticalOutside)) {
         event.preventDefault();
-        extendSelectionToViewportEdge();
+        // selectionAutoScrollStep is the sole range writer for this frame.
+        // Pointer events only update its latest target and never double-write.
         return;
       }
-      if (!pointerOverTranscriptRow()) {
+      if (!overRow) {
         // Chromium remaps an extending native range to the nearest selectable
         // text when the pointer enters the non-selectable composer. Cancel that
         // default before paint; selectionchange is too late and exposes one
@@ -753,10 +788,7 @@ export function TranscriptList({
     };
     const handleMouseMove = (event: MouseEvent) => {
       if (!selecting) return;
-      const view = root.getBoundingClientRect();
-      const edgeScrolling = transcriptSelectionAutoScrollDelta(
-        lastPointer.y, view.top, view.bottom) !== 0;
-      if (edgeScrolling || !pointerOverTranscriptRow()) {
+      if (selectionScrollFrame || !pointerOverTranscriptRow()) {
         // Text-range extension is a mouse default action in Chromium even
         // when Pointer Events are enabled. Pointermove is the sole state owner;
         // this compatibility event only suppresses the duplicate native write.

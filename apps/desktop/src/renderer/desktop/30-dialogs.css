@@ -63,7 +63,8 @@
   .settings-oauth-dialog,
   .mx-dialog { animation: none; }
 }
-/* Header: one title ladder (15/600) over an optional muted description. The
+/* Header: one title ladder (16/600, the rail panel-title tier) over an
+   optional muted description. The
    title and its trailing controls (status switch, close) share ONE
    centerline; only a card whose header carries a description under the title
    keeps them pinned to the first line. */
@@ -87,9 +88,9 @@
   flex: 1;
   margin: 0;
   color: var(--mx-text);
-  font-size: var(--mx-font-body);
+  font-size: var(--mx-font-panel-title);
   font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-ui);
+  line-height: var(--mx-line-emphasis);
   letter-spacing: var(--mx-tracking-tight);
 }
 .settings-oauth-dialog > header p,
@@ -128,8 +129,9 @@
   color: var(--mx-icon);
   background: var(--mx-hover);
 }
-/* Footer plate. The schedules family keeps its sticky geometry (that footer
-   rides the scrolling form), so only its tone joins the system here. */
+/* Footer joins the card body: no hairline, no separate plate (user: 확인/취소
+   구역이 분리돼 보이는 게 별로다) — the button row alone closes the card.
+   The schedules family keeps its own sticky geometry in its layer. */
 .settings-confirm-dialog > footer,
 .settings-oauth-dialog > footer,
 .mx-dialog > footer {
@@ -139,8 +141,6 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 16px;
-  border-top: .5px solid var(--mx-border);
-  background: var(--mx-bg-base);
 }
 /* One button ladder: quiet plate, contrast primary, ghost secondary, danger. */
 .schedules-dialog footer button,
@@ -267,14 +267,16 @@
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  /* Same plate as the select triggers (user: 텍스트 상자도 드롭다운과 같은
+     테두리·배경): the --mx-button hairline replaces the muted inset line. */
+  box-shadow: var(--mx-button);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   line-height: 1;
 }
 .schedules-dialog input:focus,
 .settings-oauth-dialog input:focus,
-.mx-dialog input:focus { box-shadow: inset 0 0 0 .5px var(--mx-border-strong); }
+.mx-dialog input:focus { box-shadow: var(--mx-button-contrast); }
 .schedules-dialog textarea,
 .settings-oauth-dialog textarea,
 .mx-dialog textarea {
@@ -353,7 +355,7 @@
   outline-offset: 0;
   color: var(--mx-text);
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: var(--mx-button);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
 }
@@ -364,7 +366,7 @@
 .onboarding-model-grid input:hover:not(:disabled),
 .onboarding-profile-fields input:hover:not(:disabled),
 .onboarding-dialog .mx-select-root .mx-select-trigger:hover:not(:disabled) {
-  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  box-shadow: var(--mx-button-contrast);
 }
 .schedules-dialog input:focus,
 .settings-oauth-dialog input:focus,
@@ -377,7 +379,7 @@
      tight to the field instead of a thick detached halo. */
   outline: 1px solid var(--mx-focus);
   outline-offset: 0;
-  box-shadow: inset 0 0 0 .5px var(--mx-border-strong);
+  box-shadow: var(--mx-button);
 }
 /* Multi-line fields share the same frame, only taller. */
 .schedules-composer,

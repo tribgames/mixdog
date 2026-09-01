@@ -32,7 +32,7 @@ export const BUILT_IN_FEATURES: ReadonlyArray<BuiltInFeatureDefinition> = [
   {
     id: 'browser',
     title: 'Browser Use',
-    description: "Browse websites and complete tasks in services you're signed in to.",
+    description: 'Sessions share one Browser Use profile, including sign-ins, cookies, and site data.',
     group: 'agent',
   },
   {

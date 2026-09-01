@@ -17,6 +17,7 @@ import { summarizeOfficeCompositions } from './composition-system.mjs';
 import { createPptxSlideSelection, recordOfficeCompositionHistory } from './design-library.mjs';
 import { assertOfficeMutationAllowed, evaluateOfficeChecklist, reviewRenderedOfficePages } from './assurance.mjs';
 import { buildOfficePolishPlan, evaluateOfficeSubmissionGate, normalizeOfficeReviewIssues, resolveOfficeRenderOutput } from './quality-pipeline.mjs';
+import { scoreOfficeReleaseQuality } from './quality-score.mjs';
 import { OOXML_FORMATS, TABULAR_FORMATS, documentSessionKey, documentSessions, isMicrosoftOfficeSession, mergeOfficeDesignRequest, sessions } from './office-core.mjs';
 import { defaultRenderOutput, exists, fullPath, snapshot, trustForMutation } from './office-sessions.mjs';
 import { assertTransactionUnchanged, captureSessionState, persistOfficeTransaction, recordTransactionOperations, transactionDocumentDiff, transactionView } from './office-transactions.mjs';
@@ -139,6 +140,7 @@ export async function applyBatch(session, args) {
     let results;
     let saved = true;
     let undoUnits = 0;
+    let backgroundIsolation = session.backgroundIsolation || null;
     if (session.backend === 'microsoft-office-com') {
       if (emptyDeckReplacement) {
         const operation = operations[0];
@@ -158,6 +160,7 @@ export async function applyBatch(session, args) {
         if (!replaced.ok) {
           throw new Error(`PowerPoint source replacement failed: ${replaced.error || 'unknown error'}`);
         }
+        backgroundIsolation = replaced.backgroundIsolation || backgroundIsolation;
         results = Array.isArray(replaced.results) ? replaced.results : [replaced.results];
         const remaining = operations.slice(1);
         if (remaining.length) {
@@ -175,6 +178,7 @@ export async function applyBatch(session, args) {
             timeoutMs: Math.min(300_000, 90_000 + (remaining.length * 500)),
           });
           if (!result.ok) throw new Error(result.error || 'Microsoft Office batch failed after native template import');
+          backgroundIsolation = result.backgroundIsolation || backgroundIsolation;
           results.push(...(Array.isArray(result.results) ? result.results : [result.results]));
           saved = result.saved;
           undoUnits = Number(result.undoUnits) || 0;
@@ -196,6 +200,7 @@ export async function applyBatch(session, args) {
           timeoutMs: Math.min(300_000, 90_000 + (operations.length * 500)),
         });
         if (!result.ok) throw new Error(result.error || 'Microsoft Office batch failed');
+        backgroundIsolation = result.backgroundIsolation || backgroundIsolation;
         results = result.results;
         saved = result.saved;
         undoUnits = Number(result.undoUnits) || 0;
@@ -260,6 +265,7 @@ export async function applyBatch(session, args) {
     }
     session.snapshotVersion = Number(session.snapshotVersion || 0) + 1;
     session.designState.renderedVersion = null;
+    session.backgroundIsolation = backgroundIsolation;
     return {
       ok: true,
       session: session.id,
@@ -276,6 +282,7 @@ export async function applyBatch(session, args) {
       },
       design: session.design,
       semanticOperations: prepared.semantic,
+      ...(backgroundIsolation ? { backgroundIsolation } : {}),
       trust,
       ...(transactionResult ? { transaction: transactionResult } : {}),
     };
@@ -552,6 +559,7 @@ export async function qa(session, args, cwd) {
   }
   let designReview;
   let currentSnapshot = null;
+  let reviewSlidePlans = [];
   try {
     currentSnapshot = await snapshot(session, {
       ...args,
@@ -559,13 +567,23 @@ export async function qa(session, args, cwd) {
       limit: Math.min(100, Number(args.limit) || 100),
       maxChars: 100_000,
     });
+    const stateSlidePlans = Array.isArray(session.designState?.slidePlans)
+      ? session.designState.slidePlans
+      : [];
+    const requestedSlidePlans = Array.isArray(session.designRequest?.slidePlans)
+      ? session.designRequest.slidePlans
+      : Array.isArray(session.design?.slidePlans)
+        ? session.design.slidePlans
+        : [];
+    reviewSlidePlans = stateSlidePlans.length ? stateSlidePlans : requestedSlidePlans;
     designReview = reviewOfficeDesign({
       format: session.format,
       document: currentSnapshot.document,
       design: {
-        ...(session.designRequest || session.design || {}),
+        ...(session.design || {}),
+        ...(session.designRequest || {}),
         ...(session.format === 'pptx' ? {
-          slidePlans: session.designState?.slidePlans || [],
+          slidePlans: reviewSlidePlans,
         } : {}),
         compositions: session.designState?.compositions || [],
       },
@@ -589,9 +607,18 @@ export async function qa(session, args, cwd) {
     };
   }
   const designIssues = Array.isArray(designReview.issues) ? designReview.issues : [];
+  const pageRoles = Object.fromEntries(reviewSlidePlans
+    .filter((plan) => Number(plan?.slide) > 0)
+    .map((plan) => [Number(plan.slide), {
+      slideRole: plan.slideRole,
+      visualType: plan.visualType,
+    }]));
   const renderReview = structuralReview
     ? { ok: true, format: session.format, pages: [], issues: [] }
-    : await reviewRenderedOfficePages(preview._images, { format: session.format });
+    : await reviewRenderedOfficePages(preview._images, {
+      format: session.format,
+      pageRoles,
+    });
   const trust = currentSnapshot?.trust || session.trustReview || null;
   const securityIssues = !session.created && trust?.findingCount
     ? trust.findings.map((finding) => ({
@@ -624,6 +651,17 @@ export async function qa(session, args, cwd) {
     format: session.format,
     issues: combinedIssuesAfter,
   });
+  const quality = scoreOfficeReleaseQuality({
+    format: session.format,
+    aesthetics: renderReview.aesthetics,
+    issues: combinedIssuesAfter,
+    renderedPages: preview._images?.length || 0,
+    expectedPages: preview.pageCount,
+    structuralAvailable: Boolean(currentSnapshot),
+    planCoverage: session.format === 'pptx' && preview.pageCount
+      ? reviewSlidePlans.length / preview.pageCount
+      : 1,
+  });
   const review = {
     createdAt: new Date().toISOString(),
     output: preview.output,
@@ -636,6 +674,7 @@ export async function qa(session, args, cwd) {
     images: preview.images,
     design: designReview,
     render: renderReview,
+    quality,
     checklist,
     polishPlan,
     trust,

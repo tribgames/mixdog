@@ -224,6 +224,35 @@ test("the status island keeps only one detail card open across hover and click c
   }
 });
 
+test("the status island places the pane dock toggle last and reports its state", async () => {
+  const dom = installDom();
+  let toggles = 0;
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(SessionStatusIsland, {
+        snapshot: {
+          sessionId: "lead-a",
+          stats: { currentContextTokens: 50 },
+          displayContextWindow: 100,
+        },
+        dockOpen: true,
+        onToggleDock: () => { toggles += 1; },
+      }));
+    });
+    const island = document.querySelector(".session-status-island");
+    const dockToggle = document.querySelector(".session-status-dock-toggle");
+    assert.equal(island?.lastElementChild, dockToggle);
+    assert.equal(dockToggle?.getAttribute("aria-pressed"), "true");
+    await act(async () => {
+      dockToggle?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    assert.equal(toggles, 1);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
 test("the context card offers inheritance only after the selected model changes", async () => {
   const changed = {
     sessionId: "lead-inherit",
@@ -1013,15 +1042,16 @@ test("Agents order sessions by last idle moment and flag unseen completions", as
   }
 });
 
-test("Agents move on turn start and completion only, never on a heartbeat", async () => {
+test("Agents order by creation, then move on turn start and completion only", async () => {
   const dom = installDom();
-  const idleRow = (owner, idleSince) => ({
+  const idleRow = (owner, createdAt, idleSince) => ({
     tag: `lead:${owner}`,
     agent: "lead",
     status: "idle",
     stage: "idle",
     sessionId: owner,
     ownerSessionId: owner,
+    createdAt: new Date(createdAt).toISOString(),
     idleSince: new Date(idleSince).toISOString(),
     updatedAt: new Date(idleSince).toISOString(),
     model: "gpt-5.6",
@@ -1029,8 +1059,8 @@ test("Agents move on turn start and completion only, never on a heartbeat", asyn
   });
   // A working row has NO idle stamp and a live heartbeat in updatedAt — the
   // exact shape that used to shove a session to the top on every tick.
-  const workingRow = (owner, turnStartedAt, heartbeatAt) => ({
-    ...idleRow(owner, turnStartedAt),
+  const workingRow = (owner, createdAt, turnStartedAt, heartbeatAt) => ({
+    ...idleRow(owner, createdAt, createdAt),
     status: "streaming",
     stage: "streaming",
     idleSince: null,
@@ -1040,7 +1070,7 @@ test("Agents move on turn start and completion only, never on a heartbeat", asyn
   let push = () => {};
   window.mixdogDesktop = {
     async listAgentPool() {
-      return [idleRow("first", 5_000), idleRow("second", 1_000)];
+      return [idleRow("first", 2_000, 5_000), idleRow("second", 1_000, 1_000)];
     },
     subscribeAgentPool(listener) {
       push = listener;
@@ -1057,29 +1087,39 @@ test("Agents move on turn start and completion only, never on a heartbeat", asyn
     await act(async () => {
       dom.root.render(React.createElement(AgentActivityPane, {
         active: true,
-        sessions: [session("first", "First"), session("second", "Second")],
+        sessions: [session("first", "First"), session("second", "Second"),
+          session("third", "Third")],
       }));
     });
     assert.deepEqual(owners(), ["first", "second"]);
 
-    // A turn that STARTED before the leader's last idle moment advances the
-    // stamp without overtaking it.
-    await act(async () => push([idleRow("first", 50_000), workingRow("second", 9_000, 30_000)]));
+    // An older turn start advances the stamp without overtaking the newer
+    // completion already holding the top slot.
+    await act(async () => push([
+      idleRow("first", 2_000, 50_000), workingRow("second", 1_000, 9_000, 30_000),
+    ]));
     assert.deepEqual(owners(), ["first", "second"]);
 
     // The heartbeat runs far past the leader's stamp and still moves nothing.
-    await act(async () => push([idleRow("first", 50_000), workingRow("second", 9_000, 90_000)]));
+    await act(async () => push([
+      idleRow("first", 2_000, 50_000), workingRow("second", 1_000, 9_000, 90_000),
+    ]));
     assert.deepEqual(owners(), ["first", "second"]);
 
-    // Move 1 of 2: a NEW turn start promotes the session once.
-    await act(async () => push([idleRow("first", 50_000), workingRow("second", 60_000, 95_000)]));
+    // A new turn start promotes the session exactly once.
+    await act(async () => push([
+      idleRow("first", 2_000, 50_000), workingRow("second", 1_000, 60_000, 95_000),
+    ]));
     assert.deepEqual(owners(), ["second", "first"]);
-    await act(async () => push([idleRow("first", 50_000), workingRow("second", 60_000, 150_000)]));
+    await act(async () => push([
+      idleRow("first", 2_000, 50_000), workingRow("second", 1_000, 60_000, 150_000),
+    ]));
     assert.deepEqual(owners(), ["second", "first"]);
 
-    // Move 2 of 2: completion. The other session's fresh idle moment retakes
-    // the top exactly once.
-    await act(async () => push([idleRow("first", 120_000), workingRow("second", 60_000, 160_000)]));
+    // Completion is the other promotion: the newly idle session retakes the top.
+    await act(async () => push([
+      idleRow("first", 2_000, 120_000), workingRow("second", 1_000, 60_000, 160_000),
+    ]));
     assert.deepEqual(owners(), ["first", "second"]);
   } finally {
     await act(async () => dom.root.unmount());

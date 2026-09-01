@@ -1096,7 +1096,7 @@ async function run(): Promise<void> {
       assert.equal(new Set(identities).size, identities.length);
     });
 
-    await runScenario('S17', 'foreground input restores focus and cursor', 'focus-recovery', async () => {
+    await runScenario('S17', 'foreground pointer keeps task focus until session release', 'focus-recovery', async () => {
       try {
       const guard = new BrowserWindow({
         width: 360,
@@ -1135,16 +1135,29 @@ async function run(): Promise<void> {
       }, 'focus-recovery'));
       const recovery = action.input_recovery as {
         focus_restored?: boolean;
+        focus_preserved_for_followup?: boolean;
+        focus_recovery?: string;
         cursor_restored?: boolean;
         expected_focus_window_id?: string;
       } | undefined;
-      assert.equal(recovery?.focus_restored, true, JSON.stringify(action));
+      assert.equal(recovery?.focus_restored, false, JSON.stringify(action));
+      assert.equal(recovery?.focus_preserved_for_followup, true, JSON.stringify(action));
+      assert.equal(recovery?.focus_recovery, 'session_release', JSON.stringify(action));
       assert.equal(recovery?.cursor_restored, true, JSON.stringify(action));
       assert.notEqual(recovery?.expected_focus_window_id, fixtureWindowId);
+      await eventually(
+        async () => BrowserWindow.getFocusedWindow()?.id || 0,
+        (id) => id === fixture.id,
+      );
       assert.ok(
         Number(await fixture.webContents.executeJavaScript('globalThis.mixdogMotorState().clickCount'))
           > clickCountBefore,
         JSON.stringify(action),
+      );
+      await command({ action: 'session_release' }, 'focus-recovery');
+      await eventually(
+        async () => BrowserWindow.getFocusedWindow()?.id || 0,
+        (id) => id === guard.id,
       );
       } finally {
         await command({ action: 'session_release' }, 'focus-recovery');

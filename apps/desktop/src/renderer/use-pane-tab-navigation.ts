@@ -103,8 +103,6 @@ export function usePaneTabNavigation({
     if (tab.selection.kind === "file"
       || tab.selection.kind === "studio"
       || tab.selection.kind === "terminal"
-      || tab.selection.kind === "folder"
-      || tab.selection.kind === "browser"
       || tab.selection.kind === "diff"
       || tab.selection.kind === "pull-request") {
       openSelectionInFocusedPane(tab.selection);

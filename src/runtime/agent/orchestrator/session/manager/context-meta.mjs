@@ -3,8 +3,6 @@
 import { getModelMetadataSync } from '../../providers/model-catalog.mjs';
 import { resolveSessionCompactPolicy } from '../context-utils.mjs';
 import {
-    COMPACT_TYPE_SEMANTIC,
-    COMPACT_TYPE_RECALL_FASTTRACK,
     CONTEXT_SHARE_RATIO,
     COMPACT_TARGET_MIN_TOKENS,
 } from '../compact.mjs';
@@ -123,9 +121,8 @@ function compactTargetTokensForBoundary(boundaryTokens) {
 }
 function defaultEffectiveContextWindowPercent(provider) {
     // The session boundary is the model's full raw window. Headroom is applied
-    // by resolveSessionCompactPolicy instead: agent semantic sessions compact at
-    // the buffered trigger (default 90%), while main/user recall-fasttrack
-    // sessions compact on the boundary itself (100%).
+    // by resolveSessionCompactPolicy instead: agent sessions compact at the
+    // buffered trigger, while main/user sessions compact on the boundary.
     void provider;
     return 100;
 }
@@ -199,7 +196,7 @@ export function resolveSessionContextMeta(provider, model, seed = {}) {
     // Setting it to contextWindow makes autoTriggerTokens == boundary and the
     // compaction buffer collapse to 0 (loop.mjs:708-713 / compactTriggerForSession),
     // so auto-compact only fires when the context is already at the limit —
-    // at which point semantic compact fails ("result exceeds budget" /
+    // at which point Compact fails ("result exceeds budget" /
     // "summary cannot fit") and the turn can no longer be resumed.
     // Leave it null unless the provider/catalog/seed supplies an explicit
     // limit; the downstream buffer logic (default 10%, capped 25%) then
@@ -215,7 +212,7 @@ export function resolveSessionContextMeta(provider, model, seed = {}) {
 }
 export function compactTriggerForSession(session, boundaryTokens) {
     // Delegates to the shared session-compaction policy (context-utils):
-    // agent semantic -> 90% (default buffer), main/user -> 100% (buffer 0),
+    // agent -> 90% (default buffer), main/user -> 100% (buffer 0),
     // truly-explicit sub-boundary limit wins.
     return resolveSessionCompactPolicy(session, boundaryTokens).triggerTokens;
 }
@@ -225,17 +222,4 @@ export function compactTargetBudget(boundaryTokens, reserveTokens, _sourceTokens
     const reserve = Math.max(0, Number(reserveTokens) || 0);
     const targetEffective = compactTargetTokensForBoundary(boundary) || boundary;
     return Math.max(1, Math.min(boundary, targetEffective + reserve));
-}
-export function semanticCompactionEnabledForSession(_session) {
-    // Compact types are hard-locked (agent=semantic, main=recall-fasttrack),
-    // so semantic must always be available: it is the agent path AND the
-    // degraded fallback when recall-fasttrack fails. Env/config off-switches
-    // no longer apply.
-    return true;
-}
-export function compactTypeForSession(session) {
-    // Hard-locked: agent-owned sessions are always semantic, all other
-    // (main/user) sessions are always recall-fasttrack. Env/config overrides
-    // no longer change the type.
-    return isAgentOwner(session) ? COMPACT_TYPE_SEMANTIC : COMPACT_TYPE_RECALL_FASTTRACK;
 }

@@ -3,9 +3,13 @@
 // view-group layout the utility dock uses too.
 import type { SidebarPanelKey } from "./app-shell-components";
 import { createViewGroupLayout, type ViewGroupPlacement } from "./view-group-layout";
+import {
+  WORKBENCH_SIDE_GROUP_MIME,
+  WORKBENCH_SIDE_VIEW_MIME,
+} from "./workbench-side-view-layout";
 
-export const SIDEBAR_VIEW_MIME = "application/x-mixdog-sidebar-view";
-export const SIDEBAR_GROUP_MIME = "application/x-mixdog-sidebar-group";
+export const SIDEBAR_VIEW_MIME = WORKBENCH_SIDE_VIEW_MIME;
+export const SIDEBAR_GROUP_MIME = WORKBENCH_SIDE_GROUP_MIME;
 
 export type SidebarViewGroup = readonly SidebarPanelKey[];
 export type SidebarViewPlacement = ViewGroupPlacement;

@@ -61,7 +61,6 @@ export function CategoryPanel({ category, context }: {
   if (category === 'git') return <GitPanel />;
   if (category === 'mcp') return <McpPanel {...context} />;
   if (category === 'plugins') return <PluginExtensionsPanel {...context} />;
-  if (category === 'hooks') return <HooksPanel {...context} />;
   if (category === 'skills') return <SkillExtensionsPanel {...context} />;
   if (category === 'context') return <ContextPanel {...context} />;
   if (category === 'system') return <SystemPanel {...context} />;
@@ -169,12 +168,16 @@ function ConnectionPanel({ api }: { api: CapabilityApi }) {
     let live = true;
     let timer = 0;
     const attempt = () => {
-      void preloadConnectionInfo(api).then((value) => {
+      const startedAt = Date.now();
+      void preloadConnectionInfo(api, CONNECTION_RETRY_MS).then((value) => {
         if (!live) return;
         setInfo(value);
         if (connectionInfoReady(value)) return;
         setStalledAttempts((count) => count + 1);
-        timer = window.setTimeout(attempt, CONNECTION_RETRY_MS);
+        timer = window.setTimeout(
+          attempt,
+          Math.max(0, CONNECTION_RETRY_MS - (Date.now() - startedAt)),
+        );
       });
     };
     attempt();
@@ -1482,22 +1485,6 @@ function SkillExtensionsPanel(context: PanelContext) {
       onClose={closeCreateFlow} onSelect={setCreateKind} />}
     <SkillsPanel {...context} createOpen={createKind === 'skill'} closeCreate={closeCreateFlow} />
     <McpPanel {...context} createOpen={createKind === 'mcp'} closeCreate={closeCreateFlow} />
-  </>;
-}
-
-function HooksPanel({ data, pending, run }: PanelContext) {
-  const status = record(data.hooks);
-  const rules = rows(status, 'rules');
-  const busy = Boolean(pending);
-  return <>
-    <Group title="Rules"
-      description={t('{{count}} rules · {{mode}}', { count: status.ruleCount || rules.length, mode: status.configMode || 'standalone' })}>
-      {rules.length ? rules.map((rule, index) => <ResourceRow key={String(rule.index ?? index)} title={`${rule.tool || '*'} → ${rule.action || 'ask'}`}
-        description={String(rule.match || rule.reason || '')} status={rule.enabled === false ? 'Disabled' : 'Enabled'}
-        actions={<ActionButton disabled={busy} onClick={() => void run('setHookRuleEnabled', [Number(rule.index ?? index), rule.enabled === false])}>
-          {rule.enabled === false ? 'Enable' : 'Disable'}
-    </ActionButton>} />) : <ListEmpty text={sectionLoaded(data, 'hooks') ? 'No hook rules configured.' : 'Loading hooks…'} />}
-    </Group>
   </>;
 }
 

@@ -27,6 +27,14 @@ import { frameQualityIssue } from './computer-host-frame-quality';
 import { renderSomOverlay } from './computer-host-som-overlay';
 import { electronWindowForNativeId } from './computer-host-window-handles';
 import {
+  captureAccessibilityError,
+  createOcrCapturePreferenceStore,
+  createVisualOnlyCapabilityStore,
+  shouldRecordVisualOnlyCapabilityMiss,
+  shouldRunCaptureOcr,
+} from './computer-host-capability-policy';
+import {
+  assertOcrLanguageTag,
   captureIdentityMap,
   captureMode,
   dedupeOcrWords,
@@ -36,6 +44,7 @@ import {
   normalizeOcrWords,
   pixelUnavailable,
   screenshotInteger,
+  shouldUseOcrFallback,
   summarizeCaptureChanges,
 } from './computer-host-observation';
 import type {
@@ -48,8 +57,14 @@ import type {
   ScreenshotCapture,
 } from './computer-host-types';
 
+const CAPTURE_ACCESSIBILITY_TIMEOUT_MS = 2_500;
+const CAPTURE_OCR_TIMEOUT_MS = 5_000;
+const VISUAL_ONLY_CACHE_TTL_MS = 30_000;
+const VISUAL_ONLY_CACHE_MISS_THRESHOLD = 2;
+const VISUAL_ONLY_CACHE_MAX_ENTRIES = 128;
+
 export interface CaptureEngineHost {
-  callPowerShell(request: Record<string, unknown>): Promise<{
+  callPowerShell(request: Record<string, unknown>, timeoutMs?: number): Promise<{
     ok: boolean;
     result?: Record<string, unknown>;
     error?: string;
@@ -98,6 +113,10 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     lastCaptureBySession,
     allocateFrameId,
   } = host;
+  const visualOnlyCapabilities = createVisualOnlyCapabilityStore(
+    VISUAL_ONLY_CACHE_MAX_ENTRIES,
+  );
+  const ocrPreferences = createOcrCapturePreferenceStore();
 
   async function captureVisibleNativeWindow(
     windowId: string,
@@ -401,6 +420,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     const frame: CaptureFrame = {
       id: frameId,
       sessionId: sessionIdFor(command),
+      capturedAt: performance.now(),
       kind: sourceType,
       sourceId: capturedSourceId,
       ...(targetWindowId ? { windowId: targetWindowId } : {}),
@@ -542,6 +562,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     rememberFrame({
       id: zoomFrameId,
       sessionId: sessionIdFor(command),
+      capturedAt: performance.now(),
       kind: frame.kind,
       sourceId: source.id,
       ...(frame.windowId ? { windowId: frame.windowId } : {}),
@@ -590,6 +611,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     if (mode === 'ax' && command.include_ocr) {
       throw new Error('include_ocr requires capture mode state, som, or vision');
     }
+    assertOcrLanguageTag(command.ocr_language);
     if (!forcedWindowId) {
       const explicitTargets = [
         command.window_id?.trim(),
@@ -630,6 +652,22 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     }
     if (!windowId && command.app) windowId = await resolveAppWindowId(command);
     if (!windowId && !explicitScreen) windowId = await resolveForegroundWindowId(command);
+    const visualOnlyCapabilityKey = `${sessionIdFor(command)}\u0000${windowId}`;
+    const visualOnlyEligible = Boolean(
+      windowId
+      && (mode === 'state' || mode === 'som')
+      && !command.query
+      && !command.role
+      && !command.continuation
+      && command.include_noninteractive !== true
+      && command.include_structure !== true,
+    );
+    const {
+      capability: visualOnlyCapability,
+      cacheHit: visualOnlyCacheHit,
+    } = visualOnlyEligible
+      ? visualOnlyCapabilities.resolve(visualOnlyCapabilityKey, Date.now())
+      : { capability: undefined, cacheHit: false };
     timings.target_resolution_ms = elapsedMs(captureStartedAt);
     const totalElementBudget = screenshotInteger(
       command.max_elements,
@@ -644,6 +682,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     let continuation: unknown = null;
     let generation: unknown = null;
     let screenshot: ScreenshotCapture | null = null;
+    let accessibilityError = '';
     if (mode !== 'vision' && !windowId) {
       throw new Error(`${mode} capture requires an exact target window`);
     }
@@ -665,22 +704,33 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     };
     const runAccessibilityTask = async () => {
       if (mode === 'vision') return null;
+      if (visualOnlyCacheHit) {
+        return { response: null, error: '', elapsed: 0, visualOnlyCacheHit: true };
+      }
       const startedAt = performance.now();
-      const response = await callPowerShell({
-        action: 'snapshot',
-        window_id: windowId,
-        query: command.query ?? null,
-        role: command.role ?? null,
-        visible_only: command.visible_only ?? null,
-        include_noninteractive: command.include_noninteractive ?? null,
-        include_structure: command.include_structure ?? null,
-        max_elements: totalElementBudget,
-        continuation: command.continuation ?? null,
-        bounded: true,
-        session_id: sessionIdFor(command),
-        read_only: true,
-      });
-      return { response, elapsed: elapsedMs(startedAt) };
+      try {
+        const response = await callPowerShell({
+          action: 'snapshot',
+          window_id: windowId,
+          query: command.query ?? null,
+          role: command.role ?? null,
+          visible_only: command.visible_only ?? null,
+          include_noninteractive: command.include_noninteractive ?? null,
+          include_structure: command.include_structure ?? null,
+          max_elements: totalElementBudget,
+          continuation: command.continuation ?? null,
+          bounded: true,
+          session_id: sessionIdFor(command),
+          read_only: true,
+        }, CAPTURE_ACCESSIBILITY_TIMEOUT_MS);
+        return { response, error: '', elapsed: elapsedMs(startedAt) };
+      } catch (error) {
+        return {
+          response: null,
+          error: (error as Error).message || String(error),
+          elapsed: elapsedMs(startedAt),
+        };
+      }
     };
     const serializeOwnedCapture = mode !== 'vision'
       && mode !== 'ax'
@@ -691,18 +741,27 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     const [accessibilityResult, screenshotResult] = captureResults;
     if (accessibilityResult) {
       const snapshot = accessibilityResult.response;
-      if (!snapshot.ok) throw new Error(snapshot.error || 'capture accessibility snapshot failed');
-      rawElements = normalizeElementRecords(snapshot.result?.elements);
-      totalElements = Number(snapshot.result?.total_elements) || rawElements.length;
-      continuation = snapshot.result?.continuation ?? null;
-      generation = snapshot.result?.generation ?? null;
-      windowId = String(snapshot.result?.window_id || windowId);
       timings.accessibility_ms = accessibilityResult.elapsed;
-      const hostTimings = snapshot.result?.timings_ms;
-      if (hostTimings && typeof hostTimings === 'object') {
-        for (const [phase, duration] of Object.entries(hostTimings)) {
-          const value = Number(duration);
-          if (Number.isFinite(value)) timings[`accessibility.${phase}`] = value;
+      accessibilityError = captureAccessibilityError(
+        visualOnlyCacheHit,
+        snapshot?.ok === true,
+        accessibilityResult.error,
+        snapshot?.error || '',
+      );
+      if (accessibilityError) {
+        if (mode === 'ax') throw new Error(accessibilityError);
+      } else if (snapshot?.ok) {
+        rawElements = normalizeElementRecords(snapshot.result?.elements);
+        totalElements = Number(snapshot.result?.total_elements) || rawElements.length;
+        continuation = snapshot.result?.continuation ?? null;
+        generation = snapshot.result?.generation ?? null;
+        windowId = String(snapshot.result?.window_id || windowId);
+        const hostTimings = snapshot.result?.timings_ms;
+        if (hostTimings && typeof hostTimings === 'object') {
+          for (const [phase, duration] of Object.entries(hostTimings)) {
+            const value = Number(duration);
+            if (Number.isFinite(value)) timings[`accessibility.${phase}`] = value;
+          }
         }
       }
     }
@@ -719,7 +778,34 @@ export function createCaptureEngine(host: CaptureEngineHost) {
       rawElements,
       screenshot?.frame,
     );
-    const requestedOcrLimit = command.include_ocr
+    if (visualOnlyEligible && !visualOnlyCacheHit) {
+      if (semanticAccessibilityAvailable) {
+        visualOnlyCapabilities.delete(visualOnlyCapabilityKey);
+      } else if (shouldRecordVisualOnlyCapabilityMiss(
+        semanticAccessibilityAvailable,
+        accessibilityError,
+      )) {
+        const priorMisses = visualOnlyCapability?.misses || 0;
+        const misses = priorMisses + 1;
+        visualOnlyCapabilities.remember(visualOnlyCapabilityKey, {
+          misses,
+          expiresAt: misses >= VISUAL_ONLY_CACHE_MISS_THRESHOLD
+            ? Date.now() + VISUAL_ONLY_CACHE_TTL_MS
+            : 0,
+        });
+      }
+    }
+    const ocrFallbackEnabled = shouldUseOcrFallback(
+      mode,
+      semanticAccessibilityAvailable,
+      command.include_ocr === true,
+    );
+    const runOcrForCapture = shouldRunCaptureOcr(
+      ocrFallbackEnabled,
+      semanticAccessibilityAvailable,
+      command.include_ocr === true,
+    );
+    const requestedOcrLimit = ocrFallbackEnabled
       ? screenshotInteger(
           command.max_ocr_words,
           DEFAULT_OCR_MAX_WORDS,
@@ -728,10 +814,9 @@ export function createCaptureEngine(host: CaptureEngineHost) {
           'max_ocr_words',
         )
       : 0;
-    const reservedOcrBudget = command.include_ocr
+    const reservedOcrBudget = runOcrForCapture
       && screenshot?.image
       && screenshot.frame
-      && !semanticAccessibilityAvailable
       ? Math.min(requestedOcrLimit, Math.max(1, Math.floor(totalElementBudget / 2)))
       : 0;
     if (reservedOcrBudget > 0 && elements.length > totalElementBudget - reservedOcrBudget) {
@@ -745,8 +830,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     const shouldRunOcr = Boolean(
       screenshot?.image
       && screenshot.frame
-      && command.include_ocr
-      && !semanticAccessibilityAvailable
+      && runOcrForCapture
       && remainingElementBudget > 0,
     );
     if (shouldRunOcr && screenshot?.image && screenshot.frame) {
@@ -759,7 +843,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
           max_ocr_words: Math.min(requestedOcrLimit, remainingElementBudget),
           session_id: sessionIdFor(command),
           read_only: true,
-        });
+        }, CAPTURE_OCR_TIMEOUT_MS);
         if (!ocr.ok) throw new Error(ocr.error || 'Windows OCR failed');
         ocrWords = dedupeOcrWords(
           normalizeOcrWords(ocr.result?.words),
@@ -837,6 +921,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
         ocrPayload = {
           ok: true,
           mode: 'fallback',
+          automatic: command.include_ocr !== true,
           language: String(ocr.result?.language || ''),
           lines: Array.isArray(ocr.result?.lines) ? ocr.result?.lines : [],
           words: markedWords,
@@ -850,10 +935,11 @@ export function createCaptureEngine(host: CaptureEngineHost) {
         };
       }
       timings.ocr_ms = elapsedMs(ocrStartedAt);
-    } else if (command.include_ocr) {
+    } else if (ocrFallbackEnabled) {
       ocrPayload = {
         ok: true,
         mode: 'fallback',
+        automatic: command.include_ocr !== true,
         skipped: true,
         reason: remainingElementBudget <= 0
           ? 'element_budget_exhausted'
@@ -927,11 +1013,18 @@ export function createCaptureEngine(host: CaptureEngineHost) {
       ...(generation !== null ? { generation } : {}),
       total_elements: mergedTotalElements,
       returned_elements: elements.length,
+      accessibility_status: mode === 'vision'
+        ? 'not_requested'
+        : visualOnlyCacheHit
+          ? 'visual_only_cached'
+        : accessibilityError
+          ? 'error'
+          : semanticAccessibilityAvailable ? 'available' : 'empty',
+      ...(visualOnlyCacheHit ? { accessibility_cache: 'visual_only' } : {}),
+      ...(accessibilityError ? { accessibility_error: accessibilityError } : {}),
       ...(changes ? { changes } : {}),
-      ...(ocrElements.length ? {
-        total_accessibility_elements: totalElements,
-        ocr_elements: ocrElements.length,
-      } : {}),
+      ...(mode !== 'vision' ? { total_accessibility_elements: totalElements } : {}),
+      ...(ocrElements.length ? { ocr_elements: ocrElements.length } : {}),
       ...(continuation ? { continuation } : {}),
       ...(truncatedAccessibilityElements
         ? { truncated_elements: truncatedAccessibilityElements }
@@ -973,6 +1066,13 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     }
     timings.total_ms = elapsedMs(captureStartedAt);
     payload.timings_ms = timings;
+    if (!forcedWindowId && captureOk) {
+      ocrPreferences.remember(sessionIdFor(command), {
+        includeOcr: command.include_ocr === true,
+        ocrLanguage: command.ocr_language,
+        maxOcrWords: command.max_ocr_words,
+      });
+    }
     if (image && String(command.image_output || 'inline') === 'file') {
       const stored = persistFrameImage(
         'computer',
@@ -1024,14 +1124,19 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
     assertExecutionNotAborted();
     try {
+      const ocrPreference = ocrPreferences.resolve(sessionIdFor(command), {
+        includeOcr: command.capture_after_include_ocr,
+        ocrLanguage: command.capture_after_ocr_language,
+        maxOcrWords: command.capture_after_max_ocr_words,
+      });
       const capture = await captureComputer({
         ...command,
         action: 'capture',
         mode: command.capture_after_mode || 'state',
         max_elements: command.capture_after_max_elements || DEFAULT_CAPTURE_MAX_ELEMENTS,
-        include_ocr: command.capture_after_include_ocr === true,
-        ocr_language: command.capture_after_ocr_language,
-        max_ocr_words: command.capture_after_max_ocr_words,
+        include_ocr: ocrPreference.includeOcr,
+        ocr_language: ocrPreference.ocrLanguage,
+        max_ocr_words: ocrPreference.maxOcrWords,
         image_output: command.capture_after_image_output,
         window: undefined,
         window_id: windowId,
@@ -1059,11 +1164,18 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     }
   }
 
+  function releaseCaptureSession(sessionId: string): void {
+    ocrPreferences.release(sessionId);
+    const prefix = `${sessionId}\u0000`;
+    visualOnlyCapabilities.releasePrefix(prefix);
+  }
+
   return {
     captureVisibleNativeWindow,
     captureScreenshot,
     captureZoom,
     captureComputer,
     captureAfterAction,
+    releaseCaptureSession,
   };
 }

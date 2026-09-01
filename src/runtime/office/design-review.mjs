@@ -1,5 +1,7 @@
 import { reviewOfficeStructure } from './assurance.mjs';
 import { reviewOfficeCompositionSequence } from './composition-system.mjs';
+import { reviewPptxDeckDiversity } from './design-deck-diversity.mjs';
+import { reviewPptxFrontierQuality } from './design-frontier-review.mjs';
 import { PPTX_CRITIQUE_AXES } from './design-pptx.mjs';
 import { plainObject, resolveOfficeDesign, strings } from './design-tokens.mjs';
 
@@ -208,6 +210,8 @@ function reviewPptx(document, design) {
       `Deck uses native image, chart, or table evidence on ${nativeEvidenceSlides} slide(s); at least ${requiredNativeEvidence} are required.`,
     ));
   }
+  issues.push(...reviewPptxDeckDiversity({ document, design }));
+  issues.push(...reviewPptxFrontierQuality({ document, design }));
   return issues;
 }
 

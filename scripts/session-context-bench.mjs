@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadConfig, getDefaultPreset, getPreset } from '../src/runtime/agent/orchestrator/config.mjs';
 import { initProviders, getProvider } from '../src/runtime/agent/orchestrator/providers/registry.mjs';
 import { loadSession } from '../src/runtime/agent/orchestrator/session/store.mjs';
-import { semanticCompactMessages } from '../src/runtime/agent/orchestrator/session/compact.mjs';
+import { generateFreshHandoffSummary } from '../src/runtime/agent/orchestrator/session/compact.mjs';
 import { estimateMessagesTokens } from '../src/runtime/agent/orchestrator/session/context-utils.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -222,9 +222,9 @@ async function providerFromConfig(config, { providerName, modelName }) {
   return { provider, model, impl };
 }
 
-async function judgePair(provider, model, sourceText, semanticText, candidateBText, candidateBLabel) {
+async function judgePair(provider, model, sourceText, sessionLocalText, candidateBText, candidateBLabel) {
   const safeLabel = String(candidateBLabel || 'candidate_b').replace(/[^a-z0-9_]+/gi, '_').toLowerCase() || 'candidate_b';
-  const prompt = `You are judging two context-compression strategies for continuing a coding session.\n\nEvaluate which preserves actionable state better for the next assistant turn. Prefer factual coverage, exact constraints, file paths, decisions, and current task continuity.\n\nReturn strict JSON: {"winner":"semantic"|"${safeLabel}"|"tie","semantic_score":1-10,"${safeLabel}_score":1-10,"reason":"short"}.\n\n# Original session excerpt\n${sourceText.slice(0, 30000)}\n\n# Candidate A: semantic compact\n${semanticText.slice(0, 30000)}\n\n# Candidate B: ${safeLabel}\n${candidateBText.slice(0, 30000)}`;
+  const prompt = `You are judging two handoff sources for continuing a coding session.\n\nEvaluate which preserves actionable state better for the next assistant turn. Prefer factual coverage, exact constraints, file paths, decisions, and current task continuity.\n\nReturn strict JSON: {"winner":"session_local"|"${safeLabel}"|"tie","session_local_score":1-10,"${safeLabel}_score":1-10,"reason":"short"}.\n\n# Original session excerpt\n${sourceText.slice(0, 30000)}\n\n# Candidate A: session-local handoff\n${sessionLocalText.slice(0, 30000)}\n\n# Candidate B: ${safeLabel}\n${candidateBText.slice(0, 30000)}`;
   const response = await provider.send([
     { role: 'system', content: 'Judge compression quality. Output JSON only.' },
     { role: 'user', content: prompt },
@@ -254,14 +254,15 @@ async function main() {
 
   const timings = {};
   const budget = Number(arg('budget', 16000)) || 16000;
-  const semantic = await timed('semantic_compact_ms', timings, () => semanticCompactMessages(impl, messages, model, budget, {
+  const sessionLocal = await timed('session_local_handoff_ms', timings, () => generateFreshHandoffSummary(impl, messages, model, budget, {
     force: true,
+    fullHandoff: true,
+    filterOldHistoryForIngest: true,
     sessionId,
     providerName: provider,
-    tailTurns: Number(arg('tail-turns', 2)) || 2,
     timeoutMs: Number(arg('timeout-ms', 60000)) || 60000,
   }));
-  const semanticText = renderMessages(semantic.messages);
+  const sessionLocalText = String(sessionLocal.summary || '');
   const sourceText = renderMessages(messages);
   const candidateB = 'recall';
   let candidateBText = '';
@@ -308,18 +309,18 @@ async function main() {
     model,
     timings,
     source: { messages: messages.length, tokens: estimateMessagesTokens(messages), chars: sourceText.length },
-    semantic: { messages: semantic.messages.length, tokens: estimateMessagesTokens(semantic.messages), chars: semanticText.length, lexicalCoverage: coverageScore(sourceText, semanticText), usage: semantic.usage || null },
+    sessionLocal: { chars: sessionLocalText.length, lexicalCoverage: coverageScore(sourceText, sessionLocalText), usage: sessionLocal.usage || null },
     candidateB: { label: candidateB, ...candidateBMeta },
     judge: null,
   };
   if (flag('judge')) {
-    report.judge = await timed('judge_ms', timings, () => judgePair(impl, model, sourceText, semanticText, candidateBText, candidateB));
+    report.judge = await timed('judge_ms', timings, () => judgePair(impl, model, sourceText, sessionLocalText, candidateBText, candidateB));
   }
 
   const outDir = resolve(arg('out', join(ROOT, '.mixdog-bench', `session-context-${sessionId}`)));
   mkdirSync(outDir, { recursive: true });
   writeFileSync(join(outDir, 'source.txt'), sourceText, 'utf8');
-  writeFileSync(join(outDir, 'semantic.txt'), semanticText, 'utf8');
+  writeFileSync(join(outDir, 'session-local.txt'), sessionLocalText, 'utf8');
   writeFileSync(join(outDir, `${candidateB}.txt`), candidateBText, 'utf8');
   writeFileSync(join(outDir, 'report.json'), JSON.stringify(report, null, 2), 'utf8');
   process.stdout.write(`${JSON.stringify(report, null, 2)}\noutputs: ${outDir}\n`);

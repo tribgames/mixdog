@@ -1,14 +1,14 @@
 import crypto from 'node:crypto'
 import { isInternalRuntimeNotificationText, isModelVisibleToolCompletionWrapper } from '../../shared/tool-execution-contract.mjs'
 
-// Side-effect-free helpers for ingest_session (recall fast-track hydration).
+// Side-effect-free helpers for fresh-context ingest_session hydration.
 // Extracted from memory/index.mjs so the pure logic (stable identity, sensitive
 // redaction, role/content shaping) can be unit-tested without importing the
 // MCP server entrypoint and its heavy boot-time side effects.
 
 // Roles we persist from an in-memory session transcript (conversation only).
 // Map provider/runtime spellings onto canonical roles; only user/assistant are
-// kept so recall-fasttrack memory does not duplicate protected system prefix.
+// kept so the Memory handoff does not duplicate protected system prefix.
 const INGEST_SESSION_ROLES = new Set(['user', 'assistant'])
 
 export function normalizeIngestRole(role) {
@@ -30,6 +30,18 @@ export function firstTextContent(content) {
     if (item?.type === 'text' && typeof item.text === 'string') return item.text
   }
   return ''
+}
+
+export function allTextContent(content) {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content
+    .map((item) => {
+      if (typeof item === 'string') return item
+      return item?.type === 'text' && typeof item.text === 'string' ? item.text : ''
+    })
+    .filter(Boolean)
+    .join('\n')
 }
 
 // Collect durable tool-call / tool-result ids for identity + pairing.
@@ -211,13 +223,13 @@ export function sessionMessageContent(m) {
 // everything that is mechanical/synthetic so memory episode rows are pure
 // conversation with zero loss of genuine human/model text.
 
-// Mirror of compact.mjs SUMMARY_PREFIX (the compaction handoff anchor). Copied
+// Stable leading sentence of compact.mjs SUMMARY_PREFIX. Copied
 // locally rather than imported because compact.mjs lives under
 // agent/orchestrator/session and pulls in heavy context/offload modules —
 // importing it into the memory layer would create a layering dependency (memory
-// → orchestrator) and risk a boot-time cycle. Keep this string byte-identical
-// to compact.mjs:9; if that anchor changes, update this copy.
-const SUMMARY_PREFIX_INGEST = 'A previous model worked on this task and produced the compacted handoff summary below. Build on the work already done and avoid duplicating it; treat the summary as authoritative context for continuing the task. You also retain the preserved recent turns that follow.'
+// → orchestrator) and risk a boot-time cycle. Keeping only the durable anchor
+// recognizes both legacy and current summary instructions.
+const SUMMARY_PREFIX_INGEST = 'A previous model worked on this task and produced the compacted handoff summary below.'
 
 // Anchored strip of the deterministic user-turn prefix envelopes that
 // manager.mjs prepends to the SINGLE real user message (manager.mjs:3166-3201
@@ -266,7 +278,7 @@ function stripUserTurnPrefixEnvelopes(text) {
 // remains. The <system-reminder> block is left in place here because
 // cleanMemoryText already removes it downstream (text-utils.cjs:28).
 export function sessionMessageContentForIngest(m) {
-  const base = firstTextContent(m?.content)
+  const base = allTextContent(m?.content)
   if (!base) return ''
   if (normalizeIngestRole(m?.role) === 'user') {
     return stripUserTurnPrefixEnvelopes(base)
@@ -310,7 +322,23 @@ export function shouldExcludeIngestMessage(m) {
     return true
   }
   // Compaction summary user rows (compact.mjs isSummaryMessage / SUMMARY_PREFIX).
-  if (role === 'user' && typeof raw === 'string' && raw.startsWith(SUMMARY_PREFIX_INGEST)) {
+  if (role === 'user' && (
+    String(m?.meta?.source || '') === 'compact-summary'
+    || (
+      typeof raw === 'string'
+      && raw.startsWith(SUMMARY_PREFIX_INGEST)
+      && /\nmessages=\d+\s+(?:sha256=|compact_type=)/.test(raw)
+    )
+  )) {
+    return true
+  }
+  if (role === 'user' && (
+    String(m?.meta?.source || '') === 'compact-active-turn-continuation'
+    || (
+      typeof raw === 'string'
+      && raw.includes('<active-turn-continuation>')
+    )
+  )) {
     return true
   }
   // Protected-context `.` ack assistant rows (compact.mjs isProtectedContextAckMessage):
@@ -350,7 +378,7 @@ export function projectSessionMessagesForIngest(messages) {
     if (!m || typeof m !== 'object') continue
     const role = normalizeIngestRole(m.role)
     if (!role || shouldExcludeIngestMessage(m)) continue
-    const content = firstTextContent(m.content)
+    const content = sessionMessageContentForIngest(m)
     if (!content || !content.trim()) continue
     const next = { role, content }
     if (Object.prototype.hasOwnProperty.call(m, 'ts')) next.ts = m.ts

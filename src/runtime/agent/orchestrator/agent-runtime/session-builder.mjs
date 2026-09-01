@@ -23,22 +23,22 @@ import { resolveAgentSessionPermission } from '../internal-agents.mjs';
 import { loadConfig } from '../config.mjs';
 import { AGENT_OWNER } from '../agent-owner.mjs';
 
-import {
-    COMPACT_TYPE_SEMANTIC,
-    normalizeCompactType,
-} from '../session/compact.mjs';
-
 function normalizeAgentCompactionConfig(value = {}) {
     const raw = value && typeof value === 'object' ? value : {};
-    const compactType = normalizeCompactType(
-        raw.compactType ?? raw.compact_type ?? raw.type,
-        COMPACT_TYPE_SEMANTIC,
-    );
+    const next = { ...raw };
+    if (!next.summaryModel && raw.semanticModel) next.summaryModel = raw.semanticModel;
+    if (!next.memoryTimeoutMs && raw.recallMemoryTimeoutMs) next.memoryTimeoutMs = raw.recallMemoryTimeoutMs;
+    for (const key of [
+        'type', 'compactType', 'compact_type', 'semantic', 'semanticModel', 'prune', 'tailTurns',
+        'recallMemoryTimeoutMs', 'recallIngestLimit', 'recallChunkLimit', 'recallLimit',
+        'recallCycle1BatchSize', 'recallRowsPerSession', 'recallWindowSize',
+        'recallConcurrency', 'recallCycle1DeadlineMs',
+    ]) {
+        delete next[key];
+    }
     return {
-        ...raw,
+        ...next,
         auto: raw.auto !== false && raw.enabled !== false,
-        type: compactType,
-        compactType,
     };
 }
 

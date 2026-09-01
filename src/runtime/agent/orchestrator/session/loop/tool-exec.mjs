@@ -373,6 +373,7 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
                 result: __res,
                 newMessages: __nm,
                 explicitSuccess: __explicitSuccess,
+                explicitFailure: __explicitFailure,
             } = normalizeToolEnvelope(__result);
             const hookResult = await afterToolHook({
                 name,
@@ -387,8 +388,11 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
             // must NEVER drop the `newMessages` channel. Split first, apply the
             // override to `result` only, then re-wrap so newMessages survive.
             const __overridden = resolveToolResultAfterHook(__res, hookResult);
-            if (__nm.length || __explicitSuccess) {
-                return makeToolEnvelope(__overridden, __nm, { explicitSuccess: __explicitSuccess });
+            if (__nm.length || __explicitSuccess || __explicitFailure) {
+                return makeToolEnvelope(__overridden, __nm, {
+                    explicitSuccess: __explicitSuccess,
+                    explicitFailure: __explicitFailure,
+                });
             }
             return __overridden;
         } catch {

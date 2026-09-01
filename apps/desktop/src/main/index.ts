@@ -4,7 +4,7 @@ import { constants as osConstants, freemem, homedir, setPriority, totalmem } fro
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { app, BrowserWindow, crashReporter, dialog, ipcMain, nativeImage, powerMonitor, powerSaveBlocker, screen, session, shell } from 'electron';
+import { app, BrowserWindow, crashReporter, dialog, ipcMain, powerMonitor, powerSaveBlocker, screen, session, shell } from 'electron';
 
 import type { DesktopService } from './desktop-service-contract';
 import { DesktopServiceClient } from './desktop-service-client';
@@ -24,6 +24,10 @@ import {
 import { registerDesktopIpc } from './ipc';
 import { createBrowserHost, type BrowserHost } from './browser-host';
 import { createComputerHost, type ComputerHost } from './computer-host';
+import {
+  createComputerUseOverlay,
+  type ComputerUseOverlay,
+} from './computer-use-overlay';
 import { MEDIA_SCHEME, registerMediaProtocol, registerMediaScheme } from './media-protocol';
 import { desktopPermissionAllowed } from './permission-policy';
 import { installNativeMenu } from './menu';
@@ -290,7 +294,11 @@ const serviceClient = new DesktopServiceClient({
     diagnostics?.write(
       event,
       event === 'desktop-transport-error'
-        ? { type: String(data.type || '') }
+        ? {
+          type: String(data.type || ''),
+          detail: String(data.detail || '').replace(/\s+/g, ' ').trim().slice(0, 500),
+          generation: Number(data.generation) || 0,
+        }
         : data,
     );
     console.error(`[mixdog] ${event}`, data);
@@ -343,6 +351,7 @@ let browserHost: BrowserHost | null = null;
 // may happen before or after the initial settings read, so both sides apply.
 let browserControlEnabled = false;
 let computerHost: ComputerHost | null = null;
+let computerUseOverlay: ComputerUseOverlay | null = null;
 let computerControlEnabled = false;
 // Observation-only opt-in travels with the host the same way, so a toggle made
 // before the window exists still reaches the bridge when it starts.
@@ -432,7 +441,9 @@ unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value
       ? value as { id?: unknown; method?: unknown; args?: unknown }
       : {};
     const id = typeof request.id === 'string' ? request.id : '';
-    const method = request.method === 'frame' || request.method === 'control'
+    const method = request.method === 'frame'
+      || request.method === 'control'
+      || request.method === 'release'
       ? request.method
       : '';
     const args = Array.isArray(request.args) ? request.args : [];
@@ -440,9 +451,18 @@ unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value
     void (async () => {
       try {
         if (!browserHost) throw new Error('Desktop Browser Use is unavailable.');
+        const sessionId = typeof args[0] === 'string' ? args[0] : '';
         const result = method === 'frame'
-          ? await browserHost.remoteBrowserFrame(typeof args[0] === 'string' ? args[0] : '')
-          : await browserHost.remoteBrowserControl(args[0] as DesktopRemoteBrowserControl);
+          ? await browserHost.remoteBrowserFrame(
+              sessionId,
+              typeof args[1] === 'string' ? args[1] : '',
+            )
+          : method === 'control'
+            ? await browserHost.remoteBrowserControl(
+                sessionId,
+                args[1] as DesktopRemoteBrowserControl,
+              )
+            : browserHost.releaseSession(sessionId);
         await serviceClient.invokeDesktopOperation(
           'browserRemoteResolve',
           [id, true, result ?? null, null],
@@ -640,6 +660,8 @@ function disposeDesktopResources(): Promise<void> {
   unsubscribeServiceSettings?.();
   unsubscribeServiceSettings = null;
   awakeService.dispose();
+  computerUseOverlay?.dispose();
+  computerUseOverlay = null;
   if (!disposalPromise) diagnostics?.write('desktop-stop');
   serviceTerminalManager.disposeAll();
   if (!disposalPromise) {
@@ -814,6 +836,9 @@ async function createWindow(): Promise<void> {
   if (process.platform === 'win32' && !computerHost) {
     computerHost = createComputerHost({ bridgeEnabled: false, observeOnly: computerObserveOnly });
   }
+  if (process.platform === 'win32' && computerHost && !computerUseOverlay) {
+    computerUseOverlay = createComputerUseOverlay(computerHost, app.getLocale());
+  }
   computerHost?.setObserveOnly(computerObserveOnly);
   computerHost?.setBridgeEnabled(computerControlEnabled);
   // Browser pane host: registers this window's browser-pane webviews. The
@@ -873,7 +898,6 @@ async function createWindow(): Promise<void> {
     dialog,
     shell,
     powerMonitor,
-    nativeImage,
     onDesktopSettingsChanged: applyDesktopSettings,
     browserHost,
     updater: desktopUpdater,
@@ -906,6 +930,34 @@ async function createWindow(): Promise<void> {
   ipcMain.on(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);
   diagnostics?.write('ipc-ready', {
     totalMs: Date.now() - startupStartedAt,
+  });
+
+  // Renderer console errors had no sink outside the screenshot window, so a
+  // caught-and-logged failure left no evidence at all. Keep a bounded,
+  // de-duplicated tail: enough to explain a boot, never a growth path.
+  const consoleErrorSeenAt = new Map<string, number>();
+  let consoleErrorsWritten = 0;
+  window.webContents.on('console-message', (event) => {
+    const details = event as unknown as {
+      level?: string;
+      message?: string;
+      lineNumber?: number;
+      sourceId?: string;
+    };
+    if (details.level !== 'error' || consoleErrorsWritten >= 100) return;
+    const message = String(details.message || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+    if (!message) return;
+    const now = Date.now();
+    if (now - (consoleErrorSeenAt.get(message) ?? 0) < 10_000) return;
+    if (consoleErrorSeenAt.size > 200) consoleErrorSeenAt.clear();
+    consoleErrorSeenAt.set(message, now);
+    consoleErrorsWritten += 1;
+    diagnostics?.write('renderer-console-error', {
+      message,
+      source: String(details.sourceId || '').split(/[\\/]/).at(-1)?.slice(0, 120) || '',
+      line: Number(details.lineNumber) || 0,
+      totalMs: now - startupStartedAt,
+    });
   });
 
   let rendererLoaded = false;
@@ -1073,6 +1125,8 @@ async function createWindow(): Promise<void> {
     windowStateFlush = state?.flush().finally(() => state.dispose()) ?? Promise.resolve();
     removeIpc?.();
     removeIpc = null;
+    computerUseOverlay?.dispose();
+    computerUseOverlay = null;
     mainWindow = null;
     turnAttention = null;
   });

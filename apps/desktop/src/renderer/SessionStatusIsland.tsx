@@ -1,4 +1,4 @@
-import { Activity } from 'lucide-react';
+import { Activity, PanelRight } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { liveAgentRows, liveShellCount, liveShellRows } from './AgentActivityPane';
@@ -310,9 +310,16 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
 // above the composer — where they competed with the input surface for space
 // (user: 채팅 입력을 가린다). The capsule frames exactly TWO slots: aggregate
 // work status, then the context gauge.
-export function SessionStatusIsland({ snapshot, onInherit }: {
+export function SessionStatusIsland({
+  snapshot,
+  onInherit,
+  dockOpen = false,
+  onToggleDock,
+}: {
   snapshot: Snapshot;
   onInherit?: () => void;
+  dockOpen?: boolean;
+  onToggleDock?: () => void;
 }) {
   const [openPanel, setOpenPanel] = useState<'work' | 'context' | null>(null);
   const sessionId = String(snapshot.sessionId || '');
@@ -329,5 +336,23 @@ export function SessionStatusIsland({ snapshot, onInherit }: {
     <ContextUsageIndicator snapshot={snapshot}
       open={openPanel === 'context'} onOpenChange={setContextOpen}
       onInherit={onInherit} />
+    {onToggleDock && <button type="button"
+      className="session-dock-toggle session-status-dock-toggle"
+      aria-pressed={dockOpen}
+      aria-label={t(dockOpen ? 'Close {{label}}' : 'Open {{label}}', {
+        label: t('utility panel'),
+      })}
+      data-tooltip={t(dockOpen ? 'Close {{label}}' : 'Open {{label}}', {
+        label: t('utility panel'),
+      })}
+      onClick={() => {
+        setOpenPanel(null);
+        onToggleDock();
+      }}>
+      {/* Island voice is lucide line work (user: 아이콘 크기가 전혀 안 맞아 —
+          채워진 거 말고 선으로 된 아이콘): the filled 16px codicon font glyph
+          read heavier, brighter and off-size beside the 18px stroke marks. */}
+      <PanelRight size={20} aria-hidden="true" />
+    </button>}
   </div>;
 }

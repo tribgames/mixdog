@@ -6,6 +6,10 @@
 .activity-rail > .sidebar-usage-toggle.is-pinned {
   height: auto;
   min-height: 48px;
+  /* Yields only after the destination nav has hit its floor, and clips its
+     own last brand row instead of overflowing onto the Settings cell. */
+  flex: 0 1 auto;
+  overflow: hidden;
   padding: 9px 0 8px;
   /* A monitoring readout must stay readable at rest — never the rail's 40%
      inactive ghost ink (user: 색상이 애매). */

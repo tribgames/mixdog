@@ -36,7 +36,6 @@ export function createSettingsPicker({
   openProfilePicker,
   openMcpPicker,
   openPluginsPicker,
-  openHooksPicker,
   openSkillsPicker,
   openMemoryCorePicker,
   openUpdatePicker,
@@ -82,7 +81,6 @@ export function createSettingsPicker({
     const snapshot = (await store.getSettingsSnapshot?.({ heavy: !heavyCache })) || {};
     const autoClear = snapshot.autoClear || {};
     const compaction = snapshot.compaction || {};
-    const recap = snapshot.recap || { enabled: true };
     const toolModules = snapshot.toolModules || {};
     const webSearchOn = toolModules.webSearch?.enabled !== false;
     const memoryToolsOn = toolModules.memory?.enabled !== false;
@@ -90,17 +88,14 @@ export function createSettingsPicker({
     const outputStyle = snapshot.outputStyle || {};
     const workflow = state.workflow || {};
     const mcp = heavyCache ? heavyCache.mcp : (snapshot.mcp || { connectedCount: 0, configuredCount: 0, failedCount: 0 });
-    const hooks = heavyCache ? heavyCache.hooks : (snapshot.hooks || { ruleCount: 0 });
     const plugins = heavyCache ? heavyCache.plugins : (snapshot.plugins || { count: 0 });
     const skills = heavyCache ? heavyCache.skills : (snapshot.skills || { count: 0 });
     // Refresh the cache every build (light or full) so the next light
     // refresh reuses whatever was most recently known.
-    settingsHeavyCacheRef.current = { mcp, hooks, plugins, skills };
-    const compactTypeLabel = 'Fast-track (fixed)';
+    settingsHeavyCacheRef.current = { mcp, plugins, skills };
     const outputStyleLabel = outputStyle?.current?.label || outputStyle?.current?.id || outputStyle?.configured || 'Default';
     const workflowLabel = workflowDisplayName(workflow);
     const boolLabel = (enabled) => enabled ? 'On' : 'Off';
-    const compactTypeDescription = 'Uses Memory recall to rebuild context faster on large histories.';
     // Post-write refresh, bound to the claim AT ACTION TIME. Esc only
     // invalidates builds that already exist, so a write settling afterwards
     // would otherwise take a fresh generation and re-open the panel the user
@@ -127,7 +122,7 @@ export function createSettingsPicker({
             store.pushNotice('compaction setting is busy', 'warn');
             return;
           }
-          store.pushNotice(`Compaction ${next.auto !== false ? 'auto on' : 'auto off'} · ${next.compactType === 'recall-fasttrack' ? 'Fast-track' : 'Default'}`, 'info');
+          store.pushNotice(`Compaction ${next.auto !== false ? 'auto on' : 'auto off'}`, 'info');
         })
         .catch((e) => store.pushNotice(`compaction failed: ${e?.message || e}`, 'error'))
         .finally(deferredSettingsRefresh());
@@ -155,16 +150,6 @@ export function createSettingsPicker({
     };
     const toggleWebSearch = () => applyToolModule('Web search', store.setWebSearchEnabled, !webSearchOn);
     const toggleMemory = () => applyToolModule('Memory', store.setMemoryToolsEnabled, !memoryToolsOn);
-    const toggleMemoryCycles = () => {
-      const enabled = !(recap.enabled !== false);
-      void Promise.resolve(store.setRecapEnabled?.(enabled))
-        .then((next) => {
-          if (!next) store.pushNotice('Memory cycles setting is busy', 'warn');
-          else store.pushNotice(`Memory cycles ${enabled ? 'on' : 'off'}`, 'info');
-        })
-        .catch((e) => store.pushNotice(`Memory cycles setting failed: ${e?.message || e}`, 'error'))
-        .finally(deferredSettingsRefresh());
-    };
     const cycleOutputStyle = async (direction = 1) => {
       // Epoch captured on the KEYPRESS, BEFORE the listOutputStyles preflight:
       // taking it after that await would bind to whatever surface the user
@@ -326,13 +311,6 @@ export function createSettingsPicker({
         _action: 'autocompact',
       },
       {
-        value: 'compact-type',
-        label: 'Compact type',
-        meta: compactTypeLabel,
-        description: compactTypeDescription,
-        _action: null,
-      },
-      {
         value: 'autoclear',
         label: 'Auto-clear',
         meta: autoClearEnabled ? `On (${formatDuration(autoClear.idleMs)})` : 'Off',
@@ -340,15 +318,6 @@ export function createSettingsPicker({
           ? `Clear idle sessions after ${formatDuration(autoClear.idleMs)}${autoClear.custom ? '' : ` (${autoClear.provider || 'default'} default)`}. Enter for options.`
           : 'Idle auto-clear disabled. Enter for options.',
         _action: 'autoclear',
-      },
-      {
-        value: 'memory-cycles',
-        label: 'Memory cycles',
-        meta: boolLabel(recap.enabled !== false),
-        description: recap.enabled === false
-          ? 'Background cycles off. Recall and manual core memory stay available.'
-          : 'Background memory cycles and model memory writes.',
-        _action: 'memory-cycles',
       },
       {
         value: 'memory',
@@ -373,12 +342,6 @@ export function createSettingsPicker({
         label: 'Plugins',
         description: `${plugins.count || 0} detected`,
         _action: 'plugins',
-      },
-      {
-        value: 'hooks',
-        label: 'Hooks',
-        description: `${hooks.ruleCount || 0} before-tool rules`,
-        _action: 'hooks',
       },
       {
         value: 'skills',
@@ -436,7 +399,6 @@ export function createSettingsPicker({
         else if (item?._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
         else if (item?._action === 'web-search-enabled') toggleWebSearch();
         else if (item?._action === 'memory-enabled') toggleMemory();
-        else if (item?._action === 'memory-cycles') toggleMemoryCycles();
         else if (item?._action === 'voice') applyVoice();
         else if (item?._action === 'output-style') cycleOutputStyle(-1);
         else if (item?._action === 'theme') cycleTheme(-1);
@@ -447,7 +409,6 @@ export function createSettingsPicker({
         else if (item?._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
         else if (item?._action === 'web-search-enabled') toggleWebSearch();
         else if (item?._action === 'memory-enabled') toggleMemory();
-        else if (item?._action === 'memory-cycles') toggleMemoryCycles();
         else if (item?._action === 'voice') applyVoice();
         else if (item?._action === 'output-style') cycleOutputStyle(1);
         else if (item?._action === 'theme') cycleTheme(1);
@@ -459,7 +420,6 @@ export function createSettingsPicker({
         else if (item._action === 'autocompact') applyCompaction({ auto: !(compaction.auto !== false) });
         else if (item._action === 'web-search-enabled') toggleWebSearch();
         else if (item._action === 'memory-enabled') toggleMemory();
-        else if (item._action === 'memory-cycles') toggleMemoryCycles();
         else if (item._action === 'voice') applyVoice();
         else if (item._action === 'output-style') openOutputStylePicker({
           returnTo: openSettingsPicker,
@@ -493,7 +453,6 @@ export function createSettingsPicker({
         });
         else if (item._action === 'mcp') openMcpPicker();
         else if (item._action === 'plugins') openPluginsPicker();
-        else if (item._action === 'hooks') openHooksPicker();
         else if (item._action === 'skills') openSkillsPicker();
         else if (item._action === 'memory') openMemoryCorePicker({ returnTo: openSettingsPicker });
         else if (item._action === 'system-shell') {

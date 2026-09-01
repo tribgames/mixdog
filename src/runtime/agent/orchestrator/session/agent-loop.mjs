@@ -7,13 +7,6 @@ import { traceAgentLoop, traceAgentTool, traceAgentToolFailure, traceAgentCompac
 import { resolveSessionMaxLoopIterations } from '../agent-runtime/agent-loop-policy.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { markSessionToolCall, updateSessionStage, SessionClosedError, bumpUsageMetricsEpoch } from './manager.mjs';
-import {
-    pruneToolOutputs,
-    pruneToolOutputsUnanchored,
-    semanticCompactMessages,
-    effectiveBudget as compactEffectiveBudget,
-    DEFAULT_COMPACT_TYPE,
-} from './compact.mjs';
 import { isContextOverflowError } from '../providers/retry-classifier.mjs';
 import { tryReadCached, setReadCached, invalidatePathForSession, clearReadDedupSession, extractTouchedPathsFromPatch, tryScopedToolCached, setScopedToolCached, clearScopedToolsForSession, clearScopedToolsForSessionPaths, invalidatePrefetchCache } from './read-dedup.mjs';
 import { isInvalidToolArgsMarker, formatInvalidToolArgsResult } from '../providers/openai-compat-stream.mjs';
@@ -60,10 +53,8 @@ import {
     compactionTelemetryPressureTokens,
     compactTargetBudget,
     shouldCompactForSession,
-    countPrunedToolOutputs,
     rememberCompactTelemetry,
     emitCompactEvent,
-    compactEventType,
 } from './loop/compact-policy.mjs';
 import {
     isEagerDispatchable,

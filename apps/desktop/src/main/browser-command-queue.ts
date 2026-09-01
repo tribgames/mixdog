@@ -12,7 +12,8 @@ export interface BrowserCommandQueueHost {
   chains: Map<string, Promise<unknown>>;
   /** Reads in flight per queue key, which a write must outlast. */
   pendingReads: Map<string, Set<Promise<unknown>>>;
-  backgroundEntryByPageId(pageId: string): [string, unknown] | null;
+  sessionId?(command: BrowserCommand): string;
+  backgroundEntryByPageId(sessionId: string, pageId: string): [string, unknown] | null;
   run(command: BrowserCommand, signal?: AbortSignal): Promise<BrowserCommandResult>;
   /** The per-command ceiling, which also cancels the work it was waiting on. */
   bounded<T>(
@@ -30,6 +31,7 @@ export function createBrowserCommandQueue(host: BrowserCommandQueueHost) {
   const {
     chains: commandChains,
     pendingReads,
+    sessionId,
     backgroundEntryByPageId,
     run: runCommand,
     bounded,
@@ -57,19 +59,23 @@ export function createBrowserCommandQueue(host: BrowserCommandQueueHost) {
   }
 
   function commandQueueKey(command: BrowserCommand): string {
+    const owner = sessionId?.(command);
+    const prefix = owner ? `session:${owner}:` : '';
     const action = String(command.action || '').trim().toLowerCase();
-    if (action === 'list_tabs' || action === 'downloads') return 'metadata';
+    if (action === 'list_tabs' || action === 'downloads') return `${prefix}metadata`;
     const tab = String(command.tab || '').trim();
     if (/^p\d+$/i.test(tab)) {
-      const found = backgroundEntryByPageId(tab);
-      if (found) return `background:${found[0]}`;
-      return 'foreground';
+      const found = backgroundEntryByPageId(owner ?? '', tab);
+      if (found) return `${prefix}background:${found[0]}`;
+      return `${prefix}foreground`;
     }
-    if (command.background === true) return `background:${normalizeBackgroundTabName(tab)}`;
+    if (command.background === true) {
+      return `${prefix}background:${normalizeBackgroundTabName(tab)}`;
+    }
     if (tab && !/^v\d+$/i.test(tab) && !/^p\d+$/i.test(tab)) {
-      return `background:${normalizeBackgroundTabName(tab, { required: true })}`;
+      return `${prefix}background:${normalizeBackgroundTabName(tab, { required: true })}`;
     }
-    return 'foreground';
+    return `${prefix}foreground`;
   }
 
   function executeSerialized(

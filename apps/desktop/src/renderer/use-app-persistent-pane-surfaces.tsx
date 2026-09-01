@@ -1,10 +1,9 @@
-import { Suspense, useRef, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useRef, type MutableRefObject } from "react";
 import type { NavigationSelection, WorkspaceSelection } from "./navigation";
 import { paneActiveSelection, type PaneLeaf } from "./pane-layout";
 import type { usePaneWorkspace } from "./pane-workspace-state";
 import type { useWorkbenchWorkspace } from "./workbench-workspace";
 import { navigationKey } from "./text-format";
-import { BrowserPane, FolderPane } from "./lazy-widgets";
 import { PullRequestEditor } from "./PullRequestsPane";
 import {
   DeferredPersistentSurface,
@@ -26,13 +25,12 @@ type PaneWorkspace = ReturnType<typeof usePaneWorkspace>;
 type WorkbenchWorkspace = ReturnType<typeof useWorkbenchWorkspace>;
 
 type UtilitySelection = Extract<WorkspaceSelection, {
-  kind: "studio" | "terminal" | "folder" | "browser" | "diff" | "pull-request";
+  kind: "studio" | "terminal" | "diff" | "pull-request";
 }>;
 
 /** Tabs that own a persistent utility surface (one mounted pane each). */
 function isUtilitySelection(selection: WorkspaceSelection): selection is UtilitySelection {
   return selection.kind === "studio" || selection.kind === "terminal"
-    || selection.kind === "folder" || selection.kind === "browser"
     || selection.kind === "diff" || selection.kind === "pull-request";
 }
 
@@ -51,8 +49,6 @@ export function useAppPersistentPaneSurfaces({
   registerEditorSaveHandle,
   openFileTab,
   latestEditorLocation,
-  openDroppedPaths,
-  setFolderPaneTitles,
   sidebarOpen,
   toggleSidebar,
 }: {
@@ -63,8 +59,6 @@ export function useAppPersistentPaneSurfaces({
   registerEditorSaveHandle(key: string, save: { save(): Promise<boolean>; discard(): Promise<void> } | null): void;
   openFileTab(project: string, rel: string, line?: number, accessToken?: string): void;
   latestEditorLocation: MutableRefObject<EditorNavigationLocation | null>;
-  openDroppedPaths(leafId: string, paths: string[]): Promise<void>;
-  setFolderPaneTitles: Dispatch<SetStateAction<ReadonlyMap<string, string>>>;
   sidebarOpen: boolean;
   toggleSidebar(): void;
 }) {
@@ -225,11 +219,7 @@ export function useAppPersistentPaneSurfaces({
         ? "Loading diff…"
         : utilitySelection.kind === "terminal"
           ? "Loading terminal…"
-          : utilitySelection.kind === "browser"
-            ? "Loading browser…"
-          : utilitySelection.kind === "folder"
-            ? "Loading folder…"
-            : "Loading pull request…";
+          : "Loading pull request…";
     return <PersistentPanePortal key={key}
       targetId={paneUtilitySurfaceSlotId(leafId, key)}
       className={`${utilitySelection.kind}-persistent-surface`}
@@ -246,23 +236,6 @@ export function useAppPersistentPaneSurfaces({
           : utilitySelection.kind === "terminal"
             ? <ReadyTerminalPane cwd={utilitySelection.cwd || null}
                 terminalId={utilitySelection.id} active={utilityActive} />
-            : utilitySelection.kind === "browser"
-              ? <Suspense fallback={null}>
-                  <BrowserPane paneId={utilitySelection.id} active={utilityActive}
-                    foreground={utilityActive && descriptor.focused} />
-                </Suspense>
-            : utilitySelection.kind === "folder"
-              ? <Suspense fallback={null}>
-                  <FolderPane paneId={utilitySelection.id}
-                    root={utilitySelection.path} active={utilityActive}
-                    onOpenTextFile={(path) => openDroppedPaths(leafId, [path])}
-                    onTitleChange={(title) => setFolderPaneTitles((current) => {
-                      if (current.get(key) === title) return current;
-                      const next = new Map(current);
-                      next.set(key, title);
-                      return next;
-                    })} />
-                </Suspense>
             : utilitySelection.kind === "diff"
               ? <ReadyGitDiffPane selection={utilitySelection} active={utilityActive}
                   onOpenFile={openFileTab} />

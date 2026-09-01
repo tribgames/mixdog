@@ -34,7 +34,7 @@ const SAFE_RASTER_IMAGE_TYPES = new Set([
 const RETRYABLE_ACTIONS = new Set(BROWSER_OBSERVATION_ACTIONS);
 
 const BRIDGE_UNAVAILABLE_MESSAGE =
-  'browser use is unavailable; open the Mixdog desktop app (the browser tool drives its Utilities → Browser Use pane)';
+  'browser use is unavailable; open the Mixdog desktop app and enable Browser Use';
 
 function discoveryPath() {
   const dataDir = process.env.MIXDOG_DATA_DIR
@@ -109,10 +109,14 @@ export async function executeBrowserTool(args, options = {}) {
   if (!validated.ok) {
     return { content: [{ type: 'text', text: `Error: ${validated.error}` }], isError: true };
   }
+  const sessionId = String(options.sessionId || '').trim();
+  if (!sessionId) {
+    return { content: [{ type: 'text', text: 'Error: browser session context is unavailable' }], isError: true };
+  }
   const payload = {
     action: validated.action,
     ...validated.input,
-    ...(options.sessionId ? { session_id: String(options.sessionId) } : {}),
+    session_id: sessionId,
     ...(Number.isFinite(Number(options.turnId)) && Number(options.turnId) > 0
       ? { turn_id: Math.trunc(Number(options.turnId)) }
       : {}),

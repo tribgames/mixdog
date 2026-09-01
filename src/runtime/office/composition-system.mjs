@@ -291,6 +291,7 @@ function selectCandidate(candidates, {
   seed,
   usage,
   explicitVariant = '',
+  layoutBias = [],
 }) {
   const evidence = new Set(topology.evidence);
   const ranked = candidates.map((candidate) => {
@@ -301,6 +302,7 @@ function selectCandidate(candidates, {
     if (candidate.modes?.includes(context.expressionMode)) score += 5;
     if (candidate.densities?.includes(density || topology.density)) score += 3;
     score += (candidate.evidence || []).filter((entry) => evidence.has(entry)).length * 3;
+    if (layoutBias.includes(String(candidate.family || ''))) score += 6;
     if (context.expressionMode === 'divergent') score += Number(candidate.novelty || 0) * 3;
     if (context.expressionMode === 'conservative') score -= Number(candidate.novelty || 0) * 2;
     if (explicitVariant && (candidate.variant === explicitVariant || candidate.id === explicitVariant)) score += 100;
@@ -389,6 +391,9 @@ export function planOfficeComposition(format, operation = {}, design = {}, {
       seed,
       usage,
       explicitVariant,
+      layoutBias: Array.isArray(design.artDirection?.selected?.deck?.layoutBias)
+        ? design.artDirection.selected.deck.layoutBias
+        : [],
     });
     const result = {
       id: selected.candidateId,

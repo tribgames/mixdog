@@ -60,10 +60,7 @@ function selectionLabel(selection: WorkspaceSelection | null): string {
     case "session": return selection.id;
     case "file": return selection.rel.split("/").at(-1) || selection.rel;
     case "studio": return "Studio";
-    case "browser": return "Browser Use";
     case "terminal": return "Terminal";
-    case "folder":
-      return selection.path.replace(/[\\/]+$/, "").split(/[\\/]/).at(-1) || selection.path;
     case "pull-request": return selection.title || `Pull Request #${selection.number}`;
     case "diff": return `${selection.rel.split("/").at(-1) || selection.rel} (Diff)`;
   }
@@ -444,13 +441,21 @@ function isConversationSelection(
 function parksConversationBehindSelection(selection: WorkspaceSelection | null): boolean {
   return selection?.kind === "file"
     || selection?.kind === "studio" || selection?.kind === "terminal"
-    || selection?.kind === "folder" || selection?.kind === "browser"
     || selection?.kind === "diff" || selection?.kind === "pull-request";
 }
 
-function retainSurfaceForOneFrame(leaf: PaneLeaf): boolean {
-  const active = paneActiveSelection(leaf);
-  return isConversationSelection(active) || parksConversationBehindSelection(active);
+function usesPersistentUtilityPortal(selection: WorkspaceSelection | null): boolean {
+  return selection?.kind === "studio" || selection?.kind === "terminal"
+    || selection?.kind === "diff" || selection?.kind === "pull-request";
+}
+
+function retainSurfaceForOneFrame(previousLeaf: PaneLeaf, currentLeaf: PaneLeaf): boolean {
+  // A utility destination needs its physical portal slot in the same commit.
+  // Holding the outgoing layer suppresses that slot; a missed retirement frame
+  // then leaves a newly opened Studio mounted nowhere and the pane stays blank.
+  if (usesPersistentUtilityPortal(paneActiveSelection(currentLeaf))) return false;
+  const previous = paneActiveSelection(previousLeaf);
+  return isConversationSelection(previous) || parksConversationBehindSelection(previous);
 }
 
 function dropZoneStyle(preview: DropPreview): React.CSSProperties {
@@ -474,6 +479,8 @@ export function PaneWorkspace({
   renderConversation,
   renderFileEditors,
   renderUtilityTabs,
+  renderSideDock,
+  renderProblems,
   onFocusSelection,
   onOpenDroppedPaths,
 }: {
@@ -506,6 +513,13 @@ export function PaneWorkspace({
     focused: boolean,
     focusPane: () => void,
   ) => React.ReactNode;
+  /** Per-pane right dock: ONE side-tab unit (header + source control /
+   *  browser / diff children) attached to the pane's right edge. */
+  renderSideDock?: (leaf: PaneLeaf, focused: boolean) => React.ReactNode;
+  /** Problems: the file editor's own bottom sub-panel (user: DIFF처럼
+   *  스크립트에 종속) — docked under the pane surface stack while the
+   *  pane's active tab is a file. */
+  renderProblems?: (leaf: PaneLeaf, focused: boolean) => React.ReactNode;
   /** Navigate App's interactive surface when another pane takes focus. */
   onFocusSelection: (selection: WorkspaceSelection) => void;
   /** Opens native/internal file drops in the pane they were dropped onto. */
@@ -838,7 +852,8 @@ export function PaneWorkspace({
     const current = { key: paneSurfaceKey(leaf), leaf };
     const previous = previousPaneSurfaces.current.get(leaf.id);
     currentPaneSurfaces.set(leaf.id, current);
-    if (previous && previous.key !== current.key && retainSurfaceForOneFrame(previous.leaf)) {
+    if (previous && previous.key !== current.key
+      && retainSurfaceForOneFrame(previous.leaf, current.leaf)) {
       paneSurfaceHandoffs.current.set(leaf.id, previous);
     } else if (paneSurfaceHandoffs.current.get(leaf.id)?.key === current.key) {
       paneSurfaceHandoffs.current.delete(leaf.id);
@@ -1043,6 +1058,8 @@ export function PaneWorkspace({
         {...fileDropPropsFor(leaf.id)}>
         {renderStrip?.(leaf)}
         {renderPaneSurfaceStack(leaf, true)}
+        {renderProblems?.(leaf, true)}
+        {renderSideDock?.(leaf, true)}
         {overlay}
       </div>
       {conversationPortals}
@@ -1065,6 +1082,8 @@ export function PaneWorkspace({
               aria-hidden={focused ? undefined : true}>
               {renderStrip?.(leaf)}
               {renderPaneSurfaceStack(leaf, focused)}
+              {renderProblems?.(leaf, focused)}
+              {renderSideDock?.(leaf, focused)}
             </div>
           );
         })}
@@ -1085,6 +1104,8 @@ export function PaneWorkspace({
             {...fileDropPropsFor(leaf.id)}>
             {renderStrip?.(leaf)}
             {renderPaneSurfaceStack(leaf, focused)}
+            {renderProblems?.(leaf, focused)}
+            {renderSideDock?.(leaf, focused)}
           </div>
         );
       }}

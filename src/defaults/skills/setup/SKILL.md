@@ -18,7 +18,7 @@ description: Use this skill only to inspect or modify a Mixdog user's persisted 
 - 프로젝트 config: `<cwd>/.mixdog/hooks.json`
 - TUI 명령 목록: `src/tui/app/slash-commands.mjs`
 - TUI 설정 허브: `/setting` (별칭 `/settings`, `/config`) → `src/tui/app/settings-picker.mjs`
-- Desktop 설정: `Ctrl+,` → General / Context / Output style / Providers / Git / Skills / MCP / Plugins / Hooks / Connection / System / Shortcuts / About
+- Desktop 설정: `Ctrl+,` → General / Context / Output style / Providers / Git / Skills / MCP / Plugins / Connection / System / Shortcuts / About
 - Desktop rail: **Projects / Workflows / Schedules / Webhooks / Utilities**
 
 사용자 경로와 지원 여부는 **현재 Desktop 구현을 최신 기준**으로 판정한다. TUI는 Desktop에 없는 고급 경로를 보완할 때만 사용하며, 저장만 왕복되고 실제 소비되지 않는 key는 사용자 옵션으로 설명하지 않는다.
@@ -219,7 +219,7 @@ API 키·토큰·OAuth 자격은 config에 쓰지 않는다.
 
 1. **확인**: `/setting → Auto-compact`, Desktop **Settings → Context**, 디스크 `agent.compaction`.
 2. **변경**: Auto-compact toggle → `setCompactionSettings({ auto })`.
-3. **고정 계약**: Compact type은 `Fast-track (fixed)`이며 UI 변경 불가. memory recap이 꺼져도 recall-fasttrack은 유지된다.
+3. **고정 계약**: 모든 session은 하나의 fresh-context Compact를 사용한다. Main은 Memory handoff, Agent는 session-local handoff를 사용하며 type 선택 UI는 없다.
 
 ### Memory / Recap / Core Memory
 
@@ -260,7 +260,7 @@ TUI·Desktop interval 편집 UI는 없다.
 
 ---
 
-## 4. MCP·Skills·Plugins·Hooks
+## 4. MCP·Skills·Plugins·Hooks(내부)
 
 ### MCP 추가
 
@@ -319,14 +319,13 @@ UI 생성 액션은 없다.
 
 Plugin toggle은 해당 Plugin의 Skills와 MCP를 전역으로 함께 활성화/비활성화한다. 개별 MCP와 Skill은 각 화면에서도 관리할 수 있다.
 
-### Hooks
+### Hooks (사용자 설정 UI 없음)
 
-1. **확인**: `/hooks` 또는 Desktop **Settings → Hooks**, `hooksStatus()`.
-2. **UI 범위**: 기존 rule의 Enable/Disable만 지원한다. UI에서 add/delete/edit은 하지 않는다.
-3. **추가·수정·삭제**: hook config 파일을 편집하거나 runtime `addHookRule()` / `deleteHookRule()`을 사용한다.
-4. **검색 경로**: `MIXDOG_HOOKS_FILE` → 프로젝트 `.mixdog/hooks.json`·`.mixdog/hooks/hooks.json` → 글로벌 `<mixdogData>/hooks.json`·`hooks/hooks.json` → plugin hooks.
-5. **형식**: 표준 `{ "hooks": { "<Event>": [{ "matcher": "...", "hooks": [...] }] } }`; 레거시 before-tool 배열도 읽는다.
-6. **검증**: mtime 기반 자동 reload 후 Hooks 목록과 대상 event 발동을 확인한다.
+1. **범위**: hook은 plugin·내부 연동 전용이다. Desktop 설정 화면과 `/hooks` 슬래시 명령은 제공하지 않으므로 사용자 옵션으로 안내하지 않는다.
+2. **구성**: hook config 파일을 직접 편집하거나 runtime `addHookRule()` / `setHookRuleEnabled()` / `deleteHookRule()`을 사용한다.
+3. **검색 경로**: `MIXDOG_HOOKS_FILE` → 프로젝트 `.mixdog/hooks.json`·`.mixdog/hooks/hooks.json` → 글로벌 `<mixdogData>/hooks.json`·`hooks/hooks.json` → plugin hooks.
+4. **형식**: 표준 `{ "hooks": { "<Event>": [{ "matcher": "...", "hooks": [...] }] } }`; 레거시 before-tool 배열도 읽는다.
+5. **검증**: mtime 기반 자동 reload 후 `/doctor`의 hooks 행과 대상 event 발동을 확인한다.
 
 ---
 
@@ -415,7 +414,7 @@ Desktop과 현재 runtime에서 소비되지 않는 아래 key는 사용자 옵�
 | `channels.webhook.ngrokDomain`, `channels.webhook.respectQuiet` | 제거; endpoint URL은 Desktop Webhooks가 발급 |
 | `agent.outputStyle` | 제거 (이관 없음; 루트 `outputStyle`만 유효) |
 
-다음 항목은 레거시처럼 보여도 현행이므로 유지한다: 루트 `outputStyle`, `agent.shell`, `agent.modules`, compaction의 `type/compactType`과 recall tuning fields.
+다음 항목은 레거시처럼 보여도 현행이므로 유지한다: 루트 `outputStyle`, `agent.shell`, `agent.modules`, compaction의 `auto`, `summaryModel`, `timeoutMs`, `memoryTimeoutMs`, buffer/target fields.
 
 ---
 

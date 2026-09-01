@@ -10,6 +10,7 @@ import { app, BrowserWindow, nativeImage, webContents, type WebContents } from '
 import { BROWSER_ACTIONS } from '../../../../src/runtime/browser-bridge/browser-action-contract.mjs';
 import { createBrowserHost, type BrowserHost } from './browser-host';
 import { createPolling } from './host-harness-poll';
+import { DESKTOP_IPC, type DesktopBrowserOpenRequest } from '../shared/contract';
 
 interface CommandResponse {
   ok: boolean;
@@ -303,6 +304,15 @@ async function run(): Promise<void> {
       },
     });
     host = createBrowserHost(parent);
+    const browserSurfaceRequests: DesktopBrowserOpenRequest[] = [];
+    const parentWebContents = parent.webContents;
+    const sendToRenderer = parentWebContents.send.bind(parentWebContents);
+    parentWebContents.send = ((channel: string, ...args: unknown[]) => {
+      if (channel === DESKTOP_IPC.browserOpenRequested) {
+        browserSurfaceRequests.push(args[0] as DesktopBrowserOpenRequest);
+      }
+      sendToRenderer(channel, ...args);
+    }) as typeof parentWebContents.send;
     const visibleGuestAttached = new Promise<WebContents>((resolve) => {
       parent?.webContents.once('did-attach-webview', (_event, guest) => resolve(guest));
     });
@@ -312,7 +322,7 @@ async function run(): Promise<void> {
       <webview src="${origin}/root" partition="persist:mixdog-browser"></webview>
     `)}`);
     const visibleGuest = await visibleGuestAttached;
-    host.setGuestActive('integration-browser-pane', visibleGuest.id, true);
+    host.setGuestActive('browser-integration-session', visibleGuest.id, true);
     host.setBridgeEnabled(true);
     const discovery = await readDiscovery(join(dataDirectory, 'browser-bridge.json'));
     progress('browser bridge discovered');
@@ -392,12 +402,20 @@ async function run(): Promise<void> {
     });
     assert.match(alpha.text, /Extended snapshot tail/);
     assert.match(alpha.text, /fresh; use these refs directly, do not call snapshot again/);
+    assert.deepEqual(browserSurfaceRequests, []);
     const alphaGuest = contentsWithUrl('/root');
     alphaGuest.setZoomFactor(0.75);
     assert.ok(Math.abs(alphaGuest.getZoomFactor() - 0.75) < 0.01);
     alpha = await command({ action: 'snapshot', tab: 'alpha' });
     assert.doesNotMatch(alpha.text, /Extended snapshot tail/);
     progress('root navigation complete');
+    await command({ action: 'open' });
+    await command({ action: 'open' });
+    assert.deepEqual(browserSurfaceRequests.splice(0), [
+      { sessionId: 'browser-integration-session', reveal: true },
+      { sessionId: 'browser-integration-session', reveal: true },
+    ]);
+    progress('existing foreground guest reveal complete');
     assert.doesNotMatch(alpha.text, /do-not-leak-password/);
     const spaRef = refNamed(alpha.text, 'Update SPA');
     alpha = await command({
@@ -972,6 +990,27 @@ async function run(): Promise<void> {
       tab: 'beta',
     });
     assert.match(storage.text, /storage-ready/);
+    await assert.rejects(
+      command({ action: 'cookies', operation: 'clear', tab: 'beta' }),
+      /shared clear requires confirm=true/,
+    );
+    await assert.rejects(
+      command({
+        action: 'storage',
+        operation: 'clear',
+        storageType: 'local',
+        tab: 'beta',
+      }),
+      /shared clear requires confirm=true/,
+    );
+    await command({ action: 'cookies', operation: 'clear', confirm: true, tab: 'beta' });
+    await command({
+      action: 'storage',
+      operation: 'clear',
+      storageType: 'local',
+      confirm: true,
+      tab: 'beta',
+    });
     progress('cookie and storage management complete');
 
     turnId = 36;
@@ -1256,11 +1295,13 @@ async function run(): Promise<void> {
       );
     }
 
-    const remoteFrame = await host.remoteBrowserFrame();
+    const surfaceRequestCountBeforeRemoteFrame = browserSurfaceRequests.length;
+    const remoteFrame = await host.remoteBrowserFrame('browser-integration-session');
+    assert.equal(browserSurfaceRequests.length, surfaceRequestCountBeforeRemoteFrame);
     assert.match(remoteFrame.frameId, /^rbf_[a-z0-9]+$/);
     assert.ok(remoteFrame.image?.data);
     await assert.rejects(
-      host.remoteBrowserControl({
+      host.remoteBrowserControl('browser-integration-session', {
         type: 'tap',
         frameId: 'rbf_stale',
         x: 10,
@@ -1279,6 +1320,11 @@ async function run(): Promise<void> {
       /per-turn action limit \(10\)/,
     );
     progress('per-turn action budget complete');
+
+    host.releaseSession('browser-integration-session');
+    const releasedTabs = await command({ action: 'list_tabs' });
+    assert.doesNotMatch(releasedTabs.text, /\["(?:alpha|beta|popup-\d+)"\]/);
+    progress('session resource release complete');
 
     for (const action of ['navigate', 'snapshot', 'click']) {
       const samples = commandDurations.get(action) || [];

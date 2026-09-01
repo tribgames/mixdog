@@ -184,8 +184,19 @@ export function interleaveRawRows(hybridRows, rawRows) {
   return out
 }
 
-export function renderEntryLines(rows, { recencyOrder = false, pendingMarks = true } = {}) {
+export function renderEntryLines(rows, {
+  recencyOrder = false,
+  pendingMarks = true,
+  maxBodyChars = 8000,
+} = {}) {
   if (!rows || rows.length === 0) return '(no results)'
+  const bodyLimit = Number.isFinite(Number(maxBodyChars)) && Number(maxBodyChars) > 0
+    ? Math.floor(Number(maxBodyChars))
+    : null
+  const boundBody = (value) => {
+    const text = String(value ?? '')
+    return bodyLimit == null ? text : text.slice(0, bodyLimit)
+  }
   // Each emitted line is tracked as a { ts, text } unit so the recencyOrder
   // path can sort the WHOLE stream (roots + their members, plus leaf/raw rows)
   // strictly newest-first. Members are fetched ts-ASC per chunk, so without
@@ -202,9 +213,9 @@ export function renderEntryLines(rows, { recencyOrder = false, pendingMarks = tr
   // No line-count cap here: the orchestrator enforces a global tool-output KB
   // cap (builtin.mjs tool_output_token_limit), so recall need not self-truncate.
   // recencyOrder still collects every unit first so the ts sort sees the full
-  // set; the default path emits in row order. Per-line body is bounded by a
-  // loose 8000-char safety cap so one giant pasted-log row can't monopolize
-  // the envelope.
+  // set; the default path emits in row order. Browsable recall keeps a loose
+  // 8000-char per-line safety cap; lossless compact handoff explicitly disables
+  // that cap and relies on its strict final token budget instead.
   for (const r of rows) {
     // Collapsed near-duplicate (search path only — set by
     // collapseNearDuplicateRows). Emit a one-line stub carrying its #id so an
@@ -228,7 +239,7 @@ export function renderEntryLines(rows, { recencyOrder = false, pendingMarks = tr
       for (const [memberIndex, m] of r.members.entries()) {
         const mTs = formatTs(m.ts)
         const role = m.role === 'user' ? 'u' : m.role === 'assistant' ? 'a' : (m.role || '?')
-        const content = cleanMemoryText(String(m.content ?? '')).slice(0, 8000)
+        const content = boundBody(cleanMemoryText(String(m.content ?? '')))
         const rootElement = memberIndex === 0 ? cleanMemoryText(String(r._historicalRootElement ?? '')) : ''
         const rootSummary = memberIndex === 0 ? cleanMemoryText(String(r._historicalRootSummary ?? '')) : ''
         const rootContext = rootElement || rootSummary
@@ -258,7 +269,7 @@ export function renderEntryLines(rows, { recencyOrder = false, pendingMarks = tr
         : ''
       const body = element || summary
         ? `${element}${summary ? ' — ' + summary : ''}`
-        : cleanMemoryText(String(r.content ?? '')).slice(0, 8000)
+        : cleanMemoryText(String(r.content ?? ''))
       const rootElement = cleanMemoryText(String(r._historicalRootElement ?? ''))
       const rootSummary = cleanMemoryText(String(r._historicalRootSummary ?? ''))
       const rootContext = rootElement || rootSummary
@@ -272,7 +283,7 @@ export function renderEntryLines(rows, { recencyOrder = false, pendingMarks = tr
         ts: Number(r.ts) || 0,
         source_turn: r.source_turn,
         session_id: r.session_id,
-        text: `[${ts}] ${rolePrefix}${body.slice(0, 8000)}${rootContext}${pendingMark}${timeSourceMark(r)} #${r.id}`,
+        text: `[${ts}] ${rolePrefix}${boundBody(body)}${rootContext}${pendingMark}${timeSourceMark(r)} #${r.id}`,
       })
     }
   }
@@ -397,40 +408,6 @@ export function compactDigestRows(rows, limit = 30) {
   return collapseNearDuplicateRows(collapseExactDuplicateRows(rows))
     .filter((row) => !row?._dupStub)
     .slice(0, cap)
-}
-
-export function compactHandoffRows(rows, limit = 30) {
-  const deduped = Array.isArray(rows) ? rows : []
-  const roots = []
-  const raw = []
-  for (const row of deduped) {
-    if (Number(row?.is_root) === 1) {
-      if (String(row?.summary ?? '').trim()) {
-        const { members: _members, ...summaryRow } = row
-        roots.push(summaryRow)
-      } else if (Array.isArray(row?.members) && row.members.length > 0) {
-        raw.push(...row.members)
-      } else {
-        const { members: _members, ...rawRoot } = row
-        raw.push(rawRoot)
-      }
-    } else if (row?.chunk_root == null || Number(row.chunk_root) === Number(row.id)) {
-      raw.push(row)
-    }
-  }
-
-  raw.sort((a, b) => (
-    (Number(a?.source_turn) || 0) - (Number(b?.source_turn) || 0)
-    || (Number(a?.ts) || 0) - (Number(b?.ts) || 0)
-    || (Number(a?.id) || 0) - (Number(b?.id) || 0)
-  ))
-  const selected = [...roots, ...raw]
-  selected.sort(compareRecallNewestFirst)
-  // Handoff is a continuation digest, not a full session dump. Keep the latest
-  // unique state records in deterministic order; the preserved live tail and
-  // durable Goal carry the exact current work. This calls the dedupe contract
-  // the function's comment has always promised but previously omitted.
-  return compactDigestRows(selected, limit)
 }
 
 // Compact session label for group headers: keep short ids verbatim, shorten

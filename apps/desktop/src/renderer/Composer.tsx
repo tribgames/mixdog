@@ -39,7 +39,7 @@ import {
 } from "./composer-support";
 import {
   composerDraftAfterScopeChange,
-  shouldPreserveComposerDraftOnScopeChange,
+  composerScopeOpensFreshDraft,
 } from "./composer-draft";
 import { useComposerDictation } from "./use-composer-dictation";
 import { useComposerAttachments } from "./use-composer-attachments";
@@ -101,6 +101,7 @@ export const Composer = memo(function Composer({
   transitioning,
   focusRequest,
   historyScope,
+  identityScope,
   recoveryScope,
   projectScope,
   sessionId,
@@ -140,6 +141,11 @@ export const Composer = memo(function Composer({
   transitioning: boolean;
   focusRequest: number;
   historyScope: string;
+  /** Which conversation this composer paints — the session id, or
+   *  `draft:<draftId>` for a New Task pane. State resets key on THIS, not on
+   *  historyScope: staging a project on the SAME draft keeps the in-flight
+   *  text, while pressing New task mints a new identity that opens clean. */
+  identityScope: string;
   recoveryScope: string;
   projectScope: string;
   /** This pane's session, so route changes address it instead of whatever the
@@ -220,7 +226,7 @@ export const Composer = memo(function Composer({
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [selectorIndex, setSelectorIndex] = useState(0);
   const [persistedHistory, setPersistedHistory] = useState(() => readPromptHistory(historyScope));
-  const activeHistoryScope = useRef(historyScope);
+  const activeIdentityScope = useRef(identityScope);
   const textarea = useRef<HTMLTextAreaElement>(null);
   // Chromium does not report `KeyboardEvent.isComposing` consistently across
   // every IME event ordering, so keep the explicit composition lifecycle too.
@@ -355,9 +361,8 @@ export const Composer = memo(function Composer({
     };
   }, []);
   useLayoutEffect(() => {
-    if (activeHistoryScope.current === historyScope) return;
-    const previousHistoryScope = activeHistoryScope.current;
-    activeHistoryScope.current = historyScope;
+    if (activeIdentityScope.current === identityScope) return;
+    activeIdentityScope.current = identityScope;
     resetAttachments();
     composingRef.current = false;
     suppressImeLineBreakRef.current = false;
@@ -367,10 +372,9 @@ export const Composer = memo(function Composer({
     // of being wiped (user bug: draft vanished + scroll jumped mid-sentence).
     const typingElement = textarea.current;
     const typingLive = document.activeElement === typingElement;
-    const preserveDraft = shouldPreserveComposerDraftOnScopeChange(
-      previousHistoryScope,
-      historyScope,
-    );
+    // A fresh New Task pane is the exception: it ALWAYS opens clean (user:
+    // 새작업 pulled the previous pane's text and attachments along).
+    const freshDraft = composerScopeOpensFreshDraft(identityScope);
     setDraft((current) => {
       // A remote snapshot can change scope in the same turn as a native input
       // event. The DOM already owns the newest character while React state may
@@ -379,7 +383,7 @@ export const Composer = memo(function Composer({
       const next = composerDraftAfterScopeChange({
         currentDraft: current,
         liveDomDraft: typingElement?.value ?? current,
-        preserveDraft,
+        freshDraft,
         typingLive,
       });
       draftRef.current = next;
@@ -397,9 +401,15 @@ export const Composer = memo(function Composer({
     setDraggingFiles(false);
     setSelectorOpen(false);
     setSelectorIndex(0);
+    historyNavigation.current = { index: -1, seed: '' };
+  }, [identityScope, resetAttachments]);
+  // Prompt history keys on historyScope, which can move WITHOUT the pane
+  // identity changing (staging a project on the same draft turns
+  // new-task:local into new-task:<path>) — refresh it independently.
+  useLayoutEffect(() => {
     setPersistedHistory(readPromptHistory(historyScope));
     historyNavigation.current = { index: -1, seed: '' };
-  }, [historyScope, resetAttachments]);
+  }, [historyScope]);
   const history = useMemo<ComposerHistoryEntry[]>(() => {
     const engineHistory: ComposerHistoryEntry[] = Array.isArray(promptHistoryList)
       ? promptHistoryList.map((entry) => typeof entry === 'string'
@@ -1161,6 +1171,7 @@ export const Composer = memo(function Composer({
           invokeResult={invokeResult} applySnapshot={applySnapshot}
           onOpenSettings={onOpenSettings} onDraftSelection={onDraftModelSelection}
           onRoutePreferenceApplied={onRoutePreferenceApplied} />
+        <span className="composer-primary-actions">
         {/* The mic appears only once the voice runtime is installed
             (Extensions → Voice transcription): an uninstalled feature never
             advertises itself in the composer. */}
@@ -1208,6 +1219,7 @@ export const Composer = memo(function Composer({
               ? <ProgressSpinner className="composer-mic-spinner" size={16} />
               : <ArrowUp size={16} />}
         </button>
+        </span>
       </div>
       </form>
     </>

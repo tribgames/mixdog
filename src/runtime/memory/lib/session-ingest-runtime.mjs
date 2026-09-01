@@ -177,7 +177,9 @@ export function createSessionIngestRuntime({
     // Recall fast-track hydrates the current session before compaction; allow
     // callers to ingest the full in-memory transcript instead of silently
     // clipping long sessions at 500 turns. Default remains conservative.
-    const limit = Math.max(1, Math.min(5000, Number(args.limit) || 200))
+    const limit = args.fullTranscript === true
+      ? messages.length
+      : Math.max(1, Math.min(5000, Number(args.limit) || 200))
     const start = Math.max(0, messages.length - limit)
     const projectId = resolveProjectScope(typeof args.cwd === 'string' && args.cwd ? args.cwd : null)
     let considered = 0
@@ -382,7 +384,7 @@ export function createSessionIngestRuntime({
         .catch((err) => log(`[ingest] untimestamped high-water persist failed: ${err?.message || err}\n`))
     }
     // Always-on post-ingest raw embedding: freshly ingested rows become
-    // dense-searchable immediately (autoclear/recall-fasttrack hydration,
+    // dense-searchable immediately (autoclear/fresh-context hydration,
     // recall empty-fallback), without waiting for cycle1 chunking or the
     // ~60s background tick. Local ONNX only — no LLM cost, so it runs
     // regardless of the recap toggle.

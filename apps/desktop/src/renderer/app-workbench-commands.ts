@@ -28,12 +28,10 @@ export function buildAppWorkbenchCommands({
   openDockTab,
   bottomPanel,
   toggleBottomPanel,
-  toggleTerminalPanel,
   editorCommandCapabilities,
   toggleSidebar,
   toggleDock,
   openTerminalTab,
-  openFolderTab,
   startTask,
   openStudioTab,
   openSettings,
@@ -50,12 +48,10 @@ export function buildAppWorkbenchCommands({
   openDockTab(tab: UtilityDockTab): void;
   bottomPanel: { setTab(tab: string): void };
   toggleBottomPanel(): void;
-  toggleTerminalPanel(): void;
   editorCommandCapabilities: ReturnType<typeof getEditorCommandCapabilities>;
   toggleSidebar(): void;
   toggleDock(): void;
   openTerminalTab(): void;
-  openFolderTab(): void;
   startTask(): void;
   openStudioTab(): void;
   openSettings(): void;
@@ -163,13 +159,6 @@ export function buildAppWorkbenchCommands({
       label: "Toggle Panel",
       shortcut: "Ctrl+J",
       run: toggleBottomPanel,
-    },
-    {
-      id: "workbench.action.terminal.toggleTerminal",
-      category: "Terminal",
-      label: "Toggle Terminal",
-      shortcut: "Ctrl+` / Ctrl+T",
-      run: toggleTerminalPanel,
     },
     {
       id: "editor.action.revealDefinition",
@@ -361,12 +350,6 @@ export function buildAppWorkbenchCommands({
       category: "Terminal",
       label: "Create New Terminal",
       run: () => openTerminalTab(),
-    },
-    {
-      id: "mixdog.action.openFolderPane",
-      category: "View",
-      label: "Open Folder…",
-      run: () => openFolderTab(),
     },
     {
       id: "mixdog.action.newTask",

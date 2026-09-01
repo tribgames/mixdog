@@ -1362,8 +1362,8 @@ export function StudioPane({
           only the drawer reopen control because their tab strip is hidden. */}
       <header className="session-header studio-header" aria-label={t('Studio navigation')}>
         <div className="session-header-content">
-          {/* Phone-only sidebar reopen, exactly like the chat header (CSS
-              hides it on desktop where the titlebar owns the toggle). */}
+          {/* Phone-only sidebar reopen, exactly like the chat header. Desktop
+              uses the Activity Rail's Sessions control. */}
           <button type="button" className="toolbar-sidebar session-header-menu"
             aria-label={t('Toggle session list')} aria-expanded={sidebarOpen}
             onClick={onToggleSidebar}>

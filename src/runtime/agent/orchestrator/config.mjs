@@ -290,14 +290,6 @@ function nonEmptyConfigObject(value) {
     return Object.keys(value).length > 0 ? value : undefined;
 }
 
-function normalizeStoredCompactionType(value) {
-    const raw = String(value ?? '').trim().toLowerCase().replace(/_/g, '-');
-    if (['1', 'type1', 'type-1', 'semantic', 'summary', 'default'].includes(raw)) return 'semantic';
-    if (['2', 'type2', 'type-2', 'recall', 'recall-fast', 'recall-fasttrack',
-        'recall-fast-track', 'fasttrack', 'fast-track'].includes(raw)) return 'recall-fasttrack';
-    return 'recall-fasttrack';
-}
-
 function canonicalizeAutoClearStorage(value) {
     const raw = configObject(value);
     const next = { ...raw };
@@ -331,15 +323,18 @@ function canonicalizeAutoClearStorage(value) {
 function canonicalizeCompactionStorage(value) {
     const raw = configObject(value);
     const next = { ...raw };
-    const hasType = ['type', 'compactType', 'compact_type']
-        .some((key) => Object.prototype.hasOwnProperty.call(raw, key));
-    if (hasType) next.type = normalizeStoredCompactionType(raw.type ?? raw.compactType ?? raw.compact_type);
+    if (!next.summaryModel && raw.semanticModel) next.summaryModel = raw.semanticModel;
+    if (!next.memoryTimeoutMs && raw.recallMemoryTimeoutMs) next.memoryTimeoutMs = raw.recallMemoryTimeoutMs;
     if (Object.prototype.hasOwnProperty.call(raw, 'auto')
         || Object.prototype.hasOwnProperty.call(raw, 'enabled')) {
         next.auto = raw.auto !== false && raw.enabled !== false;
     }
-    delete next.compactType;
-    delete next.compact_type;
+    for (const key of [
+        'type', 'compactType', 'compact_type', 'semantic', 'semanticModel', 'prune', 'tailTurns',
+        'recallMemoryTimeoutMs', 'recallIngestLimit', 'recallChunkLimit', 'recallLimit',
+        'recallCycle1BatchSize', 'recallRowsPerSession', 'recallWindowSize',
+        'recallConcurrency', 'recallCycle1DeadlineMs',
+    ]) delete next[key];
     delete next.enabled;
     return nonEmptyConfigObject(next);
 }

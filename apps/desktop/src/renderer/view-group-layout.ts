@@ -173,3 +173,85 @@ export function createViewGroupLayout<Id extends string>({
     useLayout,
   };
 }
+
+/** Container-level drag acceptance for a whole tab strip. Only the tab
+ *  buttons themselves called preventDefault on dragover, so the browser
+ *  flashed its no-drop cursor over every gap and margin between them during a
+ *  reorder (user: 드래그할 때 자꾸 금지 표기가 떠). Spread on the strip's
+ *  container, these props keep the "move" cursor across the whole strip and
+ *  route a drop landing beside a button to the NEAREST tab instead of
+ *  cancelling. Events over a `data-view-group` button stay with the button's
+ *  own handlers, which know the precise before/inside/after placement. */
+export function viewGroupContainerDropProps<Id extends string>({
+  viewMime,
+  groupMime,
+  axis,
+  viewDragId,
+  groupDragId,
+  setDrop,
+  moveGroup,
+  moveView,
+}: {
+  viewMime: string;
+  groupMime: string;
+  /** Layout direction of the strip: "y" for a vertical rail, "x" for a row. */
+  axis: "x" | "y";
+  viewDragId: (event: Pick<DragEvent, "dataTransfer">) => Id | null;
+  groupDragId: (event: Pick<DragEvent, "dataTransfer">) => Id | null;
+  setDrop: (drop: { target: Id; placement: ViewGroupPlacement } | null) => void;
+  moveGroup?: (source: Id, target: Id, placement: Exclude<ViewGroupPlacement, "inside">) => void;
+  moveView?: (source: Id, target: Id, placement: ViewGroupPlacement) => void;
+}): HTMLAttributes<HTMLElement> {
+  const overButton = (event: ReactDragEvent<HTMLElement>): boolean =>
+    event.target instanceof Element && event.target.closest("[data-view-group]") !== null;
+  /** Gap position → the nearest tab button plus which side of its center the
+   *  pointer sits on; gaps never produce "inside". */
+  const nearestTarget = (
+    event: ReactDragEvent<HTMLElement>,
+  ): { target: Id; placement: Exclude<ViewGroupPlacement, "inside"> } | null => {
+    const pointer = axis === "y" ? event.clientY : event.clientX;
+    let best: { target: Id; placement: "before" | "after" } | null = null;
+    let bestDistance = Infinity;
+    for (const button of event.currentTarget.querySelectorAll<HTMLElement>("[data-view-group]")) {
+      const id = button.dataset.viewGroup as Id | undefined;
+      if (!id) continue;
+      const bounds = button.getBoundingClientRect();
+      const center = axis === "y"
+        ? bounds.top + bounds.height / 2
+        : bounds.left + bounds.width / 2;
+      const distance = Math.abs(pointer - center);
+      if (distance >= bestDistance) continue;
+      bestDistance = distance;
+      best = { target: id, placement: pointer < center ? "before" : "after" };
+    }
+    return best;
+  };
+  const accepts = (event: ReactDragEvent<HTMLElement>): boolean => {
+    const types = Array.from(event.dataTransfer.types);
+    return types.includes(groupMime) || types.includes(viewMime);
+  };
+  return {
+    onDragOver: (event) => {
+      if (!accepts(event)) return;
+      // Accepting on the container is what keeps the cursor a move arrow
+      // across the gaps; a hovered button repaints the indicator itself.
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      if (overButton(event)) return;
+      setDrop(nearestTarget(event));
+    },
+    onDragLeave: (event) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDrop(null);
+    },
+    onDrop: (event) => {
+      if (overButton(event) || !accepts(event)) return;
+      event.preventDefault();
+      const nearest = nearestTarget(event);
+      const groupSource = groupDragId(event.nativeEvent);
+      const viewSource = viewDragId(event.nativeEvent);
+      if (nearest && groupSource) moveGroup?.(groupSource, nearest.target, nearest.placement);
+      else if (nearest && viewSource) moveView?.(viewSource, nearest.target, nearest.placement);
+      setDrop(null);
+    },
+  };
+}

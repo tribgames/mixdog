@@ -1,4 +1,4 @@
-// Semantic-summary schema machinery: required-section anchors, heading
+// Compact-summary schema machinery: required-section anchors, heading
 // matching, schema validation, deterministic repair/backfill, minimal
 // schema-valid scaffold, and section-aware truncation. Extracted verbatim
 // from summary.mjs (behavior-preserving) — summary.mjs re-exports the
@@ -12,7 +12,7 @@ import {
     isInjectedSkillBodyMessage,
 } from './messages.mjs';
 
-// Canonical section anchors the semantic summary template (SUMMARY_TEMPLATE)
+// Canonical section anchors the Compact summary template (SUMMARY_TEMPLATE)
 // must contain. Used for lightweight schema validation of provider output.
 const REQUIRED_SUMMARY_SECTIONS = Object.freeze([
     '## Goal',
@@ -176,13 +176,13 @@ function unrecognizedSummarySectionText(present) {
     return chunks.join('\n\n').trim();
 }
 
-// Deterministic schema repair for a non-empty but malformed/partial semantic
+// Deterministic schema repair for a non-empty but malformed/partial Compact
 // summary. Preserve every section the provider DID supply (matched by anchor),
 // and scaffold the missing required sections so downstream consumers always
 // receive the full structured anchored shape. Content that lives outside any
 // recognized section is routed into Critical Context so nothing is dropped.
 // Lightly backfill Goal / Relevant Files from the transcript when empty.
-export function repairSemanticSummary(summary, { head = [], tail = [] } = {}) {
+export function repairCompactSummary(summary, { head = [], tail = [] } = {}) {
     const raw = String(summary || '').trim();
     const present = parseSummarySections(raw);
     // Capture any leading content before the first recognized `## ` heading so
