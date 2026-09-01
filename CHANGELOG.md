@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.159 - 2026-09-01
+
 - Computer Use now coordinates foreground target leases, recaptures after
   window transitions, validates bounded action sequences, and exposes a
   user-takeover overlay. Capture, keyboard, targeting, and recovery paths are
