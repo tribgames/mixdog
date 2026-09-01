@@ -350,7 +350,31 @@ test('resume reapplies the unified schema for every permission form', async () =
   }
 });
 
-test('hidden agents share the unified schema unless a specialist allow-list is declared', async () => {
+test('hidden agents share the unified schema unless a specialist allow-list is declared', async (t) => {
+  // Hermetic skills root: a dev machine has installed skills while a CI
+  // runner has none, and either ambient state would decide the Skill-manifest
+  // assertion below. One fixture skill pins the contract everywhere.
+  const hiddenSkillsTmp = mkdtempSync(join(tmpdir(), 'mixdog-hidden-skills-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = join(hiddenSkillsTmp, 'data');
+  const fixtureSkillDir = join(process.env.MIXDOG_DATA_DIR, 'skills', 'hidden-fixture');
+  mkdirSync(fixtureSkillDir, { recursive: true });
+  writeFileSync(join(fixtureSkillDir, 'SKILL.md'), [
+    '---',
+    'name: hidden-fixture',
+    'description: Deterministic fixture for the hidden-agent skill manifest contract.',
+    '---',
+    '',
+    '# Hidden Fixture',
+    '',
+  ].join('\n'));
+  invalidateSkillsCache();
+  t.after(() => {
+    invalidateSkillsCache();
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(hiddenSkillsTmp, { recursive: true, force: true });
+  });
   const hiddenAgents = JSON.parse(readFileSync(join(root, 'src', 'defaults', 'agents.json'), 'utf8')).agents || [];
   const hiddenPreset = { id: 'hidden-smoke', name: 'hidden-smoke', type: 'agent', provider: 'openai-oauth', model: 'tool-contracts-model', tools: 'full' };
   const hiddenRuntimeSpec = { scopeKey: 'hidden-role-smoke', lane: 'agent' };
