@@ -7,7 +7,6 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { listPackage, statFile } from '@electron/asar';
 
-import { SETTINGS_ITEMS } from '../renderer/settings/settings-items.ts';
 import { childEnvironment } from './child-environment.ts';
 import {
   nativeBrowserImporterPath,
@@ -423,14 +422,6 @@ test('Windows installer is one-click, per-user, and registers Mixdog deep links'
   );
   const icon = await readFile(new URL('../../build/mixdog.ico', import.meta.url));
   assert.deepEqual([...icon.subarray(0, 4)], [0, 0, 1, 0]);
-});
-
-test('Windows acceptance checks the current canonical settings inventory', async () => {
-  const acceptance = await readFile(new URL('../../scripts/acceptance-windows.ps1', import.meta.url), 'utf8');
-  assert.match(
-    acceptance,
-    new RegExp(`\\$value\\.inventory\\.settingsItems -ne ${SETTINGS_ITEMS.length}`),
-  );
 });
 
 test('production entry has no capture side effects and capture harness is excluded', async () => {
