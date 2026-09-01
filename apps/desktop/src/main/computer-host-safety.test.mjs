@@ -453,7 +453,9 @@ test('generated abort cleanup program compiles', {
 
 test('generated Windows input host refuses unarmed keyboard and pointer input', {
   skip: process.platform !== 'win32',
-  timeout: 75_000,
+  // The probe runs two Add-Type compilations (host C# + MSAA fixtures); a
+  // cold windows-latest runner has been measured past the old 70s budget.
+  timeout: 200_000,
 }, async () => {
   // The composed program itself. The C# lives in its own module now, so a text
   // slice would capture the placeholder instead of the source it stands for.
@@ -952,7 +954,7 @@ exit
       'Bypass',
       '-File',
       path,
-    ], { encoding: 'utf8', timeout: 70_000, windowsHide: true });
+    ], { encoding: 'utf8', timeout: 180_000, windowsHide: true });
     const line = stdout.split(/\r?\n/).find((value) => value.startsWith('@@MIXCU@@'));
     assert.ok(line);
     const payload = JSON.parse(line.slice('@@MIXCU@@'.length));
