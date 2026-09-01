@@ -5,9 +5,9 @@
  * text and a thin NATIVE hardware cursor sits at the insertion point (also where
  * the terminal echoes typed/IME characters).
  *
- * CURSOR — via the installed Ink runtime: we
+ * CURSOR — via Mixdog's patched Ink runtime dependency: we
  * tag the text-box node with `internal_cursorAnchor = { col, row }` (the caret's
- * position WITHIN the box). Forked ink, during renderNodeToOutput, parks the
+ * position WITHIN the box). Patched Ink, during renderNodeToOutput, parks the
  * hardware cursor at that node's REAL laid-out absolute cell + (col,row) — every
  * frame, from the actual yoga layout. This replaces ink's stock useCursor, whose
  * externally-supplied absolute coordinate drifted/vanished whenever the layout
@@ -159,7 +159,7 @@ export function PromptInput({
   // last chars land on the trailing timer — felt as input lag ("a beat behind").
   // ink exposes an UNthrottled `onImmediateRender` on the ink-root node; walking
   // the parent chain from our box and firing it flushes the new draft in the same
-  // tick. Guarded so a structure change in the ink fork degrades to throttled
+  // tick. Guarded so a patched runtime structure change degrades to throttled
   // (slower) rendering, never a crash.
   const flushThrottleRef = useRef({ lastAt: 0, timer: null });
   const flushImmediate = () => {
@@ -1041,7 +1041,7 @@ export function PromptInput({
     }
   }, { isActive: isRawModeSupported && !disabled });
 
-  // Mark the text-box node with a cursor-anchor FUNCTION. Forked ink calls it
+  // Mark the text-box node with a cursor-anchor FUNCTION. Patched Ink calls it
   // during renderNodeToOutput — AFTER yoga layout is final and (crucially)
   // during the same onRender that paints the new text. The function reads the
   // latest caret from refs (synced every render below), so the cursor can never

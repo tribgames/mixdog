@@ -2,7 +2,7 @@
 /**
  * scripts/tui-frame-harness.mjs — renderer-level frame-grid evidence harness.
  *
- * Drives the installed Ink log-update createIncremental(fakeStream) through the SAME
+ * Drives patched Ink log-update createIncremental(fakeStream) through the SAME
  * wrapper logic ink.js renderInteractiveFrame() applies (fullscreen detect +
  * trailing-newline normalization + shouldClearTerminalForFrame), replays the
  * emitted ANSI into a minimal VT grid interpreter, and asserts the absolute row
@@ -13,12 +13,17 @@
  *
  * Run: node scripts/tui-frame-harness.mjs
  */
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
 // [harness] log-update reads process.platform/WT_SESSION AT IMPORT to pick its
 // Windows-safe absolute-cursor branch. Force WT_SESSION on BEFORE importing it
 // so POSIX/CI runs exercise the same branch WT users hit. Must precede the
 // dynamic import below.
 process.env.WT_SESSION = process.env.WT_SESSION || '1';
-const { default: logUpdate } = await import('../node_modules/ink/build/log-update.js');
+const inkBuildDir = dirname(fileURLToPath(import.meta.resolve('ink')));
+const logUpdateUrl = pathToFileURL(join(inkBuildDir, 'log-update.js')).href;
+const { default: logUpdate } = await import(logUpdateUrl);
 const { shouldClearTerminalForFrameProbe } = await import('./tui-frame-harness-shim.mjs');
 const { default: ansiEscapes } = await import('ansi-escapes');
 

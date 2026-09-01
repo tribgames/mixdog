@@ -25,7 +25,7 @@ component listed here. Each component keeps its own copyright notice.
   https://github.com/BurntSushi/ripgrep
   Copyright (c) 2015 Andrew Gallant
 
-  Ink (distributed under its own license)
+  Ink (patched runtime dependency; its package retains the upstream license)
   https://github.com/vadimdemedes/ink
   Copyright (c) Vadym Demedes <vadimdemedes@hey.com>
   Copyright (c) Sindre Sorhus <sindresorhus@gmail.com>

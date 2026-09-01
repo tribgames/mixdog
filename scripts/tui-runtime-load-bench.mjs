@@ -18,16 +18,6 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const entry = join(ROOT, 'scripts', 'tui-runtime-load-bench-entry.jsx');
 const outfile = join(ROOT, 'scripts', '.tui-runtime-load-bench.tmp.mjs');
 
-const inkAlias = {
-  name: 'mixdog-ink-alias',
-  setup(ctx) {
-    ctx.onResolve({ filter: /^ink$/ }, () => ({
-      path: '../node_modules/ink/build/index.js',
-      external: true,
-    }));
-  },
-};
-
 try {
   await build({
     entryPoints: [entry],
@@ -38,7 +28,6 @@ try {
     target: 'node22',
     jsx: 'automatic',
     packages: 'external',
-    plugins: [inkAlias],
     banner: {
       js: "import { createRequire as __mixdogCreateRequire } from 'node:module';\nconst require = __mixdogCreateRequire(import.meta.url);",
     },

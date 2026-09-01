@@ -19,14 +19,13 @@
  *     forces off; the override always wins.
  *   - When OFF, behaviour is byte-for-byte identical to plain string-width.
  *
- * IMPORTANT: node_modules/ink/build/display-width.js replicates this exact policy so
- * ink's MEASUREMENT agrees with OUR wrap/row math. If you change the ranges or
- * the gate here, change them THERE too (see the sync note in that file).
+ * IMPORTANT: the patched Ink runtime replicates this exact policy so its
+ * MEASUREMENT agrees with OUR wrap/row math. Keep both implementations aligned.
  */
 import stringWidth from 'string-width';
 
 // Grapheme segmenter for cluster-aware width math (e.g. `↔️` = U+2194 U+FE0F
-// is one cluster, counted once). Kept identical to node_modules/ink/build/display-width.js.
+// is one cluster, counted once). Kept identical to the patched Ink runtime.
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
 /**
@@ -48,8 +47,8 @@ function isProblemCodePoint(cp) {
 
 // Fast precheck for the problem ranges above. Lets the hot path bail before
 // the per-grapheme segmenter loop when a string (the overwhelmingly common
-// ASCII/status-text case) contains no widenable glyph. Kept identical to
-// node_modules/ink/build/display-width.js.
+// ASCII/status-text case) contains no widenable glyph. Kept identical to the
+// patched Ink runtime.
 const PROBLEM_RE = /[\u2194-\u21ff\u2460-\u24ff]/;
 
 /**

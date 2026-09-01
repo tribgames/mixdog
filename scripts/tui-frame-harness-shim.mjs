@@ -1,4 +1,4 @@
-// Compatibility implementation of Ink shouldClearTerminalForFrame, with the
+// Mirror of patched Ink's shouldClearTerminalForFrame, with the
 // Windows branch parameterized so the harness can probe both platforms without
 // relying on process.platform. Kept byte-faithful to the source predicate so
 // the harness reflects real clear decisions.

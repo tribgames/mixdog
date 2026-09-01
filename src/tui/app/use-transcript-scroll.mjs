@@ -625,7 +625,7 @@ export function useTranscriptScroll({
       // Active-drag rebuild paints directly, so route through the themed clip
       // (captureText:false, matching rememberText:false below) — a bare rect
       // without selectionBackground falls back to a near-white full-width block
-      // with vanishing text (node_modules/ink output.js). Also cancel any armed
+      // with vanishing text in Ink's output renderer. Also cancel any armed
       // throttled repaint first: it would fire the pre-scroll rect AFTER this
       // one, leaving two coexisting highlights.
       const clippedRect = dragRef.current.active

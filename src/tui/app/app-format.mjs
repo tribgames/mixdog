@@ -18,7 +18,7 @@ export const isWebSearchDefaultRoute = (route) =>
   && String(route?.model || '').toLowerCase() === 'default';
 
 export function terminalSize(stdout) {
-  // Match ink's getWindowSize() semantics (node_modules/ink/build/utils.js): rows or
+  // Match Ink's getWindowSize() semantics: rows or
   // columns can be 0 (not just undefined) before the TTY reports its size —
   // treating 0 as valid made App's FIRST frame lay out against a tiny/default
   // viewport, so the initial picker rendered collapsed and then "unfolded"

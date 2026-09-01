@@ -82,7 +82,8 @@ MIT terms. The upstream notice is preserved as `LICENSES/ripgrep-NOTICE.txt`.
 
 ### Ink — Copyright (c) Vadim Demedes
 
-Distributed under its own license.
+Installed from Mixdog's patched Ink runtime release asset. The package retains
+the upstream MIT license.
 
 ## Apache License 2.0
 

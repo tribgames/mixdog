@@ -95,7 +95,7 @@ function installTuiLoopProbe() {
   return () => { try { clearInterval(timer); } catch { /* ignore */ } };
 }
 
-// Lightweight render-frame profiler. Forked ink calls options.onRender with the
+// Lightweight render-frame profiler. Patched Ink calls options.onRender with the
 // per-frame render() wall time (renderNodeToOutput serialization). We aggregate
 // and emit a rolling summary every PERF_REPORT_EVERY frames so typing latency
 // can be measured without flooding output. Entirely no-op unless

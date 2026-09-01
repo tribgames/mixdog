@@ -8,8 +8,7 @@
  *
  * What is bundled vs external:
  *   - bundled: our JSX only.
- *   - external: React and Mixdog's checked-in Ink renderer.
- *     Ink is loaded from the installed package.
+ *   - external: React and Mixdog's patched Ink runtime dependency.
  *
  * Run:  node scripts/build-tui.mjs   (or `npm run build:tui`)
  */
@@ -19,17 +18,6 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'src', 'tui');
-const DIST_TO_INK_RUNTIME = '../../../node_modules/ink/build/index.js';
-
-const mixdogInkAliasPlugin = {
-  name: 'mixdog-ink-alias',
-  setup(build) {
-    build.onResolve({ filter: /^ink$/ }, () => ({
-      path: DIST_TO_INK_RUNTIME,
-      external: true,
-    }));
-  },
-};
 
 const sharedRuntimeExternalPlugin = {
   name: 'mixdog-shared-runtime-external',
@@ -65,8 +53,6 @@ await build({
   // helpers are bundled so relative paths stay valid from src/tui/dist/.
   // Process shutdown stays external so the CLI and checked-in TUI bundle use
   // the same process-global lifecycle state.
-  // Only `ink` is redirected to Mixdog's checked-in renderer instead of
-  // node_modules/ink.
   packages: 'external',
   // Bundled CJS helpers (e.g. src/lib/mixdog-debug.cjs) compile to esbuild's
   // __require shim, which throws "Dynamic require of ..." in plain ESM.
@@ -88,7 +74,6 @@ await build({
     '../../runtime/channels/lib/whisper-server.mjs',
   ],
   plugins: [
-    mixdogInkAliasPlugin,
     sharedRuntimeExternalPlugin,
     sessionClientExternalPlugin,
   ],
