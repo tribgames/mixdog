@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.160 - 2026-09-02
+
 - The TUI now installs its patched Ink runtime from a versioned release asset.
   Production builds, frame harnesses, and load probes resolve the installed
   package while preserving the custom cursor, selection, and render behavior.
