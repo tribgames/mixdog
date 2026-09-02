@@ -7,7 +7,7 @@ export const PPTX_AUTHORING_WORKFLOW = [
   'author with a pptxgenjs script (one `new pptxgen()`; finish with `await pres.writeFile({ fileName: OUTPUT })`).',
   'render every slide and look at each image before judging anything.',
   'fix defects in the script, author again with overwrite:true, render again.',
-  'finalize with one critique per slide and the reviewToken.',
+  'finalize with design: { reviewed: true, reviewToken, critique: [one entry per slide] }.',
 ];
 
 export const PPTX_SCRIPT_CONTRACT = {
@@ -80,7 +80,7 @@ export const PPTX_AUTHORING_GUIDE = `# PPTX authoring guide (pptxgenjs)
 ## QA before finalize
 1. Render and inspect every slide image. Look for overflow or clipped text first, then overlaps, elements closer than 0.3 in, uneven gaps, margins under 0.5 in, misaligned columns, weak contrast, leftover placeholder text.
 2. Fix the script, not the file. Author again with overwrite:true and render again.
-3. Finalize with one critique per slide (verdict, hierarchy, balance, legibility, cohesion, evidence, note, fixes) and the reviewToken from the last render.
+3. Finalize with \`design: { reviewed: true, reviewToken, critique }\` where reviewToken comes from the last render and critique holds one entry per slide: slide, verdict ('pass'), five 1-5 scores (hierarchy, balance, legibility, cohesion, evidence), a slide-specific note of 40+ characters, and fixes.
 `;
 
 export function pptxAuthoringGuide() {

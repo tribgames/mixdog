@@ -209,9 +209,19 @@ test('OCR TSV parsing and on-demand OOXML validator manifest stay deterministic'
       description: "The 'uri' attribute is not declared.",
     },
     { path: '/word/document.xml', xPath: '/w:document[1]', description: 'Invalid child.' },
+    {
+      path: '/ppt/presentation.xml',
+      xPath: '/p:presentation[1]',
+      description: "The element has unexpected child element 'http://schemas.openxmlformats.org/presentationml/2006/main:notesMasterIdLst'. List of possible elements expected: <http://schemas.openxmlformats.org/presentationml/2006/main:notesSz>.",
+    },
+    {
+      path: '/ppt/presentation.xml',
+      xPath: '/p:presentation[1]/p:sldIdLst[1]',
+      description: "The element has unexpected child element 'http://schemas.openxmlformats.org/presentationml/2006/main:notesMasterIdLst'.",
+    },
   ]);
-  assert.equal(classified.compatibilityWarnings.length, 2);
-  assert.equal(classified.errors.length, 1);
+  assert.equal(classified.compatibilityWarnings.length, 3);
+  assert.equal(classified.errors.length, 2);
   const unavailable = await ensureOoxmlValidator({
     dataDir: await workspace(t),
     download: false,

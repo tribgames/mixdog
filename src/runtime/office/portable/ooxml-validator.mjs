@@ -101,11 +101,24 @@ function isOfficeExtensionCompatibilityError(error) {
     || /schemas\.microsoft\.com\/office\/drawing\/20\d{2}\//i.test(description);
 }
 
+// Script generators write <p:notesMasterIdLst> after <p:sldIdLst>, which the
+// schema rejects but every PowerPoint build opens; reordering the children is
+// what actually breaks the deck, so the order is tolerated as-is.
+function isPresentationChildOrderError(error) {
+  if (!/^\/ppt\/presentation\.xml$/i.test(String(error?.path || ''))) return false;
+  if (!/^\/p:presentation\[1]$/i.test(String(error?.xPath || ''))) return false;
+  return /unexpected child element .*:(?:notesMasterIdLst|handoutMasterIdLst)'/i.test(String(error?.description || ''));
+}
+
+function isCompatibilityError(error) {
+  return isOfficeExtensionCompatibilityError(error) || isPresentationChildOrderError(error);
+}
+
 export function classifyOoxmlValidationErrors(errors = []) {
   const reported = Array.isArray(errors) ? errors : [];
   return {
-    errors: reported.filter((error) => !isOfficeExtensionCompatibilityError(error)),
-    compatibilityWarnings: reported.filter(isOfficeExtensionCompatibilityError),
+    errors: reported.filter((error) => !isCompatibilityError(error)),
+    compatibilityWarnings: reported.filter(isCompatibilityError),
   };
 }
 

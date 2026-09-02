@@ -85,7 +85,7 @@ export async function authorPptx(args, { cwd, dataDir, signal = null }) {
       reviewToken: rendered.reviewToken,
     };
     result._images = Array.isArray(rendered._images) ? rendered._images : [];
-    result.nextAction = 'Inspect every rendered slide. Fix defects in the script and author again with overwrite:true, or finalize with one critique per slide and the reviewToken.';
+    result.nextAction = 'Inspect every rendered slide. Fix defects in the script and author again with overwrite:true, or finalize with design: { reviewed: true, reviewToken, critique: [one entry per slide] }.';
   } finally {
     delete session.activeSignal;
   }
