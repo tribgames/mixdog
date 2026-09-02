@@ -9,7 +9,7 @@ Microsoft Office installed.
 | Folder | Role |
 | --- | --- |
 | `(root)` | Public surface only: `index.mjs` (tool executor), `tool-defs.mjs`, `capabilities.mjs`. Test suites and `office-test-support.mjs` also live here. |
-| `authoring/` | The `author` action: `pptx-authoring-guide.mjs` (the design guide and script contract the model reads first), `pptx-script-runner.mjs` (runs a pptxgenjs script in-process with a scoped `require`), `pptx-author-action.mjs` (writes the deck, opens an `authored` session, renders). Sits beside the root and imports `core`. |
+| `authoring/` | The `author` action: `pptx-authoring-guide.mjs` (assembles the guide and script contract the model reads first) with its sections in `pptx-guide-design.mjs` (brief, style families, palette ladder, rhythm, refusals) and `pptx-guide-helpers.mjs` (helper kit and layout menu), `pptx-script-runner.mjs` (runs a pptxgenjs script in-process with a scoped `require`), `pptx-author-action.mjs` (writes the deck, opens an `authored` session, renders). Sits beside the root and imports `core`. |
 | `core/` | Sessions, transactions, journal, snapshot pagination, tabular sessions, and the action pipeline (`office-actions-*.mjs`, `office-candidate-actions.mjs`). |
 | `com/` | Windows-native path: `com-adapter.mjs` plus the PowerShell hosts `office-com-host.ps1` and `office-com-session-host.ps1`. |
 | `portable/` | OOXML read/write without Office, package validation, XLSX contracts, text and image metrics. |

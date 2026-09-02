@@ -1,9 +1,14 @@
 // The design guide the model reads before authoring a deck as a pptxgenjs
-// script. It carries taste (palette, hierarchy, layout variety) and the
-// library footguns that corrupt files; the runtime only checks what a script
-// cannot see for itself (package integrity, rendered pages).
+// script. It carries taste (brief, style family, palette ladder, rhythm), the
+// helper kit and layout menu the script builds on, and the library footguns
+// that corrupt files; the runtime only checks what a script cannot see for
+// itself (package integrity, rendered pages). Sections live in
+// pptx-guide-design.mjs and pptx-guide-helpers.mjs; this module assembles.
+import { PPTX_DESIGN_BRIEF_SECTION } from './pptx-guide-design.mjs';
+import { PPTX_HELPER_KIT_SECTION } from './pptx-guide-helpers.mjs';
 
 export const PPTX_AUTHORING_WORKFLOW = [
+  'write the brief (style family, palette ladder, motif, rhythm, slide plan) as a comment at the top of the script.',
   'author with a pptxgenjs script (one `new pptxgen()`; finish with `await pres.writeFile({ fileName: OUTPUT })`).',
   'render every slide and look at each image before judging anything.',
   'fix defects in the script, author again with overwrite:true, render again.',
@@ -18,22 +23,7 @@ export const PPTX_SCRIPT_CONTRACT = {
   timeoutMs: 90_000,
 };
 
-const PALETTES = [
-  ['Midnight Executive', '1E2761', 'CADCFC', 'FFFFFF'],
-  ['Forest & Moss', '2C5F2D', '97BC62', 'F5F5F5'],
-  ['Coral Energy', 'F96167', 'F9E795', '2F3C7E'],
-  ['Warm Terracotta', 'B85042', 'E7E8D1', 'A7BEAE'],
-  ['Ocean Gradient', '065A82', '1C7293', '21295C'],
-  ['Charcoal Minimal', '36454F', 'F2F2F2', '212121'],
-  ['Teal Trust', '028090', '00A896', '02C39A'],
-  ['Berry & Cream', '6D2E46', 'A26769', 'ECE2D0'],
-  ['Sage Calm', '84B59F', '69A297', '50808E'],
-  ['Cherry Bold', '990011', 'FCF6F5', '2F3C7E'],
-];
-
-export const PPTX_AUTHORING_GUIDE = `# PPTX authoring guide (pptxgenjs)
-
-## Script contract
+const SCRIPT_CONTRACT_SECTION = `## 0. Script contract
 - \`const pptxgen = require('pptxgenjs'); const pres = new pptxgen();\` once per file.
 - Set \`pres.layout = 'LAYOUT_WIDE'\` (13.33 x 7.5 in) before adding slides. Coordinates are inches; anything past the edge is written but invisible.
 - End with \`await pres.writeFile({ fileName: OUTPUT });\`. OUTPUT is injected; never hard-code a path.
@@ -51,37 +41,35 @@ export const PPTX_AUTHORING_GUIDE = `# PPTX authoring guide (pptxgenjs)
 - Charts stay native via \`addChart\`. Style them: \`showTitle\`, \`showValue\`, \`dataLabelPosition\`, \`chartColors\`, quiet axes and gridlines, \`showLegend:false\` for one series.
 - Stacked bar/column \`dataLabelPosition\` must be \`ctr\`, \`inEnd\`, or \`inBase\`; \`outEnd\` corrupts the file.
 - A combo series on a secondary axis needs both \`valAxes\` and \`catAxes\` with two entries each, or PowerPoint drops the chart.
-- Images: \`addImage({ data: 'image/png;base64,' + buffer.toString('base64') })\` or \`{ path }\`. Rasterize SVG with sharp at >= 256 px.
+- Images: \`addImage({ data: 'image/png;base64,' + buffer.toString('base64') })\` or \`{ path }\`. Rasterize SVG with sharp at >= 256 px.`;
 
-## Design direction
-- Pick a palette that belongs to this topic. If the colors would work on any other deck, choose again. Starting points (primary / secondary / accent): ${PALETTES.map(([name, a, b, c]) => `${name} ${a}/${b}/${c}`).join('; ')}.
-- One color carries 60-70% of the visual weight, one or two support it, one sharp accent appears rarely.
-- Sandwich the deck: dark cover and closing, light content slides; or commit to dark throughout.
-- Choose one visual motif (rounded image frames, icons in tinted circles, an oversized numeral) and repeat it on every anchor slide. A color bar or edge stripe is not a motif.
-- Every slide carries a visual: image, native chart, icon, or a composed shape. A title plus bullets is a draft, not a slide.
-- Vary layouts: two-column text/visual, icon rows, 2x2 or 2x3 grids, half-bleed image with overlay, hero stat callouts (60-72 pt numerals with small labels), comparison columns, numbered timelines.
-- Fill the canvas with intent. Content occupies the width and height of the safe area; leftover blank space in one corner is a defect, deliberate whitespace around a focal element is not.
-
-## Typography
-- Safe families that render true-to-width everywhere: Arial, Calibri, Cambria, Times New Roman, Courier New, Bookman Old Style, Century Schoolbook, Malgun Gothic. Pair a serif display with a sans body for contrast at zero risk.
+const TYPOGRAPHY_SECTION = `## 8. Typography
+- Safe families that render true-to-width everywhere: Arial, Calibri, Cambria, Times New Roman, Courier New, Bookman Old Style, Century Schoolbook, Malgun Gothic. Pair a serif display with a sans body for contrast at zero risk; Korean text uses Malgun Gothic for body and may keep a Latin display face for numerals.
 - Never Aptos; older Office lacks it and previews substitute it unpredictably. Georgia, Trebuchet, Impact, Garamond, Consolas preview approximately: give them ~10% extra room and do not trust fit checks on them.
-- Sizes: title 36-44 pt bold, section header 20-24 pt bold, body 14-16 pt, captions 10-12 pt muted. Titles need at least 2x the body size.
-- Left-align body text and lists; center only titles and single callouts.
+- Ladder: cover title 40-44 pt bold, slide title 32-36 pt bold, section header 20-24 pt bold, card title 16 pt bold, body 14-16 pt, captions 11-12 pt muted, hero numerals 54-72 pt, kicker 11 pt bold uppercase with charSpacing 4 (Latin only). Use the fewest roles that still read at thumbnail size; titles need at least 2x the body size.
+- Left-align body text and lists; center only titles on anchor slides and single callouts. Break lines at phrase boundaries; a stranded single word on the last line means the box is the wrong width.`;
 
-## Spacing
-- 0.5 in minimum from every slide edge; 0.3-0.5 in between blocks, applied consistently.
-- Do not let text overflow its box. Shrink the type, widen the box, or split the slide.
+const SPACING_SECTION = `## 9. Spacing
+- 0.5 in minimum from every slide edge; 0.3-0.5 in between blocks, applied consistently; related items sit closer than unrelated ones so spacing carries hierarchy.
+- Baseline step inside a paragraph 1.15-1.3x the font size; the step into a new paragraph visibly larger; list items in between.
+- Peer elements share one grid: same x for a column, same baseline for a row, equal gaps in a card row (within 5%).
+- Do not let text overflow its box. Shrink the type, widen the box, or split the slide.`;
 
-## Avoid
-- Accent lines under titles, header/footer bars, sidebar stripes, single-side card borders: these read as machine-made filler. Separate a card with a tint, a shadow, or an icon instead.
-- Cream or beige default backgrounds (F5F5DC, FAF0E6, FAEBD7, FFF8E1). Default to FFFFFF or the brand palette.
-- The same layout twice in a row; text-only slides; centered paragraphs; low-contrast text or icons; one styled slide beside plain ones.
+const QA_SECTION = `## 10. QA before finalize
+1. Render and inspect every slide image, in this order: out-of-bounds and clipped text; overflow past a container; overlapping text or shapes; elements closer than 0.3 in; margins under 0.5 in; misaligned columns and uneven card gaps; contrast; text over a busy image without a scrim; leftover placeholder copy; the wrong element dominating the page.
+2. Severity: P0 (unreadable, collision, overflow, broken image) and P1 (visual-system drift, unsafe color pair, missing scrim, layout repeated back to back) block finalize. P2 (spacing drift, weak hierarchy) gets fixed when the change is local. P3 (polish) is noted in the critique's fixes.
+3. Fix the script, not the file. Author again with overwrite:true and render again; one or two loops is normal.
+4. Finalize with \`design: { reviewed: true, reviewToken, critique }\` where reviewToken comes from the last render and critique holds one entry per slide: slide, verdict ('pass'), five 1-5 scores as top-level fields (hierarchy, balance, legibility, cohesion, evidence), a slide-specific note of 40+ characters, and fixes. A score of 3 or lower on any axis marks the slide as still needing polish.`;
 
-## QA before finalize
-1. Render and inspect every slide image. Look for overflow or clipped text first, then overlaps, elements closer than 0.3 in, uneven gaps, margins under 0.5 in, misaligned columns, weak contrast, leftover placeholder text.
-2. Fix the script, not the file. Author again with overwrite:true and render again.
-3. Finalize with \`design: { reviewed: true, reviewToken, critique }\` where reviewToken comes from the last render and critique holds one entry per slide: slide, verdict ('pass'), five 1-5 scores (hierarchy, balance, legibility, cohesion, evidence), a slide-specific note of 40+ characters, and fixes.
-`;
+export const PPTX_AUTHORING_GUIDE = [
+  '# PPTX authoring guide (pptxgenjs)',
+  SCRIPT_CONTRACT_SECTION,
+  PPTX_DESIGN_BRIEF_SECTION,
+  PPTX_HELPER_KIT_SECTION,
+  TYPOGRAPHY_SECTION,
+  SPACING_SECTION,
+  QA_SECTION,
+].join('\n\n');
 
 export function pptxAuthoringGuide() {
   return {
