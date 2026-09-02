@@ -15,7 +15,7 @@ import {
   reviewOfficeStructure,
 } from './quality/assurance.mjs';
 import { officeTemplateCoverage } from './design/library/design-library.mjs';
-import { expandOfficeDesignOperations } from './design/design-system.mjs';
+import { expandOfficeDesignOperations, resolveOfficeDesign } from './design/design-system.mjs';
 import { executeOfficeTool, resetOfficeSessionsForTest } from './index.mjs';
 import { evaluatePowerPointCategorySpacing } from './pdf/pdf-analysis.mjs';
 import { evaluateXlsxAssertions } from './portable/xlsx-assertions.mjs';
@@ -474,7 +474,8 @@ test('semantic composers emit editorial rhythm, dashboard print setup, and nativ
   assert.equal(workbook.operations.find((entry) => entry.op === 'set_sheet_view')?.zoom, 120);
   assert.match(workbook.operations.find((entry) => entry.op === 'set_range').range, /^A\d+:B\d+$/);
   const excelChart = workbook.operations.find((entry) => entry.op === 'add_chart');
-  assert.deepEqual(excelChart.seriesColors, ['1F7A55', 'D89224', '66716B']);
+  const executiveColors = resolveOfficeDesign('xlsx', { profile: 'executive' }).tokens.colors;
+  assert.deepEqual(excelChart.seriesColors, [executiveColors.accent, executiveColors.accent2, executiveColors.muted]);
   assert.equal(excelChart.showValues, true);
   assert.equal(excelChart.dataLabelPosition, 'inside_end');
   assert.equal(excelChart.dataLabelColor, 'FFFFFF');
@@ -513,7 +514,8 @@ test('semantic composers emit editorial rhythm, dashboard print setup, and nativ
   assert.equal(nativeChart.series.length, 1);
   assert.ok(deck.operations.some((entry) => entry.op === 'set_notes' && /Source:/.test(entry.text)));
   const title = deck.operations.find((entry) => entry.op === 'add_textbox' && /매출 성장세/.test(entry.text));
-  assert.ok(title.properties.fontSize <= 31);
+  assert.ok(title.properties.fontSize <= 36, 'a long title takes the largest size its region holds, never more than the 36pt anchor');
+  assert.ok(title.properties.fontSize * 1.2 * 2 <= title.properties.height + 1, 'two wrapped lines still fit the title region');
 });
 
 test('task checklist blocks pending manual requirements and reports deterministic format gates', () => {

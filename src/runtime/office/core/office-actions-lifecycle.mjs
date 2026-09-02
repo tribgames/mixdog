@@ -7,6 +7,21 @@ import { pptxVisualReviewAcknowledged, reviewPptxVisualCritique } from '../quali
 import { validate } from './office-actions-inspect.mjs';
 import { qa } from './office-actions-render.mjs';
 
+// A script-authored deck is judged by the model looking at rendered slides;
+// the heuristic design reviews still report, but only file integrity and
+// missing review coverage can hold the deck back.
+const AUTHORED_ADVISORY_SOURCES = new Set([
+  'design-review',
+  'aesthetic-review',
+  'frontier-design-review',
+  'text-metrics',
+]);
+
+function blocksFinalize(issue, { failOn, authored }) {
+  if (authored && AUTHORED_ADVISORY_SOURCES.has(String(issue?.source || ''))) return false;
+  return issue?.severity === 'error' || (failOn === 'warning' && issue?.severity === 'warning');
+}
+
 export async function save(session) {
   if (session.transaction) throw new Error('Commit or roll back the active Office transaction before saving');
   if (isMicrosoftOfficeSession(session)) {
@@ -57,7 +72,8 @@ export async function finalize(session, args, cwd, signal) {
       stepMetrics[`${name}Ms`] = Math.max(0, Number((performance.now() - startedAt).toFixed(2)));
     }
   };
-  const failOn = String(args.failOn || (session.created ? 'warning' : 'error')).toLowerCase();
+  const authored = session.authored === true;
+  const failOn = String(args.failOn || (session.created && !authored ? 'warning' : 'error')).toLowerCase();
   const requiresVisualReview = session.format === 'pptx'
     && session.designState?.requiresVisualReview === true;
   const requiresFreeformCompile = session.format === 'pptx'
@@ -112,9 +128,11 @@ export async function finalize(session, args, cwd, signal) {
   });
   if (review) delete review._images;
   const issuesAfter = review?.issuesAfter || [];
-  const blockingIssues = issuesAfter.filter((issue) => (
-    issue?.severity === 'error' || (failOn === 'warning' && issue?.severity === 'warning')
-  ));
+  const blockingIssues = issuesAfter.filter((issue) => blocksFinalize(issue, { failOn, authored }));
+  const advisoryIssues = authored
+    ? issuesAfter.filter((issue) => !blockingIssues.includes(issue) && ['error', 'warning'].includes(String(issue?.severity || '')))
+    : [];
+  if (review && authored) review.advisoryIssues = advisoryIssues;
   if (blockingIssues.length) {
     return {
       ok: false,

@@ -1,7 +1,7 @@
 import { officeDesignCatalog } from './design/design-system.mjs';
 
 export const OFFICE_ACTIONS = Object.freeze([
-  'detect', 'transactions', 'recover', 'describe', 'create', 'attach', 'open', 'secure',
+  'detect', 'transactions', 'recover', 'describe', 'author', 'create', 'attach', 'open', 'secure',
   'begin', 'snapshot', 'get', 'query', 'batch', 'diff', 'commit', 'rollback',
   'issues', 'qa', 'validate', 'render', 'preview', 'compile', 'save', 'finalize', 'close',
 ]);
@@ -253,10 +253,10 @@ const FORMAT_SIGNATURES = {
   pptx: {
     compose_slide: signature(['kind'], ['claimId', 'purpose', 'expressionMode', 'title', 'subtitle', 'takeaway', 'eyebrow', 'body', 'bullets', 'metrics', 'columns', 'steps', 'allocations', 'annotations', 'gates', 'actions', 'chart', 'table', 'image', 'imagePath', 'visualText', 'visualLabel', 'allocationLabel', 'allocationNumberFormat', 'meta', 'notes', 'source', 'background', 'backgroundRole', 'slideRole', 'plan', 'create', 'slide', 'layoutId', 'variant', 'titleSize'], {
       propertySets: ['design'],
-      notes: 'Creative Director synthesizes missing scratch plans. Explicit plan.authoredScene compiles up to 96 native text/shape/line/image/chart/table elements; plan.regions remains the semantic fallback. Invalid explicit plans fail; templates run only when requested.',
+      notes: 'Creative Director synthesizes missing scratch plans. Explicit plan.authoredScene compiles up to 96 native text/shape/line/image/chart/table elements; plan.regions remains the semantic fallback. Invalid explicit plans fail; templates run only when requested. Scene discipline: style.fontRole display|body|data only (no font names); style.colorRole/fillRole/lineRole from the palette (canvas, ink, muted, accent, accent2, surface, surface2, inverse, inverse2, onAccent, onInverse; no free hex); at most 3 families and 2 saturated hue families per slide; text contrast >= 4.5:1 (3:1 from 24pt) against its field; content scenes fill at least two of three horizontal bands; evidence images are framed automatically and bleed images under text receive a scrim.',
     }),
     set_text: signature(['slide', 'shape', 'text']),
-    add_textbox: signature(['slide', 'text'], ['paragraphs', 'left', 'top', 'width', 'height', 'fontName', 'fontSize', 'color', 'properties'], { propertySets: ['shape', 'authoring'] }),
+    add_textbox: signature(['slide', 'text'], ['paragraphs', 'left', 'top', 'width', 'height', 'fontName', 'fontSize', 'color', 'name', 'properties'], { propertySets: ['shape', 'authoring'] }),
     delete_shape: signature(['slide', 'shape']),
     add_slide: signature([], ['index', 'layout']),
     delete_slide: signature(['slide']),
@@ -285,7 +285,7 @@ const FORMAT_SIGNATURES = {
     add_animation: signature(['slide', 'shape'], ['effect', 'trigger', 'duration', 'delay'], { propertySets: ['animation'] }),
     add_chart: signature(['slide'], ['chartType', 'title', 'categories', 'series', 'left', 'top', 'width', 'height', 'showValues', 'showLegend', 'zeroBaseline', 'valueNumberFormat', 'dataLabelPosition', 'dataLabelColor'], { propertySets: ['chart'] }),
     fit_text: signature(['slide', 'shape'], ['minFontSize', 'allowNoChange']),
-    add_shape: signature(['slide', 'shapeType'], ['text', 'paragraphs', 'left', 'top', 'width', 'height', 'fillColor', 'lineColor', 'properties'], { propertySets: ['shape', 'authoring'] }),
+    add_shape: signature(['slide', 'shapeType'], ['text', 'paragraphs', 'left', 'top', 'width', 'height', 'fillColor', 'lineColor', 'name', 'properties'], { propertySets: ['shape', 'authoring'] }),
     add_table: signature(['slide', 'values'], ['rows', 'columns', 'left', 'top', 'width', 'height', 'properties'], { propertySets: ['table'] }),
     set_table_data: signature(['slide', 'shape', 'values'], [], { propertySets: ['table'] }),
     set_chart_data: signature(['slide', 'shape', 'series'], ['categories', 'title'], { propertySets: ['chart'] }),

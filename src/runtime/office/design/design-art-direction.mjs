@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { clamp, plainObject } from '../shared/values.mjs';
+import { hslToHex, normalizePaletteTokens } from './design-discipline.mjs';
+import { plainObject } from '../shared/values.mjs';
 
 const DIRECTION_BLUEPRINTS = Object.freeze([
   Object.freeze({
@@ -18,9 +19,18 @@ const DIRECTION_BLUEPRINTS = Object.freeze([
     densityPattern: ['light opening', 'dense proof', 'balanced choice', 'light close'],
     motifRules: ['repeat measured windows', 'use one dominant number per proof beat', 'avoid equal card grids'],
     typography: Object.freeze({
-      display: 'Segoe UI',
-      body: 'Segoe UI',
+      display: 'Calibri',
+      body: 'Calibri',
       data: 'Arial',
+    }),
+    style: Object.freeze({
+      id: 'swiss-grid',
+      motif: 'grid-marks',
+      corners: 'sharp',
+      boundaries: 'rules-and-planes',
+      elevation: 'flat',
+      composition: 'one oversized geometric plane zoning the page; content flush to one axis; hero numeral at architectural scale',
+      pageRhythm: ['anchor', 'dense', 'dense', 'breathing', 'anchor'],
     }),
   }),
   Object.freeze({
@@ -43,6 +53,15 @@ const DIRECTION_BLUEPRINTS = Object.freeze([
       body: 'Calibri',
       data: 'Arial',
     }),
+    style: Object.freeze({
+      id: 'editorial',
+      motif: 'oversized-numeral',
+      corners: 'minimal',
+      boundaries: 'hairlines-and-columns',
+      elevation: 'flat',
+      composition: 'oversized numeral anchoring the page; asymmetric column split; a figure crossing a column edge; kicker → headline → standfirst hierarchy',
+      pageRhythm: ['anchor', 'dense', 'breathing', 'dense', 'anchor'],
+    }),
   }),
   Object.freeze({
     id: 'immersive-signal',
@@ -61,8 +80,17 @@ const DIRECTION_BLUEPRINTS = Object.freeze([
     motifRules: ['one sharp signal per slide', 'alternate immersive and analytical fields', 'never decorate without evidence'],
     typography: Object.freeze({
       display: 'Arial',
-      body: 'Arial',
-      data: 'Arial',
+      body: 'Calibri',
+      data: 'Courier New',
+    }),
+    style: Object.freeze({
+      id: 'dark-tech',
+      motif: 'halo-field',
+      corners: 'slight',
+      boundaries: 'glow-and-layering',
+      elevation: 'glow',
+      composition: 'concentric halo staging one central metric; oversized type floating on dark negative space; monospace labels with wide tracking',
+      pageRhythm: ['anchor', 'dense', 'breathing', 'dense', 'anchor'],
     }),
   }),
 ]);
@@ -75,46 +103,26 @@ function stableHue(value) {
   return Number.parseInt(hash(value).slice(0, 6), 16) % 360;
 }
 
-function hslToHex(hue, saturation, lightness) {
-  const h = ((Number(hue) % 360) + 360) % 360;
-  const s = clamp(saturation, 0, 100) / 100;
-  const l = clamp(lightness, 0, 100) / 100;
-  const chroma = (1 - Math.abs((2 * l) - 1)) * s;
-  const segment = h / 60;
-  const secondary = chroma * (1 - Math.abs((segment % 2) - 1));
-  const [red, green, blue] = segment < 1
-    ? [chroma, secondary, 0]
-    : segment < 2
-      ? [secondary, chroma, 0]
-      : segment < 3
-        ? [0, chroma, secondary]
-        : segment < 4
-          ? [0, secondary, chroma]
-          : segment < 5
-            ? [secondary, 0, chroma]
-            : [chroma, 0, secondary];
-  const offset = l - (chroma / 2);
-  return [red, green, blue]
-    .map((channel) => Math.round((channel + offset) * 255).toString(16).padStart(2, '0'))
-    .join('')
-    .toUpperCase();
-}
-
+// One hue family drives the whole palette as a lightness ladder: near-white
+// canvas, tinted dark field, low-saturation text, and a single saturated
+// accent with one secondary. Steps sit 6-12% apart so they read as distinct
+// without jumping. The result is then contrast-repaired like any palette.
 function directionPalette(hue, blueprint) {
   const primary = hue + blueprint.hueOffset;
-  const secondary = blueprint.id === 'immersive-signal' ? primary + 155 : primary + 38;
-  return {
-    canvas: hslToHex(primary, 16, 97),
-    ink: hslToHex(primary, 24, 13),
-    muted: hslToHex(primary, 16, 41),
-    accent: hslToHex(primary, blueprint.id === 'immersive-signal' ? 78 : 66, 42),
-    accent2: hslToHex(secondary, 72, 48),
-    surface: hslToHex(primary, 22, 92),
-    surface2: hslToHex(primary, 18, 86),
-    inverse: hslToHex(primary, 32, blueprint.id === 'immersive-signal' ? 9 : 13),
+  const immersive = blueprint.id === 'immersive-signal';
+  const secondary = immersive ? primary + 155 : primary + 38;
+  return normalizePaletteTokens({
+    canvas: hslToHex(primary, 14, 97),
+    ink: hslToHex(primary, 22, 14),
+    muted: hslToHex(primary, 16, 40),
+    accent: hslToHex(primary, immersive ? 74 : 62, immersive ? 46 : 40),
+    accent2: hslToHex(secondary, 64, 46),
+    surface: hslToHex(primary, 20, 92),
+    surface2: hslToHex(primary, 18, 85),
+    inverse: hslToHex(primary, immersive ? 30 : 26, immersive ? 11 : 14),
     onAccent: 'FFFFFF',
-    onInverse: 'FFFFFF',
-  };
+    onInverse: hslToHex(primary, 12, 96),
+  }).colors;
 }
 
 function subjectSeed(input, profile) {
@@ -213,6 +221,7 @@ export function resolveOfficeArtDirection(format, input = {}, {
       motif: rawSubject ? `${blueprint.motif} · ${rawSubject}` : blueprint.motif,
       palette,
       typography: { ...blueprint.typography },
+      style: { ...blueprint.style, pageRhythm: [...blueprint.style.pageRhythm] },
       creativeSystem: {
         grid: blueprint.grid,
         shapeLanguage: blueprint.shapeLanguage,

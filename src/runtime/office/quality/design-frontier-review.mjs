@@ -88,6 +88,16 @@ export function reviewPptxFrontierQuality({
     const shapes = slideShapes(slide);
     const hasChart = shapes.some((shape) => shape?.chart);
     const hasTable = shapes.some((shape) => shape?.table);
+    // S8 emphasis: the brief named a primary (evidence or thesis); the scene's
+    // heaviest element must be it, or the eye lands on the wrong thing first.
+    const emphasis = plan?.authoredScene?.discipline?.emphasis;
+    if (emphasis && emphasis.matches === false) {
+      issues.push(issue(
+        'emphasis_mismatch',
+        path,
+        `The heaviest element is "${emphasis.primary}" (${emphasis.primaryRole}) while the brief makes ${emphasis.expected} the primary; rescale so the primary leads.`,
+      ));
+    }
     if (!visualType) {
       issues.push(issue(
         'semantic_visual_plan_missing',

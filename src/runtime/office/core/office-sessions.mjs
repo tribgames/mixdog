@@ -321,6 +321,76 @@ export async function createSession(args, cwd, dataDir) {
 }
 
 
+// A deck written by an authoring script already exists on disk; the session
+// owns that file in place so render, critique, and finalize treat it like a
+// created deliverable while the design gates know a script, not the
+// composer, decided the layout.
+export async function createAuthoredSession(args, cwd, dataDir, target) {
+  const fileKind = documentFileKind(target);
+  const format = documentFormat(target);
+  if (format !== 'pptx') throw new Error('author currently supports PowerPoint targets only');
+  const requestedMode = String(args.mode || 'auto').toLowerCase();
+  if (['attach', 'live', 'visible'].includes(requestedMode)) {
+    throw new Error('author requires auto, background, or portable mode');
+  }
+  const selected = await selectMode(requestedMode, format, target);
+  const designContext = await resolveOfficeDesignContext({
+    args,
+    dataDir,
+    target,
+    format,
+    created: true,
+  });
+  const id = `office_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
+  const session = {
+    id,
+    source: target,
+    target,
+    fileKind,
+    format,
+    mode: selected.mode,
+    backend: selected.backend,
+    openedAt: new Date().toISOString(),
+    dataDir,
+    created: true,
+    authored: true,
+    ownership: 'owned',
+    visible: false,
+    snapshotVersion: 0,
+    ...designContext,
+    designState: {
+      renderedVersion: null,
+      semanticCount: 0,
+      requiresVisualReview: designContext.design.review.required,
+      slidePlans: [],
+      compositions: [],
+    },
+  };
+  if (selected.backend === 'microsoft-office-com') {
+    const opened = await openMicrosoftOfficeSession({
+      session: id,
+      format,
+      fileKind,
+      mode: selected.mode,
+      path: target,
+    }, { signal: args.__signal || null });
+    if (!opened.ok) throw new Error(opened.error || 'Microsoft Office session open failed');
+    Object.assign(session, {
+      mode: opened.mode,
+      ownership: opened.ownership,
+      visible: opened.visible,
+      appPid: opened.appPid,
+      windowHwnd: opened.windowHwnd,
+      foregroundActivated: opened.foregroundActivated === true,
+      backgroundIsolation: opened.backgroundIsolation || null,
+      documentId: opened.documentId,
+    });
+  }
+  await registerOfficeSession(session);
+  return session;
+}
+
+
 export async function resolveSession(args, cwd, dataDir) {
   if (args.session) {
     const session = sessions.get(String(args.session));

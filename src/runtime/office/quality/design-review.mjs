@@ -4,6 +4,14 @@ import { reviewPptxDeckDiversity } from './design-deck-diversity.mjs';
 import { reviewPptxFrontierQuality } from './design-frontier-review.mjs';
 import { PPTX_CRITIQUE_AXES } from '../design/pptx/design-pptx.mjs';
 import { resolveOfficeDesign, strings } from '../design/design-tokens.mjs';
+import {
+  MAX_ACCENT_HUE_FAMILIES,
+  MAX_FONT_FAMILIES_PER_SLIDE,
+  fontFamilyKey,
+  isMotifShape,
+  isSafeFontFamily,
+  saturatedHueFamilies,
+} from '../design/design-discipline.mjs';
 import { plainObject } from '../shared/values.mjs';
 
 function designIssue(code, path, message, severity = 'warning') {
@@ -93,6 +101,71 @@ function reviewPptxTheme(document, design, issues) {
 }
 
 
+function comColorHex(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return '';
+  const blue = Math.floor(number / 65_536) % 256;
+  const green = Math.floor(number / 256) % 256;
+  const red = number % 256;
+  return [red, green, blue].map((channel) => channel.toString(16).padStart(2, '0')).join('').toUpperCase();
+}
+
+
+function shapeFontFamilies(shape) {
+  const names = Array.isArray(shape.fonts) ? shape.fonts : [shape.font?.name];
+  return [...new Set(names.map(fontFamilyKey).filter(Boolean))];
+}
+
+
+function shapeColors(shape) {
+  if (Array.isArray(shape.colors)) return shape.colors;
+  return [comColorHex(shape.font?.color), comColorHex(shape.fill?.color)].filter(Boolean);
+}
+
+
+// Fonts and colors are read straight from the saved shapes, so a deck that
+// slipped past authoring (template edits, add_textbox, COM sessions) still
+// answers to the same discipline as an authored scene.
+function reviewPptxDiscipline(slides, design, issues) {
+  const unsafe = new Map();
+  const deckColors = new Set();
+  for (const slide of slides) {
+    const families = new Set();
+    for (const shape of Array.isArray(slide.shapes) ? slide.shapes : []) {
+      if (!String(shape.text || '').trim()) continue;
+      for (const family of shapeFontFamilies(shape)) {
+        families.add(family);
+        if (!isSafeFontFamily(family)) unsafe.set(family, (unsafe.get(family) || 0) + 1);
+      }
+      for (const color of shapeColors(shape)) deckColors.add(String(color).toUpperCase());
+    }
+    if (families.size > MAX_FONT_FAMILIES_PER_SLIDE) {
+      issues.push(designIssue(
+        'font_family_overuse',
+        `/slide[${slide.index}]`,
+        `Slide mixes ${families.size} font families (${[...families].join(', ')}); keep display, body, and data only.`,
+      ));
+    }
+  }
+  const scratch = !design.deck || design.deck.templateMode === 'scratch';
+  if (unsafe.size && scratch && !design.review.allowUnsafeFonts) {
+    issues.push(designIssue(
+      'unsafe_font_family',
+      '/',
+      `Deck uses fonts that substitute unpredictably or are missing on older Office installs: ${[...unsafe.keys()].join(', ')}. Use ${design.tokens.typography.display}, ${design.tokens.typography.body}, or ${design.tokens.typography.data}.`,
+    ));
+  }
+  const hueFamilies = saturatedHueFamilies([...deckColors]);
+  if (hueFamilies.length > MAX_ACCENT_HUE_FAMILIES) {
+    issues.push(designIssue(
+      'accent_hue_overuse',
+      '/',
+      `Deck spreads saturated color across ${hueFamilies.length} hue families; keep one dominant accent and at most one secondary.`,
+    ));
+  }
+}
+
+
 // Shape kind arrives in two vocabularies: Microsoft Office reports integer
 // MsoShapeType values while the portable backend reports the OOXML element name.
 // Every rule below reads through these helpers so both backends agree.
@@ -126,11 +199,12 @@ function reviewPptx(document, design) {
   const slides = Array.isArray(document?.slides) ? document.slides : [];
   const plansBySlide = new Map((design.slidePlans || []).map((plan) => [Number(plan.slide), plan]));
   reviewPptxTheme(document, design, issues);
+  reviewPptxDiscipline(slides, design, issues);
   let cardGridSlides = 0;
   const signatures = new Map();
   let nativeEvidenceSlides = 0;
   for (const slide of slides) {
-    const shapes = Array.isArray(slide.shapes) ? slide.shapes : [];
+    const shapes = (Array.isArray(slide.shapes) ? slide.shapes : []).filter((shape) => !isMotifShape(shape));
     const textShapes = shapes.filter((shape) => String(shape.text || '').trim());
     const pictures = shapes.filter(isPictureShape);
     const richVisuals = shapes.filter((shape) => shape.chart || shape.table || shape.group);

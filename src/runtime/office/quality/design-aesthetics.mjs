@@ -96,8 +96,12 @@ function normalizedPageRole(page, pageCount, pageRoles = {}) {
     ? explicit
     : explicit?.visualType || explicit?.slideRole || explicit?.role || '';
   const normalized = String(value).trim().toLowerCase();
+  // The deck role decides beats before the visual type does: a statement
+  // slide carrying one metric is still a beat, not a scorecard.
+  const slideRole = typeof explicit === 'string' ? '' : String(explicit?.slideRole || '').trim().toLowerCase();
   if (/cover|opening/.test(normalized) || page === 1) return 'opening';
   if (/closing|decision-close/.test(normalized) || page === pageCount) return 'closing';
+  if (/section|statement/.test(slideRole) || /section|statement/.test(normalized)) return 'section';
   if (/chart/.test(normalized)) return 'chart';
   if (/timeline|process|roadmap/.test(normalized)) return 'timeline';
   if (/allocation|comparison|matrix/.test(normalized)) return 'allocation';
@@ -108,6 +112,8 @@ function normalizedPageRole(page, pageCount, pageRoles = {}) {
 const ROLE_TARGETS = Object.freeze({
   opening: Object.freeze({ foreground: [0.035, 0.24], spatial: [0.16, 0.5], quadrants: 2 }),
   closing: Object.freeze({ foreground: [0.03, 0.22], spatial: [0.16, 0.5], quadrants: 2 }),
+  // Section and statement beats carry one thesis and air, like a cover.
+  section: Object.freeze({ foreground: [0.03, 0.24], spatial: [0.16, 0.5], quadrants: 2 }),
   chart: Object.freeze({ foreground: [0.1, 0.42], spatial: [0.42, 0.78], quadrants: 3 }),
   timeline: Object.freeze({ foreground: [0.08, 0.46], spatial: [0.38, 0.78], quadrants: 3 }),
   allocation: Object.freeze({ foreground: [0.07, 0.42], spatial: [0.34, 0.75], quadrants: 3 }),
@@ -122,7 +128,7 @@ function rangeFit(value, [minimum, maximum]) {
 }
 
 function paletteDiscipline(metric, role) {
-  const accentRange = ['opening', 'closing'].includes(role) ? [0.12, 0.64] : [0.08, 0.52];
+  const accentRange = ['opening', 'closing', 'section'].includes(role) ? [0.12, 0.64] : [0.08, 0.52];
   const hueScore = metric.paletteHueCount === 0
     ? 0.45
     : metric.paletteHueCount <= 3
@@ -298,6 +304,9 @@ export async function reviewRenderedOfficeAesthetics(images = [], {
   const measured = (await Promise.all((images || []).map(renderedAestheticMetric))).filter(Boolean);
   const issues = [];
   for (const metric of measured) {
+    // Beat pages (section/statement) are sparse on purpose; density gates
+    // apply to inner pages that carry evidence.
+    const beatPage = normalizedPageRole(metric.page, measured.length, pageRoles) === 'section';
     if (
       metric.foregroundCoverage >= 0.008
       && metric.foregroundContrast < 0.15
@@ -310,6 +319,7 @@ export async function reviewRenderedOfficeAesthetics(images = [], {
     }
     if (
       normalized === 'pptx'
+      && !beatPage
       && metric.page > 1
       && metric.page < measured.length
       && metric.foregroundCoverage < 0.018
@@ -323,6 +333,7 @@ export async function reviewRenderedOfficeAesthetics(images = [], {
     }
     if (
       normalized === 'pptx'
+      && !beatPage
       && metric.page > 1
       && metric.page < measured.length
       && metric.foregroundCoverage < 0.06

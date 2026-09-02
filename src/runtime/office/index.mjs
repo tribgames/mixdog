@@ -8,6 +8,7 @@ import { defaultOfficeDataDir } from './core/journal.mjs';
 import { resolveOfficeDesign } from './design/design-system.mjs';
 import { inspectOfficeDesignLibrary, persistOfficeDesignBinding } from './design/library/design-library.mjs';
 import { applyBatch, closeSession, finalize, issues, qa, render, save, validate } from './core/office-actions.mjs';
+import { authorPptx } from './authoring/pptx-author-action.mjs';
 import { compilePptxCandidate, previewPptxCandidates, resetOfficeCandidatePreviewsForTest } from './core/office-candidate-actions.mjs';
 import { FILE_KIND_TO_FORMAT, OfficeConflictError, documentFormat, documentSessionKey, documentSessions, finalizeOfficeResult, isMicrosoftOfficeSession, mergeOfficeDesignRequest, normalizeOfficeFormat, resolveOfficeDesignContext, sessions, toolResult } from './core/office-core.mjs';
 import { createSession, findByDocumentPath, fullPath, openSession, queryObject, resolveSession, selectMode, snapshot, snapshotSelectionForTarget } from './core/office-sessions.mjs';
@@ -77,6 +78,13 @@ export async function executeOfficeTool(args = {}, {
         target: args.target,
         operation: args.operation,
       }));
+    }
+    if (action === 'author') {
+      const authored = await authorPptx(args, { cwd, dataDir, signal });
+      const images = Array.isArray(authored?._images) ? authored._images : [];
+      delete authored._images;
+      const session = authored.session ? sessions.get(authored.session) : null;
+      return toolResult(finalizeOfficeResult(authored, { action, session, startedAt }), false, images);
     }
     if (action === 'open' || action === 'attach' || action === 'create') {
       if (action === 'attach' && args.finalize === true) {

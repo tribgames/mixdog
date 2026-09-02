@@ -3120,6 +3120,7 @@ function Apply-PowerPointOperation(
       if ($null -ne $props.marginTop) { $shape.TextFrame.MarginTop = [single]$props.marginTop }
       if ($null -ne $props.marginRight) { $shape.TextFrame.MarginRight = [single]$props.marginRight }
       if ($null -ne $props.marginBottom) { $shape.TextFrame.MarginBottom = [single]$props.marginBottom }
+      if ($op.name) { try { $shape.Name = [string]$op.name } catch {} }
       return [ordered]@{ op = 'add_textbox'; changed = $true; shape = [string]$shape.Name }
     }
     'add_shape' {
@@ -3207,6 +3208,7 @@ function Apply-PowerPointOperation(
         if ($null -ne $props.marginRight) { $shape.TextFrame.MarginRight = [single]$props.marginRight }
         if ($null -ne $props.marginBottom) { $shape.TextFrame.MarginBottom = [single]$props.marginBottom }
       } catch {}
+      if ($op.name) { try { $shape.Name = [string]$op.name } catch {} }
       return [ordered]@{ op = 'add_shape'; changed = $true; shape = [string]$shape.Name; shapeType = $shapeType }
     }
     'add_table' {
@@ -4140,8 +4142,11 @@ function Issues-PowerPoint($presentation, $payload) {
           $issues += Office-Issue 'warning' 'missing_alt_text' $path 'Picture has no alternative text.'
         }
       } catch {}
+      # Named motif shapes are deliberate decoration (ghosted numerals, halos);
+      # they are never held to the legibility rules that govern content text.
+      $isMotif = $(try { ([string]$shape.Name).StartsWith('Mixdog Motif') } catch { $false })
       try {
-        if ($shape.HasTextFrame -and $shape.TextFrame.HasText) {
+        if ($shape.HasTextFrame -and $shape.TextFrame.HasText -and -not $isMotif) {
           $textShapeCount++
           $boundWidth = [single]$shape.TextFrame2.TextRange.BoundWidth
           $boundHeight = [single]$shape.TextFrame2.TextRange.BoundHeight
@@ -4199,8 +4204,8 @@ function Issues-PowerPoint($presentation, $payload) {
       for ($rightIndex = $leftIndex + 1; $rightIndex -le $slide.Shapes.Count; $rightIndex++) {
         $right = $slide.Shapes.Item($rightIndex)
         try {
-          $leftHasText = $left.HasTextFrame -and $left.TextFrame.HasText
-          $rightHasText = $right.HasTextFrame -and $right.TextFrame.HasText
+          $leftHasText = $left.HasTextFrame -and $left.TextFrame.HasText -and -not ([string]$left.Name).StartsWith('Mixdog Motif')
+          $rightHasText = $right.HasTextFrame -and $right.TextFrame.HasText -and -not ([string]$right.Name).StartsWith('Mixdog Motif')
           if (-not ($leftHasText -and $rightHasText)) { continue }
           $x = [Math]::Max(0, [Math]::Min([double]$left.Left + [double]$left.Width, [double]$right.Left + [double]$right.Width) - [Math]::Max([double]$left.Left, [double]$right.Left))
           $y = [Math]::Max(0, [Math]::Min([double]$left.Top + [double]$left.Height, [double]$right.Top + [double]$right.Height) - [Math]::Max([double]$left.Top, [double]$right.Top))

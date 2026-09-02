@@ -1,6 +1,23 @@
 import { strings } from '../design-tokens.mjs';
 
 
+// PowerPoint lets a wrapped line overhang its frame by roughly 0.3em before
+// it breaks, so a zero-inset box can report text bounds wider than the shape.
+// The inset on the far side of the alignment absorbs that overhang; explicit
+// larger insets from the caller still win.
+export const WRAP_OVERHANG_EM = 0.32;
+
+function overhangInsets(properties, paragraphs) {
+  const size = Number(properties.fontSize)
+    || Math.max(0, ...(paragraphs || []).map((paragraph) => Number(paragraph?.fontSize) || 0));
+  const guard = Math.ceil(size * WRAP_OVERHANG_EM);
+  if (!guard) return {};
+  const alignment = String(properties.alignment || 'left').toLowerCase();
+  const marginLeft = Math.max(Number(properties.marginLeft) || 0, alignment === 'right' ? guard : alignment === 'center' ? guard / 2 : 0);
+  const marginRight = Math.max(Number(properties.marginRight) || 0, alignment === 'right' ? 0 : alignment === 'center' ? guard / 2 : guard);
+  return { marginLeft, marginRight };
+}
+
 export function pptText(slide, text, properties = {}, paragraphs = null) {
   return {
     op: 'add_textbox',
@@ -13,6 +30,7 @@ export function pptText(slide, text, properties = {}, paragraphs = null) {
       marginRight: 0,
       marginBottom: 0,
       ...properties,
+      ...overhangInsets(properties, paragraphs),
     },
   };
 }

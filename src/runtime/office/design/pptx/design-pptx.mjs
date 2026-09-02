@@ -33,10 +33,13 @@ const PPTX_COMPONENTS = Object.freeze([
 
 export function pptxBackgroundSpec(operation, design, kind, slide) {
   const deck = design.deck;
+  // A statement slide is a beat, not a content page: in the sandwich rhythm
+  // it takes the section background so the deck alternates instead of
+  // running every inner page on the same canvas.
   const slideRole = String(operation.slideRole || (
     kind === 'cover' || kind === 'closing'
       ? kind
-      : deck.sectionSlides.includes(slide)
+      : deck.sectionSlides.includes(slide) || kind === 'statement'
         ? 'section'
         : 'content'
   )).toLowerCase();

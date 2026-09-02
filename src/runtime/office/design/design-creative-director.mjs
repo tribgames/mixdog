@@ -1,3 +1,4 @@
+import { designDisciplineBrief } from './design-discipline.mjs';
 import { compilePptxReferenceGenome, directPptxAssetIntent } from './design-reference-genome.mjs';
 import { compact, plainObject } from '../shared/values.mjs';
 
@@ -135,6 +136,7 @@ export function directOfficeStory(format, operations = [], design = {}) {
       layoutSearch: 'adaptive-top-k',
       selectionMethod: 'verifiable-layout-v1',
     } : {}),
+    discipline: designDisciplineBrief(design.tokens),
     narrativeArc: briefs.map((brief) => brief.role),
     evidenceCoverage: {
       claims: content?.claims?.length || 0,
@@ -160,7 +162,29 @@ export function directOfficeStory(format, operations = [], design = {}) {
   };
 }
 
-export function applyOfficeCreativeBrief(operation, creative, operationIndex) {
+function directsInverse(operation, creative, operationIndex) {
+  if (!plainObject(operation) || operation.op !== 'compose_slide') return false;
+  if (String(operation.backgroundRole || '').toLowerCase() === 'inverse') return true;
+  const brief = creative.briefs?.find((entry) => entry.operationIndex === operationIndex);
+  return !operation.backgroundRole && brief?.role === 'choice';
+}
+
+// A statement slide is an inverse beat by default, but two dark pages in a
+// row read as a new deck, so it steps back to the content background when
+// the neighbouring slide is already the directed inverse choice.
+function statementNeighbourRole(operation, creative, operationIndex, operations) {
+  if (String(operation.kind || '').toLowerCase() !== 'statement') return null;
+  if (operation.slideRole || operation.backgroundRole) return null;
+  const slides = (operations || [])
+    .map((entry, index) => ({ entry, index }))
+    .filter(({ entry }) => plainObject(entry) && entry.op === 'compose_slide');
+  const position = slides.findIndex(({ index }) => index === operationIndex);
+  if (position < 0) return null;
+  const neighbours = [slides[position - 1], slides[position + 1]].filter(Boolean);
+  return neighbours.some(({ entry, index }) => directsInverse(entry, creative, index)) ? 'content' : null;
+}
+
+export function applyOfficeCreativeBrief(operation, creative, operationIndex, operations = []) {
   if (!plainObject(operation) || !creative) return operation;
   const brief = creative.briefs?.find((entry) => entry.operationIndex === operationIndex);
   if (!brief) return operation;
@@ -169,9 +193,13 @@ export function applyOfficeCreativeBrief(operation, creative, operationIndex) {
     && brief.role === 'choice'
     ? 'inverse'
     : operation.backgroundRole;
+  const directedSlideRole = operation.op === 'compose_slide'
+    ? statementNeighbourRole(operation, creative, operationIndex, operations)
+    : null;
   return {
     ...operation,
     ...(directedBackground ? { backgroundRole: directedBackground } : {}),
+    ...(directedSlideRole ? { slideRole: directedSlideRole } : {}),
     creativeBrief: {
       role: brief.role,
       sequence: brief.sequence,

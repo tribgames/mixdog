@@ -193,7 +193,7 @@ export async function handleAddTextboxOrAddShape(context, op) {
     : [{ text: String(op.text ?? '') }];
   const shape = shapeXml({
     id,
-    name: `Mixdog ${textBox ? 'TextBox' : 'Shape'} ${id}`,
+    name: String(op.name || '').trim() || `Mixdog ${textBox ? 'TextBox' : 'Shape'} ${id}`,
     geometry,
     left: op.left ?? properties.left ?? 72,
     top: op.top ?? properties.top ?? 72,

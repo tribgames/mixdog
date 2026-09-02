@@ -11,11 +11,14 @@ import {
   pptBulletParagraphs,
   pptShape,
   pptText,
-  pptTitleSize,
+  WRAP_OVERHANG_EM,
 } from './design-pptx-primitives.mjs';
 import { measuredTextHeight, packedTextStack } from './design-pptx-stack.mjs';
+import { measureTextWidth } from '../../portable/text-metrics.mjs';
 import { PPTX_SEMANTIC_ROLES, renderPptxSemanticRegion } from './design-pptx-semantic-visuals.mjs';
 import { expandPptxAuthoredScene, hasPptxAuthoredScene } from './design-pptx-authored-scene.mjs';
+import { motifOperations } from './design-pptx-motifs.mjs';
+import { spreadRegionsVertically } from './design-pptx-scene-discipline.mjs';
 import { clamp, plainObject } from '../../shared/values.mjs';
 
 const PLAN_UNITS = new Set(['percent', 'points']);
@@ -334,6 +337,7 @@ export function normalizePptxModelPlan(operation, design, slide) {
     throw planError('TITLE_REQUIRED', slide, 'Every slide plan requires one title region.');
   }
   const kind = String(operation.kind || 'content').toLowerCase();
+  repairs.push(...spreadRegionsVertically(regions, safe, kind));
   const operationHasEvidence = Boolean(
     operation.chart
     || operation.table
@@ -445,6 +449,62 @@ function regionGeometry(region) {
   };
 }
 
+const CALLOUT_MAX_SIZE = 96;
+const CJK_GLYPH = /[\u1100-\u11ff\u2e80-\u9fff\uac00-\ud7af]/u;
+
+// A stat callout starts at the largest size its region can hold (reference
+// scale: 60-96pt hero numbers) and only shrinks when the supporting text
+// underneath no longer fits. Starting small and never growing is how a
+// region ends up as a sticker in a billboard.
+function calloutSize(text, region, design, { fontRole = 'display', bold = true, reserve = 0.5 } = {}) {
+  const value = String(text || '');
+  if (!value.trim()) return 24;
+  const fontName = design.tokens.typography[fontRole] || design.tokens.typography.display;
+  const latin = [...value].filter((character) => !CJK_GLYPH.test(character)).join('');
+  const cjkCount = value.length - latin.length;
+  const unitWidth = (measureTextWidth(latin, { fontName, fontSize: 100, bold }) / 100) + (cjkCount * 1.02);
+  // The text box keeps an overhang inset that scales with the size, so the
+  // line has to fit the region minus that inset, never just the region.
+  const byWidth = unitWidth > 0 ? (region.width * 0.94) / (unitWidth + WRAP_OVERHANG_EM) : CALLOUT_MAX_SIZE;
+  const byHeight = (region.height * reserve) / 1.2;
+  return Math.max(24, Math.floor(Math.min(CALLOUT_MAX_SIZE, byWidth, byHeight)));
+}
+
+const TITLE_MIN_SIZE = 24;
+
+// Width per point of size for one line of display text; CJK glyphs are
+// budgeted at a full em because the Latin display face measures them through
+// a narrower fallback.
+function unitLineWidth(line, fontName) {
+  const value = String(line || '');
+  const latin = [...value].filter((character) => !CJK_GLYPH.test(character)).join('');
+  const cjkCount = value.length - latin.length;
+  return (measureTextWidth(latin, { fontName, fontSize: 100, bold: true }) / 100) + (cjkCount * 1.02);
+}
+
+// Titles take the largest reference size (36-44pt) their region can hold
+// instead of shrinking by character count; a long thesis in a tall region
+// still leads the page. The text measured is the balanced (line-broken)
+// title the renderer actually emits, so each authored line wraps on its own
+// and the size only stops shrinking once every line fits the region.
+function fittedTitleSize(text, region, design) {
+  const preferred = region.height >= 90 ? 44 : 36;
+  const fontName = design.tokens.typography.display;
+  const units = String(text || '').split('\n').map((line) => unitLineWidth(line, fontName));
+  for (let size = preferred; size >= TITLE_MIN_SIZE; size -= 2) {
+    // Measured widths run a few percent under PowerPoint's own layout, and
+    // the text box keeps a size-scaled overhang inset; the usable line width
+    // subtracts both instead of trusting the exact edge.
+    const usableWidth = Math.max(1, (region.width * 0.97) - Math.ceil(size * WRAP_OVERHANG_EM));
+    const lines = units.reduce(
+      (sum, unit) => sum + Math.max(1, Math.ceil((unit * size) / usableWidth)),
+      0,
+    );
+    if (lines * size * 1.2 <= region.height) return size;
+  }
+  return TITLE_MIN_SIZE;
+}
+
 function regionStyle(region, design, {
   fontRole = 'body',
   fontSize = 16,
@@ -454,7 +514,7 @@ function regionStyle(region, design, {
   const style = region.style || {};
   return {
     fontName: fontValue(style.fontRole, design, fontRole),
-    fontSize: clamp(style.fontSize || fontSize, MIN_VISIBLE_FONT_SIZE, 72),
+    fontSize: clamp(style.fontSize || fontSize, MIN_VISIBLE_FONT_SIZE, CALLOUT_MAX_SIZE),
     color: colorValue(style.colorRole || style.color, design, design.tokens.colors[colorRole]),
     bold: style.bold == null ? bold : style.bold === true,
     italic: style.italic === true,
@@ -501,19 +561,19 @@ function renderTextRegion(region, operation, design, slide) {
   const defaults = region.role === 'title'
     ? {
         fontRole: 'display',
-        fontSize: pptTitleSize(textForRegion(region, operation), region.height >= 90 ? 44 : 36),
+        fontSize: fittedTitleSize(balancedPptTitle(textForRegion(region, operation)), region, design),
         colorRole: 'ink',
         bold: true,
       }
     : region.role === 'eyebrow'
       ? { fontRole: 'body', fontSize: 12, colorRole: 'accent', bold: true }
       : region.role === 'subtitle'
-        ? { fontRole: 'body', fontSize: 17, colorRole: 'muted' }
+        ? { fontRole: 'body', fontSize: 18, colorRole: 'muted' }
         : region.role === 'meta'
           ? { fontRole: 'body', fontSize: MIN_VISIBLE_FONT_SIZE, colorRole: 'muted' }
         : region.role === 'source'
           ? { fontRole: 'body', fontSize: MIN_VISIBLE_FONT_SIZE, colorRole: 'muted' }
-          : { fontRole: 'body', fontSize: 15, colorRole: 'ink' };
+          : { fontRole: 'body', fontSize: 16, colorRole: 'ink' };
   const style = regionStyle(region, design, defaults);
   let paragraphs = null;
   let text = textForRegion(region, operation);
@@ -557,7 +617,7 @@ function renderMetricRegion(region, operation, design, slide) {
   const detail = String(metric.detail || '');
   const style = regionStyle(region, design, {
     fontRole: 'display',
-    fontSize: Math.min(60, Math.max(30, region.height * 0.34)),
+    fontSize: calloutSize(value, region, design, { reserve: detail ? 0.45 : 0.55 }),
     colorRole: 'accent',
     bold: true,
   });
@@ -732,7 +792,7 @@ function renderVisualRegion(region, operation, design, slide) {
   const label = String(region.label ?? operation.visualLabel ?? '');
   const style = regionStyle(region, design, {
     fontRole: 'display',
-    fontSize: Math.min(72, Math.max(40, region.height * 0.34)),
+    fontSize: calloutSize(text, region, design, { reserve: label ? 0.5 : 0.6 }),
     colorRole: 'accent',
     bold: true,
   });
@@ -812,42 +872,59 @@ function renderProcessRegion(region, operation, design, slide) {
     }));
   };
   if (horizontal) {
-    const marker = Math.min(44, region.height * 0.22);
+    // The flow scales with the field it was given: a half-canvas region gets
+    // large markers and readable copy, not a thin band floating in the middle.
+    const marker = clamp(region.height * 0.26, 36, 72);
+    const titleSize = region.height >= 180 ? 18 : 16;
+    const detailSize = region.height >= 180 ? 15 : 14;
     const contentWidth = Math.max(60, stride - gutter);
-    const titleBand = Math.ceil(Math.max(18, ...steps.map((step) => measuredTextHeight(stepTitle(step), {
+    const titleBand = Math.ceil(Math.max(titleSize * 1.3, ...steps.map((step) => measuredTextHeight(stepTitle(step), {
       fontName: bodyFont,
-      fontSize: 14,
+      fontSize: titleSize,
       bold: true,
       width: contentWidth,
     }))));
     const detailBand = Math.ceil(Math.max(0, ...steps.map((step) => measuredTextHeight(stepDetail(step), {
       fontName: bodyFont,
-      fontSize: MIN_VISIBLE_FONT_SIZE,
+      fontSize: detailSize,
       width: contentWidth,
     }))));
-    const bandHeight = marker + 12 + titleBand + (detailBand ? TEXT_SHAPE_GAP + detailBand : 0);
+    const bandHeight = marker + 14 + titleBand + (detailBand ? TEXT_SHAPE_GAP + detailBand : 0);
     const bandTop = region.top + Math.max(0, (region.height - bandHeight) / 2);
     steps.forEach((step, index) => {
       const left = region.left + (index * stride);
+      if (index > 0) {
+        // Short connector between markers: each segment stays well under the
+        // decorative-stripe width so it reads as flow, not ornament.
+        const previousRight = region.left + ((index - 1) * stride) + marker + 8;
+        output.push(pptShape(slide, 'line', {
+          left: previousRight,
+          top: bandTop + (marker / 2),
+          width: Math.max(0, left - 8 - previousRight),
+          height: 0,
+          lineColor: design.tokens.colors.surface2,
+          lineWidth: 1.5,
+        }));
+      }
       pushMarker(left, bandTop, marker, index);
       output.push(pptText(slide, stepTitle(step), {
         left,
-        top: bandTop + marker + 12,
+        top: bandTop + marker + 14,
         width: contentWidth,
         height: Math.ceil(titleBand),
         fontName: bodyFont,
-        fontSize: 14,
+        fontSize: titleSize,
         bold: true,
         color: design.tokens.colors.ink,
       }));
       const detail = stepDetail(step);
       if (detail) output.push(pptText(slide, detail, {
         left,
-        top: bandTop + marker + 12 + titleBand + TEXT_SHAPE_GAP,
+        top: bandTop + marker + 14 + titleBand + TEXT_SHAPE_GAP,
         width: contentWidth,
         height: Math.ceil(detailBand),
         fontName: bodyFont,
-        fontSize: MIN_VISIBLE_FONT_SIZE,
+        fontSize: detailSize,
         color: design.tokens.colors.muted,
       }));
     });
@@ -1008,6 +1085,17 @@ export function expandPptxModelSlide(operation, design, slide, backgroundSpec) {
     slide,
     color: backgroundSpec.color,
   });
+  const motif = motifOperations({
+    design,
+    operation,
+    slide,
+    slideRole: backgroundSpec.slideRole,
+    canvas: plan.canvas,
+    elements: plan.regions.map((region) => ({ ...region, type: 'text' })),
+    backgroundColor: backgroundSpec.color,
+  });
+  output.push(...motif.operations);
+  if (motif.motif) plan.motif = motif.motif;
   const ordered = [...plan.regions].sort((left, right) => left.layer - right.layer);
   for (const region of ordered) output.push(...renderRegion(region, operation, renderDesign, slide));
   const source = provenanceText(operation.source);

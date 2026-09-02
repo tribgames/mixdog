@@ -460,16 +460,27 @@ async function snapshotPptx(zip, options = {}) {
           .filter((size) => size > 0);
         const tableRows = [...shape.xml.matchAll(/<a:tr\b/gi)].length;
         const tableColumns = [...shape.xml.matchAll(/<a:gridCol\b/gi)].length;
+        // Typeface and color inventories feed the deck discipline review; a
+        // shape that mixes families or invents colors is otherwise invisible.
+        const fonts = [...new Set([...shape.xml.matchAll(/<a:latin\b[^>]*\btypeface="([^"]+)"/gi)]
+          .map((match) => xmlDecode(match[1]))
+          .filter(Boolean))];
+        const colors = [...new Set([...shape.xml.matchAll(/<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/gi)]
+          .map((match) => match[1].toUpperCase()))];
+        const shapeName = xmlDecode(/<p:cNvPr\b[^>]*\bname="([^"]*)"/i.exec(shape.xml)?.[1] || '');
         return {
           path: shapePath,
           index: shapeIndex + 1,
           type: shape.name,
+          ...(shapeName ? { name: shapeName } : {}),
           text: paragraphTexts(shape.xml, 'a:t').join(''),
           ...(shape.name === 'p:grpSp' ? { group: true } : {}),
           ...(/<p:ph\b/i.test(shape.xml) ? { placeholder: true } : {}),
           ...(/<c:chart\b/i.test(shape.xml) ? { chart: { path: `${shapePath}/chart` } } : {}),
           ...(tableRows ? { table: { rows: tableRows, columns: tableColumns } } : {}),
-          ...(fontSizes.length ? { font: { size: Math.max(...fontSizes) } } : {}),
+          ...(fontSizes.length ? { font: { size: Math.max(...fontSizes), ...(fonts.length ? { name: fonts[0] } : {}) } } : {}),
+          ...(fonts.length ? { fonts } : {}),
+          ...(colors.length ? { colors } : {}),
           ...(offset && extent ? {
             left: Number(offset[1]) / 12_700,
             top: Number(offset[2]) / 12_700,

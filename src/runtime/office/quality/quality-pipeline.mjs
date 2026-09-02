@@ -1,9 +1,13 @@
 import { extname } from 'node:path';
 
 const CRITICAL_CODES = new Set([
+  'accent_hue_overuse',
   'blank_page',
   'broken_chart',
   'empty_chart',
+  'emphasis_mismatch',
+  'flat_visual_rhythm',
+  'font_family_overuse',
   'formula_error',
   'formula_error_truncated',
   'missing_relationship',
@@ -14,6 +18,7 @@ const CRITICAL_CODES = new Set([
   'render_failed',
   'repetitive_composition',
   'text_outside_slide',
+  'unsafe_font_family',
 ]);
 
 const POLISH_GUIDANCE = Object.freeze({
@@ -35,6 +40,10 @@ const POLISH_GUIDANCE = Object.freeze({
   native_evidence_too_weak: 'Add source-bound native evidence to the slides carrying material claims.',
   art_direction_candidates_missing: 'Create three subject-specific art directions, select one, and carry its palette, typography, motif, and image treatment through the deck.',
   flat_visual_rhythm: 'Vary background roles, density, focal scale, and evidence treatment while preserving the selected art direction.',
+  font_family_overuse: 'Restyle the slide with fontRole display, body, and data only; drop every extra typeface.',
+  unsafe_font_family: 'Replace the reported typefaces with the deck typography roles; Aptos, Segoe UI, Consolas, and similar faces substitute unpredictably.',
+  accent_hue_overuse: 'Recolor cards, labels, and chips to palette roles so one accent dominates and at most one secondary hue remains.',
+  emphasis_mismatch: 'Enlarge the evidence or thesis the brief names as primary and shrink the element that currently outweighs it.',
   low_visual_contrast: 'Increase figure-ground contrast without adding decoration; verify the rendered page again.',
   repeated_layout_grammar: 'Replace repeated spatial grammar with a different evidence-led composition.',
   repeated_render_composition: 'Recompose the repeated slides so their rendered reading paths and evidence structures are visibly distinct.',

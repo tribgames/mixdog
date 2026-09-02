@@ -39,7 +39,7 @@ export async function runOfficeContractBenchmark() {
   };
 
   const summary = resultValue(await call({ action: 'describe' }));
-  assert.equal(summary.actions.length, 25);
+  assert.equal(summary.actions.length, 26);
   for (const removed of ['set', 'add', 'remove', 'move']) assert.equal(summary.actions.includes(removed), false);
   for (const entry of Object.values(summary.formats)) {
     assert.equal(entry.operations, undefined);

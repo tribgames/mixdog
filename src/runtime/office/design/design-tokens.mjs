@@ -1,6 +1,7 @@
 import { normalizeOfficeContentModel, summarizeOfficeContentModel } from './content-model.mjs';
 import { resolveOfficeCompositionContext } from './composition-system.mjs';
 import { resolveOfficeArtDirection } from './design-art-direction.mjs';
+import { normalizePaletteTokens, normalizeTypographyTokens } from './design-discipline.mjs';
 import { plainObject } from '../shared/values.mjs';
 const PPTX_BACKGROUND_MODES = new Set(['sandwich', 'light', 'dark', 'custom']);
 
@@ -74,8 +75,8 @@ const DESIGN_PACKS = Object.freeze({
         onInverse: 'FFFFFF',
       }),
       typography: Object.freeze({
-        display: 'Segoe UI',
-        body: 'Segoe UI',
+        display: 'Cambria',
+        body: 'Calibri',
         data: 'Arial',
       }),
       spacing: Object.freeze({
@@ -110,9 +111,9 @@ const DESIGN_PACKS = Object.freeze({
         onInverse: 'FFFFFF',
       }),
       typography: Object.freeze({
-        display: 'Segoe UI',
-        body: 'Segoe UI',
-        data: 'Segoe UI',
+        display: 'Bookman Old Style',
+        body: 'Calibri',
+        data: 'Calibri',
       }),
       spacing: Object.freeze({
         compact: 12,
@@ -146,9 +147,9 @@ const DESIGN_PACKS = Object.freeze({
         onInverse: 'F7FAFC',
       }),
       typography: Object.freeze({
-        display: 'Segoe UI',
-        body: 'Segoe UI',
-        data: 'Cascadia Mono',
+        display: 'Arial',
+        body: 'Calibri',
+        data: 'Courier New',
       }),
       spacing: Object.freeze({
         compact: 10,
@@ -182,9 +183,9 @@ const DESIGN_PACKS = Object.freeze({
         onInverse: 'FFFFFF',
       }),
       typography: Object.freeze({
-        display: 'Segoe UI',
-        body: 'Segoe UI',
-        data: 'Segoe UI',
+        display: 'Calibri',
+        body: 'Calibri',
+        data: 'Arial',
       }),
       spacing: Object.freeze({
         compact: 9,
@@ -269,6 +270,7 @@ export function compactDesign(design) {
     creative: design.creative,
     library: design.library,
     tokens: design.tokens,
+    discipline: design.discipline,
     format: design.format,
     deck: design.deck,
     content: summarizeOfficeContentModel(design.content),
@@ -366,13 +368,18 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
     typography: artDirection.selected.typography,
   } : {};
   const palette = plainObject(input.palette) ? input.palette : {};
-  const typography = plainObject(input.typography) ? input.typography : {};
-  const tokens = merge(merge(pack.tokens, directionTokens), {
-    colors: Object.fromEntries(Object.entries(palette).map(([key, value]) => [
+  const baseTokens = merge(pack.tokens, directionTokens);
+  const typographyDiscipline = normalizeTypographyTokens(input.typography, baseTokens.typography);
+  const paletteDiscipline = normalizePaletteTokens({
+    ...baseTokens.colors,
+    ...Object.fromEntries(Object.entries(palette).map(([key, value]) => [
       key,
-      hex(value, pack.tokens.colors[key] || pack.tokens.colors.ink),
+      hex(value, baseTokens.colors[key] || baseTokens.colors.ink),
     ])),
-    typography,
+  });
+  const tokens = merge(baseTokens, {
+    colors: paletteDiscipline.colors,
+    typography: typographyDiscipline.typography,
   });
   const deck = normalizedFormat === 'pptx' ? resolvePptxDeckPlan(input, tokens, artDirection) : null;
   return {
@@ -396,6 +403,11 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
     library: compactLibrary(library),
     layouts: Array.isArray(library?.layouts) ? clone(library.layouts) : [],
     tokens,
+    discipline: {
+      replacedFonts: typographyDiscipline.replaced,
+      fontFamilyCount: typographyDiscipline.familyCount,
+      paletteAdjustments: paletteDiscipline.adjustments,
+    },
     format: clone(pack.formats[normalizedFormat] || {}),
     ...(deck ? { deck } : {}),
     ...(normalizedFormat === 'pptx' ? {
@@ -411,6 +423,7 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
       allowDecorativeLines: input.allowDecorativeLines === true,
       allowSyntheticVisuals: input.allowSyntheticVisuals === true,
       allowFlatRhythm: input.allowFlatRhythm === true,
+      allowUnsafeFonts: input.allowUnsafeFonts === true,
       frontier: input.frontier !== false && Boolean(input.content || input.creative),
     },
   };

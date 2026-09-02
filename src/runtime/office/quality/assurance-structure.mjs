@@ -1,4 +1,4 @@
-
+import { isMotifShape } from '../design/design-discipline.mjs';
 
 export function issue(code, path, message, source = 'format-review', severity = 'warning') {
   return { severity, code, path, message, source };
@@ -280,6 +280,7 @@ function reviewPptxStructure(document, auditProfile = '') {
     }
     const textShapes = (slide.shapes || []).filter((shape) => (
       String(shape.text || '').trim()
+      && !isMotifShape(shape)
       && [shape.left, shape.top, shape.width, shape.height].every((entry) => Number.isFinite(Number(entry)))
     )).map((shape) => ({
       ...shape,

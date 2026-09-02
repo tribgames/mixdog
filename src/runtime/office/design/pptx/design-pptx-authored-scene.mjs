@@ -4,6 +4,23 @@ import {
   strings,
 } from '../design-tokens.mjs';
 import { canvasSize, pptShape, pptText } from './design-pptx-primitives.mjs';
+import {
+  alignmentAxes,
+  disciplinedColor,
+  disciplinedFont,
+  emphasisReport,
+  equalizeRows,
+  imageTreatmentOperations,
+  repairHollowContainers,
+  reviewSceneAccents,
+  reviewSceneBalance,
+  reviewSceneContrast,
+  reviewSceneTypography,
+  snapAlignmentAxes,
+  snapLineGeometry,
+  typeFloor,
+} from './design-pptx-scene-discipline.mjs';
+import { motifOperations } from './design-pptx-motifs.mjs';
 import { measuredTextHeight } from './design-pptx-stack.mjs';
 import { clamp, plainObject } from '../../shared/values.mjs';
 
@@ -41,19 +58,8 @@ function rawBox(element) {
   };
 }
 
-function colorValue(value, design, fallback = '') {
-  const requested = String(value || '').trim();
-  if (!requested) return fallback;
-  if (Object.hasOwn(design.tokens.colors, requested)) return design.tokens.colors[requested];
-  return hex(requested, fallback);
-}
-
-function fontValue(value, design, fallback = 'body') {
-  const requested = String(value || '').trim();
-  if (requested && Object.hasOwn(design.tokens.typography, requested)) {
-    return design.tokens.typography[requested];
-  }
-  return requested || design.tokens.typography[fallback] || design.tokens.typography.body;
+function colorValue(value, design, fallback = '', context = {}) {
+  return disciplinedColor(value, design, fallback, context);
 }
 
 function geometry(element) {
@@ -65,9 +71,14 @@ function geometry(element) {
   };
 }
 
-function normalizeStyle(raw, type, design, slide, id) {
+function normalizeStyle(raw, type, design, slide, id, role = '') {
   const style = plainObject(raw) ? raw : {};
-  const fontSize = Number(style.fontSize);
+  const requestedSize = Number(style.fontSize);
+  // Role floors lift undersized support copy instead of failing it; only a
+  // request below the absolute minimum is an authoring error.
+  const fontSize = type === 'text' && requestedSize >= MIN_FONT_SIZE
+    ? Math.max(requestedSize, typeFloor(role))
+    : requestedSize;
   if ((type === 'text' || (type === 'shape' && style.fontSize != null)) && fontSize < MIN_FONT_SIZE) {
     throw sceneError(
       'SMALL_FONT',
@@ -76,10 +87,12 @@ function normalizeStyle(raw, type, design, slide, id) {
       { element: id, fontSize },
     );
   }
+  const context = { slide, element: id };
   return {
-    fontName: fontValue(style.fontRole || style.fontName, design, style.display === true ? 'display' : 'body'),
+    fontName: disciplinedFont(style.fontRole || style.fontName, design, style.display === true ? 'display' : 'body', context),
     fontSize: clamp(fontSize || (style.display === true ? 34 : 16), MIN_FONT_SIZE, 96),
-    color: colorValue(style.colorRole || style.color, design, design.tokens.colors.ink),
+    color: colorValue(style.colorRole || style.color, design, design.tokens.colors.ink, { ...context, field: 'color' }),
+    colorRole: Object.hasOwn(design.tokens.colors, String(style.colorRole || '')) ? String(style.colorRole) : '',
     bold: style.bold === true,
     italic: style.italic === true,
     alignment: ALIGNMENTS.has(String(style.align || style.alignment || '').toLowerCase())
@@ -92,8 +105,8 @@ function normalizeStyle(raw, type, design, slide, id) {
     marginTop: clamp(style.marginTop ?? style.padding ?? 0, 0, 36),
     marginRight: clamp(style.marginRight ?? style.padding ?? 0, 0, 36),
     marginBottom: clamp(style.marginBottom ?? style.padding ?? 0, 0, 36),
-    fillColor: colorValue(style.fillRole || style.fillColor, design, ''),
-    lineColor: colorValue(style.lineRole || style.lineColor, design, ''),
+    fillColor: colorValue(style.fillRole || style.fillColor, design, '', { ...context, field: 'fillColor' }),
+    lineColor: colorValue(style.lineRole || style.lineColor, design, '', { ...context, field: 'lineColor' }),
     fillTransparency: clamp(style.fillTransparency ?? 0, 0, 100),
     lineTransparency: clamp(style.lineTransparency ?? 0, 0, 100),
     lineWidth: clamp(style.lineWidth ?? 1, 0.25, 12),
@@ -163,7 +176,7 @@ function normalizeElement(raw, index, {
       { element: id },
     );
   }
-  normalized.style = normalizeStyle(raw.style, type, design, slide, id);
+  normalized.style = normalizeStyle(raw.style, type, design, slide, id, normalized.role);
   if (type === 'text') {
     const text = String(raw.text || '');
     if (!text.trim()) throw sceneError('MISSING_TEXT', slide, `Text element "${id}" is empty.`, { element: id });
@@ -206,7 +219,7 @@ export function hasPptxAuthoredScene(operation = {}) {
     && Array.isArray(operation.plan.authoredScene.elements);
 }
 
-export function normalizePptxAuthoredScene(operation, design, slide) {
+export function normalizePptxAuthoredScene(operation, design, slide, backgroundColor = '') {
   const source = operation?.plan?.authoredScene;
   if (!plainObject(source) || !Array.isArray(source.elements) || !source.elements.length) {
     throw sceneError('REQUIRED', slide, 'plan.authoredScene.elements is required.');
@@ -259,6 +272,17 @@ export function normalizePptxAuthoredScene(operation, design, slide) {
   ) {
     throw sceneError('EVIDENCE_REQUIRED', slide, 'A content scene requires a chart, table, image, or evidence element.');
   }
+  const field = hex(backgroundColor, design.tokens.colors[design.deck?.roles?.[kind] || 'canvas'] || design.tokens.colors.canvas);
+  reviewSceneTypography(elements, slide);
+  reviewSceneAccents(elements, slide);
+  const softRepairs = [
+    ...repairHollowContainers(elements, canvas),
+    ...snapAlignmentAxes(elements),
+    ...equalizeRows(elements),
+  ];
+  const contrastRepairs = reviewSceneContrast(elements, slide, field, design);
+  const balance = reviewSceneBalance(elements, slide, { kind, safe });
+  const emphasis = emphasisReport(elements, operation?.creativeBrief?.focalPoint);
   return {
     version: 1,
     contract: 'authored-scene-v1',
@@ -273,7 +297,25 @@ export function normalizePptxAuthoredScene(operation, design, slide) {
     elementCount: elements.length,
     nativeElementCount: elements.length,
     elementTypes: [...new Set(elements.map((element) => element.type))],
-    elements,
+    discipline: {
+      field,
+      bandOccupancy: balance.bands.map(rounded),
+      alignmentAxes: alignmentAxes(elements),
+      contrastRepairs,
+      softRepairs,
+      emphasis,
+      fontFamilies: [...new Set(elements.filter((element) => element.type === 'text').map((element) => element.style.fontName))],
+    },
+    elements: elements.map((element) => {
+      const snapped = snapLineGeometry(element);
+      return {
+        ...snapped,
+        left: rounded(snapped.left),
+        top: rounded(snapped.top),
+        width: rounded(snapped.width),
+        height: rounded(snapped.height),
+      };
+    }),
   };
 }
 
@@ -344,7 +386,7 @@ function chartOperation(element, design, slide) {
     zeroBaseline: chart.zeroBaseline !== false,
     valueNumberFormat: chart.valueNumberFormat || '',
     dataLabelPosition: chart.dataLabelPosition || '',
-    dataLabelColor: colorValue(chart.dataLabelColor, design, ''),
+    dataLabelColor: colorValue(chart.dataLabelColor, design, '', { slide, element: element.id, field: 'chart.dataLabelColor' }),
     ...geometry(element),
   };
 }
@@ -362,9 +404,9 @@ function tableOperation(element, design, slide) {
       fontName: element.style.fontName,
       fontSize: element.style.fontSize,
       color: element.style.color,
-      headerFillColor: colorValue(table.headerFillRole || table.headerFillColor, design, design.tokens.colors.inverse),
-      headerColor: colorValue(table.headerColorRole || table.headerColor, design, design.tokens.colors.onInverse),
-      bodyFillColor: colorValue(table.bodyFillRole || table.bodyFillColor, design, design.tokens.colors.surface),
+      headerFillColor: colorValue(table.headerFillRole || table.headerFillColor, design, design.tokens.colors.inverse, { slide, element: element.id, field: 'table.headerFillColor' }),
+      headerColor: colorValue(table.headerColorRole || table.headerColor, design, design.tokens.colors.onInverse, { slide, element: element.id, field: 'table.headerColor' }),
+      bodyFillColor: colorValue(table.bodyFillRole || table.bodyFillColor, design, design.tokens.colors.surface, { slide, element: element.id, field: 'table.bodyFillColor' }),
       headerRowHeight: Math.min(38, Math.max(24, element.height / Math.max(2, rows + 0.5))),
       bodyRowHeight: rows > 1 ? Math.max(20, (element.height - 32) / (rows - 1)) : 0,
     },
@@ -391,8 +433,9 @@ function elementOperation(element, design, slide) {
 }
 
 export function expandPptxAuthoredScene(operation, design, slide, backgroundSpec) {
-  const scene = normalizePptxAuthoredScene(operation, design, slide);
+  const scene = normalizePptxAuthoredScene(operation, design, slide, backgroundSpec.color);
   const operations = [];
+  const treatments = [];
   if (operation.create !== false) {
     operations.push({
       op: 'add_slide',
@@ -405,9 +448,31 @@ export function expandPptxAuthoredScene(operation, design, slide, backgroundSpec
     slide,
     color: backgroundSpec.color,
   });
+  const motif = motifOperations({
+    design,
+    operation,
+    slide,
+    slideRole: backgroundSpec.slideRole,
+    canvas: scene.canvas,
+    elements: scene.elements,
+    backgroundColor: backgroundSpec.color,
+  });
+  operations.push(...motif.operations);
   for (const element of [...scene.elements].sort((left, right) => left.layer - right.layer)) {
+    const treatment = element.type === 'image'
+      ? imageTreatmentOperations(element, scene.elements, slide, {
+        canvas: scene.canvas,
+        backgroundColor: backgroundSpec.color,
+        imageTreatment: design.deck?.imageTreatment,
+      })
+      : null;
+    if (treatment) {
+      treatments.push({ element: element.id, treatment: treatment.treatment });
+      operations.push(...treatment.before);
+    }
     const compiled = elementOperation(element, design, slide);
     if (compiled) operations.push(compiled);
+    if (treatment) operations.push(...treatment.after);
   }
   const source = provenanceText(operation.source);
   const notes = [
@@ -424,6 +489,8 @@ export function expandPptxAuthoredScene(operation, design, slide, backgroundSpec
       source: 'model',
       units: 'points',
       authoredScene: scene,
+      imageTreatments: treatments,
+      motif: motif.motif,
       readingOrder: strings(operation.plan?.readingOrder).length
         ? strings(operation.plan.readingOrder)
         : scene.elements.map((element) => element.id),

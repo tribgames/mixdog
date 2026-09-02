@@ -166,7 +166,7 @@ export function finalizeOfficeResult(value, {
     ...(value.metrics || {}),
     durationMs: Math.max(0, Number((performance.now() - startedAt).toFixed(2))),
   };
-  const operation = action === 'create'
+  const operation = action === 'create' || (action === 'author' && value.output)
     ? 'create'
     : action === 'render'
       ? 'render'

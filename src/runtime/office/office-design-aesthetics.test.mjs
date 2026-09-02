@@ -195,6 +195,27 @@ test('role-aware composition allows editorial closing whitespace but expects den
   );
 });
 
+test('a statement beat is judged as a section, not as an under-composed content slide', async () => {
+  const sparse = (page) => renderedImage(page, (context) => {
+    context.fillStyle = '#0B1F33';
+    context.fillRect(0, 0, 320, 180);
+    context.fillStyle = '#F7FAFC';
+    context.fillRect(28, 60, 110, 18);
+  });
+  const images = [1, 2, 3, 4, 5].map(sparse);
+  const asContent = await reviewRenderedOfficePages(images, { format: 'pptx' });
+  const asBeat = await reviewRenderedOfficePages(images, {
+    format: 'pptx',
+    pageRoles: { 2: { slideRole: 'section', visualType: 'metric' } },
+  });
+  const underComposed = (review) => review.issues
+    .filter((issue) => issue.code === 'under_composed_slide')
+    .map((issue) => issue.path);
+  assert.ok(underComposed(asContent).includes('/slide[2]'));
+  assert.equal(underComposed(asBeat).includes('/slide[2]'), false);
+  assert.equal(asBeat.aesthetics.pages[1].role, 'section');
+});
+
 test('release quality score combines render evidence, structural penalties, and confidence', () => {
   const clean = scoreOfficeReleaseQuality({
     format: 'pptx',
