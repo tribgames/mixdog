@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export function ensureStandaloneEnvironment({ rootDir, dataDir }) {
@@ -15,7 +15,7 @@ export function ensureStandaloneEnvironment({ rootDir, dataDir }) {
   process.env.MIXDOG_PATCH_NATIVE_PREWARM ??= '0';
 
   mkdirSync(dataDir, { recursive: true });
-  seedBundledSkills({ rootDir, dataDir });
+  retireSeededSkillCopies({ rootDir, dataDir });
   cleanupRetiredChannelSecrets(dataDir);
 }
 
@@ -35,28 +35,69 @@ function cleanupRetiredChannelSecrets(dataDir) {
     .catch(() => { /* cleanup is best-effort */ });
 }
 
-// Copy skills bundled in the package (src/defaults/skills/<name>/) into the
-// user data skills dir, but only when the target dir does not already exist —
-// never overwrite user-owned skill dirs.
-export function seedBundledSkills({ rootDir, dataDir }) {
-  if (/^(?:1|true|on|yes)$/i.test(String(process.env.MIXDOG_DISABLE_SKILLS || ''))) return;
+// Built-in skills (src/defaults/skills/<name>/) used to be copied into the
+// user data skills dir once and never refreshed, so every install kept the
+// version it first saw. They are now read in place by the skill collector and
+// a user-global skill of the same name shadows them. A leftover seeded copy
+// would therefore pin the old text forever: remove it when it is still
+// byte-identical to some bundled skill (the user never touched it) and keep
+// it when it differs, because then it is the user's own override.
+export function retireSeededSkillCopies({ rootDir, dataDir }) {
   const bundledDir = join(rootDir, 'defaults', 'skills');
-  if (!existsSync(bundledDir)) return;
   const targetRoot = join(dataDir, 'skills');
+  if (!existsSync(bundledDir) || !existsSync(targetRoot)) return [];
   let names;
   try {
     names = readdirSync(bundledDir, { withFileTypes: true });
   } catch {
-    return;
+    return [];
   }
+  const retired = [];
   for (const entry of names) {
     if (!entry.isDirectory()) continue;
-    const dest = join(targetRoot, entry.name);
-    if (existsSync(dest)) continue;
+    const copy = join(targetRoot, entry.name);
+    if (!existsSync(copy)) continue;
+    if (!sameTree(join(bundledDir, entry.name), copy)) continue;
     try {
-      cpSync(join(bundledDir, entry.name), dest, { recursive: true });
+      rmSync(copy, { recursive: true, force: true });
+      retired.push(entry.name);
     } catch {
-      // best-effort seeding; ignore individual copy failures
+      // best-effort; a stuck copy simply keeps shadowing until removed by hand
     }
   }
+  return retired;
+}
+
+function sameTree(left, right) {
+  let leftEntries;
+  let rightEntries;
+  try {
+    leftEntries = readdirSync(left, { withFileTypes: true });
+    rightEntries = readdirSync(right, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+  const names = (entries) => entries.map((entry) => entry.name).sort();
+  if (names(leftEntries).join('\0') !== names(rightEntries).join('\0')) return false;
+  for (const entry of leftEntries) {
+    const a = join(left, entry.name);
+    const b = join(right, entry.name);
+    if (entry.isDirectory()) {
+      if (!sameTree(a, b)) return false;
+      continue;
+    }
+    try {
+      if (!sameBytes(readFileSync(a), readFileSync(b))) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+// A seed copied from a CRLF checkout and a package shipped with LF are the
+// same text; only carriage returns are ignored, nothing else.
+function sameBytes(left, right) {
+  const strip = (buffer) => Buffer.from(buffer.toString('utf8').replace(/\r\n/g, '\n'), 'utf8');
+  return strip(left).equals(strip(right));
 }

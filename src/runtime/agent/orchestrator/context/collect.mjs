@@ -29,6 +29,14 @@ function mixdogAssetDirs(_projectDir, kind) {
     return [mixdogGlobalDir(kind)];
 }
 /**
+ * Skills shipped inside the package (src/defaults/skills/<name>/). Read in
+ * place, never copied: a release updates them immediately, and a user-global
+ * or plugin skill with the same name shadows the built-in one.
+ */
+export function builtinSkillsDir() {
+    return join(mixdogRoot(), 'defaults', 'skills');
+}
+/**
  * Absolute path to the plugin registry file, or null when the data dir is
  * unresolvable. Included in the skills mtime gate so plugin add/remove
  * (which rewrites registry.json) invalidates the cached skill list even
@@ -80,9 +88,9 @@ export function collectSkills(cwd) {
     void cwd;
     const skills = [];
     const dirs = mixdogAssetDirs(null, 'skills');
-    // Plugin-provided skills load last so user-global skills keep precedence;
-    // `seen` below dedupes by frontmatter name.
-    dirs.push(...pluginSkillDirs());
+    // Plugin-provided skills load after user-global ones and built-ins last,
+    // so the user keeps precedence; `seen` below dedupes by frontmatter name.
+    dirs.push(...pluginSkillDirs(), builtinSkillsDir());
     const seen = new Set();
     for (const dir of dirs) {
         if (!existsSync(dir))
@@ -161,7 +169,7 @@ export function collectSkillsCached(cwd) {
     const key = 'global';
     // Same mixdog-owned dirs collectSkills() reads, used as the freshness gate.
     const skillsDirs = mixdogAssetDirs(null, 'skills');
-    skillsDirs.push(...pluginSkillDirs());
+    skillsDirs.push(...pluginSkillDirs(), builtinSkillsDir());
     // registry.json itself gates plugin add/remove: removal deletes the
     // plugin's skills dir (so no dir mtime advances), but saveRegistry()
     // always rewrites this file. maxMtimeRecursive stats plain files directly.

@@ -3,8 +3,12 @@ import { constants as fsConstants } from 'node:fs';
 import { closeSession, render } from '../core/office-actions.mjs';
 import { documentFormat, documentSessionKey, documentSessions, sessions } from '../core/office-core.mjs';
 import { createAuthoredSession, fullPath } from '../core/office-sessions.mjs';
-import { pptxAuthoringGuide } from './pptx-authoring-guide.mjs';
 import { runPptxAuthoringScript } from './pptx-script-runner.mjs';
+
+/** The design guide lives in the built-in `pptx` skill; the tool never
+ *  serves it so one copy stays authoritative and user-overridable. */
+export const PPTX_AUTHOR_NEEDS_SCRIPT =
+  'author requires script. Load the `pptx` Skill first (Skill name:"pptx"): it carries the authoring workflow, design system, helper kit, and the pptxgenjs footguns, then call author again with path and script.';
 
 async function exists(path) {
   try {
@@ -31,13 +35,7 @@ async function releaseExistingSession(target, signal) {
 }
 
 export async function authorPptx(args, { cwd, dataDir, signal = null }) {
-  if (!String(args.script || '').trim()) {
-    return {
-      ok: true,
-      ...pptxAuthoringGuide(),
-      nextAction: 'Write the deck as a pptxgenjs script and call author again with path and script.',
-    };
-  }
+  if (!String(args.script || '').trim()) throw new Error(PPTX_AUTHOR_NEEDS_SCRIPT);
   const requestedPath = String(args.path || args.output || '').trim();
   if (!requestedPath) throw new Error('author requires path');
   const target = fullPath(requestedPath, cwd);

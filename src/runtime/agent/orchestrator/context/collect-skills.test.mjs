@@ -151,3 +151,51 @@ test('requires a standard folder name that matches the manifest name', () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('built-in package skills are discovered in place and shadowed by a user-global skill of the same name', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-builtin-skill-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  const previousRoot = process.env.MIXDOG_ROOT;
+  process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  process.env.MIXDOG_ROOT = join(root, 'package');
+  const cwd = join(root, 'project');
+  const skillFile = (name, body) => [
+    '---',
+    `name: ${name}`,
+    `description: ${body}`,
+    '---',
+    '',
+    `# ${body}`,
+    '',
+  ].join('\n');
+  try {
+    const builtin = join(process.env.MIXDOG_ROOT, 'defaults', 'skills');
+    mkdirSync(join(builtin, 'pptx', 'references'), { recursive: true });
+    mkdirSync(join(builtin, 'docx'), { recursive: true });
+    writeFileSync(join(builtin, 'pptx', 'SKILL.md'), skillFile('pptx', 'Built-in deck guide'));
+    writeFileSync(join(builtin, 'pptx', 'references', 'helper-kit.md'), '# kit\n');
+    writeFileSync(join(builtin, 'docx', 'SKILL.md'), skillFile('docx', 'Built-in document guide'));
+
+    invalidateSkillsCache(cwd);
+    const found = collectSkillsCached(cwd);
+    assert.equal(found.find((skill) => skill.name === 'pptx')?.description, 'Built-in deck guide');
+    assert.equal(found.find((skill) => skill.name === 'docx')?.description, 'Built-in document guide');
+    assert.equal(loadSkillResource('pptx', cwd)?.dir, join(builtin, 'pptx'));
+
+    const override = join(process.env.MIXDOG_DATA_DIR, 'skills', 'pptx');
+    mkdirSync(override, { recursive: true });
+    writeFileSync(join(override, 'SKILL.md'), skillFile('pptx', 'My own deck guide'));
+    invalidateSkillsCache(cwd);
+    const shadowed = collectSkillsCached(cwd).filter((skill) => skill.name === 'pptx');
+    assert.equal(shadowed.length, 1);
+    assert.equal(shadowed[0].description, 'My own deck guide');
+    assert.equal(loadSkillResource('pptx', cwd)?.dir, override);
+  } finally {
+    invalidateSkillsCache(cwd);
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    if (previousRoot === undefined) delete process.env.MIXDOG_ROOT;
+    else process.env.MIXDOG_ROOT = previousRoot;
+    rmSync(root, { recursive: true, force: true });
+  }
+});

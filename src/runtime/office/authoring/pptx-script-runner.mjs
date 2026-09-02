@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { access, mkdir, rm, stat } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { dirname } from 'node:path';
-import { PPTX_SCRIPT_CONTRACT } from './pptx-authoring-guide.mjs';
+import { PPTX_SCRIPT_CONTRACT } from './pptx-script-contract.mjs';
 
 // The script runs inside this process: a child node cannot resolve pptxgenjs
 // out of the packaged archive, and the model already holds shell access, so a

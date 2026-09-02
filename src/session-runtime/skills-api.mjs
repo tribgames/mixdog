@@ -24,9 +24,15 @@ export function createSkillsApi({ contextMod, getCwd }) {
       : [];
     const norm = (value) => String(value || '').replace(/\\/g, '/').toLowerCase();
     const globalRoot = `${norm(globalSkillsRoot())}/`;
-    const sourceForSkill = (filePath) => (
-      norm(filePath).startsWith(globalRoot) ? 'global' : 'plugin'
-    );
+    const builtinRoot = typeof contextMod.builtinSkillsDir === 'function'
+      ? `${norm(contextMod.builtinSkillsDir())}/`
+      : null;
+    const sourceForSkill = (filePath) => {
+      const path = norm(filePath);
+      if (path.startsWith(globalRoot)) return 'global';
+      if (builtinRoot && path.startsWith(builtinRoot)) return 'builtin';
+      return 'plugin';
+    };
     return {
       cwd,
       count: skills.length,

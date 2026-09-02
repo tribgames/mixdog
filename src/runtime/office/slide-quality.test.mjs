@@ -3,12 +3,15 @@ import test from 'node:test';
 
 import { resolveImageLayout } from './portable/image-layout.mjs';
 import { reviewTextBoxFit } from './portable/text-metrics.mjs';
-import { PPTX_ALWAYS_ON_CONTRACT, TOOL_DEFS } from './tool-defs.mjs';
+import { OFFICE_SKILL_ROUTING, TOOL_DEFS } from './tool-defs.mjs';
 
-test('Office Use always exposes the presentation authoring contract', () => {
+test('Office Use routes every format to its built-in skill', () => {
   const office = TOOL_DEFS.find((tool) => tool.name === 'office');
   assert.ok(office);
-  assert.ok(office.description.includes(PPTX_ALWAYS_ON_CONTRACT));
+  assert.ok(office.description.includes(OFFICE_SKILL_ROUTING));
+  for (const skill of ['pptx', 'docx', 'xlsx', 'pdf']) {
+    assert.match(OFFICE_SKILL_ROUTING, new RegExp(`\\b${skill}\\b`));
+  }
 });
 
 test('image layout contains an asset without changing its aspect ratio', () => {

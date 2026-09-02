@@ -23,13 +23,11 @@ content.addText('Guided setup lifted week-4 retention by 16 points.', { x: 8.2, 
 await pres.writeFile({ fileName: OUTPUT });
 `;
 
-test('author without a script returns the design guide', async (t) => {
+test('author without a script points at the pptx skill instead of serving a guide', async (t) => {
   const cwd = await workspace(t);
-  const guide = value(await executeOfficeTool({ action: 'author' }, { cwd }));
-  assert.equal(guide.ok, true);
-  assert.match(guide.guide, /pptxgenjs/);
-  assert.ok(guide.workflow.length >= 3);
-  assert.ok(guide.script.require.includes('pptxgenjs'));
+  const result = await executeOfficeTool({ action: 'author' }, { cwd });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /Skill name:"pptx"/);
 });
 
 test('author writes a deck from a pptxgenjs script and opens a session on it', async (t) => {
