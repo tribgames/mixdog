@@ -205,7 +205,7 @@ test('plain Node can import the standalone daemon service artifact', async () =>
 });
 
 test('browser password import uses only packaged native-tools without a certificate dependency', async () => {
-  const importer = await readFile(new URL('./browser-profile-import.ts', import.meta.url), 'utf8');
+  const importer = await readFile(new URL('./browser/profile-import.ts', import.meta.url), 'utf8');
   const builder = await readFile(new URL('../../electron-builder.yml', import.meta.url), 'utf8');
   const runtimePreparation = await readFile(
     new URL('../../scripts/prepare-runtime.mjs', import.meta.url),
