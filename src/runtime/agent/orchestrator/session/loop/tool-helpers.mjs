@@ -10,6 +10,7 @@ import {
     buildSkillToolEnvelope,
     filterSkillsExcludingDisabled,
     isSkillDisabled,
+    skillMissingFeature,
 } from '../../context/collect.mjs';
 
 // Eager-dispatch: tools with readOnlyHint:true in their declaration are safe
@@ -91,6 +92,10 @@ export function buildSkillsListResponse(cwd) {
 export function viewSkill(cwd, name) {
     const skillName = String(name || '').trim();
     if (!skillName) return 'Error: skill name is required';
+    const missingFeature = skillMissingFeature(skillName);
+    if (missingFeature) {
+        return `Error: skill "${skillName}" needs the ${missingFeature} built-in feature, which is not installed or is switched off in Settings → Built-in`;
+    }
     if (isSkillDisabled(skillName)) return `Error: skill "${skillName}" is disabled`;
     const res = loadSkillResource(skillName, cwd);
     if (!res) return `Error: skill "${skillName}" not found`;

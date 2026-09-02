@@ -6,6 +6,7 @@ import { resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs'
 import { readMarkdownDocument } from '../../../shared/markdown-frontmatter.mjs';
 import { parseSkillDocument } from '../../../shared/skill-document.mjs';
 import { loadConfig, normalizeSkillsConfig } from '../config.mjs';
+import { builtinFeatureActive, withGrandfatheredBuiltins } from '../../../../session-runtime/builtin-features.mjs';
 
 function skillsDisabled() {
     return /^(?:1|true|on|yes)$/i.test(String(process.env.MIXDOG_DISABLE_SKILLS || ''));
@@ -120,6 +121,7 @@ export function collectSkills(cwd) {
                     name: skill.name,
                     description: skill.description,
                     filePath,
+                    requires: requiredFeatures(skill.frontmatter),
                 });
             }
         }
@@ -130,6 +132,31 @@ export function collectSkills(cwd) {
 
 function normalizeSkillNameKey(name) {
     return String(name || '').trim().toLowerCase();
+}
+
+/**
+ * `metadata.requires` in the frontmatter names the built-in features a skill
+ * depends on (`office`, `git`, `memory`, `webSearch`). A skill that describes
+ * how to drive a tool must not be offered while that tool is uninstalled or
+ * switched off, or the model is pointed at a call that cannot succeed.
+ */
+function requiredFeatures(frontmatter) {
+    const metadata = frontmatter?.metadata;
+    const raw = metadata && typeof metadata === 'object' ? metadata.requires : null;
+    const list = Array.isArray(raw) ? raw : raw == null ? [] : String(raw).split(',');
+    return list.map((value) => String(value || '').trim()).filter(Boolean);
+}
+
+function missingFeature(skill, config) {
+    const requires = Array.isArray(skill?.requires) ? skill.requires : [];
+    return requires.find((feature) => !builtinFeatureActive(config, feature)) || null;
+}
+
+/** Config for feature gating. A profile that predates the `builtins` section
+ *  is grandfathered as installed exactly like the daemon does at adoption, so
+ *  the skill list and the tool surface agree. */
+function featureConfig(config = null) {
+    return withGrandfatheredBuiltins(config || loadConfig({ secrets: false }));
 }
 
 function getDisabledSkillNameSet(config = null) {
@@ -143,16 +170,25 @@ function getDisabledSkillNameSet(config = null) {
 export function isSkillDisabled(name, config = null) {
     const n = normalizeSkillNameKey(name);
     if (!n) return false;
-    return getDisabledSkillNameSet(config).has(n);
+    if (getDisabledSkillNameSet(config).has(n)) return true;
+    const skill = collectSkillsCached(null).find((entry) => normalizeSkillNameKey(entry.name) === n);
+    return Boolean(skill && missingFeature(skill, featureConfig(config)));
+}
+
+/** The built-in feature a skill needs that is not active, or null. */
+export function skillMissingFeature(name, config = null) {
+    const n = normalizeSkillNameKey(name);
+    const skill = collectSkillsCached(null).find((entry) => normalizeSkillNameKey(entry.name) === n);
+    return skill ? missingFeature(skill, featureConfig(config)) : null;
 }
 
 export function filterSkillsExcludingDisabled(skills, config = null) {
     if (skillsDisabled()) return [];
-    const disabled = getDisabledSkillNameSet(config);
-    if (!disabled.size) return Array.isArray(skills) ? skills : [];
+    const cfg = featureConfig(config);
+    const disabled = getDisabledSkillNameSet(cfg);
     return (Array.isArray(skills) ? skills : []).filter((s) => {
         const key = normalizeSkillNameKey(s?.name);
-        return key && !disabled.has(key);
+        return key && !disabled.has(key) && !missingFeature(s, cfg);
     });
 }
 
@@ -894,6 +930,12 @@ export function composeSystemPrompt(opts) {
     if (roleInstructionContext) sessionMarkerParts.push(roleInstructionContext);
     if (!_skip.memory && opts.coreMemoryContext && typeof opts.coreMemoryContext === 'string' && opts.coreMemoryContext.trim()) {
         sessionMarkerParts.push('# Core Memory\n' + opts.coreMemoryContext.trim());
+    }
+    // Response language closes the stable core: it must be the last
+    // behavioral instruction before the conversation so the pre-tool preamble
+    // is not pulled toward the English rule blocks that precede it.
+    if (opts.languageContext && typeof opts.languageContext === 'string' && opts.languageContext.trim()) {
+        sessionMarkerParts.push(opts.languageContext.trim());
     }
     const sessionMarkerCore = sessionMarkerParts.length
         ? sessionMarkerParts.join('\n\n---\n\n')

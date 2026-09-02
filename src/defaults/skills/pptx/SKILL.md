@@ -1,6 +1,8 @@
 ---
 name: pptx
 description: Use when creating, redesigning, or reviewing a PowerPoint deck (.pptx) with the office tool. Carries the authoring workflow (pptxgenjs script → render → critique → finalize), the design system (brief, style families, palette ladder, rhythm), and the file-corrupting library footguns. Load before the first office call for a deck.
+metadata:
+  requires: office
 ---
 
 # PPTX authoring (office tool + pptxgenjs)

@@ -1,6 +1,8 @@
 ---
 name: docx
 description: Use when creating, editing, reviewing, or redlining a Word document (.docx/.dotx/.docm) with the office tool. Carries the composition workflow (content model → compose_document → review → finalize), the editing paths, and the document design rules. Load before the first office call for a Word deliverable.
+metadata:
+  requires: office
 ---
 
 # Word documents (office tool)

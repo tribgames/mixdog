@@ -1,6 +1,8 @@
 ---
 name: pdf
 description: Use when creating, reading, filling, merging, securing, or OCR-ing a PDF with the office tool. Carries the inspection paths (text, layout, tables, images, forms), the create-from-blocks contract, page and form operations, and password handling. Load before the first office call that touches a PDF.
+metadata:
+  requires: office
 ---
 
 # PDF (office tool)

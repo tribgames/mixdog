@@ -5,9 +5,12 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import {
+  collectPromptSkillsCached,
   collectSkillsCached,
   invalidateSkillsCache,
+  isSkillDisabled,
   loadSkillResource,
+  skillMissingFeature,
 } from './collect.mjs';
 
 test('discovers global standard skill folders and ignores project-local skills and reference Markdown', () => {
@@ -148,6 +151,60 @@ test('requires a standard folder name that matches the manifest name', () => {
     invalidateSkillsCache(join(root, 'project'));
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a skill that requires a built-in feature is offered only while that feature is installed and enabled', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-requires-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  const previousRoot = process.env.MIXDOG_ROOT;
+  const previousOverride = process.env.MIXDOG_FEATURE_OFFICE;
+  process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  process.env.MIXDOG_ROOT = join(root, 'package');
+  delete process.env.MIXDOG_FEATURE_OFFICE;
+  const cwd = join(root, 'project');
+  try {
+    const dir = join(process.env.MIXDOG_ROOT, 'defaults', 'skills', 'pptx');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'SKILL.md'), [
+      '---',
+      'name: pptx',
+      'description: Use for decks.',
+      'metadata:',
+      '  requires: office',
+      '---',
+      '',
+      '# Decks',
+      '',
+    ].join('\n'));
+    invalidateSkillsCache(cwd);
+    const names = (config) => collectPromptSkillsCached(cwd, config).map((skill) => skill.name);
+
+    const fresh = { builtins: {} };
+    assert.deepEqual(names(fresh), []);
+    assert.equal(skillMissingFeature('pptx', fresh), 'office');
+    assert.equal(isSkillDisabled('pptx', fresh), true);
+
+    const installedOff = { builtins: { office: { installed: true } }, modules: { office: { enabled: false } } };
+    assert.deepEqual(names(installedOff), []);
+
+    const active = { builtins: { office: { installed: true } } };
+    assert.deepEqual(names(active), ['pptx']);
+    assert.equal(skillMissingFeature('pptx', active), null);
+    assert.equal(isSkillDisabled('pptx', active), false);
+
+    // A profile from before the builtins section is grandfathered as installed,
+    // matching what the daemon does when it adopts that config.
+    const grandfathered = { presets: {}, providers: {} };
+    assert.deepEqual(names(grandfathered), ['pptx']);
+  } finally {
+    invalidateSkillsCache(cwd);
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    if (previousRoot === undefined) delete process.env.MIXDOG_ROOT;
+    else process.env.MIXDOG_ROOT = previousRoot;
+    if (previousOverride !== undefined) process.env.MIXDOG_FEATURE_OFFICE = previousOverride;
     rmSync(root, { recursive: true, force: true });
   }
 });

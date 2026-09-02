@@ -59,6 +59,12 @@ export function createSkillsApi({ contextMod, getCwd }) {
   function skillToolContent(name) {
     const skillName = String(name || '').trim();
     if (!skillName) throw new Error('skill name is required');
+    const missingFeature = typeof contextMod.skillMissingFeature === 'function'
+      ? contextMod.skillMissingFeature(skillName)
+      : null;
+    if (missingFeature) {
+      return `Error: skill "${skillName}" needs the ${missingFeature} built-in feature, which is not installed or is switched off in Settings → Built-in`;
+    }
     if (typeof contextMod.isSkillDisabled === 'function' && contextMod.isSkillDisabled(skillName)) {
       return `Error: skill "${skillName}" is disabled`;
     }

@@ -1,6 +1,8 @@
 ---
 name: xlsx
 description: Use when creating, editing, auditing, or modelling a spreadsheet (.xlsx/.xlsm/.csv/.tsv) with the office tool. Carries the composition workflow (rows → compose_sheet → review → finalize), the cell and range editing paths, formula and audit rules. Load before the first office call for a spreadsheet deliverable.
+metadata:
+  requires: office
 ---
 
 # Spreadsheets (office tool)
