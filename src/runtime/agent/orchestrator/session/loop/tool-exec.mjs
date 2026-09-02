@@ -19,6 +19,7 @@ import {
     resolvePreToolAskApproval,
 } from './tool-helpers.mjs';
 import { isOnDeferredToolSurface, prepareDeferredToolCallThrough } from './deferred-call-through.mjs';
+import { coerceToolArgsForSession } from './arg-schema-coerce.mjs';
 import { preDispatchDenyForSession, routeWebFetchCall } from './pre-dispatch-deny.mjs';
 import { runWithToolExecutionOwner } from '../../../../shared/tool-execution-owner.mjs';
 import { runWithLocalSearchTelemetry } from '../../tools/builtin/local-search-telemetry.mjs';
@@ -164,6 +165,9 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
     // sessionRef.cwd in place, so every later tool call must re-read that live
     // value instead of continuing to use the stale turn snapshot.
     cwd = resolveLiveToolCwd(cwd, sessionRef);
+    // Structured arguments that arrived as JSON text take their declared shape
+    // before any hook or executor reads them.
+    args = coerceToolArgsForSession(sessionRef, name, args);
     const scopedCacheOutcome = _scopedCacheOutcomeForCall(
         sessionRef,
         executeOpts.toolCallId,

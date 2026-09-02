@@ -219,9 +219,21 @@ test('OCR TSV parsing and on-demand OOXML validator manifest stay deterministic'
       xPath: '/p:presentation[1]/p:sldIdLst[1]',
       description: "The element has unexpected child element 'http://schemas.openxmlformats.org/presentationml/2006/main:notesMasterIdLst'.",
     },
+    {
+      path: '/ppt/charts/chart1.xml',
+      xPath: '/c:chartSpace[1]/c:chart[1]/c:plotArea[1]/c:barChart[1]',
+      id: 'Sch_UnexpectedElementContentExpectingComplex',
+      description: "The element has unexpected child element 'http://schemas.openxmlformats.org/drawingml/2006/chart:axId'.",
+    },
+    {
+      path: '/ppt/charts/chart1.xml',
+      xPath: '/c:chartSpace[1]/c:chart[1]/c:plotArea[1]/c:barChart[1]',
+      id: 'Sch_UnexpectedElementContentExpectingComplex',
+      description: "The element has unexpected child element 'http://example.com/custom:bogus'.",
+    },
   ]);
-  assert.equal(classified.compatibilityWarnings.length, 3);
-  assert.equal(classified.errors.length, 2);
+  assert.equal(classified.compatibilityWarnings.length, 4);
+  assert.equal(classified.errors.length, 3);
   const unavailable = await ensureOoxmlValidator({
     dataDir: await workspace(t),
     download: false,

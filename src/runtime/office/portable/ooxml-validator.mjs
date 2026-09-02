@@ -110,8 +110,19 @@ function isPresentationChildOrderError(error) {
   return /unexpected child element .*:(?:notesMasterIdLst|handoutMasterIdLst)'/i.test(String(error?.description || ''));
 }
 
+// Chart generators also emit standard chart elements (axId, gapWidth, overlap)
+// out of schema order; the element itself is valid and Office reads it, so the
+// order alone is a compatibility note. Unknown elements still fail.
+function isChartChildOrderError(error) {
+  if (!/^\/(?:ppt|xl)\/charts\//i.test(String(error?.path || ''))) return false;
+  if (!/^Sch_UnexpectedElementContent/i.test(String(error?.id || ''))) return false;
+  return /unexpected child element '[^']*drawingml\/2006\/chart:[A-Za-z]+'/i.test(String(error?.description || ''));
+}
+
 function isCompatibilityError(error) {
-  return isOfficeExtensionCompatibilityError(error) || isPresentationChildOrderError(error);
+  return isOfficeExtensionCompatibilityError(error)
+    || isPresentationChildOrderError(error)
+    || isChartChildOrderError(error);
 }
 
 export function classifyOoxmlValidationErrors(errors = []) {
