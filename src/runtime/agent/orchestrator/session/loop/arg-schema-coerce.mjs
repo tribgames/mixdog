@@ -7,6 +7,7 @@
 // tool's own validation.
 import { clean } from '../../../../../session-runtime/session-text.mjs';
 import { deferredCatalogUnion } from '../../../../../session-runtime/tool-catalog.mjs';
+import { getInternalTools } from '../../internal-tools.mjs';
 
 const STRUCTURAL_TYPES = new Set(['object', 'array', 'number', 'integer', 'boolean', 'null']);
 
@@ -68,9 +69,12 @@ export function coerceArgsToSchema(args, schema) {
 export function toolInputSchemaForSession(sessionRef, name) {
     const key = clean(name);
     if (!key) return null;
+    // Built-in runtime tools such as office live in the internal registry,
+    // not in the session catalog, so both pools are consulted.
     const pools = [
         Array.isArray(sessionRef?.tools) ? sessionRef.tools : [],
         sessionRef ? deferredCatalogUnion(sessionRef) : [],
+        getInternalTools(),
     ];
     for (const pool of pools) {
         for (const tool of pool) {

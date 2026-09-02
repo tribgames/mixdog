@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { coerceArgsToSchema } from './arg-schema-coerce.mjs';
+import { coerceArgsToSchema, coerceToolArgsForSession } from './arg-schema-coerce.mjs';
+import { setInternalToolsProvider } from '../../internal-tools.mjs';
 
 const schema = {
     type: 'object',
@@ -48,6 +49,19 @@ test('string-compatible and mismatched values stay untouched', () => {
     assert.equal(args.maxWidth, '300.5');
     assert.equal(args.pages, '{"page": 2}');
     assert.equal(args.unknown, '[1]');
+});
+
+test('internal registry tools resolve their schema when absent from the session catalog', () => {
+    setInternalToolsProvider({
+        tools: [{ name: 'office', inputSchema: schema }],
+        executor: async () => '',
+    });
+    const session = { tools: [], deferredToolCatalog: [] };
+    const args = coerceToolArgsForSession(session, 'office', { design: '{"reviewed": true}', maxWidth: '300' });
+    assert.deepEqual(args.design, { reviewed: true });
+    assert.equal(args.maxWidth, 300);
+    const unknown = coerceToolArgsForSession(session, 'nowhere', { design: '{"reviewed": true}' });
+    assert.equal(unknown.design, '{"reviewed": true}');
 });
 
 test('non-object arguments and schemas without properties pass through', () => {
