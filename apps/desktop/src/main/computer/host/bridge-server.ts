@@ -11,13 +11,13 @@ import {
   type ServerResponse,
 } from 'node:http';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
-import { createBridgeDiscovery } from '../session/discovery';
+import { createBridgeDiscovery } from '../../bridge/discovery-file';
 import {
   bridgeDiscoveryPublicIdentity,
   createBridgeDiscoveryRecord,
   sameBridgeDiscovery,
   type BridgeDiscoveryRecord,
-} from '../session/discovery-ownership';
+} from '../../bridge/discovery-ownership';
 import { CHROME_SETUP_SESSION_ID } from '../session/chrome-setup';
 import { computerUseCoordinator } from '../session/coordinator';
 import type { createWorkerPool } from '../backend/worker-pool';
@@ -57,7 +57,7 @@ export function createBridgeServer(host: BridgeServerHost) {
     writeDiscovery,
     heartbeatDiscovery,
     removeDiscovery,
-  } = createBridgeDiscovery({ dataDirectory });
+  } = createBridgeDiscovery({ fileName: 'computer-bridge.json', dataDirectory });
 
   let heartbeat: NodeJS.Timeout | null = null;
   let server: Server | null = null;

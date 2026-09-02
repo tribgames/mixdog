@@ -1,6 +1,11 @@
+/**
+ * Ownership of one bridge discovery file (Computer Use, Browser Use): the
+ * record shape, identity comparison, and the /health probe that tells a live
+ * foreign owner from a crashed one so a surviving instance can reclaim the file.
+ */
 import { request } from 'node:http';
 
-export const COMPUTER_DISCOVERY_VERSION = 1;
+export const BRIDGE_DISCOVERY_VERSION = 1;
 const HEALTH_PROBE_TIMEOUT_MS = 750;
 const MAX_HEALTH_RESPONSE_BYTES = 16 * 1024;
 const DEAD_ENDPOINT_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOENT']);
@@ -30,7 +35,7 @@ export function createBridgeDiscoveryRecord({
   pid?: number;
 }): BridgeDiscoveryRecord {
   return {
-    version: COMPUTER_DISCOVERY_VERSION,
+    version: BRIDGE_DISCOVERY_VERSION,
     port,
     token,
     pid,
@@ -48,7 +53,7 @@ export function parseBridgeDiscovery(value: unknown): BridgeDiscoveryRecord | nu
   const pid = Number(parsed.pid || 0);
   const generation = Number(parsed.generation || 0);
   const startedAt = Number(parsed.startedAt || 0);
-  if (version !== COMPUTER_DISCOVERY_VERSION
+  if (version !== BRIDGE_DISCOVERY_VERSION
     || !Number.isInteger(port) || port <= 0 || port > 65_535
     || !token
     || !Number.isInteger(pid) || pid < 0

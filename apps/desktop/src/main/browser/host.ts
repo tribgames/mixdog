@@ -4,20 +4,21 @@
  * tool drive them.
  *
  * Architecture: the renderer's BrowserPane mounts a <webview> on the shared
- * persistent partition; guest-lifecycle vets and registers every such guest,
- * cdp drives the CURRENT guest over the Chrome DevTools Protocol, the action
- * registry answers each command, reply turns outcomes into text, and this
- * module wires those parts together and hosts the loopback HTTP server whose
- * port+token ride a discovery file in the Mixdog data directory. The runtime
- * tool reads that file, so the tool surface only exists while this desktop
- * app runs — no daemon protocol changes.
+ * persistent partition that `partition` guards; guest-lifecycle vets and
+ * registers every such guest, cdp drives the CURRENT guest over the Chrome
+ * DevTools Protocol, the action registry answers each command, reply turns
+ * outcomes into text, and this module wires those parts together and hosts
+ * the loopback HTTP server whose port+token ride a discovery file in the
+ * Mixdog data directory. The runtime tool reads that file, so the tool
+ * surface only exists while this desktop app runs — no daemon protocol
+ * changes.
  *
  * background:true commands run against hidden offscreen BrowserWindows on the
  * SAME partition (named through `tab` for parallel pages), so the agent can
  * work invisibly while staying logged in.
  */
 import type { WebContents } from 'electron';
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow } from 'electron';
 
 import {
   DESKTOP_IPC,
@@ -27,6 +28,7 @@ import {
 } from '../../shared/contract';
 import { BrowserActionBudget, resolveBrowserActionsPerTurn } from './action-budget';
 import { browserActionHandler, type BrowserActionServices } from './actions';
+import { bridgeDiscoveryDirectory } from '../bridge/discovery-file';
 import { BrowserBridgeServer } from './bridge-server';
 import { createBrowserGuestCdp } from './cdp';
 import {
@@ -34,10 +36,8 @@ import {
   ACTION_SETTLE_LOAD_TIMEOUT_MS,
   ACTION_SETTLE_QUIET_MS,
   BACKGROUND_RECLAIM_INTERVAL_MS,
-  BROWSER_PARTITION,
   type BrowserCommand,
   type BrowserCommandResult,
-  CDP_REQUEST_TIMEOUT_MS,
   COMMAND_TIMEOUT_MS,
   CUSTOM_DROPDOWN_POLL_MS,
   CUSTOM_DROPDOWN_TIMEOUT_MS,
@@ -59,20 +59,16 @@ import {
 } from './credential-autofill';
 import { DIALOG_BRIDGE_UNINSTALL_SCRIPT } from './dialog-bridge';
 import { createBrowserDialogReport } from './dialog-report';
-import { createBrowserDownloadLedger, createBrowserDownloads } from './downloads';
+import { createBrowserDownloads } from './downloads';
 import { createBrowserEmulation } from './emulation';
 import { createBrowserGuestLifecycle } from './guest-lifecycle';
 import { BrowserGuestStateStore } from './guest-state';
-import { type BrowserUrlPolicy, redactBrowserText } from './host-policy';
 import { createBrowserInitScripts } from './init-scripts';
 import { createBrowserInputDriver } from './input';
 import { createBrowserIntercept } from './intercept';
 import { createBrowserNetworkReports } from './network';
 import { createBrowserPageState } from './page-state';
-import {
-  clearBrowserPermissionHandlers,
-  lockDownBrowserPermissions,
-} from './permissions';
+import { createBrowserPartition } from './partition';
 import { createBrowserPerformanceCommands } from './performance';
 import {
   normalizeBrowserPostcondition,
@@ -88,6 +84,7 @@ import {
   type BrowserImportSource,
 } from './profile-import';
 import { createBrowserRefActions } from './ref-actions';
+import { redactBrowserText } from './redaction';
 import { createBrowserRefPoints } from './ref-points';
 import { createBrowserRemoteControl } from './remote-control';
 import { createBrowserReply } from './reply';
@@ -101,6 +98,7 @@ import { createBrowserSettle, pause } from './settle';
 import { createBrowserSnapshotCapture } from './snapshot-capture';
 import { createBrowserTabs } from './tabs';
 import { createBrowserUrlAdmission } from './url-admission';
+import type { BrowserUrlPolicy } from './url-policy';
 
 export type {
   BrowserCommand,
@@ -175,49 +173,19 @@ export function createBrowserHost(
   const urls = createBrowserUrlAdmission({ policy: browserUrlPolicy });
 
   // ---- Partition: permissions, request admission, downloads -----------------
-  const partitionSession = session.fromPartition(BROWSER_PARTITION);
+  const partition = createBrowserPartition({
+    assertResolvedResourceUrlAllowed: urls.assertResolvedResourceUrlAllowed,
+    downloadsDirectory: () => app.getPath('downloads'),
+    sessionIdForGuest: (guest) => browserSessions.sessionIdForGuest(guest),
+    defaultSessionId: DEFAULT_BROWSER_SESSION_ID,
+  });
+  const { session: partitionSession, downloadLedger } = partition;
   const profileImporter = new BrowserProfileImportService({
     userDataDirectory: app.getPath('userData'),
     temporaryDirectory: app.getPath('temp'),
     partition: partitionSession,
     nativeImporterPath: defaultNativeBrowserImporterPath(),
   });
-  // Agent-visited pages receive no ambient browser permission. A future
-  // capability-specific approval path can grant an individual request.
-  lockDownBrowserPermissions(partitionSession);
-  partitionSession.webRequest.onBeforeRequest(
-    { urls: ['<all_urls>'] },
-    (details, callback) => {
-      let parsed: URL;
-      try {
-        parsed = new URL(details.url);
-      } catch {
-        callback({ cancel: true });
-        return;
-      }
-      if (!['http:', 'https:', 'ws:', 'wss:'].includes(parsed.protocol)) {
-        const allowedEmbedded = details.resourceType !== 'mainFrame'
-          && ['about:', 'data:', 'blob:'].includes(parsed.protocol);
-        callback({ cancel: !allowedEmbedded });
-        return;
-      }
-      void urls.assertResolvedResourceUrlAllowed(details.url).then(
-        () => callback({}),
-        (error) => {
-          console.warn('Browser Use blocked request:', redactBrowserText((error as Error).message));
-          callback({ cancel: true });
-        },
-      );
-    },
-  );
-  // Agent-visible download ledger: downloads auto-save into the user's
-  // Downloads folder (no dialog), and the `downloads` action reports them.
-  const downloadLedger = createBrowserDownloadLedger({
-    downloadsDirectory: () => app.getPath('downloads'),
-    sessionIdForGuest: (guest) => browserSessions.sessionIdForGuest(guest),
-    defaultSessionId: DEFAULT_BROWSER_SESSION_ID,
-  });
-  partitionSession.on('will-download', downloadLedger.onWillDownload);
 
   // ---- Page services --------------------------------------------------------
   const intercept = createBrowserIntercept();
@@ -249,36 +217,30 @@ export function createBrowserHost(
     cdp.sendCdpInput(guest, await cdp.guestDebugger(guest), method, params, signal)
   ));
   const screenshots = createBrowserScreenshotService(
-    async (guest, method, params = {}, timeoutMs = SCREENSHOT_TIMEOUT_MS, signal) => (
-      cdp.sendCdp(guest, await cdp.guestDebugger(guest), method, params, timeoutMs, signal)
-    ),
+    cdp,
     SCREENSHOT_TIMEOUT_MS,
     SCREENSHOT_FALLBACK_TIMEOUT_MS,
   );
   const snapshots = createBrowserSnapshotCapture({
     evaluate: cdp.evaluate,
-    guestDebugger: cdp.guestDebugger,
-    sendCdp: cdp.sendCdp,
+    cdp,
     diagnostics: diagnosticsFor,
     snapshotTextLimit,
     nextSnapshotId: (guest) => state.nextSnapshotId(guest),
     accessibilityRefs: state.slot('accessibilityRefs'),
     refSets: state.slot('refSet'),
     visualGrounding: state.slot('visualGrounding'),
-    cdpTimeoutMs: CDP_REQUEST_TIMEOUT_MS,
     maxElements: SNAPSHOT_MAX_ELEMENTS,
   });
   const refPoints = createBrowserRefPoints({
     callAccessibilityRef: snapshots.callAccessibilityRef,
     evaluate: cdp.evaluate,
-    guestDebugger: cdp.guestDebugger,
-    sendCdp: cdp.sendCdp,
+    cdp,
     frameOffsetForSession: snapshots.frameOffsetForSession,
     captureSnapshotPayload: snapshots.captureSnapshotPayload,
     diagnostics: diagnosticsFor,
     accessibilityRefs: state.slot('accessibilityRefs'),
     visualGrounding: state.slot('visualGrounding'),
-    cdpTimeoutMs: CDP_REQUEST_TIMEOUT_MS,
   });
   const reply = createBrowserReply({
     state,
@@ -295,9 +257,7 @@ export function createBrowserHost(
     accessibilityRefs: (guest) => state.peek(guest)?.accessibilityRefs,
     callAccessibilityRef: snapshots.callAccessibilityRef,
     evaluate: cdp.evaluate,
-    guestDebugger: cdp.guestDebugger,
-    sendCdp: cdp.sendCdp,
-    sendCdpInput: cdp.sendCdpInput,
+    cdp,
     resolveRefPoint: refPoints.resolveRefPoint,
     input,
     pause,
@@ -305,16 +265,13 @@ export function createBrowserHost(
     clearFileChooser: (guest) => {
       state.for(guest).pendingFileChooser = null;
     },
-    cdpTimeoutMs: CDP_REQUEST_TIMEOUT_MS,
     dropdownTimeoutMs: CUSTOM_DROPDOWN_TIMEOUT_MS,
     dropdownPollMs: CUSTOM_DROPDOWN_POLL_MS,
   });
   const dialogs = createBrowserDialogReport({
     diagnostics: diagnosticsFor,
-    guestDebugger: cdp.guestDebugger,
-    sendCdp: cdp.sendCdp,
+    cdp,
     pageId: (guest) => state.pageId(guest),
-    cdpTimeoutMs: CDP_REQUEST_TIMEOUT_MS,
   });
   const downloads = createBrowserDownloads({
     downloads: downloadLedger.downloadsForSession,
@@ -323,30 +280,20 @@ export function createBrowserHost(
   });
   const network = createBrowserNetworkReports({
     ledgerFor: (guest) => state.for(guest).network,
-    guestDebugger: cdp.guestDebugger,
-    sendCdp: cdp.sendCdp,
-    cdpTimeoutMs: CDP_REQUEST_TIMEOUT_MS,
+    cdp,
     maxBodyChars: READ_MAX_CHARS,
   });
   const performance = createBrowserPerformanceCommands({
-    guestDebugger: cdp.guestDebugger,
-    sendCdp: cdp.sendCdp,
+    cdp,
     tracesByGuest: state.slot('performanceTrace'),
     settleAfterAction: settle.settleAfterAction,
     pause,
-    cdpTimeoutMs: CDP_REQUEST_TIMEOUT_MS,
   });
-  const initScripts = createBrowserInitScripts({
-    guestDebugger: cdp.guestDebugger,
-    sendCdp: cdp.sendCdp,
-    cdpTimeoutMs: CDP_REQUEST_TIMEOUT_MS,
-  });
+  const initScripts = createBrowserInitScripts({ cdp });
   const emulation = createBrowserEmulation({
-    guestDebugger: cdp.guestDebugger,
-    sendCdp: cdp.sendCdp,
+    cdp,
     invalidateInteractionState: (guest) => state.invalidateInteraction(guest),
     snapshotResult: reply.snapshotResult,
-    cdpTimeoutMs: CDP_REQUEST_TIMEOUT_MS,
   });
   const pageState = createBrowserPageState({
     partitionSession,
@@ -356,8 +303,7 @@ export function createBrowserHost(
     formatEvaluationValue: reply.formatEvaluationValue,
   });
   const credentialFill = createBrowserCredentialFill({
-    guestDebugger: cdp.guestDebugger,
-    sendCdp: cdp.sendCdp,
+    cdp,
     rememberSecret: (guest, secret) => state.rememberSecret(guest, secret),
     forgetSecret: (guest, secret) => state.forgetSecret(guest, secret),
     redactText: (guest, value) => state.redactText(guest, value),
@@ -494,6 +440,7 @@ export function createBrowserHost(
   // runtime's `browser` tool. Opt-in via Settings, mirroring Computer Use;
   // the pane infrastructure above runs regardless of the toggle.
   const bridgeServer = new BrowserBridgeServer<BrowserCommand>({
+    dataDirectory: bridgeDiscoveryDirectory,
     execute: (command, signal) => executeSerialized(command, signal),
     redactError: redactBrowserText,
     onReady: () => {
@@ -622,9 +569,7 @@ export function createBrowserHost(
     async dispose(): Promise<void> {
       if (disposed) return;
       disposed = true;
-      partitionSession.removeListener('will-download', downloadLedger.onWillDownload);
-      clearBrowserPermissionHandlers(partitionSession);
-      partitionSession.webRequest.onBeforeRequest(null);
+      partition.dispose();
       for (const guest of browserSessions.visibleGuests()) {
         await cdp.detach(guest);
       }

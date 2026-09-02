@@ -7,9 +7,6 @@
  * `computer` tool surface plus the async executor behind tool calls. The bridge
  * only exists while the desktop app runs with Computer Use enabled.
  */
-import { readFileSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import {
   normalizeComputerToolArgs,
   toComputerHostCommand,
@@ -19,10 +16,9 @@ import {
   computerResultRecovery,
   formatComputerToolError,
 } from './error-recovery.mjs';
+import { readBridgeDiscovery } from '../bridge-discovery.mjs';
 
 const DISCOVERY_FILE = 'computer-bridge.json';
-const DISCOVERY_VERSION = 1;
-const DISCOVERY_MAX_AGE_MS = 5 * 60_000;
 // Desktop UI Automation queries and input dispatch can be slow; sit above the
 // bridge's own per-action timeouts so its specific error wins over a bare abort.
 const REQUEST_TIMEOUT_MS = 150_000;
@@ -117,32 +113,13 @@ function canonicalComputerResultIsError(text, args) {
   }
 }
 
-function discoveryPath() {
-  const dataDir = process.env.MIXDOG_DATA_DIR
-    || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
-  return join(dataDir, DISCOVERY_FILE);
-}
-
 /** Sync gate for the session tool surface (featureDisallowedTools). */
 export function computerBridgeAvailableSync() {
   return readDiscovery() !== null;
 }
 
 function readDiscovery() {
-  let parsed;
-  try {
-    const path = discoveryPath();
-    if (Date.now() - statSync(path).mtimeMs >= DISCOVERY_MAX_AGE_MS) return null;
-    parsed = JSON.parse(readFileSync(path, 'utf8'));
-  } catch {
-    return null;
-  }
-  const version = Number(parsed?.version);
-  const port = Number(parsed?.port);
-  const token = String(parsed?.token || '');
-  if (version !== DISCOVERY_VERSION
-    || !Number.isInteger(port) || port <= 0 || port > 65_535 || !token) return null;
-  return { port, token };
+  return readBridgeDiscovery(DISCOVERY_FILE);
 }
 
 /** Execute one `computer` tool call. Returns MCP-shaped content so the

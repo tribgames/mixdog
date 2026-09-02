@@ -1,7 +1,10 @@
 /**
- * How the runtime finds this bridge, and how one request is read and answered.
+ * How the runtime finds one bridge, and how one request is read and answered.
  * The discovery file is the only thing that makes the tool surface appear, so
  * it is written after the backend is warm and removed the moment it is not.
+ * Shared by the Computer Use and Browser Use bridges: each publishes its own
+ * file name into the same directory and keeps ownership through the same
+ * probe-and-reclaim heartbeat.
  */
 import {
   chmodSync,
@@ -13,6 +16,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { randomBytes } from 'node:crypto';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
@@ -23,17 +27,28 @@ import {
   type BridgeDiscoveryRecord,
 } from './discovery-ownership';
 
-const DISCOVERY_FILE = 'computer-bridge.json';
 const MAX_REQUEST_BYTES = 256 * 1024;
 
+/** Where every bridge publishes its discovery file. Mirrors the runtime
+ *  clients' resolution: an isolated desktop profile sets
+ *  MIXDOG_BRIDGE_DISCOVERY_DIR so it never claims the shared data dir's tool
+ *  surface, otherwise the shared `~/.mixdog/data`. */
+export function bridgeDiscoveryDirectory(): string {
+  return process.env.MIXDOG_BRIDGE_DISCOVERY_DIR
+    || process.env.MIXDOG_DATA_DIR
+    || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
+}
+
 export interface DiscoveryHost {
+  /** Discovery file name inside the directory, e.g. `computer-bridge.json`. */
+  fileName: string;
   /** Where the discovery file belongs, resolved at write time. */
   dataDirectory(): string;
   probeDiscovery?: (record: BridgeDiscoveryRecord) => Promise<BridgeDiscoveryProbeOutcome>;
 }
 
 export function createBridgeDiscovery(host: DiscoveryHost) {
-  const { dataDirectory } = host;
+  const { dataDirectory, fileName } = host;
   const probeDiscovery = host.probeDiscovery || probeBridgeDiscovery;
   let discoveryPath: string | null = null;
   let activeDiscovery: BridgeDiscoveryRecord | null = null;
@@ -47,7 +62,7 @@ export function createBridgeDiscovery(host: DiscoveryHost) {
   function ensureDiscoveryPath(): string {
     const directory = dataDirectory();
     mkdirSync(directory, { recursive: true });
-    discoveryPath = join(directory, DISCOVERY_FILE);
+    discoveryPath = join(directory, fileName);
     return discoveryPath;
   }
 

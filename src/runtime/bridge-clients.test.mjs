@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import {
+  mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   utimes,
@@ -574,19 +577,16 @@ test('computer observation variants are replay-safe but clipboard writes are not
 test('computer runtime manifest stays in parity with host command handlers', async () => {
   // Handlers live in both halves of the host: the TypeScript decisions and the
   // PowerShell program they dispatch into.
-  // The PowerShell half is split by capability, so every piece counts as host
-  // source: a handler is present wherever its dispatch case lives.
-  const hostSource = (await Promise.all([
-    'computer-host-powershell.ts',
-    'computer-host-program.ts',
-    'computer-host-ps-session.ts',
-    'computer-host-ps-observation.ts',
-    'computer-host-ps-input.ts',
-    'computer-host-ps-runtime.ts',
-  ].map((name) => readFile(
-    new URL(`../../apps/desktop/src/main/${name}`, import.meta.url),
-    'utf8',
-  )))).join('\n');
+  // Both halves are split by capability, so every module in the host and
+  // backend directories counts as host source: a handler is present wherever
+  // its dispatch case lives. Directories, not file names, so a module split
+  // or rename inside either half cannot silently retire this check.
+  const hostSource = (await Promise.all(['host', 'backend'].map(async (half) => {
+    const dir = new URL(`../../apps/desktop/src/main/computer/${half}/`, import.meta.url);
+    const names = (await readdir(dir)).filter((name) => name.endsWith('.ts')).sort();
+    assert.ok(names.length > 0, `computer ${half} directory has no TypeScript modules`);
+    return Promise.all(names.map((name) => readFile(new URL(name, dir), 'utf8')));
+  }))).flat().join('\n');
   // Every schema action, including the button/operation/kind variants that
   // select a different host command, so no mapped command can lose its handler.
   const calls = [
@@ -1356,13 +1356,56 @@ test('bridge clients only surface fresh, compatible discovery records', async ()
       const stale = new Date(Date.now() - 6 * 60_000);
       await utimes(path, stale, stale);
       assert.equal(client.available(), false, `${client.name}: stale discovery`);
+
+      await writeFile(path, `{"version":1,"port":1234,"token":"secret","pid":${process.pid}}\n`);
+      assert.equal(client.available(), true, `${client.name}: live writer pid`);
+
+      // A fresh file whose writer has exited is a crash leftover another
+      // instance's heartbeat may keep touching; it must not surface the tool.
+      const exited = await deadProcessId();
+      await writeFile(path, `{"version":1,"port":1234,"token":"secret","pid":${exited}}\n`);
+      assert.equal(client.available(), false, `${client.name}: dead writer pid`);
     }
+    const stale = await executeBrowserTool({ action: 'status' }, { sessionId: 'stale-session' });
+    assert.equal(stale.isError, true);
+    assert.match(stale.content[0].text, /discovery stale \(writer pid \d+ has exited\)/);
   } finally {
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previousDataDir;
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test('bridge clients read discovery from the isolation namespace when set', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-bridge-namespace-'));
+  const namespace = join(directory, 'bridges');
+  await mkdir(namespace, { recursive: true });
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  const previousNamespace = process.env.MIXDOG_BRIDGE_DISCOVERY_DIR;
+  process.env.MIXDOG_DATA_DIR = directory;
+  process.env.MIXDOG_BRIDGE_DISCOVERY_DIR = namespace;
+  try {
+    for (const client of CLIENTS) {
+      await writeFile(join(directory, client.file), '{"version":1,"port":1234,"token":"shared"}\n');
+      assert.equal(client.available(), false, `${client.name}: shared data dir is not consulted`);
+      await writeFile(join(namespace, client.file), '{"version":1,"port":1234,"token":"own"}\n');
+      assert.equal(client.available(), true, `${client.name}: namespaced discovery`);
+    }
+  } finally {
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    if (previousNamespace === undefined) delete process.env.MIXDOG_BRIDGE_DISCOVERY_DIR;
+    else process.env.MIXDOG_BRIDGE_DISCOVERY_DIR = previousNamespace;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+/** A pid that certainly has no process behind it: spawn one, let it exit. */
+async function deadProcessId() {
+  const child = spawn(process.execPath, ['-e', '0'], { stdio: 'ignore', windowsHide: true });
+  await new Promise((resolve) => child.once('exit', resolve));
+  return child.pid;
+}
 
 test('bridge clients authenticate and preserve text plus image results', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-bridge-execute-'));

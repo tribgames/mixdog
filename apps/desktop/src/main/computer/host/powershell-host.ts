@@ -19,6 +19,7 @@
  * command router, and bridge server are wired together here.
  */
 import { screen } from 'electron';
+import { bridgeDiscoveryDirectory } from '../../bridge/discovery-file';
 import { mixdogDataDirectory } from '../shared/common';
 import { createWorkerPool } from '../backend/worker-pool';
 import { createCaptureEngine } from '../observation/capture';
@@ -171,7 +172,9 @@ export function createPowerShellComputerHost(
   const bridge = createBridgeServer({
     ...workerPool,
     ...lifecycle,
-    dataDirectory: mixdogDataDirectory,
+    // Discovery only: the worker script/cache stay in the data dir while the
+    // published endpoint follows the isolation namespace, like Browser Use.
+    dataDirectory: bridgeDiscoveryDirectory,
     isBridgeWanted: () => bridgeWanted,
     isDisposed: () => disposed,
     diagnose,

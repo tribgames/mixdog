@@ -88,6 +88,15 @@ const DESKTOP_WINDOW_SHOW_DEADLINE_MS = 3_000;
 const PACKAGED_USER_DATA_DIRECTORY = 'mixdog-desktop';
 if (process.env.MIXDOG_DESKTOP_USER_DATA) {
   app.setPath('userData', resolve(process.env.MIXDOG_DESKTOP_USER_DATA));
+  // An isolated profile holds its own single-instance lock, so it can run
+  // beside the installed app. Without its own data dir it would publish its
+  // Browser/Computer Use bridges into the shared `~/.mixdog/data` and steal
+  // the running app's tool surface (observed: a probe run shadowed the live
+  // browser bridge until it exited). Namespace the discovery files with the
+  // profile instead; the daemon inherits the variable and looks there too.
+  if (!process.env.MIXDOG_DATA_DIR && !process.env.MIXDOG_BRIDGE_DISCOVERY_DIR) {
+    process.env.MIXDOG_BRIDGE_DISCOVERY_DIR = join(app.getPath('userData'), 'bridges');
+  }
 } else if (!app.isPackaged) {
   app.setName(PACKAGED_USER_DATA_DIRECTORY);
   app.setPath('userData', join(app.getPath('appData'), PACKAGED_USER_DATA_DIRECTORY));
@@ -276,6 +285,7 @@ function desktopServiceModuleUrl(): string {
 }
 
 let diagnostics: DesktopDiagnostics | null = null;
+const earlyDiagnostics: Array<{ event: string; entry: Record<string, unknown>; at: string }> = [];
 const serviceClient = new DesktopServiceClient({
   connect: () => new SessionTransport(
     desktopServiceModuleUrl(),
@@ -292,16 +302,18 @@ const serviceClient = new DesktopServiceClient({
   }),
   initialSnapshot: readDesktopModelBootstrapSnapshot(),
   onDiagnostic: (event, data) => {
-    diagnostics?.write(
-      event,
-      event === 'desktop-transport-error'
-        ? {
-          type: String(data.type || ''),
-          detail: String(data.detail || '').replace(/\s+/g, ' ').trim().slice(0, 500),
-          generation: Number(data.generation) || 0,
-        }
-        : data,
-    );
+    const entry = event === 'desktop-transport-error'
+      ? {
+        type: String(data.type || ''),
+        detail: String(data.detail || '').replace(/\s+/g, ' ').trim().slice(0, 500),
+        generation: Number(data.generation) || 0,
+      }
+      : data;
+    // The daemon handshake starts before app.whenReady opens the sink: its
+    // first phases (client import, discovery probe, spawn) are exactly the
+    // ones a boot investigation needs, so they wait here and flush in order.
+    if (diagnostics) diagnostics.write(event, entry);
+    else earlyDiagnostics.push({ event, entry, at: new Date().toISOString() });
     console.error(`[mixdog] ${event}`, data);
   },
   onServiceReady: ({ generation }) => {
@@ -316,14 +328,21 @@ const serviceClient = new DesktopServiceClient({
   },
 });
 const host: DesktopService = serviceClient;
+// The daemon handshake starts before app.whenReady, when the diagnostics sink
+// does not exist yet; the first start is stamped here and written as soon as
+// the sink opens, so the boot timeline keeps its daemon-service-start entry.
+let daemonServiceStartedAt = 0;
 let daemonServiceBootReported = false;
+function reportDaemonServiceStart(): void {
+  if (daemonServiceBootReported || !daemonServiceStartedAt || !diagnostics) return;
+  daemonServiceBootReported = true;
+  diagnostics.write('daemon-service-start', {
+    totalMs: daemonServiceStartedAt - desktopProcessStartedAt,
+  });
+}
 function startDaemonService(): void {
-  if (!daemonServiceBootReported) {
-    daemonServiceBootReported = true;
-    diagnostics?.write('daemon-service-start', {
-      totalMs: Date.now() - desktopProcessStartedAt,
-    });
-  }
+  if (!daemonServiceStartedAt) daemonServiceStartedAt = Date.now();
+  reportDaemonServiceStart();
   void serviceClient.start()
     .then(() => {
       diagnostics?.write('daemon-service-ready', {
@@ -836,7 +855,19 @@ async function createWindow(): Promise<void> {
     });
   }
   if (process.platform === 'win32' && computerHost && !computerUseOverlay) {
-    computerUseOverlay = createComputerUseOverlay(computerHost, app.getLocale());
+    const overlayComputerHost = computerHost;
+    computerUseOverlay = createComputerUseOverlay({
+      // Stop = end the owning agent turns. The runtime's abort path releases
+      // the computer session itself; the host-side stop is the fallback for
+      // sessions the desktop cannot address (e.g. subagents) and clears any
+      // takeover pause so the next turn starts clean.
+      async stop(sessionIds) {
+        await Promise.allSettled(
+          sessionIds.map((sessionId) => host.abortSession(sessionId)),
+        );
+        await overlayComputerHost.stopAllSessions();
+      },
+    }, app.getLocale());
   }
   computerHost?.setObserveOnly(computerObserveOnly);
   computerHost?.setBridgeEnabled(computerControlEnabled);
@@ -1163,6 +1194,14 @@ if (!app.requestSingleInstanceLock()) {
     activatePrimaryWindow();
   });
 
+  // Fork the daemon NOW, while Chromium is still bringing the app up and the
+  // main thread is otherwise idle. Started from whenReady, the client import
+  // and the fork queued behind window creation and the renderer load (215ms
+  // for a 25ms import), and the data lane finished a full second after the
+  // window had shown (user: 부팅 속도). Nothing here needs Electron ready:
+  // the transport is plain Node and the daemon is a separate process.
+  startDaemonService();
+
   void app.whenReady().then(async () => {
     const appReadyAt = Date.now();
     // Windows toast/taskbar identity. Packaged installs get a shortcut whose
@@ -1190,6 +1229,10 @@ if (!app.requestSingleInstanceLock()) {
     diagnostics.write('app-ready', {
       totalMs: appReadyAt - desktopProcessStartedAt,
     });
+    reportDaemonServiceStart();
+    for (const { event, entry, at } of earlyDiagnostics.splice(0)) {
+      diagnostics.write(event, { ...entry, occurredAt: at });
+    }
     diagnostics.write('desktop-start', {
       totalMs: Date.now() - desktopProcessStartedAt,
       electronVersion: process.versions.electron,
@@ -1203,11 +1246,9 @@ if (!app.requestSingleInstanceLock()) {
         ? { gpuFallbackCrashes: gpuFallbackMarker.crashesInWindow }
         : {}),
     });
-    // The daemon front door is intentionally lighter than the renderer and
-    // prewarms runtime work asynchronously. Start it in parallel with window
-    // creation so immediate post-update submits queue for readiness instead of
-    // beginning the service handshake only after the first React frame.
-    startDaemonService();
+    // The daemon handshake is already running (started before whenReady);
+    // stamp its start into the timeline now that the sink exists.
+    reportDaemonServiceStart();
     startDiagnosticsEventLoopMonitor();
     // Keep-awake + taskbar attention feed on the same session state lane.
     unsubscribeAwake = host.subscribe((snapshot) => {

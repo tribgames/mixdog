@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { createBridgeDiscovery } from './discovery.ts';
+import { createBridgeDiscovery } from './discovery-file.ts';
 import {
   bridgeDiscoveryPublicIdentity,
   createBridgeDiscoveryRecord,
@@ -32,7 +32,7 @@ async function readDiscovery(directory) {
   return JSON.parse(await readFile(join(directory, 'computer-bridge.json'), 'utf8'));
 }
 
-test('Computer Use discovery preserves a live foreign owner', async () => {
+test('bridge discovery preserves a live foreign owner', async () => {
   const directory = await temporaryDirectory();
   const token = 'foreign-live-token';
   let foreign;
@@ -71,7 +71,7 @@ test('Computer Use discovery preserves a live foreign owner', async () => {
       generation: 8,
       startedAt: 8000,
     });
-    const discovery = createBridgeDiscovery({ dataDirectory: () => directory });
+    const discovery = createBridgeDiscovery({ fileName: 'computer-bridge.json', dataDirectory: () => directory });
     assert.equal(await discovery.writeDiscovery(own), 'occupied');
     assert.deepEqual(await readDiscovery(directory), foreign);
   } finally {
@@ -80,7 +80,7 @@ test('Computer Use discovery preserves a live foreign owner', async () => {
   }
 });
 
-test('Computer Use discovery reclaims one stable dead foreign owner', async () => {
+test('bridge discovery reclaims one stable dead foreign owner', async () => {
   const directory = await temporaryDirectory();
   const server = createServer();
   try {
@@ -101,7 +101,7 @@ test('Computer Use discovery reclaims one stable dead foreign owner', async () =
       startedAt: 3000,
     });
     await writeFile(join(directory, 'computer-bridge.json'), `${JSON.stringify(foreign)}\n`);
-    const discovery = createBridgeDiscovery({ dataDirectory: () => directory });
+    const discovery = createBridgeDiscovery({ fileName: 'computer-bridge.json', dataDirectory: () => directory });
     assert.equal(await discovery.writeDiscovery(own), 'owned');
     assert.deepEqual(await readDiscovery(directory), own);
   } finally {
@@ -110,7 +110,7 @@ test('Computer Use discovery reclaims one stable dead foreign owner', async () =
   }
 });
 
-test('Computer Use discovery does not overwrite an identity that changes during a dead probe', async () => {
+test('bridge discovery does not overwrite an identity that changes during a dead probe', async () => {
   const directory = await temporaryDirectory();
   try {
     const foreign = createBridgeDiscoveryRecord({
@@ -136,6 +136,7 @@ test('Computer Use discovery does not overwrite an identity that changes during 
     });
     await writeFile(join(directory, 'computer-bridge.json'), `${JSON.stringify(foreign)}\n`);
     const discovery = createBridgeDiscovery({
+      fileName: 'computer-bridge.json',
       dataDirectory: () => directory,
       probeDiscovery: async () => {
         await writeFile(join(directory, 'computer-bridge.json'), `${JSON.stringify(replacement)}\n`);
@@ -149,11 +150,12 @@ test('Computer Use discovery does not overwrite an identity that changes during 
   }
 });
 
-test('Computer Use discovery isolates stale generations and reports own endpoint loss', async () => {
+test('bridge discovery isolates stale generations and reports own endpoint loss', async () => {
   const directory = await temporaryDirectory();
   try {
     let probeOutcome = 'dead';
     const discovery = createBridgeDiscovery({
+      fileName: 'computer-bridge.json',
       dataDirectory: () => directory,
       probeDiscovery: async () => probeOutcome,
     });

@@ -7,19 +7,13 @@
  * runtime half: a sync availability probe that gates the `browser` tool
  * surface, and the async executor behind actual tool calls.
  */
-import { readFileSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import {
   BROWSER_OBSERVATION_ACTIONS,
   validateBrowserToolArgs,
 } from './action-schema.mjs';
+import { readBridgeDiscovery, readBridgeDiscoveryDetail } from '../bridge-discovery.mjs';
 
 const DISCOVERY_FILE = 'browser-bridge.json';
-const DISCOVERY_VERSION = 1;
-/** Bridge heartbeat touches the file every 60s; anything older is a crash
- *  leftover and must not surface a dead tool. */
-const DISCOVERY_MAX_AGE_MS = 5 * 60_000;
 /** Ceiling above the bridge's own per-action timeouts (navigation settle,
  *  surface auto-open), so the bridge's specific error wins over a bare abort. */
 const REQUEST_TIMEOUT_MS = 45_000;
@@ -36,32 +30,22 @@ const RETRYABLE_ACTIONS = new Set(BROWSER_OBSERVATION_ACTIONS);
 const BRIDGE_UNAVAILABLE_MESSAGE =
   'browser use is unavailable; open the Mixdog desktop app and enable Browser Use';
 
-function discoveryPath() {
-  const dataDir = process.env.MIXDOG_DATA_DIR
-    || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
-  return join(dataDir, DISCOVERY_FILE);
-}
-
 /** Sync gate for the session tool surface (featureDisallowedTools). */
 export function browserBridgeAvailableSync() {
   return readDiscovery() !== null;
 }
 
 function readDiscovery() {
-  let parsed;
-  try {
-    const path = discoveryPath();
-    if (Date.now() - statSync(path).mtimeMs >= DISCOVERY_MAX_AGE_MS) return null;
-    parsed = JSON.parse(readFileSync(path, 'utf8'));
-  } catch {
-    return null;
-  }
-  const version = Number(parsed?.version);
-  const port = Number(parsed?.port);
-  const token = String(parsed?.token || '');
-  if (version !== DISCOVERY_VERSION
-    || !Number.isInteger(port) || port <= 0 || port > 65_535 || !token) return null;
-  return { port, token };
+  return readBridgeDiscovery(DISCOVERY_FILE);
+}
+
+/** Why the bridge is unavailable right now, so a stale file names its dead
+ *  writer instead of asking the user to enable a setting that is already on. */
+function unavailableMessage() {
+  const { reason } = readBridgeDiscoveryDetail(DISCOVERY_FILE);
+  return reason && reason !== 'missing'
+    ? `${BRIDGE_UNAVAILABLE_MESSAGE} (discovery ${reason})`
+    : BRIDGE_UNAVAILABLE_MESSAGE;
 }
 
 class BrowserBridgeResponseError extends Error {}
@@ -130,7 +114,7 @@ export async function executeBrowserTool(args, options = {}) {
   }
   let discovery = readDiscovery();
   if (!discovery) {
-    return { content: [{ type: 'text', text: `Error: ${BRIDGE_UNAVAILABLE_MESSAGE}` }], isError: true };
+    return { content: [{ type: 'text', text: `Error: ${unavailableMessage()}` }], isError: true };
   }
   let bridgeResult;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -173,11 +157,11 @@ export async function executeBrowserTool(args, options = {}) {
       if (error instanceof BrowserBridgeResponseError) {
         return { content: [{ type: 'text', text: `Error: ${error.message}` }], isError: true };
       }
-      return { content: [{ type: 'text', text: `Error: ${BRIDGE_UNAVAILABLE_MESSAGE}` }], isError: true };
+      return { content: [{ type: 'text', text: `Error: ${unavailableMessage()}` }], isError: true };
     }
   }
   if (!bridgeResult) {
-    return { content: [{ type: 'text', text: `Error: ${BRIDGE_UNAVAILABLE_MESSAGE}` }], isError: true };
+    return { content: [{ type: 'text', text: `Error: ${unavailableMessage()}` }], isError: true };
   }
   const { body, status } = bridgeResult;
   if (!body?.ok) {
