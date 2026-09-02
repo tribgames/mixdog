@@ -9,6 +9,26 @@ the Unreleased section is empty, and stamps it with the released version.
   Production builds, frame harnesses, and load probes resolve the installed
   package while preserving the custom cursor, selection, and render behavior.
 
+- Desktop startup now reveals usable pane shells before slower catalog and
+  runtime hydration completes. Browser, Terminal, Editor, and side-dock
+  surfaces restore independently, with focused readiness probes and deferred
+  host services keeping cold starts responsive.
+
+- Browser Use and Computer Use now have role-based host modules instead of
+  flat monoliths. Browser actions share explicit routing, guest lifecycle, and
+  reply contracts with stronger file chooser and dialog handling, while
+  Computer Use separates discovery, observation, input, session, overlay, and
+  backend responsibilities with expanded safety coverage.
+
+- Office runtime modules are organized by core, design, quality, portable,
+  PDF, COM, and benchmark roles. Freeform composition, reference-driven layout
+  selection, authored PowerPoint scenes, and rendered assurance checks improve
+  visual quality without weakening editable output or transaction boundaries.
+
+- Anthropic OAuth sessions now learn a provider-required minimum CLI version,
+  persist only safe upward updates, and retry the rejected request once without
+  overriding explicit version configuration.
+
 ## v0.9.159 - 2026-09-01
 
 - Windows release acceptance now checks the canonical 16-item settings
