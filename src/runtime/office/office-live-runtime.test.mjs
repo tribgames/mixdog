@@ -8,14 +8,10 @@ import { createInterface } from 'node:readline';
 import test from 'node:test';
 
 import { executeOfficeTool, resetOfficeSessionsForTest } from './index.mjs';
-import { describeOfficeSnapshotViolations, officeSnapshotContractViolations } from './snapshot-contract.mjs';
+import { value } from './office-test-support.mjs';
+import { describeOfficeSnapshotViolations, officeSnapshotContractViolations } from './core/snapshot-contract.mjs';
 
 const enabled = process.platform === 'win32' && process.env.MIXDOG_TEST_LIVE_OFFICE === '1';
-
-function value(result) {
-  assert.equal(result?.isError, undefined, result?.content?.[0]?.text);
-  return JSON.parse(result.content[0].text);
-}
 
 async function waitForProcessExit(processId, timeoutMs = 10_000) {
   const deadline = Date.now() + timeoutMs;

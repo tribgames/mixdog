@@ -27,7 +27,63 @@ const {
   scheduleBrowserForegroundRepaint,
   watchBrowserForegroundReturns,
 } = await import('./browser-foreground-lifecycle.ts');
+const {
+  browserAutoFitZoom,
+  browserViewportEmulation,
+  readBrowserViewportPreset,
+  resolveBrowserViewportPreset,
+  writeBrowserViewportPreset,
+} = await import('./browser-viewport-mode.ts');
 const { default: RemoteBrowserPane } = await import('./RemoteBrowserPane.tsx');
+
+test('Browser viewport presets expose responsive fill and exact device frames', () => {
+  assert.deepEqual(resolveBrowserViewportPreset('responsive'), {
+    id: 'responsive',
+    label: 'Auto · Fit to pane',
+    width: null,
+    height: null,
+    deviceScaleFactor: 1,
+    mobile: false,
+    touch: false,
+    userAgent: null,
+  });
+  const iphone = resolveBrowserViewportPreset('iphone-14');
+  assert.deepEqual({
+    id: iphone.id,
+    label: iphone.label,
+    width: iphone.width,
+    height: iphone.height,
+  }, {
+    id: 'iphone-14',
+    label: 'iPhone 14 · 390×844',
+    width: 390,
+    height: 844,
+  });
+  assert.deepEqual(browserViewportEmulation(iphone), {
+    width: 390,
+    height: 844,
+    deviceScaleFactor: 2,
+    mobile: true,
+    touch: true,
+    userAgent: iphone.userAgent,
+  });
+  assert.match(iphone.userAgent, /iPhone/);
+  assert.equal(browserAutoFitZoom(720), 0.5);
+  assert.equal(browserAutoFitZoom(1440), 1);
+  assert.equal(resolveBrowserViewportPreset('unknown').id, 'responsive');
+});
+
+test('Browser viewport choice persists per session and fails closed to responsive', () => {
+  window.localStorage.clear();
+  assert.equal(readBrowserViewportPreset(window.localStorage, 'alpha').id, 'responsive');
+
+  writeBrowserViewportPreset(window.localStorage, 'alpha', 'pixel-7');
+  assert.equal(readBrowserViewportPreset(window.localStorage, 'alpha').id, 'pixel-7');
+  assert.equal(readBrowserViewportPreset(window.localStorage, 'beta').id, 'responsive');
+
+  window.localStorage.setItem('mixdog.browser-viewport.v1:alpha', 'invalid-device');
+  assert.equal(readBrowserViewportPreset(window.localStorage, 'alpha').id, 'responsive');
+});
 
 test('Browser Use refreshes on visible foreground returns and detaches cleanly', () => {
   const returnWindow = new dom.window.EventTarget();

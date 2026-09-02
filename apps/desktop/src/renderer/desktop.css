@@ -8,7 +8,7 @@
 /* KaTeX layer for worker-rendered $$ display math. Imported from CSS (not
    the markdown chunks) because the tsx test loader cannot evaluate css
    module imports outside the DOM harness. */
-@import "katex/dist/katex.min.css";
+@import "../../node_modules/katex/dist/katex.min.css";
 
 @import "./desktop/01-tokens.css";
 @import "./desktop/02-base.css";

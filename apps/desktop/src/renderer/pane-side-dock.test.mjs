@@ -9,7 +9,7 @@ import {
   withPaneDockDiffOpened,
 } from "./pane-side-dock.tsx";
 
-const RIGHT = [["source-control"], ["browser"], ["pull-requests"]];
+const RIGHT = [["source-control"], ["browser"], ["terminal"], ["pull-requests"]];
 const diffA = { kind: "diff", project: "C:/p", rel: "src/a.ts", source: "unstaged" };
 const diffB = { kind: "diff", project: "C:/p", rel: "src/b.ts", source: "staged" };
 const keyOf = (diff) =>
@@ -50,7 +50,7 @@ test("a view that left the right side remaps to the first panel view", () => {
   );
 });
 
-test("the browser is a surface, never the dock's panel view", () => {
+test("session-owned tools are surfaces, never the dock's panel view", () => {
   // A legacy launcher-era store with view:"browser" falls back to the first
   // REAL panel view; the browser child itself lives in `surface`.
   assert.deepEqual(
@@ -70,6 +70,24 @@ test("the browser is a surface, never the dock's panel view", () => {
       false,
     ),
     { "pane-1": { open: true, view: "source-control", surface: "browser", diff: null } },
+  );
+  assert.deepEqual(
+    normalizePaneSideDocks(
+      { "pane-1": { open: true, view: "terminal" } },
+      ["pane-1"],
+      RIGHT,
+      false,
+    ),
+    { "pane-1": { ...closed(), open: true } },
+  );
+  assert.deepEqual(
+    normalizePaneSideDocks(
+      { "pane-1": { open: true, view: "source-control", surface: "terminal" } },
+      ["pane-1"],
+      RIGHT,
+      false,
+    ),
+    { "pane-1": { open: true, view: "source-control", surface: "terminal", diff: null } },
   );
   // A right side without the browser drops the stored browser surface.
   assert.deepEqual(
@@ -127,7 +145,7 @@ test("an empty or launcher-only right side closes every pane dock", () => {
     { "pane-1": closed(null) },
   );
   assert.deepEqual(
-    normalizePaneSideDocks(null, ["pane-1"], [["browser"], ["studio"]], true),
+    normalizePaneSideDocks(null, ["pane-1"], [["browser"], ["terminal"], ["studio"]], true),
     { "pane-1": closed(null) },
   );
 });

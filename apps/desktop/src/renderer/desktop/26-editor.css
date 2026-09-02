@@ -867,6 +867,37 @@
   cursor: pointer;
 }
 .dock-git-clean-push:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+/* Session terminal roots keep one stable xterm tree parked outside the pane.
+   Unlike Browser Use, the terminal preserves its last measured grid while
+   parked and fills the visible dock through an unbroken flex-height chain. */
+.session-terminal-slot,
+.session-terminal-surface-container {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.session-terminal-parking-host { display: contents; }
+.session-terminal-surface-container {
+  position: fixed;
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: auto;
+}
+.session-terminal-surface-container[data-parked="true"] {
+  z-index: -1;
+  pointer-events: none;
+}
+.session-terminal-surface-container > .pane-surface-gate,
+.session-terminal-surface-container > .pane-surface-gate > .pane-surface-gate-content {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0%;
+}
 /* Terminal surface: the xterm host below a 30px strip (File-breadcrumb
    grammar — user: TASK나 파일처럼 띠 하나) that hosts the shell switcher. */
 .dock-terminal-surface {
@@ -944,10 +975,10 @@
 .dock-terminal {
   box-sizing: border-box;
   display: flex;
-  flex: 1 1 auto;
+  flex: 1 1 0%;
   width: 100%;
   min-height: 0;
-  height: auto;
+  height: 0;
   overflow: hidden;
   padding: 8px 0 8px 12px;
   background: var(--mx-terminal-bg);

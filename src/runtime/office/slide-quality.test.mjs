@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { resolveImageLayout } from './image-layout.mjs';
-import { reviewTextBoxFit } from './text-metrics.mjs';
+import { resolveImageLayout } from './portable/image-layout.mjs';
+import { reviewTextBoxFit } from './portable/text-metrics.mjs';
 import { PPTX_ALWAYS_ON_CONTRACT, TOOL_DEFS } from './tool-defs.mjs';
 
 test('Office Use always exposes the presentation authoring contract', () => {

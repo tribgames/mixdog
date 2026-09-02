@@ -20,7 +20,6 @@ export const DEFAULT_SIDEBAR_VIEW_ORDER: readonly SidebarPanelKey[] = [
   "extensions",
   "schedules",
   "webhooks",
-  "utilities",
 ];
 
 const sidebarViewLayout = createViewGroupLayout<SidebarPanelKey>({

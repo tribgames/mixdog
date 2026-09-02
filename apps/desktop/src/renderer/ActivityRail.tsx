@@ -39,13 +39,11 @@ import { viewGroupContainerDropProps } from "./view-group-layout";
 const USAGE_RAIL_PIN_KEY = "mixdog.desktop.usage-rail-pin.v1";
 
 export type ActivityRailSurface =
-  "utilities" | "projects" | "workflows" | "schedules" | "webhooks" | "settings";
+  "projects" | "workflows" | "schedules" | "webhooks" | "settings";
 export function ActivityRail({
   activeSurface,
   sidebarOpen,
   onToggleSessions,
-  onOpenUtilities,
-  onPrefetchUtilities,
   onOpenProjects,
   onPrefetchProjects,
   onOpenWorkflows,
@@ -66,8 +64,6 @@ export function ActivityRail({
   activeSurface: ActivityRailSurface | null;
   sidebarOpen: boolean;
   onToggleSessions(): void;
-  onOpenUtilities(): void;
-  onPrefetchUtilities?(): void;
   onOpenProjects(): void;
   onPrefetchProjects?(): void;
   onOpenWorkflows(): void;
@@ -113,10 +109,6 @@ export function ActivityRail({
       onOpen: onOpenSchedules, onPrefetch: onPrefetchSchedules },
     { id: "webhooks", label: "Open webhooks", tooltip: "Webhooks", icon: "plug",
       onOpen: onOpenWebhooks, onPrefetch: onPrefetchWebhooks },
-    // Utilities sit last in the rail (user: 사이드탭 순서 중 가장 아래로),
-    // keeping the creative wand icon (user: 렌치 말고 마법봉처럼).
-    { id: "utilities", label: "Utilities", tooltip: "Utilities", icon: "wand",
-      onOpen: onOpenUtilities, onPrefetch: onPrefetchUtilities },
   ] as const).filter((surface) => desktopSidebarDestinationEnabled(surface.id));
   const orderedSurfaceGroups = (viewGroups?.length
     ? viewGroups

@@ -28,7 +28,7 @@ const progressPath = join(staging, 'progress.log');
 
 try {
   await build({
-    entryPoints: [fileURLToPath(new URL('../src/main/computer-host.scenarios.ts', import.meta.url))],
+    entryPoints: [fileURLToPath(new URL('../src/main/computer/harness/scenarios.ts', import.meta.url))],
     outfile: output,
     bundle: true,
     platform: 'node',

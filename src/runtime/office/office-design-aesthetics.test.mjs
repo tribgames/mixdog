@@ -3,9 +3,10 @@ import test from 'node:test';
 
 import { createCanvas } from '@napi-rs/canvas';
 
-import { reviewRenderedOfficePages } from './assurance.mjs';
-import { resolveOfficeDesign, reviewOfficeDesign } from './design-system.mjs';
-import { scoreOfficeReleaseQuality } from './quality-score.mjs';
+import { reviewRenderedOfficePages } from './quality/assurance.mjs';
+import { resolveOfficeDesign } from './design/design-system.mjs';
+import { scoreOfficeReleaseQuality } from './quality/quality-score.mjs';
+import { reviewOfficeDesign } from './quality/design-review.mjs';
 
 function renderedImage(page, draw, {
   width = 320,

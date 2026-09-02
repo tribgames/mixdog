@@ -152,7 +152,7 @@ const webPreferences = Object.freeze({
   // Enables Chromium's sandboxed built-in PDF viewer for editor previews.
   plugins: true,
   // Session Browser Use guests stay sandboxed with no node access;
-  // main/browser-host.ts vets every attach via will-attach-webview.
+  // main/browser/host.ts vets every attach via will-attach-webview.
   webviewTag: true,
 });
 

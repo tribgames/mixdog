@@ -22,7 +22,7 @@ import {
   PanelsTopLeft,
   Search,
   Sparkles,
-  WandSparkles,
+  SquareTerminal,
   Webhook,
 } from "lucide-react";
 // react-markdown and the remark/unified ecosystem are heavy; they load as a
@@ -125,7 +125,7 @@ import {
 } from "./renderer-load-metrics";
 import type { SourceControlDiffRequest } from "./SourceControlDock";
 import { shouldFocusComposerFromWindowKey } from "./surface-input-focus";
-import { asRecord, displayProject, navigationKey, newDraftSelection, newStudioSelection, newTerminalSelection } from "./text-format";
+import { asRecord, displayProject, navigationKey, newDraftSelection, newStudioSelection } from "./text-format";
 import { isMarkdownBodyReady, preloadMarkdownBody } from "./markdown-body-loader";
 import { useEditorNavigation } from "./use-editor-navigation";
 import {
@@ -277,11 +277,19 @@ import {
   useSessionBrowserSurfaces,
 } from "./session-browser-surfaces";
 import {
-  browserDockEntryForSession,
   browserSurfaceRequestShouldReveal,
   browserSurfaceRevealPlan,
-  withBrowserSessionRevealed,
 } from "./session-browser-policy";
+import {
+  sessionSideDockEntryForSession,
+  withSessionSideSurface,
+  type SessionSideSurface,
+} from "./session-side-surface-policy";
+import {
+  SessionTerminalParkingHost,
+  SessionTerminalSlot,
+  useSessionTerminalSurfaces,
+} from "./session-terminal-surfaces";
 import type { UtilityDockTab } from "./utility-dock-state";
 
 export function App() {
@@ -305,18 +313,31 @@ export function App() {
   );
   const paneWorkspace = usePaneWorkspace();
   const browserSurfaces = useSessionBrowserSurfaces();
-  const [revealedBrowserSessions, setRevealedBrowserSessions] =
-    useState<ReadonlySet<string>>(() => new Set());
-  const setBrowserSessionRevealed = useCallback((sessionId: string, revealed: boolean) => {
-    setRevealedBrowserSessions((current) =>
-      withBrowserSessionRevealed(current, sessionId, revealed));
+  const terminalSurfaces = useSessionTerminalSurfaces();
+  const [sessionSideSurfaces, setSessionSideSurfaces] =
+    useState<ReadonlyMap<string, SessionSideSurface>>(() => new Map());
+  const setSessionSideSurface = useCallback((
+    sessionId: string,
+    surface: SessionSideSurface | null,
+  ) => {
+    setSessionSideSurfaces((current) =>
+      withSessionSideSurface(current, sessionId, surface));
   }, []);
   const pendingBrowserAutoReveal = useRef(new Set<string>());
+  const releaseDeletedSessionSurfaces = useCallback((sessionId: string) => {
+    pendingBrowserAutoReveal.current.delete(sessionId);
+    setSessionSideSurfaces((current) =>
+      withSessionSideSurface(current, sessionId, null));
+    browserSurfaces.release(sessionId);
+    terminalSurfaces.release(sessionId);
+  }, [browserSurfaces, terminalSurfaces]);
   useEffect(() => window.mixdogDesktop?.onBrowserSessionReleased?.((sessionId) => {
     pendingBrowserAutoReveal.current.delete(sessionId);
-    setBrowserSessionRevealed(sessionId, false);
+    setSessionSideSurfaces((current) => current.get(sessionId) === "browser"
+      ? withSessionSideSurface(current, sessionId, null)
+      : current);
     browserSurfaces.release(sessionId);
-  }), [browserSurfaces, setBrowserSessionRevealed]);
+  }), [browserSurfaces]);
   const {
     applySidebarOpen,
     bottomPanel,
@@ -335,7 +356,6 @@ export function App() {
     openProjects,
     openSchedules,
     openSidebar,
-    openUtilities,
     openWebhooks,
     openWorkflows,
     problemsCollapseNonce,
@@ -357,7 +377,6 @@ export function App() {
     toggleBottomPanel,
     toggleSidebar,
     trackSidebarPanelModule,
-    utilitiesOpen,
     webhooksOpen,
     workflowsOpen,
   } = useAppShellPanels(paneWorkspace.focusedLeafId);
@@ -374,6 +393,7 @@ export function App() {
     // Browser Use is install-first, so its launcher joins the rail only once
     // the install marker resolves.
     ...(browserFeatureInstalled ? ["browser" as const] : []),
+    "terminal" as const,
     ...(["agents", "search", "source-control", "pull-requests"] as const)
       .filter((panel) => desktopUtilityDockTabEnabled(panel)),
   ], [browserFeatureInstalled]);
@@ -400,6 +420,33 @@ export function App() {
   // The fold toggle folds the WHOLE side-tab unit (user: 한몸) — header,
   // panel view, browser, and diff surfaces together; children survive folds.
   const togglePaneRightRegion = useStableEvent((leafId: string) => {
+    const rawEntry = paneSideDocks.entryFor(leafId);
+    const leaf = paneWorkspace.leaves.find((candidate) => candidate.id === leafId);
+    const selection = leaf ? paneActiveSelection(leaf) : null;
+    const sessionId = selection?.kind === "session" ? selection.id : "";
+    const selectedSurface = sessionSideSurfaces.get(sessionId) ?? null;
+    const displayedEntry = sessionSideDockEntryForSession(
+      rawEntry,
+      sessionId,
+      selectedSurface,
+    );
+    if (displayedEntry.open) {
+      if ((displayedEntry.surface === "browser"
+        || displayedEntry.surface === "terminal") && sessionId) {
+        setSessionSideSurface(sessionId, null);
+      }
+      paneSideDocks.setOpen(leafId, false);
+      return;
+    }
+    // A closed session surface remains the pane's last child. Reopening the
+    // dock adopts that child for the CURRENT session rather than leaking the
+    // previous session's selection or leaving the global toggle inert.
+    if (sessionId && selectedSurface === null
+      && (rawEntry.surface === "browser" || rawEntry.surface === "terminal")) {
+      setSessionSideSurface(sessionId, rawEntry.surface);
+      paneSideDocks.setOpen(leafId, true);
+      return;
+    }
     paneSideDocks.toggle(leafId);
   });
   const toggleDock = useStableEvent(() => {
@@ -1037,7 +1084,10 @@ export function App() {
     startupNavigationSelection,
     projectCatalogReady,
     snapshot,
-    snapshotReady: snapshot !== EMPTY_SNAPSHOT,
+    // Hydration owns readiness. A first-run profile legitimately hydrates to
+    // the empty shell snapshot; waiting for object identity to change leaves
+    // New Task restore in a permanent pre-start deadlock.
+    snapshotReady: snapshotHydrated,
     sessions,
     selectionRef,
     viewedSessionRef,
@@ -1136,7 +1186,7 @@ export function App() {
     invalidateSessionListings,
     applySnapshot,
     activateSelection,
-    onSessionDeleted: browserSurfaces.release,
+    onSessionDeleted: releaseDeletedSessionSurfaces,
     navigationEpoch,
     setRequestedSessionId,
   });
@@ -1531,9 +1581,11 @@ export function App() {
   };
   const openTerminalTab = (leafId = paneWorkspace.focusedLeafId) => {
     void prefetchTerminalPane().catch(() => {});
-    // Terminal always opens as an independent PANE tab; the bottom panel is
-    // reserved for the Problems list.
-    openUtilityTab(newTerminalSelection(activeProjectPath), "Terminal", leafId);
+    const leaf = paneWorkspace.leaves.find((candidate) => candidate.id === leafId);
+    const selection = leaf ? paneActiveSelection(leaf) : null;
+    if (selection?.kind !== "session") return;
+    setSessionSideSurface(selection.id, "terminal");
+    paneSideDocks.select(leafId, "terminal");
   };
   // Agent browser bridge: retain each session's persistent surface, and reveal
   // it beside the owner only when the host marks the request as foreground.
@@ -1549,7 +1601,7 @@ export function App() {
     void prefetchBrowserPane().catch(() => {});
     browserSurfaces.ensure(sessionId);
     if (!reveal) return;
-    setBrowserSessionRevealed(sessionId, true);
+    setSessionSideSurface(sessionId, "browser");
     const plan = browserSurfaceRevealPlan(
       browserPaneOwners,
       sessionId,
@@ -1887,7 +1939,6 @@ export function App() {
     sidebarResumeSession,
     renderSidebarPanel,
   } = useAppSidebarSurface({
-    utilitiesOpen,
     schedulesOpen,
     webhooksOpen,
     projectsOpen,
@@ -1908,8 +1959,6 @@ export function App() {
     closeSidebarForNavigation,
     startTask,
     openSession,
-    openStudioTab,
-    openTerminalTab,
     refreshProjects,
     renameProject,
     removeProject,
@@ -2024,6 +2073,10 @@ export function App() {
       void prefetchBrowserPane().catch(() => {});
       return;
     }
+    if (id === "terminal") {
+      void prefetchTerminalPane().catch(() => {});
+      return;
+    }
     if (id !== "sessions") void preloadUtilityDock().catch(() => {});
   }, [trackSidebarPanelModule]);
   const sideViewDescriptors = useMemo(() => new Map<
@@ -2041,13 +2094,13 @@ export function App() {
       onPrefetch: () => prefetchWorkbenchSideView("schedules") }],
     ["webhooks", { id: "webhooks", label: "Webhooks", icon: Webhook,
       onPrefetch: () => prefetchWorkbenchSideView("webhooks") }],
-    ["utilities", { id: "utilities", label: "Utilities", icon: WandSparkles,
-      onPrefetch: () => prefetchWorkbenchSideView("utilities") }],
     // Launchers: the icon mints a workspace tab instead of opening a panel.
     ["studio", { id: "studio", label: "Studio", icon: Sparkles,
       onPrefetch: () => prefetchWorkbenchSideView("studio") }],
     ["browser", { id: "browser", label: "Browser Use", icon: Globe,
       onPrefetch: () => prefetchWorkbenchSideView("browser") }],
+    ["terminal", { id: "terminal", label: "Terminal", icon: SquareTerminal,
+      onPrefetch: () => prefetchWorkbenchSideView("terminal") }],
     ["agents", { id: "agents", label: "Agents", icon: Bot,
       onPrefetch: () => prefetchWorkbenchSideView("agents") }],
     ["search", { id: "search", label: "Search", icon: Search,
@@ -2096,13 +2149,17 @@ export function App() {
       const leafId = paneLeafId ?? focusedLeafIdRef.current;
       const leaf = paneWorkspace.leaves.find((candidate) => candidate.id === leafId);
       const selection = leaf ? paneActiveSelection(leaf) : null;
-      if (id === "browser") {
+      if (id === "browser" || id === "terminal") {
         if (selection?.kind !== "session") return;
-        browserSurfaces.ensure(selection.id);
-        pendingBrowserAutoReveal.current.delete(selection.id);
-        setBrowserSessionRevealed(selection.id, true);
+        if (id === "browser") {
+          browserSurfaces.ensure(selection.id);
+          pendingBrowserAutoReveal.current.delete(selection.id);
+        } else {
+          void prefetchTerminalPane().catch(() => {});
+        }
+        setSessionSideSurface(selection.id, id);
       } else if (selection?.kind === "session") {
-        setBrowserSessionRevealed(selection.id, false);
+        setSessionSideSurface(selection.id, null);
       }
       paneSideDocks.select(leafId, id);
       return;
@@ -2124,7 +2181,7 @@ export function App() {
     browserSurfaces,
     paneWorkspace.leaves,
     refreshProjects,
-    setBrowserSessionRevealed,
+    setSessionSideSurface,
     sidebarOpen,
     trackSidebarPanelModule,
     workbenchSideLayout.sideOf,
@@ -2335,7 +2392,6 @@ export function App() {
   // real transcript frame has painted.
   const desktopBootReady = desktopBootPrerequisitesReady({
     snapshotHydrated,
-    projectCatalogReady,
     onboardingReady,
     updaterStateReady,
     startupSettled,
@@ -2443,7 +2499,6 @@ export function App() {
       };
       void Promise.all([
         preloadUtilityDock(),
-        warmPanel("utilities"),
         warmPanel("schedules"),
         warmPanel("webhooks"),
         warmPanel("projects"),
@@ -2514,9 +2569,9 @@ export function App() {
         {renderSidebarPanel(id as SidebarPanelKey, active)}
       </SessionSidebar>;
     }
-    // Launchers have no panel body, and the browser renders as the pane
-    // dock's stacked surface; a stray membership renders nothing here.
-    if (isWorkbenchSideLauncher(id) || id === "browser") return null;
+    // Launchers have no panel body, and session-owned surfaces render in the
+    // pane dock's persistent stack.
+    if (isWorkbenchSideLauncher(id) || id === "browser" || id === "terminal") return null;
     const tab = id as UtilityDockTab;
     return <SnapshotUtilityDock snapshotStore={snapshotStore}
       hidden={!active}
@@ -2578,10 +2633,10 @@ export function App() {
   const renderPaneSideDock = (leaf: PaneLeaf, focused: boolean) => {
     const active = paneActiveSelection(leaf);
     const sessionId = active?.kind === "session" ? active.id : "";
-    const entry = browserDockEntryForSession(
+    const entry = sessionSideDockEntryForSession(
       paneSideDocks.entryFor(leaf.id),
       sessionId,
-      revealedBrowserSessions.has(sessionId),
+      sessionSideSurfaces.get(sessionId) ?? null,
     );
     return <PaneSideDock
       leafId={leaf.id}
@@ -2592,8 +2647,8 @@ export function App() {
       onFocusPane={() => paneWorkspace.focusLeaf(leaf.id)}
       onSelect={(id) => selectWorkbenchSideView(id, leaf.id)}
       onClose={() => {
-        if (entry.surface === "browser" && sessionId) {
-          setBrowserSessionRevealed(sessionId, false);
+        if ((entry.surface === "browser" || entry.surface === "terminal") && sessionId) {
+          setSessionSideSurface(sessionId, null);
         }
         paneSideDocks.setOpen(leaf.id, false);
       }}
@@ -2607,6 +2662,16 @@ export function App() {
         return <SessionBrowserSlot
           controller={browserSurfaces}
           sessionId={sessionId}
+          active={active}
+          foreground={active && focused}
+        />;
+      }}
+      renderTerminalSurface={(active) => {
+        if (!sessionId) return null;
+        return <SessionTerminalSlot
+          controller={terminalSurfaces}
+          sessionId={sessionId}
+          cwd={paneProjectPathFor(leaf) || null}
           active={active}
           foreground={active && focused}
         />;
@@ -2708,10 +2773,6 @@ export function App() {
           // Rail destinations share the Sessions toggle contract: the first
           // click opens that list, while re-selecting it collapses the whole
           // sidebar and resets the next expansion to Sessions.
-          onOpenUtilities={openUtilities}
-          onPrefetchUtilities={() => {
-            trackSidebarPanelModule("utilities", loadSidebarPanelModule.utilities());
-          }}
           onOpenProjects={() => {
             openProjects();
             void refreshProjects().catch(() => undefined);
@@ -2849,6 +2910,7 @@ export function App() {
           })()}
         </main>
         <SessionBrowserParkingHost controller={browserSurfaces} />
+        <SessionTerminalParkingHost controller={terminalSurfaces} />
         {/* Bottom sheet band keeps outside-tap dismissal without dimming the
             work surface, matching both side sheets. */}
         <button className="panel-backdrop"

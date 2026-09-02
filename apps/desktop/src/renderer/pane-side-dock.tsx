@@ -87,6 +87,7 @@ export const PANE_SIDE_DOCK_BROWSER_DEFAULT_WIDTH = 720;
 /** Classic panel column ceiling (window-level right panel grammar). */
 export const PANE_SIDE_DOCK_PANEL_MAX_WIDTH = 560;
 export const PANE_DOCK_BROWSER_SURFACE = "browser";
+export const PANE_DOCK_TERMINAL_SURFACE = "terminal";
 export const PANE_DOCK_DIFF_SURFACE = "diff";
 export function paneGoalPlacement(
   entry: Pick<PaneSideDockEntry, "open" | "surface" | "diff">,
@@ -121,7 +122,9 @@ const CLOSED_ENTRY: PaneSideDockEntry = {
 /** Launchers own no body at all, and the browser's body is a stacked surface,
  *  so neither can be a dock's active panel view or its default. */
 function isPanelView(id: WorkbenchSideViewId): boolean {
-  return !isWorkbenchSideLauncher(id) && id !== PANE_DOCK_BROWSER_SURFACE;
+  return !isWorkbenchSideLauncher(id)
+    && id !== PANE_DOCK_BROWSER_SURFACE
+    && id !== PANE_DOCK_TERMINAL_SURFACE;
 }
 
 function firstPanelRoot(
@@ -158,7 +161,8 @@ export function normalizePaneSideDocks(
     ? value as Record<string, unknown>
     : {};
   const members = new Set<WorkbenchSideViewId>(groups.flat().filter(isPanelView));
-  const hasBrowser = groups.flat().includes(PANE_DOCK_BROWSER_SURFACE);
+  const sessionSurfaces = new Set<string>(groups.flat().filter((id) =>
+    id === PANE_DOCK_BROWSER_SURFACE || id === PANE_DOCK_TERMINAL_SURFACE));
   const firstRoot = firstPanelRoot(groups);
   const next: Record<string, PaneSideDockEntry> = {};
   for (const leafId of leafIds) {
@@ -185,7 +189,8 @@ export function normalizePaneSideDocks(
       : null;
     const view = storedView ?? firstRoot;
     const surface = storedSurface === PANE_DOCK_BROWSER_SURFACE
-      ? hasBrowser ? PANE_DOCK_BROWSER_SURFACE : ""
+      || storedSurface === PANE_DOCK_TERMINAL_SURFACE
+      ? sessionSurfaces.has(storedSurface) ? storedSurface : ""
       : diff && (storedSurface === PANE_DOCK_DIFF_SURFACE
           || storedSurface === navigationKey(diff))
         ? PANE_DOCK_DIFF_SURFACE
@@ -347,7 +352,8 @@ export function usePaneSideDocks({
   const select = useCallback((leafId: string, id: WorkbenchSideViewId) => {
     if (isWorkbenchSideLauncher(id)) return;
     patch(leafId, (entry) => id === PANE_DOCK_BROWSER_SURFACE
-      ? { ...entry, open: true, surface: PANE_DOCK_BROWSER_SURFACE }
+      || id === PANE_DOCK_TERMINAL_SURFACE
+      ? { ...entry, open: true, surface: id }
       : { ...entry, open: true, view: id, surface: "" });
   }, [patch]);
   /** Ensure the dock is open, optionally landing on a specific child. */
@@ -423,6 +429,7 @@ export function PaneSideDock({
   onFocusPane,
   openFileTab,
   renderBrowserSurface,
+  renderTerminalSurface,
   goalIsland,
   renderView,
 }: {
@@ -451,6 +458,7 @@ export function PaneSideDock({
   onFocusPane(): void;
   openFileTab(project: string, rel: string, line?: number): void;
   renderBrowserSurface?(active: boolean): ReactNode;
+  renderTerminalSurface?(active: boolean): ReactNode;
   goalIsland?: ReactNode;
   renderView(
     id: WorkbenchSideViewId,
@@ -467,6 +475,9 @@ export function PaneSideDock({
   const surfaceShowing = openNow && entry.surface !== "";
   const browserShowing = surfaceShowing
     && entry.surface === PANE_DOCK_BROWSER_SURFACE;
+  const terminalShowing = surfaceShowing
+    && entry.surface === PANE_DOCK_TERMINAL_SURFACE;
+  const sessionSurfaceShowing = browserShowing || terminalShowing;
   const diffShowing = surfaceShowing && paneGoalPlacement(entry) === "diff";
   // ── Unified width (user: 두개를 통합 넓이계산) ──
   // The dock measures its own pane cell: inline, the whole unit — diff pair
@@ -533,7 +544,7 @@ export function PaneSideDock({
     isMobileRemoteSurface(),
   );
   const pairShowing = diffShowing && !twoDepth;
-  const columnMin = browserShowing
+  const columnMin = sessionSurfaceShowing
     ? PANE_SIDE_DOCK_BROWSER_MIN_WIDTH
     : pairShowing
       ? pairMin
@@ -545,7 +556,7 @@ export function PaneSideDock({
   // modes shrink toward their own minimum first.
   const overlay = fullTakeover || (openNow && (pairShowing
     ? room < panelDesired + diffDesired
-    : browserShowing
+    : sessionSurfaceShowing
       ? room < PANE_SIDE_DOCK_BROWSER_MIN_WIDTH
       : room < columnMin));
   const avail = fullTakeover
@@ -553,7 +564,7 @@ export function PaneSideDock({
     : overlay ? Math.max(columnMin, sheetAvail) : room;
   const asideWidth = Math.round(fullTakeover
     ? cellWidth
-    : browserShowing
+    : sessionSurfaceShowing
       ? Math.max(PANE_SIDE_DOCK_BROWSER_MIN_WIDTH, Math.min(browserPref, avail))
       : pairShowing
         ? Math.max(
@@ -594,13 +605,20 @@ export function PaneSideDock({
       </div>
     : null;
   const browserSurface = renderBrowserSurface?.(browserShowing) ?? null;
-  const surfaces = browserSurface || twoDepthDiff
+  const terminalSurface = renderTerminalSurface?.(terminalShowing) ?? null;
+  const surfaces = browserSurface || terminalSurface || twoDepthDiff
     ? <>
       {browserSurface && <div className="workbench-side-surface-slot"
         data-surface-active={browserShowing ? "true" : "false"}
         inert={browserShowing ? undefined : true}
         aria-hidden={browserShowing ? undefined : true}>
         {browserSurface}
+      </div>}
+      {terminalSurface && <div className="workbench-side-surface-slot"
+        data-surface-active={terminalShowing ? "true" : "false"}
+        inert={terminalShowing ? undefined : true}
+        aria-hidden={terminalShowing ? undefined : true}>
+        {terminalSurface}
       </div>}
       {twoDepthDiff}
     </>
@@ -679,14 +697,16 @@ export function PaneSideDock({
       aria-label={t("Close panel")} />
     {openNow && <header className="pane-side-dock-header">
       <WorkbenchSideIconBar side="right" groups={groups}
-        activeRoot={browserShowing ? PANE_DOCK_BROWSER_SURFACE : entry.view}
+        activeRoot={browserShowing
+          ? PANE_DOCK_BROWSER_SURFACE
+          : terminalShowing ? PANE_DOCK_TERMINAL_SURFACE : entry.view}
         descriptors={descriptors} orientation="horizontal"
         onSelect={(id) => {
           // Re-clicking the ACTIVE child folds the unit — essential once it
           // floats over the pane as an overlay.
           const activeChild = browserShowing
             ? PANE_DOCK_BROWSER_SURFACE
-            : entry.view;
+            : terminalShowing ? PANE_DOCK_TERMINAL_SURFACE : entry.view;
           if (id === activeChild && !isWorkbenchSideLauncher(id)) onClose();
           else onSelect(id);
         }}
@@ -713,14 +733,14 @@ export function PaneSideDock({
       groups={groups}
       activeRoot={entry.view}
       surfaces={surfaces}
-      surfacesActive={browserShowing || twoDepth}
+      surfacesActive={sessionSurfaceShowing || twoDepth}
       descriptors={descriptors}
       onSelect={onSelect}
       onMoveGroup={onMoveGroup}
       onMoveView={onMoveView}
       widthOverride={asideWidth}
       onWidthDrag={(next, commit) => {
-        if (browserShowing) {
+        if (sessionSurfaceShowing) {
           setBrowserPref(next);
           if (commit) commitWidthPref(PANE_SIDE_DOCK_BROWSER_WIDTH_KEY, next);
         } else {
@@ -728,7 +748,7 @@ export function PaneSideDock({
           if (commit) commitWidthPref(PANE_SIDE_DOCK_WIDTH_KEY, next);
         }
       }}
-      widthRange={browserShowing
+      widthRange={sessionSurfaceShowing
         ? {
             min: PANE_SIDE_DOCK_BROWSER_MIN_WIDTH,
             max: PANE_SIDE_DOCK_BROWSER_MAX_WIDTH,

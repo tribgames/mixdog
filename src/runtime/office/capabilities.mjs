@@ -1,9 +1,9 @@
-import { officeDesignCatalog } from './design-system.mjs';
+import { officeDesignCatalog } from './design/design-system.mjs';
 
 export const OFFICE_ACTIONS = Object.freeze([
   'detect', 'transactions', 'recover', 'describe', 'create', 'attach', 'open', 'secure',
   'begin', 'snapshot', 'get', 'query', 'batch', 'diff', 'commit', 'rollback',
-  'issues', 'qa', 'validate', 'render', 'save', 'finalize', 'close',
+  'issues', 'qa', 'validate', 'render', 'preview', 'compile', 'save', 'finalize', 'close',
 ]);
 
 const COMMON = {
@@ -92,7 +92,7 @@ const CATALOG = {
       portable: [],
     },
     properties: {
-      shape: ['left', 'top', 'width', 'height', 'rotation', 'fillColor', 'fillTransparency', 'lineColor', 'lineTransparency', 'shadow', 'marginLeft', 'marginTop', 'marginRight', 'marginBottom', 'fontName', 'fontSize', 'bold', 'italic', 'color', 'paragraphSpacing'],
+      shape: ['left', 'top', 'width', 'height', 'rotation', 'fillColor', 'fillTransparency', 'lineColor', 'lineTransparency', 'lineWidth', 'shadow', 'marginLeft', 'marginTop', 'marginRight', 'marginBottom', 'fontName', 'fontSize', 'bold', 'italic', 'color', 'alignment', 'verticalAlignment', 'paragraphSpacing'],
       chart: ['chartType', 'left', 'top', 'width', 'height', 'title', 'series', 'axis', 'dataLabels', 'seriesType', 'secondaryAxis', 'trendline', 'errorBars', 'showValues', 'showLegend', 'zeroBaseline', 'valueNumberFormat', 'dataLabelPosition', 'dataLabelColor'],
       slide: ['background', 'layout', 'layoutName'],
       placeholder: ['type', 'index'],
@@ -253,7 +253,7 @@ const FORMAT_SIGNATURES = {
   pptx: {
     compose_slide: signature(['kind'], ['claimId', 'purpose', 'expressionMode', 'title', 'subtitle', 'takeaway', 'eyebrow', 'body', 'bullets', 'metrics', 'columns', 'steps', 'allocations', 'annotations', 'gates', 'actions', 'chart', 'table', 'image', 'imagePath', 'visualText', 'visualLabel', 'allocationLabel', 'allocationNumberFormat', 'meta', 'notes', 'source', 'background', 'backgroundRole', 'slideRole', 'plan', 'create', 'slide', 'layoutId', 'variant', 'titleSize'], {
       propertySets: ['design'],
-      notes: 'Creative Director synthesizes missing scratch plans. Explicit 0-100 plan.regions may use text, native evidence, annotated-chart, allocation, timeline, or scorecard roles. Invalid explicit plans fail; templates run only when requested.',
+      notes: 'Creative Director synthesizes missing scratch plans. Explicit plan.authoredScene compiles up to 96 native text/shape/line/image/chart/table elements; plan.regions remains the semantic fallback. Invalid explicit plans fail; templates run only when requested.',
     }),
     set_text: signature(['slide', 'shape', 'text']),
     add_textbox: signature(['slide', 'text'], ['paragraphs', 'left', 'top', 'width', 'height', 'fontName', 'fontSize', 'color', 'properties'], { propertySets: ['shape', 'authoring'] }),

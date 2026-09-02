@@ -113,12 +113,7 @@ import { createSessionApi } from './session/session-api.mjs';
 import { createFrameBatchedStorePublisher } from './session/frame-batched-store.mjs';
 import { createLiveShare, forwardViewerSubmit, liveSharePipePath } from './session/live-share.mjs';
 import { displayModelName } from '../ui/model-display.mjs';
-import { prewarmImageResizer } from '../runtime/agent/orchestrator/tools/builtin/read-image-resize.mjs';
-
 const SESSION_RUNTIME_MODULE = '../mixdog-session-runtime.mjs';
-// Start the native binding load with daemon startup rather than making the
-// user's first image attachment pay the cold dynamic-import cost.
-void prewarmImageResizer();
 
 // The runtime graph is imported lazily, but that import (measured ~250ms) used
 // to land inside the FIRST session runtime creation, which desktop performs while it

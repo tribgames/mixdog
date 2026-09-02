@@ -14,7 +14,7 @@ let progressPrinted = false;
 
 try {
   await build({
-    entryPoints: [fileURLToPath(new URL('../src/main/browser-host.integration.ts', import.meta.url))],
+    entryPoints: [fileURLToPath(new URL('../src/main/browser/host.integration.ts', import.meta.url))],
     outfile: output,
     bundle: true,
     platform: 'node',

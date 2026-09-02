@@ -10,7 +10,6 @@ import {
   createExtensionsPane,
   createProjectsPane,
   createSchedulesPane,
-  createUtilitiesPane,
   createWebhooksPane,
   createWorkflowsPane,
   loadSidebarPanelModule,
@@ -266,7 +265,6 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     () => new Set(),
   );
   const [sidebarPanes, setSidebarPanes] = useState(() => ({
-    utilities: createUtilitiesPane(),
     schedules: createSchedulesPane(),
     webhooks: createWebhooksPane(),
     projects: createProjectsPane(),
@@ -289,9 +287,7 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
           ? { ...current, projects: createProjectsPane() }
           : panel === "extensions"
             ? { ...current, extensions: createExtensionsPane() }
-          : panel === "utilities"
-            ? { ...current, utilities: createUtilitiesPane() }
-            : { ...current, workflows: createWorkflowsPane() });
+          : { ...current, workflows: createWorkflowsPane() });
     setFailedSidebarPanels((current) => {
       if (!current.has(panel)) return current;
       const next = new Set(current);
@@ -300,18 +296,6 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     });
     trackSidebarPanelModule(panel, loadSidebarPanelModule[panel]());
   }, [trackSidebarPanelModule]);
-  const [utilitiesOpen, setUtilitiesOpen] = useState(false);
-  const openUtilities = useCallback(() => {
-    if (!desktopFeatureEnabled("utilities")) return;
-    mountSidebarPanel("utilities");
-    trackSidebarPanelModule("utilities", loadSidebarPanelModule.utilities());
-    setUtilitiesOpen(true);
-    setSchedulesOpen(false);
-    setWebhooksOpen(false);
-    setProjectsOpen(false);
-    setWorkflowsOpen(false);
-    openSidebar();
-  }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
   // Scheduled-tasks panel (rail → Schedules): lives in the session-panel
   // area, so navigation leaves it alone (user decision).
   const [schedulesOpen, setSchedulesOpen] = useState(false);
@@ -323,7 +307,6 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     setWebhooksOpen(false);
     setProjectsOpen(false);
     setWorkflowsOpen(false);
-    setUtilitiesOpen(false);
     openSidebar();
   }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
   // Inbound-webhooks panel: same session-panel concept as Schedules
@@ -337,7 +320,6 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     setSchedulesOpen(false);
     setProjectsOpen(false);
     setWorkflowsOpen(false);
-    setUtilitiesOpen(false);
     openSidebar();
   }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
   const openProjects = useCallback(() => {
@@ -348,7 +330,6 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     setSchedulesOpen(false);
     setWebhooksOpen(false);
     setWorkflowsOpen(false);
-    setUtilitiesOpen(false);
     openSidebar();
   }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
   const openWorkflows = useCallback(() => {
@@ -359,7 +340,6 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     setSchedulesOpen(false);
     setWebhooksOpen(false);
     setProjectsOpen(false);
-    setUtilitiesOpen(false);
     openSidebar();
   }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
   // Returns the rail panel area to the Sessions list.
@@ -368,7 +348,6 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     setWebhooksOpen(false);
     setProjectsOpen(false);
     setWorkflowsOpen(false);
-    setUtilitiesOpen(false);
   }, []);
   // A collapsed drawer forgets its rail destination on EVERY close path
   // (toggle, backdrop, exclusivity, band crossing): the next open always
@@ -404,7 +383,6 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     openProjects,
     openSchedules,
     openSidebar,
-    openUtilities,
     openWebhooks,
     openWorkflows,
     problemsCollapseNonce,
@@ -427,7 +405,6 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     toggleBottomPanel,
     toggleSidebar,
     trackSidebarPanelModule,
-    utilitiesOpen,
     wasBottomSheetBand,
     webhooksOpen,
     workflowsOpen,

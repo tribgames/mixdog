@@ -1,6 +1,6 @@
 // One Chromium surface per conversation session on a shared persistent
 // partition. Login survives and is shared; page, tab, and target state is not.
-// The pane owns only the chrome; agent control lives in main/browser-host.ts.
+// The pane owns only the chrome; agent control lives in main/browser/host.ts.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -13,6 +13,7 @@ import {
   KeyRound,
   LoaderCircle,
   RotateCw,
+  Smartphone,
   X,
 } from "lucide-react";
 
@@ -23,6 +24,17 @@ import {
   scheduleBrowserForegroundRepaint,
   watchBrowserForegroundReturns,
 } from "./browser-foreground-lifecycle";
+import {
+  BROWSER_VIEWPORT_PRESETS,
+  browserAutoFitZoom,
+  browserViewportEmulation,
+  readBrowserViewportPreset,
+  resolveBrowserViewportPreset,
+  writeBrowserViewportPreset,
+  type BrowserViewportPreset,
+  type BrowserViewportPresetId,
+} from "./browser-viewport-mode";
+import { OpenSelect } from "./OpenSelect";
 import RemoteBrowserPane from "./RemoteBrowserPane";
 import type {
   DesktopBrowserCredentialSuggestion,
@@ -30,7 +42,7 @@ import type {
 } from "../shared/contract";
 import "./desktop/32-browser-pane.css";
 
-/** Shared persistent guest partition; main/browser-host.ts matches guests by
+/** Shared persistent guest partition; main/browser/host.ts matches guests by
  *  this exact string, so the two literals must stay in sync. */
 const BROWSER_PARTITION = "persist:mixdog-browser";
 
@@ -63,16 +75,6 @@ interface WebviewElement extends HTMLElement {
   setZoomFactor(factor: number): void;
 }
 
-/** Fit-width viewport: fixed-width desktop layouts (portals commonly assume
- *  ~1100-1200px) zoom out inside a narrow pane instead of clipping behind a
- *  horizontal scrollbar. A pane at least this wide renders at 100%. Below
- *  RESPONSIVE_FIT_WIDTH even 50% cannot hold the desktop layout, so the pane
- *  renders at 100% instead and responsive sites reflow like a phone
- *  (user: 모바일도 고려 — Claude 패널 방식). */
-const FIT_CONTENT_WIDTH = 1160;
-const MIN_FIT_ZOOM = 0.5;
-const RESPONSIVE_FIT_WIDTH = 580;
-
 export { normalizeAddressInput } from "./browser-address";
 
 export interface BrowserPaneProps {
@@ -90,6 +92,8 @@ function DesktopBrowserPane({
   focusAddressOnActivate = true,
 }: BrowserPaneProps) {
   const webviewRef = useRef<WebviewElement | null>(null);
+  const appliedViewportPreset = useRef<string | null>(null);
+  const viewportConfigurationRequest = useRef(0);
   const addressRef = useRef<HTMLInputElement | null>(null);
   const addressFocused = useRef(false);
   const [address, setAddress] = useState("");
@@ -105,8 +109,12 @@ function DesktopBrowserPane({
   const [credentialStatus, setCredentialStatus] = useState<"idle" | "success" | "error">("idle");
   const [pageFailure, setPageFailure] = useState<BrowserPageFailure | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [viewportPresetId, setViewportPresetId] = useState<BrowserViewportPresetId>(() =>
+    readBrowserViewportPreset(window.localStorage, sessionId).id);
   const desktopApi = window.mixdogDesktop;
   const ownerSessionId = sessionId;
+  const viewportPreset = resolveBrowserViewportPreset(viewportPresetId);
+  const fixedViewport = viewportPreset.width !== null && viewportPreset.height !== null;
 
   useEffect(() => {
     const view = webviewRef.current;
@@ -247,55 +255,104 @@ function DesktopBrowserPane({
     return () => window.clearTimeout(timer);
   }, [credentialStatus]);
 
-  // Fit-width zoom follows the pane size, and is reapplied after navigations
-  // because Chromium's per-origin zoom memory would otherwise override it.
+  const configureViewportPreset = useCallback(async (
+    preset: BrowserViewportPreset,
+    reload: boolean,
+  ): Promise<boolean> => {
+    const view = webviewRef.current;
+    if (!view) return false;
+    const configKey = `${ownerSessionId}\u0000${preset.id}`;
+    if (appliedViewportPreset.current === configKey) return true;
+    const configure = desktopApi?.browserConfigureGuestViewport;
+    if (!configure) {
+      appliedViewportPreset.current = configKey;
+      return true;
+    }
+    let webContentsId = 0;
+    try {
+      webContentsId = view.getWebContentsId();
+    } catch {
+      return false;
+    }
+    if (!Number.isSafeInteger(webContentsId) || webContentsId <= 0) return false;
+    const request = ++viewportConfigurationRequest.current;
+    try {
+      await configure(
+        ownerSessionId,
+        webContentsId,
+        browserViewportEmulation(preset),
+      );
+    } catch (error) {
+      console.error("Browser viewport emulation failed.", error);
+      return false;
+    }
+    if (request !== viewportConfigurationRequest.current) return false;
+    appliedViewportPreset.current = configKey;
+    if (reload) {
+      try {
+        if (view.getURL() && view.getURL() !== "about:blank") view.reload();
+      } catch { /* detached guest; its next attach applies the preset */ }
+    }
+    return true;
+  }, [desktopApi, ownerSessionId]);
+
+  // Auto fits desktop-width sites to the pane. Device presets keep zoom at one
+  // and apply actual UA/touch/device metrics through the Browser CDP host.
   const desiredZoom = useRef(1);
   useEffect(() => {
     if (!active) return undefined;
     const view = webviewRef.current;
     if (!view) return undefined;
+    let disposed = false;
     let restoreFrame = 0;
     const applyZoom = () => {
       try {
         view.setZoomFactor(desiredZoom.current);
       } catch { /* guest not attached yet; dom-ready reapplies */ }
     };
-    const syncZoom = (width: number, force = false) => {
-      if (!width) return;
-      const zoom = width < RESPONSIVE_FIT_WIDTH
-        ? 1
-        : Math.min(1, Math.max(MIN_FIT_ZOOM, width / FIT_CONTENT_WIDTH));
+    const syncZoom = (force = false) => {
+      const zoom = fixedViewport ? 1 : browserAutoFitZoom(view.clientWidth);
       const changed = Math.abs(zoom - desiredZoom.current) >= 0.01;
       if (changed) desiredZoom.current = zoom;
       if (changed || force) applyZoom();
     };
+    const configureGuest = async () => {
+      const configured = await configureViewportPreset(viewportPreset, false);
+      if (!disposed && configured) syncZoom(true);
+    };
     const restoreVisibleGuest = () => {
       window.cancelAnimationFrame(restoreFrame);
-      restoreFrame = window.requestAnimationFrame(() => {
-        syncZoom(view.clientWidth, true);
-      });
+      restoreFrame = window.requestAnimationFrame(() => syncZoom(true));
     };
-    const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width || view.clientWidth;
-      syncZoom(width);
-    });
+    const observer = new ResizeObserver(() => syncZoom());
     observer.observe(view);
     const stopForegroundReturnReporting = watchBrowserForegroundReturns(
       window,
       document,
       restoreVisibleGuest,
     );
-    view.addEventListener("dom-ready", applyZoom);
+    const onGuestReady = () => void configureGuest();
+    view.addEventListener("did-attach", onGuestReady);
+    view.addEventListener("dom-ready", onGuestReady);
     view.addEventListener("did-navigate", applyZoom);
-    restoreVisibleGuest();
+    void configureGuest();
     return () => {
+      disposed = true;
       window.cancelAnimationFrame(restoreFrame);
       stopForegroundReturnReporting();
       observer.disconnect();
-      view.removeEventListener("dom-ready", applyZoom);
+      view.removeEventListener("did-attach", onGuestReady);
+      view.removeEventListener("dom-ready", onGuestReady);
       view.removeEventListener("did-navigate", applyZoom);
     };
-  }, [active]);
+  }, [
+    active,
+    configureViewportPreset,
+    fixedViewport,
+    ownerSessionId,
+    viewportPreset,
+    viewportPresetId,
+  ]);
 
   // A fresh, blank browser tab is for typing an address first.
   useEffect(() => {
@@ -411,6 +468,25 @@ function DesktopBrowserPane({
           </button>)}
         </div>}
       </form>
+      <div className="browser-pane-viewport-picker" data-tooltip={viewportPreset.label}>
+        <OpenSelect className="browser-pane-viewport-control"
+          value={viewportPresetId}
+          ariaLabel={`브라우저 화면 크기: ${viewportPreset.label}`}
+          localizeLabels={false}
+          leading={<Smartphone size={14} aria-hidden="true" />}
+          options={BROWSER_VIEWPORT_PRESETS.map((preset) => ({
+            value: preset.id,
+            label: preset.label,
+          }))}
+          onChange={(value) => {
+            const preset = resolveBrowserViewportPreset(value);
+            void configureViewportPreset(preset, true).then((configured) => {
+              if (!configured) return;
+              writeBrowserViewportPreset(window.localStorage, ownerSessionId, preset.id);
+              setViewportPresetId(preset.id);
+            });
+          }} />
+      </div>
       {credentialSuggestions.length > 0 && <div className="browser-pane-credential-control">
         <button type="button"
           className={`browser-pane-nav-button browser-pane-credential-button is-${credentialStatus}`}
@@ -466,37 +542,44 @@ function DesktopBrowserPane({
       </button>}
     </div>
     <BrowserImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
-    <div className="browser-pane-content">
-      <webview ref={(element) => {
-        webviewRef.current = element as unknown as WebviewElement | null;
-      }}
-        className={`browser-pane-webview${importOpen ? " is-import-open" : ""}${historySuggestions.length ? " is-history-open" : ""}${credentialMenuOpen ? " is-credential-open" : ""}${pageFailure ? " is-failed" : ""}`}
-        src="about:blank"
-        partition={BROWSER_PARTITION} />
-      {/* about:blank paints Chromium's default white; until a real page is
-          committed the pane stays in the app theme instead. */}
-      {!currentUrl && <div className="browser-pane-empty" aria-hidden="true">
-        <Globe size={28} />
-        <span>{t("Search or enter address")}</span>
-      </div>}
-      {pageFailure && <div className="browser-pane-failure" role="status" aria-live="polite">
-        <AlertTriangle size={26} />
-        <strong>{pageFailure.title}</strong>
-        <span>{pageFailure.detail}</span>
-        <button type="button" onClick={() => {
-          const view = webviewRef.current;
-          setPageFailure(null);
-          if (!view) return;
-          try {
-            view.reload();
-          } catch {
-            navigate(currentUrl || address);
-          }
-        }}>
-          <RotateCw size={14} />
-          다시 불러오기
-        </button>
-      </div>}
+    <div className={`browser-pane-content${fixedViewport ? " is-device-frame" : ""}`}>
+      <div className="browser-pane-viewport"
+        data-viewport-preset={viewportPreset.id}
+        style={fixedViewport ? {
+          width: `${viewportPreset.width}px`,
+          height: `${viewportPreset.height}px`,
+        } : undefined}>
+        <webview ref={(element) => {
+          webviewRef.current = element as unknown as WebviewElement | null;
+        }}
+          className={`browser-pane-webview${importOpen ? " is-import-open" : ""}${historySuggestions.length ? " is-history-open" : ""}${credentialMenuOpen ? " is-credential-open" : ""}${pageFailure ? " is-failed" : ""}`}
+          src="about:blank"
+          partition={BROWSER_PARTITION} />
+        {/* about:blank paints Chromium's default white; until a real page is
+            committed the pane stays in the app theme instead. */}
+        {!currentUrl && <div className="browser-pane-empty" aria-hidden="true">
+          <Globe size={28} />
+          <span>{t("Search or enter address")}</span>
+        </div>}
+        {pageFailure && <div className="browser-pane-failure" role="status" aria-live="polite">
+          <AlertTriangle size={26} />
+          <strong>{pageFailure.title}</strong>
+          <span>{pageFailure.detail}</span>
+          <button type="button" onClick={() => {
+            const view = webviewRef.current;
+            setPageFailure(null);
+            if (!view) return;
+            try {
+              view.reload();
+            } catch {
+              navigate(currentUrl || address);
+            }
+          }}>
+            <RotateCw size={14} />
+            다시 불러오기
+          </button>
+        </div>}
+      </div>
     </div>
   </div>;
 }

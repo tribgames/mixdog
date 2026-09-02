@@ -26,15 +26,15 @@ export type WorkbenchSide = "left" | "right";
  *  combine into another view's group, because they have no panel body. */
 export const WORKBENCH_SIDE_LAUNCHER_IDS = ["studio"] as const;
 export type WorkbenchSideLauncherId = (typeof WORKBENCH_SIDE_LAUNCHER_IDS)[number];
-/** The browser is a pane-dock child view (user: 사이드탭 헤더 하위에 브라우저
- *  단독으로): its header icon is selectable like any view, but its body is a
- *  persistent surface stacked over the panel body, not a classic panel. */
+/** Browser Use and Terminal are session-owned pane-dock child views. Their
+ *  header icons select persistent surfaces stacked over the classic panel. */
 export type WorkbenchSideViewId =
   | "sessions"
   | SidebarPanelKey
   | UtilityDockTab
   | WorkbenchSideLauncherId
-  | "browser";
+  | "browser"
+  | "terminal";
 export type WorkbenchSideViewGroup = readonly WorkbenchSideViewId[];
 export type WorkbenchSideTitleDragProps = {
   draggable: boolean;
@@ -73,9 +73,9 @@ const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
   "extensions",
   "schedules",
   "webhooks",
-  "utilities",
   "studio",
   "browser",
+  "terminal",
   "agents",
   "search",
   "source-control",
@@ -94,13 +94,12 @@ export const DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT: WorkbenchSideViewLayout = {
     ["schedules"],
     ["studio"],
     ["workflows"],
-    ["utilities"],
     ["search"],
     ["extensions"],
     ["projects"],
     ["webhooks"],
   ],
-  right: [["source-control"], ["browser"], ["pull-requests"]],
+  right: [["source-control"], ["browser"], ["terminal"], ["pull-requests"]],
 };
 
 function isViewId(value: unknown): value is WorkbenchSideViewId {
@@ -110,7 +109,7 @@ function isViewId(value: unknown): value is WorkbenchSideViewId {
 /**
  * Where a view the stored layout never carried belongs: ahead of the first
  * group that already holds a default view following it. A side stored before
- * those views existed (a phone that only ever persisted Utilities) therefore
+ * those views existed (for example, an older sparse phone layout) therefore
  * rebuilds in DEFAULT order instead of collecting every missing view behind
  * whatever it happened to store.
  */

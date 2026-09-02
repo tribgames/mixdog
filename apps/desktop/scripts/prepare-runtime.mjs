@@ -36,10 +36,10 @@ const runtimeArchive = join(runtimeDir, 'runtime.asar');
 const runtimeSidecar = `${runtimeArchive}.unpacked`;
 const builderNativeModulesDir = join(runtimeDir, 'native-modules');
 const externalProcessArchivePaths = [
-  'node_modules/mixdog/src/runtime/office/office-com-host.ps1',
-  'node_modules/mixdog/src/runtime/office/office-com-session-host.ps1',
-  'node_modules/mixdog/src/runtime/office/templates/mixdog-executive.pptx',
-  'node_modules/mixdog/src/runtime/office/templates/mixdog-executive.pptx.mixdog.json',
+  'node_modules/mixdog/src/runtime/office/com/office-com-host.ps1',
+  'node_modules/mixdog/src/runtime/office/com/office-com-session-host.ps1',
+  'node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx',
+  'node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx.mixdog.json',
 ];
 const externalProcessArchiveEntries = externalProcessArchivePaths.map((path) => `/${path}`);
 const desktopPtyPackageDir = join(
@@ -637,8 +637,8 @@ async function prepareRuntime(manifest, fingerprint) {
       '/package.json',
       '/node_modules/mixdog/package.json',
       '/node_modules/mixdog/src/tui/session.mjs',
-      '/node_modules/mixdog/src/runtime/office/journal.mjs',
-      '/node_modules/mixdog/src/runtime/office/visual-diff.mjs',
+      '/node_modules/mixdog/src/runtime/office/core/journal.mjs',
+      '/node_modules/mixdog/src/runtime/office/quality/visual-diff.mjs',
       ...externalProcessArchiveEntries,
       '/node_modules/@huggingface/transformers/package.json',
       '/node_modules/@huggingface/transformers/dist/transformers.node.cjs',

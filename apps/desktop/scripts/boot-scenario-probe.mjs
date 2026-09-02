@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -111,6 +111,7 @@ const diffSelection = {
 
 const allScenarios = [
   { name: 'fresh-new', selection: newSelection, fresh: true },
+  { name: 'first-submit', selection: newSelection, fresh: true, measureSubmit: true },
   { name: 'project', selection: projectSelection },
   {
     name: 'session',
@@ -139,11 +140,17 @@ const allScenarios = [
     },
     focusedLeafId: 'mixed-editor',
   },
-  { name: 'session-sidebar', selection: newSelection, sidebarOpen: true, expectedSurface: 'session-sidebar' },
-  ...['tasks', 'files', 'search', 'source-control', 'outline'].map((tab) => ({
-    name: `dock-${tab}`,
+  { name: 'session-sidebar', selection: newSelection, sideView: 'sessions', expectedSurface: 'session-sidebar' },
+  ...['agents', 'search'].map((sideView) => ({
+    name: `sidebar-${sideView}`,
     selection: projectSelection,
-    dock: { open: true, tab, width: 380 },
+    sideView,
+    expectedSurface: 'sidebar',
+  })),
+  ...['source-control', 'pull-requests'].map((view) => ({
+    name: `dock-${view}`,
+    selection: projectSelection,
+    dock: { open: true, view, surface: '', diff: null },
     expectedSurface: 'dock',
   })),
   ...['terminal', 'problems'].map((tab) => ({
@@ -159,6 +166,43 @@ const scenarios = scenarioFilter
   ? allScenarios.filter((scenario) => scenario.name === scenarioFilter)
   : allScenarios;
 if (scenarios.length === 0) throw new Error(`Unknown boot scenario: ${scenarioFilter}`);
+const DEFAULT_PERFORMANCE_BUDGET = Object.freeze({
+  shellMs: 1_200,
+  dataMs: 3_000,
+  interactionMs: 3_000,
+  keypaintMs: 100,
+});
+const scenarioPerformanceBudgets = Object.freeze({
+  terminal: { dataMs: 5_500, interactionMs: 5_500 },
+  'dock-source-control': { dataMs: 5_500 },
+  'dock-pull-requests': { dataMs: 5_500 },
+  'first-submit': { submitMs: 2_000 },
+});
+
+function performanceFailures(result) {
+  const budget = {
+    ...DEFAULT_PERFORMANCE_BUDGET,
+    ...(scenarioPerformanceBudgets[result.scenario] || {}),
+  };
+  const failures = [];
+  const checks = [
+    ['shell', result.interaction?.shellReadyAtMs, budget.shellMs],
+    ['data', result.interaction?.dataReadyAtMs, budget.dataMs],
+    ['interaction', result.interaction?.measuredAtMs, budget.interactionMs],
+    ['keypaint', result.interaction?.keystrokePaintMs, budget.keypaintMs],
+    ['submit', result.firstSubmit?.acceptanceMs, budget.submitMs],
+  ];
+  for (const [name, value, maximum] of checks) {
+    if (maximum !== undefined && value !== null && value !== undefined && value > maximum) {
+      failures.push(`${name}=${value.toFixed(1)}ms>${maximum}ms`);
+    }
+  }
+  if (['editor', 'studio', 'terminal'].includes(result.scenario)
+    && result.interaction?.activeControlCount === 0) {
+    failures.push('surface-control=missing');
+  }
+  return failures;
+}
 
 async function waitForTarget(port, child) {
   const deadline = Date.now() + 30_000;
@@ -196,7 +240,56 @@ async function evaluateStable(client, expression, timeoutMs = 20_000) {
   throw lastError || new Error('Renderer execution context did not stabilize.');
 }
 
-async function stopApp(client, child) {
+async function stopIsolatedDaemon(profilePath) {
+  try {
+    const raw = JSON.parse(await readFile(join(profilePath, 'runtime', 'daemon.json'), 'utf8'));
+    const session = raw?.endpoints?.session;
+    if (!raw?.pid || !session?.port || !session?.token) return;
+    const { shutdownDaemon } = await import('../../../src/standalone/session-client.mjs');
+    await shutdownDaemon({
+      pid: raw.pid,
+      port: session.port,
+      token: session.token,
+    }, {
+      waitForExit: true,
+      timeoutMs: 5_000,
+    });
+  } catch {
+    // The Desktop process tree may already have taken its daemon down.
+  }
+}
+
+async function stopIsolatedMemoryStore(profilePath) {
+  try {
+    const dataPath = join(profilePath, 'data');
+    const postmasterPid = Number.parseInt(
+      (await readFile(join(dataPath, 'pgdata', 'postmaster.pid'), 'utf8')).split(/\r?\n/, 1)[0],
+      10,
+    );
+    if (!Number.isInteger(postmasterPid) || postmasterPid <= 0) return;
+    try {
+      process.kill(postmasterPid, 0);
+    } catch {
+      return;
+    }
+    const runtimeRoot = join(dataPath, 'runtime');
+    const entries = await readdir(runtimeRoot, { withFileTypes: true });
+    const runtime = entries.find((entry) =>
+      entry.isDirectory() && entry.name.startsWith('runtime-pg'));
+    if (!runtime) return;
+    const { stopPg } = await import('../../../src/runtime/memory/lib/pg/process.mjs');
+    await stopPg({
+      runtimeDir: join(runtimeRoot, runtime.name),
+      pgdataDir: join(dataPath, 'pgdata'),
+    });
+  } catch (reason) {
+    // A scenario that never touched memory has no PostgreSQL runtime to stop.
+    if (reason?.code === 'ENOENT') return;
+    throw reason;
+  }
+}
+
+async function stopApp(client, child, profilePath) {
   try {
     await client.evaluate('window.mixdogDesktop?.quit?.()', 5_000);
   } catch {
@@ -208,14 +301,24 @@ async function stopApp(client, child) {
     new Promise((resolvePromise) => setTimeout(resolvePromise, 4_000)),
   ]);
   if (child.exitCode === null) child.kill();
+  await stopIsolatedDaemon(profilePath);
+  await stopIsolatedMemoryStore(profilePath);
 }
 
 async function launch(profilePath, scenarioName, port) {
+  await Promise.all([
+    mkdir(join(profilePath, 'runtime'), { recursive: true }),
+    mkdir(join(profilePath, 'data'), { recursive: true }),
+    mkdir(join(profilePath, 'home'), { recursive: true }),
+  ]);
   const env = { ...process.env };
   for (const key of Object.keys(env)) {
     if (key.startsWith('MIXDOG_') || key.startsWith('ELECTRON_')) delete env[key];
   }
   env.MIXDOG_DESKTOP_USER_DATA = profilePath;
+  env.MIXDOG_RUNTIME_ROOT = join(profilePath, 'runtime');
+  env.MIXDOG_DATA_DIR = join(profilePath, 'data');
+  env.MIXDOG_HOME = join(profilePath, 'home');
   env.MIXDOG_DESKTOP_PERF = '1';
   env.MIXDOG_BOOT_SCENARIO = scenarioName;
   const child = spawn(electron, [desktopDir, `--remote-debugging-port=${port}`], {
@@ -242,9 +345,26 @@ async function seedScenario(profilePath, scenario, port) {
       if (!window.__mixdogStartupSettled) {
         throw new Error("Seed renderer did not settle before persistence.");
       }
+      await window.mixdogDesktop.addProject(${JSON.stringify(projectPath)});
       let selection = scenario.selection || { kind: "new" };
       if (selection.id === "__FIRST_SESSION__") {
-        const rows = await window.mixdogDesktop.listSessions().catch(() => []);
+        let rows = await window.mixdogDesktop.listSessions().catch(() => []);
+        if (!rows[0]?.id) {
+          const fixture = await window.mixdogDesktop.submitNewTask(
+            "Boot scenario fixture",
+            {
+              id: "boot-scenario-fixture",
+              displayText: "Boot scenario fixture",
+              goalCommand: "Boot scenario fixture",
+            },
+          );
+          await window.mixdogDesktop.invokeCapability({
+            capability: "goalControl",
+            args: [{ command: "pause" }],
+            sessionId: fixture.sessionId,
+          });
+          rows = await window.mixdogDesktop.listSessions().catch(() => []);
+        }
         selection = rows[0]?.id ? { kind: "session", id: rows[0].id } : { kind: "new" };
       }
       const navigationKey = (entry) => {
@@ -269,10 +389,33 @@ async function seedScenario(profilePath, scenario, port) {
         focusedLeafId: scenario.focusedLeafId || "boot-pane",
       });
       const persistSeed = () => {
+        const focusedLeafId = scenario.focusedLeafId || "boot-pane";
+        const defaultLeftViews = [
+          "agents", "sessions", "schedules", "studio", "workflows",
+          "search", "extensions", "projects", "webhooks",
+        ];
+        const preferredLeftView = scenario.sideView || "";
+        const leftViews = preferredLeftView
+          ? [preferredLeftView, ...defaultLeftViews.filter((id) => id !== preferredLeftView)]
+          : defaultLeftViews;
         localStorage.setItem("mixdog.desktop.pane-layout.v1", paneState);
-        localStorage.setItem("mixdog.desktop-sidebar-open.v1", String(scenario.sidebarOpen !== false));
+        localStorage.setItem("mixdog.desktop-sidebar-open.v1", String(Boolean(preferredLeftView)));
+        localStorage.setItem(
+          "mixdog.desktop.workbench-side-view-layout.pane-bound-right.v1",
+          "1",
+        );
+        localStorage.setItem(
+          "mixdog.desktop.workbench-side-view-layout.v1",
+          JSON.stringify({
+            left: leftViews.map((id) => [id]),
+            right: [["source-control"], ["browser"], ["terminal"], ["pull-requests"]],
+          }),
+        );
         localStorage.setItem("mixdog.desktop-utility-dock.v1", JSON.stringify(
-          scenario.dock || { open: false, tab: "tasks", width: 380 }
+          { open: false, width: 380 }
+        ));
+        localStorage.setItem("mixdog.desktop.pane-side-dock.v1", JSON.stringify(
+          scenario.dock ? { [focusedLeafId]: scenario.dock } : {}
         ));
         localStorage.setItem("mixdog.desktop.bottom-panel.v1", JSON.stringify(
           scenario.bottom || { open: false, tab: "terminal", height: 240 }
@@ -304,7 +447,7 @@ async function seedScenario(profilePath, scenario, port) {
       return true;
     })()`, 30_000);
   } finally {
-    await stopApp(client, child);
+    await stopApp(client, child, profilePath);
   }
 }
 
@@ -325,8 +468,10 @@ async function measureScenario(profilePath, scenario, port, temperature) {
   let renderer;
   try {
     const expectedSurface = JSON.stringify(scenario.expectedSurface || '');
+    const measureSubmit = scenario.measureSubmit === true;
     renderer = await evaluateStable(client, `(async () => {
       const expectedSurface = ${expectedSurface};
+      const measureSubmit = ${measureSubmit};
       const deadline = performance.now() + 15_000;
       while (performance.now() < deadline) {
         const metrics = window.__mixdogBootMetrics || [];
@@ -338,7 +483,9 @@ async function measureScenario(profilePath, scenario, port, temperature) {
           entry.category === "surface"
           && entry.surface === expectedSurface
           && entry.stage === "ready");
-        if (visible && restored && surfaceReady) break;
+        const desktopReady = document.querySelector(".desktop-boot-gate")
+          ?.getAttribute("data-ready") === "true";
+        if (visible && restored && surfaceReady && desktopReady) break;
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
       const settledMetrics = window.__mixdogBootMetrics || [];
@@ -350,19 +497,136 @@ async function measureScenario(profilePath, scenario, port, temperature) {
         entry.category === "surface"
         && entry.surface === expectedSurface
         && entry.stage === "ready");
-      if (!visible || !restored || !surfaceReady) {
-        throw new Error(
-          "Boot scenario did not settle:"
-          + " visible=" + visible
-          + " restored=" + restored
-          + " surface=" + (expectedSurface || "none")
-          + " ready=" + surfaceReady
-        );
-      }
+      const desktopReady = document.querySelector(".desktop-boot-gate")
+        ?.getAttribute("data-ready") === "true";
+      const settled = {
+        ok: visible && restored && surfaceReady && desktopReady,
+        visible,
+        restored,
+        desktopReady,
+        surface: expectedSurface || "",
+        surfaceReady,
+        viewport: { width: innerWidth, height: innerHeight },
+        sidebar: {
+          storedOpen: localStorage.getItem("mixdog.desktop-sidebar-open.v1"),
+          mounted: Boolean(document.getElementById("session-sidebar")),
+          hidden: document.getElementById("session-sidebar")?.getAttribute("aria-hidden") || "",
+        },
+        surfaceMetrics: settledMetrics.filter((entry) => entry.category === "surface"),
+      };
       const navigation = performance.getEntriesByType("navigation")[0];
+      const interactionRoot = () => expectedSurface === "dock"
+        ? document.querySelector(".utility-dock[data-state='open'][data-side='right']")
+        : expectedSurface === "sidebar"
+          ? document.querySelector(".utility-dock[data-state='open'][data-side='left']")
+          : expectedSurface === "session-sidebar"
+            ? document.getElementById("session-sidebar")
+            : expectedSurface === "bottom-panel"
+              ? document.querySelector(".bottom-panel[data-state='open']")
+              : document.querySelector(".stable-pane-surface[data-surface-active='true']");
+      const surfaceControls = () => [...(interactionRoot() || document).querySelectorAll(
+          "button:not(:disabled),input:not(:disabled),textarea:not(:disabled),"
+          + "select:not(:disabled),[contenteditable='true'],[tabindex]:not([tabindex='-1'])",
+        )].filter((element) => {
+          if (element.closest(".pane-surface-gate-content[aria-hidden='true']")) {
+            return false;
+          }
+          const rect = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
+          return rect.width > 0 && rect.height > 0
+            && style.visibility !== "hidden" && style.display !== "none";
+        });
+      const waitsForSurfaceControl = ["editor", "studio", "terminal"].includes(expectedSurface);
+      let activeControls = surfaceControls();
+      const interactionDeadline = performance.now() + 15_000;
+      while (waitsForSurfaceControl && activeControls.length === 0
+        && performance.now() < interactionDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        activeControls = surfaceControls();
+      }
+      const focusTarget = activeControls[0] || null;
+      const focusStartedAt = performance.now();
+      focusTarget?.focus({ preventScroll: true });
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      const focusMs = performance.now() - focusStartedAt;
+      const composer = document.querySelector("form.composer textarea:not(:disabled)");
+      let keystrokePaintMs = null;
+      if (composer) {
+        const previous = composer.value;
+        const setter = Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          "value",
+        )?.set;
+        const inputStartedAt = performance.now();
+        composer.focus({ preventScroll: true });
+        setter?.call(composer, previous + "x");
+        composer.dispatchEvent(new Event("input", { bubbles: true }));
+        await new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        keystrokePaintMs = performance.now() - inputStartedAt;
+        setter?.call(composer, previous);
+        composer.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      const bootContext = window.mixdogDesktop?.bootContext || null;
+      const interactionMeasuredAtMs = bootContext
+        ? Math.max(0, Date.now() - bootContext.processStartedAt)
+        : null;
+      if (expectedSurface) {
+        const dataDeadline = performance.now() + 15_000;
+        while (performance.now() < dataDeadline) {
+          const dataReady = (window.__mixdogBootMetrics || []).some((entry) =>
+            entry.category === "surface"
+            && entry.surface === expectedSurface
+            && ["data", "interactive"].includes(entry.stage));
+          if (dataReady) break;
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
+      }
+      const finalMetrics = window.__mixdogBootMetrics || [];
+      const shellReadyAtMs = expectedSurface
+        ? finalMetrics.find((entry) =>
+          entry.category === "surface"
+          && entry.surface === expectedSurface
+          && entry.stage === "ready")?.totalMs ?? null
+        : finalMetrics.find((entry) =>
+          entry.category === "boot" && entry.stage === "desktop-revealed")?.totalMs ?? null;
+      const dataReadyAtMs = expectedSurface
+        ? finalMetrics.filter((entry) =>
+          entry.category === "surface"
+          && entry.surface === expectedSurface
+          && ["data", "interactive"].includes(entry.stage)).at(-1)?.totalMs ?? null
+        : finalMetrics.filter((entry) =>
+          entry.category === "surface"
+          && ["data", "interactive"].includes(entry.stage)).at(-1)?.totalMs ?? null;
+      let firstSubmit = null;
+      if (measureSubmit) {
+        const submitStartedAt = performance.now();
+        const submitted = await window.mixdogDesktop.submitNewTask(
+          "Boot scenario first submit",
+          {
+            id: "boot-scenario-first-submit-" + Math.round(performance.timeOrigin),
+            displayText: "Boot scenario first submit",
+            goalCommand: "Boot scenario first submit",
+          },
+        );
+        const acceptanceMs = performance.now() - submitStartedAt;
+        if (!submitted?.accepted || !submitted.sessionId) {
+          throw new Error("First submit was not accepted.");
+        }
+        firstSubmit = {
+          accepted: true,
+          sessionId: submitted.sessionId,
+          acceptanceMs,
+        };
+        await window.mixdogDesktop.invokeCapability({
+          capability: "goalControl",
+          args: [{ command: "pause" }],
+          sessionId: submitted.sessionId,
+        });
+      }
       return {
-        bootContext: window.mixdogDesktop?.bootContext || null,
-        metrics: window.__mixdogBootMetrics || [],
+        bootContext,
+        metrics: finalMetrics,
         navigation: navigation ? {
           responseEnd: navigation.responseEnd,
           domContentLoadedEventEnd: navigation.domContentLoadedEventEnd,
@@ -374,10 +638,31 @@ async function measureScenario(profilePath, scenario, port, temperature) {
           dock: document.querySelector(".utility-dock[data-state='open']")?.getAttribute("data-side") || "",
           bottom: Boolean(document.querySelector(".bottom-panel")),
         },
+        interaction: {
+          shellReadyAtMs,
+          dataReadyAtMs,
+          measuredAtMs: interactionMeasuredAtMs,
+          activeControlCount: activeControls.length,
+          rawControlCount: interactionRoot()?.querySelectorAll(
+            "button,input,textarea,select,[contenteditable='true'],[tabindex]",
+          ).length ?? 0,
+          gateStates: [...(interactionRoot()?.querySelectorAll(".pane-surface-gate") || [])]
+            .map((element) => ({
+              ready: element.getAttribute("data-ready") || "",
+              contentHidden: element.querySelector(".pane-surface-gate-content")
+                ?.getAttribute("aria-hidden") || "",
+            })),
+          focused: Boolean(focusTarget && document.activeElement === focusTarget),
+          focusMs,
+          composerReady: Boolean(composer),
+          keystrokePaintMs,
+        },
+        firstSubmit,
+        settled,
       };
     })()`, 20_000);
   } finally {
-    await stopApp(client, child);
+    await stopApp(client, child, profilePath);
   }
   const main = await readBootDiagnostics(profilePath, renderer?.bootContext?.bootId);
   return {
@@ -388,11 +673,30 @@ async function measureScenario(profilePath, scenario, port, temperature) {
     renderer: renderer?.metrics || [],
     navigation: renderer?.navigation || null,
     active: renderer?.active || null,
+    interaction: renderer?.interaction || null,
+    firstSubmit: renderer?.firstSubmit || null,
+    settled: renderer?.settled || null,
   };
 }
 
 await mkdir(artifactDir, { recursive: true });
-await rm(profileRoot, { recursive: true, force: true });
+try {
+  const staleProfiles = await readdir(profileRoot, { withFileTypes: true });
+  for (const entry of staleProfiles) {
+    if (!entry.isDirectory()) continue;
+    const staleProfile = join(profileRoot, entry.name);
+    await stopIsolatedDaemon(staleProfile);
+    await stopIsolatedMemoryStore(staleProfile);
+  }
+} catch (reason) {
+  if (reason?.code !== 'ENOENT') throw reason;
+}
+await rm(profileRoot, {
+  recursive: true,
+  force: true,
+  maxRetries: 10,
+  retryDelay: 100,
+});
 await mkdir(profileRoot, { recursive: true });
 const results = [];
 let port = 9460;
@@ -408,7 +712,22 @@ for (const scenario of scenarios) {
     results.push(result);
     const shown = result.main.find((entry) => entry.event === 'window-shown')?.durationMs;
     const ready = result.main.find((entry) => entry.event === 'renderer-ready')?.durationMs;
-    console.log(`${scenario.name} ${temperature}: renderer=${ready ?? 'n/a'}ms shown=${shown ?? 'n/a'}ms`);
+    const surface = result.renderer.find((entry) =>
+      entry.category === 'surface'
+      && entry.surface === scenario.expectedSurface
+      && entry.stage === 'ready')?.totalMs;
+    const interaction = result.interaction?.measuredAtMs;
+    const shell = result.interaction?.shellReadyAtMs;
+    const data = result.interaction?.dataReadyAtMs;
+    const paint = result.interaction?.keystrokePaintMs;
+    const submit = result.firstSubmit?.acceptanceMs;
+    console.log(
+      `${scenario.name} ${temperature}: renderer=${ready ?? 'n/a'}ms`
+      + ` shown=${shown ?? 'n/a'}ms surface=${surface ?? 'n/a'}ms`
+      + ` shell=${shell ?? 'n/a'}ms data=${data ?? 'n/a'}ms`
+      + ` interactive=${interaction ?? 'n/a'}ms keypaint=${paint?.toFixed?.(1) ?? 'n/a'}ms`
+      + ` submit=${submit?.toFixed?.(1) ?? 'n/a'}ms settled=${result.settled?.ok !== false}`,
+    );
   }
 }
 
@@ -417,7 +736,19 @@ const report = {
   projectPath,
   relPath,
   iterations,
+  isolated: true,
   results,
+};
+const performance = results.flatMap((result) =>
+  performanceFailures(result).map((failure) =>
+    `${result.scenario}/${result.temperature}: ${failure}`));
+report.performance = {
+  ok: performance.length === 0,
+  failures: performance,
 };
 await writeFile(reportPath, JSON.stringify(report, null, 2));
 console.log(`BOOT_SCENARIO_REPORT=${reportPath}`);
+for (const failure of performance) console.error(`PERFORMANCE_GATE ${failure}`);
+if (results.some((result) => result.settled?.ok === false) || performance.length > 0) {
+  process.exit(1);
+}

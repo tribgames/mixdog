@@ -14,6 +14,7 @@ import { updateJsonAtomicSync, writeJsonAtomicSync, withFileLock } from '../../.
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
+import { resolveCliVersion } from './anthropic-oauth-client-version.mjs';
 
 // SSRF guard for the OAuth token endpoint override. Env-supplied URLs must be
 // https with a valid http(s) URL shape; reject file:/data:/ftp:/etc. and any
@@ -53,16 +54,6 @@ const OAUTH_MANUAL_REDIRECT_URI = process.env.ANTHROPIC_OAUTH_MANUAL_REDIRECT_UR
 const OAUTH_SUCCESS_REDIRECT_URL = process.env.ANTHROPIC_OAUTH_SUCCESS_REDIRECT_URL || 'https://platform.claude.com/oauth/code/success?app=claude-code';
 const OAUTH_LOGIN_TIMEOUT_MS = 5 * 60_000;
 const OAUTH_TOKEN_TIMEOUT_MS = 30_000;
-
-// Anthropic's token edge validates the Claude Code client identity. Keep this
-// fallback aligned with the current official CLI while retaining the env
-// override for seats where Claude Code is updated ahead of Mixdog.
-export const DEFAULT_CLI_VERSION = '2.1.207';
-
-export function resolveCliVersion() {
-    return process.env.MIXDOG_CLI_VERSION
-        || DEFAULT_CLI_VERSION;
-}
 
 // --- Credential helpers ---
 

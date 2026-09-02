@@ -67,6 +67,8 @@ import {
 } from '../session-runtime/goal-runtime.mjs';
 import { createDaemonSessionRuntimeHost } from './session-runtime-host-factory.mjs';
 import { getStandaloneMemoryRuntime } from './memory-runtime-proxy.mjs';
+import { createBootPhaseProfiler } from './boot-phase-profiler.mjs';
+import { createDaemonBootCoordinator } from './daemon-boot-coordinator.mjs';
 import {
   compareRuntimeVersions,
   SESSION_CAPABILITY_FINGERPRINT,
@@ -428,6 +430,8 @@ function requestDaemonReplacement({ protocol, revision, version } = {}) {
 
 async function main() {
   const startedAt = performance.now();
+  const bootPhases = createBootPhaseProfiler({ log, startedAt });
+  bootPhases.mark('daemon-main');
   // The discovery file carries both privileged loopback tokens. POSIX roots
   // are per-user and fail closed if another account owns the configured path.
   ensurePrivateRuntimeRoot(RUNTIME_ROOT);
@@ -449,6 +453,7 @@ async function main() {
     log(`live peer holds owner lock (pid=${claim.owner?.pid}) — exiting for attach`);
     process.exit(0);
   }
+  bootPhases.mark('owner-claimed');
   process.on('exit', () => { try { releaseSingletonOwner(OWNER_PATH, process.pid); } catch {} });
   registerMemoryRuntimeLazy();
   agentDispatchBroker = createAgentDispatchBroker({
@@ -555,7 +560,10 @@ async function main() {
     if (routeChannelNotification(method, params)) return;
     transport.notify(method, params);
   });
-  const { port, token } = await transport.start();
+  const { port, token } = await bootPhases.measure(
+    'channel-transport-start',
+    () => transport.start(),
+  );
   // Memory-cycle agent dispatch is rare and initializes on first use. Eagerly
   // loading its provider graph here consumed the control loop before any
   // memory cycle requested it.
@@ -614,14 +622,12 @@ async function main() {
     loadCommitCompletion: () => import(
       '../runtime/agent/orchestrator/agent-runtime/commit-message-completion.mjs'
     ),
-    loadDocumentPreview: () => import('../runtime/office/document-preview.mjs'),
+    loadDocumentPreview: () => import('../runtime/office/pdf/document-preview.mjs'),
     async executeCodeGraphTool(name, args, cwd) {
       const graph = await import('../runtime/agent/orchestrator/tools/code-graph/dispatch.mjs');
       return graph.executeCodeGraphTool(name, args, cwd);
     },
   };
-  let sessionRuntimePrewarmStarted = false;
-  let sessionRuntimePrewarmPromise = null;
   let canonicalAgentToolPromise = null;
   function canonicalAgentTool() {
     if (!sessionService) {
@@ -674,31 +680,19 @@ async function main() {
   sessionRuntimeHost = createDaemonSessionRuntimeHost({
     cwd: CWD,
     log,
+    measureBootPhase: bootPhases.measure,
     executeAgentControl: executeCanonicalAgentControl,
   });
   // Codex-style runtime: daemon routing and independent async session actors
   // share one V8 isolate and module graph. CPU-heavy work stays in bounded
   // native helpers/worker pools instead of duplicating the whole runtime.
   log(`session runtime mode=${sessionRuntimeHost.status.mode}`);
-  function prewarmSessionRuntime() {
-    if (sessionRuntimePrewarmPromise) return sessionRuntimePrewarmPromise;
-    sessionRuntimePrewarmStarted = true;
-    void import('../runtime/agent/orchestrator/tools/builtin/read-image-resize.mjs')
-      .then((module) => module.prewarmImageResizer?.())
-      .catch((error) => log(`image pipeline prewarm failed (non-fatal): ${error?.message || error}`));
-    sessionRuntimePrewarmPromise = sessionRuntimeHost.prewarm()
-      .then(() => {
-        log('session runtime/agent-loop/keychain prewarm ready');
-        return true;
-      })
-      .catch((error) => {
-        sessionRuntimePrewarmStarted = false;
-        sessionRuntimePrewarmPromise = null;
-        log(`session runtime/keychain prewarm failed (non-fatal): ${error?.message || error}`);
-        return false;
-      });
-      return sessionRuntimePrewarmPromise;
-  }
+  const bootCoordinator = createDaemonBootCoordinator({
+    prewarmKeychain: () => sessionRuntimeHost.prewarmKeychain(),
+    recoverActiveGoals: () => sessionService.recoverActiveGoals(),
+    measure: (phase, task) => bootPhases.measure(phase, task),
+    log,
+  });
   sessionService = createSessionService({
     createSessionRuntime: (options) => sessionRuntimeHost.create(options),
     sessionExists: async (sessionId) => {
@@ -750,6 +744,7 @@ async function main() {
       sessionTransport?.broadcast(frame, targetTokens);
     },
     onExternalClientsChanged: () => { maybeSelfShutdown('remote clients changed'); },
+    onDesktopReady: () => bootCoordinator.notifyDesktopReady(),
     log,
   });
   sessionTransport = createSessionTransport({
@@ -790,11 +785,14 @@ async function main() {
       ...eventLoopStatus(),
     }),
     onClientsEmpty: () => { maybeSelfShutdown('no live session clients'); },
-    onClientRegistered: () => { void prewarmSessionRuntime(); },
+    onClientRegistered: (client) => bootCoordinator.notifyClientRegistered(client),
     onClientDropped: (token) => { try { sessionService.releaseClient(token); } catch {} },
     onUpgradeRequested: requestDaemonReplacement,
   });
-  const sessionEndpoint = await sessionTransport.start();
+  const sessionEndpoint = await bootPhases.measure(
+    'session-transport-start',
+    () => sessionTransport.start(),
+  );
   writeJsonAtomicSync(DAEMON_DISCOVERY_PATH, {
     protocol: SESSION_PROTOCOL,
     revision: SESSION_REVISION,
@@ -807,6 +805,7 @@ async function main() {
       session: { port: sessionEndpoint.port, token: sessionEndpoint.token },
     },
   }, { compact: true, secret: true });
+  bootPhases.mark('discovery-published');
   log(`session front door on 127.0.0.1:${sessionEndpoint.port}`);
 
   // Ready handshake for the spawner first. Transport is already listening;
@@ -835,14 +834,7 @@ async function main() {
     safeIpcSend(process, { type: 'ready', port, token });
   }
   log(`ready port=${port} pid=${process.pid} in ${(performance.now() - startedAt).toFixed(0)}ms`);
-  void prewarmSessionRuntime()
-    .then(() => sessionService.recoverActiveGoals())
-    .then(({ found, resumed, skipped, failed }) => {
-      log(`active Goal recovery found=${found} resumed=${resumed} skipped=${skipped} failed=${failed}`);
-    })
-    .catch((error) => {
-      log(`active Goal recovery failed: ${error?.message || error}`);
-    });
+  bootPhases.mark('daemon-ready');
   eventLoopLagTimer = setInterval(() => {
     const status = eventLoopStatus();
     if (status.eventLoopP99Ms >= 250) {

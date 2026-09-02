@@ -23,7 +23,7 @@ import {
 
 test('protocol stays at 1 while revision then app build chooses the daemon', () => {
   assert.equal(SESSION_PROTOCOL, 1);
-  assert.equal(SESSION_REVISION, 3);
+  assert.equal(SESSION_REVISION, 4);
   assert.match(SESSION_CAPABILITY_FINGERPRINT, /^[0-9a-f]{16}$/);
   assert.equal(sessionDaemonCompatibility({
     protocol: 1,
@@ -92,6 +92,29 @@ test('health and registration expose the current protocol', async () => {
       await client.close('protocol contract verified');
     }
   });
+});
+
+test('desktop registration identity reaches the daemon lifecycle callback', async () => {
+  let registered = null;
+  const transport = createSessionTransport({
+    handleCall: async () => ({ ok: true }),
+    onClientRegistered: (client) => { registered = client; },
+  });
+  const discovery = await transport.start();
+  let client = null;
+  try {
+    client = await attachSession({
+      discovery: { ...discovery, pid: process.pid },
+      cwd: process.cwd(),
+      clientKind: 'desktop',
+      lifecycle: false,
+    });
+    await waitFor(() => registered);
+    assert.equal(registered.clientKind, 'desktop');
+  } finally {
+    await client?.close('desktop identity verified');
+    await transport.stop();
+  }
 });
 
 test('revision 0 clients keep read compatibility without retired channel mutations', async () => {

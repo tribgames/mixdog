@@ -6,24 +6,24 @@ import { tmpdir } from 'node:os';
 
 import { createCanvas } from '@napi-rs/canvas';
 
-import { runOfficeAssuranceBenchmark } from './assurance-benchmark.mjs';
+import { runOfficeAssuranceBenchmark } from './bench/assurance-benchmark.mjs';
 import {
   analyzeOfficePromptInjection,
   assertOfficeMutationAllowed,
   evaluateOfficeChecklist,
   reviewRenderedOfficePages,
   reviewOfficeStructure,
-} from './assurance.mjs';
-import { officeTemplateCoverage } from './design-library.mjs';
-import { expandOfficeDesignOperations } from './design-system.mjs';
+} from './quality/assurance.mjs';
+import { officeTemplateCoverage } from './design/library/design-library.mjs';
+import { expandOfficeDesignOperations } from './design/design-system.mjs';
 import { executeOfficeTool, resetOfficeSessionsForTest } from './index.mjs';
-import { evaluatePowerPointCategorySpacing } from './pdf-analysis.mjs';
-import { evaluateXlsxAssertions } from './xlsx-assertions.mjs';
+import { evaluatePowerPointCategorySpacing } from './pdf/pdf-analysis.mjs';
+import { evaluateXlsxAssertions } from './portable/xlsx-assertions.mjs';
 import {
   buildOfficePolishPlan,
   evaluateOfficeSubmissionGate,
   resolveOfficeRenderOutput,
-} from './quality-pipeline.mjs';
+} from './quality/quality-pipeline.mjs';
 
 function value(result) {
   const text = result?.content?.[0]?.text || '';

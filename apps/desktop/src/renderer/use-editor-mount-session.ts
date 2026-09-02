@@ -73,7 +73,7 @@ export function useEditorMountSession({
     }
     if (model) markDirty(model.getValue() !== savedText.current);
     renderAnsiOutput(model);
-    reportEditorLoadStage(projectPath, relPath, accessToken, "ready", "", true);
+    reportEditorLoadStage(projectPath, relPath, accessToken, "interactive", "", true);
     notifyReady();
   }, [
     accessToken,

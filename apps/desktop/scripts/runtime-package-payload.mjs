@@ -23,7 +23,7 @@ export async function copyRuntimePackagePayload({
     await cp(source, target, { recursive: true });
   }
 
-  const officeTemplateDir = join(destination, 'src', 'runtime', 'office', 'templates');
+  const officeTemplateDir = join(destination, 'src', 'runtime', 'office', 'design', 'library', 'templates');
   const officeTemplates = await readdir(officeTemplateDir, { withFileTypes: true }).catch(() => []);
   await Promise.all(officeTemplates
     .filter((entry) => entry.isFile() && /\.mixdog-edit\.[^.]+$/i.test(entry.name))

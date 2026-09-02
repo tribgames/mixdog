@@ -9,7 +9,7 @@
 import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { mixdogDataDirectory } from './computer-host-shared';
+import { mixdogDataDirectory } from './computer/shared/common';
 
 /** Newest frames kept on disk per surface. */
 const FRAME_MAX_FILES = 40;

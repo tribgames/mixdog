@@ -299,36 +299,50 @@ export const ModelSelector = memo(function ModelSelector({
       return;
     }
     const request = (async () => {
-      const failures: string[] = [];
+      setCatalogRefreshing(true);
+      setCatalogError("");
+      setProviderSetupError("");
+      const shared = requestModelCatalog(api);
+      const setupRequest = shared.setup
+        .then((setup) => { setProviderSetup(setup); })
+        .catch((reason) => {
+          console.warn("[model-catalog] provider setup refresh failed", reason);
+          setProviderSetupError("unavailable");
+        });
+      const fullRequest = shared.full
+        .then((full) => {
+          if (!Array.isArray(full)) return;
+          setModels(full);
+          setCatalogError("");
+        })
+        .catch((reason) => {
+          // The quick or persisted catalog stays usable. A background refresh
+          // failure must not become a boot-time error surface.
+          console.warn("[model-catalog] full catalog refresh failed", reason);
+        })
+        .finally(() => { setCatalogRefreshing(false); });
       try {
-        setCatalogRefreshing(true);
-        setCatalogError("");
-        setProviderSetupError("");
-        const shared = requestModelCatalog(api);
-        const setupRequest = shared.setup
-            .then((setup) => { setProviderSetup(setup); })
-            .catch((reason) => {
-              console.warn("[model-catalog] provider setup refresh failed", reason);
-              setProviderSetupError("unavailable");
-            })
-        ;
-        try {
-          const full = await shared.full;
-          if (Array.isArray(full)) {
-            // Only complete catalog snapshots reach the picker. The previous
-            // complete snapshot remains visible while boot/24h refresh runs.
-            setModels(full);
-          }
-        } catch (reason) {
-          failures.push(reason instanceof Error ? reason.message : String(reason || "Model catalog failed."));
+        const quick = await shared.quick;
+        if (Array.isArray(quick) && quick.length > 0) {
+          setModels((current) => {
+            const merged = new Map(current.map((option) => [
+              `${option.provider}:${option.model}`,
+              option,
+            ]));
+            for (const option of quick) {
+              merged.set(`${option.provider}:${option.model}`, option);
+            }
+            return [...merged.values()];
+          });
         }
-        await setupRequest;
+      } catch (reason) {
+        console.warn("[model-catalog] quick catalog refresh failed", reason);
+        setCatalogError(reason instanceof Error ? reason.message : String(reason || "Model catalog failed."));
       } finally {
-        setCatalogError([...new Set(failures)].join(" "));
         setCatalogLoaded(true);
-        setCatalogRefreshing(false);
         setStartupCatalogSettled(true);
       }
+      void Promise.allSettled([fullRequest, setupRequest]);
     })().finally(() => { catalogInFlight.current = null; });
     catalogInFlight.current = request;
     return request;

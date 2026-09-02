@@ -13,7 +13,7 @@ const output = join(staging, 'browser-profile-import-integration.mjs');
 try {
   await build({
     entryPoints: [
-      fileURLToPath(new URL('../src/main/browser-profile-import.integration.ts', import.meta.url)),
+      fileURLToPath(new URL('../src/main/browser/profile-import.integration.ts', import.meta.url)),
     ],
     outfile: output,
     bundle: true,

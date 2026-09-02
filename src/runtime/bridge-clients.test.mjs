@@ -138,7 +138,9 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('mode=both'));
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('session-local'));
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('never provide session_id'));
-  assert.ok(propertyFor('background', 'background').description.includes('without revealing'));
+  assert.ok(BROWSER_TOOL_DEFS[0].description.includes('visible foreground page by default'));
+  assert.ok(BROWSER_TOOL_DEFS[0].description.includes('before discussing it'));
+  assert.ok(propertyFor('background', 'background').description.includes('not the primary user-visible page'));
 });
 
 test('browser action contract validates compact flat-schema calls', () => {

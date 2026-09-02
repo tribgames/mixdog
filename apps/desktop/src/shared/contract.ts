@@ -76,6 +76,7 @@ export const DESKTOP_IPC = {
   browserOpenRequested: 'mixdog:browser-open-requested',
   browserSessionReleased: 'mixdog:browser-session-released',
   browserSetActiveGuest: 'mixdog:browser-set-active-guest',
+  browserConfigureGuestViewport: 'mixdog:browser-configure-guest-viewport',
   browserProfileImportSources: 'mixdog:browser-profile-import-sources',
   browserProfileImportStart: 'mixdog:browser-profile-import-start',
   browserProfileImportProgress: 'mixdog:browser-profile-import-progress',
@@ -847,6 +848,15 @@ export interface DesktopBrowserCredentialFillResult {
   usernameFilled: boolean;
   passwordFilled: boolean;
   reason?: 'no-password-field' | 'password-field-unavailable';
+}
+
+export interface DesktopBrowserViewportConfig {
+  width: number | null;
+  height: number | null;
+  deviceScaleFactor: number;
+  mobile: boolean;
+  touch: boolean;
+  userAgent: string | null;
 }
 
 export interface DesktopBrowserOpenRequest {
@@ -1920,6 +1930,12 @@ export interface DesktopApi {
     sessionId: string,
     webContentsId: number,
     active: boolean,
+  ): Promise<void>;
+  /** Apply pane-owned device emulation to the exact visible Browser guest. */
+  browserConfigureGuestViewport?(
+    sessionId: string,
+    webContentsId: number,
+    config: DesktopBrowserViewportConfig,
   ): Promise<void>;
   /** Local Chrome profile import into the isolated Browser Use partition.
    *  Secrets stay in main/native processes; renderer receives metadata/counts. */

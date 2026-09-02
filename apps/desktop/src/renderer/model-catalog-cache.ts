@@ -128,19 +128,24 @@ export function readCachedModelCatalog(): CachedModelCatalog {
 }
 
 export function writeCachedModelCatalog(models: DesktopModelOption[]): CachedModelCatalog {
-  const unique = new Map<string, DesktopModelOption>();
-  for (const raw of models) {
-    const option = modelOption(raw);
-    if (option) unique.set(`${option.provider}:${option.model}`, option);
-    if (unique.size >= MODEL_CATALOG_LIMIT) break;
-  }
-  const catalog = { models: [...unique.values()], updatedAt: Date.now() };
+  const catalog = { models: normalizeModelCatalog(models), updatedAt: Date.now() };
   try {
     window.localStorage.setItem(MODEL_CATALOG_STORAGE_KEY, JSON.stringify(catalog));
   } catch {
     // The live catalog remains usable when browser storage is unavailable.
   }
   return catalog;
+}
+
+function normalizeModelCatalog(models: unknown): DesktopModelOption[] {
+  if (!Array.isArray(models)) return [];
+  const unique = new Map<string, DesktopModelOption>();
+  for (const raw of models) {
+    const option = modelOption(raw);
+    if (option) unique.set(`${option.provider}:${option.model}`, option);
+    if (unique.size >= MODEL_CATALOG_LIMIT) break;
+  }
+  return [...unique.values()];
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +162,7 @@ export function writeCachedModelCatalog(models: DesktopModelOption[]): CachedMod
 export type SharedModelCatalogRequest = {
   api: DesktopApi;
   startedAt: number;
+  quick: Promise<DesktopModelOption[]>;
   full: Promise<DesktopModelOption[]>;
   setup: Promise<unknown>;
 };
@@ -182,11 +188,15 @@ export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest 
     && Date.now() - current.startedAt < SHARED_MODEL_CATALOG_MAX_AGE_MS) {
     return current;
   }
-  const full = Promise.resolve().then(() =>
+  const quick = Promise.resolve().then(() =>
+    api.listProviderModels?.({ quick: true }) ?? [])
+    .then(normalizeModelCatalog);
+  const quickSettled = quick.catch(() => []);
+  const full = quickSettled.then(() =>
     api.listProviderModels?.({ quick: false }) ?? [])
     .then((models) => writeCachedModelCatalog(Array.isArray(models) ? models : []).models);
   const setup = api.invokeCapability
-    ? Promise.resolve().then(() => api.invokeCapability<unknown>({
+    ? quickSettled.then(() => api.invokeCapability<unknown>({
         capability: 'getProviderSetup',
         args: [],
       })).then((result) => result.value)
@@ -194,6 +204,7 @@ export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest 
   const request: SharedModelCatalogRequest = {
     api,
     startedAt: Date.now(),
+    quick,
     full,
     setup,
   };

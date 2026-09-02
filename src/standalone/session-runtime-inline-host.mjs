@@ -8,12 +8,18 @@
 export function createInlineSessionRuntimeHost({
   cwd = process.cwd(),
   log = () => {},
+  measureBootPhase = async (_phase, task) => await task(),
   loadLocalModule = () => import('../tui/session-local.mjs'),
   loadAgentGraph = () => Promise.all([
     import('../runtime/agent/orchestrator/config.mjs'),
     import('../runtime/agent/orchestrator/providers/registry.mjs'),
     import('../runtime/agent/orchestrator/agent-runtime/agent-dispatch.mjs'),
   ]).then(([config, registry, dispatch]) => ({ config, registry, dispatch })),
+  warmKeychain = async () => {
+    const module = await import('../lib/keychain-cjs.cjs');
+    const keychain = module.default || module;
+    await keychain.prewarmSecrets?.();
+  },
   executeAgentControl = null,
 } = {}) {
   const records = new Map();
@@ -23,13 +29,20 @@ export function createInlineSessionRuntimeHost({
   let nextRuntimeId = 0;
   let closed = false;
   let localModulePromise = null;
-  let prewarmPromise = null;
+  let keychainPrewarmPromise = null;
   let agentGraphPromise = null;
   let preparedProviderSignature = null;
   let providerPreparePromise = null;
 
+  function measured(phase, task) {
+    return Promise.resolve().then(() => measureBootPhase(phase, task));
+  }
+
   function localModule() {
-    localModulePromise ??= Promise.resolve().then(loadLocalModule).catch((error) => {
+    localModulePromise ??= measured(
+      'session-local-import',
+      () => Promise.resolve().then(loadLocalModule),
+    ).catch((error) => {
       localModulePromise = null;
       throw error;
     });
@@ -37,7 +50,10 @@ export function createInlineSessionRuntimeHost({
   }
 
   function agentGraph() {
-    agentGraphPromise ??= Promise.resolve().then(loadAgentGraph).then(
+    agentGraphPromise ??= measured(
+      'agent-dispatch-graph-import',
+      () => Promise.resolve().then(loadAgentGraph),
+    ).then(
       (graph) => graph,
       (error) => {
         agentGraphPromise = null;
@@ -117,14 +133,15 @@ export function createInlineSessionRuntimeHost({
     return runtime;
   }
 
-  function prewarm() {
+  function prewarmKeychain() {
     if (closed) return Promise.reject(new Error('session runtime host is closed'));
-    prewarmPromise ??= localModule().then((module) => Promise.allSettled([
-      module.preloadSessionRuntimeModule?.(),
-      module.preloadAgentLoopRuntime?.(),
-      module.preloadKeychainSecrets?.(),
-    ])).then(() => ({ ready: true }));
-    return prewarmPromise;
+    keychainPrewarmPromise ??= measured('keychain-prewarm', warmKeychain)
+      .then(() => ({ ready: true }))
+      .catch((error) => {
+        keychainPrewarmPromise = null;
+        throw error;
+      });
+    return keychainPrewarmPromise;
   }
 
   async function agentDispatch(payload = {}, { signal = null } = {}) {
@@ -175,7 +192,7 @@ export function createInlineSessionRuntimeHost({
 
   return {
     create,
-    prewarm,
+    prewarmKeychain,
     agentDispatch,
     async agentControl(args = {}, context = {}) {
       if (closed) throw new Error('session runtime host is closed');

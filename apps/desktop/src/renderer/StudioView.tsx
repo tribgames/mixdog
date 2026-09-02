@@ -1151,7 +1151,7 @@ export function StudioPane({
   useEffect(() => {
     if (!studioSurfaceReady) return;
     reportStudioLoadStage('shell', '', false, bootMetricToken);
-    reportStudioLoadStage('ready', '', true, bootMetricToken);
+    reportStudioLoadStage('interactive', '', true, bootMetricToken);
     onReadyRef.current?.();
   }, [bootMetricToken, studioSurfaceReady]);
   // Only a missing lane disables the composer: a run in flight must not, since

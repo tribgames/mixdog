@@ -1,53 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import JSZip from 'jszip';
 import { describeOfficeCapabilities } from './capabilities.mjs';
-import { expandOfficeDesignOperations } from './design-system.mjs';
-import { executeOfficeTool, resetOfficeSessionsForTest } from './index.mjs';
-import { applyPortableOoxmlBatch } from './portable-ooxml.mjs';
-import { createPortableOoxmlDocument } from './portable-package.mjs';
-import { describeOfficeSnapshotViolations, officeSnapshotContractViolations } from './snapshot-contract.mjs';
+import { expandOfficeDesignOperations } from './design/design-system.mjs';
+import { executeOfficeTool } from './index.mjs';
+import { applyPortableOoxmlBatch } from './portable/portable-ooxml.mjs';
+import { createPortableOoxmlDocument } from './portable/portable-package.mjs';
+import { describeOfficeSnapshotViolations, officeSnapshotContractViolations } from './core/snapshot-contract.mjs';
+import { PNG_PIXEL, parts, value, workspace, writeZip } from './office-test-support.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
-
-async function workspace(t) {
-  const path = await mkdtemp(join(tmpdir(), 'mixdog-portable-'));
-  const previousDataDir = process.env.MIXDOG_DATA_DIR;
-  process.env.MIXDOG_DATA_DIR = join(path, 'mixdog-data');
-  t.after(async () => {
-    resetOfficeSessionsForTest();
-    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
-    else process.env.MIXDOG_DATA_DIR = previousDataDir;
-    await rm(path, { recursive: true, force: true });
-  });
-  return path;
-}
-
-function value(result) {
-  assert.equal(result?.isError, undefined, result?.content?.[0]?.text);
-  return JSON.parse(result.content[0].text);
-}
-
-async function writeZip(path, files) {
-  const zip = new JSZip();
-  for (const [name, content] of Object.entries(files)) zip.file(name, content);
-  await writeFile(path, await zip.generateAsync({ type: 'nodebuffer' }));
-}
-
-async function parts(path) {
-  const zip = await JSZip.loadAsync(await readFile(path));
-  return {
-    has: (name) => Boolean(zip.file(name)),
-    text: async (name) => {
-      const file = zip.file(name);
-      assert.ok(file, `package is missing ${name}`);
-      return await file.async('string');
-    },
-  };
-}
 
 test('portable create produces openable Word, Excel, and PowerPoint packages', async (t) => {
   const cwd = await workspace(t);
@@ -311,7 +274,12 @@ test('portable charts write a chart part with an embedded workbook', async (t) =
         chartType: 'column',
         title: 'Revenue',
         categories: ['Korea', 'Japan'],
-        series: [{ name: '2026', values: [120, 95], color: '1B4965' }],
+        series: [{
+          name: '2026',
+          values: [120, 95],
+          color: '1B4965',
+          pointColors: ['1B4965', '2D66D5'],
+        }],
         left: 58,
         top: 90,
         width: 520,
@@ -325,6 +293,7 @@ test('portable charts write a chart part with an embedded workbook', async (t) =
   assert.match(chart, /<c:barChart>/);
   assert.match(chart, /<c:v>120<\/c:v>/);
   assert.match(chart, /srgbClr val="1B4965"/);
+  assert.match(chart, /<c:dPt><c:idx val="1"\/><c:spPr><a:solidFill><a:srgbClr val="2D66D5"/);
   assert.equal(packaged.has('ppt/embeddings/chartData1.xlsx'), true);
   const slide = await packaged.text('ppt/slides/slide1.xml');
   assert.match(slide, /<p:graphicFrame>/);
@@ -403,13 +372,6 @@ test('portable cell writes stay ordered and keep the section break last', async 
   assert.ok(body.indexOf('<w:tbl>') < body.indexOf('<w:sectPr>'), 'table must precede the section break');
   assert.ok(body.indexOf('Heading') < body.indexOf('<w:sectPr>'), 'text must precede the section break');
 });
-
-const PNG_PIXEL = Buffer.from(
-  '89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489'
-  + '0000000a49444154789c6360000002000100ffff03000006000557bfabd400000000'
-  + '49454e44ae426082',
-  'hex',
-);
 
 test('portable Word authoring covers images, sections, lists, and links', async (t) => {
   const cwd = await workspace(t);
@@ -1587,7 +1549,7 @@ test('portable slides embed media and swap the theme', async (t) => {
     operations: [
       { op: 'add_slide' },
       { op: 'add_media', slide: 1, path: clip, kind: 'video', poster, left: 60, top: 60, width: 320, height: 180 },
-      { op: 'apply_theme', path: 'src/runtime/office/templates/mixdog-executive.pptx' },
+      { op: 'apply_theme', path: 'src/runtime/office/design/library/templates/mixdog-executive.pptx' },
     ],
   }, { cwd: process.cwd() }));
   assert.equal(created.batch.results.at(-1).applied.length >= 1, true);

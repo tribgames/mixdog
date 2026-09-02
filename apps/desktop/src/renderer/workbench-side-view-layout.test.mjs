@@ -52,13 +52,16 @@ test("restoration drops views this build no longer offers", () => {
 
 test("a corrupt or missing persisted layout falls back to the defaults", () => {
   assert.deepEqual(
-    normalizeWorkbenchSideViewLayout(null, ["sessions", "utilities", "agents"]),
-    { left: [["agents"], ["sessions"], ["utilities"]], right: [] },
+    normalizeWorkbenchSideViewLayout(null, ["sessions", "terminal", "agents"]),
+    { left: [["agents"], ["sessions"]], right: [["terminal"]] },
   );
-  // The pane-scoped right side ships exactly the two views a pane drives.
+  // Session surfaces sit beside the pane's project-scoped tools.
   assert.deepEqual(
-    normalizeWorkbenchSideViewLayout(null, ["sessions", "source-control", "browser"]),
-    { left: [["sessions"]], right: [["source-control"], ["browser"]] },
+    normalizeWorkbenchSideViewLayout(
+      null,
+      ["sessions", "source-control", "browser", "terminal"],
+    ),
+    { left: [["sessions"]], right: [["source-control"], ["browser"], ["terminal"]] },
   );
 });
 
@@ -70,11 +73,11 @@ test("the stored arrangement is dropped once so the new defaults apply", () => {
     setItem: (key, value) => { store.set(key, String(value)); },
     removeItem: (key) => { store.delete(key); },
   };
-  const stored = { left: [["sessions"], ["utilities"]], right: [["agents"]] };
+  const stored = { left: [["sessions"], ["projects"]], right: [["agents"]] };
   assert.equal(discardLayoutForPaneBoundRight(storage, stored), null);
   assert.equal(store.has(layoutKey), false);
   // Once only: a rail arranged after the reset survives every later boot.
-  const rearranged = { left: [["utilities"], ["sessions"]], right: [] };
+  const rearranged = { left: [["projects"], ["sessions"]], right: [] };
   assert.equal(discardLayoutForPaneBoundRight(storage, rearranged), rearranged);
 });
 
@@ -84,11 +87,11 @@ test("views missing from a stored side are restored in default order", () => {
   assert.deepEqual(
     normalizeWorkbenchSideViewLayout(
       { left: [["sessions"]], right: [] },
-      ["sessions", "agents", "schedules", "source-control", "browser"],
+      ["sessions", "agents", "schedules", "source-control", "browser", "terminal"],
     ),
     {
       left: [["agents"], ["sessions"], ["schedules"]],
-      right: [["source-control"], ["browser"]],
+      right: [["source-control"], ["browser"], ["terminal"]],
     },
   );
 });
@@ -240,6 +243,7 @@ test("a launcher reorders as its own icon and never joins a group", () => {
   assert.equal(isWorkbenchSideLauncher("studio"), true);
   // The browser left the launcher set: it is the pane dock's own child now.
   assert.equal(isWorkbenchSideLauncher("browser"), false);
+  assert.equal(isWorkbenchSideLauncher("terminal"), false);
   assert.equal(isWorkbenchSideLauncher("sessions"), false);
 });
 

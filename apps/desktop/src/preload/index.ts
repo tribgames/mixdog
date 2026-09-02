@@ -545,6 +545,13 @@ const api: DesktopApi = {
   },
   browserSetActiveGuest: (sessionId, webContentsId, active) =>
     ipcRenderer.invoke(DESKTOP_IPC.browserSetActiveGuest, sessionId, webContentsId, active),
+  browserConfigureGuestViewport: (sessionId, webContentsId, config) =>
+    ipcRenderer.invoke(
+      DESKTOP_IPC.browserConfigureGuestViewport,
+      sessionId,
+      webContentsId,
+      config,
+    ),
   browserProfileImportSources: () =>
     ipcRenderer.invoke(DESKTOP_IPC.browserProfileImportSources),
   browserProfileImportStart: (request) =>

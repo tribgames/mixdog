@@ -41,7 +41,15 @@ export async function readOnboardingStatusFromDisk(): Promise<DesktopOnboardingS
       // `completed`, and the wizard re-reads through the engine once it opens.
       workflowRoutes: [],
     };
-  } catch {
+  } catch (reason) {
+    if ((reason as NodeJS.ErrnoException)?.code === 'ENOENT') {
+      return {
+        completed: false,
+        version: 0,
+        default: null,
+        workflowRoutes: [],
+      };
+    }
     return null;
   }
 }

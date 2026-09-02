@@ -1,9 +1,4 @@
 import type { DesktopBrowserOpenRequest } from "../shared/contract";
-import {
-  PANE_DOCK_BROWSER_SURFACE,
-  PANE_DOCK_DIFF_SURFACE,
-  type PaneSideDockEntry,
-} from "./pane-side-dock";
 
 export type SessionBrowserPaneOwner = {
   leafId: string;
@@ -35,34 +30,4 @@ export function browserSurfaceRevealPlan(
     ?? matching[0]?.leafId
     ?? null;
   return { leafId };
-}
-
-export function withBrowserSessionRevealed(
-  current: ReadonlySet<string>,
-  sessionId: string,
-  revealed: boolean,
-): ReadonlySet<string> {
-  const cleanSessionId = sessionId.trim();
-  if (!cleanSessionId || current.has(cleanSessionId) === revealed) return current;
-  const next = new Set(current);
-  if (revealed) next.add(cleanSessionId);
-  else next.delete(cleanSessionId);
-  return next;
-}
-
-/**
- * Browser selection follows its session while the surrounding panel/diff
- * selection remains pane-scoped. An explicit diff temporarily stays above a
- * remembered Browser and closing it restores that session's Browser.
- */
-export function browserDockEntryForSession(
-  entry: PaneSideDockEntry,
-  sessionId: string,
-  revealed: boolean,
-): PaneSideDockEntry {
-  if (entry.surface === PANE_DOCK_DIFF_SURFACE) return entry;
-  const surface = sessionId && revealed
-    ? PANE_DOCK_BROWSER_SURFACE
-    : entry.surface === PANE_DOCK_BROWSER_SURFACE ? "" : entry.surface;
-  return surface === entry.surface ? entry : { ...entry, surface };
 }

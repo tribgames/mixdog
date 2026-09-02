@@ -17,6 +17,10 @@ import { reportRendererFailure } from './RendererRecovery';
 import { TerminalLocalEcho } from './terminal-local-echo';
 import { TerminalWritePump } from './terminal-write-pump';
 import {
+  applyTerminalActivity,
+  StableTerminalFitScheduler,
+} from './terminal-fit';
+import {
   dataTransferHasLocalFiles,
   droppedLocalPaths,
   terminalPathText,
@@ -293,10 +297,11 @@ export async function disposeTerminalPane(id: string): Promise<void> {
   const view = terminalViews.get(id);
   terminalViews.delete(id);
   clearTerminalViewState(id);
+  const ptyId = view?.id || id;
   view?.localEcho?.reset();
   view?.writer.dispose();
   try { view?.term.dispose(); } catch { /* already detached */ }
-  await window.mixdogDesktop.termDispose?.(id);
+  await window.mixdogDesktop.termDispose?.(ptyId);
 }
 
 // Terminals stay dark on both app themes: ANSI palettes —
@@ -351,6 +356,7 @@ export default function TerminalPane({
   onReady?: () => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  const fitSchedulerRef = useRef<StableTerminalFitScheduler<TerminalViewState> | null>(null);
   const onReadyRef = useRef(onReady);
   onReadyRef.current = onReady;
   // The mount effect's ensure pipeline outlives renders; a stale captured
@@ -403,7 +409,6 @@ export default function TerminalPane({
     let observer: ResizeObserver | undefined;
     let dataDisposable: { dispose(): void } | undefined;
     let scrollDisposable: { dispose(): void } | undefined;
-    let fitFrame = 0;
     let revealTimer = 0;
     let persistTimer = 0;
     let retryTimer = 0;
@@ -420,9 +425,31 @@ export default function TerminalPane({
         if (!disposed) writeTerminalViewState(key, view);
       }, 120);
     };
+    const fitScheduler = new StableTerminalFitScheduler<TerminalViewState>({
+      isActive: () => !disposed && activeRef.current,
+      isMeasurable: () => {
+        const rect = container.getBoundingClientRect();
+        return rect.width >= 1 && rect.height >= 1;
+      },
+      currentGrid: () => ({ cols: term.cols, rows: term.rows }),
+      proposeGrid: () => view.fit.proposeDimensions() ?? null,
+      fit: (restore) => fitTerminalView(view, restore),
+      emitResize: ({ cols, rows }) => {
+        if (view.id) window.mixdogDesktop.termResize?.(view.id, cols, rows);
+      },
+      onSettled: () => {
+        writeTerminalViewState(key, view);
+        if (view.id && term.element?.querySelector(".xterm-screen")) {
+          onReadyRef.current?.();
+        }
+      },
+      requestFrame: (callback) => window.requestAnimationFrame(callback),
+      cancelFrame: (id) => window.cancelAnimationFrame(id),
+    });
+    fitSchedulerRef.current = fitScheduler;
     if (term.element) container.appendChild(term.element);
     else term.open(container);
-    tryEnableWebglRenderer(view);
+    if (activeRef.current) tryEnableWebglRenderer(view);
     // Focus at ATTACH time, not after the PTY round trip. A phone raises its
     // keypad only for a focus that still sits inside the opening tap's
     // activation window, so waiting for termEnsure() + replay + fit made the
@@ -463,13 +490,22 @@ export default function TerminalPane({
         shell || null,
       );
       reportBootSurfaceStage('terminal', key, 'data', ensured ? 'pty-ready' : 'shell-only');
-      if (!ensured || disposed) {
+      if (!ensured) {
         if (!disposed) onReadyRef.current?.();
+        return;
+      }
+      if (disposed) {
+        // A final session release removes the shared view while ensure() is in
+        // flight. Dispose the actual generated PTY id once it arrives.
+        if (terminalViews.get(key) !== view) {
+          await window.mixdogDesktop.termDispose?.(ensured.id);
+        }
         return;
       }
       const isNewPty = view.id !== ensured.id;
       view.id = ensured.id;
       view.shell = shell;
+      if (isNewPty) fitScheduler.invalidateResize();
       let replayWrite: Promise<void> | null = null;
       if (isNewPty && ensured.replay) {
         pendingRestore = readTerminalViewState(key);
@@ -497,27 +533,26 @@ export default function TerminalPane({
       });
       if (replayWrite) await replayWrite;
       if (disposed) return;
-      const scheduleFit = () => {
-        if (disposed || fitFrame) return;
-        fitFrame = window.requestAnimationFrame(() => {
-          fitFrame = 0;
-          if (disposed) return;
-          try {
-            fitTerminalView(view, pendingRestore);
-            pendingRestore = null;
-            if (view.id) window.mixdogDesktop.termResize?.(view.id, term.cols, term.rows);
-            writeTerminalViewState(key, view);
-            if (term.element?.querySelector(".xterm-screen")) onReadyRef.current?.();
-          } catch { /* container hidden mid-measure */ }
-        });
-      };
       // Restored split ratios settle in the commit before this frame. Fitting
       // earlier leaves xterm with the startup pane's stale row count and a
       // malformed viewport scrollbar.
-      scheduleFit();
+      if (pendingRestore) {
+        fitScheduler.schedule(pendingRestore);
+        pendingRestore = null;
+      } else {
+        fitScheduler.schedule();
+      }
       if (!observer) {
-        observer = new ResizeObserver(scheduleFit);
+        observer = new ResizeObserver(() => fitScheduler.schedule());
         observer.observe(container);
+        const surface = container.parentElement;
+        if (surface) observer.observe(surface);
+        const persistentRoot = container.closest<HTMLElement>(
+          ".session-terminal-surface-container",
+        );
+        if (persistentRoot && persistentRoot !== surface) {
+          observer.observe(persistentRoot);
+        }
       }
       if (activeRef.current) term.focus();
     };
@@ -576,7 +611,8 @@ export default function TerminalPane({
     return () => {
       disposed = true;
       window.removeEventListener('mixdog:remote-reconnected', onRemoteReconnected);
-      if (fitFrame) window.cancelAnimationFrame(fitFrame);
+      fitScheduler.dispose();
+      if (fitSchedulerRef.current === fitScheduler) fitSchedulerRef.current = null;
       window.clearTimeout(revealTimer);
       window.clearTimeout(persistTimer);
       if (retryTimer) window.clearTimeout(retryTimer);
@@ -592,25 +628,21 @@ export default function TerminalPane({
     };
   }, [cwd, key, shell, terminalId]);
   useEffect(() => {
-    if (!active) return undefined;
-    const frame = window.requestAnimationFrame?.(() => {
-      const view = terminalViews.get(key);
-      try {
-        if (view) {
-          fitTerminalView(view);
-          writeTerminalViewState(key, view);
-          if (view.id) window.mixdogDesktop.termResize?.(view.id, view.term.cols, view.term.rows);
-          if (view.term.element?.querySelector(".xterm-screen")) onReadyRef.current?.();
-        }
-      } catch { /* hidden while the active tab changes */ }
-      // Focus must not die with a failed fit: a still-covered surface throws
-      // in the measure above, which used to skip term.focus() entirely
-      // (user: 터미널 커서가 안 들어온다).
-      try { view?.term.focus(); } catch { /* disposed mid-activation */ }
+    const view = terminalViews.get(key);
+    applyTerminalActivity(active, {
+      enableRenderer: () => {
+        if (view) tryEnableWebglRenderer(view);
+      },
+      releaseRenderer: () => {
+        if (view) releaseWebglRenderer(view);
+      },
+      scheduleFit: () => fitSchedulerRef.current?.schedule(),
+      pauseFit: () => fitSchedulerRef.current?.pause(),
+      focus: () => {
+        try { view?.term.focus(); } catch { /* disposed mid-activation */ }
+      },
     });
-    return () => {
-      if (frame !== undefined) window.cancelAnimationFrame?.(frame);
-    };
+    return undefined;
   }, [active, key]);
   // Surface WHAT the default actually spawns (user: 기본 OS 터미널이 나와야).
   const defaultProfile = profiles?.find((profile) => profile.default) ?? null;

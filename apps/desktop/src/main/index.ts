@@ -14,6 +14,7 @@ import { AgentAwakeService } from './agent-awake';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
 import { createIdleReclaim, purgeRendererMemory, type IdleReclaim } from './idle-reclaim';
 import { createDesktopDiagnostics, type DesktopDiagnostics } from './desktop-diagnostics';
+import { scheduleDeferredDesktopServices as scheduleAfterServiceQuiet } from './deferred-desktop-services';
 import { installViewportGuard } from './viewport-guard';
 import {
   gpuFallbackDecision,
@@ -22,12 +23,12 @@ import {
   type GpuFallbackEnvironment,
 } from './gpu-recovery';
 import { registerDesktopIpc } from './ipc';
-import { createBrowserHost, type BrowserHost } from './browser-host';
-import { createComputerHost, type ComputerHost } from './computer-host';
+import { createBrowserHost, type BrowserHost } from './browser/host';
+import { createComputerHost, type ComputerHost } from './computer';
 import {
   createComputerUseOverlay,
   type ComputerUseOverlay,
-} from './computer-use-overlay';
+} from './computer/overlay';
 import { MEDIA_SCHEME, registerMediaProtocol, registerMediaScheme } from './media-protocol';
 import { desktopPermissionAllowed } from './permission-policy';
 import { installNativeMenu } from './menu';
@@ -572,8 +573,20 @@ function installDesktopMenu(): void {
 }
 
 function startDeferredDesktopServices(): Promise<void> {
-  deferredServicesPromise ??= host.invokeDesktopOperation('remoteAccessStart', [])
-    .then(() => undefined)
+  if (deferredServicesPromise) return deferredServicesPromise;
+  const startedAt = Date.now();
+  diagnostics?.write('deferred-services-start', {});
+  deferredServicesPromise = host.invokeDesktopOperation('remoteAccessStart', [])
+    .then(() => {
+      diagnostics?.write('deferred-services-ready', { durationMs: Date.now() - startedAt });
+    })
+    .catch((error: unknown) => {
+      diagnostics?.write('deferred-services-failed', {
+        durationMs: Date.now() - startedAt,
+        errorName: error instanceof Error ? error.name : typeof error,
+      });
+      throw error;
+    })
     .finally(() => { deferredServicesPromise = null; });
   return deferredServicesPromise;
 }
@@ -602,45 +615,27 @@ async function revokeRemoteAccessClient(clientId: string): Promise<DesktopRemote
 function scheduleDeferredDesktopServices(window: BrowserWindow): void {
   if (deferredServicesScheduled || deferredServicesPromise) return;
   deferredServicesScheduled = true;
-  // BrowserWindow.webContents is an Electron getter that throws once the
-  // BrowserWindow has been destroyed. Keep the live WebContents reference
-  // while the window still exists; the `closed` cleanup below is intentionally
-  // allowed to run after destruction.
-  const webContents = window.webContents;
-  let timer: NodeJS.Timeout | null = null;
-  let started = false;
-  const start = () => {
-    if (started) return;
-    started = true;
-    if (timer) clearTimeout(timer);
-    timer = null;
-    if (window.isDestroyed() || webContents.isDestroyed()) return;
-    webContents.removeListener('before-input-event', postpone);
-    void startDeferredDesktopServices();
-    startAutoUpdater(async () => {
-      await disposeDesktopResources();
-      quitAfterDispose = true;
-    }, (message, data) => {
-      diagnostics?.write('updater', { message, ...data });
-    });
-  };
-  const schedule = (delay: number) => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(start, delay);
-    timer.unref();
-  };
-  // Never make the FIRST click/wheel pay bridge/relay import and startup.
-  // Interaction postpones this main-process work until two quiet seconds.
-  const postpone = () => { if (!started) schedule(2_000); };
-  webContents.on('before-input-event', postpone);
-  schedule(4_000);
-  window.once('closed', () => {
-    if (timer) clearTimeout(timer);
-    timer = null;
-    if (!webContents.isDestroyed()) {
-      webContents.removeListener('before-input-event', postpone);
-    }
-    if (!started) deferredServicesScheduled = false;
+  scheduleAfterServiceQuiet(window, {
+    awaitServiceReady: () => serviceClient.start(),
+    start: () => {
+      void startDeferredDesktopServices().catch((error: unknown) => {
+        console.error('Failed to start deferred Desktop services:', error);
+      });
+      diagnostics?.write('updater-start', {});
+      startAutoUpdater(async () => {
+        await disposeDesktopResources();
+        quitAfterDispose = true;
+      }, (message, data) => {
+        diagnostics?.write('updater', { message, ...data });
+      });
+    },
+    onReady: () => diagnostics?.write('deferred-services-quiet-phase', {}),
+    onCancelled: () => { deferredServicesScheduled = false; },
+    onError: (error) => {
+      diagnostics?.write('deferred-services-schedule-failed', {
+        errorName: error instanceof Error ? error.name : typeof error,
+      });
+    },
   });
 }
 
@@ -834,7 +829,11 @@ async function createWindow(): Promise<void> {
   windowState = persistWindowState(window, statePath);
   mainWindow = window;
   if (process.platform === 'win32' && !computerHost) {
-    computerHost = createComputerHost({ bridgeEnabled: false, observeOnly: computerObserveOnly });
+    computerHost = createComputerHost({
+      bridgeEnabled: false,
+      observeOnly: computerObserveOnly,
+      onDiagnostic: (event, data) => diagnostics?.write(event, data),
+    });
   }
   if (process.platform === 'win32' && computerHost && !computerUseOverlay) {
     computerUseOverlay = createComputerUseOverlay(computerHost, app.getLocale());
@@ -844,7 +843,9 @@ async function createWindow(): Promise<void> {
   // Browser pane host: registers this window's browser-pane webviews. The
   // agent bridge (the runtime's `browser` tool) is opt-in and only serves
   // while the Browser Use setting is on, mirroring Computer Use.
-  browserHost = createBrowserHost(window);
+  browserHost = createBrowserHost(window, {
+    onDiagnostic: (event, data) => diagnostics?.write(event, data),
+  });
   browserHost.setBridgeEnabled(browserControlEnabled);
   // A dead capture/automation CDP client can leave the renderer frozen at a
   // synthetic viewport (observed 800x600) while the native window resizes —

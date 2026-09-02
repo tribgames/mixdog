@@ -44,7 +44,8 @@ const {
   SessionBrowserSlot,
   useSessionBrowserSurfaces,
 } = await import("./session-browser-surfaces.tsx");
-const { browserDockEntryForSession } = await import("./session-browser-policy.ts");
+const { sessionSideDockEntryForSession } =
+  await import("./session-side-surface-policy.ts");
 
 const renderFixture = (props) => React.createElement("div", {
   className: "browser-surface-fixture",
@@ -85,10 +86,10 @@ const paneBrowserEntry = {
 
 function SessionSwitchHarness({ sessionId, revealedSessions }) {
   const controller = useSessionBrowserSurfaces(renderFixture);
-  const entry = browserDockEntryForSession(
+  const entry = sessionSideDockEntryForSession(
     paneBrowserEntry,
     sessionId,
-    revealedSessions,
+    revealedSessions ? "browser" : null,
   );
   const browserActive = entry.open && entry.surface === "browser";
   return React.createElement(

@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { reviewRenderedOfficePages } from '../src/runtime/office/assurance.mjs';
+import { reviewRenderedOfficePages } from '../src/runtime/office/quality/assurance.mjs';
 
 function argumentValue(name) {
   const index = process.argv.indexOf(name);

@@ -28,6 +28,7 @@ import {
 } from 'node:path';
 import {
   DESKTOP_IPC,
+  type DesktopBrowserViewportConfig,
   type DesktopLocalPathEntry,
   type DesktopRemoteAccessInfo,
   type DesktopSettings,
@@ -51,6 +52,7 @@ import {
   absoluteLocalPath,
   MAX_LOCAL_FILE_BYTES,
 } from './local-files';
+import { readOnboardingStatusFromDisk } from './onboarding-status-file';
 import {
   commonInstructionsFile,
   legacyCommonInstructionsFile,
@@ -67,7 +69,7 @@ import {
   projectEntryPathIn,
 } from './project-files';
 import type { DesktopSettingsStore } from './settings-store';
-import type { BrowserHost } from './browser-host';
+import type { BrowserHost } from './browser/host';
 import {
   createSnapshotDeltaEncoder,
   releaseHiddenSessionStateEntries,
@@ -182,6 +184,7 @@ interface DesktopIpcDependencies {
     | 'browserHistorySearch'
     | 'releaseSession'
     | 'setGuestActive'
+    | 'configureGuestViewport'
     | 'browserCredentialSuggestions'
     | 'browserCredentialFill'>;
   /** Settings → Connection pairing card; resolves null while the bridge is off. */
@@ -1066,6 +1069,61 @@ export function registerDesktopIpc(
     if (typeof active !== 'boolean') throw new TypeError('Browser guest activity is invalid.');
     browserHost.setGuestActive(ownerSessionId, Number(webContentsId), active);
   });
+  handle(DESKTOP_IPC.browserConfigureGuestViewport, (
+    _event,
+    sessionId,
+    webContentsId,
+    value,
+  ) => {
+    if (!browserHost) throw new Error('Browser Use is unavailable in this app surface.');
+    const ownerSessionId = requiredSessionId(sessionId);
+    if (!Number.isSafeInteger(webContentsId) || Number(webContentsId) <= 0) {
+      throw new TypeError('Browser guest id is invalid.');
+    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      throw new TypeError('Browser viewport config is invalid.');
+    }
+    const input = value as Record<string, unknown>;
+    const width = input.width;
+    const height = input.height;
+    const fixedViewport = width !== null && height !== null;
+    if ((width === null) !== (height === null)
+      || (fixedViewport && (
+        !Number.isSafeInteger(width)
+        || !Number.isSafeInteger(height)
+        || Number(width) < 200
+        || Number(width) > 3840
+        || Number(height) < 200
+        || Number(height) > 3840
+      ))) {
+      throw new TypeError('Browser viewport dimensions are invalid.');
+    }
+    const deviceScaleFactor = Number(input.deviceScaleFactor);
+    if (!Number.isFinite(deviceScaleFactor)
+      || deviceScaleFactor < 0.5
+      || deviceScaleFactor > 4
+      || typeof input.mobile !== 'boolean'
+      || typeof input.touch !== 'boolean') {
+      throw new TypeError('Browser viewport emulation is invalid.');
+    }
+    const userAgent = input.userAgent;
+    if (userAgent !== null && (
+      typeof userAgent !== 'string'
+      || userAgent.length > 2048
+      || /[\r\n]/.test(userAgent)
+    )) {
+      throw new TypeError('Browser viewport user agent is invalid.');
+    }
+    const config: DesktopBrowserViewportConfig = {
+      width: width === null ? null : Number(width),
+      height: height === null ? null : Number(height),
+      deviceScaleFactor,
+      mobile: input.mobile,
+      touch: input.touch,
+      userAgent,
+    };
+    return browserHost.configureGuestViewport(ownerSessionId, Number(webContentsId), config);
+  });
   handle(DESKTOP_IPC.browserProfileImportSources, () => {
     if (!browserHost) throw new Error('Browser profile import is unavailable in this app surface.');
     return browserHost.browserImportSources();
@@ -1169,6 +1227,10 @@ export function registerDesktopIpc(
   });
   handle(DESKTOP_IPC.invokeCapability, async (_event, input) => {
     const request = requiredDesktopCapabilityRequest(input);
+    if (request.capability === 'getOnboardingStatus' && !request.sessionId) {
+      const status = await readOnboardingStatusFromDisk();
+      if (status) return { value: status, snapshot: host.getSnapshot() };
+    }
     return host.invokeCapability(request.capability, request.args, request.sessionId);
   });
   handle(DESKTOP_IPC.readCapabilities, (_event, input) =>

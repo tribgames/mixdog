@@ -22,22 +22,22 @@ const surfaces = [
     moveGroup: moveSidebarViewGroup,
     moveView: moveSidebarView,
     stored: [["workflows", "projects", "workflows"], ["unknown", "schedules"]],
-    normalized: [["workflows", "projects"], ["schedules"], ["extensions"], ["webhooks"], ["utilities"]],
+    normalized: [["workflows", "projects"], ["schedules"], ["extensions"], ["webhooks"]],
     groupMove: {
-      groups: [["projects", "workflows"], ["schedules"], ["webhooks"], ["utilities"]],
+      groups: [["projects", "workflows"], ["schedules"], ["webhooks"]],
       root: "projects",
       target: "webhooks",
       placement: "after",
-      expected: [["schedules"], ["webhooks"], ["projects", "workflows"], ["utilities"]],
+      expected: [["schedules"], ["webhooks"], ["projects", "workflows"]],
     },
     stack: {
-      groups: [["projects"], ["workflows"], ["schedules"], ["webhooks"], ["utilities"]],
+      groups: [["projects"], ["workflows"], ["schedules"], ["webhooks"]],
       view: "projects",
       onto: "workflows",
-      combined: [["workflows", "projects"], ["schedules"], ["webhooks"], ["utilities"]],
+      combined: [["workflows", "projects"], ["schedules"], ["webhooks"]],
       extractBeside: "webhooks",
       extractPlacement: "before",
-      extracted: [["workflows"], ["schedules"], ["projects"], ["webhooks"], ["utilities"]],
+      extracted: [["workflows"], ["schedules"], ["projects"], ["webhooks"]],
     },
   },
   {
@@ -93,6 +93,6 @@ test("a view combines under its target and extracts back to a standalone group",
 });
 
 test("a combined container root stays put when dropped on its own child", () => {
-  const groups = [["workflows", "projects"], ["schedules"], ["webhooks"], ["utilities"]];
+  const groups = [["workflows", "projects"], ["schedules"], ["webhooks"]];
   assert.deepEqual(moveSidebarView(groups, "workflows", "projects", "inside"), groups);
 });

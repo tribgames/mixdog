@@ -541,9 +541,15 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     if (!open) return;
     beginBootSurface("session-sidebar", "recent");
     reportBootSurfaceStage("session-sidebar", "recent", "module");
-    if (!sessionsReady) return;
+    // Cached rows and the explicit loading/empty shell are already usable.
+    // Holding the global boot cover for the authoritative catalog round trip
+    // made a restored Task pane delay the whole desktop despite having a
+    // complete first frame to show.
+    reportBootSurfaceReady("session-sidebar", "recent", "shell");
+  }, [open]);
+  useLayoutEffect(() => {
+    if (!open || !sessionsReady) return;
     reportBootSurfaceStage("session-sidebar", "recent", "data");
-    reportBootSurfaceReady("session-sidebar", "recent");
   }, [open, sessionsReady]);
   const prefetchedSessionIds = useRef(new Set<string>());
   const requestPrefetch = useCallback((sessionId: string) => {
@@ -627,9 +633,9 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           className="session-panel-title">{panelActive ? t(panelTitle) : t("Sessions")}</span>
         {/* Creation belongs to Sessions rather than the Activity Rail: this
             button creates an ordinary task tab and never owns a selected
-            navigation state. + IS New Task; Studio, Terminal, and Explorer
-            live in Utilities. Other panels portal their own primary action
-            into the same title-row slot. */}
+            navigation state. + IS New Task; Studio has its own launcher and
+            Terminal lives in the session-owned right side. Other panels
+            portal their own primary action into the same title-row slot. */}
         <div className="session-panel-header-actions" ref={setPanelActionSlot}>
           {!panelActive && (
             <button type="button"

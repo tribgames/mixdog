@@ -10,7 +10,6 @@ import type { SidebarViewGroup } from "./sidebar-view-layout";
 type ShellPanels = ReturnType<typeof useAppShellPanels>;
 
 export function useAppSidebarSurface({
-  utilitiesOpen,
   schedulesOpen,
   webhooksOpen,
   projectsOpen,
@@ -31,13 +30,10 @@ export function useAppSidebarSurface({
   closeSidebarForNavigation,
   startTask,
   openSession,
-  openStudioTab,
-  openTerminalTab,
   refreshProjects,
   renameProject,
   removeProject,
 }: {
-  utilitiesOpen: boolean;
   schedulesOpen: boolean;
   webhooksOpen: boolean;
   projectsOpen: boolean;
@@ -58,15 +54,12 @@ export function useAppSidebarSurface({
   closeSidebarForNavigation(): void;
   startTask(): unknown;
   openSession(sessionId: string): unknown;
-  openStudioTab(): unknown;
-  openTerminalTab(): unknown;
   refreshProjects(): Promise<DesktopProjectSummary[]>;
   renameProject(path: string, alias: string): unknown;
   removeProject(path: string): unknown;
 }) {
-  type SidebarSurface = "sessions" | "utilities" | "schedules" | "webhooks" | "projects" | "workflows";
-  const requestedSidebarSurface: SidebarSurface = utilitiesOpen ? "utilities"
-    : schedulesOpen ? "schedules"
+  type SidebarSurface = "sessions" | "schedules" | "webhooks" | "projects" | "workflows";
+  const requestedSidebarSurface: SidebarSurface = schedulesOpen ? "schedules"
     : webhooksOpen ? "webhooks"
     : projectsOpen ? "projects"
     : workflowsOpen ? "workflows"
@@ -183,10 +176,8 @@ export function useAppSidebarSurface({
   const WebhooksPane = sidebarPanes.webhooks;
   const ProjectsPane = sidebarPanes.projects;
   const WorkflowsPane = sidebarPanes.workflows;
-  const UtilitiesPane = sidebarPanes.utilities;
   const ExtensionsPane = sidebarPanes.extensions;
-  const sidebarPanelTitle = presentedSidebarPanel === "utilities" ? "Utilities"
-    : presentedSidebarPanel === "schedules" ? "Schedules"
+  const sidebarPanelTitle = presentedSidebarPanel === "schedules" ? "Schedules"
     : presentedSidebarPanel === "webhooks" ? "Webhooks"
     : presentedSidebarPanel === "projects" ? "Projects"
     : presentedSidebarPanel === "workflows" ? "Workflows"
@@ -206,11 +197,6 @@ export function useAppSidebarSurface({
     closeSidebarForNavigation();
     openSession(sessionId);
   });
-  // Utilities rows launch tabs WITHOUT resetting the rail to Sessions: the
-  // panel stays selected so repeated launches need no re-entry (user: 한번
-  // 누르면 세션창으로 이동되는데 그냥 유지되도록).
-  const utilitiesOpenStudio = useStableEvent(() => openStudioTab());
-  const utilitiesOpenTerminal = useStableEvent(() => openTerminalTab());
   const projectsCreate = useStableEvent(async (path: string, name?: string) => {
     const host = window.mixdogDesktop;
     if (!host) throw new Error("Desktop bridge is unavailable.");
@@ -232,18 +218,13 @@ export function useAppSidebarSurface({
     active: boolean,
   ): React.ReactNode => {
     if (!mountedSidebarPanels.has(panel)) return null;
-    const label = panel === "utilities" ? "Utilities"
-      : panel === "schedules" ? "Schedules"
+    const label = panel === "schedules" ? "Schedules"
       : panel === "webhooks" ? "Webhooks"
       : panel === "projects" ? "Projects"
       : panel === "extensions" ? "Extensions"
       : "Workflows";
-    const content = panel === "utilities"
-      ? <UtilitiesPane active={active}
-          onOpenStudio={utilitiesOpenStudio}
-          onOpenTerminal={utilitiesOpenTerminal} />
-      : panel === "schedules"
-        ? <SchedulesPane active={active} runningNames={runningAutomationNames.schedule} />
+    const content = panel === "schedules"
+      ? <SchedulesPane active={active} runningNames={runningAutomationNames.schedule} />
         : panel === "webhooks"
           ? <WebhooksPane active={active} runningNames={runningAutomationNames.webhook} />
           : panel === "workflows"

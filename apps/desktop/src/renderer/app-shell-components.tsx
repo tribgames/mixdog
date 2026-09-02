@@ -107,11 +107,10 @@ const loadSchedulesViewModule = () => import("./SchedulesView");
 const loadWebhooksViewModule = () => import("./WebhooksView");
 const loadProjectsViewModule = () => import("./ProjectsView");
 const loadWorkflowsViewModule = () => import("./WorkflowsView");
-const loadUtilitiesViewModule = () => import("./UtilitiesView");
 const loadExtensionsViewModule = () => import("./ExtensionsView");
 
 export type SidebarPanelKey =
-  | "utilities" | "schedules" | "webhooks" | "projects" | "workflows" | "extensions";
+  | "schedules" | "webhooks" | "projects" | "workflows" | "extensions";
 type SidebarPanelLoaderGate = (panel: SidebarPanelKey) => Promise<unknown>;
 
 function gateSidebarPanelModule<T>(panel: SidebarPanelKey, load: () => Promise<T>): Promise<T> {
@@ -122,7 +121,6 @@ function gateSidebarPanelModule<T>(panel: SidebarPanelKey, load: () => Promise<T
 }
 
 export const loadSidebarPanelModule = {
-  utilities: () => gateSidebarPanelModule("utilities", loadUtilitiesViewModule),
   schedules: () => gateSidebarPanelModule("schedules", loadSchedulesViewModule),
   webhooks: () => gateSidebarPanelModule("webhooks", loadWebhooksViewModule),
   projects: () => gateSidebarPanelModule("projects", loadProjectsViewModule),
@@ -133,8 +131,6 @@ export const loadSidebarPanelModule = {
 // A rejected lazy loader stays cached, so each retry needs a fresh component.
 export const createSchedulesPane = () => lazy(() => loadSidebarPanelModule.schedules()
   .then((module) => ({ default: module.SchedulesPane })));
-export const createUtilitiesPane = () => lazy(() => loadSidebarPanelModule.utilities()
-  .then((module) => ({ default: module.UtilitiesPane })));
 export const createWebhooksPane = () => lazy(() => loadSidebarPanelModule.webhooks()
   .then((module) => ({ default: module.WebhooksPane })));
 export const createProjectsPane = () => lazy(() => loadSidebarPanelModule.projects()
@@ -158,6 +154,9 @@ export function ReadyEditorPane(props: React.ComponentProps<typeof EditorPane>) 
   beginBootSurface("editor", metricKey);
   ensureEditorLoad(props.projectPath, props.relPath, props.accessToken);
   reportBootSurfaceStage("editor", metricKey, "boundary");
+  useEffect(() => {
+    reportBootSurfaceReady("editor", metricKey, "shell");
+  }, [metricKey]);
   const [readyKey, setReadyKey] = useState("");
   const [expiredKey, setExpiredKey] = useState("");
   useEffect(() => {
@@ -181,6 +180,9 @@ export function ReadyStudioPane(props: React.ComponentProps<typeof StudioPane>) 
   const metricKey = "studio";
   beginBootSurface("studio", metricKey);
   reportBootSurfaceStage("studio", metricKey, "boundary");
+  useEffect(() => {
+    reportBootSurfaceReady("studio", metricKey, "shell");
+  }, []);
   const [ready, setReady] = useState(false);
   return <PaneSurfaceGate ready={ready} transitionKey={metricKey} label="Preparing Studio…">
     <Suspense fallback={null}>
@@ -196,6 +198,9 @@ export function ReadyTerminalPane(props: React.ComponentProps<typeof TerminalPan
   const metricKey = props.terminalId || "bottom-terminal";
   beginBootSurface("terminal", metricKey);
   reportBootSurfaceStage("terminal", metricKey, "boundary");
+  useEffect(() => {
+    reportBootSurfaceReady("terminal", metricKey, "shell");
+  }, [metricKey]);
   const [readyKey, setReadyKey] = useState("");
   // A terminal whose PTY host never answers must still expose its shell and
   // its failure notice. TerminalPane's own reveal fallback dies with the mount
@@ -211,7 +216,7 @@ export function ReadyTerminalPane(props: React.ComponentProps<typeof TerminalPan
     <Suspense fallback={null}>
       <TerminalPane {...props} onReady={() => {
         setReadyKey(metricKey);
-        reportBootSurfaceReady("terminal", metricKey);
+        reportBootSurfaceStage("terminal", metricKey, "interactive");
       }} />
     </Suspense>
   </PaneSurfaceGate>;
@@ -223,5 +228,6 @@ export function ReadyGitDiffPane(props: React.ComponentProps<typeof GitDiffPane>
   reportBootSurfaceStage("diff", metricKey, "boundary");
   return <GitDiffPane {...props} onReady={() => {
     reportBootSurfaceStage("diff", metricKey, "dom", "shell");
+    reportBootSurfaceReady("diff", metricKey, "shell");
   }} />;
 }

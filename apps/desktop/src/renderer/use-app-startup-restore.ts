@@ -15,6 +15,18 @@ import type { NavigationSelection, WorkspaceSelection } from "./navigation";
 import { startupRestorePlan } from "./renderer-logic.mjs";
 import { resolvedStoredProjectPath } from "./use-draft-pane-preferences";
 
+export function startupRestoreCatalogPending({
+  projectCatalogReady,
+  storedSessionId,
+  storedProjectPath,
+}: {
+  projectCatalogReady: boolean;
+  storedSessionId: string;
+  storedProjectPath: string;
+}): boolean {
+  return !projectCatalogReady && Boolean(storedSessionId || storedProjectPath);
+}
+
 export function useAppStartupRestore({
   restorePending,
   restoredFromStorage,
@@ -112,18 +124,28 @@ export function useAppStartupRestore({
       window.requestAnimationFrame(settleStartup);
       return;
     }
-    if (!projectCatalogReady || !snapshotReady) return;
-    restoredStartupNavigation.current = true;
+    if (!snapshotReady) return;
     let storedSessionId = "";
+    let storedProject = "";
     try {
       // An absent stored id is meaningful to startupRestorePlan: it lands on
       // the New task draft, which is exactly the phone's pinned boot surface.
       storedSessionId = mobileNewTaskBoot
         ? ""
         : window.localStorage.getItem(lastSessionStorageKey) || "";
+      storedProject = window.localStorage.getItem(lastProjectStorageKey) || "";
     } catch {
       // Continue with the safe draft fallback.
     }
+    // A truly fresh New Task has no persisted route to validate. Its complete
+    // shell can open immediately and adopt the background project catalog when
+    // it arrives; persisted session/project routes still wait for authority.
+    if (startupRestoreCatalogPending({
+      projectCatalogReady,
+      storedSessionId,
+      storedProjectPath: storedProject,
+    })) return;
+    restoredStartupNavigation.current = true;
     const plan = startupRestorePlan({
       storedSessionId,
       storedSessionKnown: Boolean(storedSessionId
@@ -160,12 +182,6 @@ export function useAppStartupRestore({
     if (plan.action === "resume") {
       void openSessionRef.current(plan.sessionId, true).finally(settleStartup);
       return;
-    }
-    let storedProject = "";
-    try {
-      storedProject = window.localStorage.getItem(lastProjectStorageKey) || "";
-    } catch {
-      // Continue with the preferred draft project.
     }
     const cachedProjectPath = lastNewTaskPrefs.current?.projectPath ?? null;
     // Only an EXPLICIT stored choice is restored — "" keeps No project. With

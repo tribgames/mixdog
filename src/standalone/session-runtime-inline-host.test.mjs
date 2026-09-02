@@ -112,19 +112,30 @@ test('inline host keeps session actors in the daemon process and releases them',
   void second;
 });
 
-test('inline host prewarm deliberately leaves the memory process cold', async () => {
+test('inline host prewarms only keychain without loading session or agent graphs', async () => {
   const events = [];
+  const phases = [];
   const host = createInlineSessionRuntimeHost({
-    loadLocalModule: async () => createFakeLocalModule(events),
+    loadLocalModule: async () => {
+      events.push(['load', 'session']);
+      return createFakeLocalModule(events);
+    },
+    loadAgentGraph: async () => {
+      events.push(['load', 'agent']);
+      return {};
+    },
+    warmKeychain: async () => { events.push(['prewarm', 'keychain']); },
+    measureBootPhase: async (phase, task) => {
+      phases.push(phase);
+      return await task();
+    },
   });
 
-  await host.prewarm();
-  await host.prewarm();
+  await host.prewarmKeychain();
+  await host.prewarmKeychain();
 
-  assert.deepEqual(
-    events.filter(([type]) => type === 'prewarm').map(([, target]) => target).sort(),
-    ['agent-loop', 'keychain', 'runtime'],
-  );
+  assert.deepEqual(events, [['prewarm', 'keychain']]);
+  assert.deepEqual(phases, ['keychain-prewarm']);
   await host.close('done');
 });
 

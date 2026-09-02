@@ -190,7 +190,9 @@ test('a dead daemon is reattached internally and replays an in-flight request on
   assert.equal(invocations.length, 2);
   assert.equal(invocations[0].callId, invocations[1].callId);
   assert.deepEqual(
-    diagnostics.map((entry) => entry.event),
+    diagnostics
+      .filter((entry) => entry.event !== 'desktop-boot-phase')
+      .map((entry) => entry.event),
     ['session-daemon-reconnecting', 'session-daemon-reconnected'],
   );
   // The swap is announced on the lane the host actually acts on, once.
@@ -460,12 +462,58 @@ test('an SSE reconnect resyncs in place without rejecting an in-flight desktop r
   assert.equal(response.value, true);
   assert.equal(exit, null, 'event-stream recovery does not restart the service transport');
   assert.deepEqual(
-    diagnostics.map((entry) => entry.event),
+    diagnostics
+      .filter((entry) => entry.event !== 'desktop-boot-phase')
+      .map((entry) => entry.event),
     [
       'session-stream-reconnecting',
       'session-stream-reconnected',
       'session-stream-resync-complete',
     ],
+  );
+  await transport.close();
+});
+
+test('desktop initialization reports every boot transport phase', async () => {
+  const transport = new SessionTransport(
+    'file:///C:/tmp/daemon.cjs',
+    process.cwd(),
+    async () => ({
+      ensureDaemon: async () => ({ pid: process.pid, port: 1, token: 'test' }),
+      attachSession: async () => ({
+        async call(name) {
+          if (name === 'desktop.init') return { desktopId: 'desktop_profiled' };
+          return { ok: true };
+        },
+        async close() {},
+      }),
+    }),
+  );
+  const diagnostics = [];
+  const messages = [];
+  transport.on('diagnostic', (event, details) => diagnostics.push({ event, details }));
+  transport.on('message', (message) => messages.push(message));
+
+  transport.postMessage({ kind: 'init', options });
+  await waitFor(() => messages.some((message) => message.kind === 'ready'));
+
+  const readyPhases = diagnostics
+    .filter(({ event, details }) => event === 'desktop-boot-phase' && details.status === 'ready')
+    .map(({ details }) => details.phase);
+  assert.deepEqual(readyPhases, [
+    'session-client-import',
+    'ensure-daemon',
+    'attach-session',
+    'desktop-init',
+    'desktop-state-resync',
+    'desktop-background-ready',
+    'transport-ready',
+  ]);
+  assert.equal(
+    diagnostics
+      .filter(({ event }) => event === 'desktop-boot-phase')
+      .every(({ details }) => Number.isFinite(details.totalMs) && details.totalMs >= 0),
+    true,
   );
   await transport.close();
 });

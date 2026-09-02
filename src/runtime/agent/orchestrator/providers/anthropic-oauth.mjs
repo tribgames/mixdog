@@ -28,7 +28,6 @@ import { sanitizeToolPairs } from '../session/context-utils.mjs';
 import {
     TOKEN_REFRESH_SKEW_MS,
     isAnthropicOAuthRefreshDisabled,
-    resolveCliVersion,
     loadCredentials,
     hasAnthropicOAuthCredentials,
     describeAnthropicOAuthCredentials,
@@ -39,6 +38,10 @@ import {
     beginOAuthLogin,
     loginOAuth,
 } from './anthropic-oauth-credentials.mjs';
+import {
+    learnRequiredCliVersion,
+    resolveCliVersion,
+} from './anthropic-oauth-client-version.mjs';
 import {
     PROVIDER_FIRST_BYTE_TIMEOUT_MS,
     PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS,
@@ -891,11 +894,30 @@ export class AnthropicOAuthProvider {
             if (!response.ok) {
                 cleanupCancelHandler(cancelHandler);
                 const text = rejectedAuthBody ?? await response.text().catch(() => '');
-                const safeText = this.scrubTokens(text).slice(0, 200);
+                const scrubbedText = this.scrubTokens(text);
+                const safeText = scrubbedText.slice(0, 200);
                 process.stderr.write(`[anthropic-oauth] API error ${response.status}: ${safeText}\n`);
 
                 if (response.status === 429) {
                     throw anthropicQuotaError(response.status, response.headers, safeText);
+                }
+
+                // Anthropic can gate a newly launched model on a newer Claude
+                // Code client identity. Learn only the exact minimum-version
+                // rejection, persist the raised floor, and replay this untouched
+                // request once with the new user-agent. The retry flag prevents
+                // a malformed or repeatedly rejected requirement from looping.
+                const cliVersionRequirement = response.status === 400
+                    ? learnRequiredCliVersion(scrubbedText.slice(0, 2_000))
+                    : null;
+                if (cliVersionRequirement?.retryable && !opts._cliVersionRetry) {
+                    process.stderr.write(
+                        `[anthropic-oauth] Claude CLI compatibility floor ${cliVersionRequirement.requiredVersion}; retrying once\n`,
+                    );
+                    return this.send(messages, useModel, tools, {
+                        ...opts,
+                        _cliVersionRetry: true,
+                    });
                 }
 
                 // Phase I: on unknown/404 model errors, force a catalog refresh and

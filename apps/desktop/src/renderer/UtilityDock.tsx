@@ -795,7 +795,8 @@ export const UtilityDock = memo(function UtilityDock({
     (key: string, ready: boolean) => setPaneReady("pull-requests", key, ready),
     [setPaneReady],
   );
-  const selectedSurfaceReady = contentReady
+  const selectedSurfaceReady = contentReady;
+  const selectedSurfaceDataReady = contentReady
     && (gitSurfaceSelected ? dockGitStatusReady : true);
   // Visited/revealed state is DERIVED during render and committed in an
   // effect: a render that React throws away (interrupted concurrent work,
@@ -817,10 +818,10 @@ export const UtilityDock = memo(function UtilityDock({
     if (!open || !contentReady) return;
     beginBootSurface(metricSurface, presentedTab);
     reportBootSurfaceStage(metricSurface, presentedTab, "module");
-    if (!selectedSurfaceReady) return;
+    reportBootSurfaceReady(metricSurface, presentedTab, "shell");
+    if (!selectedSurfaceDataReady) return;
     reportBootSurfaceStage(metricSurface, presentedTab, "data");
-    reportBootSurfaceReady(metricSurface, presentedTab);
-  }, [contentReady, metricSurface, open, presentedTab, selectedSurfaceReady]);
+  }, [contentReady, metricSurface, open, presentedTab, selectedSurfaceDataReady]);
   const loadingLabel = presentedTab === "search" ? t("Preparing Search…")
     : presentedTab === "source-control" ? t("Preparing Source Control…")
       : presentedTab === "pull-requests" ? t("Preparing Pull Requests…")

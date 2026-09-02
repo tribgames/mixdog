@@ -2,10 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  browserDockEntryForSession,
   browserSurfaceRequestShouldReveal,
   browserSurfaceRevealPlan,
-  withBrowserSessionRevealed,
 } from "./session-browser-policy.ts";
 
 const owners = [
@@ -39,28 +37,4 @@ test("foreground requests reveal while parked remote requests do not", () => {
   assert.equal(browserSurfaceRequestShouldReveal({ sessionId: "alpha" }), true);
   assert.equal(browserSurfaceRequestShouldReveal({ sessionId: "alpha", reveal: true }), true);
   assert.equal(browserSurfaceRequestShouldReveal({ sessionId: "alpha", reveal: false }), false);
-});
-
-test("Browser selection follows the session instead of leaking through the pane", () => {
-  const panel = {
-    open: true,
-    view: "sourceControl",
-    surface: "",
-    diff: null,
-  };
-  const alpha = browserDockEntryForSession(panel, "alpha", true);
-  assert.equal(alpha.surface, "browser");
-  assert.equal(browserDockEntryForSession(alpha, "beta", false).surface, "");
-  assert.strictEqual(browserDockEntryForSession(alpha, "alpha", true), alpha);
-
-  const diff = { ...panel, surface: "diff", diff: { kind: "diff" } };
-  assert.strictEqual(browserDockEntryForSession(diff, "alpha", true), diff);
-});
-
-test("repeated reveal state updates are no-ops", () => {
-  const empty = new Set();
-  const revealed = withBrowserSessionRevealed(empty, "alpha", true);
-  assert.deepEqual([...revealed], ["alpha"]);
-  assert.strictEqual(withBrowserSessionRevealed(revealed, "alpha", true), revealed);
-  assert.deepEqual([...withBrowserSessionRevealed(revealed, "alpha", false)], []);
 });

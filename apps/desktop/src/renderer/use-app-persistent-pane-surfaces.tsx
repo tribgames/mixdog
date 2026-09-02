@@ -28,6 +28,8 @@ type UtilitySelection = Extract<WorkspaceSelection, {
   kind: "studio" | "terminal" | "diff" | "pull-request";
 }>;
 
+const BACKGROUND_PANE_STARTUP_DELAY_MS = 1_500;
+
 /** Tabs that own a persistent utility surface (one mounted pane each). */
 function isUtilitySelection(selection: WorkspaceSelection): selection is UtilitySelection {
   return selection.kind === "studio" || selection.kind === "terminal"
@@ -113,7 +115,8 @@ export function useAppPersistentPaneSurfaces({
             if (event.button === 0) window.setTimeout(focusPane, 0);
           }}>
           <DeferredPersistentSurface active={fileActive || activatedFileKeys.current.has(key)}
-              startupDelayMs={EDITOR_STARTUP_DELAY_MS}
+              startupDelayMs={EDITOR_STARTUP_DELAY_MS
+                + (focused ? 0 : BACKGROUND_PANE_STARTUP_DELAY_MS)}
               fallback={<DesktopLoadingSurface label="Loading editor…" />}>
             <ReadyEditorPane projectPath={fileSelection.project} relPath={fileSelection.rel}
                 accessToken={fileSelection.accessToken}
@@ -208,11 +211,13 @@ export function useAppPersistentPaneSurfaces({
   const paneUtilitySurfacePortals = [...utilitySurfaceDescriptors.values()].map((descriptor) => {
     const { key, leafId, selection: utilitySelection } = descriptor;
     const utilityActive = descriptor.active;
-    const startupDelayMs = utilitySelection.kind === "studio"
+    const baseStartupDelayMs = utilitySelection.kind === "studio"
       ? 0
       : utilitySelection.kind === "diff"
         ? DIFF_STARTUP_DELAY_MS
         : utilitySelection.kind === "terminal" ? TERMINAL_STARTUP_DELAY_MS : 0;
+    const startupDelayMs = baseStartupDelayMs
+      + (descriptor.focused ? 0 : BACKGROUND_PANE_STARTUP_DELAY_MS);
     const startupLabel = utilitySelection.kind === "studio"
       ? "Preparing Studio…"
       : utilitySelection.kind === "diff"

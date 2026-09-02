@@ -120,6 +120,7 @@ export function createSessionService({
   onFrame = () => {},
   log = () => {},
   onExternalClientsChanged = () => {},
+  onDesktopReady = () => {},
   idleEvictMs = null,
   evictSweepMs = null,
 } = {}) {
@@ -1963,6 +1964,14 @@ export function createSessionService({
     return { ok: true };
   }
 
+  function desktopReady({ desktopId } = {}, ctx = null) {
+    const service = requireDesktopService(desktopId);
+    const token = subscriberToken(ctx);
+    if (token) service.subscribers.add(token);
+    onDesktopReady({ desktopId: service.desktopId, clientToken: token || null });
+    return { ok: true };
+  }
+
   async function desktopUnsubscribe({ desktopId } = {}, ctx = null) {
     const service = requireDesktopService(desktopId);
     const token = subscriberToken(ctx);
@@ -1974,6 +1983,7 @@ export function createSessionService({
     'desktop.init': desktopInit,
     'desktop.invoke': desktopInvoke,
     'desktop.control': desktopControl,
+    'desktop.ready': desktopReady,
     'desktop.unsubscribe': desktopUnsubscribe,
     'project.list': listProjectCatalog,
     'project.inspect': inspectProjectPath,

@@ -11,7 +11,7 @@ import { childEnvironment } from './child-environment.ts';
 import {
   nativeBrowserImporterPath,
   resolvePackagedBrowserImporter,
-} from './browser-profile-import-native.ts';
+} from './browser/profile-import-native.ts';
 
 test('daemon-owned desktop children never inherit service identity', () => {
   const source = {
@@ -316,19 +316,6 @@ test('browser password import uses only packaged native-tools without a certific
     /MIXDOG_BROWSER_IMPORT_SIGNER_SHA256|MIXDOG_CODE_SIGN|Get-AuthenticodeSignature|signtool/,
   );
   assert.match(nativeBuild, /LICENSE_GPL\.txt/);
-});
-
-test('closed-window cleanup never reacquires the destroyed BrowserWindow webContents getter', async () => {
-  const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
-  const scheduler = main
-    .slice(main.indexOf('function scheduleDeferredDesktopServices'))
-    .slice(0, main.indexOf('function disposeDesktopResources')
-      - main.indexOf('function scheduleDeferredDesktopServices'));
-  assert.match(scheduler, /const webContents = window\.webContents/);
-  const closedCleanup = scheduler.slice(scheduler.indexOf("window.once('closed'"));
-  assert.doesNotMatch(closedCleanup, /window\.webContents/,
-    'the BrowserWindow webContents getter throws after the closed event');
-  assert.match(closedCleanup, /webContents\.isDestroyed\(\)/);
 });
 
 test('Windows installer is one-click, per-user, and registers Mixdog deep links', async () => {
@@ -685,12 +672,12 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
     '/package.json',
     '/node_modules/mixdog/package.json',
     '/node_modules/mixdog/src/tui/session.mjs',
-    '/node_modules/mixdog/src/runtime/office/journal.mjs',
-    '/node_modules/mixdog/src/runtime/office/visual-diff.mjs',
-    '/node_modules/mixdog/src/runtime/office/office-com-host.ps1',
-    '/node_modules/mixdog/src/runtime/office/office-com-session-host.ps1',
-    '/node_modules/mixdog/src/runtime/office/templates/mixdog-executive.pptx',
-    '/node_modules/mixdog/src/runtime/office/templates/mixdog-executive.pptx.mixdog.json',
+    '/node_modules/mixdog/src/runtime/office/core/journal.mjs',
+    '/node_modules/mixdog/src/runtime/office/quality/visual-diff.mjs',
+    '/node_modules/mixdog/src/runtime/office/com/office-com-host.ps1',
+    '/node_modules/mixdog/src/runtime/office/com/office-com-session-host.ps1',
+    '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx',
+    '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx.mixdog.json',
     '/node_modules/@huggingface/transformers/package.json',
     '/node_modules/@huggingface/transformers/dist/transformers.node.cjs',
     '/node_modules/@huggingface/transformers/dist/transformers.node.mjs',
@@ -731,10 +718,10 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
   );
   const unpackedRuntimeEntries = [...new Set([
     ...nativeBinaryEntries,
-    '/node_modules/mixdog/src/runtime/office/office-com-host.ps1',
-    '/node_modules/mixdog/src/runtime/office/office-com-session-host.ps1',
-    '/node_modules/mixdog/src/runtime/office/templates/mixdog-executive.pptx',
-    '/node_modules/mixdog/src/runtime/office/templates/mixdog-executive.pptx.mixdog.json',
+    '/node_modules/mixdog/src/runtime/office/com/office-com-host.ps1',
+    '/node_modules/mixdog/src/runtime/office/com/office-com-session-host.ps1',
+    '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx',
+    '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx.mixdog.json',
   ])];
   assert.ok(nativeBinaryEntries.some((entry) => entry.endsWith('.node')), 'runtime archive contains no native addon');
   for (const entry of unpackedRuntimeEntries) {

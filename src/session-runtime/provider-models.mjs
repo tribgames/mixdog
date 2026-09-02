@@ -232,8 +232,10 @@ export function createProviderModels({
     const startedAt = performance.now();
     profile('load:start', { forceRefresh, loadSecrets });
     if (loadSecrets) {
+      const secretsStartedAt = performance.now();
       await awaitKeychainPrewarm();
       ensureFullConfig();
+      profile('secrets-ready', { ms: (performance.now() - secretsStartedAt).toFixed(1) });
     }
     const providersStartedAt = performance.now();
     await ensureProvidersReady(config().providers || {});
@@ -242,12 +244,14 @@ export function createProviderModels({
     // blocking boot. A foreground full picker load must join that refresh;
     // otherwise it can snapshot yesterday's provider cache moments before the
     // refresh invalidates it, leaving the UI on the stale first-open rows.
+    const refreshStartedAt = performance.now();
     if (!forceRefresh && typeof reg().refreshProviderCatalogsOnStartup === 'function') {
       await reg().refreshProviderCatalogsOnStartup();
     }
     if (forceRefresh && typeof reg().refreshCatalogs === 'function') {
       await reg().refreshCatalogs({ force: true });
     }
+    profile('catalog-refresh-ready', { ms: (performance.now() - refreshStartedAt).toFixed(1) });
     syncCatalogRevision();
     const catalogEntries = await sharedProviderCatalog(reg());
     const providerResults = catalogEntries.map(({ name, models, error, ms }) => {

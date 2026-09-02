@@ -77,7 +77,9 @@ const CONTRACT_ROWS = [
     ],
     [['ref', 'targetRef'], ['snapshotId', 'x', 'y', 'targetX', 'targetY']],
   ),
-  contract('upload', [...POST_ACTION_SNAPSHOT, 'ref', 'paths', 'confirm'], ['ref', 'paths', 'confirm']),
+  // ref is optional: without it upload answers the file chooser the page has
+  // already opened; with a non-file ref it clicks that element to open one.
+  contract('upload', [...POST_ACTION_SNAPSHOT, 'ref', 'paths', 'confirm'], ['paths', 'confirm']),
   contract('handle_dialog', [...POST_ACTION_SNAPSHOT, 'accept', 'promptText']),
   contract('press', [...POST_ACTION_SNAPSHOT, 'key'], ['key']),
   // text brings the first match into view when its position is unknown.

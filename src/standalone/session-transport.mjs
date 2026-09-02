@@ -225,6 +225,7 @@ export function createSessionTransport({
     'session.approve',
     'session.unsubscribe',
     'desktop.control',
+    'desktop.ready',
     'desktop.unsubscribe',
   ]);
   const INTERACTIVE_CALLS = new Set([
@@ -437,15 +438,24 @@ export function createSessionTransport({
     sweepTimer.unref?.();
   }
 
-  function registerClient({ leadPid, cwd, lifecycle = true, registrationId = null, revision = 0 } = {}) {
+  function registerClient({
+    leadPid,
+    cwd,
+    lifecycle = true,
+    clientKind = 'session',
+    registrationId = null,
+    revision = 0,
+  } = {}) {
     const pid = parsePid(leadPid) || 0;
     const ownsLifecycle = lifecycle !== false;
+    const kind = clientKind === 'desktop' ? 'desktop' : 'session';
     const replayId = registrationId ? String(registrationId).slice(0, 200) : null;
     const replay = replayId ? registrationReplays.get(replayId) : null;
     if (replay) {
       const sameIdentity = replay.leadPid === pid
         && replay.cwd === (cwd || null)
         && replay.lifecycle === ownsLifecycle
+        && replay.clientKind === kind
         && replay.revision === Math.max(0, Number(revision) || 0);
       if (sameIdentity && clients.has(replay.token)) {
         log(`client registration replay token=${replay.token} lead=${pid}`);
@@ -465,6 +475,7 @@ export function createSessionTransport({
       leadPid: pid,
       cwd: cwd || null,
       lifecycle: ownsLifecycle,
+      clientKind: kind,
       revision: Math.max(0, Number(revision) || 0),
       sse: null,
       // True while the socket asked us to stop writing (see writeFrame).
@@ -480,9 +491,20 @@ export function createSessionTransport({
       cancelGrace();
     }
     startSweep();
-    log(`client registered token=${token} lead=${pid} cwd=${cwd || '-'} lifecycle=${ownsLifecycle}`);
+    log(
+      `client registered token=${token} lead=${pid} cwd=${cwd || '-'}`
+      + ` lifecycle=${ownsLifecycle} kind=${kind}`,
+    );
     if (typeof onClientRegistered === 'function') {
-      try { onClientRegistered({ token, leadPid: pid, cwd: cwd || null, lifecycle: ownsLifecycle }); } catch {}
+      try {
+        onClientRegistered({
+          token,
+          leadPid: pid,
+          cwd: cwd || null,
+          lifecycle: ownsLifecycle,
+          clientKind: kind,
+        });
+      } catch {}
     }
     if (replayId) {
       while (registrationReplays.size >= REGISTRATION_REPLAY_MAX) {
@@ -499,6 +521,7 @@ export function createSessionTransport({
         leadPid: pid,
         cwd: cwd || null,
         lifecycle: ownsLifecycle,
+        clientKind: kind,
         revision: Math.max(0, Number(revision) || 0),
         timer,
       });
@@ -698,6 +721,7 @@ export function createSessionTransport({
           leadPid: body.leadPid,
           cwd: body.cwd,
           lifecycle: body.lifecycle !== false,
+          clientKind: body.clientKind,
           registrationId: body.registrationId,
           revision: body.revision,
         });
