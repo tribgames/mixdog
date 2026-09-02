@@ -41,8 +41,13 @@ export function createMcpGlue({
         ...(cfg?._mixdogPluginDisabled === true ? { enabled: false } : {}),
       };
     }
+    // A plugin-owned server is installed by enablePluginMcp and carries the
+    // plugin root in its env; it belongs to the plugin's own toggle and stays
+    // out of the standalone MCP list.
     const sources = {};
-    for (const name of Object.keys(configured)) sources[name] = 'config';
+    for (const [name, cfg] of Object.entries(configured)) {
+      sources[name] = cfg?.env?.MIXDOG_PLUGIN_ROOT ? 'plugin' : 'config';
+    }
     return { servers, sources };
   }
 
@@ -58,7 +63,7 @@ export function createMcpGlue({
     }
     return {
       name: serverName,
-      source: 'config',
+      source: raw?.env?.MIXDOG_PLUGIN_ROOT ? 'plugin' : 'config',
       enabled: effective.enabled !== false,
       config: { ...raw },
     };

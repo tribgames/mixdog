@@ -67,6 +67,46 @@ test('edits existing skills without dropping optional metadata or sibling resour
   }
 });
 
+test('skillsStatus attributes each skill to the owner that installs and toggles it', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-owner-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  const previousRoot = process.env.MIXDOG_ROOT;
+  process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  process.env.MIXDOG_ROOT = join(root, 'package');
+  const cwd = join(root, 'project');
+  const skill = (dir, name, extra = []) => {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'SKILL.md'), ['---', `name: ${name}`, `description: Use ${name}.`, ...extra, '---', '', '# x', ''].join('\n'));
+  };
+  try {
+    skill(join(process.env.MIXDOG_DATA_DIR, 'skills', 'mine'), 'mine');
+    skill(join(process.env.MIXDOG_ROOT, 'defaults', 'skills', 'pptx'), 'pptx', ['metadata:', '  requires: office']);
+    const pluginRoot = join(root, 'plugin-a');
+    skill(join(pluginRoot, 'skills', 'from-plugin'), 'from-plugin');
+    mkdirSync(join(process.env.MIXDOG_DATA_DIR, 'plugins'), { recursive: true });
+    writeFileSync(join(process.env.MIXDOG_DATA_DIR, 'plugins', 'registry.json'), JSON.stringify({
+      plugins: [{ id: 'plugin-a', name: 'Plugin A', root: pluginRoot, enabled: true }],
+    }));
+    contextMod.invalidateSkillsCache(cwd);
+
+    const byName = Object.fromEntries(createSkillsApi({ contextMod, getCwd: () => cwd })
+      .skillsStatus().skills.map((entry) => [entry.name, entry]));
+    assert.deepEqual(byName.mine.owner, { kind: 'user' });
+    assert.equal(byName.mine.editable, true);
+    assert.deepEqual(byName.pptx.owner, { kind: 'builtin', feature: 'office' });
+    assert.equal(byName.pptx.editable, false);
+    assert.deepEqual(byName['from-plugin'].owner, { kind: 'plugin', id: 'plugin-a' });
+    assert.equal(byName['from-plugin'].editable, false);
+  } finally {
+    contextMod.invalidateSkillsCache(cwd);
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    if (previousRoot === undefined) delete process.env.MIXDOG_ROOT;
+    else process.env.MIXDOG_ROOT = previousRoot;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('creates new global skills with all three standard fields', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-create-'));
   const previousDataDir = process.env.MIXDOG_DATA_DIR;

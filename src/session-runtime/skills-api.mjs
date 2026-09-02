@@ -24,25 +24,35 @@ export function createSkillsApi({ contextMod, getCwd }) {
       : [];
     const norm = (value) => String(value || '').replace(/\\/g, '/').toLowerCase();
     const globalRoot = `${norm(globalSkillsRoot())}/`;
-    const builtinRoot = typeof contextMod.builtinSkillsDir === 'function'
-      ? `${norm(contextMod.builtinSkillsDir())}/`
-      : null;
-    const sourceForSkill = (filePath) => {
-      const path = norm(filePath);
-      if (path.startsWith(globalRoot)) return 'global';
-      if (builtinRoot && path.startsWith(builtinRoot)) return 'builtin';
-      return 'plugin';
+    const sourceForSkill = (skill) => (
+      skill.source || (norm(skill.filePath).startsWith(globalRoot) ? 'global' : 'plugin')
+    );
+    // Owner: who installs, shows, and toggles this skill. Only user-global
+    // skills stand on their own; a built-in skill rides its feature's Install
+    // and toggle, a plugin skill rides the plugin's, so panels list those under
+    // the parent instead of as loose entries.
+    const ownerForSkill = (skill, source) => {
+      if (source === 'plugin') return { kind: 'plugin', id: skill.plugin || null };
+      if (source === 'builtin') {
+        const requires = Array.isArray(skill.requires) ? skill.requires : [];
+        return { kind: 'builtin', feature: requires[0] || null };
+      }
+      return { kind: 'user' };
     };
     return {
       cwd,
       count: skills.length,
-      skills: skills.map((skill) => ({
-        name: skill.name,
-        description: skill.description || '',
-        filePath: skill.filePath || null,
-        source: sourceForSkill(skill.filePath),
-        editable: sourceForSkill(skill.filePath) === 'global',
-      })),
+      skills: skills.map((skill) => {
+        const source = sourceForSkill(skill);
+        return {
+          name: skill.name,
+          description: skill.description || '',
+          filePath: skill.filePath || null,
+          source,
+          owner: ownerForSkill(skill, source),
+          editable: source === 'global',
+        };
+      }),
     };
   }
 

@@ -76,7 +76,7 @@ function pluginSkillDirs() {
             continue;
         const skillsDir = join(root, 'skills');
         if (existsSync(skillsDir))
-            dirs.push(skillsDir);
+            dirs.push({ dir: skillsDir, plugin: String(entry.id || entry.name || '') || null });
     }
     return dirs;
 }
@@ -88,12 +88,17 @@ export function collectSkills(cwd) {
     if (skillsDisabled()) return [];
     void cwd;
     const skills = [];
-    const dirs = mixdogAssetDirs(null, 'skills');
     // Plugin-provided skills load after user-global ones and built-ins last,
     // so the user keeps precedence; `seen` below dedupes by frontmatter name.
-    dirs.push(...pluginSkillDirs(), builtinSkillsDir());
+    // Each entry remembers its owner so a plugin's skills can be shown and
+    // toggled with the plugin instead of as loose entries.
+    const sources = [
+        ...mixdogAssetDirs(null, 'skills').map((dir) => ({ dir, source: 'global', plugin: null })),
+        ...pluginSkillDirs().map(({ dir, plugin }) => ({ dir, source: 'plugin', plugin })),
+        { dir: builtinSkillsDir(), source: 'builtin', plugin: null },
+    ];
     const seen = new Set();
-    for (const dir of dirs) {
+    for (const { dir, source, plugin } of sources) {
         if (!existsSync(dir))
             continue;
         try {
@@ -121,6 +126,8 @@ export function collectSkills(cwd) {
                     name: skill.name,
                     description: skill.description,
                     filePath,
+                    source,
+                    plugin,
                     requires: requiredFeatures(skill.frontmatter),
                 });
             }

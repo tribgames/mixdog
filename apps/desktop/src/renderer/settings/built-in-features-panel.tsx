@@ -72,6 +72,7 @@ function SlotProgress({ percent, label }: { percent: number | null; label: strin
 
 function FeatureCard({
   feature,
+  bundledSkills,
   installed,
   enabled,
   ready,
@@ -83,6 +84,8 @@ function FeatureCard({
   onToggle,
 }: {
   feature: BuiltInFeatureDefinition;
+  /** Names of the built-in skills that install and toggle with this feature. */
+  bundledSkills: string[];
   installed: boolean;
   enabled: boolean;
   ready: boolean;
@@ -118,7 +121,10 @@ function FeatureCard({
           : <CompactSwitch label={t(feature.title)} checked={enabled} optimistic={false}
               disabled={!available || busy} onChange={onToggle} />}
       </span>
-      <small className="built-in-feature-description">{t(feature.description)}</small>
+      <small className="built-in-feature-description">
+        {t(feature.description)}
+        {bundledSkills.length > 0 && <> {t('Includes skills: {{names}}', { names: bundledSkills.join(', ') })}</>}
+      </small>
     </header>
     {failed && action?.message
       ? <div className="built-in-feature-error" role="alert">{action.message}</div>
@@ -141,6 +147,19 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api }: Pane
   const voice = record(data.voice);
   const progress = voiceProgress(snapshot);
   const windows = navigator.userAgent.includes('Windows');
+  // Built-in skills ride their feature's Install and toggle, so the card names
+  // them instead of the Skills panel listing them as loose entries.
+  const bundledSkills = useMemo<Partial<Record<BuiltInFeatureId, string[]>>>(() => {
+    const byFeature: Partial<Record<BuiltInFeatureId, string[]>> = {};
+    const skills = record(data.skills).skills;
+    for (const skill of Array.isArray(skills) ? skills : []) {
+      const owner = record(record(skill).owner);
+      if (owner.kind !== 'builtin' || typeof owner.feature !== 'string') continue;
+      const feature = owner.feature as BuiltInFeatureId;
+      (byFeature[feature] ??= []).push(String(record(skill).name));
+    }
+    return byFeature;
+  }, [data.skills]);
 
   useEffect(() => {
     if (voice.installed === true) setVoiceInstalled(true);
@@ -282,6 +301,7 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api }: Pane
           : feature.id === 'voice' ? sectionLoaded(data, 'voice')
           : sectionLoaded(data, 'toolModules');
         return <FeatureCard key={feature.id} feature={feature}
+          bundledSkills={bundledSkills[feature.id] || []}
           installed={installed[feature.id]}
           enabled={optimistic?.id === feature.id ? optimistic.value : enabled[feature.id]}
           ready={ready} available={available} busy={busy}

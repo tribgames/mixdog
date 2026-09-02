@@ -142,6 +142,10 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
     const events = {};
     const legacyRules = [];
     const sources = [];
+    // Same files with their owner: plugin hooks belong to the plugin's toggle
+    // (pluginHookConfigEntries already skips disabled plugins), so a status
+    // consumer can group them under the plugin instead of listing them loose.
+    const sourceEntries = [];
     const errors = [];
     let disabled = false;
     let disableSeen = false;
@@ -156,6 +160,11 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
         continue;
       }
       sources.push(filePath);
+      sourceEntries.push({
+        path: filePath,
+        sourceType: entry.sourceType || 'data',
+        pluginRoot: entry.pluginRoot || null,
+      });
       if (Object.prototype.hasOwnProperty.call(parsed || {}, 'disableAllHooks')) {
         disabled = parsed.disableAllHooks === true;
         disableSeen = true;
@@ -190,6 +199,7 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
       events,
       legacyRules,
       sources,
+      sourceEntries,
       errors,
     };
     for (const err of errors) {
@@ -558,6 +568,7 @@ export function createStandaloneHookBus({ maxEvents = 80, dataDir = null, prompt
       configMode: cfg.standard ? 'standard' : 'legacy',
       rulesPath,
       configSources: cfg.sources || [],
+      configSourceEntries: cfg.sourceEntries || [],
       ruleCount,
       rules,
       configuredEvents,

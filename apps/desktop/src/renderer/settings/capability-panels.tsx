@@ -1284,7 +1284,9 @@ function SkillExtensionCreateDialog({ onClose, onSelect }: {
 
 function McpPanel({ data, pending, run, confirm, createOpen, closeCreate }: PanelContext) {
   const status = record(data.mcp);
-  const servers = rows(status, 'servers');
+  // Plugin-owned servers are installed, shown, and toggled with their plugin
+  // (Extensions → Plugins); only standalone user servers are listed here.
+  const servers = rows(status, 'servers').filter((server) => server.source !== 'plugin');
   const busy = Boolean(pending);
   const [openName, setOpenName] = useState('');
   const [openServer, setOpenServer] = useState<RecordValue | null>(null);
@@ -1345,7 +1347,10 @@ function McpPanel({ data, pending, run, confirm, createOpen, closeCreate }: Pane
 
 function SkillsPanel({ data, pending, run, createOpen, closeCreate }: PanelContext) {
   const status = record(data.skills);
-  const skills = rows(status, 'skills');
+  // Built-in and plugin skills belong to their feature or plugin: they install,
+  // show, and toggle with it under Extensions, so only user skills appear here.
+  const skills = rows(status, 'skills').filter((skill) => record(skill.owner).kind !== 'builtin'
+    && record(skill.owner).kind !== 'plugin');
   const disabled = new Set((Array.isArray(record(data.disabledSkills).disabled) ? record(data.disabledSkills).disabled as unknown[] : []).map(String));
   const busy = Boolean(pending);
   // User-global skills are editable. Plugin-provided skills use the same detail
@@ -1402,6 +1407,10 @@ function PluginsPanel({ data, pending, run, confirm, createOpen, closeCreate }: 
   const busy = Boolean(pending);
   const [openId, setOpenId] = useState('');
   const open = openId ? plugins.find((plugin) => String(plugin.id || plugin.name) === openId) : undefined;
+  // A plugin's skills ride its toggle; they are listed here, not under Skills.
+  const ownedSkills = (id: string) => rows(record(data.skills), 'skills')
+    .filter((skill) => record(skill.owner).kind === 'plugin' && String(record(skill.owner).id || '') === id)
+    .map((skill) => String(skill.name));
   return <Group title="Plugins">
     {createOpen && <PluginInstallDialog busy={busy}
       onClose={() => closeCreate?.()}
@@ -1425,7 +1434,7 @@ function PluginsPanel({ data, pending, run, confirm, createOpen, closeCreate }: 
       onToggle={(next) => void run('setPluginEnabled', [open, next])}
       facts={[
         ['Version', String(open.version || 'unversioned')],
-        ['Skills', String(open.skillCount ?? '')],
+        ['Skills', ownedSkills(String(open.id || open.name)).join(', ') || String(open.skillCount ?? '')],
         ['Description', String(open.description || '')],
         ['Source', String(open.sourceType || '')],
         ['Root', String(open.root || '')],
