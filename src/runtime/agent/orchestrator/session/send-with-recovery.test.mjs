@@ -11,6 +11,7 @@ import test from 'node:test';
 // Trace writes resolve the data dir at import time; keep them in a temp root.
 const root = mkdtempSync(join(tmpdir(), 'mixdog-send-recovery-'));
 process.env.MIXDOG_DATA_DIR = root;
+process.env.MIXDOG_TRANSPORT_RETRY_BACKOFF_MS = '0,0,0';
 process.on('exit', () => { try { rmSync(root, { recursive: true, force: true }); } catch { /* best-effort */ } });
 
 const { sendWithRecovery, TRANSPORT_RETRY_MAX } = await import('./send-with-recovery.mjs');
@@ -35,6 +36,13 @@ function providerEmitting(script) {
             return { content: 'ok' };
         },
     };
+}
+
+function cursorStreamAbort() {
+    const error = new Error('Cursor stream was aborted');
+    error.code = 'stream_aborted';
+    error.cursorCode = 'stream_aborted';
+    return error;
 }
 
 const baseCtx = {
@@ -103,4 +111,60 @@ test('a first attempt keeps its own stages and restores the caller callbacks', a
     assert.deepEqual(stages.map((entry) => entry.stage), ['requesting', 'streaming']);
     assert.equal(opts.onStageChange, originalStage);
     assert.equal(opts.onStreamDelta, originalDelta);
+});
+
+test('a Cursor abort after committed tool history retries the empty continuation', async () => {
+    const messages = [
+        {
+            role: 'assistant',
+            tool_calls: [{
+                id: 'call-complete',
+                type: 'function',
+                function: { name: 'read', arguments: '{"file_path":"done.txt"}' },
+            }],
+        },
+        { role: 'tool', tool_call_id: 'call-complete', content: 'done' },
+    ];
+    const attempts = [];
+    const { opts } = recordingOpts();
+    const provider = {
+        send: async (attemptMessages) => {
+            attempts.push(attemptMessages);
+            throw cursorStreamAbort();
+        },
+    };
+
+    const result = await sendWithRecovery({
+        ...baseCtx,
+        provider,
+        opts,
+        messages,
+        recoveryMessages: messages,
+        transportRetriesUsed: 0,
+    });
+
+    assert.equal(result.action, 'retry_transport');
+    assert.equal(attempts.length, 1);
+    assert.equal(attempts[0], messages);
+});
+
+test('a Cursor abort does not replay a tool dispatched by the failing send', async () => {
+    const abort = cursorStreamAbort();
+    const { opts } = recordingOpts({ onToolCall: () => {} });
+    const provider = {
+        send: async (_messages, _model, _tools, sendOpts) => {
+            sendOpts.onToolCall({ id: 'call-side-effect', name: 'shell', arguments: '{}' });
+            throw abort;
+        },
+    };
+
+    await assert.rejects(
+        sendWithRecovery({
+            ...baseCtx,
+            provider,
+            opts,
+            transportRetriesUsed: 0,
+        }),
+        (error) => error === abort,
+    );
 });

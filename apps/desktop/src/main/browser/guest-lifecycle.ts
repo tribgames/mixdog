@@ -18,18 +18,17 @@ import {
 } from './command';
 import { type BrowserGuestStateStore, pushBounded } from './guest-state';
 import {
-  assertBackgroundTabCapacity,
-  backgroundPageIdle,
-  type BrowserUrlPolicy,
-  normalizeBackgroundTabName,
-  normalizePageUrl,
-} from './host-policy';
-import {
   type BrowserSessionRegistry,
   DEFAULT_BROWSER_SESSION_ID,
 } from './session-registry';
 import { pause } from './settle';
+import {
+  assertBackgroundTabCapacity,
+  backgroundPageIdle,
+  normalizeBackgroundTabName,
+} from './tab-policy';
 import type { BackgroundPage } from './tabs';
+import { type BrowserUrlPolicy, normalizePageUrl } from './url-policy';
 
 export interface BrowserGuestLifecycleHost {
   window: BrowserWindow;

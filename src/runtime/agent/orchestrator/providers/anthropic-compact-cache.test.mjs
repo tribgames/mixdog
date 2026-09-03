@@ -12,7 +12,7 @@ function cacheControlOf(message) {
     return blocks.at(-1)?.cache_control || null;
 }
 
-test('Anthropic uses the compact summary as the stable message cache anchor', () => {
+test('Anthropic advances its sole message cache marker to the post-compact live tail', () => {
     const messages = [
         { role: 'user', content: `${SUMMARY_PREFIX}\n\nfull cumulative handoff` },
         { role: 'assistant', content: '.' },
@@ -23,8 +23,20 @@ test('Anthropic uses the compact summary as the stable message cache anchor', ()
         messageSlots: 1,
     });
 
+    assert.equal(cacheControlOf(marked[0]), null);
+    assert.deepEqual(cacheControlOf(marked[2]), ANTHROPIC_CACHE_TTL_STABLE);
+});
+
+test('Anthropic marks the compact summary only while it is the live tail', () => {
+    const messages = [
+        { role: 'user', content: `${SUMMARY_PREFIX}\n\nfull cumulative handoff` },
+    ];
+    const marked = applyAnthropicCacheMarkers(structuredClone(messages), {
+        messageTtl: ANTHROPIC_CACHE_TTL_STABLE,
+        messageSlots: 1,
+    });
+
     assert.deepEqual(cacheControlOf(marked[0]), ANTHROPIC_CACHE_TTL_STABLE);
-    assert.equal(cacheControlOf(marked[2]), null);
 });
 
 test('Anthropic keeps the live-tail cache anchor when no compact summary exists', () => {
@@ -38,5 +50,21 @@ test('Anthropic keeps the live-tail cache anchor when no compact summary exists'
         messageSlots: 1,
     });
 
+    assert.deepEqual(cacheControlOf(marked[2]), ANTHROPIC_CACHE_TTL_STABLE);
+});
+
+test('Anthropic uses only one live-tail marker when multiple message slots are requested', () => {
+    const messages = [
+        { role: 'user', content: 'older instruction' },
+        { role: 'assistant', content: 'answer' },
+        { role: 'user', content: 'latest instruction' },
+    ];
+    const marked = applyAnthropicCacheMarkers(structuredClone(messages), {
+        messageTtl: ANTHROPIC_CACHE_TTL_STABLE,
+        messageSlots: 4,
+    });
+
+    assert.equal(cacheControlOf(marked[0]), null);
+    assert.equal(cacheControlOf(marked[1]), null);
     assert.deepEqual(cacheControlOf(marked[2]), ANTHROPIC_CACHE_TTL_STABLE);
 });

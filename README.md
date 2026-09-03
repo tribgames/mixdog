@@ -259,7 +259,9 @@ npm start
 
 npm run smoke
 npm run smoke:all
-npm run test:tool-contracts
+npm test                      # every *.test.mjs under src/ and scripts/
+npm test -- src/runtime/memory  # one directory
+npm run test:slow             # *.slow.test.mjs
 npm run build:tui
 npm run audit:models
 ```

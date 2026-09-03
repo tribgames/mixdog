@@ -17,28 +17,39 @@
      readout below it (user: 창을 상하로 줄이면 USAGE가 겹쳐 보임). */
   overflow: hidden;
   border-right: 1px solid var(--mx-border-structure);
-  /* Activity-bar ink, exact values (user: 색감): inactive
-     = activityBar.inactiveForeground #ffffff66 (40%), hover/active = full
-     foreground via the button rules below. */
-  color: color-mix(in srgb, var(--mx-text) 40%, transparent);
+  /* Activity-bar ink measured against VS Code side by side (user: 아이콘
+     색감이 다르다): inactive = white at 50% — the old 40% of the off-white
+     text token read a step darker than VS Code's rail on its band.
+     Hover/active = full foreground via the button rules below. */
+  color: rgb(255 255 255 / 50%);
   background: var(--mx-window-band);
   user-select: none;
 }
-/* Codicon-scale glyphs: 24px icons in the 48px cell; the
-   global 1.5px square-cap stroke already matches the codicon weight. */
+/* Light band: the same 50% step, in the theme's dark ink. */
+:root[data-mixdog-theme="light"] .activity-rail {
+  color: color-mix(in srgb, var(--mx-text) 50%, transparent);
+}
+/* Glyph and cell measured against VS Code on the same screen (user: 상하
+   간격이 다르다): a 44px cell pitch, while the glyph keeps the 24px codicon
+   em (≈20px of ink) — at 22px the marks read a step smaller than VS Code's. */
 .activity-rail > nav > button > svg,
 .activity-rail > button > svg {
   width: 24px;
   height: 24px;
 }
+.activity-rail .codicon { font-size: 24px; }
+/* The gear inks a smaller share of its em than the destination glyphs, so it
+   read a step small at the foot (user: 좌하단 설정 버튼만 유독 작다). One
+   size up lands its optical box on the same line. */
+.activity-rail .codicon-settings-gear { font-size: 27px; }
 /* Direct rail controls only: the usage popup nests its own buttons (rows,
    detail actions) that must keep their list styling. */
 .activity-rail > nav > button,
 .activity-rail > button {
   position: relative;
   width: 47px;
-  height: 48px;
-  /* The 48px cell is fixed, never a flex budget: the column's default shrink
+  height: 44px;
+  /* The cell is fixed, never a flex budget: the column's default shrink
      squeezed the foot Settings button into a shorter box than the
      destinations above it (user: 하단 설정버튼이 위쪽 아이콘이랑 크기가 달라). */
   flex: 0 0 auto;
@@ -64,11 +75,11 @@
 .activity-rail > button::before {
   content: "";
   position: absolute;
-  /* Active-border grammar, one step bolder (user: 좀 두껍게, 테두리
-     없이): a 3px FULL-HEIGHT bar FLUSH with the window edge in foreground
-     ink — no offset, no outline. */
+  /* Active-border grammar: a 2px FULL-HEIGHT bar FLUSH with the window edge
+     in foreground ink — VS Code's activityBar.activeBorder width — no
+     offset, no outline. */
   inset: 0 auto 0 0;
-  width: 3px;
+  width: 2px;
   background: var(--mx-text);
   opacity: 0;
   transform: scaleY(.55);
@@ -98,19 +109,22 @@
 .activity-rail > nav > button[draggable="true"]:active,
 .session-panel-title[draggable="true"]:active,
 .sidebar-view-section-header[draggable="true"]:active { cursor: grabbing; }
+/* The destination list is this icon bar; its own cell rule outranks the
+   generic rail button rule above, so it carries the same measured 44px cell
+   (user: 간격이 너무 벌어져 — 48px가 여기서 살아남고 있었다). */
 .activity-rail > .workbench-side-icon-bar.is-vertical,
 .activity-rail > nav.workbench-side-icon-bar.is-vertical {
   display: flex;
   flex-direction: column;
-  min-height: 48px;
+  min-height: 44px;
 }
 .workbench-side-icon-bar.is-vertical > button {
   position: relative;
   width: 47px;
-  height: 48px;
+  height: 44px;
   display: grid;
   place-items: center;
-  flex: 0 0 48px;
+  flex: 0 0 44px;
   padding: 0;
   border: 0;
   color: inherit;
@@ -125,7 +139,7 @@
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
-  width: 3px;
+  width: 2px;
   background: var(--mx-text);
 }
 .workbench-side-icon-bar.is-vertical > button[data-drop-position="before"] {
@@ -143,7 +157,7 @@
    whole cells at every window height. The shrink factor sits far above the
    usage stack's so the nav absorbs the entire deficit first. */
 .activity-rail > .sidebar-primary-nav {
-  min-height: 48px;
+  min-height: 44px;
   flex: 0 1000 auto;
   overflow-x: hidden;
   overflow-y: auto;

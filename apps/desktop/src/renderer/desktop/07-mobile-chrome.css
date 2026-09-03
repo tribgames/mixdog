@@ -49,41 +49,19 @@ html[data-mixdog-mobile-tabs] .remote-connection-overlay > svg {
   width: calc(40px * var(--mx-device-scale, 1));
   height: calc(40px * var(--mx-device-scale, 1));
 }
-html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-compact="true"] {
-  gap: calc(8px * var(--mx-device-scale, 2.5));
+/* ── Tab strip ── [brand mark][title pill][+][dock toggles] (user decision
+   (a)): the Chrome-dp toolbar keeps its 44dp row, the pill names the active
+   tab, and the + and the dock toggles are the desktop's own marks scaled to
+   the row. The brand mark opens the session drawer. */
+html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-mobile="true"] {
+  gap: calc(4px * var(--mx-device-scale, 2.5));
   padding: calc(8px * var(--mx-device-scale, 2.5));
   padding-top: max(calc(8px * var(--mx-device-scale, 2.5)), env(safe-area-inset-top));
 }
-/* Trailing cluster: [home][pill][+][하단][우측] — equal boxes with shared
-   glyph ink. The + IS New task now and the grid overview is retired (user:
-   숫자 대신 +로 바꾸고 목록 전환은 제거 — 세션은 왼쪽 서랍, 옆 탭은
-   스와이프). */
-html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-compact="true"] > .workspace-tab-new {
-  display: none;
-}
-.workspace-tab-home,
-.workspace-tab-mobile-panel,
-.workspace-tab-mobile-dock {
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  color: var(--mx-text-soft);
-  background: transparent;
-  cursor: pointer;
-}
-/* PC narrow-pane compact keeps the same controls at strip scale. */
-.workspace-tab-home,
-.workspace-tab-mobile-panel,
-.workspace-tab-mobile-dock { width: 28px; height: 28px; }
-.workspace-tab-home-mark { display: block; width: 20px; height: 20px; }
-.workspace-tab-mobile-panel .codicon,
-.workspace-tab-mobile-dock .codicon { font-size: 16px; }
 html[data-mixdog-mobile-tabs] .workspace-tab-home {
-  order: 0;
-  width: calc(40px * var(--mx-device-scale, 2.5));
-  height: calc(40px * var(--mx-device-scale, 2.5));
+  width: var(--mx-touch-main);
+  height: var(--mx-touch-main);
+  min-width: var(--mx-touch-main);
 }
 html[data-mixdog-mobile-tabs] .workspace-tab-home-mark {
   /* Chrome-glyph optical size (계측: ~20dp); the frameless mark inks its
@@ -91,25 +69,11 @@ html[data-mixdog-mobile-tabs] .workspace-tab-home-mark {
   width: calc(24px * var(--mx-device-scale, 2.5));
   height: calc(24px * var(--mx-device-scale, 2.5));
 }
-html[data-mixdog-mobile-tabs] .workspace-tab-mobile-panel,
-html[data-mixdog-mobile-tabs] .workspace-tab-mobile-dock {
-  width: calc(40px * var(--mx-device-scale, 2.5));
-  height: calc(40px * var(--mx-device-scale, 2.5));
-}
-html[data-mixdog-mobile-tabs] .workspace-tab-mobile-panel { order: 4; }
-html[data-mixdog-mobile-tabs] .workspace-tab-mobile-dock { order: 5; }
-html[data-mixdog-mobile-tabs] .workspace-tab-mobile-panel .codicon,
-html[data-mixdog-mobile-tabs] .workspace-tab-mobile-dock .codicon {
-  /* 22dp font → ~19-20dp optical ink (codicon 16-grid margin), matching
-     Chrome's measured glyph weight. */
-  font-size: calc(22px * var(--mx-device-scale, 2.5));
-}
 /* Measured against the user's Chrome screenshot (pill/toolbar = 0.58 →
-   ~33dp; glyph optical ~20dp; count box ~22dp — Chrome's 24dp icons carry
-   built-in padding): one optical step DOWN from the old 40/24/24. */
+   ~33dp; glyph optical ~20dp). */
 html[data-mixdog-mobile-tabs] .workspace-tab-compact-current {
-  order: 1;
   height: calc(34px * var(--mx-device-scale, 2.5));
+  min-height: calc(44px * var(--mx-device-scale, 2.5));
   padding: 0 calc(14px * var(--mx-device-scale, 2.5));
   gap: calc(8px * var(--mx-device-scale, 2.5));
   border-radius: 999px;
@@ -117,49 +81,48 @@ html[data-mixdog-mobile-tabs] .workspace-tab-compact-current {
   font-size: calc(14px * var(--mx-device-scale, 2.5));
 }
 html[data-mixdog-mobile-tabs] .workspace-tab-compact-current > svg {
-  /* One step down with the 34dp pill. */
-  width: calc(18px * var(--mx-device-scale, 2.5));
-  height: calc(18px * var(--mx-device-scale, 2.5));
-}
-/* The old count/overview slot is the phone's New task + (user: 처음 들어가면
-   new task에서 출발 안 하니 거기 +로 바꾸자): the Chrome count contour is
-   gone; the box joins the panel toggles' grid centering and the add glyph
-   takes their shared 22dp ink. */
-html[data-mixdog-mobile-tabs] .workspace-tab-count {
-  order: 3;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 999px;
-  color: var(--mx-text-soft);
-  background: transparent;
-  box-shadow: none;
-  cursor: pointer;
-}
-html[data-mixdog-mobile-tabs] .workspace-tab-count .codicon {
-  font-size: calc(22px * var(--mx-device-scale, 2.5));
-}
-html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-compact="true"] > .workspace-tabs-trailing {
-  order: 6;
-}
-/* Projected-phone controls share one native touch tier. Main-surface controls
-   multiply by the projection factor; drawer/dialog controls are already
-   zoomed by that factor and therefore stay in unscaled dp. */
-html[data-mixdog-mobile-tabs] .workspace-tab-home,
-html[data-mixdog-mobile-tabs] .workspace-tab-mobile-panel,
-html[data-mixdog-mobile-tabs] .workspace-tab-mobile-dock,
-html[data-mixdog-mobile-tabs] .workspace-tab-count {
-  width: calc(44px * var(--mx-device-scale, 2.5));
-  height: calc(44px * var(--mx-device-scale, 2.5));
-  min-width: calc(44px * var(--mx-device-scale, 2.5));
-}
-html[data-mixdog-mobile-tabs] .workspace-tab-compact-current {
-  min-height: calc(44px * var(--mx-device-scale, 2.5));
-}
-html[data-mixdog-mobile-tabs] .workspace-tab-compact-current > svg {
   width: calc(20px * var(--mx-device-scale, 2.5));
   height: calc(20px * var(--mx-device-scale, 2.5));
+}
+/* The desktop + on the touch tier: 44 box, 22 mark, the strip's 1.5px line
+   scaled with the mark (strokes are non-scaling). */
+html[data-mixdog-mobile-tabs] .workspace-tabs-shell > .workspace-tab-new {
+  width: var(--mx-touch-main);
+  height: var(--mx-touch-main);
+  flex-basis: var(--mx-touch-main);
+  align-self: center;
+}
+html[data-mixdog-mobile-tabs] .workspace-tabs-shell > .workspace-tab-new svg {
+  width: var(--mx-touch-glyph-main);
+  height: var(--mx-touch-glyph-main);
+  padding: calc(5px * var(--mx-device-scale, 2.5));
+  border-radius: 999px;
+}
+html[data-mixdog-mobile-tabs] .workspace-tabs-shell > .workspace-tab-new svg.lucide {
+  stroke-width: calc(1.75px * var(--mx-device-scale, 2.5));
+}
+/* Dock toggles at the strip's right end, exactly the desktop cluster on the
+   touch tier: 40dp slots with 20dp marks, no gap. */
+html[data-mixdog-mobile-tabs] .workspace-tabs-trailing > .pane-dock-toggles,
+html[data-mixdog-mobile-tabs] .workspace-tabs-trailing {
+  gap: 0;
+  padding-inline: 0;
+}
+/* Preserve the same three-slot invariant when controls are absent. Mobile
+   slots are 40dp each and already scale in physical CSS pixels below. */
+html[data-mixdog-mobile-tabs] .workspace-tabs-trailing {
+  min-width: calc(120px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .workspace-tabs-trailing .pane-dock-toggle {
+  width: calc(40px * var(--mx-device-scale, 2.5));
+  height: calc(40px * var(--mx-device-scale, 2.5));
+  flex-basis: calc(40px * var(--mx-device-scale, 2.5));
+  border-radius: 999px;
+}
+html[data-mixdog-mobile-tabs] .workspace-tabs-trailing .pane-dock-toggle svg.lucide {
+  width: var(--mx-touch-row-glyph-main);
+  height: var(--mx-touch-row-glyph-main);
+  stroke-width: calc(1.75px * var(--mx-device-scale, 2.5));
 }
 /* ── + TIER 1, the composer + (user: +도 규격을 두 개로 나누던가) ── a + that
    BELONGS to an input bar has no size of its own: it takes that bar's control
@@ -171,7 +134,10 @@ html[data-mixdog-mobile-tabs] .workspace-tab-compact-current > svg {
 html[data-mixdog-mobile-tabs] .composer-footer,
 html[data-mixdog-mobile-tabs] .studio-composer-bar {
   height: calc(44px * var(--mx-device-scale, 2.5));
-  padding-inline: calc(8px * var(--mx-device-scale, 2.5));
+  /* Tighter than the desktop 8: the 44 touch boxes already carry their own
+     air, so the +/model/gauge cluster hugs the card edge like the desktop
+     row does (user: + 모델 컨텍스트 정렬도 왼쪽으로 더). */
+  padding-inline: calc(4px * var(--mx-device-scale, 2.5));
 }
 /* The phone composer used two 52dp bands, so its empty state read as a
    three-line text box; trimming the typing band to 36 then went one step too
@@ -296,61 +262,81 @@ html[data-mixdog-mobile-tabs] .composer-dictation-cancel > svg {
   width: calc(20px * var(--mx-device-scale, 2.5));
   height: calc(20px * var(--mx-device-scale, 2.5));
 }
-/* ── Status island ── it is a READOUT, not a primary control, so it takes a
-   36 slot rather than the composer's 44 touch target (user: 상하 폭이 넓어서
-   둥글게 보인다). The 44 box only inflated the capsule: the glyphs stayed near
-   their desktop size and filled half of it where desktop fills about two
-   thirds, so the pill read as an empty bulge instead of a tight mark. Slot,
-   glyphs, capsule inset and the icon stroke all follow their desktop measure
-   over its own 28 slot from here. */
-html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island {
-  --session-status-slot: calc(36px * var(--mx-device-scale, 2.5));
-  --session-status-gap: calc(36px * 2 / 28 * var(--mx-device-scale, 2.5));
-  gap: var(--session-status-gap);
-  padding: calc(36px * 2 / 28 * var(--mx-device-scale, 2.5));
+/* ── Context gauge ── seated right after the model trigger exactly like the
+   desktop footer (user: 모바일도 PC에 맞춰); the old floating status capsule
+   over the transcript is retired. The hit box takes the bar's 44 touch
+   measure while the ring keeps the desktop 15px-over-28 proportion so it
+   still lands on the model label's em box. */
+/* The attach + keeps the 44 touch height but a 36 width, so the model
+   trigger sits right beside its mark instead of a full slot away (user:
+   + 버튼이랑 모델 선택 너무 먼 듯). */
+html[data-mixdog-mobile-tabs] .composer-footer > .composer-tool {
+  width: var(--mx-touch-row-main);
+  min-width: var(--mx-touch-row-main);
+  flex-basis: var(--mx-touch-row-main);
 }
-/* The compact mobile tab strip already owns a 44dp utility-dock button. */
-html[data-mixdog-mobile-tabs] .session-status-dock-toggle {
-  display: none;
+/* A phone never hovers, but a tap leaves :hover armed until the next touch
+   lands elsewhere, so the wash stayed on after the press (user: + 버튼
+   누르니 하이라이트 안 사라짐). Rest state carries no hover wash here; the
+   press itself still flashes through :active. */
+html[data-mixdog-mobile-tabs] :is(
+  .composer-tool:not(.is-recording),
+  .model-trigger,
+  .fast-mode-toggle,
+  .pane-dock-toggle,
+  .workspace-tab-home,
+  .workspace-tab-compact-current,
+  .session-context-indicator > button
+):hover:not(:active) {
+  background: transparent;
 }
-html[data-mixdog-mobile-tabs] .session-status-island .session-context-indicator,
-html[data-mixdog-mobile-tabs] .session-status-island .session-context-indicator > button,
-html[data-mixdog-mobile-tabs] .session-work-indicator,
-html[data-mixdog-mobile-tabs] .session-work-indicator > button {
-  width: calc(36px * var(--mx-device-scale, 2.5));
-  height: calc(36px * var(--mx-device-scale, 2.5));
-  min-width: calc(36px * var(--mx-device-scale, 2.5));
-  flex-basis: calc(36px * var(--mx-device-scale, 2.5));
+html[data-mixdog-mobile-tabs] .workspace-tab-compact-current:hover:not(:active) {
+  background: var(--mx-hover);
 }
-/* The capsule alone frames this readout. Keep the scaled touch targets round
-   while the shared desktop rules leave each slot transparent. */
-html[data-mixdog-mobile-tabs] .session-status-island .session-context-indicator > button,
-html[data-mixdog-mobile-tabs] .session-status-island .session-work-indicator > button {
-  border-radius: 999px;
+html[data-mixdog-mobile-tabs] .workspace-tabs-shell > .workspace-tab-new:hover:not(:active) svg {
+  background: transparent;
 }
-/* Desktop draws a 20 ring and an 18 activity glyph inside its 28 slot. */
-html[data-mixdog-mobile-tabs] .session-status-island .session-context-indicator svg {
-  width: calc(36px * 20 / 28 * var(--mx-device-scale, 2.5));
-  height: calc(36px * 20 / 28 * var(--mx-device-scale, 2.5));
+html[data-mixdog-mobile-tabs] .pane-dock-toggle[aria-pressed="true"]:hover:not(:active) {
+  background: var(--mx-pressed);
 }
-html[data-mixdog-mobile-tabs] .session-work-icon-stack,
-html[data-mixdog-mobile-tabs] .session-work-indicator .session-work-icon {
-  width: calc(36px * 18 / 28 * var(--mx-device-scale, 2.5));
-  height: calc(36px * 18 / 28 * var(--mx-device-scale, 2.5));
+html[data-mixdog-mobile-tabs] :is(.composer-tool:not(.is-recording), .model-trigger, .pane-dock-toggle):active {
+  background: var(--mx-hover);
 }
-html[data-mixdog-mobile-tabs] .session-work-indicator .session-work-icon {
-  /* The gauge ring's stroke lives in viewBox units and rescales itself; this
-     one is a lucide mark pinned to non-scaling-stroke, so its line needs the
-     measure applied explicitly or it thins as the glyph grows. */
-  stroke-width: calc(1.75px * 36 / 28 * var(--mx-device-scale, 2.5));
+/* The route sheet's half-pixel inset frame lands between device pixels on
+   its right edge and vanishes there (user: 모델 피커 오른쪽 테두리 잘림); a
+   whole pixel draws on every edge. */
+html[data-mixdog-mobile-tabs] .route-sheet,
+html[data-mixdog-mobile-tabs] .route-sheet-flyout {
+  border-width: 1px;
 }
-html[data-mixdog-mobile-tabs] .utility-dock-tabs-header {
-  height: 44px;
-  flex-basis: 44px;
+html[data-mixdog-mobile-tabs] .composer-model-aside { margin-left: 0; }
+html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator,
+html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator > button {
+  width: var(--mx-touch-main);
+  height: var(--mx-touch-main);
+  min-width: var(--mx-touch-main);
+  flex-basis: var(--mx-touch-main);
 }
-html[data-mixdog-mobile-tabs] .utility-dock-tabs button,
-html[data-mixdog-mobile-tabs] .utility-dock-header-actions > button,
-html[data-mixdog-mobile-tabs] .utility-dock-header-actions .row-overflow-trigger,
+/* The ring hugs the model label instead of floating mid-box: the 44 hit box
+   stays, its extra width is spent to the RIGHT of the mark. */
+html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator > button {
+  justify-items: start;
+  padding-left: calc(2px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator svg {
+  width: calc(36px * 15 / 28 * var(--mx-device-scale, 2.5));
+  height: calc(36px * 15 / 28 * var(--mx-device-scale, 2.5));
+}
+/* The card opens upward from the footer on desktop too; on the phone it can
+   only be as wide as the screen minus the pane inset. The card used to anchor
+   to the gauge mid-footer, so its 220px rightward growth spilled past the
+   viewport's right edge — it now anchors to the footer itself, opening from
+   the footer's left edge where the full width always fits. */
+html[data-mixdog-mobile-tabs] .composer-footer { position: relative; }
+html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-indicator { position: static; }
+html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-popover {
+  max-width: calc(100vw - 2 * var(--mx-mobile-edge-main));
+}
 html[data-mixdog-mobile-tabs] .dock-scm-commit-back,
 html[data-mixdog-mobile-tabs] .mixdog-settings__back,
 html[data-mixdog-mobile-tabs] .mixdog-settings__close,
@@ -363,8 +349,6 @@ html[data-mixdog-mobile-tabs] .mx-dialog > header > button {
   min-width: 44px;
   flex-basis: 44px;
 }
-html[data-mixdog-mobile-tabs] .utility-dock-tabs button svg,
-html[data-mixdog-mobile-tabs] .utility-dock-header-actions button svg,
 html[data-mixdog-mobile-tabs] .mixdog-settings__back svg,
 html[data-mixdog-mobile-tabs] .mixdog-settings__close svg {
   width: 22px;
@@ -595,10 +579,11 @@ html[data-mixdog-mobile-tabs] .sidebar-backdrop[data-state="open"] {
 html[data-mixdog-mobile-tabs] .session-sidebar-resize { display: none; }
 
 /* ── Mobile right drawer (user: 우측이 좌우 전체를 덮는다 — 왼쪽처럼
-   일부만, 상하는 다 채워서) ── the agents panel is the workbench side panel,
-   NOT a bare utility dock: fix THAT element to a 78% right sheet at native
-   phone metrics; the backdrop provides outside-tap dismissal. */
-html[data-mixdog-mobile-tabs] .workbench-side-panel[data-side="right"] {
+   일부만, 상하는 다 채워서) ── the pane's side-dock UNIT — header (title,
+   child toggles, X) plus the panel — is what fixes to a 78% right sheet at
+   native phone metrics, the same one-piece grammar the desktop dock uses;
+   an outside press folds it (document-level hit test in PaneSideDock). */
+html[data-mixdog-mobile-tabs] .pane-side-dock {
   position: fixed;
   z-index: 150;
   top: 0;
@@ -620,9 +605,9 @@ html[data-mixdog-mobile-tabs] .workbench-side-panel[data-side="right"] {
   border: 0;
   border-radius: var(--mx-radius-sheet) 0 0 var(--mx-radius-sheet);
   box-shadow: -24px 0 24px var(--mx-alpha-dark-24);
-  overflow: clip;
-  contain: paint;
-  clip-path: inset(0 round var(--mx-radius-sheet) 0 0 var(--mx-radius-sheet));
+  /* No clip on the ROOT; the header and body clip themselves to the rounded
+     corners below. */
+  overflow: visible;
   /* Same slide as the left drawer (user: 열리고 닫힐 때 부드럽게): the panel
      is fixed, so the closed state can hold it off-screen instead of removing
      it — the exit runs on the same curve as the entry. */
@@ -630,18 +615,94 @@ html[data-mixdog-mobile-tabs] .workbench-side-panel[data-side="right"] {
   visibility: visible;
   transition: transform var(--mx-sheet-motion), visibility var(--mx-sheet-motion);
 }
-/* `.workbench-side-panel[hidden] { display: none }` would kill the exit, so the
-   closed sheet keeps its box and parks off the right edge. It is already
-   `inert` + `aria-hidden`, so nothing inside is reachable while it sits there. */
-html[data-mixdog-mobile-tabs] .workbench-side-panel[data-side="right"][hidden] {
-  display: flex;
+/* The closed sheet keeps its box and parks off the right edge so the exit
+   runs on the same curve as the entry; the panel inside is already `inert` +
+   `aria-hidden`, so nothing is reachable while it sits there. */
+html[data-mixdog-mobile-tabs] .pane-side-dock[data-open="false"] {
   transform: translateX(100%);
   visibility: hidden;
   pointer-events: none;
 }
 /* Responsive band corrections are layout, not gesture — they never animate. */
 html[data-mixdog-mobile-tabs]
-  .workbench-side-panel[data-side="right"][data-motion="instant"] {
+  .pane-side-dock:has(> .pane-side-dock-main > .workbench-side-panel[data-motion="instant"]) {
+  transition: none;
+}
+/* Sheet header at the touch tier: title, the SAME dock toggles the desktop
+   strip carries, and the fold X. Main-surface metrics multiply by the
+   projection factor like the tab strip above. */
+html[data-mixdog-mobile-tabs] .pane-side-dock-header {
+  flex: 0 0 var(--mx-touch-main);
+  height: var(--mx-touch-main);
+  margin-top: env(safe-area-inset-top, 0px);
+  border-left: 0;
+  border-radius: var(--mx-radius-sheet) 0 0 0;
+  overflow: clip;
+}
+html[data-mixdog-mobile-tabs] .pane-side-dock-title {
+  padding: 0 calc(14px * var(--mx-device-scale, 2.5));
+  font-size: calc(14px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .pane-side-dock-header > .pane-dock-toggles {
+  margin-left: auto;
+  gap: 0;
+  padding-inline: 0;
+}
+html[data-mixdog-mobile-tabs] .pane-side-dock-header .pane-dock-toggle,
+html[data-mixdog-mobile-tabs] .pane-side-dock-close {
+  width: var(--mx-touch-main);
+  height: var(--mx-touch-main);
+  flex-basis: var(--mx-touch-main);
+  margin: 0;
+  border-radius: 999px;
+}
+html[data-mixdog-mobile-tabs] .pane-side-dock-header .pane-dock-toggle svg.lucide,
+html[data-mixdog-mobile-tabs] .pane-side-dock-close > svg {
+  width: var(--mx-touch-glyph-main);
+  height: var(--mx-touch-glyph-main);
+  stroke-width: calc(1.75px * var(--mx-device-scale, 2.5));
+}
+/* The X owns the trailing slot like the desktop header: the shared touch
+   rule above zeroes every margin, which also dropped the desktop
+   `margin-left: auto` and left the X beside the title (user: X자가 오른쪽에
+   붙어 있지 않음). */
+html[data-mixdog-mobile-tabs] .pane-side-dock-close {
+  margin-left: auto;
+  margin-right: calc(4px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .pane-side-dock-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  border-radius: 0 0 0 var(--mx-radius-sheet);
+  overflow: clip;
+  contain: paint;
+}
+/* Browser Use and Terminal are fixed-position surfaces stacked over their
+   dock slot at z 31 — under the phone sheet's 150, so the sheet body read as
+   an empty sheet (user: 오른쪽 사이드탭 엉망). One step above the sheet, only
+   while showing; a parked surface keeps its -1. */
+html[data-mixdog-mobile-tabs] .session-terminal-surface-container:not([data-parked="true"]),
+html[data-mixdog-mobile-tabs] .session-browser-surface-container:not([data-parked="true"]) {
+  z-index: 151;
+}
+/* Inside the sheet the panel is a plain fill — the sheet owns position,
+   width, frame and motion now. `[hidden] { display: none }` still applies
+   while closed; the sheet is off-screen then anyway. */
+html[data-mixdog-mobile-tabs] .pane-side-dock .workbench-side-panel[data-side="right"] {
+  position: relative;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  /* The measured desktop column (flex: 0 0 <width>) left a bare strip on the
+     sheet's right; the panel fills the sheet. */
+  flex: 1 1 auto !important;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
   transition: none;
 }
 html[data-mixdog-mobile-tabs]
@@ -656,7 +717,8 @@ html[data-mixdog-mobile-tabs]
   min-height: 0;
   transform: scale(var(--mx-device-scale, 2.5));
   transform-origin: top left;
-  padding-top: calc(env(safe-area-inset-top, 0px) / var(--mx-device-scale, 2.5));
+  /* The sheet header above already clears the status bar. */
+  padding-top: 0;
   padding-bottom: var(--mx-mobile-sheet-safe-bottom);
 }
 html[data-mixdog-mobile-tabs]
@@ -674,7 +736,7 @@ html[data-mixdog-mobile-tabs]
   clip-path: none !important;
   outline: 0 !important;
 }
-html[data-mixdog-mobile-tabs] .workbench-side-panel[data-side="right"]::after {
+html[data-mixdog-mobile-tabs] .pane-side-dock::after {
   content: "";
   position: absolute;
   z-index: 1;
@@ -720,61 +782,6 @@ html[data-mixdog-mobile-tabs] :is(
 )::-webkit-scrollbar {
   display: none;
 }
-html[data-mixdog-mobile-tabs] .desktop-body > .utility-dock {
-  position: fixed;
-  z-index: 150;
-  top: 0;
-  right: 0;
-  bottom: auto;
-  left: auto;
-  height: calc(var(--mx-visible-height) / var(--mx-device-scale, 2.5));
-  /* Zoomed frame, so this cap reads in dp exactly like the left drawer's. */
-  width: min(calc(78vw / var(--mx-device-scale, 2.5)), 420px) !important;
-  min-width: 0;
-  max-width: none;
-  flex-basis: auto !important;
-  zoom: var(--mx-device-scale, 2.5);
-  padding-top: calc(env(safe-area-inset-top, 0px) / var(--mx-device-scale, 2.5));
-  padding-bottom: var(--mx-mobile-sheet-safe-bottom);
-  border-radius: var(--mx-radius-sheet) 0 0 var(--mx-radius-sheet);
-  box-shadow: -24px 0 24px var(--mx-alpha-dark-24);
-}
-html[data-mixdog-mobile-tabs] .desktop-body > .utility-dock::after {
-  content: "";
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  border-radius: inherit;
-  box-shadow: inset 0 0 0 1px var(--mx-border-muted);
-  pointer-events: none;
-}
-html[data-mixdog-mobile-tabs] .utility-dock > .utility-dock-tabs-header,
-html[data-mixdog-mobile-tabs] .utility-dock > .utility-dock-header,
-html[data-mixdog-mobile-tabs] .utility-dock > .utility-dock-body {
-  align-self: stretch;
-  width: 100% !important;
-  min-width: 0 !important;
-}
-html[data-mixdog-mobile-tabs] .utility-dock-resize { display: none; }
-html[data-mixdog-mobile-tabs] .dock-backdrop {
-  display: block;
-  position: fixed;
-  inset: 0;
-  z-index: 149;
-  border: 0;
-  padding: 0;
-  /* Outside-tap catcher only (user decision: side sheets do not dim). */
-  background: transparent;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-html[data-mixdog-mobile-tabs] .dock-backdrop[data-state="open"] {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-}
-
 /* ── Mobile dialogs (user: 팝업이 중앙정렬 안 되고 스크롤됨 — 전체 팝업
    정렬) ── the modal layer zooms to native phone metrics like the drawers;
    its own box is restated in pre-zoom units so it still covers exactly the
@@ -1039,7 +1046,7 @@ html[data-mixdog-mobile-tabs] :is(
 }
 
 @media (orientation: landscape) and (max-height: 500px) {
-  html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-compact="true"] {
+  html[data-mixdog-mobile-tabs] .workspace-tabs-shell[data-mobile="true"] {
     padding-block: calc(4px * var(--mx-device-scale, 2.5));
     padding-top: max(calc(4px * var(--mx-device-scale, 2.5)), env(safe-area-inset-top, 0px));
   }
@@ -1058,8 +1065,7 @@ html[data-mixdog-mobile-tabs] :is(
   html[data-mixdog-mobile-tabs] :is(
     .sidebar-drawer-frame,
     .workbench-side-panel[data-side="right"],
-    .sidebar-backdrop,
-    .dock-backdrop
+    .sidebar-backdrop
   ) {
     transition: none;
   }
@@ -1261,10 +1267,9 @@ html[data-mixdog-mobile-tabs]
   margin-right: calc(var(--mx-rail-trailing-center, 20px) - 2px - 22px);
 }
 
-/* ── 5. Utility dock / side sheet ──────────────────────────────────────────
-   The dock header and tab rail were converted; everything they contain was
-   not, so one sheet carried 18/20/22/24/25/28 at once. */
-html[data-mixdog-mobile-tabs] .utility-dock-view-section-header,
+/* ── 5. Side sheet views ──────────────────────────────────────────────────
+   The sheet header was converted; everything it contains was not, so one
+   sheet carried 18/20/22/24/25/28 at once. */
 html[data-mixdog-mobile-tabs] .dock-language-toolbar,
 html[data-mixdog-mobile-tabs] .dock-scm-check-all,
 html[data-mixdog-mobile-tabs] .workbench-side-panel-tabs,
@@ -1277,19 +1282,12 @@ html[data-mixdog-mobile-tabs] .utility-dock-pane > .dock-language-search {
   min-height: var(--mx-touch);
   flex-basis: var(--mx-touch);
 }
-html[data-mixdog-mobile-tabs] .utility-dock-view-section,
 html[data-mixdog-mobile-tabs] .dock-pr-toolbar { min-height: var(--mx-touch); }
-html[data-mixdog-mobile-tabs]
-  .utility-dock-view-section[data-sectioned="true"][data-collapsed="true"] {
-  flex-basis: var(--mx-touch);
-}
 html[data-mixdog-mobile-tabs] .workbench-side-icon-bar.is-horizontal > button {
   width: var(--mx-touch);
   height: var(--mx-touch);
   flex-basis: var(--mx-touch);
 }
-html[data-mixdog-mobile-tabs] .utility-dock-view-section-actions > button,
-html[data-mixdog-mobile-tabs] .utility-dock-view-section-actions .row-overflow-trigger,
 html[data-mixdog-mobile-tabs] .dock-pr-toolbar > button,
 html[data-mixdog-mobile-tabs] .dock-pr-toolbar .row-overflow-trigger,
 html[data-mixdog-mobile-tabs] .dock-pr-row-actions > button,
@@ -1392,7 +1390,6 @@ html[data-mixdog-mobile-tabs] :is(
 html[data-mixdog-mobile-tabs] :is(
   .row-overflow-trigger,
   .sidebar-usage-pin,
-  .utility-dock-view-section-actions > button,
   .dock-pr-toolbar > button,
   .dock-pr-row-actions > button,
   .dock-scm-list-actions > button,

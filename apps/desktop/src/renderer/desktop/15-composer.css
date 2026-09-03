@@ -142,6 +142,44 @@
 }
 .composer textarea::placeholder { color: var(--mx-text-faint); }
 .composer-footer { height: 44px; gap: 0; padding: 0 8px; }
+/* Context gauge right after the model trigger (user: 컨텍스트는 모델 선택기
+   옆). The gauge keeps its island slot; only its card flips UPWARD here, since
+   the footer is the last thing above the window's bottom edge. */
+.composer-model-aside {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: 2px;
+}
+/* Ring height = the model label's em box (user: 아이콘 상하가 폰트 상하랑 딱
+   맞게): the 20-unit viewBox draws an 18.5-unit outer diameter at stroke 2.5,
+   so a 15px box lands the ring at ~14px — the label's --mx-font-ui — on the
+   same 28px center line the trigger's 20px text line sits on. */
+.composer-model-aside .session-context-indicator svg { width: 15px; height: 15px; }
+.composer-model-aside .session-context-indicator circle { stroke-width: 2.5; }
+.composer-model-aside .session-context-popover {
+  top: auto;
+  bottom: calc(100% + 6px);
+  /* The gauge sits near the footer's LEFT end, so the card grows rightward
+     instead of hanging off the composer's left edge. */
+  left: 0;
+  right: auto;
+  transform: translateY(2px);
+}
+.composer-model-aside .session-context-indicator[data-open="true"] .session-context-popover {
+  transform: translateY(0);
+}
+.composer-model-aside .session-context-popover::before {
+  top: auto;
+  bottom: -6px;
+}
+/* The composer is its own stacking context at z-index 1, so the card used to
+   slide UNDER the turn-review bar (z 6) and the goal capsule (z 9) stacked
+   above it (user: 컨텍스트창 위계를 최상단으로). Only while the card is open
+   does the composer outrank them — at rest the capsule keeps its layer. */
+.composer:has(.composer-model-aside .session-context-indicator[data-open="true"]) {
+  z-index: 20;
+}
 /* This stable group owns right alignment. The mic is conditional, so making
    the mic own the auto margin pulled Send left whenever voice was unavailable. */
 .composer-primary-actions {
@@ -433,11 +471,11 @@
 .model-trigger > span { font-size: var(--mx-font-ui); line-height: var(--mx-line-ui); }
 .slash-palette {
   padding: 2px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: var(--mx-floating);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
   animation: mx-menu-in var(--mx-motion-chrome);
 }
 @keyframes mx-menu-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: scale(1); } }
@@ -793,11 +831,11 @@
 }
 .slash-palette {
   padding: 4px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: var(--mx-floating);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .slash-palette header { color: var(--mx-text-faint); font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); }
 .slash-palette button { grid-template-columns: 136px minmax(0,1fr); }
@@ -862,13 +900,13 @@
   column-gap: 16px;
   row-gap: 7px;
   padding: 10px 12px;
-  border: .5px solid var(--mx-border-strong);
-  border-radius: var(--mx-radius-md);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
   color: var(--mx-text);
   /* Detail popovers must mask transcript text beneath them; translucency
      belongs to the Task header's control frame, not this content surface. */
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-floating);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
   opacity: 0;
   visibility: hidden;
   transform: translateY(-2px);

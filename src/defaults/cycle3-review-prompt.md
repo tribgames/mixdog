@@ -54,7 +54,18 @@ or inconclusive, keep the CORE entry.
 - `update` — durable but verbose, multi-sentence, or non-English → rewrite as
   one compact ENGLISH clause; keep identifiers, paths, and exact
   phrases coined by the user verbatim.
-- `merge` — duplicates another entry → fold into the survivor (same project pool).
+- `merge` — folds entries into one survivor (same project pool). Two shapes:
+  - Plain duplicate: `<id>|merge|<target_id>|<source_ids_csv>` — the sources say
+    what the target already says; they are absorbed and the target text stays.
+  - Consolidation: `<id>|merge|<target_id>|<source_ids_csv>|<element>|<summary>`
+    — several entries on the SAME subject (the same command family, the same
+    bench, the same reference folder, the same vocabulary) each hold a piece
+    of one rule. Write the single compact ENGLISH clause that carries EVERY
+    piece: every path, command, flag, identifier, number, and user-coined
+    phrase from the target and each source must appear verbatim in the new
+    text, or the merge is held. Consolidate whenever a reader would want the
+    pieces together; never consolidate entries that merely share a topic
+    word but state independent rules.
 - `reclassify` — the entry is filed under the WRONG project pool. Its subject
   clearly belongs to a different pool shown among the entries under review: a
   project-specific fact stored in COMMON belongs under that project, or a generic
@@ -96,10 +107,13 @@ delete is not-durable-in-the-first-place removal.
 
 ## Current rules (Source Of Truth — loaded into the session every turn)
 
-These rules are always present, so a CORE entry that merely restates one is
-redundant → `delete`. Treat them as authority for the delete-on-restatement
-verdict only; an entry that is merely related but adds durable specifics the
-rule does not state stays `keep`/`update`.
+These rules, prompt blocks, and tool descriptions are always present, so a
+CORE entry that merely restates one — in any language — is redundant →
+`delete|default`. A memory that paraphrases a tool's own description (for
+example how a goal, browser, or computer tool behaves) is such a restatement.
+Treat them as authority for the delete-on-restatement verdict only; an entry
+that is merely related but adds durable specifics the rule does not state
+stays `keep`/`update`.
 
 {{CURRENT_RULES}}
 
@@ -117,6 +131,7 @@ One line per entry id, any order:
 <id>|keep
 <id>|update|<element>|<summary>
 <id>|merge|<target_id>|<source_ids_csv>
+<id>|merge|<target_id>|<source_ids_csv>|<element>|<summary>
 <id>|reclassify|<project_slug|common>
 <id>|superseded|<newer_id>
 <id>|delete|<reason>

@@ -532,7 +532,12 @@ function _icaclsPrincipal(principal) {
   return /^S-1-/.test(principal) ? `*${principal}` : principal;
 }
 
-function _enforceOwnerOnlyAclWin32(targetPath) {
+// `fresh: true` marks a file this process just CREATED (flag 'wx'): it carries
+// only inherited ACEs, so the /reset pass that strips stale explicit ACEs from
+// an overwritten target has nothing to remove and is skipped. Every icacls run
+// is a synchronous process spawn (~70ms), and the daemon publishes its
+// discovery file on the boot path.
+function _enforceOwnerOnlyAclWin32(targetPath, { fresh = false } = {}) {
   if (process.platform !== 'win32') return;
   const systemRoot = process.env.SystemRoot || process.env.windir;
   if (!systemRoot) {
@@ -558,10 +563,12 @@ function _enforceOwnerOnlyAclWin32(targetPath) {
     // touch — that flag only strips INHERITED ACEs), leaving the secret
     // readable by others. execFileSync throws on a non-zero exit, which
     // is exactly the fail-closed behaviour we want.
-    execFileSync(icacls, [targetPath, '/reset'], {
-      stdio: ['ignore', 'ignore', 'pipe'],
-      windowsHide: true,
-    });
+    if (!fresh) {
+      execFileSync(icacls, [targetPath, '/reset'], {
+        stdio: ['ignore', 'ignore', 'pipe'],
+        windowsHide: true,
+      });
+    }
     // STEP 2 — /inheritance:r strips the now-inherited ACEs left by the
     // reset; /grant:r replaces the principal's ACE so the resulting DACL
     // grants ONLY the current user full control. After both steps no
@@ -604,7 +611,7 @@ async function _resolveCurrentUserPrincipalAsync() {
   throw err;
 }
 
-async function _enforceOwnerOnlyAclWin32Async(targetPath) {
+async function _enforceOwnerOnlyAclWin32Async(targetPath, { fresh = false } = {}) {
   if (process.platform !== 'win32') return;
   const systemRoot = process.env.SystemRoot || process.env.windir;
   if (!systemRoot) {
@@ -621,7 +628,7 @@ async function _enforceOwnerOnlyAclWin32Async(targetPath) {
   if (_cachedUserSid === null) _cachedUserSid = await _resolveCurrentUserPrincipalAsync();
   const principal = _icaclsPrincipal(_cachedUserSid);
   try {
-    await _execFileAsync(icacls, [targetPath, '/reset'], { windowsHide: true });
+    if (!fresh) await _execFileAsync(icacls, [targetPath, '/reset'], { windowsHide: true });
     await _execFileAsync(icacls, [targetPath, '/inheritance:r', '/grant:r', `${principal}:(F)`], { windowsHide: true });
   } catch (err) {
     const e = new Error(`icacls failed to apply owner-only ACL to ${targetPath}: ${err?.message || err}`);
@@ -644,7 +651,7 @@ export function writeFileAtomicSync(filePath, data, opts = {}) {
       // DACL, so tightening tmp here means the secret never appears at
       // the final path with a permissive ACL. Fail-closed: if the ACL
       // cannot be applied, the throw below unlinks tmp and aborts.
-      if (opts.secret === true) _enforceOwnerOnlyAclWin32(tmp);
+      if (opts.secret === true) _enforceOwnerOnlyAclWin32(tmp, { fresh: true });
       if (opts.fsync !== false) {
         let fd = null;
         try {
@@ -699,10 +706,12 @@ export function writeFileAtomicSync(filePath, data, opts = {}) {
           }
         }
       }
-      if (opts.secret === true) {
-        // Re-assert owner-only on the final path (createOnly's linkSync may
-        // not carry the temp DACL the same way a rename does). Throws
-        // fail-closed if the ACL cannot be enforced.
+      if (opts.secret === true && opts.createOnly === true) {
+        // Re-assert owner-only on the final path ONLY for createOnly:
+        // linkSync may not carry the temp DACL the way a rename does. The
+        // rename path above moves the already-clamped file with its DACL
+        // intact, so re-clamping it there only paid two more icacls spawns.
+        // Throws fail-closed if the ACL cannot be enforced.
         //
         // NOTE: we deliberately do NOT clamp the parent dir. On win32
         // `_enforceOwnerOnlyAclWin32` runs `icacls /inheritance:r /grant:r
@@ -771,7 +780,7 @@ export async function writeFileAtomicAsync(filePath, data, opts = {}) {
     try {
       const writeOpts = { encoding: opts.encoding || 'utf8', flag: 'wx', mode: opts.mode !== undefined ? opts.mode : 0o600 };
       await writeFileAsync(tmp, data, writeOpts);
-      if (opts.secret === true) await _enforceOwnerOnlyAclWin32Async(tmp);
+      if (opts.secret === true) await _enforceOwnerOnlyAclWin32Async(tmp, { fresh: true });
       if (opts.fsync !== false) {
         let fd = null;
         try {
@@ -795,7 +804,9 @@ export async function writeFileAtomicAsync(filePath, data, opts = {}) {
       } else {
         await renameWithRetry(tmp, filePath, opts);
       }
-      if (opts.secret === true) await _enforceOwnerOnlyAclWin32Async(filePath);
+      // Same rule as the sync variant: rename carries the clamped DACL, so
+      // only the createOnly/link path needs the final-path re-assert.
+      if (opts.secret === true && opts.createOnly === true) await _enforceOwnerOnlyAclWin32Async(filePath);
       if (opts.fsyncDir === true) {
         let dfd = null;
         try {

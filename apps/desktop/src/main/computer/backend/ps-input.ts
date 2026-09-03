@@ -395,9 +395,48 @@ function Get-PointArg($req) {
   return @($x, $y, [MixWin32]::WindowAtPoint($x, $y))
 }
 
+# The user and the agent share one physical mouse and keyboard. Physical input
+# within this window means the user is working, so foreground actions hold
+# until the user pauses instead of fighting them for the cursor.
+$UserInputIdleMs = 1500
+$UserInputWaitMaxMs = 30000
+
+function Get-PhysicalInputIdleMs {
+  $req = $script:CurrentRequest
+  $known = 0
+  $hasKnown = $false
+  if ($null -ne $req -and $null -ne $req.known_injection_tick) {
+    $known = [int]$req.known_injection_tick
+    $hasKnown = $true
+  }
+  return [MixWin32]::PhysicalInputIdleMs($known, $hasKnown)
+}
+
+# Returns the milliseconds spent waiting, or -1 when the user was still active
+# at the deadline.
+function Wait-UserInputIdle {
+  $started = [Environment]::TickCount
+  while ($true) {
+    $idle = Get-PhysicalInputIdleMs
+    if ($idle -ge $UserInputIdleMs) { return [int]([Environment]::TickCount - $started) }
+    if (([Environment]::TickCount - $started) -ge $UserInputWaitMaxMs) { return -1 }
+    [System.Threading.Thread]::Sleep([math]::Max(100, [math]::Min(500, $UserInputIdleMs - $idle)))
+  }
+}
+
+function New-UserInputActiveResult($action, $windowId) {
+  $seconds = [math]::Round($UserInputWaitMaxMs / 1000)
+  $message = 'the user is actively using the mouse or keyboard; ' + $action + ' waited ' + $seconds + 's and sent no input. Capture fresh state and retry once the user pauses'
+  return New-ActionResult $action 'foreground' 'suspected_noop' $false $message 'user_input_active' 'foreground' $windowId
+}
+
 function Invoke-ForegroundInput($targetHandle, $action, $body, [bool]$pointerMayActivate = $false) {
   if (-not [MixWin32]::IsWindowHandle($targetHandle)) {
     return New-ActionResult $action 'foreground' 'suspected_noop' $false "$action target window is invalid" 'target_required' 'foreground' $null
+  }
+  $userWaitMs = Wait-UserInputIdle
+  if ($userWaitMs -lt 0) {
+    return New-UserInputActiveResult $action ([MixWin32]::WindowId($targetHandle))
   }
   $state = Get-CurrentSession
   $previous = [MixWin32]::Foreground()
@@ -419,6 +458,8 @@ function Invoke-ForegroundInput($targetHandle, $action, $body, [bool]$pointerMay
   }
   try {
     & $body
+    # SendKeys-based bodies bypass MixWin32, so stamp the injection here too.
+    [MixWin32]::NoteInjection()
     # SendInput only enqueues events. Custom renderers such as Chromium consume
     # them asynchronously, so keep the target stable through a bounded settle.
     [System.Threading.Thread]::Sleep(240)
@@ -429,13 +470,20 @@ function Invoke-ForegroundInput($targetHandle, $action, $body, [bool]$pointerMay
       $state.LastFocus = $targetHandle
     }
     $path = if ($focused) { 'foreground_sendinput' } else { 'foreground_pointer_activation' }
-    return New-ActionResult $action $path 'unverifiable' $false "$action input dispatched; inspect the fresh capture before treating it as complete" $null 'foreground' ([MixWin32]::WindowId($targetHandle))
+    $result = New-ActionResult $action $path 'unverifiable' $false "$action input dispatched; inspect the fresh capture before treating it as complete" $null 'foreground' ([MixWin32]::WindowId($targetHandle))
+    $result.injection_tick = [MixWin32]::LastInjectionTick
+    if ($userWaitMs -gt 0) { $result.user_wait_ms = $userWaitMs }
+    return $result
   } finally {
-    [void][MixWin32]::SetCursorPos($cursor.x, $cursor.y)
-    # Keep focus for a popup or keyboard follow-up; session_release restores
-    # the original window once the bounded Computer Use chain is finished.
-    [System.Threading.Thread]::Sleep(30)
-    [void][MixWin32]::SetCursorPos($cursor.x, $cursor.y)
+    # A user who grabbed the mouse after dispatch owns the cursor now; putting
+    # it back under their hand would be the very fight the idle wait avoids.
+    if ((Get-PhysicalInputIdleMs) -ge $UserInputIdleMs) {
+      [void][MixWin32]::SetCursorPos($cursor.x, $cursor.y)
+      # Keep focus for a popup or keyboard follow-up; session_release restores
+      # the original window once the bounded Computer Use chain is finished.
+      [System.Threading.Thread]::Sleep(30)
+      [void][MixWin32]::SetCursorPos($cursor.x, $cursor.y)
+    }
   }
 }
 
@@ -689,6 +737,9 @@ function Do-Scroll($req) {
 
 function Do-Focus($req) {
   $info = Resolve-WindowInfo $req.window $req.window_id
+  if ((Wait-UserInputIdle) -lt 0) {
+    return New-UserInputActiveResult 'focus_window' $info.Id
+  }
   $state = Get-CurrentSession
   $previous = [MixWin32]::Foreground()
   if ($state.OriginalFocus -eq [IntPtr]::Zero -and $previous -ne $info.Handle) {

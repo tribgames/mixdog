@@ -613,8 +613,15 @@ function startDeferredDesktopServices(): Promise<void> {
 async function remoteAccessInfo(): Promise<DesktopRemoteAccessInfo | null> {
   const descriptor = await host.invokeDesktopOperation('remoteAccessInfo', []);
   if (!descriptor || typeof descriptor !== 'object') return null;
-  const { buildRemoteAccessInfo } = await import('./remote-access-window');
-  return buildRemoteAccessInfo(descriptor as RemoteAccessDescriptor);
+  try {
+    const { buildRemoteAccessInfo } = await import('./remote-access-window');
+    return await buildRemoteAccessInfo(descriptor as RemoteAccessDescriptor);
+  } catch (error) {
+    // The relay leg is up at this point; a failure here is the QR renderer
+    // itself. Without a log the Settings card blames the network instead.
+    console.error('[mixdog-remote-access] pairing QR build failed:', error);
+    return null;
+  }
 }
 
 async function rotateRemoteAccess(): Promise<DesktopRemoteAccessInfo | null> {

@@ -293,20 +293,20 @@ test('clearing init scripts preserves untouched entries when cancellation lands 
   let identifiers = 0;
   let removals = 0;
   const scripts = createBrowserInitScripts({
-    guestDebugger: async () => ({}),
-    sendCdp: async (_guest, _cdp, method) => {
-      if (method === 'Page.addScriptToEvaluateOnNewDocument') {
-        identifiers += 1;
-        return { identifier: `chromium-${identifiers}` };
-      }
-      removals += 1;
-      if (removals === 2) {
-        controller.abort(new Error('fixture cancelled'));
-        throw controller.signal.reason;
-      }
-      return {};
+    cdp: {
+      call: async (_guest, method) => {
+        if (method === 'Page.addScriptToEvaluateOnNewDocument') {
+          identifiers += 1;
+          return { identifier: `chromium-${identifiers}` };
+        }
+        removals += 1;
+        if (removals === 2) {
+          controller.abort(new Error('fixture cancelled'));
+          throw controller.signal.reason;
+        }
+        return {};
+      },
     },
-    cdpTimeoutMs: 1_000,
   });
   await scripts.initScriptResult(guest, { operation: 'add', script: 'window.one = 1' });
   await scripts.initScriptResult(guest, { operation: 'add', script: 'window.two = 2' });

@@ -33,6 +33,7 @@ export type WorkbenchSideViewId =
   | SidebarPanelKey
   | UtilityDockTab
   | WorkbenchSideLauncherId
+  | "session-diff"
   | "browser"
   | "terminal";
 export type WorkbenchSideViewGroup = readonly WorkbenchSideViewId[];
@@ -74,6 +75,7 @@ const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
   "schedules",
   "webhooks",
   "studio",
+  "session-diff",
   "browser",
   "terminal",
   "agents",
@@ -82,11 +84,10 @@ const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
   "pull-requests",
 ];
 
-/** The left rail carries every destination in the requested order; the right
- *  side belongs to the PANE now (user: 오른쪽 사이드탭은 이제 PANE 종속이라),
- *  so it holds only the two views a pane's own content drives. Disabled
- *  features (webhooks, pull-requests) trail their side and drop out entirely
- *  while their flag is off. */
+/** The left rail carries Project-wide destinations, including Source Control.
+ *  The right side belongs to the PANE (user: 오른쪽 사이드탭은 이제 PANE
+ *  종속이라): session Diff and session-owned surfaces lead, while legacy
+ *  Pull Requests remains available behind its feature flag. */
 export const DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT: WorkbenchSideViewLayout = {
   left: [
     ["agents"],
@@ -95,11 +96,12 @@ export const DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT: WorkbenchSideViewLayout = {
     ["studio"],
     ["workflows"],
     ["search"],
+    ["source-control"],
     ["extensions"],
     ["projects"],
     ["webhooks"],
   ],
-  right: [["source-control"], ["browser"], ["terminal"], ["pull-requests"]],
+  right: [["session-diff"], ["browser"], ["terminal"], ["pull-requests"]],
 };
 
 function isViewId(value: unknown): value is WorkbenchSideViewId {
@@ -133,6 +135,12 @@ export function normalizeWorkbenchSideViewLayout(
     : {};
   const allowed = new Set(available);
   const seen = new Set<WorkbenchSideViewId>();
+  // The right side belongs to the pane and cannot be rearranged, so only the
+  // views that ship there may stay there. A stored placement from before a
+  // view moved rails (Source Control, Search…) re-seats on the left in default
+  // order instead of lingering on the right forever (user: 소스컨트롤은 왼쪽
+  // 사이드탭으로 이동해야하고).
+  const paneBound = new Set(DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT.right.flat());
   const normalizeSide = (side: WorkbenchSide): WorkbenchSideViewId[][] => {
     const groups: WorkbenchSideViewId[][] = [];
     const rawGroups = Array.isArray(record[side]) ? record[side] : [];
@@ -141,6 +149,7 @@ export function normalizeWorkbenchSideViewLayout(
       const group: WorkbenchSideViewId[] = [];
       for (const id of rawGroup) {
         if (!isViewId(id) || !allowed.has(id) || seen.has(id)) continue;
+        if (side === "right" && !paneBound.has(id)) continue;
         seen.add(id);
         group.push(id);
       }
@@ -303,18 +312,25 @@ export function moveWorkbenchSideView(
   return next;
 }
 
+/** The left drawer's home destination: Agents whenever the rail carries it
+ *  (user: 재부팅하면 에이전트 디폴트로 — 세션이 선택되어 있음), regardless of
+ *  where a stored rail order happens to place it. */
+const LEFT_HOME_VIEW: WorkbenchSideViewId = "agents";
+
 /**
- * First active view per side: ALWAYS the leading group (user: 좌·우·하단 도크
- * 전부 첫 메뉴로 초기화). No last-visited view survives a reload — the dock tab
- * and the bottom panel drop their persisted selection for the same reason — so
- * every reconnect lands on one predictable entry point per edge. A side that
- * holds nothing has no active view.
+ * First active view per side. No last-visited view survives a reload (user:
+ * 좌·우·하단 도크 전부 첫 메뉴로 초기화) — the dock tab and the bottom panel
+ * drop their persisted selection for the same reason — so every reconnect
+ * lands on one predictable entry point per edge: the left opens on Agents
+ * when present (else its leading group), the right on the group that leads
+ * it. A side that holds nothing has no active view.
  */
 export function initialActiveWorkbenchSideViews(
   layout: WorkbenchSideViewLayout,
 ): Record<WorkbenchSide, WorkbenchSideViewId | null> {
+  const leftHome = layout.left.find((group) => group[0] === LEFT_HOME_VIEW)?.[0];
   return {
-    left: layout.left[0]?.[0] ?? null,
+    left: leftHome ?? layout.left[0]?.[0] ?? null,
     right: layout.right[0]?.[0] ?? null,
   };
 }
@@ -395,6 +411,9 @@ export function useWorkbenchSideViewLayout(available: readonly WorkbenchSideView
 export interface WorkbenchSideViewDescriptor {
   id: WorkbenchSideViewId;
   label: string;
+  /** Header title when it should read shorter than the capability name
+   *  (user: 브라우저 유즈 → 브라우저 로 헤더 바꾸고). */
+  title?: string;
   tooltip?: string;
   icon: LucideIcon;
   onPrefetch?(): void;

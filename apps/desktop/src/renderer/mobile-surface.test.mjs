@@ -90,53 +90,58 @@ test("phone sheets preserve unread activity until the conversation is visible ag
   }), "session-a");
 });
 
-test("an open Goal card expands away from its host and keeps task overflow", () => {
+test("the Goal task drawer overlays from a fixed capsule slot and keeps task overflow", () => {
   const dom = new JSDOM(`<!doctype html><html><head><style>${markdownSource}</style></head><body>
-    <div class="session-goal-host" data-goal-placement="composer">
+    <div class="session-goal-host">
       <div class="session-goal-island" data-open="true">
-        <section class="session-goal-popover"><div class="session-goal-tasks"><ul></ul></div></section>
+        <div class="session-goal-stack">
+          <div class="session-goal-drawer"><div class="session-goal-drawer-clip">
+            <section class="session-goal-panel"><div class="session-goal-tasks"><ul><li></li><li></li></ul></div></section>
+          </div></div>
+        </div>
       </div>
     </div>
-    <div class="session-goal-host" data-goal-placement="diff">
-      <div class="session-goal-island" data-open="true">
-        <section class="session-goal-popover"></section>
+    <div class="session-goal-host">
+      <div class="session-goal-island" data-open="false">
+        <div class="session-goal-stack">
+          <div class="session-goal-drawer"><div class="session-goal-drawer-clip"></div></div>
+        </div>
       </div>
     </div>
   </body></html>`);
-  const composerPopover = dom.window.document.querySelector(
-    '[data-goal-placement="composer"] .session-goal-popover',
-  );
-  const diffPopover = dom.window.document.querySelector(
-    '[data-goal-placement="diff"] .session-goal-popover',
-  );
+  const island = dom.window.document.querySelector('[data-open="true"]');
+  const stack = dom.window.document.querySelector('[data-open="true"] .session-goal-stack');
+  const openDrawer = dom.window.document.querySelector('[data-open="true"] .session-goal-drawer');
+  const closedDrawer = dom.window.document.querySelector('[data-open="false"] .session-goal-drawer');
+  const panel = dom.window.document.querySelector(".session-goal-panel");
   const taskList = dom.window.document.querySelector(".session-goal-tasks ul");
+  const secondTask = dom.window.document.querySelector(".session-goal-tasks li + li");
 
-  assert.equal(dom.window.getComputedStyle(composerPopover).top, "auto");
-  assert.equal(dom.window.getComputedStyle(composerPopover).bottom, "calc(100% + 6px)");
-  assert.equal(dom.window.getComputedStyle(diffPopover).top, "calc(100% + 6px)");
-  assert.equal(dom.window.getComputedStyle(diffPopover).bottom, "auto");
+  assert.equal(dom.window.getComputedStyle(island).height, "var(--session-goal-trigger-height)");
+  assert.equal(dom.window.getComputedStyle(stack).position, "absolute");
+  assert.equal(dom.window.getComputedStyle(stack).bottom, "0px");
+  assert.equal(dom.window.getComputedStyle(stack).overflow, "hidden");
+  assert.equal(dom.window.getComputedStyle(stack).transition, "none");
+  assert.equal(dom.window.getComputedStyle(panel).borderTopStyle, "none");
+  assert.equal(dom.window.getComputedStyle(panel).marginTop, "0px");
+  assert.equal(dom.window.getComputedStyle(openDrawer).gridTemplateRows, "1fr");
+  assert.equal(dom.window.getComputedStyle(openDrawer).transition, "none");
+  assert.equal(dom.window.getComputedStyle(openDrawer).pointerEvents, "auto");
+  assert.equal(dom.window.getComputedStyle(closedDrawer).gridTemplateRows, "0fr");
+  assert.equal(dom.window.getComputedStyle(closedDrawer).pointerEvents, "none");
   assert.equal(dom.window.getComputedStyle(taskList).overflowY, "auto");
+  assert.notEqual(dom.window.getComputedStyle(taskList).scrollbarGutter, "stable");
+  assert.equal(dom.window.getComputedStyle(secondTask).borderTopStyle, "");
   dom.window.close();
 });
 
-test("the narrow-band dock sheet never re-frames the panel-nested dock", () => {
-  // The right panel already IS the phone/narrow sheet; its nested dock must
-  // stay in normal flow. An unqualified `.utility-dock { position: fixed }`
-  // in the ≤940px band turned that nested dock into a SECOND fixed sheet —
-  // titlebar-offset top plus 100% height pushed its last rows 35px past the
-  // panel frame (user: 프레임 안에 들어오는 구조인데 요소만 넘친다).
-  assert.match(
-    editorSource,
-    /\.desktop-body > \.utility-dock\s*\{[^}]*position:\s*fixed;/su,
-  );
-  assert.doesNotMatch(
-    editorSource,
-    /\n\s{2}\.utility-dock\s*\{[^}]*position:\s*fixed;/su,
-  );
-  assert.doesNotMatch(
-    editorSource,
-    /\n\s{2}\.utility-dock(?:\.closing)?\s*\{[^}]*animation:\s*utility-dock-sheet-in/su,
-  );
+test("the panel-nested dock view stays in normal flow", () => {
+  // The right panel IS the phone/narrow sheet; the dock view nested in it
+  // must never become a SECOND fixed sheet — the retired window-level dock
+  // once did exactly that (user: 프레임 안에 들어오는 구조인데 요소만 넘친다).
+  for (const source of [editorSource, mobileChromeSource]) {
+    assert.doesNotMatch(source, /\.utility-dock\s*\{[^}]*position:\s*fixed;/su);
+  }
 });
 
 test("iOS boot preserves device-width and marks the phone before CSS paint", () => {
@@ -300,10 +305,6 @@ test("phone finishing rules keep reading, touch and safe-area geometry aligned",
     mobileChromeSource,
     /\.workbench-side-panel\[data-side="right"\] > \.workbench-side-panel-content\s*\{[^}]*padding-bottom:\s*var\(--mx-mobile-sheet-safe-bottom\);/su,
   );
-  assert.match(
-    mobileChromeSource,
-    /\.desktop-body > \.utility-dock\s*\{[^}]*padding-bottom:\s*var\(--mx-mobile-sheet-safe-bottom\);/su,
-  );
 });
 
 test("rail trailing controls resolve to one 20px centerline", () => {
@@ -346,14 +347,14 @@ test("rail trailing controls resolve to one 20px centerline", () => {
   );
 });
 
-test("PC and phone usage flyouts share the desktop sidebar default width", () => {
+test("PC and phone usage flyouts share one widened width", () => {
   assert.match(
     activityRailSource,
     /import \{ DESKTOP_SIDEBAR_DEFAULT_WIDTH \} from "\.\.\/shared\/window-layout";/u,
   );
   assert.match(
     activityRailSource,
-    /className="rail-usage-popup"[\s\S]*?width:\s*DESKTOP_SIDEBAR_DEFAULT_WIDTH,/u,
+    /className="rail-usage-popup"[\s\S]*?width:\s*DESKTOP_SIDEBAR_DEFAULT_WIDTH \+ 36,/u,
   );
   assert.doesNotMatch(
     sidebarUsageSource,
@@ -380,17 +381,14 @@ test("every screen-pinned sheet takes the visible-height ceiling", () => {
     mobileRuntimeSource,
     /html\[data-mixdog-mobile-tabs\] body\s*\{[^}]*height:\s*var\(--mx-visible-height\);/su,
   );
+  // The right sheet is the pane's whole side-dock UNIT (header + panel).
   assert.match(
     mobileChromeSource,
-    /\.workbench-side-panel\[data-side="right"\]\s*\{[^}]*height:\s*var\(--mx-visible-height\);/su,
+    /html\[data-mixdog-mobile-tabs\] \.pane-side-dock\s*\{[^}]*position:\s*fixed;[^}]*height:\s*var\(--mx-visible-height\);/su,
   );
   assert.match(
     mobileChromeSource,
     /\.sidebar-drawer-frame\s*\{[^}]*height:\s*calc\(var\(--mx-visible-height\) \/ var\(--mx-device-scale, 2\.5\)\);/su,
-  );
-  assert.match(
-    mobileChromeSource,
-    /\.desktop-body > \.utility-dock\s*\{[^}]*height:\s*calc\(var\(--mx-visible-height\) \/ var\(--mx-device-scale, 2\.5\)\);/su,
   );
   // The narrow-band right sheet retired with the pane-embedded dock: a
   // narrow PANE overlays its own panel (pane-layout.css container query), so

@@ -570,6 +570,7 @@ function Invalidate-RefsForRequest($req) {
 
 function Handle($req) {
   $script:CurrentSession = Get-SessionState $req.session_id
+  $script:CurrentRequest = $req
   $readActions = @('list_windows','window_snapshot','related_windows','snapshot','find','clipboard_read','wait','window_bounds','window_capture','window_predicates','window_integrity','input_recovery_state','ocr_image','ocr_status')
   if ($req.read_only -and -not ($readActions -contains [string]$req.action)) {
     throw "read_only run: '$($req.action)' is a mutation"

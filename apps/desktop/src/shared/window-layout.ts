@@ -16,4 +16,4 @@ export function clampDesktopPanelWidth(value: number, minWidth: number, maxWidth
    Remote browsers use DESKTOP_WINDOW_DEFAULT_WIDTH as a virtual projection
    viewport, so phone screens scale this desktop composition instead of
    activating the native window's narrow layout bands. */
-export const DESKTOP_WINDOW_MIN_WIDTH = 360;
+export const DESKTOP_WINDOW_MIN_WIDTH = 400;

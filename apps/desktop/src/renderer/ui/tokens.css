@@ -135,10 +135,10 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--mx-border);
-  border-radius: var(--mx-radius-lg);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-overlay);
+  border: var(--mx-popup-border, 1px solid var(--mx-border));
+  border-radius: var(--mx-popup-radius-card, var(--mx-radius-lg));
+  background: var(--mx-popup-bg, var(--mx-bg-base));
+  box-shadow: var(--mx-popup-shadow, var(--mx-overlay));
 }
 .mx-dialog > header,
 .mx-dialog > footer {

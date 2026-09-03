@@ -205,6 +205,17 @@ export function BottomPanel({
   useLayoutEffect(() => {
     if (open) syncOverlay();
   }, [open, height, syncOverlay]);
+  // The workspace column's pane floor keys on this flag instead of
+  // `.main-panel:has(.bottom-panel)`: that :has() made Chromium re-scan the
+  // whole column — every diff row, every transcript row — on each composer
+  // keystroke (measured 10–16ms of style recalc per key beside a big diff).
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    const column = panel?.closest<HTMLElement>(".main-panel") ?? panel?.parentElement;
+    if (!column) return undefined;
+    column.dataset.bottomPanel = "true";
+    return () => { delete column.dataset.bottomPanel; };
+  }, []);
   useEffect(() => {
     if (!open || typeof ResizeObserver === "undefined") return undefined;
     const parent = panelRef.current?.parentElement;

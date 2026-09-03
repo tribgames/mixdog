@@ -1,98 +1,80 @@
 ---
 name: pptx
-description: Use when creating, redesigning, or reviewing a PowerPoint deck (.pptx) with the office tool. Carries the authoring workflow (pptxgenjs script → render → critique → finalize), the design system (brief, style families, palette ladder, rhythm), and the file-corrupting library footguns. Load before the first office call for a deck.
+description: Use when creating, redesigning, or reviewing a PowerPoint deck (.pptx) with the office tool. Carries the authoring process (brief → pptxgenjs script → render → QA → finalize), the load routing for its references, and the library boundaries the runtime cannot absorb; the design system is references/design.md, the skeleton catalog references/layouts.md, picture work references/pictures.md, the code references/device-kit.md. Load before the first office call for a deck.
 metadata:
   requires: office
 ---
 
 # PPTX authoring (office tool + pptxgenjs)
 
-## Workflow with the office tool
-1. Read `references/helper-kit.md` in this skill's folder before writing the script: it holds the helper functions and the layout menu the script builds on.
-2. Write the brief (section 1) as a comment block, then the whole deck as one pptxgenjs script.
-3. `office action:'author' path:<deck.pptx> script:<script>` — writes the file, opens the session, returns every slide rendered. Pass `overwrite:true` when re-authoring the same path.
-4. Look at every rendered image. Fix defects in the script, never in the file, and author again.
-5. `office action:'finalize' session:<id> design:{ reviewed:true, reviewToken, critique:[one entry per slide] }` — validates the package, saves, closes. The exact critique shape is in section 8.
-6. `compose_slide` and the other `batch` operations exist for editing decks that already exist; a new deck is always authored as a script.
+This file owns the process, the brief contract, and the QA gate. Every design decision lives in one reference; this file points, it does not paraphrase.
 
-## 0. Script contract
-- `const pptxgen = require('pptxgenjs'); const pres = new pptxgen();` once per file.
-- Set `pres.layout = 'LAYOUT_WIDE'` (13.33 x 7.5 in) before adding slides. Coordinates are inches; anything past the edge is written but invisible.
-- End with `await pres.writeFile({ fileName: OUTPUT });`. OUTPUT is injected; never hard-code a path.
-- Speaker notes: `slide.addNotes('...')`. Never put notes in a text box.
+## 1. Load routing
+| File | Owns | Read when |
+|---|---|---|
+| `references/design.md` | reading mode, argument mode, family presets, composition grammar, device recall, palette, typography, spacing, forbidden tells | always, before the brief |
+| `references/layouts.md` | S·E·R skeletons with starting geometry and kit calls | always, before the slide plan |
+| `references/device-kit.md` | tokens, masters, helper functions | always, before the script |
+| `references/pictures.md` | P skeletons, picture modifiers, picture helpers | only when the user supplied picture files |
 
-## Library footguns (each one corrupts or silently breaks the file)
-- Colors are 6 hex digits without '#'. Alpha in the hex corrupts the file; use `transparency: 0-100` on fills.
-- Build a fresh options object for every add* call; the library rewrites option objects in place.
-- Shadow `offset` must be >= 0. Cast upward with `angle: 270`.
-- `letterSpacing` is ignored; the option is `charSpacing`.
-- Bullets: `bullet: true` per item and `breakLine: true` on every item but the last. Never type a literal bullet character. Space paragraphs with `paraSpaceAfter`, not `lineSpacing`.
-- `rectRadius` only applies to `ROUNDED_RECTANGLE`.
-- Gradient fills are unsupported; use a gradient image as background.
-- Text boxes carry internal padding; set `margin: 0` when text must align with a shape edge.
-- Charts stay native via `addChart`. Style them: `showTitle`, `showValue`, `dataLabelPosition`, `chartColors`, quiet axes and gridlines, `showLegend:false` for one series.
-- Stacked bar/column `dataLabelPosition` must be `ctr`, `inEnd`, or `inBase`; `outEnd` corrupts the file.
-- A combo series on a secondary axis needs both `valAxes` and `catAxes` with two entries each, or PowerPoint drops the chart.
-- Images: `addImage({ data: 'image/png;base64,' + buffer.toString('base64') })` or `{ path }`. Rasterize SVG with sharp at >= 256 px.
+## 2. Workflow
+1. Read the always-loaded references; add `pictures.md` on its trigger.
+2. Write the brief (§3) as a comment block, then the whole deck as one pptxgenjs script built on the kit.
+3. `office action:'author' path:<deck.pptx> script:<script>` — writes the file, opens the session, returns every slide rendered. `overwrite:true` when re-authoring the same path.
+4. Inspect every rendered image against §5. Fix defects in the script, never in the file, and author again; one or two loops is normal.
+5. `office action:'finalize' session:<id> design:{ reviewed:true, reviewToken, critique:[...] }` — validates the package, saves, closes.
+6. `compose_slide` and the other `batch` operations edit decks that already exist; a new deck is always authored as a script.
 
-## 1. Write the brief before the script
-Decide the whole visual system first and paste it as a comment block at the top of the script, so every re-author keeps the same decisions:
+## 3. Brief (contract)
 ```
 // BRIEF
 // subject/audience/action: <what this deck must make someone do>
-// style family: <one of the families below>
-// hue: <angle or name> · ladder: ink/body/muted/paper/paperAlt/line · accent: <hex> (accentDeep <hex>)
-// motif: <one repeated device> · page chrome: <kicker? page badge? none?>
-// density: low|medium|high · rhythm: anchor, dense, breathing, dense, ... , anchor
-// slide plan: 1 cover · 2 <layout> · 3 <layout> · ... · N closing
+// reading mode: presentation | balanced | text · argument mode: pyramid | narrative | instructional | showcase | briefing
+// family: <one of design.md §3> · palette from: <subject/temperature> · accent: <hex>
+// ladder: ink/body/muted/paper/paperAlt/line/tint · dark/darkAlt/onDark
+// motif: <from the family preset> · chrome: <from the family preset, on the master>
+// rhythm: anchor, dense, breathing, dense, ... , anchor
+// slide plan: 1 cover <skeleton> · 2 <atom · topology · skeleton id · carrier> · ... · N closing
 ```
-A deck without a brief drifts into a different look on every slide. If the request is thin, invent a defensible brief from the subject; never leave fields blank.
+**Hard rule**: every content slide's plan line names its relationship atom, the topology axis, the skeleton id, and the carrier before any geometry exists; a thin request gets a defensible brief invented from the subject, never blank fields.
 
-## 2. Style families (pick one, vary only inside it)
-- swiss-grid: strict columns, restrained type, one saturated accent, hairline separators, no decoration off the grid. Technical decks, research, product briefs.
-- editorial-contrast: serif display + sans body, asymmetric column split, oversized numerals or crops crossing a column edge, generous outer margins. Narratives, strategy, thought pieces.
-- dark-launch: deep background throughout, large type, one luminous accent, images with a 40-55% dark overlay. Keynotes, launches, closing calls to action.
-- soft-brief: neutral surfaces, quiet tinted cards, simple diagrams, low saturation. Business introductions, onboarding, status updates.
-- matrix-analysis: tables, 2x2s, comparison columns, high label clarity, little illustration. Frameworks, evaluations, decisions.
-An 8-10 slide deck uses at most five distinct layouts; the same layout never appears twice in a row.
+## 4. Script contract and library boundaries
+- `const pptxgen = require('pptxgenjs'); const pres = new pptxgen();` once. Available modules: `pptxgenjs`, `sharp`, `node:fs`, `node:path`, `node:buffer`; no network, no icon or photo library.
+- `pres.layout = 'LAYOUT_WIDE'` (13.33 × 7.5 in) before masters and slides; coordinates in inches; end with `await pres.writeFile({ fileName: OUTPUT })` (OUTPUT is injected).
+- Speaker notes: `slide.addNotes('...')`, never a text box.
+- Pictures: user files (`{ path }`) or sharp-rasterized SVG (`{ data: 'image/png;base64,...' }`) at ≥ 2× the placed size in pixels.
 
-## 3. Palette ladder
-- One hue family per deck. Backgrounds and text sit within ±20° of the main hue; a second hue is allowed only as the accent or a ≤15% area support color.
-- Build a neutral ladder plus one accent: ink (titles, L 10-20%), body (L 25-35%), muted (captions, L 40-55%), paperAlt (zebra rows, soft cards, L 88-93%), paper (content background, L 95-98%), line (1 pt hairlines). Then accent (S 60-90%, the only saturated color) and accentDeep (its darker sibling).
-- Adjacent ladder steps differ by 10-25% lightness; closer is invisible, wider looks like a jump.
-- Saturation by area: large fields ≤20%, text ≤25%, accent 60-90% on ≤10% of the canvas. Pure 000000/FFFFFF pairs read harsh; tint the dark toward the hue (e.g. 0B1B2B) and the light likewise (e.g. F4F7F9).
-- Contrast: body text ≥4.5:1, text ≥18 pt or bold ≥14 pt ≥3:1, white on an accent block ≥3:1. Accent is never body text. Meaning never rides on color alone: label or shape it too.
-- Temperature by subject: tech/finance cool blues (210-240°), education/growth greens (100-160°), health cyans (170-190°), creative/marketing warm oranges and pinks (10-40°), academic indigos (230-260°). Starting points (primary / secondary / accent): Midnight Executive 1E2761/CADCFC/FFFFFF; Forest & Moss 2C5F2D/97BC62/F5F5F5; Coral Energy F96167/F9E795/2F3C7E; Warm Terracotta B85042/E7E8D1/A7BEAE; Ocean Gradient 065A82/1C7293/21295C; Charcoal Minimal 36454F/F2F2F2/212121; Teal Trust 028090/00A896/02C39A; Berry & Cream 6D2E46/A26769/ECE2D0; Sage Calm 84B59F/69A297/50808E; Cherry Bold 990011/FCF6F5/2F3C7E. If the colors would work on any other deck, choose again.
+The runtime absorbs what it can (one `a:pPr` per paragraph; package validation at finalize). What it cannot, the script must avoid:
+| Boundary | Failure |
+|---|---|
+| Colors are 6 hex digits without `#`; alpha via `transparency` / shadow `opacity` | alpha in the hex corrupts the file |
+| A fresh options object for every add* call | the library rewrites option objects in place |
+| Shadow `offset` ≥ 0; cast upward with `angle: 270` | negative offset corrupts the file |
+| `charSpacing`, not `letterSpacing` | ignored silently |
+| Bullets: `bullet: true` on each item's first run, `breakLine: true` on every item but the last; `paraSpaceAfter`, not `lineSpacing`, between items | literal bullet characters and lineSpacing double the spacing |
+| `rectRadius` only on `roundRect`; other corners are their own presets | ignored silently |
+| Solid shape fills only; a gradient is a rasterized SVG image | gradient fill options are dropped |
+| `margin: 0` when text must align with a shape edge | boxes carry internal padding |
+| Stacked bar/column `dataLabelPosition` in `ctr`, `inEnd`, `inBase` | `outEnd` corrupts the file |
+| A secondary-axis combo needs `valAxes` and `catAxes` with two entries each | PowerPoint drops the chart |
 
-## 4. Page rhythm and canvas
-- Assign each slide a role: anchor (cover, section, closing: one statement, lots of air), dense (evidence, tables, grids), breathing (one hero number or one quote, no card grid). Alternate dense and breathing; open and close with anchors; sandwich dark anchors around light content or commit to dark throughout.
-- Every slide carries a visual: native chart, image, an icon built from shapes, or a composed figure. Title plus bullets is a draft.
-- Fill the frame with intent. Content spans the safe area's width and height; residual blank in one corner is a defect, while air around a focal element is design.
-- Choose one motif (rounded frames, icons in tinted circles, an oversized numeral, a bracketed kicker) and repeat it on anchor slides. Repeated page chrome (kicker, footer label, page badge) is fine; a color bar or edge stripe alone is not a motif.
-- Hierarchy is carried by size, weight, position, and space together; the most prominent element on the page must be the one the slide is about.
+## 5. QA and finalize
+Inspect every rendered slide in this order. Hard hits block finalize.
 
-## 5. Refuse
-- Cards inside cards, framed panels that carry no information, equal card grids on a breathing page.
-- Accent lines under titles, header/footer bars, sidebar stripes, single-side card borders: machine-made filler. Separate with a tint, a hairline, a shadow, or an icon.
-- Purple-blue SaaS gradients as the default answer; cream/beige defaults (F5F5DC, FAF0E6, FAEBD7, FFF8E1); rainbow decks with a new color per slide.
-- A full-bleed image under title text without a 40-55% scrim; an image that is merely decorative.
-- Text-only slides, centered paragraphs, low-contrast text, one styled slide beside plain ones, leftover placeholder copy.
-- charSpacing on Hangul or CJK text (it looks broken); keep it for Latin kickers only.
+Hard:
+1. Out of bounds: any element past the 13.33 × 7.5 canvas.
+2. Overflow: text past its container or clipped at a box edge.
+3. Text overlap: two text blocks intersect; text through a shape or line.
+4. Readability: contrast below 4.5:1 (3:1 for ≥ 18 pt or bold ≥ 14 pt); text on a picture without a scrim.
+5. Collision: shapes overlap where z-order breaks the meaning.
+6. Broken picture: empty, stretched, or blurred raster.
+7. Missing element: something the slide plan promised is absent; leftover placeholder copy.
+8. System drift: the same skeleton on adjacent slides or a third time, a color outside the ladder, a device from another family, all content slides on one background.
 
-## 6. Typography
-- Safe families that render true-to-width everywhere: Arial, Calibri, Cambria, Times New Roman, Courier New, Bookman Old Style, Century Schoolbook, Malgun Gothic. Pair a serif display with a sans body for contrast at zero risk; Korean text uses Malgun Gothic for body and may keep a Latin display face for numerals.
-- Never Aptos; older Office lacks it and previews substitute it unpredictably. Georgia, Trebuchet, Impact, Garamond, Consolas preview approximately: give them ~10% extra room and do not trust fit checks on them.
-- Ladder: cover title 40-44 pt bold, slide title 32-36 pt bold, section header 20-24 pt bold, card title 16 pt bold, body 14-16 pt, captions 11-12 pt muted, hero numerals 54-72 pt, kicker 11 pt bold uppercase with charSpacing 4 (Latin only). Use the fewest roles that still read at thumbnail size; titles need at least 2x the body size.
-- Left-align body text and lists; center only titles on anchor slides and single callouts. Break lines at phrase boundaries; a stranded single word on the last line means the box is the wrong width.
+Soft (fix when the change is local):
+- Line step under 1.05× the font size, or a hollow gap over 1.5 in inside one block (breathing slides exempt).
+- Same-column x or same-row baselines differing by more than 0.05 in; peer gaps differing by more than 5%.
+- The most prominent element is not what the slide is about.
+- Caption more than 0.5 in from its picture; margins under 0.5 in; blocks closer than 0.3 in.
 
-## 7. Spacing
-- 0.5 in minimum from every slide edge; 0.3-0.5 in between blocks, applied consistently; related items sit closer than unrelated ones so spacing carries hierarchy.
-- Baseline step inside a paragraph 1.15-1.3x the font size; the step into a new paragraph visibly larger; list items in between.
-- Peer elements share one grid: same x for a column, same baseline for a row, equal gaps in a card row (within 5%).
-- Do not let text overflow its box. Shrink the type, widen the box, or split the slide.
-
-## 8. QA before finalize
-1. Render and inspect every slide image, in this order: out-of-bounds and clipped text; overflow past a container; overlapping text or shapes; elements closer than 0.3 in; margins under 0.5 in; misaligned columns and uneven card gaps; contrast; text over a busy image without a scrim; leftover placeholder copy; the wrong element dominating the page.
-2. Severity: P0 (unreadable, collision, overflow, broken image) and P1 (visual-system drift, unsafe color pair, missing scrim, layout repeated back to back) block finalize. P2 (spacing drift, weak hierarchy) gets fixed when the change is local. P3 (polish) is noted in the critique's fixes.
-3. Fix the script, not the file. Author again with overwrite:true and render again; one or two loops is normal.
-4. Finalize with `design: { reviewed: true, reviewToken, critique }` where reviewToken comes from the last render and critique holds one entry per slide: slide, verdict ('pass'), five 1-5 scores as top-level fields (hierarchy, balance, legibility, cohesion, evidence), a slide-specific note of 40+ characters, and fixes. A score of 3 or lower on any axis marks the slide as still needing polish.
+Finalize with `design: { reviewed: true, reviewToken, critique }`: reviewToken from the last render; critique holds one entry per slide with `slide`, `verdict` ('pass'), five 1-5 scores as top-level fields (`hierarchy`, `balance`, `legibility`, `cohesion`, `evidence`), a slide-specific `note` of 40+ characters, and `fixes`. A score of 3 or lower on any axis marks the slide as still needing polish.

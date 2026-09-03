@@ -5,7 +5,7 @@
  * the reads already in flight, so it never lands mid-observation.
  */
 import type { BrowserCommand, BrowserCommandResult } from './command';
-import { normalizeBackgroundTabName } from './host-policy';
+import { normalizeBackgroundTabName } from './tab-policy';
 
 export interface BrowserCommandQueueHost {
   /** One promise chain per queue key. */

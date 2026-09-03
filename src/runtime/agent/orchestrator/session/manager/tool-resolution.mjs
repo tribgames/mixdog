@@ -7,6 +7,7 @@ import { PATCH_TOOL_DEFS } from '../../tools/patch-tool-defs.mjs';
 import { CODE_GRAPH_TOOL_DEFS } from '../../tools/code-graph-tool-defs.mjs';
 import { buildSkillToolDefs } from '../../context/collect.mjs';
 import { filterModelEditTools } from '../../../../shared/edit-tool-dialect.mjs';
+import { filterMcpToolsForSession } from '../../../../../session-runtime/extension-scopes.mjs';
 
 // Merge externally-connected MCP tools with the plugin's in-process tools
 // (registered by agent's toolExecutor adapter). Internal tools are exposed
@@ -17,8 +18,10 @@ import { filterModelEditTools } from '../../../../shared/edit-tool-dialect.mjs';
 // tools array verbatim, so any reorder rewrites the prefix.
 // No cache: getMcpTools() and getInternalTools() are O(n) in-memory reads;
 // the sort overhead on ~30 tools is negligible.
-function _getMcpTools(mcpScopeId = null) {
-    const mcp = getMcpTools(mcpScopeId) || [];
+function _getMcpTools(mcpScopeId = null, cwd = null) {
+    // Project scope: servers limited to other project roots stay connected
+    // but leave this session's schema (session-runtime/extension-scopes).
+    const mcp = filterMcpToolsForSession(getMcpTools(mcpScopeId) || [], cwd);
     // `public:false` tools stay registered in internal-tools for runtime
     // rewrites/dispatch, but must never enter any model-visible schema (Lead
     // full/mcp included). Filter before mapping because the projection below
@@ -124,8 +127,9 @@ export function resolveSessionTools(toolSpec, skills, {
     ownerIsAgentSession = false,
     mcpScopeId = null,
     modelName = null,
+    cwd = null,
 } = {}) {
-    const mcp = _getMcpTools(mcpScopeId);
+    const mcp = _getMcpTools(mcpScopeId, cwd);
     // Agent sessions freeze the skill meta-tool into the schema
     // unconditionally — concrete skill resolution is cwd-scoped at tool-call
     // time (loop.mjs), so the schema bytes stay bit-identical across roles /

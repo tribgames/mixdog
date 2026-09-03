@@ -107,6 +107,29 @@ export function queuedForegroundRequiresRecapture(queuePosition: number): boolea
   return Number.isFinite(queuePosition) && queuePosition > 0;
 }
 
+/** Last finite numeric value stored under `key` anywhere in a JSON result, in
+ *  document order. Ticks wrap, so "last" beats "largest" here. */
+export function computerResultLastNumber(text: string, key: string): number | null {
+  let found: number | null = null;
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (!value || typeof value !== 'object') return;
+    const record = value as Record<string, unknown>;
+    const candidate = record[key];
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) found = candidate;
+    Object.values(record).forEach(visit);
+  };
+  try {
+    visit(JSON.parse(String(text || '')));
+  } catch {
+    return null;
+  }
+  return found;
+}
+
 export function computerResultHasCode(text: string, expectedCode: string): boolean {
   const visit = (value: unknown): boolean => {
     if (Array.isArray(value)) return value.some(visit);

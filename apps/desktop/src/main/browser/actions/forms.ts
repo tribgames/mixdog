@@ -2,7 +2,7 @@
  * Form controls addressed by ref: text entry, selection, checkboxes, file
  * uploads, and answering the dialog that a submit may have opened.
  */
-import { redactBrowserText } from '../host-policy';
+import { redactBrowserText } from '../redaction';
 import { type BrowserActionContext, defineBrowserActions } from './types';
 
 /** After the control changed: forget the old refs, optionally submit, and

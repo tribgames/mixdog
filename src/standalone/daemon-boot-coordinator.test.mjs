@@ -63,3 +63,34 @@ test('ordinary session registration opens the background lane after registration
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(events, ['keychain', 'recovery']);
 });
+
+test('catalog prewarm follows recovery behind its delay and never fails the lane', async () => {
+  const scheduled = [];
+  const delayed = [];
+  const events = [];
+  const coordinator = createDaemonBootCoordinator({
+    schedule: (task) => scheduled.push(task),
+    delay: (task, ms) => delayed.push({ task, ms }),
+    catalogDelayMs: 1_500,
+    prewarmKeychain: async () => { events.push('keychain'); },
+    recoverActiveGoals: async () => {
+      events.push('recovery');
+      return { found: 0, resumed: 0, skipped: 0, failed: 0 };
+    },
+    prewarmCatalogs: async () => {
+      events.push('catalogs');
+      throw new Error('cold import exploded');
+    },
+  });
+
+  coordinator.notifyDesktopReady();
+  scheduled.shift()();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['keychain', 'recovery'], 'catalogs wait behind the delay');
+  assert.equal(delayed.length, 1);
+  assert.equal(delayed[0].ms, 1_500);
+  delayed.shift().task();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(events, ['keychain', 'recovery', 'catalogs']);
+  assert.equal(coordinator.status.background, 'started');
+});

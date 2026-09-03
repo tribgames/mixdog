@@ -4158,7 +4158,14 @@ function Issues-PowerPoint($presentation, $payload) {
           $fontSize = [single]$shape.TextFrame.TextRange.Font.Size
           if ($fontSize -ge 34) { $largeTextShapeCount++ }
           if ($fontSize -ge 42) { $dominantTextShapeCount++ }
-          if ($fontSize -gt 0 -and $fontSize -lt 12) {
+          # Page chrome (kickers, badges, captions, source lines) is one short
+          # line at caption size; it may be 9 pt and sit nearer the edge. Body
+          # copy keeps the 12 pt / 18 pt floors.
+          $shapeText = [string]$shape.TextFrame.TextRange.Text
+          $isChrome = ($fontSize -gt 0 -and $fontSize -le 12 -and $shapeText.Trim().Length -le 90 -and $shapeText -notmatch "[\r\n]")
+          if ($fontSize -gt 0 -and $fontSize -lt 9) {
+            $issues += Office-Issue 'warning' 'small_font' $path "Text uses $fontSize pt; nothing on a slide should be smaller than 9 pt."
+          } elseif ($fontSize -gt 0 -and $fontSize -lt 12 -and -not $isChrome) {
             $issues += Office-Issue 'warning' 'small_font' $path "Text uses $fontSize pt; presentation body text should normally be at least 12 pt."
           }
           $slideWidth = [single]$presentation.PageSetup.SlideWidth
@@ -4168,10 +4175,11 @@ function Issues-PowerPoint($presentation, $payload) {
             ([single]$shape.Top + [single]$shape.Height) -gt ($slideHeight + 1)) {
             $issues += Office-Issue 'warning' 'text_outside_slide' $path 'Text shape extends outside the slide boundary.'
           }
-          if ($shape.Left -lt 18 -or $shape.Top -lt 18 -or
-            ([single]$shape.Left + [single]$shape.Width) -gt ($slideWidth - 18) -or
-            ([single]$shape.Top + [single]$shape.Height) -gt ($slideHeight - 18)) {
-            $issues += Office-Issue 'warning' 'edge_margin' $path 'Text is within 18 pt of a slide edge.'
+          $edgeMargin = if ($isChrome) { 10 } else { 18 }
+          if ($shape.Left -lt $edgeMargin -or $shape.Top -lt $edgeMargin -or
+            ([single]$shape.Left + [single]$shape.Width) -gt ($slideWidth - $edgeMargin) -or
+            ([single]$shape.Top + [single]$shape.Height) -gt ($slideHeight - $edgeMargin)) {
+            $issues += Office-Issue 'warning' 'edge_margin' $path "Text is within $edgeMargin pt of a slide edge."
           }
           try {
             if ($shape.Fill.Visible -and [long]$shape.Fill.ForeColor.RGB -ge 0 -and [long]$shape.TextFrame.TextRange.Font.Color.RGB -ge 0) {

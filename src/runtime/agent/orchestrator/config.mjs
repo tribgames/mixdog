@@ -1,5 +1,6 @@
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
 import { readSection, updateSection, updateSectionAsync, getAgentApiKey, AGENT_PROVIDER_ENV } from '../../shared/config.mjs';
+import { hasExtensionScopes, normalizeExtensionScopes } from '../../shared/extension-scopes.mjs';
 import {
     DEFAULT_DISABLED_AGENT_IDS,
     agentRouteStorageNeedsMigration,
@@ -396,6 +397,11 @@ function canonicalizeLegacyAgentStorage(value = {}) {
         if (skills.disabled.length) next.skills = skills;
         else delete next.skills;
     }
+    if (Object.prototype.hasOwnProperty.call(next, 'extensionScopes')) {
+        const scopes = normalizeExtensionScopes(next.extensionScopes);
+        if (hasExtensionScopes(scopes)) next.extensionScopes = scopes;
+        else delete next.extensionScopes;
+    }
     next.webSearchRoute = normalizeWebSearchRoute(next.webSearchRoute);
     delete next.searchRoute;
     const modules = next.modules && typeof next.modules === 'object' && !Array.isArray(next.modules)
@@ -420,7 +426,7 @@ function agentConfigStorageNeedsMigration(value = {}) {
     const modules = value?.modules;
     const presets = Array.isArray(value?.presets) ? value.presets : [];
     const canonical = canonicalizeLegacyAgentStorage(value);
-    const normalizedFields = ['autoClear', 'compaction', 'shell', 'profile', 'skills', 'modules', 'guide'];
+    const normalizedFields = ['autoClear', 'compaction', 'shell', 'profile', 'skills', 'extensionScopes', 'modules', 'guide'];
     return agentRouteStorageNeedsMigration(value)
         || Object.prototype.hasOwnProperty.call(value || {}, 'fastModels')
         || Object.prototype.hasOwnProperty.call(value || {}, 'agentMaintenance')
@@ -553,6 +559,7 @@ export function loadConfig(options = {}) {
                 workflow: raw.workflow && typeof raw.workflow === 'object' ? { active: String(raw.workflow.active || 'default') } : { active: 'default' },
                 profile: normalizeProfileConfig(raw.profile),
                 skills: normalizeSkillsConfig(raw.skills),
+                extensionScopes: normalizeExtensionScopes(raw.extensionScopes),
                 // No idleMs default here: absent idleMs means "provider default"
                 // (config-helpers normalizeAutoClearConfig custom:false path).
                 // Injecting a fixed 1h would mark every config custom:true and
@@ -614,7 +621,8 @@ export function loadConfig(options = {}) {
         workflow: { active: 'default' },
         profile: normalizeProfileConfig(null),
         skills: normalizeSkillsConfig(null),
-                autoClear: { enabled: true },
+        extensionScopes: normalizeExtensionScopes(null),
+        autoClear: { enabled: true },
         compaction: {},
         shell: {},
         update: {},
@@ -711,6 +719,7 @@ function buildAgentSaveBuilder(config) {
         : [];
     const profile = normalizeProfileConfig(config.profile);
     const skills = normalizeSkillsConfig(config.skills);
+    const extensionScopes = normalizeExtensionScopes(config.extensionScopes);
     const autoClear = canonicalizeAutoClearStorage(config.autoClear);
     const compaction = canonicalizeCompactionStorage(config.compaction);
     const shell = canonicalizeShellStorage(config.shell);
@@ -734,6 +743,7 @@ function buildAgentSaveBuilder(config) {
             workflow: config.workflow || { active: 'default' },
             profile,
             skills: skills.disabled.length ? skills : undefined,
+            extensionScopes: hasExtensionScopes(extensionScopes) ? extensionScopes : undefined,
             autoClear,
             compaction,
             shell,

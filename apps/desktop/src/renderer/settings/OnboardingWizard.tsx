@@ -631,6 +631,10 @@ function ProviderStep({ setup, pending, run, onSaveApiKey, onReload }: {
             if (result !== undefined) onReload();
           });
         }}>{t('Usage sign-in')}</button>}
+        {!provider.authenticated && typeof provider.url === 'string' && /^https:\/\//.test(provider.url) &&
+          <button type="button" className="ghost" disabled={Boolean(pending)}
+            onClick={() => void (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop
+              ?.openExternal?.(String(provider.url)).catch(() => undefined)}>{t('Get API key ↗')}</button>}
         <input name="secret" type="password" autoComplete="off" placeholder={provider.authenticated ? t('Replace API key') : t('API key')} required />
         <button disabled={Boolean(pending)}>{provider.authenticated ? t('Replace') : t('Connect')}</button>
         {Boolean(provider.stored || (!provider.env && provider.authenticated)) &&

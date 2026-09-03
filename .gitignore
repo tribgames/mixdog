@@ -119,6 +119,12 @@ native/mixdog-spawn/target/
 # Local bench/smoke artifacts
 bench-results/
 .mixdog-smoke-data-empty/
+.smoke/
+.browser-viewport-smoke/
+.browser-viewport-command-smoke/
+/*.pptx
+/*.mixdog-preview.pdf
+/*.mixdog-preview-page-*.png
 __pycache__/
 
 apps/desktop/.tmp-dev/

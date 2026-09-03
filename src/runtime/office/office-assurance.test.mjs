@@ -229,14 +229,17 @@ test('format-specific Office review catches orphan headings, chart totals, and s
         notes: '',
         shapes: [
           { path: '/slide[1]/shape[1]', index: 1, text: '목표 120', left: 5, top: 5, width: 500, height: 80, font: { size: 32 } },
-          { path: '/slide[1]/shape[2]', index: 2, text: '설명', left: 20, top: 20, width: 400, height: 70, font: { size: 10 } },
+          { path: '/slide[1]/shape[2]', index: 2, text: '설명 문단이 두 줄로 이어지는 본문 텍스트입니다.\n둘째 줄도 본문입니다.', left: 20, top: 20, width: 400, height: 70, font: { size: 10 } },
+          { path: '/slide[1]/shape[3]', index: 3, text: '3/8', left: 880, top: 505, width: 60, height: 20, font: { size: 9 } },
         ],
       }],
     },
   });
   assert.ok(powerpoint.some((entry) => entry.code === 'shape_overlap'));
   assert.ok(powerpoint.some((entry) => entry.code === 'number_without_source'));
-  assert.ok(powerpoint.some((entry) => entry.code === 'small_font'));
+  assert.ok(powerpoint.some((entry) => entry.code === 'small_font' && entry.path === '/slide[1]/shape[2]'));
+  // A 9 pt page badge near the edge is chrome, not body copy.
+  assert.ok(!powerpoint.some((entry) => entry.path === '/slide[1]/shape[3]'));
 });
 
 test('PowerPoint review detects text that disappears against a containing surface', () => {

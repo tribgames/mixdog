@@ -345,6 +345,38 @@ export function useTranscriptFollow({
     jumpPinSettled.current = 0;
   }, []);
 
+  // Session switch: the viewport element survives while the timeline remounts
+  // for the new session. Offsets, distances, and programmatic writes from the
+  // previous session must not judge the new session's first frames — a stale
+  // baseline made the entry scroll read as a reader leave (or a return) and
+  // the transcript visibly jumped on every tab switch. Never writes scrollTop:
+  // the virtual timeline owns the entry position.
+  const resetSessionKey = useRef(sessionKey);
+  useEffect(() => {
+    if (resetSessionKey.current === sessionKey) return;
+    resetSessionKey.current = sessionKey;
+    cancelJumpPin();
+    programmatic.current = [];
+    gestureAt.current = 0;
+    readerMotionAt.current = 0;
+    touchGesture.current = undefined;
+    pointerGesture.current = undefined;
+    pointerDragging.current = false;
+    chromeScroll.current = false;
+    const element = viewport.current;
+    if (element) {
+      try {
+        lastTop.current = element.scrollTop;
+        lastScrollHeight.current = element.scrollHeight;
+        lastDistance.current = distanceFromBottom(element);
+      } catch { /* layout only */ }
+    } else {
+      lastTop.current = 0;
+      lastScrollHeight.current = 0;
+      lastDistance.current = 0;
+    }
+  }, [cancelJumpPin, sessionKey, viewport]);
+
   /** The jump owns the viewport only until the reader asks for it back. */
   const markGesture = useCallback(() => {
     cancelJumpPin();
@@ -757,6 +789,12 @@ export function useTranscriptFollow({
       // scrollToEnd here raced the core. Viewport height (composer/pane) is
       // the one change the core does not own.
       if (!viewportHeightChanged) return;
+      // Mid-gesture height writes fight native motion: a touch fling colliding
+      // with a URL-bar/keyboard/composer height step gets its offset
+      // overwritten mid-ramp and visibly bounces up/down (mobile report).
+      // Hold the pin until the gesture lands; the idle delivery then takes the
+      // bottom in one write.
+      if (hasGesture()) return;
       scrollToBottom(false);
     });
     // Virtual-core still owns append and measured-row anchoring; the guard

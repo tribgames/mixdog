@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { nextTranscriptHistoryLimit } from "./transcript-history.ts";
+import { shouldDeferTranscriptScrollAdjustment } from "./TranscriptList.tsx";
 import {
-  shouldDeferTranscriptScrollAdjustment,
-  transcriptSelectionAutoScrollDelta,
+  transcriptSelectionPrimaryButtonDown,
   transcriptSelectionPointerRegion,
-} from "./TranscriptList.tsx";
+} from "./transcript-selection-drag.ts";
 import {
   boundaryGestureReached,
   grewWhileAtBottom,
@@ -124,16 +124,17 @@ test("a pointer drag releases follow only after leaving the tail upward", () => 
   assert.equal(pointerShouldReleaseFollow({ distance: 400, upwardMove: 1 }), false);
 });
 
-test("selection edge scrolling is smooth, directional, and releases upward follow", () => {
-  const nearTop = transcriptSelectionAutoScrollDelta(150, 100, 500);
-  const outsideTop = transcriptSelectionAutoScrollDelta(50, 100, 500);
-  const nearBottom = transcriptSelectionAutoScrollDelta(450, 100, 500);
-  assert.ok(nearTop < 0);
-  assert.ok(outsideTop < nearTop);
-  assert.ok(nearBottom > 0);
-  assert.equal(transcriptSelectionAutoScrollDelta(300, 100, 500), 0);
-  assert.equal(selectionAutoScrollShouldReleaseFollow(nearTop), true);
-  assert.equal(selectionAutoScrollShouldReleaseFollow(nearBottom), false);
+test("native selection autoscroll releases follow only when it moves upward", () => {
+  assert.equal(selectionAutoScrollShouldReleaseFollow(-12), true);
+  assert.equal(selectionAutoScrollShouldReleaseFollow(12), false);
+  assert.equal(selectionAutoScrollShouldReleaseFollow(0), false);
+});
+
+test("selection remains active outside the viewport only while the primary button is held", () => {
+  assert.equal(transcriptSelectionPrimaryButtonDown(1), true);
+  assert.equal(transcriptSelectionPrimaryButtonDown(3), true);
+  assert.equal(transcriptSelectionPrimaryButtonDown(0), false);
+  assert.equal(transcriptSelectionPrimaryButtonDown(2), false);
 });
 
 test("selection outside the transcript stays on one stable boundary", () => {

@@ -36,11 +36,11 @@
   gap: 0;
   padding: 0;
   overflow: hidden;
-  border: 0;
-  border-radius: var(--mx-radius-md);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius-card);
   color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-overlay);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);

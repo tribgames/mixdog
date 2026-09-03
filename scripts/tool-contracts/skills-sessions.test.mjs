@@ -74,11 +74,19 @@ test('skill loader, envelope, and lead/GPT/agent skill surfaces', async () => {
     if (!trimmedSkill || trimmedSkill.filePath !== loadedSkill.filePath) {
       throw new Error(`Skill loader must trim an exact available-skills name: ${JSON.stringify(trimmedSkill)}`);
     }
+    if (loadedSkill.source !== 'global') {
+      throw new Error(`Skill loader must report the user-global source: ${JSON.stringify(loadedSkill)}`);
+    }
     const skillEnvelope = buildSkillToolEnvelope(
       'demo-skill',
       loadedSkill.content,
       loadedSkill.dir,
+      { source: loadedSkill.source },
     );
+    const builtinEnvelope = buildSkillToolEnvelope('docx', 'body', loadedSkill.dir, { source: 'builtin' });
+    if (builtinEnvelope?.result !== 'Loaded built-in skill: docx') {
+      throw new Error(`Built-in skill loads must carry the built-in stub: ${JSON.stringify(builtinEnvelope)}`);
+    }
     const skillMessage = skillEnvelope?.newMessages?.[0];
     const normalizedSkillDir = loadedSkill.dir.replace(/\\/g, '/');
     if (skillEnvelope?.result !== 'Loaded skill: demo-skill'

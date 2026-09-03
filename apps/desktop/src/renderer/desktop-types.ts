@@ -89,6 +89,10 @@ export type Snapshot = RecordValue & {
   currentProject?: Project | null;
   recentProjects?: Project[];
   toasts?: Toast[];
+  /** Setup tool `open`: navigate to the settings surface named by this slash
+   *  command. `seq` increases per request so a repeat of the same command
+   *  still fires. */
+  uiOpenRequest?: { command: string; seq: number; at?: number } | null;
   failedTurnKeys?: string[];
   sessionId?: string;
   provider?: string;

@@ -8,9 +8,9 @@
 // the slice was still in flight, left the character unpainted (user: 타이핑하는
 // 글자가 자꾸 투명해진다).
 //
-// Warming every slice once removes that class of stall at the source. The
-// desktop reads local disk, so it warms in one pass; a browser/phone fetches
-// ~2MB over the network, so it warms in small batches during idle time, holds
+// Warming every slice once removes that class of stall at the source. Faces
+// warm in small idle-time batches everywhere; a browser/phone additionally
+// fetches ~2MB over the network, so it uses smaller batches, holds
 // off until the opening screen has settled, and skips the warmup on a metered
 // or slow connection, where the dynamic subset's on-demand behavior is the
 // better trade. The service worker keeps the fetched slices, so a phone pays
@@ -19,6 +19,11 @@ import { connectionQuality, isRemoteSurface } from "./network-conditions";
 import { resolveUiLanguage } from "./i18n";
 
 const REMOTE_WARMUP_BATCH = 6;
+// Local faces are disk reads, but each still parses on the main thread: one
+// pass over the whole inventory (90+ Hangul slices) held it 100–240ms right
+// where a first keystroke lands. Slices of a dozen keep every pass under a
+// frame and yield to input between them.
+const LOCAL_WARMUP_BATCH = 12;
 // The first screen's own transfers own the link until then.
 const REMOTE_WARMUP_DELAY_MS = 3_000;
 
@@ -53,10 +58,9 @@ export function scheduleFontWarmup(): void {
       pending.push(face);
     });
     if (pending.length === 0) return;
-    // Local faces resolve in single-digit milliseconds, so the desktop pays
-    // one idle pass. Remote batches keep the warmup from competing with the
+    // Remote batches also keep the warmup from competing with the
     // session/transcript traffic the user is actually waiting on.
-    const batch = remote ? REMOTE_WARMUP_BATCH : pending.length;
+    const batch = remote ? REMOTE_WARMUP_BATCH : LOCAL_WARMUP_BATCH;
     let index = 0;
     const step = (): void => {
       try {

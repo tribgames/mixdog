@@ -13,10 +13,12 @@ import {
   type AccessibilityTargetSnapshot,
   type BrowserSnapshotPayload as SnapshotPayload,
 } from './accessibility';
+import type { BrowserCdpPort } from './cdp';
 import type { BrowserCommand } from './command';
 import type { GuestSlot } from './guest-state';
-import { browserSnapshotExpression, redactBrowserText } from './host-policy';
+import { redactBrowserText } from './redaction';
 import { createBrowserRefSet, type BrowserRefSet } from './ref-recovery';
+import { browserSnapshotExpression } from './snapshot-scripts';
 
 const MAX_ACCESSIBILITY_TARGETS = 32;
 
@@ -38,16 +40,7 @@ export interface BrowserSnapshotCaptureHost {
     signal?: AbortSignal,
     timeoutMs?: number,
   ): Promise<T>;
-  guestDebugger(guest: WebContents): Promise<Electron.Debugger>;
-  sendCdp<T>(
-    guest: WebContents,
-    cdp: Electron.Debugger,
-    method: string,
-    params?: Record<string, unknown>,
-    timeoutMs?: number,
-    signal?: AbortSignal,
-    sessionId?: string,
-  ): Promise<T>;
+  cdp: BrowserCdpPort;
   /** The CDP target sessions this page has attached, for frame geometry, and
    *  the fault line a degraded snapshot reports through. */
   diagnostics(guest: WebContents): {
@@ -64,22 +57,19 @@ export interface BrowserSnapshotCaptureHost {
   nextSnapshotId(guest: WebContents): string;
   accessibilityRefs: GuestSlot<AccessibilityRefSnapshot>;
   refSets: GuestSlot<BrowserRefSet>;
-  cdpTimeoutMs: number;
   maxElements: number;
 }
 
 export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
   const {
     evaluate,
-    guestDebugger,
-    sendCdp,
+    cdp,
     diagnostics: diagnosticsFor,
     snapshotTextLimit,
     nextSnapshotId,
     accessibilityRefs: accessibilityRefsByGuest,
     refSets: latestRefSetsByGuest,
     visualGrounding: visualGroundingByGuest,
-    cdpTimeoutMs: CDP_REQUEST_TIMEOUT_MS,
     maxElements: SNAPSHOT_MAX_ELEMENTS,
   } = host;
   async function captureAccessibilitySnapshot(
@@ -87,7 +77,6 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
     command: BrowserCommand,
     signal?: AbortSignal,
   ): Promise<SnapshotPayload> {
-    const cdp = await guestDebugger(guest);
     const diagnostics = diagnosticsFor(guest);
     const snapshotTextChars = snapshotTextLimit(command);
     const pageInfoPromise = evaluate<AccessibilityPageInfo>(guest, `(() => ({
@@ -116,28 +105,24 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
       try {
         let layoutError = '';
         const [axTree, domSnapshot] = await Promise.all([
-          sendCdp<{ nodes?: AccessibilityNode[] }>(
+          cdp.call<{ nodes?: AccessibilityNode[] }>(
             guest,
-            cdp,
             'Accessibility.getFullAXTree',
             {},
-            CDP_REQUEST_TIMEOUT_MS,
             signal,
-            sessionId,
+            { sessionId },
           ),
-          sendCdp<{
+          cdp.call<{
               documents?: Array<{
                 nodes?: { backendNodeId?: number[] };
                 layout?: { nodeIndex?: number[]; bounds?: number[][] };
               }>;
           }>(
             guest,
-            cdp,
             'DOMSnapshot.captureSnapshot',
             { computedStyles: [], includeDOMRects: true, includePaintOrder: true },
-            CDP_REQUEST_TIMEOUT_MS,
             signal,
-            sessionId,
+            { sessionId },
           ).catch((error) => {
             layoutError = redactBrowserText((error as Error).message || String(error));
             return { documents: [] };
@@ -214,33 +199,30 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
     functionDeclaration: string,
     args: unknown[],
     signal?: AbortSignal,
-    timeoutMs = CDP_REQUEST_TIMEOUT_MS,
+    timeoutMs?: number,
   ): Promise<{ handled: false } | { handled: true; value: T }> {
     const snapshot = accessibilityRefsByGuest.get(guest);
     if (!snapshot) return { handled: false };
     const target = snapshot.refs.get(ref);
     if (!target) throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
-    const cdp = await guestDebugger(guest);
-    const resolved = await sendCdp<{
+    const call = { sessionId: target.sessionId, timeoutMs };
+    const resolved = await cdp.call<{
       object?: { objectId?: string };
     }>(
       guest,
-      cdp,
       'DOM.resolveNode',
       { backendNodeId: target.backendNodeId },
-      timeoutMs,
       signal,
-      target.sessionId,
+      call,
     );
     const objectId = resolved.object?.objectId;
     if (!objectId) throw new Error(`ref ${ref} is stale or detached; take a fresh snapshot first`);
     try {
-      const response = await sendCdp<{
+      const response = await cdp.call<{
         result?: { value?: T };
         exceptionDetails?: { text?: string; exception?: { description?: string } };
       }>(
         guest,
-        cdp,
         'Runtime.callFunctionOn',
         {
           objectId,
@@ -250,9 +232,8 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
           awaitPromise: true,
           userGesture: true,
         },
-        timeoutMs,
         signal,
-        target.sessionId,
+        call,
       );
       if (response.exceptionDetails) {
         throw new Error(redactBrowserText(
@@ -261,7 +242,9 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
       }
       return { handled: true, value: response.result?.value as T };
     } finally {
-      void cdp.sendCommand('Runtime.releaseObject', { objectId }, target.sessionId).catch(() => undefined);
+      void cdp.guestDebugger(guest)
+        .then((debug) => debug.sendCommand('Runtime.releaseObject', { objectId }, target.sessionId))
+        .catch(() => undefined);
     }
   }
 
@@ -297,7 +280,6 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
 
   async function frameOffsetForSession(
     guest: WebContents,
-    cdp: Electron.Debugger,
     initialSessionId: string | undefined,
     signal?: AbortSignal,
   ): Promise<{ x: number; y: number }> {
@@ -310,26 +292,23 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
       seen.add(sessionId);
       const target = sessions.get(sessionId);
       if (!target?.frameId) break;
-      const owner = await sendCdp<{ backendNodeId?: number }>(
+      const parent = { sessionId: target.parentSessionId };
+      const owner = await cdp.call<{ backendNodeId?: number }>(
         guest,
-        cdp,
         'DOM.getFrameOwner',
         { frameId: target.frameId },
-        CDP_REQUEST_TIMEOUT_MS,
         signal,
-        target.parentSessionId,
+        parent,
       );
       if (!Number.isFinite(owner.backendNodeId)) break;
-      const box = await sendCdp<{
+      const box = await cdp.call<{
         model?: { content?: number[]; border?: number[] };
       }>(
         guest,
-        cdp,
         'DOM.getBoxModel',
         { backendNodeId: owner.backendNodeId },
-        CDP_REQUEST_TIMEOUT_MS,
         signal,
-        target.parentSessionId,
+        parent,
       );
       const quad = box.model?.content || box.model?.border || [];
       if (quad.length < 8) break;

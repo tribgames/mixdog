@@ -65,6 +65,53 @@ const RESUMABLE_OPEN_MAX_COUNT = 300;
 // idle this long — see the blank-scratch branch in sweepStaleSessions.
 const BLANK_SCRATCH_MAX_AGE_MS = 60 * 60 * 1000; // 1h
 
+// Sweep-local lifecycle record cache keyed by the session file's fingerprint.
+// The sweep decides from top-level fields only (owner/status/timestamps plus
+// the conversation count), yet it used to read and strictly parse EVERY
+// session transcript on each 5-minute pass — measured at 1,198 files / 758MB
+// per pass on one store. A file whose mtime and size are unchanged yields the
+// same verdict, so only changed files are parsed; the transcript itself is
+// dropped from the cached record (see the summary-repair path, which re-reads).
+const sweepRecordCache = new Map();
+
+function conversationCountOf(doc) {
+    const messages = Array.isArray(doc?.messages) ? doc.messages : [];
+    let count = 0;
+    for (const message of messages) {
+        if (message && (message.role === 'user' || message.role === 'assistant')) count++;
+    }
+    return count;
+}
+
+/** `null` when the file could not be read; otherwise the lifecycle record
+ * (possibly LIFECYCLE_SCAN_CONFLICT, which is never cached). */
+function readSweepRecord(id, jsonPath, probe) {
+    const cached = sweepRecordCache.get(id);
+    if (cached && cached.mtimeMs === probe.mtimeMs && cached.size === probe.size) return cached.record;
+    let raw = null;
+    try { raw = readFileSync(jsonPath, 'utf-8'); }
+    catch { return null; }
+    const full = readTopLevelLifecycleRecord(raw);
+    if (isLifecycleUnreadable(full)) return full;
+    const doc = { ...full.doc };
+    delete doc.messages;
+    const record = {
+        id: full.id,
+        closed: full.closed,
+        generation: full.generation,
+        doc,
+        conversationCount: conversationCountOf(full.doc),
+    };
+    sweepRecordCache.set(id, { mtimeMs: probe.mtimeMs, size: probe.size, record });
+    return record;
+}
+
+function pruneSweepRecordCache(liveIds) {
+    for (const id of sweepRecordCache.keys()) {
+        if (!liveIds.has(id)) sweepRecordCache.delete(id);
+    }
+}
+
 /** Child-agent transcripts share their visible parent's retention boundary.
  * Presence (including a tombstone or unreadable file) preserves the child;
  * only proven parent absence releases it to ordinary cleanup. */
@@ -360,6 +407,7 @@ function* sweepStaleSessionSteps(ttlMs, options = {}) {
             summaries.push({ id });
         }
     } catch { /* dir scan failure — fall back to index rows only */ }
+    pruneSweepRecordCache(new Set(summaries.map((row) => row?.id).filter(Boolean)));
     const now = Date.now();
     let cleaned = 0;
     let remaining = 0;
@@ -408,9 +456,6 @@ function* sweepStaleSessionSteps(ttlMs, options = {}) {
             // state — otherwise idle-sweep re-closes an already-closed session via
             // markSessionClosed (which, pre-fix, reset the tombstone age every
             // 5-min cycle → immortality loop).
-            let raw = null;
-            try { raw = readFileSync(jsonPath, 'utf-8'); }
-            catch { /* racing unlink / transient read failure */ }
             // NOTHING ambiguous is ever swept. This loop deletes files, plants
             // tombstones and rewrites summary rows, so a record it cannot read
             // authoritatively (read fault, malformed JSON, duplicate top-level
@@ -418,11 +463,12 @@ function* sweepStaleSessionSteps(ttlMs, options = {}) {
             // closed, not repaired, and never resolved by a last-wins
             // JSON.parse fallback or by the best-effort summary row (which may
             // describe a completely different generation of this id).
-            if (raw == null) {
+            const record = readSweepRecord(row.id, jsonPath, jsonProbe);
+            if (record === null) {
+                // racing unlink / transient read failure
                 remaining++;
                 continue;
             }
-            const record = readTopLevelLifecycleRecord(raw);
             if (isLifecycleUnreadable(record)) {
                 remaining++;
                 continue;
@@ -481,7 +527,13 @@ function* sweepStaleSessionSteps(ttlMs, options = {}) {
                 // open: reflect the real closed state so the next sweep sees the
                 // correct closed=true/updatedAt and never re-closes it.
                 if (!(row.closed === true || row.status === 'closed')) {
-                    try { _queueSessionSummaryUpsert(actual); } catch { /* best-effort */ }
+                    // The summary projection needs the transcript, which the
+                    // cached lifecycle record does not carry: re-read this one
+                    // file for the (rare) repair.
+                    try {
+                        const full = readTopLevelLifecycleRecord(readFileSync(jsonPath, 'utf-8'));
+                        if (!isLifecycleUnreadable(full) && full.id === row.id) _queueSessionSummaryUpsert(full.doc);
+                    } catch { /* best-effort */ }
                 }
                 remaining++;
                 continue;
@@ -552,9 +604,8 @@ function* sweepStaleSessionSteps(ttlMs, options = {}) {
                 // Relaunch storms otherwise pile hundreds of "(blank)" rows
                 // that no sweep may touch. Reap once cold; liveness/heartbeat
                 // vetoes inside deleteSession still protect an in-flight boot.
-                const _msgsArr = Array.isArray(actual?.messages) ? actual.messages : null;
-                const _convCount = _msgsArr
-                    ? _msgsArr.filter((m) => m && (m.role === 'user' || m.role === 'assistant')).length
+                const _convCount = Number.isFinite(record.conversationCount)
+                    ? record.conversationCount
                     : (Number(row.messageCount) || 0);
                 const _blankLastActive = Math.max(effUpdatedAt, effLastHb, effCreatedAt, heartbeatMtime || 0);
                 if (sweepIdle && _convCount === 0

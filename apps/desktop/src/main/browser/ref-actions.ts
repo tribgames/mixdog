@@ -10,9 +10,10 @@ import { isAbsolute } from 'node:path';
 
 import type { WebContents } from 'electron';
 
+import type { BrowserCdpPort } from './cdp';
 import type { PendingFileChooser } from './guest-state';
-import { redactBrowserText } from './host-policy';
 import type { createBrowserInputDriver } from './input';
+import { redactBrowserText } from './redaction';
 
 /** How long a clicked button gets to open its picker. */
 const FILE_CHOOSER_WAIT_MS = 3_000;
@@ -29,23 +30,7 @@ export interface BrowserRefActionsHost {
   ): Promise<{ handled: false } | { handled: true; value: T }>;
   /** The page-side fallback for a ref the accessibility snapshot lost. */
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T>;
-  guestDebugger(guest: WebContents): Promise<Electron.Debugger>;
-  sendCdp<T>(
-    guest: WebContents,
-    cdp: Electron.Debugger,
-    method: string,
-    params?: Record<string, unknown>,
-    timeoutMs?: number,
-    signal?: AbortSignal,
-    sessionId?: string,
-  ): Promise<T>;
-  sendCdpInput(
-    guest: WebContents,
-    cdp: Electron.Debugger,
-    method: string,
-    params: Record<string, unknown>,
-    signal?: AbortSignal,
-  ): Promise<unknown>;
+  cdp: BrowserCdpPort;
   /** The accessibility snapshot's ref table, when this page still has one. */
   accessibilityRefs(guest: WebContents): {
     refs: Map<string, { backendNodeId: number; sessionId?: string }>;
@@ -61,7 +46,6 @@ export interface BrowserRefActionsHost {
   /** The picker the page opened and nobody has answered yet. */
   pendingFileChooser(guest: WebContents): PendingFileChooser | null;
   clearFileChooser(guest: WebContents): void;
-  cdpTimeoutMs: number;
   /** How long a custom dropdown may take to render its options. */
   dropdownTimeoutMs: number;
   dropdownPollMs: number;
@@ -72,15 +56,12 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     callAccessibilityRef,
     accessibilityRefs,
     evaluate,
-    guestDebugger,
-    sendCdp,
-    sendCdpInput,
+    cdp,
     resolveRefPoint,
     input: browserInput,
     pause,
     pendingFileChooser,
     clearFileChooser,
-    cdpTimeoutMs: CDP_REQUEST_TIMEOUT_MS,
     dropdownTimeoutMs: CUSTOM_DROPDOWN_TIMEOUT_MS,
     dropdownPollMs: CUSTOM_DROPDOWN_POLL_MS,
   } = host;
@@ -186,8 +167,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     }
     await browserInput.pressKey(guest, process.platform === 'darwin' ? 'Meta+A' : 'Control+A', signal);
     await browserInput.pressKey(guest, 'Backspace', signal);
-    const cdp = await guestDebugger(guest);
-    await sendCdpInput(guest, cdp, 'Input.insertText', { text }, signal);
+    await cdp.sendCdpInput(guest, await cdp.guestDebugger(guest), 'Input.insertText', { text }, signal);
   }
 
   /** Non-native dropdowns (ARIA combobox/listbox/menu) cannot be assigned like
@@ -469,7 +449,6 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
    *  when the page still has one, otherwise through the page-side ref table. */
   async function resolveRefObject(
     guest: WebContents,
-    cdp: Electron.Debugger,
     ref: string,
     signal?: AbortSignal,
   ): Promise<{ objectId: string; sessionId?: string }> {
@@ -477,23 +456,21 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     if (accessibilitySnapshot) {
       const target = accessibilitySnapshot.refs.get(ref);
       if (!target) throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
-      const resolved = await sendCdp<{ object?: { objectId?: string } }>(
+      const resolved = await cdp.call<{ object?: { objectId?: string } }>(
         guest,
-        cdp,
         'DOM.resolveNode',
         { backendNodeId: target.backendNodeId },
-        CDP_REQUEST_TIMEOUT_MS,
         signal,
-        target.sessionId,
+        { sessionId: target.sessionId },
       );
       const objectId = resolved.object?.objectId;
       if (!objectId) throw new Error(`ref ${ref} is stale or detached; take a fresh snapshot first`);
       return { objectId, sessionId: target.sessionId };
     }
-    const response = await sendCdp<{
+    const response = await cdp.call<{
       result?: { objectId?: string };
       exceptionDetails?: unknown;
-    }>(guest, cdp, 'Runtime.evaluate', {
+    }>(guest, 'Runtime.evaluate', {
       expression: `(() => {
         const record = window.__mixdogAgentSnapshot?.refs?.get(${JSON.stringify(ref)});
         const el = record?.element || record;
@@ -502,7 +479,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
       })()`,
       returnByValue: false,
       userGesture: true,
-    }, CDP_REQUEST_TIMEOUT_MS, signal);
+    }, signal);
     const objectId = response.result?.objectId;
     if (!objectId || response.exceptionDetails) {
       throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
@@ -512,16 +489,14 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
 
   async function isFileInput(
     guest: WebContents,
-    cdp: Electron.Debugger,
     object: { objectId: string; sessionId?: string },
     signal?: AbortSignal,
   ): Promise<boolean> {
-    const validation = await sendCdp<{
+    const validation = await cdp.call<{
       result?: { value?: { valid?: boolean } };
       exceptionDetails?: unknown;
     }>(
       guest,
-      cdp,
       'Runtime.callFunctionOn',
       {
         objectId: object.objectId,
@@ -533,9 +508,8 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
         }`,
         returnByValue: true,
       },
-      CDP_REQUEST_TIMEOUT_MS,
       signal,
-      object.sessionId,
+      { sessionId: object.sessionId },
     );
     return !validation.exceptionDetails && validation.result?.value?.valid === true;
   }
@@ -543,7 +517,6 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
   /** Hand the approved files to the picker the page opened. */
   async function answerFileChooser(
     guest: WebContents,
-    cdp: Electron.Debugger,
     chooser: PendingFileChooser,
     paths: string[],
     signal?: AbortSignal,
@@ -555,14 +528,12 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     if (chooser.mode === 'selectSingle' && paths.length > 1) {
       throw new Error('the open file chooser accepts a single file');
     }
-    await sendCdp(
+    await cdp.call(
       guest,
-      cdp,
       'DOM.setFileInputFiles',
       { files: paths, backendNodeId: chooser.backendNodeId },
-      CDP_REQUEST_TIMEOUT_MS,
       signal,
-      chooser.sessionId,
+      { sessionId: chooser.sessionId },
     );
     clearFileChooser(guest);
   }
@@ -608,35 +579,33 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
       const info = await stat(path);
       if (!info.isFile()) throw new Error(`upload path is not a file: ${path}`);
     }
-    const cdp = await guestDebugger(guest);
     if (!ref) {
       const chooser = pendingFileChooser(guest);
       if (!chooser) throw new Error('upload requires ref unless the page has opened a file chooser');
-      await answerFileChooser(guest, cdp, chooser, paths, signal);
+      await answerFileChooser(guest, chooser, paths, signal);
       return;
     }
-    const object = await resolveRefObject(guest, cdp, ref, signal);
+    const object = await resolveRefObject(guest, ref, signal);
     let direct = false;
     try {
-      direct = await isFileInput(guest, cdp, object, signal);
+      direct = await isFileInput(guest, object, signal);
       if (direct) {
-        await sendCdp(
+        await cdp.call(
           guest,
-          cdp,
           'DOM.setFileInputFiles',
           { files: paths, objectId: object.objectId },
-          CDP_REQUEST_TIMEOUT_MS,
           signal,
-          object.sessionId,
+          { sessionId: object.sessionId },
         );
       }
     } finally {
-      void cdp.sendCommand('Runtime.releaseObject', { objectId: object.objectId }, object.sessionId)
+      void cdp.guestDebugger(guest)
+        .then((debug) => debug.sendCommand('Runtime.releaseObject', { objectId: object.objectId }, object.sessionId))
         .catch(() => undefined);
     }
     if (direct) return;
     const chooser = await openFileChooserVia(guest, ref, signal);
-    await answerFileChooser(guest, cdp, chooser, paths, signal);
+    await answerFileChooser(guest, chooser, paths, signal);
   }
 
   return {

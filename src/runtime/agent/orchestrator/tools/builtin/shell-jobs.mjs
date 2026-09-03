@@ -345,6 +345,7 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
                     if (!visible) return false;
                     return enqueuePendingMessage(sessionId, markCompletionEntry(visible, {
                         executionId: meta?.execution_id,
+                        meta,
                     })) > 0;
                 },
                 logPrefix: 'shell-jobs',
@@ -484,6 +485,7 @@ export async function reconcileRecoveredShellJobCompletions() {
                     if (!visible) return false;
                     return enqueuePendingMessage(sessionId, markCompletionEntry(visible, {
                         executionId: meta?.execution_id,
+                        meta,
                     })) > 0;
                 },
                 logPrefix: 'shell-jobs-recovery',

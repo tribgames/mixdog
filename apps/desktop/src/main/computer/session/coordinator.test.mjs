@@ -141,39 +141,35 @@ test('user takeover cancels target waiters, clears leases, and blocks automation
   }
 });
 
-test('overlay model keeps one simple global state and becomes interactive after takeover', () => {
+test('overlay model keeps one simple state and lists every session to stop', () => {
   const coordinator = new ComputerUseCoordinator();
   try {
     begin(coordinator, 'session-foreground', 'foreground', 'type');
     const active = computerUseOverlayPresentation(coordinator.snapshot(), 'en');
     assert.equal(active.visible, true);
-    assert.equal(active.state, 'in_use');
-    assert.equal(active.interactive, false);
-    assert.equal(active.title, 'Mixdog in use');
-    assert.equal(active.showTakeover, false);
-    assert.equal(active.showStopSession, false);
+    assert.equal(active.title, 'Computer in use');
+    assert.deepEqual(active.sessionIds, ['session-foreground']);
 
     coordinator.finishCommand('session-foreground');
-    const thinking = computerUseOverlayPresentation(coordinator.snapshot(), 'en');
-    assert.equal(thinking.interactive, true);
-    assert.deepEqual(thinking.chips, ['Target app', 'Foreground']);
+    begin(coordinator, 'session-second');
+    const thinking = computerUseOverlayPresentation(coordinator.snapshot(), 'ko-KR');
+    assert.equal(thinking.visible, true);
+    assert.equal(thinking.title, '컴퓨터 사용 중');
+    assert.deepEqual(thinking.sessionIds, ['session-foreground', 'session-second']);
 
     coordinator.requestAttention({
       sessionId: 'session-foreground',
       detail: 'Approve the requested action',
     });
     const attention = computerUseOverlayPresentation(coordinator.snapshot(), 'en');
-    assert.equal(attention.state, 'attention_required');
-    assert.equal(attention.title, 'Action required');
-    assert.deepEqual(attention.chips, ['Approve the requested action']);
+    assert.equal(attention.visible, true);
+    assert.equal(attention.title, 'Computer in use');
     coordinator.clearAttention('session-foreground');
 
     coordinator.pauseForUser('emergency_shortcut');
     const paused = computerUseOverlayPresentation(coordinator.snapshot(), 'ko-KR');
-    assert.equal(paused.interactive, true);
-    assert.equal(paused.state, 'user_control');
-    assert.equal(paused.showResume, true);
-    assert.match(paused.title, /사용자가 제어 중/);
+    assert.equal(paused.visible, true);
+    assert.equal(paused.title, '컴퓨터 사용 중');
   } finally {
     coordinator.reset();
   }

@@ -552,6 +552,22 @@ const api: DesktopApi = {
       webContentsId,
       config,
     ),
+  onBrowserGuestViewportChanged: (listener) => {
+    const receive = (
+      _event: Electron.IpcRendererEvent,
+      change: Parameters<typeof listener>[0],
+    ): void => listener(change);
+    ipcRenderer.on(DESKTOP_IPC.browserGuestViewportChanged, receive);
+    return () => ipcRenderer.removeListener(DESKTOP_IPC.browserGuestViewportChanged, receive);
+  },
+  onBrowserRemoteViewerChanged: (listener) => {
+    const receive = (
+      _event: Electron.IpcRendererEvent,
+      change: Parameters<typeof listener>[0],
+    ): void => listener(change);
+    ipcRenderer.on(DESKTOP_IPC.browserRemoteViewerChanged, receive);
+    return () => ipcRenderer.removeListener(DESKTOP_IPC.browserRemoteViewerChanged, receive);
+  },
   browserProfileImportSources: () =>
     ipcRenderer.invoke(DESKTOP_IPC.browserProfileImportSources),
   browserProfileImportStart: (request) =>

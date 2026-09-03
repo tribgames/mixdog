@@ -22,7 +22,10 @@ export type WorkspaceSelection =
     kind: "diff";
     project: string;
     rel: string;
-    source: "staged" | "unstaged" | "commit";
+    /** `session`: the file's slice of one session's review diff (the Session
+     *  Diff dock rows open here, in the same left diff column Source Control
+     *  uses); `hash` carries the session id. */
+    source: "staged" | "unstaged" | "commit" | "session";
     hash?: string;
     untracked?: boolean;
   };

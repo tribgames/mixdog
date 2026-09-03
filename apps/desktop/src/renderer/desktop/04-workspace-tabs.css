@@ -19,20 +19,18 @@
 .workspace-tabs.drag-scroll::-webkit-scrollbar { display: none; }
 .titlebar-leading, .workspace-tabs-shell, .topbar .titlebar-new { margin-top: 0; }
 .workspace-tabs-shell { position: relative; align-self: center; }
-/* Chrome-mobile compact strip (user: 이름 + 숫자 → 목록 선택): when the
-   shell cannot give every tab a readable cell, the run collapses to
-   [active title][count pill][+] and the count opens the switcher list.
-   Wide panes keep the scroll strip above. */
-.workspace-tabs-shell[data-compact="true"] {
+/* Phone strip (user decision (a)): [brand mark][title pill][+][dock toggles]
+   — the pill names the active tab in place of the tab run, and the + and
+   toggles are the desktop's own. The old count switcher is retired. */
+.workspace-tabs-shell[data-mobile="true"] {
   display: flex;
   align-items: center;
-  gap: 4px;
   min-width: 0;
 }
 .workspace-tab-compact-current {
   min-width: 0;
-  /* The label FILLS the row (user: 라벨 폭이 너무 좁아) so the count and +
-     dock at the right edge like Chrome mobile's control cluster. */
+  /* The label FILLS the row (user: 라벨 폭이 너무 좁아) so the + and the
+     toggles dock at the right edge. */
   flex: 1 1 auto;
   display: flex;
   align-items: center;
@@ -43,13 +41,10 @@
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
   background: transparent;
-  /* Same status-label tier as the tabs, the live band and the turn rows:
-     13px/500 through --mx-font-ui, so the four read as one family. */
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-medium);
   cursor: pointer;
 }
-.workspace-tab-compact-current:hover { background: var(--mx-hover); }
 .workspace-tab-compact-current > svg { flex: 0 0 auto; }
 .workspace-tab-compact-current > span {
   min-width: 0;
@@ -57,67 +52,18 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Chrome's tab counter: a small rounded box drawing its count in chrome
-   ink — quiet rest, wash on hover only (user: 강조 최소화). */
-.workspace-tab-count {
-  flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
+.workspace-tab-home {
   display: grid;
   place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  /* 2px contour (user: 컴팩트 옆에 선이 2px까지 써도 될 듯): at 1.5px the
-     box rendered a half-device-pixel edge that anti-aliased soft next to the
-     3px active-tab band it sits beside. */
-  box-shadow: inset 0 0 0 2px currentColor;
-  color: var(--mx-text-muted);
-  background: transparent;
-  font-size: var(--mx-font-micro);
-  font-weight: var(--mx-weight-semibold);
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-}
-.workspace-tab-count:hover { color: var(--mx-text); background: var(--mx-hover); }
-/* Switcher rows ride the shared menu card; the trailing close keeps its
-   own hit box. Selectors stay ABOVE the menu's `button` grammar. */
-.workspace-tab-switcher { min-width: 220px; }
-.workspace-tab-switcher-row { display: flex; align-items: center; gap: 2px; }
-.workspace-tab-switcher-row > button[role="menuitem"] {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.workspace-tab-switcher-row > button[role="menuitem"] > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.workspace-tab-switcher-row.active > button[role="menuitem"] {
-  color: var(--mx-text);
-  font-weight: var(--mx-weight-regular);
-}
-.workspace-tab-switcher .workspace-tab-switcher-close {
   flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
   padding: 0;
   border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-icon-muted);
+  border-radius: 999px;
+  color: var(--mx-text-soft);
   background: transparent;
   cursor: pointer;
 }
-.workspace-tab-switcher .workspace-tab-switcher-close:hover {
-  color: var(--mx-text);
-  background: var(--mx-hover);
-}
+.workspace-tab-home-mark { display: block; }
 .titlebar-caption-space {
   /* WCO shells resolve env() to the real caption edge; plain browsers fall
      back to 100vw → a 0px reserve, so no phantom 138px strip off-Electron. */
@@ -132,7 +78,8 @@
      preferred width; below the
      crossover the ACTIVE tab pins at its close-button floor while inactive
      tabs keep shrinking to a favicon sliver — no mode switch, no scroll.
-     The frozen width variable still pins cells during pointer closes. */
+     Width changes (close/reorder/resize) glide through the shared chrome
+     motion instead of jumping. */
   container-type: inline-size;
   /* The computed cell is BOTH floor and ceiling. Relaxing this floor was
      tried and measured: `.workspace-tabs` is an auto-width flex item, so a
@@ -143,6 +90,8 @@
   min-width: var(--workspace-tab-current-width, 30px);
   max-width: var(--workspace-tab-current-width, 160px);
   flex: 1 1 var(--workspace-tab-current-width, 160px);
+  transition: min-width var(--mx-motion-chrome), max-width var(--mx-motion-chrome),
+    flex-basis var(--mx-motion-chrome);
   gap: 2px;
   padding: 0 6px 0 10px;
   border: 0;
@@ -162,6 +111,9 @@
    fits favicon+close (the close button stays on the active tab at
    EVERY size); inactive cells keep giving width down to the sliver. */
 .workspace-tab.active { min-width: var(--workspace-tab-current-width, 56px); }
+@media (prefers-reduced-motion: reduce) {
+  .workspace-tab { transition: none; }
+}
 /* Visibility ladder:
    1) inactive tabs drop the close button once contents fall under
       the minimum contents width for close buttons (68 + 16px insets = 84);
@@ -310,12 +262,12 @@
 .workspace-tab-main:focus-visible, .workspace-tab-close:focus-visible { outline: 0; }
 .workspace-tab-main { gap: 4px; padding: 0; }
 .workspace-tab:not(:first-child) > .workspace-tab-main { padding-left: 4px; }
+/* Glyph, spinner, X and + all sit on the cell centre line — no optical lift
+   (user: 라벨 안의 아이콘이랑 스피너도 같은 선상에). */
 .workspace-tab-main > svg {
   width: 14px;
   height: 14px;
   flex: 0 0 14px;
-  position: relative;
-  top: -1px;
   color: currentColor;
 }
 /* Tabs stay on the shared 13px item tier. Selection adds the 500 label
@@ -346,13 +298,14 @@
   color: var(--mx-text);
   background: transparent;
 }
-/* Glyph carries the 26px hover pill inside the tall hit box. */
+/* Glyph carries the hover pill inside the tall hit box. */
 .workspace-tab-new svg,
 .workspace-tab-new .codicon {
   box-sizing: content-box;
   padding: 5px;
   border-radius: var(--mx-radius-md);
 }
+.workspace-tab-new svg { padding: 4px; }
 /* Codicon add: native 16px grid, pixel-crisp like Chrome's own +. */
 .workspace-tab-new .codicon { font-size: 16px; }
 .workspace-tab-new:hover svg,
@@ -364,10 +317,10 @@
   z-index: 10020;
   width: 184px;
   padding: 5px;
-  border: 1px solid var(--mx-border);
-  border-radius: var(--mx-radius-md);
-  background: var(--mx-bg-layer-2);
-  box-shadow: 0 12px 32px var(--mx-alpha-dark-30);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .workspace-tab-new-menu > button {
   width: 100%;
@@ -392,8 +345,6 @@
 /* Working tab: the tab glyph itself becomes a progress spinner. */
 .workspace-tab-main .workspace-tab-status {
   flex: 0 0 auto;
-  position: relative;
-  top: -1px;
   color: var(--mx-text-muted);
   animation: spin 1.1s linear infinite;
 }
@@ -440,11 +391,14 @@
   border-radius: var(--mx-radius-sm);
   background: transparent;
 }
+/* Same lucide mark as the strip's +: 18px @ stroke 2 draws a 10.5px cross on
+   a 1.5px line in ONE ink, and it sits on the cell centre with no optical
+   lift (user: X가 살짝 위인 것 같고, +는 X랑 색감 맞추고). */
 .workspace-tab-close svg {
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
 }
-.workspace-tab-close > :is(svg, .codicon, .workspace-tab-dirty-glyph) {
+.workspace-tab-close > :is(.codicon, .workspace-tab-dirty-glyph) {
   position: relative;
   top: -1px;
 }

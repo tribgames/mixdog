@@ -1,6 +1,6 @@
 // Dock Git panel service: plain `git` CLI calls from the singleton daemon,
 // scoped to the active project directory.
-import { access, readFile, writeFile } from 'node:fs/promises';
+import { access, open, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createGitBranchOperations } from './git-branches';
 export type { GitBranchEntry } from './git-branches';
@@ -53,6 +53,7 @@ export interface GitStatusResult {
 
 export interface GitStatusOptions {
   reuseLineStats?: boolean;
+  skipLineStats?: boolean;
 }
 
 import {
@@ -236,15 +237,43 @@ function applyCachedLineStats(files: GitFileEntry[], cached: CachedLineStats): v
   }
 }
 
+const UNTRACKED_STAT_CONCURRENCY = 8;
+const UNTRACKED_STAT_PROBE_BYTES = 8 * 1024;
+const UNTRACKED_STAT_MAX_BYTES = 8 * 1024 * 1024;
+
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  limit: number,
+  mapper: (value: T) => Promise<R>,
+): Promise<R[]> {
+  if (values.length === 0) return [];
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, limit), values.length) },
+    async () => {
+      while (nextIndex < values.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await mapper(values[index]);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+}
+
 async function applyFreshLineStats(
   cwd: string,
   files: GitFileEntry[],
   stagedStats: Map<string, { additions: number; deletions: number }>,
   unstagedStats: Map<string, { additions: number; deletions: number }>,
 ): Promise<void> {
-  const untracked = new Map(await Promise.all(files
-    .filter((file) => file.untracked)
-    .map(async (file) => [file.path, await untrackedStat(cwd, file.path)] as const)));
+  const untracked = new Map(await mapWithConcurrency(
+    files.filter((file) => file.untracked),
+    UNTRACKED_STAT_CONCURRENCY,
+    async (file) => [file.path, await untrackedStat(cwd, file.path)] as const,
+  ));
   for (const file of files) {
     const staged = stagedStats.get(file.path);
     const unstaged = unstagedStats.get(file.path);
@@ -378,7 +407,8 @@ export async function gitStatus(
     if (kind === '2') pendingRename = file;
     else files.push(file);
   });
-  const eagerStats = options.reuseLineStats !== true;
+  const collectLineStats = options.skipLineStats !== true;
+  const eagerStats = collectLineStats && options.reuseLineStats !== true;
   const stagedStatsPromise = eagerStats
     ? readNumstat(cwd, ['--no-optional-locks', 'diff', '--cached', '--numstat', '-z'])
     : null;
@@ -394,28 +424,30 @@ export async function gitStatus(
   }
   if (pendingRename) files.push(pendingRename);
   const [metadata, operation] = await Promise.all([metadataPromise, operationPromise]);
-  const cacheKey = gitCacheKey(cwd);
-  const signature = lineStatsSignature(files);
-  const cachedStats = lineStatsCache.get(cacheKey);
-  if (options.reuseLineStats === true && cachedStats?.signature === signature) {
-    applyCachedLineStats(files, cachedStats);
-  } else {
-    const [stagedStats, unstagedStats] = await Promise.all([
-      stagedStatsPromise
-        ?? readNumstat(cwd, ['--no-optional-locks', 'diff', '--cached', '--numstat', '-z']),
-      unstagedStatsPromise
-        ?? readNumstat(cwd, ['--no-optional-locks', 'diff', '--numstat', '-z']),
-    ]);
-    await applyFreshLineStats(cwd, files, stagedStats, unstagedStats);
-    lineStatsCache.set(cacheKey, {
-      signature,
-      files: new Map(files.map((file) => [file.path, {
-        stagedAdditions: file.stagedAdditions,
-        stagedDeletions: file.stagedDeletions,
-        unstagedAdditions: file.unstagedAdditions,
-        unstagedDeletions: file.unstagedDeletions,
-      }])),
-    });
+  if (collectLineStats) {
+    const cacheKey = gitCacheKey(cwd);
+    const signature = lineStatsSignature(files);
+    const cachedStats = lineStatsCache.get(cacheKey);
+    if (options.reuseLineStats === true && cachedStats?.signature === signature) {
+      applyCachedLineStats(files, cachedStats);
+    } else {
+      const [stagedStats, unstagedStats] = await Promise.all([
+        stagedStatsPromise
+          ?? readNumstat(cwd, ['--no-optional-locks', 'diff', '--cached', '--numstat', '-z']),
+        unstagedStatsPromise
+          ?? readNumstat(cwd, ['--no-optional-locks', 'diff', '--numstat', '-z']),
+      ]);
+      await applyFreshLineStats(cwd, files, stagedStats, unstagedStats);
+      lineStatsCache.set(cacheKey, {
+        signature,
+        files: new Map(files.map((file) => [file.path, {
+          stagedAdditions: file.stagedAdditions,
+          stagedDeletions: file.stagedDeletions,
+          unstagedAdditions: file.unstagedAdditions,
+          unstagedDeletions: file.unstagedDeletions,
+        }])),
+      });
+    }
   }
 
   const detached = branch === '(detached)';
@@ -1072,9 +1104,19 @@ async function resolveMergeBase(cwd: string): Promise<{ base: string; ref: strin
 
 async function untrackedStat(cwd: string, path: string): Promise<number> {
   try {
-    const text = await readFile(join(cwd, path), 'utf8');
-    if (!text || text.includes('\0')) return 0;
-    return text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+    const handle = await open(join(cwd, path), 'r');
+    try {
+      const info = await handle.stat();
+      if (info.size <= 0 || info.size > UNTRACKED_STAT_MAX_BYTES) return 0;
+      const probe = Buffer.allocUnsafe(Math.min(info.size, UNTRACKED_STAT_PROBE_BYTES));
+      const { bytesRead } = await handle.read(probe, 0, probe.length, 0);
+      if (probe.subarray(0, bytesRead).includes(0)) return 0;
+      const text = await handle.readFile('utf8');
+      if (!text) return 0;
+      return text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+    } finally {
+      await handle.close();
+    }
   } catch {
     return 0;
   }
@@ -1370,10 +1412,10 @@ export async function gitReview(cwd: string): Promise<GitReviewResult> {
       });
     }
   } catch { /* not a repository */ }
-  await Promise.all(untrackedPaths.map(async (path) => {
+  await mapWithConcurrency(untrackedPaths, UNTRACKED_STAT_CONCURRENCY, async (path) => {
     const entry = files.get(path);
     if (entry?.untracked) entry.additions = await untrackedStat(cwd, path);
-  }));
+  });
   return { base, files: [...files.values()].sort((a, b) => a.path.localeCompare(b.path)) };
 }
 

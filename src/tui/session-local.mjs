@@ -55,6 +55,7 @@ import {
 } from './session/tool-call-fields.mjs';
 import {
   buildExecutionResponseToolItem,
+  completionCardFromExecution,
   parseBackgroundTaskEnvelope,
   parseModelVisibleCompletionWrapper,
   parseSyntheticAgentMessage,
@@ -686,6 +687,13 @@ export async function createLocalSessionRuntime({
     return true;
   };
   const pushUserOrSyntheticItem = (text, id = nextId(), origin = 'user', extra = null) => {
+    // A drained task notification arrives with its provenance (queue mode +
+    // execution). Render it as the tool card it is — structurally, so a body
+    // the text parser cannot read still shows up instead of vanishing.
+    if (origin === 'injected' && (extra?.mode === 'task-notification' || extra?.execution)) {
+      const card = completionCardFromExecution(extra?.execution, text);
+      if (card && upsertSyntheticToolItem(text, id, card)) return;
+    }
     if (origin === 'injected') {
       const completion = parseModelVisibleCompletionWrapper(text);
       if (completion && upsertSyntheticToolItem(text, id, completion)) return;

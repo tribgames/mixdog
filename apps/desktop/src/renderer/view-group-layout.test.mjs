@@ -6,15 +6,9 @@ import {
   moveSidebarViewGroup,
   normalizeSidebarViewGroups,
 } from "./sidebar-view-layout.ts";
-import {
-  moveUtilityDockView,
-  moveUtilityDockViewGroup,
-  normalizeUtilityDockViewGroups,
-} from "./utility-dock-view-layout.ts";
 
-// The activity rail and the utility dock offer the same view grouping over
-// their own vocabularies, so the shared grammar is stated once and checked
-// against both surfaces.
+// The activity rail states the shared view-grouping grammar over its own
+// vocabulary; the table form keeps room for another surface.
 const surfaces = [
   {
     name: "activity rail sidebar",
@@ -38,30 +32,6 @@ const surfaces = [
       extractBeside: "webhooks",
       extractPlacement: "before",
       extracted: [["workflows"], ["schedules"], ["projects"], ["webhooks"]],
-    },
-  },
-  {
-    name: "utility dock",
-    normalize: normalizeUtilityDockViewGroups,
-    moveGroup: moveUtilityDockViewGroup,
-    moveView: moveUtilityDockView,
-    stored: [["search", "agents", "search"], ["unknown", "source-control"]],
-    normalized: [["search", "agents"], ["source-control"], ["pull-requests"]],
-    groupMove: {
-      groups: [["agents", "search"], ["source-control"], ["pull-requests"]],
-      root: "agents",
-      target: "pull-requests",
-      placement: "after",
-      expected: [["source-control"], ["pull-requests"], ["agents", "search"]],
-    },
-    stack: {
-      groups: [["agents"], ["search"], ["source-control"], ["pull-requests"]],
-      view: "search",
-      onto: "agents",
-      combined: [["agents", "search"], ["source-control"], ["pull-requests"]],
-      extractBeside: "source-control",
-      extractPlacement: "after",
-      extracted: [["agents"], ["source-control"], ["search"], ["pull-requests"]],
     },
   },
 ];

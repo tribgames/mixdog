@@ -328,6 +328,10 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
   // A refused revert used to vanish into an empty catch, so a legitimate
   // runtime refusal was indistinguishable from a dead button.
   const [revertError, setRevertError] = useState("");
+  // The turn boundary at which the last revert succeeded. Until a new tool
+  // completes, the runtime's (now emptier) diff outranks the transcript's
+  // per-edit uiDiff, which still describes the mutation that was just undone.
+  const [revertedBoundary, setRevertedBoundary] = useState("");
   // An expanded review closes on the first pointer press OUTSIDE its own box.
   // Presses inside (rows, revert, diff style) keep it open, so the disclosure
   // never collapses under its own controls.
@@ -383,7 +387,12 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
   const authoritativeCheckpointId = agentReviewState.scopeKey === turnScopeKey
     ? agentReviewState.checkpointId
     : (leadReviewCheckpointIdCache.get(turnScopeKey) || "");
-  const authoritativeWorktreeSnapshot = authoritativeSnapshotKind === "worktree";
+  // A recorded ("scoped") review is the same Git diff as a live worktree
+  // baseline, only limited to the session's own paths, so its file list is
+  // trusted the same way. Otherwise a revert served from the record left the
+  // transcript's stale diff on screen and looked like nothing had happened.
+  const authoritativeWorktreeSnapshot = authoritativeSnapshotKind === "worktree"
+    || authoritativeSnapshotKind === "scoped";
   const capabilityRequestInFlight = useRef(false);
   const pendingCapabilityRefresh = useRef<{
     scopeKey: string;
@@ -402,6 +411,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     setConfirmAll(false);
     setRevertingAll(false);
     setReverted([]);
+    setRevertedBoundary("");
   }, [turnScopeKey]);
   // Only probe once the transcript shows turn activity: a fresh/empty session
   // has no child review and passive mounts must not fire capability calls.
@@ -601,13 +611,23 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
         authoritativeLeadPatch || "",
       );
     }
-    return summarizeTurnReviewPatch(latestUiDiff ?? authoritativeLeadPatch ?? patches.join("\n"));
+    // After a revert the transcript's uiDiff is exactly the change that was
+    // undone, so the runtime's exact-tracker diff wins until the next tool
+    // completes and moves the boundary.
+    const afterRevert = revertedBoundary !== ""
+      && revertedBoundary === turnBoundaryKey
+      && authoritativeLeadPatch !== null;
+    return summarizeTurnReviewPatch(afterRevert
+      ? authoritativeLeadPatch
+      : latestUiDiff ?? authoritativeLeadPatch ?? patches.join("\n"));
   }, [
     authoritativeLeadFiles,
     authoritativeLeadPatch,
     authoritativeWorktreeSnapshot,
     items,
     reviewScope.startIndex,
+    revertedBoundary,
+    turnBoundaryKey,
   ]);
   const agentSources = useMemo(() => agentReviews.flatMap((review, index) => {
     const reviewSummary = summarizeTurnReviewPatch(review.patch);
@@ -731,6 +751,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
                       setOpenFile("");
                       setConfirmFile("");
                       setReverted([]);
+                      setRevertedBoundary(turnBoundaryKey);
                       await refreshAgentReviews(true);
                     })
                     .catch((reason: unknown) => {
@@ -828,6 +849,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
                     })
                       .then(async () => {
                         setReverted((current) => [...current, name]);
+                        setRevertedBoundary(turnBoundaryKey);
                         await refreshAgentReviews();
                       })
                       .catch((reason: unknown) => setRevertError(

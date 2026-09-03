@@ -58,9 +58,14 @@ jobs:
           echo "manifest_key=$(node scripts/manifest-cache-key.mjs \
             package.json package-lock.json apps/desktop/package-lock.json)" >> "$GITHUB_OUTPUT"
           echo "npm_cache=$(npm config get cache)" >> "$GITHUB_OUTPUT"
+      # Restore and save are split: actions/cache saves in its post step and
+      # skips it when the job fails, so a packaging or verification failure
+      # after a five-minute Windows runtime preparation threw that work away
+      # and the retry paid it again. The explicit save below runs the moment
+      # the runtime is prepared, before anything downstream can fail.
       - name: Restore prepared runtime archive
         id: prepared-runtime
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/desktop/.runtime
           key: desktop-prepared-runtime-v4-${{ steps.runtime-dependencies.outputs.key }}-${{ steps.runtime-dependencies.outputs.manifest_key }}-${{ hashFiles('README.md', 'NOTICE.md', 'LICENSES/**', 'scripts/**', '!scripts/*-test.mjs', '!scripts/*.test.mjs', '!scripts/*-bench.mjs', 'src/**', '!src/**/*.test.mjs', '!src/**/*.test.jsx', 'vendor/**', 'apps/desktop/scripts/prepare-runtime.mjs', 'apps/desktop/scripts/runtime-package-payload.mjs') }}
@@ -78,11 +83,28 @@ jobs:
           path: ${{ steps.runtime-dependencies.outputs.npm_cache }}
           key: desktop-npm-${{ runner.os }}-${{ runner.arch }}-${{ steps.runtime-dependencies.outputs.npm_key }}
       - name: Restore pruned runtime dependencies
+        id: runtime-dependency-cache
         if: steps.prepared-runtime.outputs.cache-hit != 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.MIXDOG_RUNTIME_DEPENDENCY_CACHE }}
           key: desktop-${{ steps.runtime-dependencies.outputs.key }}
+      # The Windows runtime bundles the Chrome password importer, which
+      # prepare-runtime builds from the pinned upstream Rust source: a sparse
+      # clone plus two release cargo builds, ~230s of the ~280s Windows
+      # preparation, repeated on every release because nothing restored its
+      # output. prepare-runtime keeps a source-hash marker beside the built
+      # files and skips the build when it matches, so restoring that directory
+      # under the same hash makes the step free.
+      - name: Restore built browser importer
+        id: browser-import
+        if: >-
+          inputs.platform == 'win32'
+          && steps.prepared-runtime.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/desktop/.cache/browser-import
+          key: desktop-browser-import-v1-${{ inputs.arch }}-${{ hashFiles('native/mixdog-browser-import/**', '!native/mixdog-browser-import/dist/**', '!native/mixdog-browser-import/target/**') }}
       - name: Install desktop dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
         working-directory: apps/desktop
@@ -93,6 +115,29 @@ jobs:
         run: |
           MIXDOG_RUNTIME_NPM_CACHE="$(npm config get cache)" \
           npm run prepare:runtime -- --platform=${{ inputs.platform }} --arch=${{ inputs.arch }}
+      - name: Save pruned runtime dependencies
+        if: >-
+          steps.prepared-runtime.outputs.cache-hit != 'true'
+          && steps.runtime-dependency-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.MIXDOG_RUNTIME_DEPENDENCY_CACHE }}
+          key: desktop-${{ steps.runtime-dependencies.outputs.key }}
+      - name: Save prepared runtime archive
+        if: steps.prepared-runtime.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/desktop/.runtime
+          key: ${{ steps.prepared-runtime.outputs.cache-primary-key }}
+      - name: Save built browser importer
+        if: >-
+          inputs.platform == 'win32'
+          && steps.prepared-runtime.outputs.cache-hit != 'true'
+          && steps.browser-import.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: apps/desktop/.cache/browser-import
+          key: ${{ steps.browser-import.outputs.cache-primary-key }}
       - name: Download common desktop output
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -113,12 +158,8 @@ jobs:
       - name: Verify packaged updater metadata
         run: npm run verify:update-metadata
         working-directory: apps/desktop
-      # Source-shape packaging invariants are platform-neutral and expensive;
-      # run them once on Windows instead of repeating them on all five runners.
-      - name: Verify packaging source invariants once
-        if: inputs.platform == 'win32'
-        run: npm run test:packaging
-        working-directory: apps/desktop
+      # Source-shape packaging invariants (packaging.test.mjs) run in the
+      # release gate on every push; only the built artifact is checked here.
       - name: Verify this platform's packaged runtime layout
         run: npm run verify:packaging-artifact
         working-directory: apps/desktop

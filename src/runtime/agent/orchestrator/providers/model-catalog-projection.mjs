@@ -78,6 +78,14 @@ function projectModelsDevRow(row) {
     if (typeof row.tool_call === 'boolean') out.tool_call = row.tool_call;
     if (typeof row.family === 'string' && row.family) out.family = row.family;
     if (typeof row.release_date === 'string' && row.release_date) out.release_date = row.release_date;
+    // Reader: opencode-go.mjs openCodeGoWireApi — models.dev names the SDK
+    // package a gateway model speaks (@ai-sdk/openai = Responses API,
+    // @ai-sdk/anthropic = Messages API, absent = chat/completions).
+    const npm = row.provider?.npm;
+    if (typeof npm === 'string' && npm) out.npm = npm;
+    // Reader: enrichModels (display label for gateway ids the id-based
+    // formatter cannot title, e.g. kimi-k2.7-code → "Kimi K2.7 Code").
+    if (typeof row.name === 'string' && row.name) out.name = row.name;
     return out;
 }
 

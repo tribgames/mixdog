@@ -11,8 +11,9 @@ import {
 import { createPortal } from 'react-dom';
 
 import type { DesktopModelOption } from '../shared/contract';
-import { t } from './i18n';
+import { t, tExisting } from './i18n';
 import { useMobileBack } from './mobile-back';
+import { BOOT_WARMUP, scheduleBootWarmup } from './boot-warmup';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
 import { ModelCatalog } from './model-catalog';
 import { formatContextWindow, ModelRouteLabel } from './provider-display';
@@ -56,6 +57,16 @@ function naturalTriggerWidth(button: HTMLButtonElement): number {
   const width = probe.getBoundingClientRect().width;
   probe.remove();
   return width;
+}
+
+// Cursor names its boolean reasoning switch "Thinking" — the same word the
+// activity spinner uses, so the DOM localizer would print the spinner's
+// "in progress" phrasing on a settings row. The row owns its own key and
+// keeps the provider's label wherever no translation exists.
+function modelParameterLabel(parameter: { id: string; label: string }): string {
+  return /^thinking$/i.test(parameter.id) || /^thinking$/i.test(parameter.label)
+    ? tExisting('Thinking (model parameter)', parameter.label)
+    : parameter.label;
 }
 
 function currentViewport(anchor?: HTMLElement | null) {
@@ -179,6 +190,12 @@ export function RouteEditor({
   // Narrow surface (phone): the pane takes over the sheet's footprint and the
   // sheet steps aside, instead of stacking a detached second panel.
   const [drill, setDrill] = useState(false);
+  // The model flyout hosts the FULL catalog (every provider row, no
+  // virtualization). Mounting it on the first hover of the Model row — and
+  // again after every close — made the list land a beat after the sheet
+  // (user: 눌렀을 때 반응, 미리 아이템 생성 안 되어 있음). It is mounted once,
+  // hidden, in the post-boot warm lane, and stays mounted across closes; the
+  // flyout only toggles `hidden`, so the entry animation still plays.
   const [modelCatalogReady, setModelCatalogReady] = useState(false);
   // While open, the trigger pill expands to the sheet width.
   // null = natural (auto) width; a number drives the width transition.
@@ -202,6 +219,14 @@ export function RouteEditor({
   const clickGuard = useImmediateOverlayClickGuard();
   const surfaceActive = useSurfaceActive();
   const sheetId = useId().replace(/:/g, '');
+  useEffect(() => {
+    if (modelCatalogReady || models.length === 0) return undefined;
+    return scheduleBootWarmup({
+      id: `route-model-catalog:${sheetId}`,
+      priority: BOOT_WARMUP.modelCatalog,
+      run: () => setModelCatalogReady(true),
+    });
+  }, [modelCatalogReady, models.length, sheetId]);
   const selectedEffort = effortOptions.find((option) => option.value === effort);
   const effortLabel = selectedEffort?.label || '';
   const speedLabel = fast ? t('Fast') : t('Standard');
@@ -250,7 +275,6 @@ export function RouteEditor({
     setSheetBox(null);
     setFlyoutBox(null);
     setDrill(false);
-    setModelCatalogReady(false);
     setTriggerWidth(null);
   }, []);
 
@@ -581,7 +605,8 @@ export function RouteEditor({
     if (target === 'effort') return t('Reasoning effort');
     if (target === 'context') return t('Context');
     if (target === 'speed') return t('Speed');
-    return parameterRows.find((entry) => `parameter:${entry.id}` === target)?.label || '';
+    const parameter = parameterRows.find((entry) => `parameter:${entry.id}` === target);
+    return parameter ? modelParameterLabel(parameter) : '';
   };
 
   const paneBody = (target: RouteSheetPane) => {
@@ -749,7 +774,7 @@ export function RouteEditor({
               formatContextWindow(contextTokens).replace(/ Context$/, ''), tuningDisabled)}
             {parameterRows.map((parameter) => row(
               `parameter:${parameter.id}`,
-              parameter.label,
+              modelParameterLabel(parameter),
               parameter.options.find((option) => option.value === modelParameters[parameter.id])?.label
                 || modelParameters[parameter.id]
                 || parameter.options[0]?.label
@@ -761,7 +786,7 @@ export function RouteEditor({
       </div>,
       document.body,
     )}
-    {mounted && !drill && modelCatalogReady && createPortal(
+    {modelCatalogReady && !drill && surfaceActive && createPortal(
       <div ref={modelFlyout} className="route-sheet-flyout route-sheet-flyout--model"
         hidden={pane !== 'model'} data-placement={flyoutBox?.placement}
         data-state={closing ? 'closing' : 'open'}

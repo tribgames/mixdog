@@ -29,6 +29,11 @@ import {
 } from "./transcript-measure";
 import { isRemoteBrowserRenderer } from "./remote-ui-projection";
 import { isMobileRemoteSurface } from "./mobile-surface";
+import {
+  attachTranscriptSelectionDrag,
+  type TranscriptSelectionEndpoint,
+  type TranscriptSelectionPin,
+} from "./transcript-selection-drag";
 
 /**
  * The virtualized transcript timeline.
@@ -67,74 +72,6 @@ function logicalScrollOffset(
 /** Native reader motion is the only scroll authority until it becomes idle. */
 export function shouldDeferTranscriptScrollAdjustment(hasReaderGesture: boolean): boolean {
   return hasReaderGesture;
-}
-
-type SelectionPoint = { node: Node; offset: number };
-
-function firstTextPoint(element: Element): SelectionPoint {
-  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-  let node: Node | null;
-  while ((node = walker.nextNode())) {
-    if (node.textContent) return { node, offset: 0 };
-  }
-  return { node: element, offset: 0 };
-}
-
-function lastTextPoint(element: Element): SelectionPoint {
-  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-  let last: Node | null = null;
-  let node: Node | null;
-  while ((node = walker.nextNode())) {
-    if (node.textContent) last = node;
-  }
-  if (!last) return { node: element, offset: element.childNodes.length };
-  return { node: last, offset: last.textContent?.length ?? 0 };
-}
-
-function caretPointFromPointer(x: number, y: number): SelectionPoint | null {
-  const doc = document as Document & {
-    caretPositionFromPoint?(cx: number, cy: number): { offsetNode: Node; offset: number } | null;
-    caretRangeFromPoint?(cx: number, cy: number): Range | null;
-  };
-  const position = doc.caretPositionFromPoint?.(x, y);
-  if (position) return { node: position.offsetNode, offset: position.offset };
-  const range = doc.caretRangeFromPoint?.(x, y);
-  return range ? { node: range.startContainer, offset: range.startOffset } : null;
-}
-
-const SELECTION_SCROLL_EDGE_PX = 56;
-const SELECTION_SCROLL_MAX_STEP_PX = 28;
-
-export function transcriptSelectionPointerRegion(
-  pointerX: number,
-  pointerY: number,
-  left: number,
-  top: number,
-  right: number,
-  bottom: number,
-): "inside" | "above" | "below" | "side" {
-  if (pointerY < top) return "above";
-  if (pointerY > bottom) return "below";
-  if (pointerX < left || pointerX > right) return "side";
-  return "inside";
-}
-
-/** One vertical selection-scroll velocity for both viewport edges. */
-export function transcriptSelectionAutoScrollDelta(
-  pointerY: number,
-  top: number,
-  bottom: number,
-): number {
-  if (!Number.isFinite(pointerY) || !Number.isFinite(top) || !Number.isFinite(bottom)
-    || bottom <= top) return 0;
-  const edge = Math.max(1, Math.min(SELECTION_SCROLL_EDGE_PX, (bottom - top) / 3));
-  const velocity = (distance: number): number => {
-    const pressure = Math.min(1, Math.max(0, distance / edge));
-    return Math.max(1, Math.round(SELECTION_SCROLL_MAX_STEP_PX * pressure * pressure));
-  };
-  if (pointerY < top + edge) return -velocity(top + edge - pointerY);
-  if (pointerY > bottom - edge) return velocity(pointerY - (bottom - edge));
-  return 0;
 }
 
 export function TranscriptList({
@@ -203,12 +140,12 @@ export function TranscriptList({
   const resizePinned = useRef<number[]>([]);
   const resizePinFrame = useRef(0);
   // Native text selection keeps DOM boundary points. If virtualization
-  // unmounts either endpoint while Chromium auto-scrolls a drag, Chromium
-  // reconnects the range to an unrelated surviving node and the highlight
-  // appears to flip back up the transcript. Keep the selected row span
-  // mounted until the browser selection collapses.
-  type SelectionEndpoint = { key: unknown; index: number };
-  type SelectionPin = { anchor: SelectionEndpoint; focus: SelectionEndpoint };
+  // unmounts either endpoint while a drag auto-scrolls, Chromium reconnects
+  // the range to an unrelated surviving node and the highlight appears to
+  // flip back up the transcript. Keep the selected row span mounted until the
+  // browser selection collapses.
+  type SelectionEndpoint = TranscriptSelectionEndpoint;
+  type SelectionPin = TranscriptSelectionPin;
   const selectionPinned = useRef<SelectionPin | null>(null);
   const [, invalidateSelectionPin] = useState(0);
   const setSelectionPin = useCallback((next: SelectionPin | null) => {
@@ -545,292 +482,17 @@ export function TranscriptList({
     };
   }, [setAnchorBottomRef]);
 
+  // Chromium owns the drag range; transcript-selection-drag.ts only pins the
+  // rows it spans and reports native autoscroll to the follow hook.
   useEffect(() => {
     const root = viewport.current;
     if (!root) return undefined;
-    let selecting = false;
-    let seed: SelectionEndpoint | null = null;
-    let restoring = false;
-    let seedPoint: SelectionPoint | null = null;
-    let seedY = 0;
-    let lastGood: { anchor: SelectionPoint; focus: SelectionPoint } | null = null;
-    let lastPointer = { x: 0, y: 0 };
-    let selectionScrollFrame = 0;
-    const endpointForNode = (node: Node | null): SelectionEndpoint | null => {
-      const element = node instanceof Element ? node : node?.parentElement;
-      const row = element?.closest<HTMLElement>(".transcript-virtual-row");
-      if (!row || !root.contains(row)) return null;
-      const index = Number(row.dataset.index);
-      const key = rowsRef.current[index]?.key;
-      return Number.isInteger(index) && key !== undefined ? { key, index } : null;
-    };
-    const markSelecting = (active: boolean) => {
-      if (active) document.documentElement.dataset.transcriptSelecting = "true";
-      else delete document.documentElement.dataset.transcriptSelecting;
-    };
-    const rowElement = (index: number) =>
-      root.querySelector<HTMLElement>(`.transcript-virtual-row[data-index="${index}"]`);
-    const pointerOverTranscriptRow = () => {
-      const el = document.elementFromPoint(lastPointer.x, lastPointer.y);
-      const row = el instanceof Element ? el.closest(".transcript-virtual-row") : null;
-      return Boolean(row && root.contains(row));
-    };
-    const rememberGood = (selection: Selection) => {
-      if (!selection.anchorNode || !selection.focusNode) return;
-      if (!root.contains(selection.anchorNode) || !root.contains(selection.focusNode)) return;
-      if (selection.isCollapsed) return;
-      lastGood = {
-        anchor: { node: selection.anchorNode, offset: selection.anchorOffset },
-        focus: { node: selection.focusNode, offset: selection.focusOffset },
-      };
-    };
-    const applyRange = (anchor: SelectionPoint, focus: SelectionPoint) => {
-      const selection = window.getSelection();
-      if (!selection) return;
-      if (selection.anchorNode === anchor.node && selection.anchorOffset === anchor.offset
-        && selection.focusNode === focus.node && selection.focusOffset === focus.offset) {
-        return;
-      }
-      restoring = true;
-      try {
-        selection.setBaseAndExtent(anchor.node, anchor.offset, focus.node, focus.offset);
-      } catch {
-        restoring = false;
-      }
-    };
-    const clampOutside = () => {
-      if (!selecting || !seed) return;
-      if (lastGood && root.contains(lastGood.anchor.node) && root.contains(lastGood.focus.node)) {
-        applyRange(lastGood.anchor, lastGood.focus);
-        return;
-      }
-      const goingDown = lastPointer.y >= seedY;
-      const pin = selectionPinned.current;
-      const otherIndex = pin
-        ? (goingDown
-          ? Math.max(seed.index, pin.focus.index, pin.anchor.index)
-          : Math.min(seed.index, pin.focus.index, pin.anchor.index))
-        : seed.index;
-      const seedRow = rowElement(seed.index);
-      const otherRow = rowElement(otherIndex) ?? seedRow;
-      const start = seedPoint && root.contains(seedPoint.node)
-        ? seedPoint
-        : (seedRow ? (goingDown ? firstTextPoint(seedRow) : lastTextPoint(seedRow)) : null);
-      const end = otherRow
-        ? (goingDown ? lastTextPoint(otherRow) : firstTextPoint(otherRow))
-        : null;
-      if (start && end) applyRange(start, end);
-    };
-    const stopSelectionAutoScroll = () => {
-      if (!selectionScrollFrame) return;
-      window.cancelAnimationFrame(selectionScrollFrame);
-      selectionScrollFrame = 0;
-    };
-    const extendSelectionToViewportEdge = () => {
-      if (!selecting || !seed) return;
-      const view = root.getBoundingClientRect();
-      const pointerRegion = transcriptSelectionPointerRegion(
-        lastPointer.x, lastPointer.y, view.left, view.top, view.right, view.bottom);
-      if (pointerRegion === "side") {
-        clampOutside();
-        return;
-      }
-      const goingDown = lastPointer.y >= seedY;
-      const visibleRows = [
-        ...root.querySelectorAll<HTMLElement>(".transcript-virtual-row"),
-      ].filter((row) => {
-        const rect = row.getBoundingClientRect();
-        return rect.bottom > view.top && rect.top < view.bottom;
-      });
-      const edgeRow = goingDown ? visibleRows.at(-1) : visibleRows[0];
-      const seedRow = rowElement(seed.index);
-      const anchor = seedPoint && root.contains(seedPoint.node)
-        ? seedPoint
-        : (seedRow ? (goingDown ? firstTextPoint(seedRow) : lastTextPoint(seedRow)) : null);
-      const pointerX = Math.min(view.right - 1, Math.max(view.left + 1, lastPointer.x));
-      const pointerY = Math.min(view.bottom - 1, Math.max(view.top + 1, lastPointer.y));
-      // Once the pointer leaves vertically, distance and horizontal jitter no
-      // longer choose a fresh caret on every pixel. The visible edge is one
-      // stable boundary until the rAF scroll reveals a different edge row.
-      const pointed = pointerRegion === "inside"
-        ? caretPointFromPointer(pointerX, pointerY)
-        : null;
-      const focus = pointed && root.contains(pointed.node) && endpointForNode(pointed.node)
-        ? pointed
-        : (edgeRow ? (goingDown ? lastTextPoint(edgeRow) : firstTextPoint(edgeRow)) : null);
-      if (!anchor || !focus) return;
-      applyRange(anchor, focus);
-      lastGood = { anchor, focus };
-      const anchorEndpoint = endpointForNode(anchor.node);
-      const focusEndpoint = endpointForNode(focus.node);
-      if (anchorEndpoint && focusEndpoint) {
-        setSelectionPin({ anchor: anchorEndpoint, focus: focusEndpoint });
-      }
-    };
-    const selectionAutoScrollStep = () => {
-      selectionScrollFrame = 0;
-      if (!selecting) return;
-      const view = root.getBoundingClientRect();
-      const delta = transcriptSelectionAutoScrollDelta(
-        lastPointer.y, view.top, view.bottom);
-      if (!delta) return;
-      const previousTop = root.scrollTop;
-      onSelectionAutoScroll(delta);
-      root.scrollTop = previousTop + delta;
-      if (root.scrollTop === previousTop) {
-        extendSelectionToViewportEdge();
-        return;
-      }
-      extendSelectionToViewportEdge();
-      selectionScrollFrame = window.requestAnimationFrame(selectionAutoScrollStep);
-    };
-    const updateSelectionAutoScroll = (allowed = true) => {
-      if (!allowed) {
-        stopSelectionAutoScroll();
-        return false;
-      }
-      const view = root.getBoundingClientRect();
-      const delta = transcriptSelectionAutoScrollDelta(
-        lastPointer.y, view.top, view.bottom);
-      if (!delta) {
-        stopSelectionAutoScroll();
-        return false;
-      }
-      if (!selectionScrollFrame) {
-        selectionScrollFrame = window.requestAnimationFrame(selectionAutoScrollStep);
-      }
-      return true;
-    };
-    const selectionCrossedSeed = (
-      anchor: SelectionEndpoint | null,
-      focus: SelectionEndpoint | null,
-    ) => {
-      if (!seed || !anchor || !focus) return false;
-      const goingDown = lastPointer.y >= seedY;
-      const lo = Math.min(anchor.index, focus.index);
-      const hi = Math.max(anchor.index, focus.index);
-      return goingDown ? lo < seed.index : hi > seed.index;
-    };
-    const syncSelectionPin = () => {
-      if (restoring) {
-        restoring = false;
-        return;
-      }
-      const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-        if (!selecting) setSelectionPin(null);
-        else if (!pointerOverTranscriptRow()) clampOutside();
-        return;
-      }
-      const anchor = endpointForNode(selection.anchorNode);
-      const focus = endpointForNode(selection.focusNode);
-      if (selecting && (selectionCrossedSeed(anchor, focus) || !pointerOverTranscriptRow())) {
-        clampOutside();
-        return;
-      }
-      if (anchor && focus) {
-        rememberGood(selection);
-        setSelectionPin({ anchor, focus });
-        return;
-      }
-      // Pointer autoscroll can temporarily place the focus just outside the
-      // viewport. Preserve the last in-transcript boundary until it re-enters.
-      const inside = anchor ?? focus;
-      if (selecting && seed && inside) setSelectionPin({ anchor: seed, focus: inside });
-      else if (!selecting && !anchor && !focus) setSelectionPin(null);
-    };
-    const handlePointerDown = (event: PointerEvent) => {
-      if (event.button !== 0) return;
-      const endpoint = endpointForNode(event.target as Node | null);
-      if (!endpoint) {
-        stopSelectionAutoScroll();
-        selecting = false;
-        seed = null;
-        seedPoint = null;
-        seedY = 0;
-        lastGood = null;
-        markSelecting(false);
-        return;
-      }
-      selecting = true;
-      seed = endpoint;
-      seedY = event.clientY;
-      lastPointer = { x: event.clientX, y: event.clientY };
-      seedPoint = caretPointFromPointer(event.clientX, event.clientY);
-      lastGood = null;
-      markSelecting(true);
-      // Seed synchronously, before native autoscroll can move the first row
-      // outside the virtual range.
-      setSelectionPin({ anchor: endpoint, focus: endpoint });
-    };
-    const handlePointerMove = (event: PointerEvent) => {
-      if (!selecting) return;
-      lastPointer = { x: event.clientX, y: event.clientY };
-      const view = root.getBoundingClientRect();
-      const pointerRegion = transcriptSelectionPointerRegion(
-        lastPointer.x, lastPointer.y, view.left, view.top, view.right, view.bottom);
-      const overRow = pointerRegion === "inside" && pointerOverTranscriptRow();
-      const verticalOutside = pointerRegion === "above" || pointerRegion === "below";
-      if (updateSelectionAutoScroll(overRow || verticalOutside)) {
-        event.preventDefault();
-        // selectionAutoScrollStep is the sole range writer for this frame.
-        // Pointer events only update its latest target and never double-write.
-        return;
-      }
-      if (!overRow) {
-        // Chromium remaps an extending native range to the nearest selectable
-        // text when the pointer enters the non-selectable composer. Cancel that
-        // default before paint; selectionchange is too late and exposes one
-        // frame with the range inverted above its seed.
-        event.preventDefault();
-        clampOutside();
-      }
-    };
-    const handleMouseMove = (event: MouseEvent) => {
-      if (!selecting) return;
-      if (selectionScrollFrame || !pointerOverTranscriptRow()) {
-        // Text-range extension is a mouse default action in Chromium even
-        // when Pointer Events are enabled. Pointermove is the sole state owner;
-        // this compatibility event only suppresses the duplicate native write.
-        event.preventDefault();
-      }
-    };
-    const handleSelectStart = (event: Event) => {
-      if (!selecting) return;
-      const target = event.target as Node | null;
-      if (target && !root.contains(target)) event.preventDefault();
-    };
-    const finishSelection = () => {
-      if (!selecting) return;
-      stopSelectionAutoScroll();
-      syncSelectionPin();
-      selecting = false;
-      seed = null;
-      seedPoint = null;
-      seedY = 0;
-      lastGood = null;
-      markSelecting(false);
-      if (window.getSelection()?.isCollapsed !== false) setSelectionPin(null);
-    };
-    root.addEventListener("pointerdown", handlePointerDown, true);
-    document.addEventListener("pointermove", handlePointerMove, true);
-    document.addEventListener("mousemove", handleMouseMove, true);
-    document.addEventListener("selectstart", handleSelectStart, true);
-    document.addEventListener("selectionchange", syncSelectionPin);
-    document.addEventListener("pointerup", finishSelection, true);
-    document.addEventListener("pointercancel", finishSelection, true);
-    return () => {
-      root.removeEventListener("pointerdown", handlePointerDown, true);
-      document.removeEventListener("pointermove", handlePointerMove, true);
-      document.removeEventListener("mousemove", handleMouseMove, true);
-      document.removeEventListener("selectstart", handleSelectStart, true);
-      document.removeEventListener("selectionchange", syncSelectionPin);
-      document.removeEventListener("pointerup", finishSelection, true);
-      document.removeEventListener("pointercancel", finishSelection, true);
-      stopSelectionAutoScroll();
-      markSelecting(false);
-      selectionPinned.current = null;
-    };
+    return attachTranscriptSelectionDrag({
+      root,
+      rowKeyAt: (index) => rowsRef.current[index]?.key,
+      setPin: setSelectionPin,
+      onAutoScroll: onSelectionAutoScroll,
+    });
   }, [onSelectionAutoScroll, sessionKey, setSelectionPin, viewport]);
 
   useEffect(() => () => {

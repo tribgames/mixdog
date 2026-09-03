@@ -192,6 +192,10 @@ html[data-mixdog-mobile-tabs] .conversation {
   scrollbar-gutter: stable;
   /* Virtual-core owns end anchoring and measurement compensation. */
   overflow-anchor: none;
+  /* A touch fling must not chain into the page behind the transcript: the
+     chained body scroll moved the whole pane while the virtualizer held its
+     own offset, and the two corrections bounced the timeline up/down. */
+  overscroll-behavior: contain;
   /* ONE arrow across the reading surface (user: 스크롤바 위에서는 커서,
      입력 위에서만 입력 커서가 나와야). Prose lines end within ~40px of the
      scrollbar, so the I-beam that selectable glyphs draw under cursor:auto

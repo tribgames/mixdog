@@ -120,7 +120,6 @@ test('Goal and load control calls never enter restored tool aggregates', () => {
     'update_goal',
     'load_tool',
     'tool_search',
-    'Skill',
   ];
   const toolCalls = hiddenNames.map((name, index) => ({
     id: `call_hidden_${index}`,
@@ -145,11 +144,34 @@ test('Goal and load control calls never enter restored tool aggregates', () => {
     (item.toolMembers || []).some((member) => hiddenNames.includes(member?.name))), false);
 });
 
+test('restored skill loads keep user/plugin skills and drop built-in ones', () => {
+  const messages = [
+    {
+      role: 'assistant',
+      toolCalls: [
+        { id: 'call_user_skill', name: 'Skill', arguments: { name: 'mixdog-refs' } },
+        { id: 'call_builtin_skill', name: 'Skill', arguments: { name: 'docx' } },
+      ],
+    },
+    { role: 'tool', toolCallId: 'call_user_skill', content: 'Loaded skill: mixdog-refs' },
+    { role: 'tool', toolCallId: 'call_builtin_skill', content: 'Loaded built-in skill: docx' },
+  ];
+
+  const items = restoreTranscriptItems(messages, { sessionId: 'sess_skill_restore' });
+  const skills = items.filter((item) => item?.kind === 'tool').map((item) => item.args?.name);
+  assert.deepEqual(skills, ['mixdog-refs']);
+});
+
 test('live turn display policy suppresses Goal/load controls without hiding ordinary tools', () => {
   assert.equal(transcriptToolCallDisplayMode('goal', { action: 'create' }), 'hidden-control');
   assert.equal(transcriptToolCallDisplayMode('functions.load_tool', { name: 'browser' }), 'hidden-control');
   assert.equal(transcriptToolCallDisplayMode('task', { action: 'wait' }), 'task-wait');
   assert.equal(transcriptToolCallDisplayMode('read', { file_path: 'visible.txt' }), 'visible');
+  // Skill loads are visible; only a known built-in skill hides at call time.
+  const builtin = new Set(['docx']);
+  assert.equal(transcriptToolCallDisplayMode('Skill', { name: 'mixdog-refs' }), 'visible');
+  assert.equal(transcriptToolCallDisplayMode('Skill', { name: 'mixdog-refs' }, builtin), 'visible');
+  assert.equal(transcriptToolCallDisplayMode('Skill', { name: 'docx' }, builtin), 'hidden-control');
 });
 
 test('surface replacement preserves Goal state while an explicit user cancellation still pauses', () => {

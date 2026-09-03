@@ -825,6 +825,18 @@ export function createSessionService({
     return sessionOwner(sessionId) || null;
   }
 
+  // A cold read that misses its cache is the one place a pane open pays real
+  // CPU on this thread; anything past the threshold is worth a log line so a
+  // slow open can be attributed instead of guessed at.
+  const SLOW_STORED_PROJECTION_MS = 250;
+  function traceStoredProjectionRead({ sessionId, hit, ms, chars, items }) {
+    // A waiter that shared an in-flight parse reports as a hit; the parse
+    // itself is the line worth having.
+    if (hit || ms < SLOW_STORED_PROJECTION_MS) return;
+    log(`slow stored projection session=${sessionId} ${Math.round(ms)}ms`
+      + ` chars=${chars} items=${items}`);
+  }
+
   async function storedSessionProjection(sessionId, hints) {
     if (typeof readStoredSession !== 'function') return null;
     const requested = Number(hints?.resumeOptions?.transcriptItemLimit);
@@ -832,6 +844,7 @@ export function createSessionService({
     try {
       snapshot = await readStoredSession(sessionId, {
         transcriptItemLimit: Number.isFinite(requested) && requested > 0 ? requested : 512,
+        trace: traceStoredProjectionRead,
       });
     } catch (err) {
       log(`stored session projection failed session=${sessionId}: ${err?.message || err}`);
@@ -864,6 +877,9 @@ export function createSessionService({
       projection: true,
       ...extra,
       revision: 0,
+      ...(typeof projection?.projectionStamp === 'string'
+        ? { projectionStamp: projection.projectionStamp }
+        : {}),
       full: projection,
     };
   }
@@ -1111,6 +1127,7 @@ export function createSessionService({
   async function readSession(params = {}, ctx = null) {
     const {
       sessionId, open: openHints = {}, baseRevision = null, baseSyncRevision = null,
+      baseProjectionStamp = null,
     } = params;
     if (params.action != null) {
       void ctx;
@@ -1141,6 +1158,21 @@ export function createSessionService({
         ));
       }
       if (!projection) throw new Error(`session ${id} is not available`);
+      // A visible cold pane re-reads on a clock. When the reader hands back
+      // the very projection the caller already holds, the answer carries no
+      // body: the caller keeps its snapshot and nothing crosses the wire.
+      if (typeof baseProjectionStamp === 'string' && baseProjectionStamp
+        && projection.projectionStamp === baseProjectionStamp
+        && !Number.isInteger(params.messageStart)) {
+        return {
+          sessionId: id,
+          reservedOnly: false,
+          projection: true,
+          revision: 0,
+          projectionStamp: projection.projectionStamp,
+          unchanged: true,
+        };
+      }
       return projectionResult(id, projection, await requestedMessageSlice(params, id));
     }
     // Embedders without a store reader keep the legacy load-on-read seam.

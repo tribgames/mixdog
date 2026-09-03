@@ -252,9 +252,12 @@ export function createQueryHandlers({
     }
     else if (compactDigest) rows = compactDigestRows(rows, limit)
     return {
+      // Compact handoff reads as one session timeline: oldest first, RAW rows
+      // without their meaningless ingest-time stamps, bodies uncapped.
       text: renderEntryLines(rows, {
         pendingMarks: !compactDigest && !compactHandoff,
-        recencyOrder: compactHandoff,
+        chronologicalOrder: compactHandoff,
+        compactTimestamps: compactHandoff,
         maxBodyChars: compactHandoff ? null : 8000,
       }),
     }

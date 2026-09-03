@@ -321,20 +321,16 @@ export function SessionStatusIsland({
   dockOpen?: boolean;
   onToggleDock?: () => void;
 }) {
-  const [openPanel, setOpenPanel] = useState<'work' | 'context' | null>(null);
+  // The aggregate Agent/Shell readout (LiveWorkIndicator) is retired from the
+  // capsule for now (user: 에이전트 쉘 표기줄 자체를 숨기고): the send/stop
+  // disc already says a turn is running, and the per-task breakdown will
+  // return in a transcript-side chip that shows only while work is live.
+  const [contextOpen, setContextOpen] = useState(false);
   const sessionId = String(snapshot.sessionId || '');
-  useEffect(() => setOpenPanel(null), [sessionId]);
-  const setWorkOpen = useCallback((open: boolean) => {
-    setOpenPanel((current) => open ? 'work' : current === 'work' ? null : current);
-  }, []);
-  const setContextOpen = useCallback((open: boolean) => {
-    setOpenPanel((current) => open ? 'context' : current === 'context' ? null : current);
-  }, []);
+  useEffect(() => setContextOpen(false), [sessionId]);
   return <div className="session-status-island">
-    <LiveWorkIndicator snapshot={snapshot}
-      open={openPanel === 'work'} onOpenChange={setWorkOpen} />
     <ContextUsageIndicator snapshot={snapshot}
-      open={openPanel === 'context'} onOpenChange={setContextOpen}
+      open={contextOpen} onOpenChange={setContextOpen}
       onInherit={onInherit} />
     {onToggleDock && <button type="button"
       className="session-dock-toggle session-status-dock-toggle"
@@ -346,7 +342,7 @@ export function SessionStatusIsland({
         label: t('utility panel'),
       })}
       onClick={() => {
-        setOpenPanel(null);
+        setContextOpen(false);
         onToggleDock();
       }}>
       {/* Island voice is lucide line work (user: 아이콘 크기가 전혀 안 맞아 —

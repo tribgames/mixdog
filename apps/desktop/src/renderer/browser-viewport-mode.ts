@@ -1,14 +1,17 @@
 import type { DesktopBrowserViewportConfig } from "../shared/contract";
 
+/** Representative viewport sizes, not device names (user: 대표 해상도만, 폰
+ *  이름 빼고): each phone size stands for its whole class of devices. */
 export type BrowserViewportPresetId =
   | "responsive"
-  | "iphone-se"
-  | "iphone-14"
-  | "iphone-14-pro-max"
-  | "pixel-7"
-  | "galaxy-s20"
-  | "ipad-mini"
-  | "laptop";
+  | "phone-360"
+  | "phone-390"
+  | "phone-412"
+  | "phone-430"
+  | "tablet-768"
+  | "tablet-1024"
+  | "laptop-1366"
+  | "desktop-1920";
 
 export type BrowserViewportPreset = Readonly<{
   id: BrowserViewportPresetId;
@@ -39,39 +42,55 @@ export const BROWSER_VIEWPORT_PRESETS: readonly BrowserViewportPreset[] = [
     deviceScaleFactor: 1, mobile: false, touch: false, userAgent: null,
   },
   {
-    id: "iphone-se", label: "iPhone SE · 375×667", width: 375, height: 667,
-    deviceScaleFactor: 2, mobile: true, touch: true, userAgent: IPHONE_USER_AGENT,
+    id: "phone-360", label: "Phone · 360×800", width: 360, height: 800,
+    deviceScaleFactor: 3, mobile: true, touch: true, userAgent: ANDROID_USER_AGENT,
   },
   {
-    id: "iphone-14", label: "iPhone 14 · 390×844", width: 390, height: 844,
-    deviceScaleFactor: 2, mobile: true, touch: true, userAgent: IPHONE_USER_AGENT,
+    id: "phone-390", label: "Phone · 390×844", width: 390, height: 844,
+    deviceScaleFactor: 3, mobile: true, touch: true, userAgent: IPHONE_USER_AGENT,
   },
   {
-    id: "iphone-14-pro-max", label: "iPhone 14 Pro Max · 430×932", width: 430, height: 932,
-    deviceScaleFactor: 2, mobile: true, touch: true, userAgent: IPHONE_USER_AGENT,
+    id: "phone-412", label: "Phone · 412×915", width: 412, height: 915,
+    deviceScaleFactor: 2.625, mobile: true, touch: true, userAgent: ANDROID_USER_AGENT,
   },
   {
-    id: "pixel-7", label: "Pixel 7 · 412×915", width: 412, height: 915,
-    deviceScaleFactor: 2, mobile: true, touch: true, userAgent: ANDROID_USER_AGENT,
+    id: "phone-430", label: "Phone · 430×932", width: 430, height: 932,
+    deviceScaleFactor: 3, mobile: true, touch: true, userAgent: IPHONE_USER_AGENT,
   },
   {
-    id: "galaxy-s20", label: "Galaxy S20 · 360×800", width: 360, height: 800,
-    deviceScaleFactor: 2, mobile: true, touch: true, userAgent: ANDROID_USER_AGENT,
-  },
-  {
-    id: "ipad-mini", label: "iPad Mini · 768×1024", width: 768, height: 1024,
+    id: "tablet-768", label: "Tablet · 768×1024", width: 768, height: 1024,
     deviceScaleFactor: 2, mobile: true, touch: true, userAgent: IPAD_USER_AGENT,
   },
   {
-    id: "laptop", label: "Laptop · 1366×768", width: 1366, height: 768,
+    id: "tablet-1024", label: "Tablet · 1024×1366", width: 1024, height: 1366,
+    deviceScaleFactor: 2, mobile: true, touch: true, userAgent: IPAD_USER_AGENT,
+  },
+  {
+    id: "laptop-1366", label: "Laptop · 1366×768", width: 1366, height: 768,
+    deviceScaleFactor: 1, mobile: false, touch: false, userAgent: null,
+  },
+  {
+    id: "desktop-1920", label: "Desktop · 1920×1080", width: 1920, height: 1080,
     deviceScaleFactor: 1, mobile: false, touch: false, userAgent: null,
   },
 ];
 
 export const DEFAULT_BROWSER_VIEWPORT_PRESET = BROWSER_VIEWPORT_PRESETS[0];
 
+/** Choices stored under the retired device-named ids keep their size class. */
+const LEGACY_PRESET_IDS: Readonly<Record<string, BrowserViewportPresetId>> = {
+  "iphone-se": "phone-390",
+  "iphone-14": "phone-390",
+  "iphone-14-pro-max": "phone-430",
+  "pixel-7": "phone-412",
+  "galaxy-s20": "phone-360",
+  "ipad-mini": "tablet-768",
+  laptop: "laptop-1366",
+};
+
 export function resolveBrowserViewportPreset(value: unknown): BrowserViewportPreset {
-  return BROWSER_VIEWPORT_PRESETS.find((preset) => preset.id === value)
+  const id = typeof value === "string" ? LEGACY_PRESET_IDS[value] ?? value : value;
+  return BROWSER_VIEWPORT_PRESETS.find((preset) => preset.id === id)
     ?? DEFAULT_BROWSER_VIEWPORT_PRESET;
 }
 

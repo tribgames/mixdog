@@ -62,6 +62,13 @@ function lateDeliveryText(text, entry, now = Date.now()) {
 // is worse than loss — owner decision), so drain discards them. Genuine
 // user/steering messages carry no marker and keep full queue + replay behavior.
 export const COMPLETION_NOTIFICATION_KIND = 'completion_notification';
+// Queue MODE, carried from enqueue through drain to the stored message and the
+// UI. Two modes, never mixed in one drained turn message: what a human typed
+// (`prompt`) and what the runtime reported about a finished tool or agent task
+// (`task-notification`). The completion marker above says "discard on resume";
+// the mode says "this is not the user speaking" — separate facts.
+export const PENDING_MODE_PROMPT = 'prompt';
+export const PENDING_MODE_TASK_NOTIFICATION = 'task-notification';
 const _pendingPersistBuffers = new Map();
 const _pendingPersistTails = new Map();
 const _inDeliveryPendingIds = new Map();
@@ -213,9 +220,63 @@ function isCompletionNotificationEntry(entry) {
         && entry.notificationKind === COMPLETION_NOTIFICATION_KIND;
 }
 
+/** Queue mode of an entry: completion-marked rows are task notifications,
+ *  everything else is a prompt the user (or a caller acting as one) sent. */
+export function pendingEntryMode(entry) {
+    if (entry?.mode === PENDING_MODE_TASK_NOTIFICATION || isCompletionNotificationEntry(entry)) {
+        return PENDING_MODE_TASK_NOTIFICATION;
+    }
+    return PENDING_MODE_PROMPT;
+}
+
 function completionExecutionId(entry) {
     const value = typeof entry?.executionId === 'string' ? entry.executionId.trim() : '';
     return value || null;
+}
+
+/** Structured provenance of a task notification: which surface finished,
+ *  which execution, how it ended. Survives the spool round trip so the stored
+ *  message and the UI card never have to re-parse the notification text. */
+function normalizeExecution(value, executionId = null) {
+    const source = value && typeof value === 'object' ? value : {};
+    const clean = (field) => {
+        const text = typeof source[field] === 'string' ? source[field].trim() : '';
+        return text || null;
+    };
+    const id = clean('id') || executionId || null;
+    const surface = clean('surface');
+    const status = clean('status');
+    const resultType = clean('resultType');
+    if (!id && !surface && !status && !resultType) return null;
+    return {
+        ...(surface ? { surface } : {}),
+        ...(id ? { id } : {}),
+        ...(status ? { status } : {}),
+        ...(resultType ? { resultType } : {}),
+    };
+}
+
+/** Execution provenance from a tool-completion notify meta
+ *  (tool-execution-contract toolCompletionMeta shape). */
+function executionFromCompletionMeta(meta) {
+    if (!meta || typeof meta !== 'object') return null;
+    return normalizeExecution({
+        surface: meta.execution_surface,
+        id: meta.execution_id,
+        status: meta.status,
+        resultType: meta.type,
+    });
+}
+
+function completionEntryFields(entry) {
+    const executionId = completionExecutionId(entry);
+    const execution = normalizeExecution(entry?.execution, executionId);
+    return {
+        notificationKind: COMPLETION_NOTIFICATION_KIND,
+        mode: PENDING_MODE_TASK_NOTIFICATION,
+        ...(executionId ? { executionId } : {}),
+        ...(execution ? { execution } : {}),
+    };
 }
 
 function completionWasDelivered(entry, site) {
@@ -236,15 +297,23 @@ export function markCompletionEntry(text, options = {}) {
         ? text
         : (text && typeof text === 'object' ? (text.text || text.content || '') : '');
     const content = String(value ?? '');
-    const executionId = String(options?.executionId || '').trim();
+    const executionId = String(options?.executionId || options?.meta?.execution_id || '').trim();
     const identity = executionId ? `execution:${executionId}` : `content:${content}`;
     const id = `completion_${createHash('sha256').update(identity).digest('hex').slice(0, 24)}`;
+    // Provenance: an explicit `execution` wins, else derive it from the notify
+    // meta the caller already holds, so every enqueue site keeps surface/status.
+    const execution = normalizeExecution({
+        ...(executionFromCompletionMeta(options?.meta) || {}),
+        ...(options?.execution && typeof options.execution === 'object' ? options.execution : {}),
+    }, executionId);
     return {
         id,
         content,
         text: content,
         notificationKind: COMPLETION_NOTIFICATION_KIND,
+        mode: PENDING_MODE_TASK_NOTIFICATION,
         ...(executionId ? { executionId } : {}),
+        ...(execution ? { execution } : {}),
         enqueuedAt: Date.now(),
     };
 }
@@ -381,8 +450,7 @@ function normalizePendingMessageEntry(entry) {
         : {};
     const marker = entry.notificationKind === COMPLETION_NOTIFICATION_KIND
         ? {
-            notificationKind: COMPLETION_NOTIFICATION_KIND,
-            ...(completionExecutionId(entry) ? { executionId: completionExecutionId(entry) } : {}),
+            ...completionEntryFields(entry),
             enqueuedAt: Number(entry.enqueuedAt) || Date.now(),
         }
         : null;
@@ -467,8 +535,7 @@ function normalizePersistedEntryBase(entry) {
             ? {
                 id,
                 message,
-                notificationKind: COMPLETION_NOTIFICATION_KIND,
-                ...(completionExecutionId(entry) ? { executionId: completionExecutionId(entry) } : {}),
+                ...completionEntryFields(entry),
                 enqueuedAt,
             }
             : null;
@@ -1188,6 +1255,45 @@ export function _mergePendingMessageEntries(entries) {
         ordered.map(normalizePendingMessageEntry).filter(Boolean),
         promptContentText,
     );
+}
+
+/**
+ * Drain batch → turn groups, modes never mixed. Every prompt entry in the
+ * batch still collapses into ONE merged group (queued user input stays one
+ * follow-up turn), served first; every task notification is its own group,
+ * in FIFO order, carrying its mode and execution provenance. A group is
+ * `{ content, text, count, mode, execution, ids, entries }`; `entries` are the
+ * exact drained payloads so the caller can ack/release them per group.
+ */
+export function _groupPendingMessageEntries(entries) {
+    const source = Array.isArray(entries) ? entries : [];
+    const prompts = source.filter((entry) => pendingEntryMode(entry) === PENDING_MODE_PROMPT);
+    const notifications = source.filter((entry) => pendingEntryMode(entry) === PENDING_MODE_TASK_NOTIFICATION);
+    const groups = [];
+    const idsOf = (list) => list.map((entry) => pendingMessageId(entry)).filter(Boolean);
+    if (prompts.length > 0) {
+        const merged = mergeNormalizedContentEntries(
+            prompts.map(normalizePendingMessageEntry).filter(Boolean),
+            promptContentText,
+        );
+        if (merged?.content) {
+            groups.push({ ...merged, mode: PENDING_MODE_PROMPT, ids: idsOf(prompts), entries: prompts });
+        }
+    }
+    for (const entry of notifications) {
+        const normalized = normalizePendingMessageEntry(entry);
+        if (!normalized) continue;
+        const merged = mergeNormalizedContentEntries([normalized], promptContentText);
+        if (!merged?.content) continue;
+        groups.push({
+            ...merged,
+            mode: PENDING_MODE_TASK_NOTIFICATION,
+            ...(normalized.execution ? { execution: normalized.execution } : {}),
+            ids: idsOf([entry]),
+            entries: [entry],
+        });
+    }
+    return groups;
 }
 
 export function enqueuePendingMessage(sessionId, message) {

@@ -7,11 +7,8 @@
 import type { BrowserWindow, WebContents } from 'electron';
 
 import type { BrowserCommandResult } from './command';
-import {
-  normalizeBackgroundTabName,
-  redactBrowserText,
-  redactBrowserUrl,
-} from './host-policy';
+import { redactBrowserText, redactBrowserUrl } from './redaction';
+import { normalizeBackgroundTabName } from './tab-policy';
 
 /** A never-shown page the agent drives on the shared partition. */
 export interface BackgroundPage {

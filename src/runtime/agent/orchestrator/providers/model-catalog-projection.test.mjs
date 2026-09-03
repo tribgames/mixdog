@@ -75,13 +75,14 @@ test('projection keeps every models.dev field a lookup reads', () => {
     assert.equal(row.tool_call, true);
     assert.equal(row.family, 'claude-opus');
     assert.equal(row.release_date, RECENT);
+    assert.equal(row.name, original.name, 'name labels gateway ids the formatter cannot title');
 });
 
 test('projection drops the models.dev payload no lookup reads', () => {
     const row = projectModelsDevCatalog(modelsDevFixture()).anthropic.models['claude-opus-9-1'];
 
     for (const field of ['description', 'knowledge', 'open_weights', 'temperature',
-        'structured_output', 'attachment', 'last_updated', 'name']) {
+        'structured_output', 'attachment', 'last_updated']) {
         assert.equal(field in row, false, `${field} has no reader and must not stay resident`);
     }
 });

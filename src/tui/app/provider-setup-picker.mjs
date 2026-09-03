@@ -16,6 +16,12 @@ import {
   providerKindLabel,
 } from './app-format.mjs';
 import { providerDisplayRank } from './model-options.mjs';
+import { openInBrowser } from '../../runtime/shared/open-url.mjs';
+
+const keyConsoleUrl = (provider) => {
+  const url = String(provider?.url || '').trim();
+  return /^https:\/\//.test(url) ? url : '';
+};
 
 export function createProviderSetupPicker({
   store,
@@ -196,6 +202,7 @@ export function createProviderSetupPicker({
         mode: providerItem._authenticated ? 'replace' : 'set',
         envName: providerItem._provider?.envName || '',
         source: providerDetailText(providerItem._provider),
+        keyUrl: keyConsoleUrl(providerItem._provider),
         afterSave: returnTo,
       });
     };
@@ -214,6 +221,15 @@ export function createProviderSetupPicker({
         description: provider.envName ? `masked input · ${provider.envName}` : 'masked input · stored in OS keychain',
         _action: 'set-key',
       });
+      const keyUrl = keyConsoleUrl(provider);
+      if (keyUrl && !hasAuth) {
+        apiActions.push({
+          value: 'get-key',
+          label: 'Get API key (browser)',
+          description: keyUrl,
+          _action: 'get-key',
+        });
+      }
       if (hasStoredKey) {
         apiActions.push({
           value: 'forget-key',
@@ -243,6 +259,14 @@ export function createProviderSetupPicker({
         onSelect: (_detailValue, detail) => {
           releaseSurface();
           if (detail._action === 'set-key') {
+            setApiKeyPrompt(providerItem);
+            return;
+          }
+          if (detail._action === 'get-key') {
+            // Opener is best-effort (open-url.mjs); the URL stays visible in
+            // the key prompt hint so a failed open still leaves it readable.
+            openInBrowser(keyUrl);
+            store.pushNotice(`opened ${keyUrl}`, 'info');
             setApiKeyPrompt(providerItem);
             return;
           }

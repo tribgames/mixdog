@@ -111,7 +111,7 @@ jobs:
       - name: Run native EDIT wire integration
         env:
           MIXDOG_EDIT_NATIVE_BIN: ${{ github.workspace }}/native/mixdog-patch/target/x86_64-unknown-linux-gnu/release/mixdog-patch
-        run: npm run test:native-edit-wire
+        run: node scripts/native-edit-wire-test.mjs
 
       - name: Stage tested Linux x64 asset
         shell: bash

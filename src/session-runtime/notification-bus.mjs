@@ -50,6 +50,17 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued }) {
     catch { return false; }
   }
 
+  // UI-only delivery: reaches the session's attached surfaces (TUI/Desktop
+  // store) and reports whether one handled it. Never enqueues into the model
+  // queue — a headless session simply gets `false` so the caller can fall back
+  // to text guidance instead of injecting a UI instruction into the transcript.
+  function notifySessionUi(sessionId, content, meta = {}) {
+    const targetSessionId = cleanSessionId(sessionId);
+    if (!targetSessionId) return false;
+    const targetListeners = sessionNotificationListeners.get(targetSessionId) || [];
+    return emitToListeners(targetListeners, content, meta).handled;
+  }
+
   // Enqueue the model-visible twin unless it was already delivered; returns
   // true when the caller may treat the completion as delivered.
   function enqueueCompletion(callerSessionId, text, meta, path) {
@@ -62,7 +73,7 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued }) {
       logDuplicateSkip(path, { executionId: meta?.execution_id, text: visible });
       return true;
     }
-    const entry = markCompletionEntry(visible, { executionId: meta?.execution_id });
+    const entry = markCompletionEntry(visible, { executionId: meta?.execution_id, meta });
     const queueKey = `${callerSessionId}:${entry.id}`;
     if (queuedCompletionIds.has(queueKey)) {
       logDuplicateSkip(`${path}-queued`, { executionId: meta?.execution_id, text: visible });
@@ -189,6 +200,7 @@ export function createNotificationBus({ listeners, mgr, onCompletionQueued }) {
   return {
     emitRuntimeNotification,
     notifySession,
+    notifySessionUi,
     notifyFnForSession,
     notifySessionCompletion,
     subscribeRuntimeNotification,

@@ -13,6 +13,12 @@ import {
   saturatedHueFamilies,
 } from '../design/design-discipline.mjs';
 import { plainObject } from '../shared/values.mjs';
+import {
+  authoredBackgroundLadder,
+  isCardGridSlide,
+  isOrnamentalStripe,
+  slideSize,
+} from './design-review-authored.mjs';
 
 function designIssue(code, path, message, severity = 'warning') {
   return { severity, code, path, message, source: 'design-review' };
@@ -56,11 +62,18 @@ function reviewPptxTheme(document, design, issues) {
   const roleSlides = Array.from({ length: slideCount }, (_, index) => ({ index: index + 1 }));
   const backgrounds = slides.map(pptxSlideBackgroundColor);
   if (backgrounds.some((color) => !color)) return;
+  // An authored deck drew its own palette: judge it against its own ladder
+  // (cover = inverse, dominant content color = canvas), not the composer's.
+  const ownLadder = plansBySlide.size ? null : authoredBackgroundLadder(backgrounds, design.tokens.colors);
+  const colorFor = (role) => String((ownLadder || design.tokens.colors)[role] || '').toUpperCase();
   const mismatches = [];
   slides.forEach((slide, index) => {
     const role = pptxExpectedBackgroundRole(slide, roleSlides, deck, plansBySlide);
-    const expected = String(design.tokens.colors[role] || '').toUpperCase();
-    if (expected && backgrounds[index] !== expected) {
+    const expected = colorFor(role);
+    // With its own ladder a content slide may drop to the inverse field (a
+    // breathing or section slide); only a third color is drift.
+    const allowed = ownLadder && backgrounds[index] === ownLadder.inverse;
+    if (expected && backgrounds[index] !== expected && !allowed) {
       mismatches.push(`${slide.index}:${backgrounds[index]}→${role}`);
     }
   });
@@ -78,7 +91,7 @@ function reviewPptxTheme(document, design, issues) {
       .filter((slide) => pptxExpectedSlideRole(slide, roleSlides, deck, plansBySlide) === 'content')
       .map((slide) => {
         const role = pptxExpectedBackgroundRole(slide, roleSlides, deck, plansBySlide);
-        return String(design.tokens.colors[role] || '').toUpperCase();
+        return colorFor(role);
       })
       .filter(Boolean)
     : slides.length === slideCount
@@ -194,10 +207,35 @@ function normalizedShapeSignature(slide) {
 }
 
 
+// A statement slide carries one thesis, quote, or number and air. Composer
+// plans say so through slideRole; an authored deck has no plan, so the same
+// criterion is read from the saved shapes and shared with the render review.
+export function isPptxStatementSlide(slide) {
+  const textShapes = (Array.isArray(slide?.shapes) ? slide.shapes : [])
+    .filter((shape) => String(shape.text || '').trim() && !isMotifShape(shape));
+  if (!textShapes.length || textShapes.length > 5) return false;
+  const sizes = textShapes.map((shape) => Number(shape.font?.size) || 0);
+  const largest = Math.max(...sizes);
+  const totalText = textShapes.reduce((total, shape) => total + String(shape.text || '').length, 0);
+  return largest >= 42
+    || sizes.filter((size) => size >= 34).length >= 2
+    || (largest >= 24 && totalText <= 280);
+}
+
+
+export function inferPptxSlideRoles(document) {
+  const slides = Array.isArray(document?.slides) ? document.slides : [];
+  return Object.fromEntries(slides
+    .filter((slide) => Number(slide?.index) > 0 && isPptxStatementSlide(slide))
+    .map((slide) => [Number(slide.index), { slideRole: 'statement' }]));
+}
+
+
 function reviewPptx(document, design) {
   const issues = [];
   const slides = Array.isArray(document?.slides) ? document.slides : [];
   const plansBySlide = new Map((design.slidePlans || []).map((plan) => [Number(plan.slide), plan]));
+  const size = slideSize(document);
   reviewPptxTheme(document, design, issues);
   reviewPptxDiscipline(slides, design, issues);
   let cardGridSlides = 0;
@@ -209,8 +247,7 @@ function reviewPptx(document, design) {
     const pictures = shapes.filter(isPictureShape);
     const richVisuals = shapes.filter((shape) => shape.chart || shape.table || shape.group);
     const nonTextShapes = shapes.filter((shape) => !String(shape.text || '').trim() && !shape.placeholder);
-    const typographicVisual = textShapes.some((shape) => Number(shape.font?.size) >= 42)
-      || textShapes.filter((shape) => Number(shape.font?.size) >= 34).length >= 2;
+    const typographicVisual = isPptxStatementSlide(slide);
     const semanticVisual = String(plansBySlide.get(Number(slide.index))?.visualType || '');
     const inferredDiagram = nonTextShapes.length >= 2
       && nonTextShapes.length <= 8
@@ -253,11 +290,7 @@ function reviewPptx(document, design) {
         `Slide contains ${textLength} characters; split or visualize the content.`,
       ));
     }
-    const ornamental = nonTextShapes.filter((shape) => {
-      const width = Number(shape.width) || 0;
-      const height = Number(shape.height) || 0;
-      return (width <= 14 && height >= 180) || (height <= 7 && width >= 320);
-    });
+    const ornamental = nonTextShapes.filter((shape) => isOrnamentalStripe(shape, shapes, size));
     if (ornamental.length && !design.review.allowDecorativeLines) {
       issues.push(designIssue(
         'decorative_stripe',
@@ -265,13 +298,7 @@ function reviewPptx(document, design) {
         'Thin decorative stripe or rule resembles generic AI slide ornamentation.',
       ));
     }
-    const rectangularText = textShapes.filter(isAutoShape);
-    const sizeGroups = new Map();
-    for (const shape of rectangularText) {
-      const key = `${Math.round((Number(shape.width) || 0) / 12)}:${Math.round((Number(shape.height) || 0) / 12)}`;
-      sizeGroups.set(key, (sizeGroups.get(key) || 0) + 1);
-    }
-    if ([...sizeGroups.values()].some((count) => count >= 3)) cardGridSlides += 1;
+    if (isCardGridSlide(textShapes.filter(isAutoShape))) cardGridSlides += 1;
     if (contentSlide) {
       const signature = normalizedShapeSignature(slide);
       if (signature) signatures.set(signature, (signatures.get(signature) || 0) + 1);
@@ -286,7 +313,8 @@ function reviewPptx(document, design) {
       `${repeated} of ${contentCount} content slides repeat the same composition.`,
     ));
   }
-  if (cardGridSlides >= 2 && !design.review.allowRepetition) {
+  // Matches the authoring rule: the same skeleton may appear twice per deck.
+  if (cardGridSlides >= 3 && !design.review.allowRepetition) {
     issues.push(designIssue(
       'card_grid_overuse',
       '/',

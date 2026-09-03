@@ -63,7 +63,7 @@ export function createSkillsApi({ contextMod, getCwd }) {
       ? contextMod.loadSkillResource(skillName, getCwd())
       : null;
     if (!res) throw new Error(`skill not found: ${skillName}`);
-    return { name: skillName, content: res.content, dir: res.dir };
+    return { name: skillName, content: res.content, dir: res.dir, source: res.source || 'global' };
   }
 
   function skillToolContent(name) {
@@ -82,7 +82,7 @@ export function createSkillsApi({ contextMod, getCwd }) {
     // The general tool envelope keeps the main/Lead session identical to agent
     // loops: the model-visible tool_result is the short stub and the SKILL.md
     // body is delivered ONCE as a separate injected user message.
-    return contextMod.buildSkillToolEnvelope(skill.name, skill.content, skill.dir);
+    return contextMod.buildSkillToolEnvelope(skill.name, skill.content, skill.dir, { source: skill.source });
   }
 
   function addGlobalSkill(input = {}) {

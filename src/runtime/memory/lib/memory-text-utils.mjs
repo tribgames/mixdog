@@ -113,6 +113,7 @@ function sanitizeLexeme(t) {
 // prefix match. The set is '&'-joined to preserve the current AND semantics.
 //
 // Returns { query, prefix:true } on success, or null.
+const FTS_OR_MIN_LEXEMES = 3
 export function buildFtsPrefixQuery(text) {
   const tokens = tokenizeRecallQuery(text)
   if (tokens.length === 0) return null
@@ -129,7 +130,12 @@ export function buildFtsPrefixQuery(text) {
     if (lex.length >= 1 && !seen.has(lex)) { seen.add(lex); lexemes.push(lex) }
   }
   if (lexemes.length === 0) return null
-  const query = lexemes.map(l => `${l}:*`).join(' & ')
+  // Short queries keep AND precision. From three lexemes up the conjunction
+  // almost never matched a stored row (96% of hybrid recalls logged sparse=0),
+  // which silently reduced recall to the dense leg; switch to OR and let
+  // ts_rank_cd order by how many lexemes each row actually covers.
+  const joiner = lexemes.length >= FTS_OR_MIN_LEXEMES ? ' | ' : ' & '
+  const query = lexemes.map(l => `${l}:*`).join(joiner)
   return { query, prefix: true }
 }
 

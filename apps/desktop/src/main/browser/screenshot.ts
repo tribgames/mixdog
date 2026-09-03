@@ -1,6 +1,7 @@
 import type { Rectangle, WebContents } from 'electron';
 import { BrowserWindow, nativeImage } from 'electron';
 
+import type { BrowserCdpPort } from './cdp';
 import {
   assertFullPageOutputBounds,
   browserScreenshotBytesFitBudget,
@@ -22,14 +23,6 @@ export interface BrowserScreenshotCapture {
   mimeType: 'image/jpeg' | 'image/png';
   fullPage: boolean;
 }
-
-type SendBrowserCdp = <T>(
-  guest: WebContents,
-  method: string,
-  params?: Record<string, unknown>,
-  timeoutMs?: number,
-  signal?: AbortSignal,
-) => Promise<T>;
 
 function encodeImage(
   image: Electron.NativeImage,
@@ -66,15 +59,16 @@ function coversRect(capture: BrowserScreenshotCapture | null, rect?: Rectangle):
 }
 
 export function createBrowserScreenshotService(
-  sendCdp: SendBrowserCdp,
+  cdp: BrowserCdpPort,
   screenshotTimeoutMs: number,
   nativeTimeoutMs: number,
 ) {
+  const slow = { timeoutMs: screenshotTimeoutMs };
   async function fullPageRect(guest: WebContents, signal?: AbortSignal): Promise<Rectangle> {
-    const metrics = await sendCdp<{
+    const metrics = await cdp.call<{
       cssContentSize?: { x?: number; y?: number; width?: number; height?: number };
       contentSize?: { x?: number; y?: number; width?: number; height?: number };
-    }>(guest, 'Page.getLayoutMetrics', {}, screenshotTimeoutMs, signal);
+    }>(guest, 'Page.getLayoutMetrics', {}, signal, slow);
     const rect = boundedFullPageRect(metrics.cssContentSize || metrics.contentSize || {});
     // CDP's clip scale is the page zoom, so the output allocation can be much
     // larger than the CSS layout. Apply the same pixel ceiling to that result.
@@ -91,7 +85,7 @@ export function createBrowserScreenshotService(
     try {
       const scale = fullPageClip ? guest.getZoomFactor() : 1;
       const expectedRect = fullPageClip ? scaledScreenshotRect(fullPageClip, scale) : undefined;
-      const shot = await sendCdp<{ data?: string }>(
+      const shot = await cdp.call<{ data?: string }>(
         guest,
         'Page.captureScreenshot',
         {
@@ -102,8 +96,8 @@ export function createBrowserScreenshotService(
             clip: { ...fullPageClip, scale },
           } : {}),
         },
-        screenshotTimeoutMs,
         signal,
+        slow,
       );
       const capture = shot.data ? decodeImage(shot.data, options) : null;
       return coversRect(capture, expectedRect) ? capture : null;

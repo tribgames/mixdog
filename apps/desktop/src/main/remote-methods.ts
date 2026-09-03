@@ -436,10 +436,11 @@ export function createRemoteMethods(
     ),
     gitStatus: ([cwd, options]) => {
       const record = options && typeof options === 'object'
-        ? options as { reuseLineStats?: unknown }
+        ? options as { reuseLineStats?: unknown; skipLineStats?: unknown }
         : {};
       return gitStatus(requiredRepositoryCwd(cwd), {
         reuseLineStats: record.reuseLineStats === true,
+        skipLineStats: record.skipLineStats === true,
       });
     },
     gitBranches: ([cwd]) => gitBranches(requiredRepositoryCwd(cwd)),

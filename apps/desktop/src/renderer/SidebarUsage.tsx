@@ -21,6 +21,11 @@ import {
   type UsageRecord,
 } from "./usage-dashboard-store";
 import { displayUsagePercent } from "./usage-percent";
+import {
+  formatUsageResetRemaining,
+  usageResetPresentation,
+} from "./usage-reset-time";
+import { useUsageResetVerification } from "./use-usage-reset-verification";
 
 const SIDEBAR_CODEX_RESET_ATTEMPT_KEY = "mixdog.desktop.codex-reset-attempt.v1";
 const SIDEBAR_CODEX_RESET_TIMEOUT_MS = 90_000;
@@ -157,12 +162,8 @@ function resetSchedule(value: unknown): { state: "due" | "soon" | "in" | ""; tim
   if (resetAt === null) return { state: "", time: "" };
   const remaining = resetAt - Date.now();
   if (remaining <= 0) return { state: "due", time: "" };
-  const totalHours = Math.ceil(remaining / 3_600_000);
-  const days = Math.floor(totalHours / 24);
-  const hours = totalHours % 24;
-  if (days > 0) return { state: "in", time: `${days}d${hours ? ` ${hours}h` : ""}` };
-  if (totalHours > 0) return { state: "in", time: `${totalHours}h` };
-  return { state: "soon", time: "" };
+  const time = formatUsageResetRemaining(remaining);
+  return time ? { state: "in", time } : { state: "soon", time: "" };
 }
 
 function resetText(value: unknown): string {
@@ -186,7 +187,7 @@ function resetExpiryText(value: unknown): string {
  *  the 5d/13h reading itself. */
 function resetShortText(value: unknown): string {
   const schedule = resetSchedule(value);
-  if (schedule.state === "due") return "now";
+  if (schedule.state === "due") return "—";
   if (schedule.state === "in") return schedule.time;
   return schedule.state === "soon" ? "<1h" : "—";
 }
@@ -272,6 +273,15 @@ export function SidebarUsage({
   const snapshot = useSyncExternalStore(subscribeUsageDashboard, getUsageDashboardSnapshot);
   const dashboard = snapshot.dashboard;
   const rowsPresent = rows(dashboard).length > 0;
+  const resetAts = rows(dashboard)
+    .flatMap((row) => quotaWindows(row))
+    .map((window) => timestamp(window.resetAt))
+    .filter((value): value is number => value !== null);
+  const failedResetAts = useUsageResetVerification({
+    api,
+    resetAts,
+    refreshedAt: snapshot.refreshedAt,
+  });
   // A seedless first paint announces LOADING until the store reports a live
   // result or a final unavailable state. Painting "Not connected" while the
   // very first request is still outstanding claimed an answer nobody has yet.
@@ -411,16 +421,27 @@ export function SidebarUsage({
             <span className="sidebar-usage-meters">
               {windows.map((window, index) => {
                 const percent = usedPercent(window);
-                const displayedPercent = displayUsagePercent(percent);
-                const tone = percent !== null && percent >= 90 ? " tone-danger"
-                  : percent !== null && percent >= 70 ? " tone-warning" : "";
-                const resetSentence = resetText(window.resetAt);
+                const resetAt = timestamp(window.resetAt);
+                const resetPresentation = usageResetPresentation({
+                  percent,
+                  resetAt,
+                  refreshedAt: snapshot.refreshedAt,
+                  verificationFailed: resetAt !== null && failedResetAts.has(resetAt),
+                });
+                const effectivePercent = resetPresentation.percent;
+                const displayedPercent = displayUsagePercent(effectivePercent);
+                const tone = effectivePercent !== null && effectivePercent >= 90 ? " tone-danger"
+                  : effectivePercent !== null && effectivePercent >= 70 ? " tone-warning" : "";
+                const resetSentence = resetPresentation.resetTextOverride === null
+                  ? resetText(window.resetAt) : "";
                 return <span className={`sidebar-usage-meter${tone}`}
                   key={quotaWindowKey(window, index)}>
                   <small>{windowLabel(window)}</small>
-                  <i><i style={{ width: `${percent ?? 0}%` }} /></i>
+                  <i><i style={{ width: `${effectivePercent ?? 0}%` }} /></i>
                   <b>{displayedPercent === null ? "—" : `${displayedPercent}%`}</b>
-                  <em title={resetSentence || undefined}>{resetShortText(window.resetAt)}</em>
+                  <em title={resetSentence || undefined}>
+                    {resetPresentation.resetTextOverride ?? resetShortText(window.resetAt)}
+                  </em>
                 </span>;
               })}
               {windows.length === 0 && <span className="sidebar-usage-meter sidebar-usage-meter-empty">

@@ -163,6 +163,42 @@ export function parseModelVisibleCompletionWrapper(text) {
   return parsed ? { ...parsed, rawResult: unquoted } : null;
 }
 
+/**
+ * Tool card for a task notification from its STRUCTURAL provenance
+ * (pending-messages `execution`: surface/id/status) — the text parser above
+ * stays first choice because it recovers the richer body fields, but a body
+ * that misses the "background task" header (restart-recovery notices, agent
+ * relays) must still land as a card, never as a user bubble or nothing.
+ */
+export function completionCardFromExecution(execution, text) {
+  const parsed = parseModelVisibleCompletionWrapper(text);
+  if (parsed) return parsed;
+  const exec = execution && typeof execution === 'object' ? execution : null;
+  const value = String(text ?? '').trim();
+  if (!exec && !value) return null;
+  const surface = String(exec?.surface || 'task').toLowerCase();
+  const name = surface === 'shell' || surface === 'agent' || surface === 'web_search' ? surface : 'task';
+  const status = String(exec?.status || toolResultStatus(value) || '').toLowerCase();
+  const split = /\n\nResult:\n/.exec(value);
+  const body = split
+    ? value.slice(split.index + split[0].length).split(/\r?\n/).map((line) => line.replace(/^> ?/, '')).join('\n').trim()
+    : value;
+  const taskId = exec?.id || bracketField(body, 'task_id') || undefined;
+  return {
+    name,
+    label: status || 'notification',
+    args: {
+      type: 'result',
+      status: status || undefined,
+      task_id: taskId,
+      surface,
+    },
+    result: body,
+    rawResult: value,
+    isError: isErrorToolStatus(status) || /^error:/i.test(body),
+  };
+}
+
 export function isStatusOnlyAgentCompletionNotification(text) {
   const background = parseBackgroundTaskEnvelope(text);
   if (background?.name === 'agent' && /^(completed|cancelled|canceled)$/i.test(background.label || '')) {

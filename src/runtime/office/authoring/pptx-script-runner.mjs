@@ -3,6 +3,7 @@ import { access, mkdir, rm, stat } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { dirname } from 'node:path';
 import { PPTX_SCRIPT_CONTRACT } from './pptx-script-contract.mjs';
+import { normalizeAuthoredPptx } from './pptx-script-normalize.mjs';
 
 // The script runs inside this process: a child node cannot resolve pptxgenjs
 // out of the packaged archive, and the model already holds shell access, so a
@@ -106,12 +107,14 @@ export async function runPptxAuthoringScript(script, output, { timeoutMs = PPTX_
   } finally {
     clearTimeout(timer);
   }
+  const normalized = await normalizeAuthoredPptx(output);
   const info = await stat(output);
   return {
     ok: true,
     output,
     bytes: info.size,
     logs,
+    normalizedParagraphs: normalized.removed,
     elapsedMs: Math.round(performance.now() - startedAt),
   };
 }

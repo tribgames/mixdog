@@ -105,11 +105,11 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--mx-border-muted);
-  border-radius: var(--mx-radius-sm);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: 0 5px 18px rgba(0, 0, 0, .35);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .editor-breadcrumb-picker::before {
   content: "";
@@ -119,7 +119,7 @@
   width: 0;
   height: 0;
   border-right: 8px solid transparent;
-  border-bottom: 8px solid var(--mx-border-muted);
+  border-bottom: 8px solid var(--mx-border-strong);
   border-left: 8px solid transparent;
 }
 .editor-breadcrumb-picker-header {
@@ -481,11 +481,11 @@
 .workbench-quick-access {
   width: min(600px, 62vw, calc(100vw - 32px));
   overflow: hidden;
-  border: .5px solid var(--mx-border);
-  border-radius: var(--mx-radius-md);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius-card);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: var(--mx-overlay);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .workbench-quick-input {
   height: 42px;
@@ -607,7 +607,6 @@
 .dock-task-row:disabled { cursor: default; }
 /* Agent output viewer. */
 .dock-agent-view { min-height: 0; flex: 1; display: flex; flex-direction: column; gap: 8px; }
-.utility-dock[data-show-tabs="true"] .dock-agent-view { padding: 4px 8px 8px; }
 .dock-agent-view header { display: flex; align-items: center; gap: 8px; }
 .dock-agent-view header b { font-size: var(--mx-font-ui); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-ui); letter-spacing: 0; }
 .dock-agent-view header span { margin-left: auto; color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
@@ -949,10 +948,10 @@
   min-width: 190px;
   display: grid;
   padding: 4px;
-  border: 1px solid var(--mx-border-muted);
-  border-radius: var(--mx-radius-md);
-  background: var(--mx-bg-layer-1);
-  box-shadow: var(--mx-floating);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .dock-terminal-shell-menu > button {
   min-height: 26px;
@@ -1006,61 +1005,14 @@
 .dock-terminal .xterm-scrollable-element > .xterm-scrollbar > .xterm-slider {
   border-radius: var(--mx-radius-sm);
 }
-/* Phone dock scrim: only the narrow-viewport media query displays it. */
-.dock-backdrop, .panel-backdrop { display: none; }
+/* Bottom-panel scrim: only the narrow-viewport media query displays it. */
+.panel-backdrop { display: none; }
 /* 940px = rail 48 + sidebar floor 232 + workspace floor 360 + dock floor 300:
-   below the aggregate floor the dock overlays as a sheet instead of forcing
-   the workbench into horizontal scroll (full-responsive shell). */
+   below the aggregate floor the bottom panel overlays as a sheet instead of
+   forcing the workbench into horizontal scroll (full-responsive shell). */
 @media (max-width: 940px) {
-  /* Narrow viewports: the dock (only rendered while open) floats as a right
-     sheet over the thread instead of vanishing (user: no right panel on the
-     phone). The inline width/flex-basis style must not win here. */
-  /* ONE sheet grammar for the whole overlay band (user: 909px에서 우측
-     레이어·딤드가 틀어진다): the sheet anchors to the window bar and rides
-     OVER the strip rows, exactly like the ≤760 drawer — the old 761–940
-     variant anchored below the tab strip (83px) with its own radius and a
-     partial scrim, so mid-band windows got a second, broken composition.
-     Scoped to the BARE desktop-body dock: the workbench right panel nests
-     its own dock, and an unqualified selector re-framed that nested dock as
-     a SECOND fixed sheet — titlebar-offset top with a full-height 100%, so
-     its last rows ran 35px past the panel frame and were unreachable
-     (user: 프레임 안에 들어오는 구조인데 요소만 넘친다). */
-  .desktop-body > .utility-dock {
-    position: fixed;
-    z-index: 38;
-    top: calc(var(--titlebar-height) + env(safe-area-inset-top, 0px));
-    right: 0;
-    bottom: 0;
-    /* Wider than the left drawer read as imbalance (user): cap at the
-       drawer's width so both sheets take the same bite of the screen. */
-    width: min(var(--session-sidebar-width, 260px), calc(100vw - 32px)) !important;
-    flex-basis: auto !important;
-    max-width: none;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    /* Card sheet mirroring the drawer: left corners round, ring via ::after. */
-    border-left: 0;
-    border-radius: var(--mx-radius-sheet) 0 0 var(--mx-radius-sheet);
-    /* SAME cast as the left drawer frame, mirrored (user: 오른쪽 그림자가
-       왼쪽이랑 다르다) — the generic overlay elevation read as a different,
-       wider halo next to the drawer's directional 24px throw. */
-    box-shadow: -24px 0 24px var(--mx-alpha-dark-24);
-  }
-  /* The ring rides an overlay, not the box: an OUTER ring loses its top
-     line to the desktop-body clip (same as the drawer), and an INSET one
-     hides under the tabs-header's opaque band (pixel-verified: y35 flat).
-     ::after paints over children, immune to both. */
-  .desktop-body > .utility-dock::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: 60;
-    pointer-events: none;
-    border-radius: inherit;
-    box-shadow: inset 0 0 0 1px var(--mx-border-muted);
-  }
-  /* Flush to the window floor like the drawer (user: 안 비게) — the rounded
-     bottom-left corner still marks the sheet edge. */
-  .dock-backdrop, .panel-backdrop {
+  /* Flush to the window floor like the drawer (user: 안 비게). */
+  .panel-backdrop {
     display: block;
     position: fixed;
     /* Outside-click layer below the window bar. */
@@ -1073,48 +1025,29 @@
     pointer-events: none;
     transition: opacity var(--mx-sheet-motion), visibility var(--mx-sheet-motion);
   }
-  /* Side and bottom tabs keep outside-click dismissal without dimming the
-     work surface. */
-  .dock-backdrop, .panel-backdrop { background: transparent; }
-  .dock-backdrop[data-state="open"], .panel-backdrop[data-state="open"] {
+  /* Outside-click dismissal without dimming the work surface. */
+  .panel-backdrop { background: transparent; }
+  .panel-backdrop[data-state="open"] {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
   }
   /* Same rail carve-out as the drawer scrim: rail destinations stay
      clickable while any sheet is up (exclusivity swaps the surfaces). */
-  .dock-backdrop,
   .panel-backdrop { left: 48px; }
   /* ≤760px merges the rail INTO the drawer frame — no standing rail to
-     carve out, so the scrims run from the window edge again. */
+     carve out, so the scrim runs from the window edge again. */
   @media (max-width: 760px) {
-    .dock-backdrop,
     .panel-backdrop { left: 0; }
   }
-  /* Fixed sheet mode ignores inline width, so slide via transform instead. */
-  .desktop-body > .utility-dock { animation: utility-dock-sheet-in var(--mx-sheet-motion); }
-  .desktop-body > .utility-dock.closing {
-    opacity: 1;
-    transform: translateX(calc(100% + 16px));
-    transition: transform var(--mx-sheet-motion);
-  }
-  /* The sheet slides by transform and never animates its width, so the inner
-     block has no moving edge to hide behind: keep it start-aligned or a sheet
-     narrower than the dock width would clip the TABS off the left side. */
-  .desktop-body > .utility-dock > .utility-dock-tabs-header,
-  .desktop-body > .utility-dock > .utility-dock-header,
-  .desktop-body > .utility-dock > .utility-dock-body { align-self: flex-start; }
-  .utility-dock-resize { display: none; }
 }
 /* Window-edge dragging changes media-query layout before React effects can
    label the responsive close. Suppress panel motion at the DOM event boundary;
    the class clears shortly after resize settles, restoring user-toggle motion. */
 html.mx-window-resizing .sidebar-drawer-frame,
 html.mx-window-resizing .sidebar.session-sidebar,
-html.mx-window-resizing .utility-dock,
 html.mx-window-resizing .bottom-panel,
 html.mx-window-resizing .sidebar-backdrop,
-html.mx-window-resizing .dock-backdrop,
 html.mx-window-resizing .panel-backdrop {
   animation: none !important;
   transition: none !important;
@@ -1123,15 +1056,10 @@ html.mx-window-resizing .panel-backdrop {
   .sidebar-drawer-frame,
   .sidebar.session-sidebar,
   .sidebar-backdrop,
-  .dock-backdrop,
   .panel-backdrop,
-  .studio-tile,
-  .utility-dock.closing { transition: none; }
-  .utility-dock { animation: none; }
+  .studio-tile { transition: none; }
   html.mx-open-sidebar .sidebar-drawer-frame { animation: none; }
   html.mx-open-sidebar .sidebar.session-sidebar { animation: none; }
-  .utility-dock--persistent:not([data-entering="true"]) { animation: none; }
   .bottom-panel:not([data-settled="true"]) { animation: none; }
 }
-@keyframes utility-dock-sheet-in { from { transform: translateX(calc(100% + 16px)); } }
 

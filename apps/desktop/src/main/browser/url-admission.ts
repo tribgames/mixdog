@@ -13,7 +13,7 @@ import {
   normalizeAgentUrl,
   normalizePageUrl,
   type BrowserUrlPolicy,
-} from './host-policy';
+} from './url-policy';
 
 export interface BrowserUrlAdmissionHost {
   /** The allow-list and private-network stance this host runs under. */

@@ -24,6 +24,14 @@ import {
   resolveContainedPluginPath,
   mergeMcpServerConfig,
 } from './plugin-mcp.mjs';
+import {
+  EXTENSION_SCOPE_KINDS,
+  cwdWithinProjects,
+  extensionScopeProjects,
+  extensionScopesFromConfig,
+  pluginIdForMcpServer,
+  withExtensionScope,
+} from './extension-scopes.mjs';
 
 // MCP servers, skills, plugins, hooks, and memory/recall surfaces. Extracted
 // verbatim from the runtime API object; stateless helpers are imported directly
@@ -89,6 +97,47 @@ export function createResourceApi(deps) {
     }
     return chain.running;
   }
+  // Project scope decoration for the status lists. `scope` is the entry's own
+  // root list (null = global); `inheritedScope` is the owning plugin's; and
+  // `activeHere` says whether the CURRENT cwd sees the entry, so panels can
+  // badge "not in this project" without redoing the path match.
+  function scopeInfo(kind, name, pluginId = '') {
+    const scopes = extensionScopesFromConfig(getConfig());
+    const scope = extensionScopeProjects(scopes, kind, name);
+    const inheritedScope = pluginId ? extensionScopeProjects(scopes, 'plugins', pluginId) : null;
+    const cwd = getCurrentCwd();
+    const activeHere = (scope ? cwdWithinProjects(cwd, scope) : true)
+      && (inheritedScope ? cwdWithinProjects(cwd, inheritedScope) : true);
+    return { scope, inheritedScope, activeHere };
+  }
+  function decorateMcpStatus(status) {
+    const plugins = pluginsStatus()?.plugins || [];
+    return {
+      ...status,
+      servers: (Array.isArray(status?.servers) ? status.servers : []).map((server) => ({
+        ...server,
+        ...scopeInfo('mcp', server.name, pluginIdForMcpServer(server.name, plugins)),
+      })),
+    };
+  }
+  function decorateSkillsStatus(status) {
+    return {
+      ...status,
+      skills: (Array.isArray(status?.skills) ? status.skills : []).map((skill) => ({
+        ...skill,
+        ...scopeInfo('skills', skill.name, skill?.owner?.kind === 'plugin' ? clean(skill.owner.id) : ''),
+      })),
+    };
+  }
+  function decoratePluginsStatus(status) {
+    return {
+      ...status,
+      plugins: (Array.isArray(status?.plugins) ? status.plugins : []).map((plugin) => ({
+        ...plugin,
+        ...scopeInfo('plugins', plugin.id || plugin.name),
+      })),
+    };
+  }
   function configuredProfileIdentityLine() {
     try {
       const config = getConfig();
@@ -109,10 +158,28 @@ export function createResourceApi(deps) {
   }
   return {
     mcpStatus() {
-      return mcpStatus();
+      return decorateMcpStatus(mcpStatus());
     },
     getMcpServerConfig(name) {
       return getMcpServerConfig(name);
+    },
+    /** Limit one Skill / MCP server / Plugin to project roots; [] or null → global. */
+    async setExtensionScope(kind, name, projects = null) {
+      const scopeKind = clean(kind);
+      if (!EXTENSION_SCOPE_KINDS.includes(scopeKind)) {
+        throw new Error(`extension scope kind must be one of ${EXTENSION_SCOPE_KINDS.join(', ')}`);
+      }
+      const key = clean(name);
+      if (!key) throw new Error('extension name is required');
+      const list = Array.isArray(projects) ? projects : projects == null ? [] : [projects];
+      saveConfigAndAdopt(withExtensionScope(getConfig(), scopeKind, key, list));
+      // Connections and files are untouched; only what sessions see changes.
+      if (scopeKind !== 'mcp') invalidateSkills?.();
+      await refreshGlobalExtensionSurface(scopeKind);
+      await publishGlobalChange(scopeKind);
+      if (scopeKind === 'skills') return decorateSkillsStatus(skillsStatus());
+      if (scopeKind === 'plugins') return decoratePluginsStatus(pluginsStatus());
+      return decorateMcpStatus(mcpStatus());
     },
     async reconnectMcp() {
       await awaitKeychainPrewarm();
@@ -204,7 +271,7 @@ export function createResourceApi(deps) {
       return status;
     },
     skillsStatus() {
-      return skillsStatus();
+      return decorateSkillsStatus(skillsStatus());
     },
     skillContent(name) {
       return skillContent(name);
@@ -245,7 +312,7 @@ export function createResourceApi(deps) {
       return skillsStatus();
     },
     pluginsStatus() {
-      return pluginsStatus();
+      return decoratePluginsStatus(pluginsStatus());
     },
     async reloadPlugins() {
       invalidateSkills?.();

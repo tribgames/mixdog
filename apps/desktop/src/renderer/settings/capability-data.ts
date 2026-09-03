@@ -204,14 +204,18 @@ async function readAllCapabilitySettings(
       return;
     }
     // The engine runs a batch as one ordered sweep, so a single batch only
-    // lands when its slowest getter finishes. Sending several small batches in
-    // order keeps that sweep semantics while letting each group paint as soon
-    // as it returns.
+    // lands when its slowest getter finishes. Small batches keep that sweep
+    // semantics per group; the groups themselves go out TOGETHER (user: 설정값
+    // 반응성) — sending them one after another let a slow getter (provider
+    // setup, MCP/plugin/skill status) hold back every group queued behind it.
     try {
+      const chunks: typeof prepared[] = [];
       for (let index = 0; index < prepared.length; index += READ_BATCH_SIZE) {
-        const chunk = prepared.slice(index, index + READ_BATCH_SIZE);
+        chunks.push(prepared.slice(index, index + READ_BATCH_SIZE));
+      }
+      await Promise.all(chunks.map(async (chunk) => {
         trace('chunk-start', { keys: chunk.map((entry) => entry.key) });
-        const results = await api.readCapabilities(chunk.map((entry) => entry.request));
+        const results = await api.readCapabilities!(chunk.map((entry) => entry.request));
         trace('chunk-done', { keys: chunk.map((entry) => entry.key), ok: results.map((entry) => entry?.ok === true) });
         chunk.forEach((entry, position) => {
           const result = results[position];
@@ -220,7 +224,7 @@ async function readAllCapabilitySettings(
             : { error: result && 'error' in result ? result.error : 'Capability read did not return a result.' },
           result?.ok === true);
         });
-      }
+      }));
     } catch (reason) {
       trace('chunk-failed', { error: reason instanceof Error ? reason.message : String(reason) });
       if (api.invokeCapability) {

@@ -57,11 +57,41 @@ function layoutGrammarSignature(slide, canvas) {
     .join('|');
 }
 
+// Native preset geometry families, each a distinct evidence structure. Rect
+// and line are surfaces and rules, not structures, so they fall through.
+const GEOMETRY_FAMILIES = [
+  ['process', /^(chevron|homePlate|rightArrow|leftArrow|leftRightArrow|upArrow|downArrow|bentArrow|curvedRightArrow|notchedRightArrow)$/],
+  ['share', /^(blockArc|pie|donut|arc)$/],
+  ['tiers', /^(trapezoid|triangle|funnel)$/],
+  ['silhouette', /^(custGeom|parallelogram|hexagon|diamond)$/],
+  ['module', /^(roundRect|round1Rect|round2SameRect|snip1Rect|snip2SameRect|snipRoundRect|frame)$/],
+  ['callout', /^(wedgeRectCallout|wedgeRoundRectCallout|wedgeEllipseCallout|cloudCallout)$/],
+  ['bracket', /^(leftBrace|rightBrace|bracePair|leftBracket|rightBracket|bracketPair)$/],
+  ['node', /^ellipse$/],
+];
+
+function geometryFamily(slide) {
+  const geometries = new Set((slide?.shapes || []).map((shape) => String(shape?.geometry || '')).filter(Boolean));
+  for (const [family, pattern] of GEOMETRY_FAMILIES) {
+    if ([...geometries].some((geometry) => pattern.test(geometry))) return family;
+  }
+  return '';
+}
+
+function isMetricText(shape) {
+  const text = String(shape?.text || '').trim();
+  return (Number(shape?.font?.size) || 0) >= 36 && /^[+\-−]?\d/.test(text) && text.length <= 12;
+}
+
 function inferredVisualType(slide) {
-  const roles = new Set((slide?.shapes || []).map(shapeRole));
+  const shapes = slide?.shapes || [];
+  const roles = new Set(shapes.map(shapeRole));
   if (roles.has('chart')) return 'chart';
   if (roles.has('table')) return 'table';
+  const family = geometryFamily(slide);
+  if (family) return family;
   if (roles.has('image')) return 'image';
+  if (shapes.some(isMetricText)) return 'metric';
   if (roles.has('group') || roles.has('shape')) return 'diagram';
   return 'typography';
 }

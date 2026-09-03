@@ -24,6 +24,8 @@ import {
   syncOfficeDesignLibrary,
 } from './design/library/design-library.mjs';
 import {
+  inferPptxSlideRoles,
+  isPptxStatementSlide,
   pptxVisualReviewAcknowledged,
   reviewOfficeDesign,
   reviewPptxVisualCritique,
@@ -31,6 +33,24 @@ import {
 import { value, workspace, writeZip } from './office-test-support.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
+
+test('authored statement slides are read from their shapes so breathing beats are not penalised', () => {
+  const statement = {
+    index: 2,
+    shapes: [
+      { index: 1, type: 1, text: '문제', font: { size: 11 } },
+      { index: 2, type: 1, text: '지금까지의 덱은 주제가 무엇이든 같은 카드 세 장으로 끝났다.', font: { size: 28 } },
+      { index: 3, type: 1, text: '2/8', font: { size: 9 } },
+    ],
+  };
+  const dense = {
+    index: 3,
+    shapes: Array.from({ length: 6 }, (_, index) => ({ index: index + 1, type: 1, text: `항목 ${index + 1} 설명 문장입니다.`, font: { size: 14 } })),
+  };
+  assert.equal(isPptxStatementSlide(statement), true);
+  assert.equal(isPptxStatementSlide(dense), false);
+  assert.deepEqual(inferPptxSlideRoles({ slides: [{ index: 1, shapes: [] }, statement, dense] }), { 2: { slideRole: 'statement' } });
+});
 
 test('Office design profiles expose semantic composition without decorative defaults', () => {
   assert.deepEqual(officeDesignCatalog('pptx').map((entry) => entry.id), ['executive', 'editorial', 'technical', 'data']);
@@ -1571,9 +1591,9 @@ test('Office design review rejects decorative stripes and repeated card grids', 
     index,
     shapes: [
       { type: 17, text: `Slide ${index}`, left: 50, top: 40, width: 800, height: 50, font: { size: 34 } },
-      { type: 1, text: 'A', left: 60, top: 160, width: 240, height: 120 },
-      { type: 1, text: 'B', left: 330, top: 160, width: 240, height: 120 },
-      { type: 1, text: 'C', left: 600, top: 160, width: 240, height: 120 },
+      { type: 1, text: 'Card A explains the first pillar in a sentence.', left: 60, top: 160, width: 240, height: 120 },
+      { type: 1, text: 'Card B explains the second pillar in a sentence.', left: 330, top: 160, width: 240, height: 120 },
+      { type: 1, text: 'Card C explains the third pillar in a sentence.', left: 600, top: 160, width: 240, height: 120 },
       { type: 1, text: '', left: 40, top: 90, width: 7, height: 340 },
     ],
   });
@@ -1586,4 +1606,56 @@ test('Office design review rejects decorative stripes and repeated card grids', 
   assert.ok(review.issues.some((issue) => issue.code === 'decorative_stripe'));
   assert.ok(review.issues.some((issue) => issue.code === 'card_grid_overuse'));
   assert.ok(review.issues.some((issue) => issue.code === 'repetitive_composition'));
+});
+
+test('Office design review judges an authored deck by its own ladder and geometry', () => {
+  const title = (index) => ({ type: 17, text: `Slide ${index}`, left: 43, top: 72, width: 800, height: 50, font: { size: 32 } });
+  const heroBand = (index) => ({
+    index,
+    background: { color: 'F9F4F1' },
+    shapes: [
+      title(index),
+      ...[0, 1, 2, 3].map((column) => ({ type: 1, text: String(40 + column), left: 43 + column * 220, top: 173, width: 200, height: 80, font: { size: 56 } })),
+      { type: 1, text: '', left: 43, top: 306, width: 873, height: 1 },     // hairline between rows
+      ...[0, 1, 2, 3].map((column) => ({ type: 1, text: 'One line of context under the number.', left: 43 + column * 220, top: 324, width: 195, height: 90 })),
+    ],
+  });
+  const steps = (index) => ({
+    index,
+    background: { color: 'F9F4F1' },
+    shapes: [
+      title(index),
+      ...[0, 1, 2, 3, 4].map((step) => ({ type: 1, text: `Stage ${step} with a short note under the lead.`, left: 43 + step * 176, top: 389 - step * 61, width: 158, height: 94 })),
+    ],
+  });
+  const review = reviewOfficeDesign({
+    format: 'pptx',
+    document: {
+      slides: [
+        { index: 1, background: { color: '1F1512' }, shapes: [{ type: 17, text: 'Cover', left: 43, top: 180, width: 600, height: 120, font: { size: 44 } }] },
+        heroBand(2),
+        steps(3),
+        { index: 4, background: { color: '1F1512' }, shapes: [title(4), { type: 1, text: '97%', left: 130, top: 260, width: 230, height: 60, font: { size: 40 } }] },
+        heroBand(5),
+        { index: 6, background: { color: '1F1512' }, shapes: [{ type: 17, text: 'Closing', left: 43, top: 180, width: 600, height: 120, font: { size: 36 } }] },
+      ],
+    },
+    design: { profile: 'editorial' },
+  });
+  const codes = new Set(review.issues.map((issue) => issue.code));
+  assert.equal(codes.has('theme_background_drift'), false);
+  assert.equal(codes.has('decorative_stripe'), false);
+  assert.equal(codes.has('card_grid_overuse'), false);
+  const edgeStripe = reviewOfficeDesign({
+    format: 'pptx',
+    document: {
+      slides: [
+        { index: 1, background: { color: '1F1512' }, shapes: [] },
+        { index: 2, background: { color: 'F9F4F1' }, shapes: [title(2), { type: 1, text: '', left: 0, top: 0, width: 960, height: 6 }] },
+        { index: 3, background: { color: '1F1512' }, shapes: [] },
+      ],
+    },
+    design: { profile: 'editorial' },
+  });
+  assert.ok(edgeStripe.issues.some((issue) => issue.code === 'decorative_stripe'));
 });

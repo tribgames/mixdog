@@ -157,6 +157,33 @@ test('Anthropic retains one structured tool_result with text and image', () => {
     assert.equal(occurrences(messages, 'Image read successfully'), 1);
 });
 
+test('Anthropic error tool_result stays text-only and hoists the screenshot as a sibling block', () => {
+    const history = imageHistory(mixedImageContent('Error: click target not found'));
+    history[2].toolKind = 'error';
+    history.push({ role: 'user', content: 'try again' });
+    const messages = toAnthropicMessages(history);
+    const resultTurn = messages[2];
+    assert.equal(resultTurn.role, 'user');
+    const [toolResult, sibling] = resultTurn.content;
+    assert.equal(toolResult.type, 'tool_result');
+    assert.equal(toolResult.is_error, true);
+    assert.ok(toolResult.content.every((part) => part.type === 'text'));
+    assert.match(toolResult.content[0].text, /^Error: click target not found/);
+    assert.equal(sibling.type, 'image');
+    assert.equal(sibling.source.data, IMAGE_DATA);
+    assert.equal(occurrences(messages, IMAGE_DATA), 1);
+    // The follow-up user text is not folded into an error result whose tail is media.
+    assert.equal(messages[3].role, 'user');
+});
+
+test('Anthropic error tool_result with text only is left untouched', () => {
+    const history = imageHistory('Error: bridge unavailable');
+    history[2].toolKind = 'error';
+    const toolResult = toAnthropicMessages(history)[2].content[0];
+    assert.equal(toolResult.is_error, true);
+    assert.equal(toolResult.content, 'Error: bridge unavailable');
+});
+
 test('Gemini 3 nests media and IDs inside one function-response turn', () => {
     const contents = toGeminiContents(imageHistory(), 'gemini-3-pro-preview');
     const functionCall = contents[1].parts[0].functionCall;

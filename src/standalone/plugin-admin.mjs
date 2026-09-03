@@ -15,6 +15,7 @@ import {
   writeJsonAtomicSync,
 } from '../runtime/shared/atomic-file.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
+import { pluginManifest } from '../runtime/shared/plugin-manifest.mjs';
 
 const REGISTRY_VERSION = 1;
 
@@ -66,12 +67,6 @@ function mutateRegistry(dataDir, mutator) {
     });
     return result;
   }, { secret: true });
-}
-
-function pluginManifest(root) {
-  return readJsonSafe(join(root, '.codex-plugin', 'plugin.json'))
-    || readJsonSafe(join(root, 'plugin.json'))
-    || {};
 }
 
 function displayNameFromUrl(url) {

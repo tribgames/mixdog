@@ -194,7 +194,37 @@ export async function listCore(dataDir, projectId = null) {
   return r.rows
 }
 
-export async function addCore(dataDir, input, projectId) {
+// ── In-process mutation serialization ────────────────────────────────────────
+// Every core mutation takes a per-pool advisory lock with a 5s lock_timeout
+// and then runs the LLM merge judge (up to 30s) INSIDE that transaction. Two
+// callers arriving together therefore made the second one fail with
+// "canceling statement due to lock timeout" even though it only had to wait.
+// Queue mutations here so contention is absorbed as a JS await, never as a
+// PG lock error; the advisory locks stay as the cross-process guard.
+let _mutationTail = Promise.resolve()
+function serializeCoreMutation(fn) {
+  const run = _mutationTail.then(fn, fn)
+  _mutationTail = run.catch(() => {})
+  return run
+}
+
+export function addCore(dataDir, input, projectId) {
+  return serializeCoreMutation(() => _addCoreImpl(dataDir, input, projectId))
+}
+export function editCore(dataDir, id, patch) {
+  return serializeCoreMutation(() => _editCoreImpl(dataDir, id, patch))
+}
+export function deleteCore(dataDir, id) {
+  return serializeCoreMutation(() => _deleteCoreImpl(dataDir, id))
+}
+export function archiveCore(dataDir, id, expect = null) {
+  return serializeCoreMutation(() => _archiveCoreImpl(dataDir, id, expect))
+}
+export function reclassifyCore(dataDir, id, newProjectId, expect = null) {
+  return serializeCoreMutation(() => _reclassifyCoreImpl(dataDir, id, newProjectId, expect))
+}
+
+async function _addCoreImpl(dataDir, input, projectId) {
   if (projectId === undefined) throw new Error('addCore: projectId required — pass null for COMMON pool, or slug string for scoped pool')
   const { element: el, summary: sm, category: cat, errors } = normalizeCoreInput(input, {
     requireElement: true,
@@ -274,7 +304,7 @@ export async function addCore(dataDir, input, projectId) {
   }
 }
 
-export async function editCore(dataDir, id, patch) {
+async function _editCoreImpl(dataDir, id, patch) {
   const numId = Number(id)
   if (!Number.isInteger(numId) || numId <= 0) throw new Error('integer id > 0 required')
   const db = _getDb(dataDir)
@@ -391,7 +421,7 @@ export async function editCore(dataDir, id, patch) {
   }
 }
 
-export async function deleteCore(dataDir, id) {
+async function _deleteCoreImpl(dataDir, id) {
   const numId = Number(id)
   if (!Number.isInteger(numId) || numId <= 0) throw new Error('integer id > 0 required')
   const db = _getDb(dataDir)
@@ -413,7 +443,7 @@ export async function deleteCore(dataDir, id) {
 // changed the fact after cycle3 read it is NOT clobbered. `expect` carries the
 // element/summary cycle3 reviewed; if the live row drifted from it the archive
 // is skipped (returns { skipped:true, reason:'content drift' }).
-export async function archiveCore(dataDir, id, expect = null) {
+async function _archiveCoreImpl(dataDir, id, expect = null) {
   const numId = Number(id)
   if (!Number.isInteger(numId) || numId <= 0) throw new Error('integer id > 0 required')
   const db = _getDb(dataDir)
@@ -485,7 +515,7 @@ export async function archiveCore(dataDir, id, expect = null) {
 // ({ skipped, reason }). A live (project_id, element) collision in the target
 // pool means the fact already exists there → skipped, so the caller holds it for
 // manual resolution instead of clobbering the existing row.
-export async function reclassifyCore(dataDir, id, newProjectId, expect = null) {
+async function _reclassifyCoreImpl(dataDir, id, newProjectId, expect = null) {
   const numId = Number(id)
   if (!Number.isInteger(numId) || numId <= 0) throw new Error('integer id > 0 required')
   const targetPid = newProjectId == null ? null : (String(newProjectId).trim() || null)

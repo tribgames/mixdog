@@ -18,3 +18,9 @@ export function compareRecallNewestFirst(a, b) {
 
   return (finite(b?.id) ?? 0) - (finite(a?.id) ?? 0)
 }
+
+// Chronological (oldest-first) order for a single-session handoff, where the
+// reader must follow cause → effect instead of scanning for the latest hit.
+export function compareRecallOldestFirst(a, b) {
+  return compareRecallNewestFirst(b, a)
+}

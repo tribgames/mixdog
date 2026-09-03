@@ -26,7 +26,7 @@ import {
   SessionGoalIsland,
 } from "./SessionGoalIsland.tsx";
 import { CompletionStatus } from "./transcript-status.tsx";
-import { PaneStatusIsland } from "./app-snapshot-views.tsx";
+import { PaneContextIndicator } from "./app-snapshot-views.tsx";
 import { agentActivitySessionIds } from "./desktop-types.ts";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store.ts";
 import { desktopHeaderSnapshotsEqual } from "./desktop-snapshot-store.ts";
@@ -193,7 +193,7 @@ test("shell status equality includes detail fields that arrive after the task id
   }), true);
 });
 
-test("the status island keeps only one detail card open across hover and click controls", async () => {
+test("the status island carries the context gauge without the retired work readout", async () => {
   const dom = installDom();
   try {
     await act(async () => {
@@ -209,14 +209,11 @@ test("the status island keeps only one detail card open across hover and click c
         },
       }));
     });
-    const workButton = document.querySelector(".session-work-indicator > button");
+    // Live shell work no longer mints a chrome slot (user: 에이전트 쉘 표기줄
+    // 자체를 숨기고); the gauge is the island's only readout.
+    assert.equal(document.querySelector(".session-work-indicator"), null);
     const contextButton = document.querySelector(".session-context-indicator > button");
-    await act(async () => workButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
-    assert.equal(document.querySelector(".session-work-indicator")?.dataset.open, "true");
-    assert.equal(document.querySelector(".session-context-indicator")?.dataset.open, "false");
-
     await act(async () => contextButton.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
-    assert.equal(document.querySelector(".session-work-indicator")?.dataset.open, "false");
     assert.equal(document.querySelector(".session-context-indicator")?.dataset.open, "true");
   } finally {
     await act(async () => dom.root.unmount());
@@ -357,7 +354,7 @@ test("header snapshot equality ignores unrelated stats but tracks visible contex
   }), false);
 });
 
-test("Goal island gives title, task progress, and elapsed time dedicated header regions", async () => {
+test("Goal island keeps its summary compact and toggles from the capsule", async () => {
   const dom = installDom();
   try {
     await act(async () => {
@@ -392,15 +389,16 @@ test("Goal island gives title, task progress, and elapsed time dedicated header 
     assert.equal(document.querySelector(".session-goal-progress")?.textContent, "1/3");
     assert.match(document.querySelector(".session-goal-time")?.textContent || "", /^\d+:\d{2}$/);
     assert.match(document.querySelector(".session-goal-meta")?.textContent || "", /^1\/3·\d+:\d{2}$/);
+    const trigger = document.querySelector(".session-goal-trigger");
+    assert.equal(document.querySelector(".session-goal-toggle"), null);
+    assert.equal(trigger?.getAttribute("aria-expanded"), "false");
+    assert.equal(document.querySelector(".session-goal-drawer")?.getAttribute("aria-hidden"), "true");
 
     await act(async () => {
-      document.querySelector(".session-goal-trigger")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+      trigger?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     });
-    // The task count lives in its own right-aligned span so the section
-    // header reads "Tasks" left / "1/3" right (matches the trigger meta).
-    assert.match(document.querySelector(".session-goal-tasks > b")?.textContent || "", /^Tasks/);
-    assert.equal(document.querySelector(".session-goal-tasks .session-goal-task-count")?.textContent, "1/3");
-    assert.equal(document.querySelector(".session-goal-popover-glyph"), null);
+    assert.equal(trigger?.getAttribute("aria-expanded"), "true");
+    assert.equal(document.querySelector(".session-goal-drawer")?.getAttribute("aria-hidden"), "false");
     assert.equal(document.querySelectorAll(".session-goal-task-list > li").length, 3);
     assert.equal(document.querySelectorAll(".session-goal-task-list > li .mx-icon").length, 3);
     assert.equal(
@@ -409,12 +407,14 @@ test("Goal island gives title, task progress, and elapsed time dedicated header 
       false,
     );
     assert.doesNotMatch(document.body.textContent, /Verification/);
-    assert.deepEqual(
-      [...document.querySelectorAll(".session-goal-popover > footer button")]
-        .map((button) => button.textContent.trim()),
-      ["Edit goal", "Stop goal"],
-    );
+    assert.equal(document.querySelector(".session-goal-popover"), null);
+    assert.doesNotMatch(document.body.textContent, /Edit goal|Stop goal|Complete/);
     assert.equal(document.querySelector(".session-goal-menu"), null);
+    await act(async () => {
+      trigger?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    assert.equal(trigger?.getAttribute("aria-expanded"), "false");
+    assert.equal(document.querySelector(".session-goal-drawer")?.getAttribute("aria-hidden"), "true");
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
@@ -450,7 +450,7 @@ test("blocked Goal island renders the specific blocker", async () => {
   }
 });
 
-test("completed Goal island keeps the compact elapsed clock and no resume action", async () => {
+test("completed Goal island keeps the compact elapsed clock and no extra action", async () => {
   const dom = installDom();
   const completedAt = new Date("2026-08-28T14:49:55.000Z").getTime();
   try {
@@ -474,17 +474,11 @@ test("completed Goal island keeps the compact elapsed clock and no resume action
     await act(async () => {
       document.querySelector(".session-goal-trigger")?.dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     });
-    assert.equal(
-      document.querySelector(".session-goal-popover > footer button")?.textContent.trim(),
-      "Edit goal",
-    );
-    assert.equal(document.querySelector(".session-goal-complete")?.textContent.trim(), "Complete");
-    assert.equal(
-      document.querySelector(".session-goal-popover > header small")?.textContent,
-      `Complete · 1:00 elapsed · ${new Date(completedAt).toLocaleTimeString(undefined, { timeStyle: "short" })}`,
-    );
-    assert.doesNotMatch(document.body.textContent, /Resume|Stop goal|Clear/);
-    assert.equal(document.querySelector(".session-goal-menu button")?.textContent.trim(), "Delete");
+    assert.equal(document.querySelector(".session-goal-trigger")?.getAttribute("aria-expanded"), "true");
+    assert.equal(document.querySelector(".session-goal-popover"), null);
+    assert.equal(document.querySelector(".session-goal-panel")?.getAttribute("role"), "region");
+    assert.doesNotMatch(document.body.textContent, /Edit goal|Resume|Stop goal|Clear|Delete/);
+    assert.equal(document.querySelector(".session-goal-menu"), null);
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
@@ -723,7 +717,7 @@ test("new task header ignores the previous session lane cache", async () => {
   };
   try {
     await act(async () => {
-      dom.root.render(React.createElement(PaneStatusIsland, {
+      dom.root.render(React.createElement(PaneContextIndicator, {
         ...props,
         sessionId: "session-context",
       }));
@@ -778,7 +772,7 @@ test("new task header ignores the previous session lane cache", async () => {
     assert.match(document.body.textContent, /50%/);
 
     await act(async () => {
-      dom.root.render(React.createElement(PaneStatusIsland, {
+      dom.root.render(React.createElement(PaneContextIndicator, {
         ...props,
         sessionId: "",
       }));

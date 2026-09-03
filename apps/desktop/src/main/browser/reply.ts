@@ -16,7 +16,7 @@ import {
 } from './command';
 import type { TrackedBrowserDownload } from './downloads';
 import type { BrowserGuestStateStore } from './guest-state';
-import { redactBrowserText } from './host-policy';
+import { redactBrowserText } from './redaction';
 import {
   describeBrowserPostcondition,
   normalizeBrowserPostcondition,

@@ -647,6 +647,20 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     openUsagePanel: (...a) => openUsagePanel(...a),
     openContextPicker: (...a) => openContextPicker(...a),
   });
+  // Setup tool `open`: the session store publishes { command, seq } when the
+  // model asks for a settings surface; each new seq runs that slash command
+  // exactly as if the user had typed it (own claim, own notices).
+  const uiOpenSeenRef = useRef(0);
+  useEffect(() => {
+    const request = state.uiOpenRequest;
+    const seq = Number(request?.seq) || 0;
+    if (!request?.command || seq <= uiOpenSeenRef.current) return;
+    uiOpenSeenRef.current = seq;
+    // A re-attached TUI replays the retained snapshot; a request older than a
+    // few seconds is history, not an instruction.
+    if (Number(request.at) > 0 && Date.now() - Number(request.at) > 15_000) return;
+    runSlashCommand(request.command);
+  }, [state.uiOpenRequest, runSlashCommand]);
   // dragRef tracks an in-progress mouse text selection (see the mouse handler):
   // anchor = where the drag began, last = the latest cell, active = button held.
   // region: which surface the in-progress (or last) selection belongs to —

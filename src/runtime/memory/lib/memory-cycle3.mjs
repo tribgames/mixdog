@@ -16,9 +16,13 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
 // Verdict line grammar (mirrors parseUnifiedFormat in memory-cycle2.mjs):
 //   <id>|keep
 //   <id>|update|<element>|<summary>
-//   <id>|merge|<target_id>|<source_ids_csv>
+//   <id>|merge|<target_id>|<source_ids_csv>[|<element>|<summary>]
 //   <id>|delete|<reason>
 //   <id>|reclassify|<project_slug|common>
+//
+// A merge with the optional rewritten clause is a consolidation: several
+// same-subject entries fold into one. Conservative mode applies it only when
+// the guard proves no anchor (path, command, identifier) was dropped.
 
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
@@ -30,6 +34,10 @@ import { loadCurrentRulesDigest } from './memory-cycle2.mjs'
 import { resourceDir } from './memory-cycle2-shared.mjs'
 import { embedText } from './embedding-provider.mjs'
 import { searchRelevantHybrid } from './memory-recall-store.mjs'
+import {
+  isSafeConservativeUpdate, isSafeConservativeDelete, isStrictDuplicate,
+  isSafeConsolidation, findElementConflict,
+} from './memory-cycle3-guards.mjs'
 import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
 
 const CYCLE3_RELATED_PER_CORE = 6
@@ -76,170 +84,6 @@ function resolveApplyMode(config, options = {}) {
   const raw = String(options?.applyMode || config?.cycle3?.applyMode || 'conservative').trim().toLowerCase()
   if (raw === 'proposal' || raw === 'dry-run' || raw === 'dryrun') return 'proposal'
   return 'conservative'
-}
-
-function normalizeComparable(value) {
-  return String(value ?? '')
-    .toLowerCase()
-    .replace(/[|`"'“”‘’()[\]{}<>]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function compactComparable(value) {
-  return normalizeComparable(value).replace(/\s+/g, '')
-}
-
-function charDice(a, b) {
-  const aa = compactComparable(a)
-  const bb = compactComparable(b)
-  if (!aa || !bb) return 0
-  if (aa === bb) return 1
-  if (aa.length < 3 || bb.length < 3) return aa === bb ? 1 : 0
-  const grams = (s) => {
-    const m = new Map()
-    for (let i = 0; i <= s.length - 3; i++) {
-      const g = s.slice(i, i + 3)
-      m.set(g, (m.get(g) || 0) + 1)
-    }
-    return m
-  }
-  const ga = grams(aa)
-  const gb = grams(bb)
-  let overlap = 0
-  for (const [g, n] of ga) overlap += Math.min(n, gb.get(g) || 0)
-  const total = [...ga.values()].reduce((s, n) => s + n, 0) + [...gb.values()].reduce((s, n) => s + n, 0)
-  return total > 0 ? (2 * overlap) / total : 0
-}
-
-function coreText(core) {
-  return `${core?.element || ''}\n${core?.summary || ''}`
-}
-
-function hasSubstantialNonLatinScript(value) {
-  const text = String(value ?? '')
-  const letters = text.match(/\p{L}/gu) || []
-  const latinLetters = letters.filter((letter) => /\p{Script=Latin}/u.test(letter))
-  const nonLatinLetters = letters.length - latinLetters.length
-  return nonLatinLetters >= 3 && nonLatinLetters >= letters.length * 0.3
-}
-
-function cosineSimilarity(a, b) {
-  if (!Array.isArray(a) || !Array.isArray(b) || a.length === 0 || a.length !== b.length) return null
-  let dot = 0
-  let aNorm = 0
-  let bNorm = 0
-  for (let i = 0; i < a.length; i++) {
-    if (!Number.isFinite(a[i]) || !Number.isFinite(b[i])) return null
-    dot += a[i] * b[i]
-    aNorm += a[i] ** 2
-    bNorm += b[i] ** 2
-  }
-  if (aNorm === 0 || bNorm === 0) return null
-  return dot / Math.sqrt(aNorm * bNorm)
-}
-
-async function isSafeConservativeUpdate(current, action) {
-  if (!current || !action?.element || !action?.summary) return { ok: false, reason: 'missing text' }
-  const newElement = normalizeComparable(action.element)
-  const newSummary = normalizeComparable(action.summary)
-  if (!newElement || !newSummary) return { ok: false, reason: 'empty rewrite' }
-  const oldText = coreText(current)
-  const newText = `${action.element}\n${action.summary}`
-  const oldLen = normalizeComparable(oldText).length
-  const newLen = normalizeComparable(newText).length
-  const sim = charDice(oldText, newText)
-  const crossLanguageRewrite = sim < 0.28 && hasSubstantialNonLatinScript(oldText)
-  if (!crossLanguageRewrite) {
-    if (oldLen > 0 && newLen > oldLen + 20) return { ok: false, reason: 'rewrite expands entry' }
-    if (sim < 0.28) return { ok: false, reason: `rewrite drift sim=${sim.toFixed(2)}` }
-    return { ok: true, reason: 'safe compression' }
-  }
-
-  try {
-    const [oldEmbedding, newEmbedding] = await Promise.all([embedText(oldText), embedText(newText)])
-    const cosine = cosineSimilarity(oldEmbedding, newEmbedding)
-    if (cosine == null) return { ok: false, reason: 'cross-language embedding invalid' }
-    if (cosine < 0.6) return { ok: false, reason: `cross-language semantic drift cosine=${cosine.toFixed(2)}` }
-    return { ok: true, reason: `safe cross-language rewrite cosine=${cosine.toFixed(2)}` }
-  } catch (err) {
-    return { ok: false, reason: `cross-language embedding failed: ${err?.message || 'unknown error'}` }
-  }
-}
-
-function findElementConflict(coreById, currentId, element, projectId) {
-  const nextElement = String(element ?? '').trim()
-  if (!nextElement) return null
-  for (const [id, row] of coreById) {
-    if (Number(id) === Number(currentId)) continue
-    if ((row.project_id ?? null) !== (projectId ?? null)) continue
-    if (String(row.element ?? '') === nextElement) return Number(id)
-  }
-  return null
-}
-
-function isStrictDuplicate(a, b) {
-  if (!a || !b) return false
-  const ae = compactComparable(a.element)
-  const be = compactComparable(b.element)
-  const as = compactComparable(a.summary)
-  const bs = compactComparable(b.summary)
-  if (as && bs && as === bs) return true
-  if (ae && be && ae === be && charDice(a.summary, b.summary) >= 0.65) return true
-  const sim = charDice(coreText(a), coreText(b))
-  return sim >= 0.78
-}
-
-// Whitelisted delete reasons that conservative mode may auto-apply. These are
-// the "clear junk" classes: a copy of a built-in/default rule, a bare
-// restatement, an obsolete/already-implemented decision, or a past-event log.
-// Anything outside this set (or a bare `delete` with no reason) stays held for
-// APPLY CYCLE3 so genuinely durable rules are never removed unattended.
-const SAFE_DELETE_REASONS = new Set([
-  'duplicate', 'dup', 'duplicate_of_default', 'default', 'redundant',
-  'restatement', 'restate', 'restates_default',
-  'obsolete', 'implemented', 'done', 'completed', 'resolved',
-  'superseded_decision', 'stale', 'past_event', 'event_log', 'log',
-])
-// Reasons that claim redundancy with a built-in/default rule — these demand
-// corroboration (the core text must actually echo the current rules digest)
-// before a conservative auto-delete, so a mislabelled durable rule survives.
-const DEFAULT_ECHO_REASONS = new Set([
-  'duplicate', 'dup', 'duplicate_of_default', 'default', 'redundant',
-  'restatement', 'restate', 'restates_default',
-])
-
-function normalizeDeleteReason(reason) {
-  return String(reason ?? '')
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-}
-
-// Max trigram similarity of `text` against any substantive line of the current
-// rules digest — how strongly a core entry echoes a built-in rule.
-function digestRedundancy(text, rulesDigest) {
-  if (!text || !rulesDigest) return 0
-  const lines = String(rulesDigest).split('\n').map(l => l.trim()).filter(l => l.length >= 12)
-  let best = 0
-  for (const line of lines) {
-    const d = charDice(text, line)
-    if (d > best) best = d
-    if (best >= 0.9) break
-  }
-  return best
-}
-
-function isSafeConservativeDelete(core, action, rulesDigest) {
-  const reason = normalizeDeleteReason(action?.reason)
-  if (!reason) return { ok: false, reason: 'delete needs a junk reason → APPLY CYCLE3' }
-  if (!SAFE_DELETE_REASONS.has(reason)) return { ok: false, reason: `delete reason "${reason}" not in safe set → APPLY CYCLE3` }
-  if (DEFAULT_ECHO_REASONS.has(reason)) {
-    const red = digestRedundancy(coreText(core), rulesDigest)
-    if (red < 0.5) return { ok: false, reason: `not redundant with defaults (sim=${red.toFixed(2)})` }
-  }
-  return { ok: true, reason }
 }
 
 function formatRelatedRow(r) {
@@ -310,7 +154,12 @@ function parseVerdicts(raw, idSet) {
         )
         continue
       }
-      actions.push({ id, verb: 'merge', targetId, sourceIds })
+      // Optional consolidated clause: `|<element>|<summary>` after the sources.
+      const element = (parts[4] ?? '').trim()
+      const summary = parts.slice(5).join('|').trim()
+      actions.push(element && summary
+        ? { id, verb: 'merge', targetId, sourceIds, element, summary }
+        : { id, verb: 'merge', targetId, sourceIds })
     } else if (verb === 'delete') {
       const reason = (parts[2] ?? '').trim()
       actions.push({ id, verb: 'delete', reason: reason || null })
@@ -554,7 +403,7 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
     throw new Error(`runCycle3: prompt file missing at ${promptPath}`)
   }
   const template = readFileSync(promptPath, 'utf8')
-  const rulesDigest = loadCurrentRulesDigest() || '(no current rules digest available)'
+  const rulesDigest = loadCurrentRulesDigest(dataDir, { maxChars: 120_000 }) || '(no current rules digest available)'
   const fillPrompt = () => template
     .replace('{{CORE_REVIEW}}', coreReview)
     .replace('{{CURRENT_RULES}}', rulesDigest)
@@ -756,7 +605,7 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
       let holdReason = 'proposal mode'
       let safeReason = null
       if (!confirmed && conservative) {
-        const safeDel = isSafeConservativeDelete(coreById.get(a.id), a, rulesDigest)
+        const safeDel = await isSafeConservativeDelete(coreById.get(a.id), a, rulesDigest)
         if (!safeDel.ok) holdReason = safeDel.reason
         else if (deleted >= conservativeDeleteCap) holdReason = `conservative delete cap ${conservativeDeleteCap} reached`
         else { applyDelete = true; safeReason = safeDel.reason }
@@ -884,27 +733,69 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
         details.push({ id: a.id, verb: 'merge', error: 'no valid sources' })
         continue
       }
-      // Refresh target via editCore so summary/element reflect the merged form.
-      // The verdict carries no rewritten text → fall back to the target's
-      // existing element/summary unmodified; the LLM expressed merge intent
-      // alone. editCore requires a change, so when no text drift is supplied
-      // we skip the target update and just absorb sources.
+      // Two merge shapes. Without rewritten text the LLM expressed duplicate
+      // intent alone: keep the target as is and absorb strict-duplicate
+      // sources. With `element|summary` it is a consolidation: the target is
+      // rewritten to the folded clause and every listed source is absorbed,
+      // provided the guard proves no anchor token was dropped.
       proposed.merged++
-      const safeSources = conservative
-        ? validSources.filter(sid => isStrictDuplicate(target, coreById.get(sid)))
-        : validSources
+      const consolidated = Boolean(a.element && a.summary)
+      let safeSources = validSources
+      let holdReason = null
+      let consolidationText = null
+      if (conservative) {
+        if (consolidated) {
+          const guard = isSafeConsolidation(target, validSources.map(sid => coreById.get(sid)), a.element, a.summary)
+          if (guard.ok) consolidationText = { element: a.element, summary: a.summary }
+          else {
+            // Fall back to the strict-duplicate subset so a lossy rewrite
+            // still lets verbatim duplicates collapse.
+            holdReason = guard.reason
+            safeSources = validSources.filter(sid => isStrictDuplicate(target, coreById.get(sid)))
+          }
+        } else {
+          safeSources = validSources.filter(sid => isStrictDuplicate(target, coreById.get(sid)))
+        }
+      } else if (consolidated) {
+        consolidationText = { element: a.element, summary: a.summary }
+      }
       const mergedDetail = {
         id: a.id, verb: 'merge', targetId: a.targetId, sourceIds: validSources,
         removed: [], applied: false, applyMode,
+        ...(consolidated ? { element: a.element, summary: a.summary } : {}),
       }
       if (!mutate || safeSources.length === 0) {
         held.merged++
         mergedDetail.held = true
-        mergedDetail.reason = !mutate ? 'proposal mode' : 'no strict duplicate source'
+        mergedDetail.reason = !mutate ? 'proposal mode' : (holdReason || 'no strict duplicate source')
         details.push(mergedDetail)
         touched.add(a.targetId)
         validSources.forEach(sid => touched.add(sid))
         continue
+      }
+      if (consolidationText) {
+        const conflictId = findElementConflict(coreById, a.targetId, consolidationText.element, target.project_id ?? null)
+        if (conflictId != null && !safeSources.includes(conflictId)) {
+          held.merged++
+          mergedDetail.held = true
+          mergedDetail.reason = `consolidated element conflicts with core id=${conflictId}`
+          details.push(mergedDetail)
+          touched.add(a.targetId)
+          validSources.forEach(sid => touched.add(sid))
+          continue
+        }
+        try {
+          await editCore(dataDir, a.targetId, consolidationText)
+          mergedDetail.rewritten = true
+        } catch (err) {
+          if (signal?.aborted) throw signal.reason ?? err
+          __mixdogMemoryLog(`[cycle3] merge rewrite target=${a.targetId} failed: ${err.message}\n`)
+          mergedDetail.error = err.message
+          details.push(mergedDetail)
+          touched.add(a.targetId)
+          validSources.forEach(sid => touched.add(sid))
+          continue
+        }
       }
       for (const sid of safeSources) {
         throwIfAborted(signal)

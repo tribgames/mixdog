@@ -4,5 +4,6 @@ export function displayUsagePercent(value: unknown): number | null {
     return null;
   }
   const percent = Math.max(0, Math.min(100, parsed));
-  return percent > 0 && percent < 1 ? 1 : Math.round(percent);
+  if (percent > 0 && percent < 1) return Math.round(percent * 10) / 10;
+  return Math.round(percent);
 }

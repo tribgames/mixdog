@@ -357,6 +357,7 @@ async function deliverDistributedAgentNotification(message) {
       ownerSessionId,
       mgr.markCompletionEntry(visible, {
         executionId: message.meta?.execution_id,
+        meta: message.meta,
       }),
     ) > 0);
   } catch {

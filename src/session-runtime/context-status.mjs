@@ -40,6 +40,8 @@ export function requestSerializedToolsForContext(
   });
 }
 
+const NO_NATIVE_TOOLS = Object.freeze([]);
+
 // Live /context gauge computation + its self-owned memoization cache. Extracted
 // verbatim from the runtime API object; the runtime injects live getters for
 // the mutable session/route/cwd/mode locals. The cache (key + value) is owned
@@ -50,7 +52,7 @@ export function createContextStatus({
   getRoute,
   getCurrentCwd,
   getMode,
-  getNativeTools = () => [],
+  getNativeTools = () => NO_NATIVE_TOOLS,
 }) {
   let contextStatusCacheKey = null;
   let contextStatusCacheValue = null;
@@ -134,6 +136,39 @@ export function createContextStatus({
   function invalidateContextStatusCache() {
     contextStatusCacheKey = null;
     contextStatusCacheValue = null;
+    requestToolsMemo = null;
+  }
+
+  // The gauge runs on a 2s pulse per session; snapshotting every tool schema
+  // (deep normalization of the whole catalog) on each tick dominated idle CPU.
+  // Reuse the last snapshot while its inputs are the same references; the
+  // runtime calls invalidateContextStatusCache() on catalog/route changes.
+  let requestToolsMemo = null;
+  function memoizedRequestTools(session, requestProvider, messages, messagesRevision) {
+    const tools = session?.tools;
+    const nativeTools = getNativeTools();
+    const toolCount = Array.isArray(tools) ? tools.length : 0;
+    const nativeCount = Array.isArray(nativeTools) ? nativeTools.length : 0;
+    const memo = requestToolsMemo;
+    if (
+      memo
+      && memo.session === session
+      && memo.tools === tools
+      && memo.toolCount === toolCount
+      && memo.nativeCount === nativeCount
+      // Callers may hand back a fresh empty array per call; identity only
+      // matters once there is something in it.
+      && (nativeCount === 0 || memo.nativeTools === nativeTools)
+      && memo.requestProvider === requestProvider
+      && memo.messagesRevision === messagesRevision
+    ) return memo.requestTools;
+    const requestTools = requestSerializedToolsForContext(session, requestProvider, messages, {
+      nativeTools,
+    });
+    requestToolsMemo = {
+      session, tools, toolCount, nativeTools, nativeCount, requestProvider, messagesRevision, requestTools,
+    };
+    return requestTools;
   }
 
   function contextStatus() {
@@ -223,14 +258,12 @@ export function createContextStatus({
     // authoritative committed transcript.
     const messages = activityMessages;
     const requestProvider = session?.provider || route.provider;
+    const messagesRevision = contextMessagesRevision(messages);
     // Do not even evaluate live native definitions when an in-flight request
     // scope owns the complete immutable provider surface.
     const scopedRequest = scopedProviderRequestTools(session, requestProvider, messages);
     const requestTools = scopedRequest?.requestTools
-      || requestSerializedToolsForContext(session, requestProvider, messages, {
-        nativeTools: getNativeTools(),
-      });
-    const messagesRevision = contextMessagesRevision(messages);
+      || memoizedRequestTools(session, requestProvider, messages, messagesRevision);
     const requestToolsSignature = toolSchemaSignature(requestTools);
     const cacheKey = contextStatusCacheKeyFor({
       messages,

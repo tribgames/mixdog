@@ -5,10 +5,14 @@ import { deleteRootEmbedding, syncRootEmbedding } from './memory-embed.mjs'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
 import { callAgentDispatch } from './agent-ipc.mjs'
 import { __mixdogMemoryLog, throwIfAborted, markStoreFault } from './memory-cycle2-shared.mjs'
+import { ensurePhaseMergeVerdictTable, readPhaseMergeVerdict, writePhaseMergeVerdict } from './phase-merge-verdicts.mjs'
 
 const TIER1_THRESHOLD = 0.78
 const TIER2_LOW = 0.65
 const LLM_JUDGE_CAP = 20
+// Judge calls held back from the active/active loop so the core_overlap sweep
+// (active entry vs user-curated core) always gets a budget of its own.
+const CORE_OVERLAP_JUDGE_RESERVE = 8
 
 const TRANSIENT_PROMOTE_CATEGORIES = new Set(['task', 'issue'])
 
@@ -471,7 +475,25 @@ export async function runPhaseMerge(db, options = {}) {
   // sweep running and the per-phase log shape intact.
   let merged = 0
   let llmCalls = 0
+  let cachedDistinct = 0
   const mergedIds = new Set()
+  let verdictCache = true
+  try {
+    await ensurePhaseMergeVerdictTable(db)
+  } catch (err) {
+    verdictCache = false
+    __mixdogMemoryLog(`[cycle2] phase_merge verdict cache unavailable: ${err.message}\n`)
+  }
+  const cachedVerdict = async (kind, a, b) => {
+    if (!verdictCache) return null
+    try { return await readPhaseMergeVerdict(db, kind, a, b) } catch { return null }
+  }
+  const rememberVerdict = async (kind, a, b, verdict) => {
+    if (!verdictCache) return
+    try { await writePhaseMergeVerdict(db, kind, a, b, verdict) } catch (err) {
+      __mixdogMemoryLog(`[cycle2] phase_merge verdict cache write failed: ${err.message}\n`)
+    }
+  }
 
   const doMerge = async (a, b, sim) => {
     throwIfAborted(signal)
@@ -498,10 +520,12 @@ export async function runPhaseMerge(db, options = {}) {
   // Only tier1 pairs enter the LLM judge. Tier2 pairs (0.65 ≤ sim < 0.78)
   // are recall context only — passed as sibling examples to the judge, never
   // as judge input themselves, and never archived here.
+  const tier1Budget = Math.max(1, LLM_JUDGE_CAP - CORE_OVERLAP_JUDGE_RESERVE)
   for (const pair of tier1Pairs) {
     throwIfAborted(signal)
-    if (llmCalls >= LLM_JUDGE_CAP) break
+    if (llmCalls >= tier1Budget) break
     if (mergedIds.has(pair.a.id) || mergedIds.has(pair.b.id)) continue
+    if ((await cachedVerdict('active', pair.a, pair.b)) === 'distinct') { cachedDistinct++; continue }
     llmCalls++
     const shouldMerge = await _llmJudgePair(
       String(pair.a.summary ?? ''),
@@ -515,6 +539,7 @@ export async function runPhaseMerge(db, options = {}) {
     )
     throwIfAborted(signal)
     if (shouldMerge) await doMerge(pair.a, pair.b, pair.sim)
+    else await rememberVerdict('active', pair.a, pair.b, 'distinct')
   }
 
   // Cross-table sweep: surface every active entry whose embedding sits near
@@ -552,6 +577,9 @@ export async function runPhaseMerge(db, options = {}) {
   for (const row of coreOverlapRes.rows) {
     throwIfAborted(signal)
     if (llmCalls >= LLM_JUDGE_CAP) break
+    const entrySide = { id: row.entry_id, summary: row.entry_summary }
+    const coreSide = { id: row.core_id, summary: row.core_summary }
+    if ((await cachedVerdict('core', entrySide, coreSide)) === 'distinct') { cachedDistinct++; continue }
     llmCalls++
     const verdictMerge = await _llmJudgePair(
       String(row.entry_summary ?? ''),
@@ -560,7 +588,7 @@ export async function runPhaseMerge(db, options = {}) {
       { signal, preset: options?.preset, callLlm: options?.callLlm },
     )
     throwIfAborted(signal)
-    if (!verdictMerge) continue
+    if (!verdictMerge) { await rememberVerdict('core', entrySide, coreSide, 'distinct'); continue }
     // Core-overlap archive is an active demotion — reserve floor budget and
     // refund if the guarded UPDATE turns out not to fire.
     if (floorGuard && !floorGuard.reserve()) continue
@@ -592,8 +620,11 @@ export async function runPhaseMerge(db, options = {}) {
 
   __mixdogMemoryLog(
     `[cycle2] phase_merge tier1_pairs=${tier1Pairs.length} tier2_pairs=${tier2Pairs.length}` +
-    ` llm_calls=${llmCalls} merged=${merged} core_overlap=${coreOverlap}\n`,
+    ` llm_calls=${llmCalls} cached_distinct=${cachedDistinct} merged=${merged} core_overlap=${coreOverlap}\n`,
   )
 
-  return { merged, llm_calls: llmCalls, tier1_pairs: tier1Pairs.length, tier2_pairs: tier2Pairs.length, core_overlap: coreOverlap }
+  return {
+    merged, llm_calls: llmCalls, cached_distinct: cachedDistinct,
+    tier1_pairs: tier1Pairs.length, tier2_pairs: tier2Pairs.length, core_overlap: coreOverlap,
+  }
 }

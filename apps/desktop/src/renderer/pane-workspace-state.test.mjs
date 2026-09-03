@@ -5,7 +5,7 @@ import {
   initialPaneWorkspaceState,
   mobilePaneWorkspaceState,
 } from "./pane-workspace-state.ts";
-import { paneTabAcrossVisualBoundary, parsePaneLayout } from "./pane-layout.ts";
+import { paneTabAcrossVisualBoundary, openTabInPaneLeaf, parsePaneLayout } from "./pane-layout.ts";
 
 const mobileStored = {
   layout: {
@@ -100,4 +100,41 @@ test("backward pane traversal enters at the last tab instead of the last active 
   }, "right", -1);
   assert.equal(target?.leafId, "left");
   assert.deepEqual(target?.selection, { kind: "session", id: "session-c" });
+});
+
+test("a sole NEW TASK is replaced in place by the first real tab", () => {
+  const root = {
+    type: "leaf",
+    id: "main",
+    tabs: [{ kind: "new" }],
+    activeKey: "new:default",
+  };
+  const next = openTabInPaneLeaf(root, "main", { kind: "session", id: "session-a" });
+  assert.equal(next.tabs.length, 1);
+  assert.deepEqual(next.tabs[0], { kind: "session", id: "session-a" });
+  assert.equal(next.activeKey, "session:session-a");
+});
+
+test("a sole NEW TASK keeps a second draft instead of replacing it", () => {
+  const root = {
+    type: "leaf",
+    id: "main",
+    tabs: [{ kind: "new", draftId: "draft-a" }],
+    activeKey: "new:draft-a",
+  };
+  const next = openTabInPaneLeaf(root, "main", { kind: "new", draftId: "draft-b" });
+  assert.equal(next.tabs.length, 2);
+  assert.equal(next.activeKey, "new:draft-b");
+});
+
+test("a NEW TASK beside other tabs is kept when a real tab opens", () => {
+  const root = {
+    type: "leaf",
+    id: "main",
+    tabs: [{ kind: "new", draftId: "draft-a" }, { kind: "session", id: "session-a" }],
+    activeKey: "session:session-a",
+  };
+  const next = openTabInPaneLeaf(root, "main", { kind: "session", id: "session-b" });
+  assert.equal(next.tabs.length, 3);
+  assert.equal(next.activeKey, "session:session-b");
 });

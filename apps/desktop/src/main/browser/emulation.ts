@@ -5,6 +5,7 @@
  */
 import type { WebContents } from 'electron';
 
+import type { BrowserCdpPort } from './cdp';
 import type {
   BrowserCommand,
   BrowserCommandResult,
@@ -24,24 +25,21 @@ const NETWORK_PROFILES: Record<string, {
 };
 
 export interface BrowserEmulationHost {
-  guestDebugger(guest: WebContents): Promise<Electron.Debugger>;
-  sendCdp<T>(
-    guest: WebContents,
-    cdp: Electron.Debugger,
-    method: string,
-    params?: Record<string, unknown>,
-    timeoutMs?: number,
-    signal?: AbortSignal,
-  ): Promise<T>;
+  cdp: BrowserCdpPort;
   /** An override changes the page, so refs taken before it are no longer safe. */
   invalidateInteractionState(guest: WebContents): void;
+  /** Device metrics were set (size) or cleared (null) on this guest. The pane
+   *  that shows it mirrors the size as a centered device frame. */
+  onViewportChanged?(
+    guest: WebContents,
+    viewport: { width: number; height: number } | null,
+  ): void;
   snapshotResult(
     guest: WebContents,
     command: BrowserCommand,
     signal?: AbortSignal,
     options?: BrowserSnapshotResultOptions,
   ): Promise<BrowserCommandResult>;
-  cdpTimeoutMs: number;
 }
 
 function validateEmulationCommand(command: BrowserCommand): {
@@ -152,13 +150,7 @@ function validateEmulationCommand(command: BrowserCommand): {
 }
 
 export function createBrowserEmulation(host: BrowserEmulationHost) {
-  const {
-    guestDebugger,
-    sendCdp,
-    invalidateInteractionState,
-    snapshotResult,
-    cdpTimeoutMs,
-  } = host;
+  const { cdp, invalidateInteractionState, snapshotResult, onViewportChanged } = host;
 
   async function configureEmulation(
     guest: WebContents,
@@ -166,22 +158,21 @@ export function createBrowserEmulation(host: BrowserEmulationHost) {
     signal?: AbortSignal,
   ): Promise<string[]> {
     const validated = validateEmulationCommand(command);
-    const cdp = await guestDebugger(guest);
     const applied: string[] = [];
     if (command.reset) {
       await Promise.all([
-        sendCdp(guest, cdp, 'Emulation.clearDeviceMetricsOverride', {}, cdpTimeoutMs, signal),
-        sendCdp(guest, cdp, 'Emulation.setTouchEmulationEnabled', { enabled: false }, cdpTimeoutMs, signal),
-        sendCdp(guest, cdp, 'Network.setUserAgentOverride', { userAgent: '' }, cdpTimeoutMs, signal),
-        sendCdp(guest, cdp, 'Emulation.setTimezoneOverride', { timezoneId: '' }, cdpTimeoutMs, signal),
-        sendCdp(guest, cdp, 'Emulation.setLocaleOverride', { locale: '' }, cdpTimeoutMs, signal),
-        sendCdp(guest, cdp, 'Emulation.setEmulatedMedia', { features: [] }, cdpTimeoutMs, signal),
-        sendCdp(guest, cdp, 'Emulation.setCPUThrottlingRate', { rate: 1 }, cdpTimeoutMs, signal),
-        sendCdp(guest, cdp, 'Network.emulateNetworkConditions', {
+        cdp.call(guest,'Emulation.clearDeviceMetricsOverride', {}, signal),
+        cdp.call(guest,'Emulation.setTouchEmulationEnabled', { enabled: false }, signal),
+        cdp.call(guest,'Network.setUserAgentOverride', { userAgent: '' }, signal),
+        cdp.call(guest,'Emulation.setTimezoneOverride', { timezoneId: '' }, signal),
+        cdp.call(guest,'Emulation.setLocaleOverride', { locale: '' }, signal),
+        cdp.call(guest,'Emulation.setEmulatedMedia', { features: [] }, signal),
+        cdp.call(guest,'Emulation.setCPUThrottlingRate', { rate: 1 }, signal),
+        cdp.call(guest,'Network.emulateNetworkConditions', {
           offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
-        }, cdpTimeoutMs, signal),
-        sendCdp(guest, cdp, 'Emulation.clearGeolocationOverride', {}, cdpTimeoutMs, signal),
-        sendCdp(guest, cdp, 'Network.setExtraHTTPHeaders', { headers: {} }, cdpTimeoutMs, signal),
+        }, signal),
+        cdp.call(guest,'Emulation.clearGeolocationOverride', {}, signal),
+        cdp.call(guest,'Network.setExtraHTTPHeaders', { headers: {} }, signal),
       ]);
       applied.push('reset');
     }
@@ -193,7 +184,7 @@ export function createBrowserEmulation(host: BrowserEmulationHost) {
         Math.max(0.5, Number.isFinite(command.deviceScaleFactor) ? Number(command.deviceScaleFactor) : 1),
       );
       const landscape = command.orientation === 'landscape';
-      await sendCdp(guest, cdp, 'Emulation.setDeviceMetricsOverride', {
+      await cdp.call(guest,'Emulation.setDeviceMetricsOverride', {
         width,
         height,
         deviceScaleFactor,
@@ -203,33 +194,36 @@ export function createBrowserEmulation(host: BrowserEmulationHost) {
         screenOrientation: landscape
           ? { type: 'landscapePrimary', angle: 90 }
           : { type: 'portraitPrimary', angle: 0 },
-      }, cdpTimeoutMs, signal);
+      }, signal);
       applied.push(`${width}x${height}@${deviceScaleFactor}${command.mobile ? ' mobile' : ''}`);
+      onViewportChanged?.(guest, { width, height });
+    } else if (command.reset) {
+      onViewportChanged?.(guest, null);
     }
     if (command.touch !== undefined) {
-      await sendCdp(guest, cdp, 'Emulation.setTouchEmulationEnabled', {
+      await cdp.call(guest,'Emulation.setTouchEmulationEnabled', {
         enabled: command.touch,
         maxTouchPoints: command.touch ? 5 : 1,
-      }, cdpTimeoutMs, signal);
+      }, signal);
       applied.push(`touch=${command.touch}`);
     }
     if (command.userAgent !== undefined) {
-      await sendCdp(guest, cdp, 'Network.setUserAgentOverride', {
+      await cdp.call(guest,'Network.setUserAgentOverride', {
         userAgent: command.userAgent,
         ...(command.locale ? { acceptLanguage: command.locale } : {}),
-      }, cdpTimeoutMs, signal);
+      }, signal);
       applied.push('userAgent');
     }
     if (command.locale !== undefined) {
-      await sendCdp(guest, cdp, 'Emulation.setLocaleOverride', {
+      await cdp.call(guest,'Emulation.setLocaleOverride', {
         locale: command.locale,
-      }, cdpTimeoutMs, signal);
+      }, signal);
       applied.push(`locale=${command.locale || 'default'}`);
     }
     if (command.timezone !== undefined) {
-      await sendCdp(guest, cdp, 'Emulation.setTimezoneOverride', {
+      await cdp.call(guest,'Emulation.setTimezoneOverride', {
         timezoneId: command.timezone,
-      }, cdpTimeoutMs, signal);
+      }, signal);
       applied.push(`timezone=${command.timezone || 'default'}`);
     }
     if (command.colorScheme || command.reducedMotion !== undefined) {
@@ -243,27 +237,20 @@ export function createBrowserEmulation(host: BrowserEmulationHost) {
           value: command.reducedMotion ? 'reduce' : 'no-preference',
         });
       }
-      await sendCdp(guest, cdp, 'Emulation.setEmulatedMedia', {
+      await cdp.call(guest,'Emulation.setEmulatedMedia', {
         features,
-      }, cdpTimeoutMs, signal);
+      }, signal);
       applied.push('media');
     }
     if (command.cpuThrottlingRate !== undefined) {
       const rate = Math.min(20, Math.max(1, Number(command.cpuThrottlingRate)));
-      await sendCdp(guest, cdp, 'Emulation.setCPUThrottlingRate', {
+      await cdp.call(guest,'Emulation.setCPUThrottlingRate', {
         rate,
-      }, cdpTimeoutMs, signal);
+      }, signal);
       applied.push(`cpu=${rate}x`);
     }
     if (command.networkProfile !== undefined) {
-      await sendCdp(
-        guest,
-        cdp,
-        'Network.emulateNetworkConditions',
-        validated.networkProfile,
-        cdpTimeoutMs,
-        signal,
-      );
+      await cdp.call(guest, 'Network.emulateNetworkConditions', validated.networkProfile, signal);
       applied.push(`network=${command.networkProfile}`);
     }
     if (command.latitude !== undefined && command.longitude !== undefined) {
@@ -273,18 +260,18 @@ export function createBrowserEmulation(host: BrowserEmulationHost) {
         1,
         Number.isFinite(command.accuracy) ? Number(command.accuracy) : 10,
       ));
-      await sendCdp(guest, cdp, 'Emulation.setGeolocationOverride', {
+      await cdp.call(guest,'Emulation.setGeolocationOverride', {
         latitude,
         longitude,
         accuracy,
-      }, cdpTimeoutMs, signal);
+      }, signal);
       applied.push(`geolocation=${latitude},${longitude}`);
     }
     if (command.headers !== undefined) {
       // Chromium keeps one override set per page, so a later call replaces the
       // previous headers rather than merging into them.
       const headers = command.headers;
-      await sendCdp(guest, cdp, 'Network.setExtraHTTPHeaders', { headers }, cdpTimeoutMs, signal);
+      await cdp.call(guest,'Network.setExtraHTTPHeaders', { headers }, signal);
       const names = Object.keys(headers);
       applied.push(names.length ? `headers=${names.join(',')}` : 'headers cleared');
     }

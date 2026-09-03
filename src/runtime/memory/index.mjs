@@ -363,14 +363,15 @@ async function getCycleLastRun() {
       // failed/skipped runs cannot disguise itself as a healthy keeper.
       cycle1_heartbeat: Number(obj.cycle1_heartbeat) || 0,
       cycle1_autoRestart_attempt: Number(obj.cycle1_autoRestart_attempt) || 0,
-      // Last cycle2 failure message; cleared to '' on success.
+      // Last cycle2/cycle3 failure message; cleared to '' on success.
       cycle2_last_error: typeof obj.cycle2_last_error === 'string' ? obj.cycle2_last_error : '',
+      cycle3_last_error: typeof obj.cycle3_last_error === 'string' ? obj.cycle3_last_error : '',
     }
   } catch {
     return {
       cycle1: 0, cycle2: 0, cycle3: 0, cycle1_autoRestart: 0,
       cycle1_heartbeat: 0, cycle1_autoRestart_attempt: 0,
-      cycle2_last_error: '',
+      cycle2_last_error: '', cycle3_last_error: '',
     }
   }
 }
@@ -600,6 +601,7 @@ const _httpRouter = createHttpRouter({
   ingestTranscriptFile,
   getTranscriptOffset: (fp) => _transcriptIngest.getOffset(fp),
   parseTsToMs,
+  refreshCoreMemoryFile: refreshCoreMemorySnapshot,
 })
 const buildSessionCoreMemoryPayload = _httpRouter.buildSessionCoreMemoryPayload
 const httpServer = http.createServer(_httpRouter.requestHandler)

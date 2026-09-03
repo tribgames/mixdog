@@ -61,6 +61,16 @@ function interleavedResponsesItems() {
         name: 'read',
         arguments: '{"index":11}',
     });
+    // Paired outputs: wire builders now synthesize results for unpaired
+    // calls, so the order fixtures carry outputs to keep asserting the
+    // interleaved reasoning positions (input[11]) on the no-op path.
+    for (let index = 1; index <= 11; index += 1) {
+        items.push({
+            type: 'function_call_output',
+            call_id: `call_${index}`,
+            output: `result-${index}`,
+        });
+    }
     return items;
 }
 

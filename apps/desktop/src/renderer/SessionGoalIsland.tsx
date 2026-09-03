@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { liveAgentRows } from './AgentActivityPane';
 import type { GoalSnapshot, GoalTask, Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
-import { showDesktopToast } from './notifications';
 
 const ACTIVE_AGENT_STAGE = /^(?:connecting|requesting|streaming|tool_running|running|cancelling)$/i;
 
@@ -44,17 +43,6 @@ function activeAgentWaiting(snapshot: Snapshot): boolean {
   return workers.some((worker) =>
     ACTIVE_AGENT_STAGE.test(String(worker?.status || ''))
     || ACTIVE_AGENT_STAGE.test(String(worker?.stage || worker?.worker_stage || '')));
-}
-
-function goalStatusLabel(goal: GoalSnapshot): string {
-  const status = String(goal.status || '');
-  if (status === 'complete') return t('Complete');
-  if (status === 'paused') return t('Paused');
-  if (status === 'blocked') return t('Blocked');
-  // A requested duration running out is a normal stop, not a limit breach.
-  if (status === 'duration_reached') return t('Duration reached');
-  if (status === 'usage_limited') return t('Usage limited');
-  return t('in progress');
 }
 
 function goalElapsedMs(goal: GoalSnapshot, clock: number): number {
@@ -125,7 +113,7 @@ export function SessionGoalHost({
   placement,
   children,
 }: {
-  placement: 'composer' | 'diff';
+  placement: 'composer';
   children?: ReactNode;
 }) {
   return <div className="session-goal-host"
@@ -137,25 +125,34 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const active = goal?.status === 'active';
   const clock = useGoalClock(active);
   const [open, setOpen] = useState(false);
-  const [workingAction, setWorkingAction] = useState('');
-  const root = useRef<HTMLDivElement | null>(null);
+  const drawerId = useId();
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const sessionId = String(snapshot.sessionId || '');
   const waiting = Boolean(goal && active && activeAgentWaiting(snapshot));
 
   useEffect(() => setOpen(false), [sessionId, goal?.id]);
+
+  // Dismiss on any interaction outside the island (or Escape) so the drawer
+  // never lingers over the transcript once attention moves elsewhere.
   useEffect(() => {
     if (!open) return undefined;
-    const close = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    const onPointerDown = (event: PointerEvent) => {
+      const root = rootRef.current;
+      if (root && event.target instanceof Node && root.contains(event.target)) return;
+      setOpen(false);
     };
-    window.addEventListener('pointerdown', close);
-    return () => window.removeEventListener('pointerdown', close);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
   }, [open]);
 
-  const statusLabel = useMemo(() => goal ? goalStatusLabel(goal) : '', [goal]);
-  const timeLabel = goal ? goalTimeLabel(goal, clock) : '';
   const elapsedLabel = goal ? goalElapsedLabel(goal, clock) : '';
-  const completedTimeLabel = goal ? goalCompletedTimeLabel(goal) : '';
   if (!goal) return null;
   const tasks = Array.isArray(goal.tasks) ? goal.tasks : [];
   const tasksTotal = Math.max(tasks.length, Number(goal.tasksTotal) || 0);
@@ -167,107 +164,49 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const title = String(goal.title || goal.objective || t('Goal'));
   const objective = String(goal.objective || '');
 
-  const control = async (action: string) => {
-    if (!sessionId || workingAction) return;
-    setWorkingAction(action);
-    try {
-      await window.mixdogDesktop.invokeCapability({
-        capability: 'goalControl',
-        args: [{ action }],
-        sessionId,
-      });
-      if (action === 'clear') setOpen(false);
-    } catch (error) {
-      showDesktopToast(String((error as Error)?.message || error || t('Goal update failed')), 'error');
-    } finally {
-      setWorkingAction('');
-    }
-  };
-
-  const edit = () => {
-    window.dispatchEvent(new CustomEvent('mixdog:composer-draft', {
-      detail: `/goal edit ${String(goal.objective || '')}`,
-    }));
-    setOpen(false);
-  };
-
-  return <div ref={root} className="session-goal-island"
+  return <div ref={rootRef} className="session-goal-island"
     data-status={goal.status || 'active'} data-waiting={waiting ? 'true' : 'false'}
     data-open={open ? 'true' : 'false'}>
-    <button type="button" className="session-goal-trigger"
-      aria-expanded={open} aria-haspopup="dialog"
-      aria-label={t('Goal: {{objective}}', { objective })}
-      onClick={() => setOpen((value) => !value)}>
-      <span className="session-goal-title-region">
-        <span className="session-goal-glyph"><GoalGlyph status={goal.status} /></span>
-        <span className="session-goal-objective" title={objective}>{title}</span>
-      </span>
-      <span className="session-goal-meta">
-        <span className="session-goal-progress">{progressLabel}</span>
-        <span aria-hidden="true">·</span>
-        <span className="session-goal-time">{elapsedLabel}</span>
-      </span>
-    </button>
-    {open ? <section className="session-goal-popover" role="dialog" aria-label={t('Goal details')}>
-      <header className={goal.status === 'complete' ? 'has-menu' : undefined}>
-        <div>
-          <strong title={objective}>{title}</strong>
-          <small>{[statusLabel, timeLabel, completedTimeLabel]
-            .filter(Boolean).join(' · ')}</small>
-        </div>
-        {goal.status === 'complete' ? <details className="session-goal-menu">
-          <summary aria-label={t('Actions')}>
-            <MxIcon name="more" size={16} />
-          </summary>
-          <div role="menu">
-            <button type="button" role="menuitem" disabled={Boolean(workingAction)}
-              onClick={() => void control('clear')}>
-              <MxIcon name="delete" size={14} />{t('Delete')}
-            </button>
-          </div>
-        </details> : null}
-      </header>
-      <div className="session-goal-content">
-        <div className="session-goal-tasks">
-          <b>{t('Tasks')}<span className="session-goal-task-count">{tasksCompleted}/{tasksTotal}</span></b>
-          {tasks.length > 0 ? <ul className="session-goal-task-list" aria-label={t('Goal tasks')}>
-            {tasks.map((task, index) => {
-              const taskStatus = task.status || 'pending';
-              return <li key={String(task.id || index)} data-status={taskStatus}>
-                <span><GoalTaskGlyph status={taskStatus} /></span>
-                <div>
-                  <span>{String(task.text || '')}</span>
-                </div>
-              </li>;
-            })}
-          </ul> : <p className="session-goal-empty">{t('No tasks yet.')}</p>}
-        </div>
-        {goal.blocker ? <p className="session-goal-blocker">{String(goal.blocker)}</p> : null}
-      </div>
-      <footer>
-        <button type="button" disabled={Boolean(workingAction)} onClick={edit}>
-          <MxIcon name="edit" size={14} />{t('Edit goal')}
-        </button>
-        {goal.status === 'complete'
-          ? <span className="session-goal-complete" role="status">
-            <MxIcon name="check" size={14} />{t('Complete')}
+    <div className="session-goal-stack">
+      <div className="session-goal-summary">
+        <button type="button" className="session-goal-trigger"
+          aria-expanded={open} aria-controls={drawerId}
+          aria-label={t('Goal: {{objective}}', { objective })}
+          onClick={() => setOpen((value) => !value)}>
+          <span className="session-goal-title-region">
+            <span className="session-goal-glyph"><GoalGlyph status={goal.status} /></span>
+            <span className="session-goal-objective" title={objective}>{title}</span>
           </span>
-          : <>
-            {/* A stopped Goal had no restart affordance here, so the only way
-                back was typing /goal resume in the composer. */}
-            {goal.status !== 'active'
-              ? <button type="button" className="session-goal-resume"
-                disabled={Boolean(workingAction)}
-                onClick={() => void control('resume')}>
-                <MxIcon name="continue" size={12} />{t('Resume')}
-              </button>
-              : null}
-            <button type="button" className="session-goal-stop" disabled={Boolean(workingAction)}
-              onClick={() => void control('clear')}>
-              <MxIcon name="stop" size={12} />{t('Stop goal')}
-            </button>
-          </>}
-      </footer>
-    </section> : null}
+          <span className="session-goal-meta">
+            <span className="session-goal-progress">{progressLabel}</span>
+            <span aria-hidden="true">·</span>
+            <span className="session-goal-time">{elapsedLabel}</span>
+          </span>
+        </button>
+      </div>
+      <div className="session-goal-drawer" aria-hidden={open ? 'false' : 'true'}>
+        <div className="session-goal-drawer-clip">
+          <section id={drawerId} className="session-goal-panel"
+            role="region" aria-label={t('Goal tasks')}>
+            <div className="session-goal-content">
+              <div className="session-goal-tasks">
+                {tasks.length > 0 ? <ul className="session-goal-task-list" aria-label={t('Goal tasks')}>
+                  {tasks.map((task, index) => {
+                    const taskStatus = task.status || 'pending';
+                    return <li key={String(task.id || index)} data-status={taskStatus}>
+                      <span><GoalTaskGlyph status={taskStatus} /></span>
+                      <div>
+                        <span>{String(task.text || '')}</span>
+                      </div>
+                    </li>;
+                  })}
+                </ul> : <p className="session-goal-empty">{t('No tasks yet.')}</p>}
+              </div>
+              {goal.blocker ? <p className="session-goal-blocker">{String(goal.blocker)}</p> : null}
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
   </div>;
 }

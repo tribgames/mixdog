@@ -71,9 +71,17 @@ export function createHttpRouter({
   ingestTranscriptFile,
   getTranscriptOffset,
   parseTsToMs,
+  refreshCoreMemoryFile,
 }) {
   const DATA_DIR = dataDir
   const PLUGIN_VERSION = pluginVersion
+  // Admin mutations that change what a new session injects (curated rows or
+  // the status of a root carrying a core_summary) must republish the
+  // core-memory.json snapshot; otherwise the change waits for the next cycle.
+  async function republishCoreSnapshot(reason) {
+    if (typeof refreshCoreMemoryFile !== 'function') return
+    try { await refreshCoreMemoryFile(reason) } catch {}
+  }
   const BOOT_PROMOTION_CODE_FINGERPRINT = bootPromotionCodeFingerprint
 
   function createHttpMcpServer() {
@@ -260,6 +268,7 @@ export function createHttpRouter({
         const body = await readBody(req)
         const projectId = normalizeCoreProjectId(body.project_id)
         const entry = await addCore(DATA_DIR, body, projectId)
+        await republishCoreSnapshot('admin-core-add')
         sendJson(res, { ok: true, item: entry })
       } catch (e) { sendJson(res, { ok: false, error: e.message }, 500) }
       return
@@ -273,6 +282,7 @@ export function createHttpRouter({
       try {
         const body = await readBody(req)
         const removed = await deleteCore(DATA_DIR, body.id)
+        await republishCoreSnapshot('admin-core-delete')
         sendJson(res, { ok: true, item: removed })
       } catch (e) { sendJson(res, { ok: false, error: e.message }, 500) }
       return
@@ -297,7 +307,9 @@ export function createHttpRouter({
           `UPDATE entries SET status = $1 WHERE id = $2 AND is_root = 1`,
           [status, id]
         )
-        sendJson(res, { ok: true, changes: Number(result.rowCount ?? result.affectedRows ?? 0) })
+        const changes = Number(result.rowCount ?? result.affectedRows ?? 0)
+        if (changes > 0) await republishCoreSnapshot('admin-entry-status')
+        sendJson(res, { ok: true, changes })
       } catch (e) { sendJson(res, { ok: false, error: e.message }, 500) }
       return
     }

@@ -27,7 +27,8 @@ export interface BrowserNetworkRequest {
 
 import type { WebContents } from 'electron';
 
-import { redactBrowserText, redactBrowserUrl } from './host-policy';
+import type { BrowserCdpPort } from './cdp';
+import { redactBrowserText, redactBrowserUrl } from './redaction';
 
 export interface BrowserWebSocketFrame {
   direction: 'sent' | 'received';
@@ -80,17 +81,7 @@ export function truncateNetworkBody(body: string, maxChars: number): string {
 export interface BrowserNetworkReportHost {
   /** The ledger recording this page's requests. */
   ledgerFor(guest: WebContents): BrowserNetworkLedger;
-  guestDebugger(guest: WebContents): Promise<Electron.Debugger>;
-  sendCdp<T>(
-    guest: WebContents,
-    cdp: Electron.Debugger,
-    method: string,
-    params?: Record<string, unknown>,
-    timeoutMs?: number,
-    signal?: AbortSignal,
-    sessionId?: string,
-  ): Promise<T>;
-  cdpTimeoutMs: number;
+  cdp: BrowserCdpPort;
   /** Ceiling a caller can raise a body to. */
   maxBodyChars: number;
 }
@@ -112,7 +103,7 @@ const LEDGER_WEBSOCKET_TOTAL_CHARS = 256_000;
  *  formatting over the ledger plus, for one request, the bodies Chromium still
  *  holds — so they need CDP but nothing else the host owns. */
 export function createBrowserNetworkReports(host: BrowserNetworkReportHost) {
-  const { ledgerFor, guestDebugger, sendCdp, cdpTimeoutMs, maxBodyChars } = host;
+  const { ledgerFor, cdp, maxBodyChars } = host;
 
   function networkListResult(
     guest: WebContents,
@@ -155,7 +146,7 @@ export function createBrowserNetworkReports(host: BrowserNetworkReportHost) {
     command: { maxChars?: number; frameLimit?: number },
     signal?: AbortSignal,
   ): Promise<{ text: string }> {
-    const cdp = await guestDebugger(guest);
+    const target = { sessionId: request.sessionId };
     const maxChars = Math.min(
       maxBodyChars,
       Number.isFinite(command.maxChars) && (command.maxChars as number) > 0
@@ -165,14 +156,12 @@ export function createBrowserNetworkReports(host: BrowserNetworkReportHost) {
     let requestBody = request.requestBody;
     if (!requestBody && request.hasPostData) {
       try {
-        const postData = await sendCdp<{ postData?: string }>(
+        const postData = await cdp.call<{ postData?: string }>(
           guest,
-          cdp,
           'Network.getRequestPostData',
           { requestId: request.cdpRequestId },
-          cdpTimeoutMs,
           signal,
-          request.sessionId,
+          target,
         );
         requestBody = postData.postData || '';
       } catch (error) {
@@ -191,14 +180,12 @@ export function createBrowserNetworkReports(host: BrowserNetworkReportHost) {
     } else {
       let response: { body?: string; base64Encoded?: boolean } | null;
       try {
-        response = await sendCdp<{ body?: string; base64Encoded?: boolean }>(
+        response = await cdp.call<{ body?: string; base64Encoded?: boolean }>(
           guest,
-          cdp,
           'Network.getResponseBody',
           { requestId: request.cdpRequestId },
-          cdpTimeoutMs,
           signal,
-          request.sessionId,
+          target,
         );
       } catch (error) {
         if (signal?.aborted) throw signal.reason || error;

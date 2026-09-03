@@ -342,11 +342,11 @@
   overflow-y: auto;
   padding: 4px;
   box-sizing: border-box;
-  border: 1px solid var(--mx-border);
-  border-radius: var(--mx-radius-md);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: var(--mx-floating);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .row-overflow-menu button {
   width: 100%;
@@ -721,11 +721,11 @@
 .settings-oauth-dialog {
   width: min(440px, calc(100vw - 32px));
   overflow: hidden;
-  border: 0;
-  border-radius: var(--mx-radius-md);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius-card);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: var(--mx-overlay);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .settings-oauth-dialog > header {
   display: flex;
@@ -887,11 +887,11 @@
 .settings-confirm-dialog {
   width: min(400px, calc(100vw - 32px));
   overflow: hidden;
-  border: 0;
-  border-radius: var(--mx-radius-md);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius-card);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: var(--mx-overlay);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .settings-confirm-dialog > header {
   display: flex;

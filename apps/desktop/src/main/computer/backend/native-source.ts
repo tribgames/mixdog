@@ -237,8 +237,36 @@ public static class MixMsaa {
 }
 
 public class MixWin32 {
-  [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
-  [DllImport("user32.dll")] public static extern void mouse_event(uint f, int dx, int dy, int d, IntPtr e);
+  [DllImport("user32.dll", EntryPoint = "SetCursorPos")] static extern bool SetCursorPosNative(int X, int Y);
+  [DllImport("user32.dll", EntryPoint = "mouse_event")] static extern void MouseEventNative(uint f, int dx, int dy, int d, IntPtr e);
+  [StructLayout(LayoutKind.Sequential)] struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
+  [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO info);
+  // GetLastInputInfo counts synthetic input too, so the tick of this process's
+  // own latest injection is what separates the agent's events from the user's
+  // hands on the physical mouse and keyboard.
+  public static int LastInjectionTick;
+  static bool hasInjected;
+  const int INJECTION_TOLERANCE_MS = 80;
+  public static void NoteInjection() { LastInjectionTick = Environment.TickCount; hasInjected = true; }
+  public static bool SetCursorPos(int X, int Y) { bool ok = SetCursorPosNative(X, Y); NoteInjection(); return ok; }
+  public static void mouse_event(uint f, int dx, int dy, int d, IntPtr e) { MouseEventNative(f, dx, dy, d, e); NoteInjection(); }
+  static bool IsFromInjection(int inputTick, int injectionTick) {
+    int delta = unchecked(inputTick - injectionTick);
+    return delta >= -INJECTION_TOLERANCE_MS && delta <= INJECTION_TOLERANCE_MS;
+  }
+  /// Milliseconds since the last input that did not come from this process or
+  /// from another worker whose latest injection tick the host passed along.
+  /// int.MaxValue when the most recent input on record is an injection.
+  public static int PhysicalInputIdleMs(int knownInjectionTick, bool hasKnownInjection) {
+    LASTINPUTINFO info = new LASTINPUTINFO();
+    info.cbSize = (uint)Marshal.SizeOf(typeof(LASTINPUTINFO));
+    if (!GetLastInputInfo(ref info)) return int.MaxValue;
+    int last = unchecked((int)info.dwTime);
+    if (hasInjected && IsFromInjection(last, LastInjectionTick)) return int.MaxValue;
+    if (hasKnownInjection && IsFromInjection(last, knownInjectionTick)) return int.MaxValue;
+    int idle = unchecked(Environment.TickCount - last);
+    return idle < 0 ? 0 : idle;
+  }
   [DllImport("user32.dll")] public static extern IntPtr FindWindow(string c, string n);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
@@ -1071,7 +1099,9 @@ public class MixWin32 {
       for (int off = 0; off < seg.Count; off += 256) {
         int n = Math.Min(256, seg.Count - off);
         INPUT[] arr = seg.GetRange(off, n).ToArray();
-        if (SendInput((uint)n, arr, Marshal.SizeOf(typeof(INPUT))) != (uint)n)
+        uint sent = SendInput((uint)n, arr, Marshal.SizeOf(typeof(INPUT)));
+        NoteInjection();
+        if (sent != (uint)n)
           throw new Exception("SendInput was blocked (is an elevated window focused?)");
         System.Threading.Thread.Sleep(3);
       }

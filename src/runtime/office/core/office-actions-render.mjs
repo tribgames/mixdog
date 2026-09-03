@@ -13,7 +13,7 @@ import {
 import { scoreOfficeReleaseQuality } from '../quality/quality-score.mjs';
 import { defaultRenderOutput, exists, fullPath, snapshot } from './office-sessions.mjs';
 import { persistOfficeTransaction } from './office-transactions.mjs';
-import { reviewOfficeDesign } from '../quality/design-review.mjs';
+import { inferPptxSlideRoles, reviewOfficeDesign } from '../quality/design-review.mjs';
 import { applyBatch } from './office-actions-batch.mjs';
 import { issues } from './office-actions-inspect.mjs';
 
@@ -168,12 +168,18 @@ export async function qa(session, args, cwd) {
     };
   }
   const designIssues = Array.isArray(designReview.issues) ? designReview.issues : [];
-  const pageRoles = Object.fromEntries(reviewSlidePlans
-    .filter((plan) => Number(plan?.slide) > 0)
-    .map((plan) => [Number(plan.slide), {
-      slideRole: plan.slideRole,
-      visualType: plan.visualType,
-    }]));
+  // Without composer plans (authored decks) the statement beats are read from
+  // the saved shapes so the density gates do not penalise deliberate air.
+  const pageRoles = reviewSlidePlans.length
+    ? Object.fromEntries(reviewSlidePlans
+      .filter((plan) => Number(plan?.slide) > 0)
+      .map((plan) => [Number(plan.slide), {
+        slideRole: plan.slideRole,
+        visualType: plan.visualType,
+      }]))
+    : session.format === 'pptx'
+      ? inferPptxSlideRoles(currentSnapshot?.document)
+      : {};
   const renderReview = structuralReview
     ? { ok: true, format: session.format, pages: [], issues: [] }
     : await reviewRenderedOfficePages(preview._images, {

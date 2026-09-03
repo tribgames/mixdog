@@ -231,6 +231,7 @@ import { createWarmupSchedulers } from './warmup-schedulers.mjs';
 import { createPrewarmSchedulers } from './prewarm.mjs';
 import {
   getTurnReviewDiff as getTurnSnapshotReviewDiff,
+  getSessionReviewDiff as getSessionSnapshotReviewDiff,
   revertTurnReview as revertTurnSnapshotReview,
   revertTurnReviewFile as revertTurnSnapshotReviewFile,
 } from '../runtime/shared/turn-snapshot.mjs';
@@ -293,6 +294,8 @@ import {
   initializeOfficeTransactions,
 } from '../runtime/office/index.mjs';
 import { TOOL_DEFS as OFFICE_TOOL_DEFS } from '../runtime/office/tool-defs.mjs';
+import { SETUP_TOOL_DEFS } from './setup-tool/tool-defs.mjs';
+import { createSetupToolExecutor } from './setup-tool/executor.mjs';
 import {
   dispatchWebSearchRuntimeTool,
   memoryToolArgsForCaller,
@@ -772,6 +775,7 @@ export async function createMixdogSessionRuntime({
   const {
     emitRuntimeNotification,
     notifySession,
+    notifySessionUi,
     notifyFnForSession,
     notifySessionCompletion,
     subscribeRuntimeNotification,
@@ -975,6 +979,7 @@ export async function createMixdogSessionRuntime({
     ...BROWSER_BRIDGE_TOOL_DEFS.filter((tool) => tool?.name === 'browser'),
     ...COMPUTER_BRIDGE_TOOL_DEFS.filter((tool) => tool?.name === 'computer'),
     ...OFFICE_TOOL_DEFS.filter((tool) => tool?.name === 'office'),
+    ...SETUP_TOOL_DEFS,
     ...goalRuntime.tools,
     ...agentTool.tools,
   ].map(applyStandaloneToolDefaults);
@@ -1002,6 +1007,7 @@ export async function createMixdogSessionRuntime({
     getConfig: () => rt.config,
     getToolProfile: () => rt.toolProfile,
     getMcpScopeId: () => rt.mcpScopeId,
+    getCurrentCwd: () => rt.currentCwd,
     cfgMod,
     loadWorkflowPack,
     activeWorkflowId,
@@ -1030,6 +1036,16 @@ export async function createMixdogSessionRuntime({
     });
     return contextStatus();
   };
+  // The setup tool drives the same facade the settings UIs use. The facade is
+  // the object this factory returns, so it is handed over by reference below
+  // and read lazily on each call.
+  let runtimeFacade = null;
+  const setupTool = createSetupToolExecutor({
+    getApi: () => runtimeFacade,
+    getConfig: () => rt.config,
+    notifySessionUi,
+    getSessionId: () => rt.session?.id || rt.reservedSessionId || null,
+  });
   internalTools.setInternalToolsProvider({
     tools: [...standaloneTools, ...webSearchRuntimeTools.filter((tool) => tool?.public === false)],
     executor: async (name, args, callerCtx = {}) => {
@@ -1076,6 +1092,9 @@ export async function createMixdogSessionRuntime({
           toolCallId: callerCtx?.toolCallId,
           signal: callerCtx?.signal || rt.session?.controller?.signal || null,
         });
+      }
+      if (name === 'setup') {
+        return await setupTool.execute(args || {});
       }
       if (name === 'web_search' || name === 'web_fetch' || name === 'local_fetch' || name === 'image_fetch') {
         return dispatchWebSearchRuntimeTool(name, args, callerCtx, {
@@ -1733,6 +1752,7 @@ export async function createMixdogSessionRuntime({
     getSession: () => rt.session,
     setSession: adoptSession,
     getCurrentCwd: () => rt.currentCwd,
+    getConfig: () => rt.config,
     getMode: () => rt.mode,
     setMode: (v) => { rt.mode = v; },
     getActiveTurnCount: () => rt.activeTurnCount,
@@ -1780,7 +1800,7 @@ export async function createMixdogSessionRuntime({
     deferComputerSessionRelease,
   });
 
-  return {
+  runtimeFacade = {
     ...settingsApi,
     ...channelConfigApi,
     ...providerAuthApi,
@@ -1790,6 +1810,10 @@ export async function createMixdogSessionRuntime({
       rt.currentCwd,
       rt.session?.id,
       options,
+    ),
+    getSessionReviewDiff: () => getSessionSnapshotReviewDiff(
+      rt.currentCwd,
+      rt.session?.id,
     ),
     revertTurnReview: (checkpointId) => revertTurnSnapshotReview(
       rt.currentCwd,
@@ -1973,4 +1997,5 @@ export async function createMixdogSessionRuntime({
     ...workflowAgentsApi,
     ...sessionTurnApi,
   };
+  return runtimeFacade;
 }

@@ -225,7 +225,11 @@ export const modelRecordDisplayName = (model) => displayModelName(
   model?.display || model?.name,
 );
 
-export const routeModelDisplayName = (route) => displayModelName(route?.model, route?.provider);
+export const routeModelDisplayName = (route) => displayModelName(
+  route?.model,
+  route?.provider,
+  route?.modelDisplay || '',
+);
 
 export const groupModelsByProvider = (models) => {
   const providers = new Map();

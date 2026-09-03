@@ -23,6 +23,7 @@ import {
   type UsageApi,
 } from "./usage-dashboard-store";
 import { displayUsagePercent } from "./usage-percent";
+import { usagePinStackFits } from "./rail-usage-pin-room";
 import type { SidebarPanelKey } from "./app-shell-components";
 import {
   SIDEBAR_GROUP_MIME,
@@ -183,7 +184,33 @@ export function ActivityRail({
   const usageSnapshot = useSyncExternalStore(subscribeUsageDashboard, getUsageDashboardSnapshot);
   // Data-less pinning (store not warmed yet, nothing connected) falls back to
   // the pie glyph instead of an empty stack.
-  const usagePinRows = usagePinned ? usagePinEntries(usageSnapshot.dashboard) : [];
+  const wantedPinRows = usagePinned ? usagePinEntries(usageSnapshot.dashboard) : [];
+  // Short windows fold the stack back to the pie glyph rather than pushing
+  // the destinations into a scroller (user: USAGE 공간이 위쪽 메뉴 침범하면
+  // 아이콘으로). Measured from the rail, the nav's full content height and
+  // the Settings cell; re-checked on every rail resize and row-count change.
+  const railRef = useRef<HTMLElement | null>(null);
+  const navRef = useRef<HTMLElement | null>(null);
+  const settingsRef = useRef<HTMLButtonElement | null>(null);
+  const [pinRoom, setPinRoom] = useState(true);
+  const wantedPinCount = wantedPinRows.length;
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail || wantedPinCount === 0) return undefined;
+    const measure = () => {
+      setPinRoom(usagePinStackFits({
+        railHeight: rail.clientHeight,
+        navHeight: navRef.current?.scrollHeight ?? 0,
+        settingsHeight: settingsRef.current?.offsetHeight ?? 0,
+        rowCount: wantedPinCount,
+      }));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(rail);
+    return () => observer.disconnect();
+  }, [wantedPinCount]);
+  const usagePinRows = pinRoom ? wantedPinRows : [];
   // Anchor the flyout's bottom edge to the Usage button itself, measured at
   // open time (static offsets drifted a few px from the real rail layout).
   const [usageAnchorBottom, setUsageAnchorBottom] = useState(48);
@@ -235,8 +262,9 @@ export function ActivityRail({
     };
   }, [usageOpen]);
   return (
-    <aside className="activity-rail" aria-label={t("Activity Bar")} {...railGapDropProps}>
-      <nav className="sidebar-primary-nav" aria-label={t("Sidebar")}>
+    <aside className="activity-rail" aria-label={t("Activity Bar")} ref={railRef}
+      {...railGapDropProps}>
+      <nav className="sidebar-primary-nav" aria-label={t("Sidebar")} ref={navRef}>
         {primaryNavigation ?? <>
         {/* The Sessions toggle behaves like an Explorer button: pressing it
             expands/collapses the session panel. is-active (not selected)
@@ -354,7 +382,7 @@ export function ActivityRail({
           </span>
           : <span className="codicon codicon-pie-chart" aria-hidden="true" />}
       </button>}
-      {desktopFeatureEnabled("settings") && <button type="button"
+      {desktopFeatureEnabled("settings") && <button type="button" ref={settingsRef}
         className={`sidebar-settings-button ${activeSurface === "settings" ? "selected" : ""}`}
         aria-label={t("Open settings")} aria-current={activeSurface === "settings" ? "page" : undefined}
         data-tooltip={t("Settings")} onPointerEnter={onPrefetchSettings}
@@ -369,7 +397,7 @@ export function ActivityRail({
       {desktopFeatureEnabled("usage") && usageOpen && <div className="rail-usage-popup" role="dialog" aria-label={t("Subscription usage")}
         style={{
           "--rail-usage-popup-bottom": `${usageAnchorBottom}px`,
-          width: DESKTOP_SIDEBAR_DEFAULT_WIDTH,
+          width: DESKTOP_SIDEBAR_DEFAULT_WIDTH + 36,
         } as React.CSSProperties}
         data-state="open">
         {/* The popup shares the rail's host API so its open-time revalidation

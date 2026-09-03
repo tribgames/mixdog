@@ -565,7 +565,22 @@
   border-bottom: 1px solid var(--mx-border-muted);
   border-left: 1px solid var(--mx-border-structure);
 }
-.pane-side-dock-header .workbench-side-icon-bar.is-horizontal { height: 100%; }
+/* The header names the showing child only (user: 독 헤더는 뷰 이름 + X); the
+   child pickers ride the PANE strip's right end as .pane-dock-toggles. */
+.pane-side-dock-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  color: var(--mx-text);
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.pane-side-dock-title > svg { flex: 0 0 auto; color: var(--mx-text-muted); }
+.pane-side-dock-title > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 /* Fold affordance (user: 오버레이까지 되는 판에 X가 있어야): the X folds the
    unit; re-clicking the active icon does the same. */
 .pane-side-dock-close {
@@ -623,11 +638,6 @@
   opacity: 1;
   pointer-events: auto;
 }
-/* The phone sheet's header grows to the touch height; the surface layer
-   starts below whatever height the header actually has. */
-html[data-mixdog-mobile-tabs] .pane-side-dock .workbench-side-panel-surfaces {
-  top: var(--mx-touch);
-}
 .workbench-side-surface-slot {
   position: absolute;
   inset: 0;
@@ -670,7 +680,30 @@ html[data-mixdog-mobile-tabs] .pane-side-dock .workbench-side-panel-surfaces {
   border-left: 1px solid var(--mx-border-structure);
   background: var(--mx-workspace-sheet);
 }
-.pane-dock-diff-column[hidden] { display: none; }
+/* A closed diff column leaves the flow but KEEPS its box: display:none would
+   zero the diff wrapper, and the diff library answers any wrapper resize by
+   re-laying out every row — as costly as the unmount it replaces. Parked
+   off the dock's left edge, invisible and inert, until its tree is dropped. */
+.pane-dock-diff-column[hidden] {
+  display: flex;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 100%;
+  /* Skip the contents wholesale instead of inheriting visibility down to
+     every row: that restyle + pre-paint walk over a large diff cost ~50ms on
+     the close commit. */
+  content-visibility: hidden;
+  pointer-events: none;
+  /* content-visibility hides the CONTENTS only: the column's own opaque
+     sheet background still painted, and with the dock folded that 480px box
+     landed over the pane — covering the tab strip's labels, icons and dock
+     toggles right of the active tab while hit-testing (pointer-events:none)
+     reported the labels as visible (user: 포커스하면 라벨이 날아간다). Clip
+     the box's own painting to nothing; unlike visibility:hidden this touches
+     no descendant style, so the close commit stays as cheap as intended. */
+  clip-path: inset(100%);
+}
 .pane-dock-diff-resize {
   position: absolute;
   z-index: 5;
@@ -883,9 +916,9 @@ html[data-mixdog-mobile-tabs] .pane-dock-diff-column { display: none; }
    into nothing (user decision). Scoping the floor to an open panel keeps
    full-page takeover surfaces (settings/workflows) free to collapse the pane
    region exactly as before. */
-.main-panel:has(.bottom-panel) > .pane-split,
-.main-panel:has(.bottom-panel) > .pane-leaf,
-.main-panel:has(.bottom-panel) > .pane-cell {
+.main-panel[data-bottom-panel] > .pane-split,
+.main-panel[data-bottom-panel] > .pane-leaf,
+.main-panel[data-bottom-panel] > .pane-cell {
   min-height: var(--pane-min-height, 480px);
 }
 .pane-cell > .workspace-tabs-shell,
@@ -938,53 +971,3 @@ html[data-mixdog-mobile-tabs] .pane-dock-diff-column { display: none; }
   min-height: 0;
 }
 .main-panel > .pane-carousel { flex: 1 1 auto; min-width: 0; min-height: 0; }
-
-/* Phone swipes keep both browser snapshots alive while JS scrubs their
-   transforms with the finger, then completes or reverses them on release. */
-.pane-cell[data-mobile-tab-swipe-surface="true"] {
-  view-transition-name: mobile-tab-surface;
-}
-html[data-mobile-tab-swipe]::view-transition-group(mobile-tab-surface),
-html[data-mobile-tab-swipe]::view-transition-old(mobile-tab-surface),
-html[data-mobile-tab-swipe]::view-transition-new(mobile-tab-surface) {
-  animation: none;
-  mix-blend-mode: normal;
-}
-html[data-mobile-tab-swipe]::view-transition-group(mobile-tab-surface) {
-  overflow: clip;
-}
-html[data-mobile-tab-swipe]::view-transition-old(root) {
-  animation: none;
-  opacity: 0;
-}
-html[data-mobile-tab-swipe]::view-transition-new(root) {
-  animation: none;
-  mix-blend-mode: normal;
-}
-/* The top tab band stays PINNED while the page turns under it (user:
-   스와이프할 때 상단 라벨도 같이 움직여 어색하다). On the phone that band is
-   .workspace-tabs-shell — the strip INSIDE the pane cell — not the desktop
-   .session-header, which the phone never renders. A descendant with its own
-   view-transition-name is captured APART from the sliding surface snapshot,
-   and this group simply never animates: the label swaps in place while the
-   content below carries all the motion. */
-.pane-cell[data-mobile-tab-swipe-surface="true"] .workspace-tabs-shell {
-  view-transition-name: mobile-tab-header;
-}
-html[data-mobile-tab-swipe]::view-transition-group(mobile-tab-header),
-html[data-mobile-tab-swipe]::view-transition-new(mobile-tab-header) {
-  animation: none;
-  mix-blend-mode: normal;
-}
-html[data-mobile-tab-swipe]::view-transition-old(mobile-tab-header) {
-  animation: none;
-  opacity: 0;
-}
-@media (prefers-reduced-motion: reduce) {
-  .pane-cell[data-mobile-tab-swipe-surface="true"] {
-    view-transition-name: none;
-  }
-  .pane-cell[data-mobile-tab-swipe-surface="true"] .workspace-tabs-shell {
-    view-transition-name: none;
-  }
-}

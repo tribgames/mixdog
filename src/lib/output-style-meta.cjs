@@ -13,6 +13,7 @@
 'use strict';
 
 const DEFAULT_OUTPUT_STYLE_ID = 'simple';
+const SHARED_FORMAT_PARTIAL_ID = 'common';
 // Catalog order: deepest first, then unknown/custom styles by label.
 const OUTPUT_STYLE_ORDER = ['detailed', 'simple', 'minimal', 'extreme-minimal'];
 
@@ -63,8 +64,10 @@ function outputStyleFlag(value, fallback) {
  */
 function outputStyleMetaFromMarkdown(markdown, fileName) {
   const meta = parseOutputStyleFrontmatter(markdown);
-  if (outputStyleFlag(meta.partial, false)) return null;
   const fileId = normalizeOutputStyleId(String(fileName || '').replace(/\.md$/i, ''));
+  // `common.md` is always the shared format partial (a user override may omit
+  // the `partial` flag); it never becomes a selectable style.
+  if (fileId === SHARED_FORMAT_PARTIAL_ID || outputStyleFlag(meta.partial, false)) return null;
   const id = normalizeOutputStyleId(meta.name) || fileId;
   if (!id) return null;
   return {
@@ -103,6 +106,7 @@ function matchOutputStyle(value, styles) {
 
 module.exports = {
   DEFAULT_OUTPUT_STYLE_ID,
+  SHARED_FORMAT_PARTIAL_ID,
   OUTPUT_STYLE_ORDER,
   normalizeOutputStyleId,
   outputStyleCompactKey,

@@ -18,12 +18,12 @@ import {
   parseDialogBridgeRequest,
 } from './dialog-bridge';
 import { type BrowserGuestStateStore, pushBounded } from './guest-state';
-import { redactBrowserText, redactBrowserUrl } from './host-policy';
 import {
   type BrowserFetchPattern,
   type BrowserInterceptRule,
   interceptFulfillParams,
 } from './intercept';
+import { redactBrowserText, redactBrowserUrl } from './redaction';
 import { pause } from './settle';
 
 export interface BrowserGuestCdpHost {
@@ -36,6 +36,18 @@ export interface BrowserGuestCdpHost {
     resourceType: string,
   ): BrowserInterceptRule | undefined;
 }
+
+export interface BrowserCdpCallOptions {
+  /** Address a child target (frame, worker) instead of the root session. */
+  sessionId?: string;
+  timeoutMs?: number;
+}
+
+/** The narrow CDP surface a page service depends on; tests fake this shape. */
+export type BrowserCdpPort = Pick<
+  BrowserGuestCdp,
+  'call' | 'sendCdp' | 'sendCdpInput' | 'guestDebugger'
+>;
 
 export interface BrowserGuestCdp {
   /** Race a promise against a timeout and the caller's cancellation. */
@@ -54,6 +66,15 @@ export interface BrowserGuestCdp {
     timeoutMs?: number,
     signal?: AbortSignal,
     sessionId?: string,
+  ): Promise<T>;
+  /** One command against a guest: resolves the attached debugger and applies
+   *  the default request timeout. Page services reach CDP through this. */
+  call<T>(
+    guest: WebContents,
+    method: string,
+    params?: Record<string, unknown>,
+    signal?: AbortSignal,
+    options?: BrowserCdpCallOptions,
   ): Promise<T>;
   /** Input commands can remain pending while a JavaScript dialog blocks its
    *  event handler. Return control as soon as the dialog event arrives so the
@@ -135,6 +156,24 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
         }
         state.for(guest).console.recordError(`CDP ${method} timed out`);
       },
+    );
+  }
+
+  async function call<T>(
+    guest: WebContents,
+    method: string,
+    params: Record<string, unknown> = {},
+    signal?: AbortSignal,
+    options: BrowserCdpCallOptions = {},
+  ): Promise<T> {
+    return await sendCdp<T>(
+      guest,
+      await guestDebugger(guest),
+      method,
+      params,
+      options.timeoutMs ?? CDP_REQUEST_TIMEOUT_MS,
+      signal,
+      options.sessionId,
     );
   }
 
@@ -553,6 +592,7 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
   return {
     bounded,
     sendCdp,
+    call,
     sendCdpInput,
     evaluate,
     guestDebugger,

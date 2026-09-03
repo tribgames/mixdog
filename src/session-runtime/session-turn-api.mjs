@@ -10,6 +10,13 @@ import {
   refreshInitialDeferredMcpSurface,
 } from './tool-catalog.mjs';
 import { getMcpTools } from '../runtime/agent/orchestrator/mcp/client.mjs';
+import { filterMcpToolsForSession } from './extension-scopes.mjs';
+
+// Live MCP catalog as THIS session may see it: servers scoped to other
+// project roots stay connected but never enter its deferred surface.
+function scopedMcpToolsFor(session, config = null) {
+  return filterMcpToolsForSession(getMcpTools(session?.mcpScopeId), session?.cwd || null, config);
+}
 import { traceTurnTiming } from '../runtime/agent/orchestrator/agent-trace.mjs';
 import { beginTurnSnapshot, cancelTurnSnapshot, completeTurnSnapshot } from '../runtime/shared/turn-snapshot.mjs';
 import { isVisibleStreamProgress } from '../runtime/shared/stream-progress.mjs';
@@ -55,7 +62,9 @@ export function createSessionTurnApi(deps) {
     cancelTurnSnapshotForTurn = cancelTurnSnapshot,
     completeTurnSnapshotForTurn = completeTurnSnapshot,
     turnCleanupSettleMs = 2_000,
+    getConfig = () => null,
   } = deps;
+  const scopedMcpTools = (session) => scopedMcpToolsFor(session, getConfig());
   const enqueueRemoteAttachedPrompt = (prompt) => {
     const attachedSession = getSession();
     if (!attachedSession?.remoteAttached || !attachedSession.id) return false;
@@ -255,7 +264,7 @@ export function createSessionTurnApi(deps) {
           // Slower servers remain available through the late-tool path.
           try { await awaitTurn(() => awaitMcpGrace()); }
           catch { /* gate must never break the turn */ }
-          try { refreshInitialDeferredMcpSurface(session0, getMcpTools(session0.mcpScopeId)); }
+          try { refreshInitialDeferredMcpSurface(session0, scopedMcpTools(session0)); }
           catch { /* first-turn MCP fold must never break the turn */ }
         } else {
           // AFTER FIRST TURN: fold in MCP tools whose servers finished their
@@ -275,7 +284,7 @@ export function createSessionTurnApi(deps) {
             // Persist a typed world-state delta on the session. askSession
             // attaches it to THIS real prompt; reconciliation itself never
             // enqueues a follow-up turn.
-            reconcileDeferredMcpToolCatalog(session0, getMcpTools(session0.mcpScopeId));
+            reconcileDeferredMcpToolCatalog(session0, scopedMcpTools(session0));
           }
           catch { /* MCP delta must never break the turn */ }
         }
@@ -394,7 +403,11 @@ export function createSessionTurnApi(deps) {
         try { sessionTitles?.observeThird(getSession()); } catch { /* title refresh is best-effort */ }
         if (getTranscriptWriter()) {
           try {
-            const finalText = result?.content != null ? String(result.content) : '';
+            // historyContent is the terminal segment alone; content may be the
+            // aggregate of already-appended continuation parts plus that
+            // segment, which would re-write the parts into the transcript.
+            const finalSource = result?.historyContent ?? result?.content;
+            const finalText = finalSource != null ? String(finalSource) : '';
             if (finalText.trim() && finalText !== getLastAppendedAssistant()) {
               getTranscriptWriter().appendAssistant(finalText);
               setLastAppendedAssistant(finalText);

@@ -133,9 +133,11 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
     ensureProjectDir();
     rotateIfNeeded();
     try {
+      // Every row carries the session cwd: the memory watcher and backfill
+      // read it from the first rows to scope entries to a project.
       const stampedEntry = entry?.timestamp != null || entry?.ts != null
-        ? entry
-        : { ...entry, timestamp: formatUtcTimestamp() };
+        ? { ...entry, cwd: resolvedCwd }
+        : { ...entry, cwd: resolvedCwd, timestamp: formatUtcTimestamp() };
       const line = `${JSON.stringify(stampedEntry)}\n`;
       appendBuffered(transcriptPath, line);
       bytesSinceCheck += Buffer.byteLength(line);
@@ -163,6 +165,7 @@ export function createTranscriptWriter({ mixdogHome, sessionId, cwd, pid } = {})
         entries.push({
           type: role,
           sessionId,
+          cwd: resolvedCwd,
           ...(message?.timestamp != null
             ? { timestamp: message.timestamp }
             : message?.ts != null

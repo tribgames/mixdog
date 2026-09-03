@@ -8,7 +8,7 @@ import { runPptxAuthoringScript } from './pptx-script-runner.mjs';
 /** The design guide lives in the built-in `pptx` skill; the tool never
  *  serves it so one copy stays authoritative and user-overridable. */
 export const PPTX_AUTHOR_NEEDS_SCRIPT =
-  'author requires script. Load the `pptx` Skill first (Skill name:"pptx"): it carries the authoring workflow, design system, helper kit, and the pptxgenjs footguns, then call author again with path and script.';
+  'author requires script. Load the `pptx` Skill first (Skill name:"pptx"): it carries the authoring workflow, composition grammar, device kit, and the pptxgenjs footguns, then call author again with path and script.';
 
 async function exists(path) {
   try {
@@ -66,6 +66,7 @@ export async function authorPptx(args, { cwd, dataDir, signal = null }) {
     bytes: run.bytes,
     elapsedMs: run.elapsedMs,
     logs: run.logs,
+    ...(run.normalizedParagraphs ? { normalizedParagraphs: run.normalizedParagraphs } : {}),
     ...(replacedSession ? { replacedSession } : {}),
   };
   if (args.render === false) {

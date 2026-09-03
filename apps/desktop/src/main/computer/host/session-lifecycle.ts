@@ -13,7 +13,7 @@ import type { createSessionState } from '../session/state';
 import type { createCaptureEngine } from '../observation/capture';
 import { appendComputerRunRecord, computerRunRecord } from '../session/run-log';
 import {
-  computerResultHasCode,
+  computerResultLastNumber,
   computerUseCoordinator,
   queuedForegroundRequiresRecapture,
 } from '../session/coordinator';
@@ -68,6 +68,10 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
   } = execution;
   let foregroundChain: Promise<unknown> = Promise.resolve();
   let foregroundQueueDepth = 0;
+  // Workers tell physical input from their own synthetic input by tick; this
+  // carries the latest tick across sessions so one worker's click is not read
+  // as the user grabbing the mouse by the next.
+  let lastInjectionTick: number | null = null;
 
   function onSessionWorkerRetired(sessionId: string): void {
     invalidateWorkerGeneration(sessionId);
@@ -312,7 +316,11 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
       activeExecutionsBySession.set(sessionId, execution);
       const recordStartedAt = performance.now();
       try {
-        const operation = () => executionContext.run(execution, () => runCommand(command));
+        const operation = () => executionContext.run(execution, () => runCommand(
+          foreground && lastInjectionTick !== null
+            ? { ...command, known_injection_tick: lastInjectionTick }
+            : command,
+        ));
         const outcome = foreground
           ? await runForegroundExclusive(sessionId, operation, {
             assertRunnable: () => {
@@ -322,8 +330,9 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
             },
           })
           : await operation();
-        if (computerResultHasCode(outcome.text, 'foreground_changed')) {
-          takeOverComputer('foreground_changed');
+        if (foreground) {
+          const injectionTick = computerResultLastNumber(outcome.text, 'injection_tick');
+          if (injectionTick !== null) lastInjectionTick = injectionTick;
         }
         appendComputerRunRecord(sessionId, computerRunRecord(command, recordStartedAt, outcome));
         return outcome;

@@ -114,6 +114,7 @@ export function createChannelTransport({
   let everHadClient = false;
   let closed = false;
   let drainingReason = '';
+  let drainCommitted = false;
 
   function nowMs() { return Date.now(); }
 
@@ -302,9 +303,14 @@ export function createChannelTransport({
     if (drainingReason) return false;
     drainingReason = String(reason || 'daemon replacement');
     cancelGrace();
-    for (const token of [...clients.keys()]) {
-      dropClient(token, drainingReason);
-    }
+    return true;
+  }
+
+  function commitDrain(reason = 'daemon replacement') {
+    if (!drainingReason) beginDrain(reason);
+    if (drainCommitted) return false;
+    drainCommitted = true;
+    cancelGrace();
     return true;
   }
 
@@ -669,6 +675,7 @@ export function createChannelTransport({
           queuedCalls: channelCalls.queued + channelControlCalls.queued,
           callOwners: channelCalls.snapshot().owners,
           draining: drainingReason || null,
+          drainCommitted,
           ...(agentBroker?.snapshot ? { agentBroker: agentBroker.snapshot() } : {}),
           ...getStatus(),
         });
@@ -678,7 +685,7 @@ export function createChannelTransport({
       if (token !== serverToken) { sendError(res, 'forbidden', 403); return; }
 
       if (req.method === 'POST' && pathName === '/client/register') {
-        if (drainingReason) {
+        if (drainCommitted) {
           sendError(res, `daemon is draining: ${drainingReason}`, 503);
           return;
         }
@@ -718,6 +725,10 @@ export function createChannelTransport({
       // keep the channels client registry alive. The broker itself owns a
       // parallel fair scheduler and per-call cancellation.
       if (req.method === 'POST' && pathName === '/agent/dispatch') {
+        if (drainCommitted) {
+          sendError(res, `daemon is draining: ${drainingReason}`, 503);
+          return;
+        }
         if (!agentBroker?.dispatch) { sendError(res, 'agent broker unavailable', 503); return; }
         const body = await readChannelBody(req);
         const callId = String(body.callId || '').trim();
@@ -752,6 +763,10 @@ export function createChannelTransport({
         return;
       }
       if (req.method === 'POST' && pathName === '/call') {
+        if (drainCommitted) {
+          sendError(res, `daemon is draining: ${drainingReason}`, 503);
+          return;
+        }
         const body = await readChannelBody(req);
         const clientToken = body.token || null;
         const c = clientToken ? clients.get(clientToken) : null;
@@ -953,6 +968,7 @@ export function createChannelTransport({
     notify,
     restoreRemoteIntent,
     beginDrain,
+    commitDrain,
     get port() { return boundPort; },
     get token() { return serverToken; },
     // The unified daemon hosts channels AND session runtimes: it may only self-shutdown
@@ -961,6 +977,7 @@ export function createChannelTransport({
     get activeCount() { return channelCalls.active + channelControlCalls.active; },
     get queuedCount() { return channelCalls.queued + channelControlCalls.queued; },
     get draining() { return Boolean(drainingReason); },
+    get drainCommitted() { return drainCommitted; },
     get remoteIntentSessionId() {
       return String(pinnedSessionId || '').trim() || null;
     },

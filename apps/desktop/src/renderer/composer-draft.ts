@@ -60,17 +60,37 @@ export function composerScopeOpensFreshDraft(nextScope: string): boolean {
   return nextScope.startsWith("draft:");
 }
 
+/** In-flight text per composer identity. Switching tabs swaps the identity
+ *  scope on ONE mounted composer, so the text typed in a tab is parked here
+ *  and handed back when that tab is shown again (user: 다른 탭 갔다와도
+ *  타이핑하던 글자 남아있게). Empty text drops the entry. */
+const composerDraftsByScope = new Map<string, string>();
+
+export function stashComposerDraft(scope: string, text: string): void {
+  if (text.trim()) composerDraftsByScope.set(scope, text);
+  else composerDraftsByScope.delete(scope);
+}
+
+export function stashedComposerDraft(scope: string): string {
+  return composerDraftsByScope.get(scope) ?? "";
+}
+
 export function composerDraftAfterScopeChange({
   currentDraft,
   liveDomDraft,
   freshDraft,
   typingLive,
+  stashedDraft = "",
 }: {
   currentDraft: string;
   liveDomDraft: string;
   freshDraft: boolean;
   typingLive: boolean;
+  /** Text the target tab parked when the user left it; it wins because the
+   *  user is RETURNING to that tab, not opening a new one. */
+  stashedDraft?: string;
 }): string {
+  if (stashedDraft.trim()) return stashedDraft;
   if (freshDraft) return "";
   const candidate = typingLive ? liveDomDraft : currentDraft;
   return typingLive && candidate.trim() ? candidate : "";

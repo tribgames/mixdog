@@ -5,6 +5,38 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- The session Goal island aligns its task list with the collapsed header,
+  separates rows with hairlines, and collapses on outside click or Escape.
+
+- The phone surface follows the desktop chrome: the context gauge sits beside
+  the composer's model trigger, the toolbar marks share the lucide family,
+  and the right sheet opens as one dock unit whose header carries the same
+  view toggles as the desktop strip.
+
+- Built-in skills ship from a bundled skill source, and the Office guides
+  become pptx, docx, xlsx, and pdf skills gated on the feature they drive.
+  Settings group dependent skills, MCP servers, and hooks under their plugin
+  or built-in feature.
+
+- Office authors PPTX decks from pptxgenjs scripts with a design guide,
+  helper kit, layout menu, and model-led visual QA, and tolerates
+  presentation and chart child order differences.
+
+- Tool calls coerce JSON-text arguments to their declared schema shape,
+  including internal registry schemas.
+
+- Browser Use splits URL, tab, partition, redaction, and snapshot-script
+  policy into dedicated modules; Computer Use refines the overlay model,
+  input backend, and session coordination.
+
+- Desktop boot warmup, side-dock restore, usage reset timing, bridge-owned
+  discovery files, and session transport recovery keep cold starts and
+  reconnects responsive. FastDirect deploys prewarm the installed runtime.
+
+- The test runner separates fast, slow, and live tiers with timing reports;
+  session stores cache transcript summaries and listing sweeps; provider
+  request utilities harden Anthropic, Cursor, and OpenCode wire handling.
+
 ## v0.9.160 - 2026-09-02
 
 - The TUI now installs its patched Ink runtime from a versioned release asset.

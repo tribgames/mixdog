@@ -361,6 +361,21 @@ export function openTabInPaneLeaf(
         return { ...leaf, tabs, activeKey: key, previewKey: key };
       }
     }
+    // A lone NEW TASK is a placeholder, not a kept tab: the first real tab
+    // takes its strip slot instead of stacking beside it. Another draft
+    // (Ctrl+N) still appends so unsent input is never discarded, and an
+    // explicit replaceKey promotion keeps owning its path.
+    if (!replaceKey
+      && selection.kind !== "new"
+      && leaf.tabs.length === 1
+      && leaf.tabs[0].kind === "new") {
+      return {
+        ...leaf,
+        tabs: [selection],
+        activeKey: key,
+        previewKey: preview ? key : undefined,
+      };
+    }
     const nextPreviewKey = preview ? key : leaf.previewKey;
     const appended = [...leaf.tabs];
     appended.splice(
@@ -1020,8 +1035,10 @@ export function parseWorkspaceSelection(value: unknown): WorkspaceSelection | nu
     case "diff":
       return typeof record.project === "string" && record.project
         && typeof record.rel === "string" && record.rel
-        && (record.source === "staged" || record.source === "unstaged" || record.source === "commit")
-        && (record.source !== "commit" || (typeof record.hash === "string" && record.hash))
+        && (record.source === "staged" || record.source === "unstaged"
+          || record.source === "commit" || record.source === "session")
+        && ((record.source !== "commit" && record.source !== "session")
+          || (typeof record.hash === "string" && record.hash))
         ? {
           kind: "diff",
           project: record.project,

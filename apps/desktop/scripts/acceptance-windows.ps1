@@ -140,8 +140,8 @@ try {
         -LogPath (Join-Path $distDir 'acceptance-build.log')
       return 'Branded NSIS x64 build passed'
     } | Out-Null
-    Invoke-AcceptanceStep 'packaging-tests' 'npm run test:packaging' {
-      Invoke-CheckedNative -File 'npm.cmd' -Arguments @('run', 'test:packaging') `
+    Invoke-AcceptanceStep 'packaging-tests' 'npm run test:all -- packaging' {
+      Invoke-CheckedNative -File 'npm.cmd' -Arguments @('run', 'test:all', '--', 'packaging') `
         -LogPath (Join-Path $distDir 'acceptance-packaging-test.log')
       return '10 NSIS/config/acceptance/migration/archive/sidecar tests passed'
     } | Out-Null

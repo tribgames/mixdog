@@ -171,6 +171,14 @@ export function _collectCheapSymbols(text, lang) {
       while (true) {
         const startIdx = line.indexOf('/*');
         if (startIdx < 0) break;
+        // A `//` comment that begins before the `/*` owns the rest of the
+        // line (e.g. `// see rules/agent/*.md`), so that `/*` must not open a
+        // block comment — doing so swallowed every symbol after such a line.
+        const lineCommentIdx = line.indexOf('//');
+        if (lineCommentIdx >= 0 && lineCommentIdx < startIdx) {
+          line = line.slice(0, lineCommentIdx);
+          break;
+        }
         const endIdx = line.indexOf('*/', startIdx + 2);
         if (endIdx < 0) {
           line = line.slice(0, startIdx);

@@ -7,8 +7,16 @@
 export function createDaemonBootCoordinator({
   prewarmKeychain,
   recoverActiveGoals,
+  // Catalog module imports (session summaries, projects) cost ~1.1s cold and
+  // used to land on the FIRST rail click. They ride the background lane
+  // after Goal recovery, behind a short delay so the user's first action —
+  // typically a New Task submit — never contends with them (putting them on
+  // the boot path itself cost that submit ~90ms).
+  prewarmCatalogs = null,
+  catalogDelayMs = 1_500,
   measure = async (_phase, task) => await task(),
   schedule = (task) => setImmediate(task),
+  delay = (task, ms) => setTimeout(task, ms),
   log = () => {},
 } = {}) {
   if (typeof prewarmKeychain !== 'function') {
@@ -50,6 +58,12 @@ export function createDaemonBootCoordinator({
         `active Goal recovery found=${result.found} resumed=${result.resumed}`
         + ` skipped=${result.skipped} failed=${result.failed}`,
       );
+      if (typeof prewarmCatalogs === 'function') {
+        await new Promise((resolve) => delay(resolve, catalogDelayMs));
+        await measure('catalog-prewarm', prewarmCatalogs).catch((error) => {
+          log(`catalog prewarm failed (non-fatal): ${error?.message || error}`);
+        });
+      }
       return result;
     })().catch((error) => {
       log(`active Goal recovery failed: ${error?.message || error}`);

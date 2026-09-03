@@ -219,6 +219,65 @@ test('Browser Use and Computer Use mount at their real state without replaying a
   }
 });
 
+test('project scope shows as a row badge and saves from the plugin detail', async () => {
+  const calls = [];
+  const rendered = await renderPanel('plugins', {
+    api: {
+      readSettings: async () => ({ browserControl: false, computerControl: false }),
+      gitCliStatus: async () => ({ installed: true }),
+      invokeCapability: async () => ({}),
+      listProjects: async () => [
+        { name: 'alpha', path: 'C:\\work\\alpha', alias: null },
+        { name: 'beta', path: 'C:\\work\\beta', alias: 'Beta' },
+      ],
+    },
+    data: {
+      toolModules: {
+        git: { enabled: true, installed: true },
+        memory: { enabled: true, installed: true },
+        office: { enabled: true, installed: true },
+      },
+      voice: { enabled: false, installed: false },
+      plugins: {
+        plugins: [
+          { id: 'scoped-plugin', name: 'Scoped plugin', enabled: true, scope: ['C:\\work\\beta'], activeHere: false },
+          { id: 'open-plugin', name: 'Open plugin', enabled: true, scope: null, activeHere: true },
+        ],
+      },
+      skills: { cwd: 'C:\\work\\alpha', skills: [] },
+      mcp: { servers: [] },
+      disabledSkills: { disabled: [] },
+    },
+    async run(capability, args) {
+      calls.push([capability, args]);
+    },
+  });
+  try {
+    assert.equal(
+      document.querySelector('[data-extension-row="Scoped plugin"] .extensions-row-badge').textContent,
+      'Not in this project',
+    );
+    assert.equal(document.querySelector('[data-extension-row="Open plugin"] .extensions-row-badge'), null);
+
+    await act(async () => {
+      document.querySelector('[data-extension-row="Open plugin"] .extensions-row-open').click();
+    });
+    const scopeField = document.querySelector('[data-extension-scope="plugins"]');
+    assert.ok(scopeField);
+    assert.equal(scopeField.querySelector('button[aria-pressed="true"]').textContent, 'All projects');
+    assert.match(document.body.textContent, /Contents/);
+    assert.match(document.body.textContent, /Info/);
+
+    // Choosing "Selected projects" starts from the current project.
+    await act(async () => {
+      [...scopeField.querySelectorAll('.extensions-scope-mode button')][1].click();
+    });
+    assert.deepEqual(calls.at(-1), ['setExtensionScope', ['plugins', 'open-plugin', ['C:\\work\\alpha']]]);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
 test('Skill combines skills and MCP and lets the add action choose either kind', async () => {
   let closed = 0;
   const calls = [];

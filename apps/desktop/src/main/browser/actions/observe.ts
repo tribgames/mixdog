@@ -12,7 +12,7 @@ import {
   READ_DEFAULT_CHARS,
   READ_MAX_CHARS,
 } from '../command';
-import { redactBrowserText, redactBrowserUrl } from '../host-policy';
+import { redactBrowserText, redactBrowserUrl } from '../redaction';
 import {
   browserVisualLocatorExpression,
   type BrowserVisualLocatorPayload,

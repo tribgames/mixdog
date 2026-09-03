@@ -11,6 +11,11 @@ const SKIP = [
   ".monaco-editor",
   ".xterm",
   ".transcript",
+  // Diff bodies are source text: thousands of rows per mount, each of which
+  // walked the whole template catalog here (measured as most of a diff
+  // open's main-thread cost), and a code line must never be "translated".
+  "[data-component='git-diff-view']",
+  ".diff-fallback",
   ".folder-name-text",
   ".folder-tile-label",
   ".dock-pr-row-label b",

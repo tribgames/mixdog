@@ -1,16 +1,16 @@
 // One Chromium surface per conversation session on a shared persistent
 // partition. Login survives and is shared; page, tab, and target state is not.
 // The pane owns only the chrome; agent control lives in main/browser/host.ts.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
   Check,
-  Download,
   ExternalLink,
   Globe,
   KeyRound,
+  Link2,
   LoaderCircle,
   RotateCw,
   Smartphone,
@@ -34,6 +34,8 @@ import {
   type BrowserViewportPreset,
   type BrowserViewportPresetId,
 } from "./browser-viewport-mode";
+import { readBrowserZoom, writeBrowserZoom } from "./browser-zoom-level";
+import { BrowserZoomPill } from "./BrowserZoomPill";
 import { OpenSelect } from "./OpenSelect";
 import RemoteBrowserPane from "./RemoteBrowserPane";
 import type {
@@ -114,7 +116,62 @@ function DesktopBrowserPane({
   const desktopApi = window.mixdogDesktop;
   const ownerSessionId = sessionId;
   const viewportPreset = resolveBrowserViewportPreset(viewportPresetId);
-  const fixedViewport = viewportPreset.width !== null && viewportPreset.height !== null;
+  // Device metrics the agent's `emulate` command put on this session's guest.
+  // The pane frames the page at that size, centered, exactly like a picker
+  // preset — otherwise the emulated page lays out top-left inside the full
+  // box (user: 브라우저 왜 가운데 정렬 안 되냐). The pane's own configure
+  // echoes back through the same event and reads as "no override".
+  const [agentViewport, setAgentViewport] =
+    useState<{ width: number; height: number } | null>(null);
+  useEffect(() => window.mixdogDesktop?.onBrowserGuestViewportChanged?.((change) => {
+    if (change.sessionId !== ownerSessionId) return;
+    const preset = resolveBrowserViewportPreset(
+      readBrowserViewportPreset(window.localStorage, ownerSessionId).id,
+    );
+    const ownPreset = change.viewport !== null
+      && change.viewport.width === preset.width
+      && change.viewport.height === preset.height;
+    setAgentViewport(ownPreset ? null : change.viewport);
+  }), [ownerSessionId]);
+  const frameWidth = agentViewport?.width ?? viewportPreset.width;
+  const frameHeight = agentViewport?.height ?? viewportPreset.height;
+  const fixedViewport = frameWidth !== null && frameHeight !== null;
+  // User zoom on top of the surface baseline (auto-fit factor, or 1 inside a
+  // device frame). Page zoom in both modes: inside a frame the page grows and
+  // scrolls within it, the way a phone's own browser zooms.
+  const [zoomLevel, setZoomLevel] = useState(() =>
+    readBrowserZoom(window.localStorage, sessionId));
+  const changeZoomLevel = useCallback((level: number) => {
+    setZoomLevel(writeBrowserZoom(window.localStorage, ownerSessionId, level));
+  }, [ownerSessionId]);
+  // A device frame taller or wider than the pane scales down to fit, staying
+  // centered on both axes (user: 상하좌우 가운데 정렬 — PC·모바일 공통). The
+  // guest keeps its real metrics; only the composited frame shrinks.
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const [frameScale, setFrameScale] = useState(1);
+  // Layout effect: the fitted scale lands in the same paint as the new frame
+  // size, so a preset switch never shows one oversized frame first.
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content || !fixedViewport) {
+      setFrameScale(1);
+      return undefined;
+    }
+    const fit = () => {
+      const styles = window.getComputedStyle(content);
+      const padX = parseFloat(styles.paddingLeft) + parseFloat(styles.paddingRight);
+      const padY = parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom);
+      const roomWidth = content.clientWidth - padX;
+      const roomHeight = content.clientHeight - padY;
+      if (roomWidth <= 0 || roomHeight <= 0) return;
+      const scale = Math.min(1, roomWidth / frameWidth!, roomHeight / frameHeight!);
+      setFrameScale((current) => Math.abs(current - scale) < 0.001 ? current : scale);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [fixedViewport, frameWidth, frameHeight]);
 
   useEffect(() => {
     const view = webviewRef.current;
@@ -263,6 +320,13 @@ function DesktopBrowserPane({
     if (!view) return false;
     const configKey = `${ownerSessionId}\u0000${preset.id}`;
     if (appliedViewportPreset.current === configKey) return true;
+    // Metrics and touch apply live; only a user-agent change needs the page
+    // to load again. Reloading on every size step blanked the page for a
+    // beat (user: 폰 해상도 바꿀 때 튄다, 배경이 잠깐 보인다).
+    const previousUserAgent = appliedViewportPreset.current
+      ? resolveBrowserViewportPreset(appliedViewportPreset.current.split("\u0000")[1]).userAgent
+      : null;
+    const userAgentChanged = previousUserAgent !== (preset.userAgent ?? null);
     const configure = desktopApi?.browserConfigureGuestViewport;
     if (!configure) {
       appliedViewportPreset.current = configKey;
@@ -288,7 +352,7 @@ function DesktopBrowserPane({
     }
     if (request !== viewportConfigurationRequest.current) return false;
     appliedViewportPreset.current = configKey;
-    if (reload) {
+    if (reload && userAgentChanged) {
       try {
         if (view.getURL() && view.getURL() !== "about:blank") view.reload();
       } catch { /* detached guest; its next attach applies the preset */ }
@@ -311,7 +375,7 @@ function DesktopBrowserPane({
       } catch { /* guest not attached yet; dom-ready reapplies */ }
     };
     const syncZoom = (force = false) => {
-      const zoom = fixedViewport ? 1 : browserAutoFitZoom(view.clientWidth);
+      const zoom = (fixedViewport ? 1 : browserAutoFitZoom(view.clientWidth)) * zoomLevel;
       const changed = Math.abs(zoom - desiredZoom.current) >= 0.01;
       if (changed) desiredZoom.current = zoom;
       if (changed || force) applyZoom();
@@ -352,6 +416,7 @@ function DesktopBrowserPane({
     ownerSessionId,
     viewportPreset,
     viewportPresetId,
+    zoomLevel,
   ]);
 
   // A fresh, blank browser tab is for typing an address first.
@@ -473,7 +538,8 @@ function DesktopBrowserPane({
           value={viewportPresetId}
           ariaLabel={`브라우저 화면 크기: ${viewportPreset.label}`}
           localizeLabels={false}
-          leading={<Smartphone size={14} aria-hidden="true" />}
+          leading={<Smartphone size={15} aria-hidden="true" />}
+          menuMinWidth={236}
           options={BROWSER_VIEWPORT_PRESETS.map((preset) => ({
             value: preset.id,
             label: preset.label,
@@ -520,7 +586,7 @@ function DesktopBrowserPane({
           {credentialSuggestions.map((credential) => <button type="button"
             key={credential.id} role="menuitem"
             onClick={() => fillStoredCredential(credential.id)}>
-            <KeyRound size={14} />
+            <KeyRound size={15} />
             <span>{credential.label}</span>
           </button>)}
         </div>}
@@ -538,16 +604,20 @@ function DesktopBrowserPane({
         onClick={() => setImportOpen(true)}
         aria-label="브라우저에서 가져오기"
         data-tooltip="브라우저에서 가져오기">
-        <Download size={15} />
+        {/* Import links this pane to a system browser's profile (user: 링크를
+            연상시키는 버튼) — a chain glyph, not a download arrow. */}
+        <Link2 size={15} />
       </button>}
     </div>
     <BrowserImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
-    <div className={`browser-pane-content${fixedViewport ? " is-device-frame" : ""}`}>
+    <div className={`browser-pane-content${fixedViewport ? " is-device-frame" : ""}`}
+      ref={contentRef}>
       <div className="browser-pane-viewport"
         data-viewport-preset={viewportPreset.id}
         style={fixedViewport ? {
-          width: `${viewportPreset.width}px`,
-          height: `${viewportPreset.height}px`,
+          width: `${frameWidth}px`,
+          height: `${frameHeight}px`,
+          transform: frameScale < 1 ? `scale(${frameScale})` : undefined,
         } : undefined}>
         <webview ref={(element) => {
           webviewRef.current = element as unknown as WebviewElement | null;
@@ -580,6 +650,7 @@ function DesktopBrowserPane({
           </button>
         </div>}
       </div>
+      {currentUrl && <BrowserZoomPill level={zoomLevel} onChange={changeZoomLevel} />}
     </div>
   </div>;
 }

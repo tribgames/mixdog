@@ -47,22 +47,25 @@ test('Browser viewport presets expose responsive fill and exact device frames', 
     touch: false,
     userAgent: null,
   });
-  const iphone = resolveBrowserViewportPreset('iphone-14');
+  const iphone = resolveBrowserViewportPreset('phone-390');
   assert.deepEqual({
     id: iphone.id,
     label: iphone.label,
     width: iphone.width,
     height: iphone.height,
   }, {
-    id: 'iphone-14',
-    label: 'iPhone 14 · 390×844',
+    id: 'phone-390',
+    label: 'Phone · 390×844',
     width: 390,
     height: 844,
   });
+  // Retired device-named ids keep their size class.
+  assert.equal(resolveBrowserViewportPreset('iphone-14').id, 'phone-390');
+  assert.equal(resolveBrowserViewportPreset('pixel-7').id, 'phone-412');
   assert.deepEqual(browserViewportEmulation(iphone), {
     width: 390,
     height: 844,
-    deviceScaleFactor: 2,
+    deviceScaleFactor: 3,
     mobile: true,
     touch: true,
     userAgent: iphone.userAgent,
@@ -77,8 +80,8 @@ test('Browser viewport choice persists per session and fails closed to responsiv
   window.localStorage.clear();
   assert.equal(readBrowserViewportPreset(window.localStorage, 'alpha').id, 'responsive');
 
-  writeBrowserViewportPreset(window.localStorage, 'alpha', 'pixel-7');
-  assert.equal(readBrowserViewportPreset(window.localStorage, 'alpha').id, 'pixel-7');
+  writeBrowserViewportPreset(window.localStorage, 'alpha', 'phone-412');
+  assert.equal(readBrowserViewportPreset(window.localStorage, 'alpha').id, 'phone-412');
   assert.equal(readBrowserViewportPreset(window.localStorage, 'beta').id, 'responsive');
 
   window.localStorage.setItem('mixdog.browser-viewport.v1:alpha', 'invalid-device');

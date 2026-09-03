@@ -98,6 +98,7 @@ export {
     _buildAgentRules,
     _buildLeadRules,
     _buildLeadMetaContext,
+    _buildLeadLanguageContext,
 } from './manager/rules-cache.mjs';
 
 // ── Session lifecycle / ask / crud / close / cleanup ──────────────────────

@@ -12,7 +12,7 @@ import type {
 } from '../../shared/contract';
 import type { BrowserGuestCdp } from './cdp';
 import type { BrowserGuestStateStore } from './guest-state';
-import { type BrowserUrlPolicy, normalizePageUrl } from './host-policy';
+import { type BrowserUrlPolicy, normalizePageUrl } from './url-policy';
 import { browserImagePointToCss, type createBrowserInputDriver } from './input';
 import type { BrowserScreenshotCapture } from './screenshot';
 
@@ -22,6 +22,9 @@ export interface BrowserRemoteControlHost {
   input: ReturnType<typeof createBrowserInputDriver>;
   urlPolicy: BrowserUrlPolicy;
   ensureGuest(sessionId: string, options?: { reveal?: boolean }): Promise<WebContents>;
+  /** A phone is viewing this session now; the desktop keeps its guest where
+   *  Chromium still composes frames for it. */
+  noteRemoteViewer?(sessionId: string): void;
   captureScreenshot(
     guest: WebContents,
     background: boolean,
@@ -37,6 +40,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     input,
     urlPolicy,
     ensureGuest,
+    noteRemoteViewer,
     captureScreenshot,
     assertResolvedUrlAllowed,
   } = host;
@@ -45,6 +49,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     sessionId: string,
     previousFrameId = '',
   ): Promise<DesktopRemoteBrowserFrame> {
+    noteRemoteViewer?.(sessionId);
     const guest = await ensureGuest(sessionId, { reveal: false });
     await cdp.waitForInitialDocument(guest);
     const capture = await captureScreenshot(guest, false, {
@@ -86,6 +91,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     sessionId: string,
     control: DesktopRemoteBrowserControl,
   ): Promise<void> {
+    noteRemoteViewer?.(sessionId);
     const guest = await ensureGuest(sessionId, { reveal: false });
     if (['tap', 'swipe', 'scroll', 'text', 'key'].includes(control.type)) {
       const frame = state.peek(guest)?.remoteFrame;

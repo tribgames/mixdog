@@ -62,6 +62,9 @@ export interface ComputerCommand {
   max_ocr_words?: number;
   state?: 'minimize' | 'maximize' | 'restore';
   session_id?: string;
+  /** Host-supplied: latest input injection tick seen across every worker, so
+   *  another session's synthetic input is not mistaken for the user's. */
+  known_injection_tick?: number | null;
   capture_after?: boolean;
   capture_delay_ms?: number;
   capture_after_mode?: 'state' | 'som' | 'vision' | 'ax';

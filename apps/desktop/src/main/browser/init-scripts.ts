@@ -8,6 +8,7 @@
  */
 import type { WebContents } from 'electron';
 
+import type { BrowserCdpPort } from './cdp';
 import type { BrowserCommand, BrowserCommandResult } from './command';
 
 const MAX_SCRIPTS_PER_PAGE = 10;
@@ -22,20 +23,11 @@ interface RegisteredInitScript {
 }
 
 export interface BrowserInitScriptHost {
-  guestDebugger(guest: WebContents): Promise<Electron.Debugger>;
-  sendCdp<T>(
-    guest: WebContents,
-    cdp: Electron.Debugger,
-    method: string,
-    params?: Record<string, unknown>,
-    timeoutMs?: number,
-    signal?: AbortSignal,
-  ): Promise<T>;
-  cdpTimeoutMs: number;
+  cdp: BrowserCdpPort;
 }
 
 export function createBrowserInitScripts(host: BrowserInitScriptHost) {
-  const { guestDebugger, sendCdp, cdpTimeoutMs } = host;
+  const { cdp } = host;
   const scriptsByGuest = new WeakMap<WebContents, Map<string, RegisteredInitScript>>();
   let sequence = 0;
 
@@ -65,7 +57,6 @@ export function createBrowserInitScripts(host: BrowserInitScriptHost) {
     const registry = registryFor(guest);
     if (operation === 'list') return { text: listText(registry) };
 
-    const cdp = await guestDebugger(guest);
     if (operation === 'add') {
       const source = String(command.script || '');
       if (!source.trim()) throw new Error('init_script add requires script');
@@ -77,12 +68,10 @@ export function createBrowserInitScripts(host: BrowserInitScriptHost) {
           `this page already holds ${MAX_SCRIPTS_PER_PAGE} init scripts; remove one before adding another`,
         );
       }
-      const { identifier } = await sendCdp<{ identifier: string }>(
+      const { identifier } = await cdp.call<{ identifier: string }>(
         guest,
-        cdp,
         'Page.addScriptToEvaluateOnNewDocument',
         { source, runImmediately: false },
-        cdpTimeoutMs,
         signal,
       );
       sequence += 1;
@@ -104,12 +93,10 @@ export function createBrowserInitScripts(host: BrowserInitScriptHost) {
       if (!script) {
         throw new Error(`unknown init script ${id || '(empty)'}; list init_script to see current ids`);
       }
-      await sendCdp(
+      await cdp.call(
         guest,
-        cdp,
         'Page.removeScriptToEvaluateOnNewDocument',
         { identifier: script.identifier },
-        cdpTimeoutMs,
         signal,
       );
       registry.delete(id);
@@ -121,12 +108,10 @@ export function createBrowserInitScripts(host: BrowserInitScriptHost) {
       let failures = 0;
       for (const [id, script] of registry) {
         try {
-          await sendCdp(
+          await cdp.call(
             guest,
-            cdp,
             'Page.removeScriptToEvaluateOnNewDocument',
             { identifier: script.identifier },
-            cdpTimeoutMs,
             signal,
           );
           registry.delete(id);

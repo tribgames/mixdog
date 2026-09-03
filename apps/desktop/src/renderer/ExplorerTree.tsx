@@ -32,6 +32,7 @@ import { useMobileBack } from "./mobile-back";
 import { scheduleEditorPanePrefetch } from "./lazy-widgets";
 import { subscribeProjectFileChanges } from "./project-file-changes";
 import { setiIconFor } from "./seti-icons";
+import { useSurfaceActive } from "./surface-activity";
 import { copyTextToClipboard } from "./text-format";
 
 interface DockDirEntry { name: string; dir: boolean }
@@ -282,8 +283,16 @@ export const FilesRootPane = memo(function FilesRootPane({
   // screen (user report: "could not draw this view" kept appearing).
   const [menu, setMenu] = useState<ExplorerMenu | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  // The menu escapes the clipping Dock through a body portal. Retained tabs
+  // stay mounted, so their active signal must hide and clear that portal when
+  // the user switches views.
+  const surfaceActive = useSurfaceActive();
+  const visibleMenu = surfaceActive ? menu : null;
   useEffect(() => {
-    if (!menu) return undefined;
+    if (!surfaceActive && menu) setMenu(null);
+  }, [menu, surfaceActive]);
+  useEffect(() => {
+    if (!visibleMenu) return undefined;
     // Keyboard users land ON the menu; closing hands focus back to the row
     // (same grammar as ScmContextMenu).
     const previous = document.activeElement as HTMLElement | null;
@@ -306,9 +315,9 @@ export const FilesRootPane = memo(function FilesRootPane({
       document.removeEventListener("keydown", keydown, true);
       if (previous?.isConnected) previous.focus?.();
     };
-  }, [menu]);
+  }, [visibleMenu]);
   // ABB: hardware back closes the menu instead of leaving the PWA.
-  useMobileBack(Boolean(menu), () => setMenu(null));
+  useMobileBack(Boolean(visibleMenu), () => setMenu(null));
   // renderInputBox: focus the inline editor and pre-select the basename
   // without its extension (rename of a file); create starts empty.
   useEffect(() => {
@@ -897,7 +906,8 @@ export const FilesRootPane = memo(function FilesRootPane({
         && <p className="utility-dock-empty">{t("Empty folder.")}</p>}
       {mutationError && <p className="utility-dock-empty" role="alert">{mutationError}</p>}
     </div>
-    {menu && (() => {
+    {visibleMenu && (() => {
+      const menu = visibleMenu;
       const multi = !menu.background && selected.size > 1 && selected.has(menu.rel);
       const pasteTarget = menu.background ? "" : menu.isDir ? menu.rel : menu.parent;
       const copyRels = multi ? [...selected] : [menu.rel];
@@ -911,7 +921,7 @@ export const FilesRootPane = memo(function FilesRootPane({
           {options?.hint && <span className="dock-file-menu-key">{options.hint}</span>}
         </button>;
       const sep = (id: string) => <hr key={id} className="dock-file-menu-sep" aria-hidden="true" />;
-      return <div className="dock-file-menu" role="menu"
+      return createPortal(<div className="dock-file-menu" role="menu"
         style={{ left: menu.x, top: menu.y }}
         ref={(element) => {
           menuRef.current = element;
@@ -964,7 +974,7 @@ export const FilesRootPane = memo(function FilesRootPane({
           {!multi && item("Rename…", () => beginRename(menu.rel, menu.name, menu.isDir), { hint: "F2" })}
           {item(multi ? `Delete ${selected.size} items` : "Delete", deleteSelection, { hint: "Del", danger: true })}
         </>}
-      </div>;
+      </div>, document.body);
     })()}
   </div></>;
 });

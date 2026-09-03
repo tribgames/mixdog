@@ -408,6 +408,150 @@ test('a reply whose baseline vanished re-reads instead of publishing an empty pa
   }
 });
 
+test('a cold view refresh announces its projection stamp and keeps the pane on an unchanged reply', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-session-host-'));
+  let host = null;
+  const reads = [];
+  const items = [{ id: 'a', kind: 'assistant', text: 'cold' }];
+  const unsupported = async () => { throw new Error('unexpected session client call'); };
+  const client = {
+    list: unsupported,
+    async create() {
+      return {
+        sessionId: 'control_1',
+        revision: 0,
+        snapshot: { sessionId: 'control_1', items: [], queued: [] },
+      };
+    },
+    async read({ sessionId, baseProjectionStamp = null }) {
+      reads.push(baseProjectionStamp);
+      if (baseProjectionStamp === 'stamp-1') {
+        return { sessionId, projection: true, revision: 0, projectionStamp: 'stamp-1', unchanged: true };
+      }
+      return {
+        sessionId,
+        projection: true,
+        revision: 0,
+        projectionStamp: 'stamp-1',
+        full: { sessionId, items, queued: [] },
+      };
+    },
+    subscribe: unsupported,
+    unsubscribe: unsupported,
+    submit: unsupported,
+    abort: unsupported,
+    approve: unsupported,
+    configure: unsupported,
+    async close() {},
+  };
+  try {
+    host = await SessionHost.create({
+      userDataPath,
+      packaged: false,
+      resourcesPath: userDataPath,
+      appPath: userDataPath,
+    }, {
+      async attachSessionClient() { return client; },
+      loadProjects: unsupported,
+      async loadSessionStore() {
+        return { listStoredAgentWorkers: () => [] };
+      },
+      loadStatuslineSegments: unsupported,
+      executeCodeGraphTool: unsupported,
+    });
+    const updates = [];
+    host.subscribeSessionStates((update) => updates.push(update));
+
+    await host.prefetchSession('s1', 1);
+    await host.prefetchSession('s1', 1);
+    await host.prefetchSession('s1', 1);
+
+    // First read has nothing to announce; every later one carries the stamp
+    // and the bodiless reply neither republishes nor blanks the projection.
+    assert.deepEqual(reads, [null, 'stamp-1', 'stamp-1']);
+    assert.equal(updates.length, 1);
+    assert.deepEqual(updates[0].snapshot.items, items);
+  } finally {
+    await host?.dispose();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
+test('visible registration replays a retained projection after an early prefetch frame was missed', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-visible-session-'));
+  let host = null;
+  let subscribedBaseRevision = null;
+  const items = [{ id: 'a', kind: 'assistant', text: 'retained transcript' }];
+  const unsupported = async () => { throw new Error('unexpected session client call'); };
+  const client = {
+    list: unsupported,
+    async create() {
+      return {
+        sessionId: 'control_1',
+        revision: 0,
+        snapshot: { sessionId: 'control_1', items: [], queued: [] },
+      };
+    },
+    async read({ sessionId }) {
+      return {
+        sessionId,
+        revision: 4,
+        projection: true,
+        projectionStamp: 'stamp-1',
+        full: { sessionId, items, queued: [] },
+      };
+    },
+    async subscribe({ sessionId, baseRevision }) {
+      subscribedBaseRevision = baseRevision;
+      return {
+        sessionId,
+        revision: 4,
+        projection: true,
+        projectionStamp: 'stamp-1',
+        unchanged: true,
+      };
+    },
+    async unsubscribe() { return {}; },
+    submit: unsupported,
+    abort: unsupported,
+    approve: unsupported,
+    configure: unsupported,
+    async close() {},
+  };
+  try {
+    host = await SessionHost.create({
+      userDataPath,
+      packaged: false,
+      resourcesPath: userDataPath,
+      appPath: userDataPath,
+    }, {
+      async attachSessionClient() { return client; },
+      loadProjects: unsupported,
+      async loadSessionStore() {
+        return { listStoredAgentWorkers: () => [] };
+      },
+      loadStatuslineSegments: unsupported,
+      executeCodeGraphTool: unsupported,
+    });
+    const updates = [];
+    host.subscribeSessionStates((update) => updates.push(update));
+
+    await host.prefetchSession('s1', 1);
+    assert.equal(updates.length, 1);
+    updates.length = 0;
+
+    await host.setVisibleSessions(['s1']);
+
+    assert.equal(subscribedBaseRevision, 4);
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0].frameSource, 'replay');
+    assert.deepEqual(updates[0].snapshot.items, items);
+  } finally {
+    await host?.dispose();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
 test('an SSE reconnect resyncs in place without rejecting an in-flight desktop request', async () => {
   const calls = [];
   let streamDisconnect = null;

@@ -21,49 +21,42 @@ function installPdfJsCanvasGlobals() {
   globalThis.Path2D ??= Path2D;
 }
 
+const PAGE_NUMBER_PATTERN = /^\s*(?:(?:page\s*)?\d+\s*(?:of|\/)\s*\d+|페이지\s*\d+|\d+\s*페이지)\s*$/i;
+
+// Word/PowerPoint page-number fields sometimes reach the PDF as glyphs the
+// rasterizer cannot shape. Repaint only those items, inside their own bounds,
+// with a family that covers Latin and Hangul; every other bottom-band element
+// (takeaway bands, source lines, footnotes) is left exactly as rendered.
 async function repairBottomPageNumberText(page, viewport, canvas, context, Util) {
   const content = await page.getTextContent();
   const base = page.getViewport({ scale: 1 });
-  const bottomItems = content.items.filter((item) => (
-    String(item.str || '').trim()
+  const numbers = content.items.filter((item) => (
+    PAGE_NUMBER_PATTERN.test(String(item.str || ''))
     && Number(item.transform?.[5]) < base.height * 0.12
   ));
-  if (!bottomItems.some((item) => (
-    /(?:\bpage\s*)?\d+\s*(?:of|\/)\s*\d+\b/i.test(String(item.str || ''))
-    || /페이지\s*\d+/i.test(String(item.str || ''))
-  ))) return;
-  const positioned = bottomItems.map((item) => {
-    const transform = Util.transform(viewport.transform, item.transform);
-    return {
-      item,
-      x: transform[4],
-      baseline: transform[5],
-      fontHeight: Math.max(1, Math.hypot(transform[2], transform[3])),
-      width: Math.max(1, Number(item.width || 0) * viewport.scale),
-    };
-  });
-  const bandTop = Math.max(0, Math.floor(Math.min(...positioned.map((entry) => (
-    entry.baseline - entry.fontHeight * 1.7
-  ))) - 2));
-  const bandBottom = Math.min(canvas.height, Math.ceil(Math.max(...positioned.map((entry) => (
-    entry.baseline + entry.fontHeight * 0.8
-  ))) + 2));
-  const sample = context.getImageData(2, Math.min(canvas.height - 1, bandTop + 1), 1, 1).data;
-  if (sample[0] < 245 || sample[1] < 245 || sample[2] < 245) return;
+  if (!numbers.length) return;
   context.save();
-  context.fillStyle = `rgb(${sample[0]},${sample[1]},${sample[2]})`;
-  context.fillRect(0, bandTop, canvas.width, Math.max(1, bandBottom - bandTop));
-  context.fillStyle = 'rgb(23,23,23)';
   context.textBaseline = 'alphabetic';
-  for (const entry of positioned) {
-    const reportedFamily = content.styles[entry.item.fontName]?.fontFamily || 'sans-serif';
-    const family = reportedFamily === 'sans-serif' ? '"Segoe UI"' : reportedFamily;
-    context.font = `${entry.fontHeight}px ${family}`;
-    const measuredWidth = Math.max(1, context.measureText(entry.item.str).width);
+  for (const item of numbers) {
+    const transform = Util.transform(viewport.transform, item.transform);
+    const x = transform[4];
+    const baseline = transform[5];
+    const fontHeight = Math.max(1, Math.hypot(transform[2], transform[3]));
+    const width = Math.max(1, Number(item.width || 0) * viewport.scale);
+    const top = Math.max(0, Math.floor(baseline - fontHeight * 0.95));
+    const bottom = Math.min(canvas.height, Math.ceil(baseline + fontHeight * 0.3));
+    const sampleX = Math.min(canvas.width - 1, Math.max(0, Math.round(x - 3)));
+    const sample = context.getImageData(sampleX, Math.min(canvas.height - 1, top), 1, 1).data;
+    context.fillStyle = `rgb(${sample[0]},${sample[1]},${sample[2]})`;
+    context.fillRect(Math.max(0, Math.floor(x - 1)), top, Math.ceil(width + 2), Math.max(1, bottom - top));
+    const luminance = (sample[0] * 299 + sample[1] * 587 + sample[2] * 114) / 1000;
+    context.fillStyle = luminance > 128 ? 'rgb(23,23,23)' : 'rgb(235,235,235)';
+    context.font = `${fontHeight}px "Segoe UI", "Malgun Gothic", sans-serif`;
+    const measuredWidth = Math.max(1, context.measureText(item.str).width);
     context.save();
-    context.translate(entry.x, entry.baseline);
-    context.scale(entry.width / measuredWidth, 1);
-    context.fillText(entry.item.str, 0, 0);
+    context.translate(x, baseline);
+    context.scale(width / measuredWidth, 1);
+    context.fillText(item.str, 0, 0);
     context.restore();
   }
   context.restore();

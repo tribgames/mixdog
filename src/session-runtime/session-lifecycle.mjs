@@ -2,9 +2,10 @@
 // resolution, route-effort refresh, and createCurrentSession (provider
 // session construction with MCP wiring and reset handling). Shared mutable
 // runtime state flows through the rt bag.
-import { ensureProviderEnabled, modelMetaLooksResolved, normalizeCompactionConfig } from './config-helpers.mjs';
+import { ensureProviderEnabled, modelMetaLooksResolved, modelSettingsFor, normalizeCompactionConfig } from './config-helpers.mjs';
 import { clean, hasOwn } from './session-text.mjs';
 import { coerceEffortFor, deferredSurfaceModeForLead, effortItemsFor, toolSpecForMode } from './effort.mjs';
+import { filterMcpToolsForSession } from './extension-scopes.mjs';
 import { fastCapableFor } from './model-capabilities.mjs';
 import { bootProfile } from './boot-profile.mjs';
 import { STANDALONE_DATA_DIR } from './runtime-paths.mjs';
@@ -179,7 +180,10 @@ export function createSessionLifecycle({
     // id (some providers echo the id as `name`), so it can't clobber a better
     // already-resolved label. Falls back to existing route.modelDisplay, then unset.
     const metaName = clean(modelMeta?.name);
-    const modelDisplay = clean(modelMeta?.display) || clean(modelMeta?.displayName)
+    // A display-only user alias (modelSettings[provider/model].alias) wins
+    // over every catalog label so the statusline matches the picker.
+    const modelDisplay = clean(modelSettingsFor(rt.config, targetRoute.provider, targetRoute.model)?.alias)
+      || clean(modelMeta?.display) || clean(modelMeta?.displayName)
       || (metaName && metaName !== clean(targetRoute.model) ? metaName : '')
       || clean(targetRoute.modelDisplay);
     rt.route = {
@@ -343,7 +347,13 @@ export function createSessionLifecycle({
       // prompt renders. This fold keeps recreate paths (cwd change with MCP
       // already connected) seeding their manifest instead of re-announcing late.
       let connectedMcpTools = [];
-      try { connectedMcpTools = mcpClient.getMcpTools?.(rt.mcpScopeId) || []; }
+      try {
+        connectedMcpTools = filterMcpToolsForSession(
+          mcpClient.getMcpTools?.(rt.mcpScopeId) || [],
+          rt.currentCwd,
+          rt.config,
+        );
+      }
       catch { connectedMcpTools = []; }
       applyDeferredToolSurface(
         rt.session,

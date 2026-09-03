@@ -3,10 +3,12 @@ import { homedir } from 'os';
 import { basename, dirname, join } from 'path';
 import { maxMtimeRecursive } from '../cache-mtime.mjs';
 import { resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
+import { pluginSkillsRoots } from '../../../shared/plugin-manifest.mjs';
 import { readMarkdownDocument } from '../../../shared/markdown-frontmatter.mjs';
 import { parseSkillDocument } from '../../../shared/skill-document.mjs';
 import { loadConfig, normalizeSkillsConfig } from '../config.mjs';
 import { builtinFeatureActive, withGrandfatheredBuiltins } from '../../../../session-runtime/builtin-features.mjs';
+import { extensionScopesFromConfig, skillAllowedForCwd } from '../../../shared/extension-scopes.mjs';
 
 function skillsDisabled() {
     return /^(?:1|true|on|yes)$/i.test(String(process.env.MIXDOG_DISABLE_SKILLS || ''));
@@ -30,12 +32,17 @@ function mixdogAssetDirs(_projectDir, kind) {
     return [mixdogGlobalDir(kind)];
 }
 /**
- * Skills shipped inside the package (src/defaults/skills/<name>/). Read in
- * place, never copied: a release updates them immediately, and a user-global
- * or plugin skill with the same name shadows the built-in one.
+ * The package's own bundle (src/defaults/) is a plugin root like any other:
+ * `plugin.json` + `skills/<name>/SKILL.md`, read in place through the same
+ * manifest resolver as installed plugins, never copied — a release updates it
+ * immediately, and a user-global or plugin skill of the same name shadows it.
+ * It is not in the registry: the Built-in settings panel owns its UI.
  */
-export function builtinSkillsDir() {
-    return join(mixdogRoot(), 'defaults', 'skills');
+export function builtinPluginRoot() {
+    return join(mixdogRoot(), 'defaults');
+}
+function builtinSkillDirs() {
+    return pluginSkillsRoots(builtinPluginRoot()).filter((dir) => existsSync(dir));
 }
 /**
  * Absolute path to the plugin registry file, or null when the data dir is
@@ -52,8 +59,9 @@ function pluginRegistryPath() {
 }
 /**
  * Read `<resolvePluginData()>/plugins/registry.json` (safe JSON parse, ignore
- * errors) and yield `<root>/skills` for each registered plugin whose `root`
- * exists on disk and has a `skills` subdirectory.
+ * errors) and yield every existing skill root of each enabled registered
+ * plugin: `<root>/skills` plus the manifest `skills` path, from the same
+ * resolver the Plugins panel counts with, so the two never disagree.
  */
 function pluginSkillDirs() {
     const registryPath = pluginRegistryPath();
@@ -74,9 +82,11 @@ function pluginSkillDirs() {
         const root = entry && typeof entry.root === 'string' ? entry.root : null;
         if (!root || !existsSync(root))
             continue;
-        const skillsDir = join(root, 'skills');
-        if (existsSync(skillsDir))
-            dirs.push({ dir: skillsDir, plugin: String(entry.id || entry.name || '') || null });
+        const plugin = String(entry.id || entry.name || '') || null;
+        for (const skillsDir of pluginSkillsRoots(root)) {
+            if (existsSync(skillsDir))
+                dirs.push({ dir: skillsDir, plugin });
+        }
     }
     return dirs;
 }
@@ -95,7 +105,7 @@ export function collectSkills(cwd) {
     const sources = [
         ...mixdogAssetDirs(null, 'skills').map((dir) => ({ dir, source: 'global', plugin: null })),
         ...pluginSkillDirs().map(({ dir, plugin }) => ({ dir, source: 'plugin', plugin })),
-        { dir: builtinSkillsDir(), source: 'builtin', plugin: null },
+        ...builtinSkillDirs().map((dir) => ({ dir, source: 'builtin', plugin: null })),
     ];
     const seen = new Set();
     for (const { dir, source, plugin } of sources) {
@@ -189,18 +199,24 @@ export function skillMissingFeature(name, config = null) {
     return skill ? missingFeature(skill, featureConfig(config)) : null;
 }
 
-export function filterSkillsExcludingDisabled(skills, config = null) {
+/**
+ * Skills a session may see: not switched off, feature available, and — when
+ * `cwd` is given — inside the skill's (or its plugin's) project scope. Without
+ * a cwd only global skills pass, since a scoped skill belongs to a project.
+ */
+export function filterSkillsExcludingDisabled(skills, config = null, cwd = null) {
     if (skillsDisabled()) return [];
     const cfg = featureConfig(config);
     const disabled = getDisabledSkillNameSet(cfg);
+    const scopes = extensionScopesFromConfig(cfg);
     return (Array.isArray(skills) ? skills : []).filter((s) => {
         const key = normalizeSkillNameKey(s?.name);
-        return key && !disabled.has(key) && !missingFeature(s, cfg);
+        return key && !disabled.has(key) && !missingFeature(s, cfg) && skillAllowedForCwd(scopes, s, cwd);
     });
 }
 
 export function collectPromptSkillsCached(cwd, config = null) {
-    return filterSkillsExcludingDisabled(collectSkillsCached(cwd), config);
+    return filterSkillsExcludingDisabled(collectSkillsCached(cwd), config, cwd);
 }
 // --- Skill cache (mtime-based, keyed by cwd) ---
 const _skillsCache = new Map();
@@ -212,7 +228,7 @@ export function collectSkillsCached(cwd) {
     const key = 'global';
     // Same mixdog-owned dirs collectSkills() reads, used as the freshness gate.
     const skillsDirs = mixdogAssetDirs(null, 'skills');
-    skillsDirs.push(...pluginSkillDirs(), builtinSkillsDir());
+    skillsDirs.push(...pluginSkillDirs().map(({ dir }) => dir), ...builtinSkillDirs());
     // registry.json itself gates plugin add/remove: removal deletes the
     // plugin's skills dir (so no dir mtime advances), but saveRegistry()
     // always rewrites this file. maxMtimeRecursive stats plain files directly.
@@ -244,6 +260,11 @@ export function collectSkillsCached(cwd) {
 export function invalidateSkillsCache(cwd) {
     void cwd;
     _skillsCache.clear();
+    _mtimeCache.clear();
+}
+/** Drop only the mtime TTL so the next call re-stats the skill roots while the
+ *  cached list stays — lets a test prove the gate itself notices an edit. */
+export function invalidateSkillsMtimeGate() {
     _mtimeCache.clear();
 }
 /**
@@ -282,6 +303,7 @@ export function loadSkillResource(name, cwd) {
             content: parseSkillDocument(content).body,
             dir: dirname(skill.filePath),
             filePath: skill.filePath,
+            source: skill.source || 'global',
         };
     } catch {
         return null;
@@ -313,8 +335,12 @@ export function buildSkillResultEnvelope(name, content, skillDir) {
  * body is delivered separately as ONE injected user message (newMessages),
  * never in the tool_result — so the body appears exactly once.
  */
-function buildSkillStub(name) {
-    return `Loaded skill: ${String(name || '').trim()}`;
+function buildSkillStub(name, source) {
+    // The stub doubles as the transcript's provenance marker: a built-in skill
+    // (packaged with a built-in feature) loads silently, while user and plugin
+    // skills surface as a card. `source` mirrors collectSkills() entries.
+    const kind = source === 'builtin' ? 'built-in skill' : 'skill';
+    return `Loaded ${kind}: ${String(name || '').trim()}`;
 }
 
 /**
@@ -328,10 +354,10 @@ function buildSkillStub(name) {
  * "latest human prompt" selection does not mistake the skill body for the
  * human's request.
  */
-export function buildSkillToolEnvelope(name, content, skillDir) {
+export function buildSkillToolEnvelope(name, content, skillDir, { source = 'global' } = {}) {
     return {
         __toolEnvelope: true,
-        result: buildSkillStub(name),
+        result: buildSkillStub(name, source),
         newMessages: [
             { role: 'user', content: buildSkillResultEnvelope(name, content, skillDir), meta: 'skill' },
         ],
@@ -938,20 +964,19 @@ export function composeSystemPrompt(opts) {
     if (!_skip.memory && opts.coreMemoryContext && typeof opts.coreMemoryContext === 'string' && opts.coreMemoryContext.trim()) {
         sessionMarkerParts.push('# Core Memory\n' + opts.coreMemoryContext.trim());
     }
-    // Response language closes the stable core: it must be the last
-    // behavioral instruction before the conversation so the pre-tool preamble
-    // is not pulled toward the English rule blocks that precede it.
-    if (opts.languageContext && typeof opts.languageContext === 'string' && opts.languageContext.trim()) {
-        sessionMarkerParts.push(opts.languageContext.trim());
-    }
     const sessionMarkerCore = sessionMarkerParts.length
         ? sessionMarkerParts.join('\n\n---\n\n')
         : '';
     const environmentParts = [];
+    // Response language is the LAST system text before the conversation. It
+    // rides the environment block (not the tier3 core) because the `# Session`
+    // / shell / git lines are English and would otherwise trail it, pulling the
+    // pre-tool preamble toward English.
     for (const value of [
         opts.sessionStartContext,
         opts.projectInstructionsContext,
         opts.environmentContext,
+        opts.languageContext,
     ]) {
         if (typeof value === 'string' && value.trim()) environmentParts.push(value.trim());
     }

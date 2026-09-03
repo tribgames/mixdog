@@ -247,6 +247,7 @@ export function createMemoryActionHandlers({
     const bootstrapComplete = await isBootstrapComplete(db)
     const lastCycle1Ago = last.cycle1 ? `${Math.round((Date.now() - last.cycle1) / 60000)}m ago` : 'never'
     const lastCycle2Ago = last.cycle2 ? `${Math.round((Date.now() - last.cycle2) / 60000)}m ago` : 'never'
+    const lastCycle3Ago = last.cycle3 ? `${Math.round((Date.now() - last.cycle3) / 3600000)}h ago` : 'never'
     const activeTargetCap = Number.isFinite(Number(config?.cycle2?.active_target_cap))
       ? Number(config?.cycle2?.active_target_cap)
       : CYCLE2_ACTIVE_TARGET_CAP
@@ -264,6 +265,8 @@ export function createMemoryActionHandlers({
       `last_cycle1: ${lastCycle1Ago}`,
       `last_cycle2: ${lastCycle2Ago}`,
       ...(last.cycle2_last_error ? [`last_cycle2_error: ${last.cycle2_last_error}`] : []),
+      `last_cycle3: ${lastCycle3Ago}`,
+      ...(last.cycle3_last_error ? [`last_cycle3_error: ${last.cycle3_last_error}`] : []),
     ]
     return { text: lines.join('\n') }
   }

@@ -10,7 +10,11 @@ import {
   revertTurnWorktreePaths,
   revertTurnWorktreeSnapshot,
 } from './turn-worktree-snapshot.mjs';
-import { loadTurnSnapshotRecord, saveTurnSnapshotRecord } from './turn-snapshot-store.mjs';
+import {
+  loadSessionSnapshotRecords,
+  loadTurnSnapshotRecord,
+  saveTurnSnapshotRecord,
+} from './turn-snapshot-store.mjs';
 
 // Turn-scoped review registry.
 //
@@ -71,6 +75,58 @@ function pathKey(value) {
 
 function displayPath(value) {
   return clean(value).replace(/\\/g, '/').replace(/^[ab]\//, '') || 'unknown file';
+}
+
+/** An owned path is the absolute file when the tool resolved one, otherwise
+ *  the display path it reported. */
+function ownedPathEntry(path, display) {
+  const full = clean(path);
+  return full && isAbsolute(full) ? resolve(full) : display;
+}
+
+/** Owned paths as forward-slashed paths relative to `root`. Absolute entries
+ *  outside the root cannot scope a diff of that root and are dropped; relative
+ *  entries (a non-Git tracker's display paths) pass through unchanged. */
+function ownedPathsUnder(root, owned) {
+  const base = resolve(clean(root) || '.');
+  const out = new Set();
+  for (const value of owned || []) {
+    const target = clean(value);
+    if (!target) continue;
+    if (!isAbsolute(target)) {
+      out.add(target.replace(/\\/g, '/'));
+      continue;
+    }
+    const rel = relative(base, target);
+    if (!rel || rel === '.' || isAbsolute(rel) || rel.split(/[\\/]+/).includes('..')) continue;
+    out.add(rel.replace(/\\/g, '/'));
+  }
+  return out;
+}
+
+/** Paths the turn's checkpoint diff itself observed. Only an uncontended
+ *  worktree can attribute them to this session; a contended one falls back to
+ *  the exact tool-owned list. */
+function checkpointObservedPaths(tracker) {
+  if (!worktreeSnapshotUsable(tracker)) return [];
+  const out = [];
+  for (const file of tracker.worktreeSnapshot.files || []) {
+    if (file?.path) out.push(String(file.path).replace(/\\/g, '/'));
+    if (file?.oldPath) out.push(String(file.oldPath).replace(/\\/g, '/'));
+  }
+  return out;
+}
+
+/** Everything this session changed under `root`: the files its own tools
+ *  wrote plus every file its checkpoint diffs observed. This is the
+ *  attribution the session-wide Diff and the recorded revert scope share. */
+function sessionAttributedPaths(root, tracker) {
+  const paths = ownedPathsUnder(root, tracker?.ownedPaths);
+  if (tracker?.worktreeSnapshot
+    && pathKey(tracker.worktreeSnapshot.root) === pathKey(root)) {
+    for (const path of checkpointObservedPaths(tracker)) paths.add(path);
+  }
+  return paths;
 }
 
 function contentBuffer(value) {
@@ -355,10 +411,15 @@ export function recordTurnDiffChanges(sessionId, changes = []) {
     const destinationPath = clean(raw?.newPath);
     // WHICH files this session wrote has to survive releasing their content —
     // on turn completion, and on the tracked-size ceiling. That list is the
-    // attribution a shared worktree cannot otherwise reconstruct.
-    tracker.ownedPaths.add(sourceDisplay);
+    // attribution a shared worktree cannot otherwise reconstruct. It keeps the
+    // ABSOLUTE file: the display path is relative to the session cwd, which
+    // is not necessarily the repository root the scoped diff runs from.
+    tracker.ownedPaths.add(ownedPathEntry(sourcePath, sourceDisplay));
     if (destinationPath) {
-      tracker.ownedPaths.add(displayPath(raw?.newDisplayPath || destinationPath));
+      tracker.ownedPaths.add(ownedPathEntry(
+        destinationPath,
+        displayPath(raw?.newDisplayPath || destinationPath),
+      ));
     }
     if (!destinationPath) {
       if (before === null && after !== null) {
@@ -559,6 +620,10 @@ export function completeAgentTurnReview(handle, patches = []) {
       tag: handle.tag || prior?.tag || null,
       patch: tracked ? patch : mergePatches([prior?.patch, patch]),
     });
+    const ownerTracker = _diffTrackersBySession.get(clean(handle.ownerSessionId));
+    if (matchingTracker && ownerTracker && ownerTracker !== tracker) {
+      for (const path of tracker.ownedPaths) ownerTracker.ownedPaths.add(path);
+    }
     trimAgentReviews(turn);
     return true;
   } finally {
@@ -577,7 +642,7 @@ export function completeAgentTurnReview(handle, patches = []) {
 async function persistTurnSnapshotRecord(ownerSessionId, tracker) {
   const snapshot = tracker?.worktreeSnapshot;
   if (!ownerSessionId || !snapshot?.baselineTree || !snapshot.root) return;
-  const owned = [...tracker.ownedPaths];
+  const owned = [...sessionAttributedPaths(snapshot.root, tracker)];
   if (owned.length === 0) return;
   try {
     await saveTurnSnapshotRecord(ownerSessionId, {
@@ -748,6 +813,83 @@ export async function getTurnReviewDiff(_worktree, sessionId, options = {}) {
     authoritative: Boolean(turn && tracker),
     agents: publicAgentReviews(ownerSessionId),
     ...(turn ? { generation: turn.generation } : { reason: 'no-turn' }),
+  };
+}
+
+function scopeMatchesWorktree(scope, worktree, tracker) {
+  const root = pathKey(scope?.root);
+  const trackedRoot = pathKey(tracker?.worktreeSnapshot?.root);
+  if (trackedRoot) return root === trackedRoot;
+  const requested = pathKey(resolve(clean(worktree) || '.')).replace(/[\\/]+$/, '');
+  if (!root || !requested) return false;
+  return requested === root
+    || requested.startsWith(`${root}${process.platform === 'win32' ? '\\' : '/'}`);
+}
+
+/** Return the net diff from this session's earliest retained baseline to the
+ * current worktree, scoped only to paths its own tools changed. Unlike
+ * getTurnReviewDiff this survives user-turn boundaries and has no revert
+ * contract; the composer keeps owning latest-turn Undo. */
+export async function getSessionReviewDiff(_worktree, sessionId) {
+  if (DISABLED) return { supported: false, files: [], patch: '' };
+  const ownerSessionId = clean(sessionId);
+  if (!ownerSessionId) return { supported: true, files: [], patch: '', authoritative: true };
+  const tracker = _diffTrackersBySession.get(ownerSessionId);
+  const scopes = await loadSessionSnapshotRecords(ownerSessionId).catch(() => []);
+  const stored = scopes.find((scope) => scopeMatchesWorktree(scope, _worktree, tracker));
+  const root = stored?.root || tracker?.worktreeSnapshot?.root || clean(_worktree);
+  // A running turn is still mutating the worktree: shell, office and script
+  // edits only reach the checkpoint diff once it is refreshed, exactly as the
+  // turn review bar does.
+  if (worktreeSnapshotUsable(tracker) && !tracker.sealed) {
+    try { await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot); } catch {}
+  }
+  const ownedPaths = new Set(stored?.toolFiles || []);
+  for (const path of sessionAttributedPaths(root, tracker)) ownedPaths.add(path);
+  if (ownedPaths.size === 0) {
+    return {
+      supported: true,
+      files: [],
+      patch: '',
+      snapshotKind: 'session',
+      authoritative: true,
+    };
+  }
+  const baselineTree = stored?.baselineTree || tracker?.worktreeSnapshot?.baselineTree;
+  if (root && baselineTree) {
+    const snapshot = await resumeTurnWorktreeSnapshot(root, baselineTree, {
+      paths: [...ownedPaths],
+    }).catch(() => null);
+    if (snapshot) {
+      return {
+        supported: true,
+        files: snapshot.files || [],
+        patch: snapshot.patch || '',
+        patchTruncated: snapshot.patchTruncated === true,
+        snapshotKind: 'session',
+        authoritative: true,
+      };
+    }
+  }
+  // A non-Git first turn still has an exact apply_patch tracker. It cannot
+  // cross a runtime restart, but remains preferable to widening into unrelated
+  // files from the surrounding directory.
+  if (tracker?.valid) {
+    return {
+      supported: true,
+      files: [],
+      patch: tracker.unifiedDiff || '',
+      snapshotKind: 'session-tool',
+      authoritative: true,
+    };
+  }
+  return {
+    supported: false,
+    files: [],
+    patch: '',
+    snapshotKind: 'session',
+    authoritative: false,
+    reason: 'session baseline is unavailable',
   };
 }
 

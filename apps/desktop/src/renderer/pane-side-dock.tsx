@@ -1,11 +1,12 @@
 // Per-pane right dock: ONE side-tab unit per pane (user: PANE 하위 → 사이드탭
-// 헤더 → 소스제어·브라우저·DIFF가 그 헤더의 하위로). The horizontal header
-// selects every child — classic panel views, the pane's browser, and diff
-// surfaces opened from Source Control — and each child shows STANDALONE under
+// 헤더 → 세션 DIFF·브라우저·파일 DIFF가 그 헤더의 하위로). The horizontal
+// header selects every child — classic panel views, the pane's browser, and
+// file diff surfaces opened from project tools — and each child shows STANDALONE under
 // the header, without a second tab row. The whole unit folds and overlays as
 // one body; its children and open diff tabs survive folds and persist per
 // pane id across restarts.
 import {
+  startTransition,
   useCallback,
   useEffect,
   useRef,
@@ -27,11 +28,9 @@ import {
   ReadyGitDiffPane,
 } from "./app-shell-components";
 import { DesktopLoadingSurface } from "./RendererRecovery";
-import { SessionGoalHost } from "./SessionGoalIsland";
 import { isMobileRemoteSurface } from "./mobile-surface";
 import {
   isWorkbenchSideLauncher,
-  WorkbenchSideIconBar,
   WorkbenchSidePanel,
   type WorkbenchSideTitleDragProps,
   type WorkbenchSideViewDescriptor,
@@ -48,7 +47,7 @@ import { t } from "./i18n";
 
 export type PaneSideDockDiff = Extract<WorkspaceSelection, { kind: "diff" }>;
 export type PaneSideDiffRequest = {
-  source: "staged" | "unstaged" | "commit";
+  source: "staged" | "unstaged" | "commit" | "session";
   hash?: string;
   untracked?: boolean;
 };
@@ -58,7 +57,7 @@ export type PaneSideDockEntry = {
   view: WorkbenchSideViewId | null;
   /** "" shows the panel view; "browser" or "diff" otherwise. */
   surface: string;
-  /** The single open diff — a Source Control click REPLACES it (user: 헤더
+  /** The single open file diff — a project-tool click REPLACES it (user: 헤더
    *  한 줄, DIFF 탭 없이 교체 방식). */
   diff: PaneSideDockDiff | null;
 };
@@ -89,12 +88,60 @@ export const PANE_SIDE_DOCK_PANEL_MAX_WIDTH = 560;
 export const PANE_DOCK_BROWSER_SURFACE = "browser";
 export const PANE_DOCK_TERMINAL_SURFACE = "terminal";
 export const PANE_DOCK_DIFF_SURFACE = "diff";
-export function paneGoalPlacement(
+/** The diff child is the showing surface of an open unit. */
+export function paneDiffShowing(
   entry: Pick<PaneSideDockEntry, "open" | "surface" | "diff">,
-): "composer" | "diff" {
-  return entry.open && entry.surface === PANE_DOCK_DIFF_SURFACE && entry.diff !== null
-    ? "diff"
-    : "composer";
+): boolean {
+  return entry.open && entry.surface === PANE_DOCK_DIFF_SURFACE && entry.diff !== null;
+}
+// The Goal capsule stays on the composer. It used to ride the diff column
+// while a diff showed, which read as the Goal UI leaking into Source Control
+// (user: 소스컨트롤에 GOAL UI 딸려 들어가는 버그).
+/** A closed diff column waits at least this long, and for a typing pause of
+ *  the same length, before its tree is dropped: the unmount commit of a
+ *  large diff is one uninterruptible task, so it must not land between two
+ *  keystrokes. */
+export const PANE_DOCK_DIFF_RETAIN_MS = 1_500;
+function useRetainedDiff(diff: PaneSideDockDiff | null): PaneSideDockDiff | null {
+  const [retained, setRetained] = useState<PaneSideDockDiff | null>(diff);
+  useEffect(() => {
+    if (diff) {
+      setRetained(diff);
+      return undefined;
+    }
+    let lastInputAt = performance.now();
+    const noteInput = () => { lastInputAt = performance.now(); };
+    document.addEventListener("keydown", noteInput, true);
+    document.addEventListener("input", noteInput, true);
+    let timer = 0;
+    const attempt = () => {
+      const quietFor = performance.now() - lastInputAt;
+      if (quietFor < PANE_DOCK_DIFF_RETAIN_MS) {
+        timer = window.setTimeout(attempt, PANE_DOCK_DIFF_RETAIN_MS - quietFor);
+        return;
+      }
+      timer = 0;
+      startTransition(() => setRetained(null));
+    };
+    timer = window.setTimeout(attempt, PANE_DOCK_DIFF_RETAIN_MS);
+    return () => {
+      document.removeEventListener("keydown", noteInput, true);
+      document.removeEventListener("input", noteInput, true);
+      window.clearTimeout(timer);
+    };
+  }, [diff]);
+  return retained;
+}
+/** The dock child a pane is showing — the session surface when one is up,
+ *  otherwise the classic panel view — or null while the unit is folded. The
+ *  strip toggles and the dock header read the same answer. */
+export function paneDockActiveRoot(
+  entry: Pick<PaneSideDockEntry, "open" | "view" | "surface">,
+): WorkbenchSideViewId | null {
+  if (!entry.open) return null;
+  if (entry.surface === PANE_DOCK_BROWSER_SURFACE) return "browser";
+  if (entry.surface === PANE_DOCK_TERMINAL_SURFACE) return "terminal";
+  return entry.view;
 }
 export function paneDiffStacks(
   diffShowing: boolean,
@@ -141,7 +188,8 @@ function isDockDiff(value: unknown): value is PaneSideDockDiff {
     && typeof record.project === "string" && record.project.length > 0
     && typeof record.rel === "string" && record.rel.length > 0
     && (record.source === "staged" || record.source === "unstaged"
-      || record.source === "commit");
+      || ((record.source === "commit" || record.source === "session")
+        && typeof record.hash === "string" && record.hash.length > 0));
 }
 
 /**
@@ -421,6 +469,7 @@ export function PaneSideDock({
   groups,
   descriptors,
   focused,
+  prewarm = false,
   onSelect,
   onClose,
   onCloseDiff,
@@ -430,7 +479,6 @@ export function PaneSideDock({
   openFileTab,
   renderBrowserSurface,
   renderTerminalSurface,
-  goalIsland,
   renderView,
 }: {
   leafId: string;
@@ -438,6 +486,8 @@ export function PaneSideDock({
   groups: readonly WorkbenchSideViewGroup[];
   descriptors: ReadonlyMap<WorkbenchSideViewId, WorkbenchSideViewDescriptor>;
   focused: boolean;
+  /** Hidden-mount only the focused pane's panel shell after boot. */
+  prewarm?: boolean;
   onSelect(id: WorkbenchSideViewId): void;
   /** Folds the unit — the header X, and a re-click on the active icon
    *  (user: 오버레이까지 되는 판에 닫히는 거나 X가 있어야). */
@@ -459,7 +509,6 @@ export function PaneSideDock({
   openFileTab(project: string, rel: string, line?: number): void;
   renderBrowserSurface?(active: boolean): ReactNode;
   renderTerminalSurface?(active: boolean): ReactNode;
-  goalIsland?: ReactNode;
   renderView(
     id: WorkbenchSideViewId,
     active: boolean,
@@ -467,18 +516,31 @@ export function PaneSideDock({
   ): ReactNode;
 }) {
   const openNow = entry.open && (entry.view !== null || entry.surface !== "");
-  // Panels mount lazily on the pane's FIRST expand and stay mounted after,
-  // so tree expansions and scroll survive fold/unfold without paying a
-  // hidden mount in every pane that never opened its dock.
+  // The focused pane may hidden-mount its shell after boot; every other pane
+  // stays lazy until first expand. Once opened, a panel remains mounted so
+  // tree expansions and scroll survive fold/unfold.
   const everOpened = useRef(openNow);
   if (openNow) everOpened.current = true;
+  const panelMounted = openNow || everOpened.current || prewarm;
+  // A cold dock used to mount Session Diff/Pull Requests/the browser slot in the
+  // SAME click commit that expanded the panel. That heavy tree held back the
+  // first visible frame, so the tab felt delayed even though the state update
+  // itself was synchronous. Commit the correctly sized shell first, then
+  // attach the body on the next frame. Warmed and previously visited docks
+  // keep their live body and reopen without this hand-off.
+  const [dockBodyMounted, setDockBodyMounted] = useState(openNow);
+  useEffect(() => {
+    if (dockBodyMounted || (!openNow && !prewarm)) return undefined;
+    const frame = window.requestAnimationFrame(() => setDockBodyMounted(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, [dockBodyMounted, openNow, prewarm]);
   const surfaceShowing = openNow && entry.surface !== "";
   const browserShowing = surfaceShowing
     && entry.surface === PANE_DOCK_BROWSER_SURFACE;
   const terminalShowing = surfaceShowing
     && entry.surface === PANE_DOCK_TERMINAL_SURFACE;
   const sessionSurfaceShowing = browserShowing || terminalShowing;
-  const diffShowing = surfaceShowing && paneGoalPlacement(entry) === "diff";
+  const diffShowing = surfaceShowing && paneDiffShowing(entry);
   // ── Unified width (user: 두개를 통합 넓이계산) ──
   // The dock measures its own pane cell: inline, the whole unit — diff pair
   // included — always leaves the conversation its workspace floor, and when
@@ -517,6 +579,40 @@ export function PaneSideDock({
   }, [openNow]);
   const diffResizeStart = useRef<{ x: number; width: number } | null>(null);
   const diffDragPending = useRef<number | null>(null);
+  // Closing the diff used to unmount its whole column — thousands of diff
+  // rows — inside the click commit, and a keystroke landing in that same
+  // task waited 30–70ms for it (user: 디프창이 사라질 때 유독 덜컹). The
+  // column now only HIDES on close; the retained tree is dropped later, in
+  // idle time and as a transition, so typing keeps its own frames. A reopen
+  // of the same file inside that window reuses the live tree.
+  const retainedDiff = useRetainedDiff(entry.diff);
+  // The hidden column keeps its last shown width: the diff library observes
+  // its wrapper's size and re-lays out every row on any change, so a width
+  // going to zero on close would cost as much as the unmount did.
+  const shownDiffWidth = useRef(0);
+  // Phone sheet: a press OUTSIDE the unit folds it (user: 모바일 프레임 외
+  // 영역 터치 시 접힘). This is a document-level hit test, not a backdrop
+  // element: a fixed backdrop inside the sliding (transformed) root covered
+  // only the sheet's own box, and one portaled to body stacked OVER the
+  // sheet and ate its taps (user: 소스컨트롤창 클릭과 드래그가 안 됨). The
+  // session surfaces and the strip's own toggles count as inside — the
+  // toggle decides the fold itself. The Browser Use and Terminal surfaces are
+  // FIXED containers positioned over their slot, not children of the unit,
+  // so they are named explicitly (user: 브라우저창 누르면 나가짐).
+  useEffect(() => {
+    if (!openNow || !isMobileRemoteSurface()) return undefined;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (hostRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest(
+        ".pane-dock-toggles, .session-terminal-surface-container, .session-browser-surface-container",
+      )) return;
+      onClose();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [openNow, onClose]);
   if (groups.length === 0) return null;
   const room = cellWidth > 0
     ? cellWidth - DESKTOP_WORKSPACE_MIN_WIDTH
@@ -585,10 +681,9 @@ export function PaneSideDock({
   // persistent layer stacked over the panel body. In the narrow 2뎁스 stage
   // the diff rides the same layer, with a back step to the list (user:
   // 디프소스를 사이드탭 패널에 올리고 뒤로가기).
-  const twoDepthDiff = twoDepth && entry.diff
+  const twoDepthDiff = dockBodyMounted && twoDepth && entry.diff
     ? <div className="workbench-side-surface-slot"
         data-surface-active={diffShowing ? "true" : "false"}>
-        <SessionGoalHost placement="diff">{goalIsland}</SessionGoalHost>
         <div className="pane-dock-diff-back">
           <button type="button" onClick={onCloseDiff}>
             <ArrowLeft size={14} aria-hidden="true" />
@@ -604,8 +699,12 @@ export function PaneSideDock({
         </DeferredPersistentSurface>
       </div>
     : null;
-  const browserSurface = renderBrowserSurface?.(browserShowing) ?? null;
-  const terminalSurface = renderTerminalSurface?.(terminalShowing) ?? null;
+  const browserSurface = dockBodyMounted
+    ? renderBrowserSurface?.(browserShowing) ?? null
+    : null;
+  const terminalSurface = dockBodyMounted
+    ? renderTerminalSurface?.(terminalShowing) ?? null
+    : null;
   const surfaces = browserSurface || terminalSurface || twoDepthDiff
     ? <>
       {browserSurface && <div className="workbench-side-surface-slot"
@@ -623,14 +722,17 @@ export function PaneSideDock({
       {twoDepthDiff}
     </>
     : undefined;
-  // Diff: PAIRED to the LEFT of the panel view (user: 디프는 하단 소스제어
-  // 패널 왼쪽에 쌍으로), under the same header selection; a Source Control
-  // click replaces the file in place. The narrow 2뎁스 stage retires the
-  // pair column — the diff stacks over the panel instead.
-  const diffColumn = entry.diff && !twoDepth
+  // File Diff: PAIRED to the LEFT of the panel view under the same header
+  // selection; a project-tool click replaces the file in place. The narrow
+  // 2뎁스 stage retires the pair column — the diff stacks over the panel.
+  const columnDiff = entry.diff ?? retainedDiff;
+  if (pairShowing && diffWidth > 0) shownDiffWidth.current = diffWidth;
+  const columnWidth = pairShowing ? diffWidth : shownDiffWidth.current || diffDesired;
+  const diffColumn = dockBodyMounted && columnDiff && !twoDepth
     ? <div className="pane-dock-diff-column"
         hidden={!diffShowing}
-        style={{ "--pane-dock-diff-width": `${diffWidth}px` } as React.CSSProperties}>
+        inert={diffShowing ? undefined : true}
+        style={{ "--pane-dock-diff-width": `${columnWidth}px` } as React.CSSProperties}>
         <div className="pane-dock-diff-resize" role="separator"
           aria-orientation="vertical"
           onPointerDown={(event: ReactPointerEvent<HTMLDivElement>) => {
@@ -660,14 +762,13 @@ export function PaneSideDock({
             );
             diffDragPending.current = null;
           }} />
-        <SessionGoalHost placement="diff">{goalIsland}</SessionGoalHost>
         <div className="pane-dock-diff-body">
           <div className="workbench-side-surface-slot"
             data-surface-active={diffShowing ? "true" : "false"}>
             <DeferredPersistentSurface active
               startupDelayMs={DIFF_STARTUP_DELAY_MS}
               fallback={<DesktopLoadingSurface label={t("Loading diff…")} />}>
-              <ReadyGitDiffPane selection={entry.diff} active={diffShowing}
+              <ReadyGitDiffPane selection={columnDiff} active={diffShowing}
                 onOpenFile={openFileTab}
                 onClose={onCloseDiff} />
             </DeferredPersistentSurface>
@@ -675,9 +776,19 @@ export function PaneSideDock({
         </div>
       </div>
     : null;
-  // ONE header line for the whole unit (user: 헤더 한 줄, 타이틀 줄 제거) —
-  // just the child icons, spanning [diff | panel]; heights match the PANE
-  // strip. While the diff pair shows, its panel view stays highlighted.
+  // ONE header line for the whole unit (user: 헤더 한 줄), spanning
+  // [diff | panel] at the PANE strip's height. The child icons moved to the
+  // pane strip's right end (PaneDockToggles), so the header names only the
+  // showing child and carries the fold X — the Claude Desktop card grammar.
+  // The title is text-only: the strip icon already identifies the view
+  // (user: 사이드탭 타이틀 옆 아이콘 제거).
+  const activeRoot = paneDockActiveRoot(entry);
+  // The phone sheet slides out as ONE piece, header included, so the header
+  // stays mounted through the exit and names the last shown child.
+  const mobileSheet = isMobileRemoteSurface();
+  const headerShowing = openNow || mobileSheet;
+  const titleRoot = activeRoot ?? (mobileSheet ? entry.view : null);
+  const activeDescriptor = titleRoot ? descriptors.get(titleRoot) : undefined;
   return <div className="pane-side-dock"
     ref={hostRef}
     data-pane-id={leafId}
@@ -686,31 +797,10 @@ export function PaneSideDock({
     onPointerDownCapture={focused ? undefined : (event) => {
       if (event.button === 0) onFocusPane();
     }}>
-    {/* Phone sheet: tapping OUTSIDE the frame folds the unit (user: 모바일
-        프레임 외 영역 터치 시 접힘). Only the narrow-band CSS displays this
-        catcher; it dims nothing, matching the other sheets. */}
-    <button type="button" className="dock-backdrop"
-      data-state={openNow ? "open" : "closed"}
-      aria-hidden={!openNow}
-      tabIndex={openNow ? 0 : -1}
-      onClick={onClose}
-      aria-label={t("Close panel")} />
-    {openNow && <header className="pane-side-dock-header">
-      <WorkbenchSideIconBar side="right" groups={groups}
-        activeRoot={browserShowing
-          ? PANE_DOCK_BROWSER_SURFACE
-          : terminalShowing ? PANE_DOCK_TERMINAL_SURFACE : entry.view}
-        descriptors={descriptors} orientation="horizontal"
-        onSelect={(id) => {
-          // Re-clicking the ACTIVE child folds the unit — essential once it
-          // floats over the pane as an overlay.
-          const activeChild = browserShowing
-            ? PANE_DOCK_BROWSER_SURFACE
-            : terminalShowing ? PANE_DOCK_TERMINAL_SURFACE : entry.view;
-          if (id === activeChild && !isWorkbenchSideLauncher(id)) onClose();
-          else onSelect(id);
-        }}
-        onMoveGroup={onMoveGroup} onMoveView={onMoveView} />
+    {headerShowing && <header className="pane-side-dock-header">
+      {activeDescriptor && <div className="pane-side-dock-title">
+        <span>{t(activeDescriptor.title ?? activeDescriptor.label)}</span>
+      </div>}
       <button type="button" className="pane-side-dock-close"
         aria-label={t("Close panel")} data-tooltip={t("Close panel")}
         onClick={onClose}>
@@ -723,7 +813,7 @@ export function PaneSideDock({
         <X size={20} strokeWidth={1.5} aria-hidden="true" />
       </button>
     </header>}
-    {(openNow || everOpened.current) && <div className="pane-side-dock-main">
+    {panelMounted && <div className="pane-side-dock-main">
     {diffColumn}
     <WorkbenchSidePanel
       side="right"
@@ -759,7 +849,8 @@ export function PaneSideDock({
             max: PANE_SIDE_DOCK_PANEL_MAX_WIDTH,
             initial: DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH,
           }}
-      renderView={renderView}
+      renderView={(id, active, titleDragProps) =>
+        dockBodyMounted ? renderView(id, active, titleDragProps) : null}
     />
     </div>}
   </div>;

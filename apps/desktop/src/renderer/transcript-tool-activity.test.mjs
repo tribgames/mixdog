@@ -144,7 +144,6 @@ test('Goal and load control tools stay hidden while ordinary tools remain visibl
     'update_goal',
     'load_tool',
     'tool_search',
-    'Skill',
   ];
   const hidden = hiddenNames.map((name, index) => ({
     kind: 'tool',
@@ -152,11 +151,14 @@ test('Goal and load control tools stay hidden while ordinary tools remain visibl
     name,
     result: 'ok',
   }));
-  const rows = project([...hidden, visible]).rows;
+  // Built-in skill loads hide by their result stub; user/plugin skills show.
+  const builtinSkill = { kind: 'tool', id: 'skill-builtin', name: 'Skill', args: { name: 'docx' }, result: 'Loaded built-in skill: docx' };
+  const userSkill = { kind: 'tool', id: 'skill-user', name: 'Skill', args: { name: 'mixdog-refs' }, result: 'Loaded skill: mixdog-refs' };
+  const rows = project([...hidden, builtinSkill, userSkill, visible]).rows;
 
   assert.equal(rows.length, 1);
   assert.equal(rows[0]._tag, 'ToolActivity');
-  assert.deepEqual(rows[0].items, [visible]);
+  assert.deepEqual(rows[0].items, [userSkill, visible]);
   assert.equal(project(hidden).rows.length, 0);
 });
 

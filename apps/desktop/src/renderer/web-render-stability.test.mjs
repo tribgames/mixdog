@@ -6,6 +6,8 @@ import {
   rejectComposerSubmissionRecovery,
   resolveComposerSubmissionRecovery,
   retainComposerSubmissionRecovery,
+  stashComposerDraft,
+  stashedComposerDraft,
   takeRejectedComposerSubmissionRecoveries,
 } from "./composer-draft.ts";
 import { isRemoteBrowserRenderer } from "./remote-ui-projection.ts";
@@ -34,6 +36,27 @@ test("a fresh New Task pane opens clean even while the user is typing", () => {
     liveDomDraft: "이전 작업 입력 중",
     freshDraft: true,
     typingLive: true,
+  }), "");
+});
+
+test("returning to a tab hands back the text typed there before leaving", () => {
+  stashComposerDraft("draft:task-1", "쓰다 만 문장");
+  assert.equal(composerDraftAfterScopeChange({
+    currentDraft: "다른 탭 입력",
+    liveDomDraft: "다른 탭 입력",
+    freshDraft: true,
+    typingLive: false,
+    stashedDraft: stashedComposerDraft("draft:task-1"),
+  }), "쓰다 만 문장");
+  // Whitespace-only text drops the entry, so a cleared tab reopens clean.
+  stashComposerDraft("draft:task-1", "  ");
+  assert.equal(stashedComposerDraft("draft:task-1"), "");
+  assert.equal(composerDraftAfterScopeChange({
+    currentDraft: "다른 탭 입력",
+    liveDomDraft: "다른 탭 입력",
+    freshDraft: true,
+    typingLive: false,
+    stashedDraft: stashedComposerDraft("draft:task-1"),
   }), "");
 });
 

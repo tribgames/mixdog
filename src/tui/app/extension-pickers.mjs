@@ -27,6 +27,19 @@ export function createExtensionPickers({
   // opened outside this factory replacing the MCP one.
   let mcpEpoch = 0;
   let mcpActive = false;
+  // Project scope from a decorated status row (resource-api scopeInfo):
+  // '' when global, else a short note. Editing lives in Desktop / setup tool.
+  const scopeNote = (row) => {
+    if (row?.activeHere === false) return 'not in this project';
+    const own = Array.isArray(row?.scope) ? row.scope.length : 0;
+    const inherited = Array.isArray(row?.inheritedScope) ? row.inheritedScope.length : 0;
+    const count = own || inherited;
+    return count ? `${count} project${count === 1 ? '' : 's'}` : '';
+  };
+  const withScope = (text, row) => {
+    const note = scopeNote(row);
+    return note ? `${text} · ${note}` : text;
+  };
   // Async: these status reads are remote calls on a daemon-backed store, so the
   // sync versions handed every picker an unresolved promise (empty lists).
   const mcpStatus = async () => {
@@ -67,7 +80,7 @@ export function createExtensionPickers({
         markerColor: enabled ? theme.success : theme.inactive,
         description: pending
           ? `${optimistic.enabled ? 'enabling' : 'disabling'}… · ${server.transport || 'unknown'}`
-          : `${server.source || 'config'} · ${server.status || 'unknown'} · ${server.transport || 'unknown'} · ${server.toolCount || 0} tools${server.error ? ` · ${server.error}` : ''}`,
+          : withScope(`${server.source || 'config'} · ${server.status || 'unknown'} · ${server.transport || 'unknown'} · ${server.toolCount || 0} tools${server.error ? ` · ${server.error}` : ''}`, server),
         _action: 'server',
         _server: server,
         _enabled: enabled,
@@ -206,7 +219,7 @@ export function createExtensionPickers({
         label: skill.name,
         marker: enabled ? '●' : '○',
         markerColor: enabled ? theme.success : theme.inactive,
-        description: `${skill.source || 'skill'} · ${skill.description || skill.filePath || ''}`,
+        description: withScope(`${skill.source || 'skill'} · ${skill.description || skill.filePath || ''}`, skill),
         _action: 'skill',
         _skill: skill,
         _enabled: enabled,
@@ -373,6 +386,7 @@ export function createExtensionPickers({
             `source: ${p.sourceType || p.source}${p.sourceUrl ? ` / ${p.sourceUrl}` : ''}`,
             `skills: ${p.skillCount || 0}`,
             `mcp: ${p.mcpScript ? `${p.mcpEnabled ? 'enabled' : 'available'} (${p.mcpServerName || 'plugin-mcp'})` : '(none)'}`,
+            `applies to: ${Array.isArray(p.scope) && p.scope.length ? p.scope.join(', ') : 'all projects'}`,
             `root: ${p.root}`,
             p.description ? `\n${p.description}` : '',
           ].filter(Boolean).join('\n'), 'info');
@@ -435,7 +449,7 @@ export function createExtensionPickers({
       items.push({
         value: `${plugin.id || plugin.name}:${plugin.version || ''}`,
         label: plugin.title || plugin.name,
-        description: `${plugin.sourceType || plugin.source}${plugin.version ? ` · ${plugin.version}` : ''} · skills ${plugin.skillCount || 0}${plugin.mcpScript ? ` · mcp ${plugin.mcpEnabled ? 'enabled' : plugin.mcpScript}` : ''}`,
+        description: withScope(`${plugin.sourceType || plugin.source}${plugin.version ? ` · ${plugin.version}` : ''} · skills ${plugin.skillCount || 0}${plugin.mcpScript ? ` · mcp ${plugin.mcpEnabled ? 'enabled' : plugin.mcpScript}` : ''}`, plugin),
         _action: 'plugin',
         _plugin: plugin,
       });

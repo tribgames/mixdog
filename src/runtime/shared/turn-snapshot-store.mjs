@@ -27,6 +27,10 @@ const RECORD_VERSION = 1;
 const RECORD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 // Enough to cover the reviews a user can still act on; the newest turn wins.
 const MAX_TURNS_PER_SESSION = 8;
+// A session normally stays in one Project, but cwd changes are valid. Keep one
+// cumulative baseline per repository root without letting a long-lived session
+// grow this record without bound.
+const MAX_SESSION_SCOPES = 8;
 // A bounded directory: one file per session, oldest swept first.
 const MAX_RECORD_FILES = 512;
 
@@ -38,6 +42,45 @@ let sweepDone = false;
 
 function clean(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+function rootKey(value) {
+  const root = clean(value).replace(/[\\/]+$/, '');
+  return process.platform === 'win32' ? root.toLowerCase() : root;
+}
+
+function sessionScopes(record) {
+  const scopes = [];
+  const add = (entry) => {
+    const root = clean(entry?.root);
+    const baselineTree = clean(entry?.baselineTree);
+    if (!root || !baselineTree) return;
+    const key = rootKey(root);
+    const existing = scopes.find((scope) => rootKey(scope.root) === key);
+    const files = (Array.isArray(entry?.toolFiles) ? entry.toolFiles : [])
+      .map((value) => clean(value))
+      .filter(Boolean);
+    if (existing) {
+      for (const file of files) existing.toolFiles.add(file);
+      existing.updatedAt = Math.max(existing.updatedAt, Number(entry?.updatedAt) || 0);
+      return;
+    }
+    scopes.push({
+      root,
+      baselineTree,
+      toolFiles: new Set(files),
+      updatedAt: Number(entry?.updatedAt) || 0,
+    });
+  };
+  const stored = Array.isArray(record?.sessionScopes) ? record.sessionScopes : [];
+  if (stored.length > 0) {
+    for (const scope of stored) add(scope);
+  } else {
+    // Upgrade an existing v1 record lazily: its oldest retained turn is the
+    // earliest baseline still available for this session and root.
+    for (const turn of Array.isArray(record?.turns) ? record.turns : []) add(turn);
+  }
+  return scopes;
 }
 
 function recordPath(sessionId) {
@@ -107,7 +150,7 @@ export async function saveTurnSnapshotRecord(sessionId, turn) {
       const existing = await readRecordFile(path);
       const generation = Number(turn?.generation) || 0;
       const turns = (existing?.turns || []).filter((entry) => entry?.generation !== generation);
-      turns.push({
+      const nextTurn = {
         generation,
         checkpointId: clean(turn?.checkpointId),
         root,
@@ -118,12 +161,35 @@ export async function saveTurnSnapshotRecord(sessionId, turn) {
           .filter(Boolean))],
         sealed: turn?.sealed === true,
         updatedAt: Date.now(),
-      });
+      };
+      turns.push(nextTurn);
       turns.sort((left, right) => (left.generation || 0) - (right.generation || 0));
+      const scopes = sessionScopes(existing);
+      const scope = scopes.find((entry) => rootKey(entry.root) === rootKey(root));
+      if (scope) {
+        for (const file of nextTurn.toolFiles) scope.toolFiles.add(file);
+        scope.updatedAt = nextTurn.updatedAt;
+      } else {
+        scopes.push({
+          root,
+          baselineTree,
+          toolFiles: new Set(nextTurn.toolFiles),
+          updatedAt: nextTurn.updatedAt,
+        });
+      }
       const payload = {
         version: RECORD_VERSION,
         sessionId: id,
         turns: turns.slice(-MAX_TURNS_PER_SESSION),
+        sessionScopes: scopes
+          .sort((left, right) => left.updatedAt - right.updatedAt)
+          .slice(-MAX_SESSION_SCOPES)
+          .map((entry) => ({
+            root: entry.root,
+            baselineTree: entry.baselineTree,
+            toolFiles: [...entry.toolFiles],
+            updatedAt: entry.updatedAt,
+          })),
       };
       const temporary = `${path}.${process.pid}.tmp`;
       await writeFile(temporary, JSON.stringify(payload), 'utf8');
@@ -152,6 +218,22 @@ export async function loadTurnSnapshotRecord(sessionId) {
     return turn;
   }
   return null;
+}
+
+/** Earliest retained baseline plus every path attributed to this session,
+ * grouped by repository root. This is the durable source for the pane's
+ * session-wide Diff and is intentionally separate from latest-turn Undo. */
+export async function loadSessionSnapshotRecords(sessionId) {
+  const id = clean(sessionId);
+  if (!id) return [];
+  const record = await readRecordFile(recordPath(id));
+  if (!record) return [];
+  return sessionScopes(record).map((entry) => ({
+    root: entry.root,
+    baselineTree: entry.baselineTree,
+    toolFiles: [...entry.toolFiles],
+    updatedAt: entry.updatedAt,
+  }));
 }
 
 export async function deleteTurnSnapshotRecords(sessionId) {

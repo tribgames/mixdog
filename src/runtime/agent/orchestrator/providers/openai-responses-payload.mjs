@@ -18,6 +18,7 @@ import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.m
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { makeModelCache } from './model-cache.mjs';
 import { providerReplayItems } from './lib/provider-replay.mjs';
+import { ensureResponsesCallOutputs } from './lib/wire-pairing.mjs';
 
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
 import { _combineUsageWithWarmup } from './openai-ws-events.mjs';
@@ -227,7 +228,10 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
         pushReasoningItems(m, 'after');
     }
     flushToolMedia();
-    return out;
+    // Wire-level pairing guard: replay envelopes can carry a call whose
+    // result never committed (cancel/abort). The provider hard-rejects the
+    // unpaired call, so synthesize the missing outputs here.
+    return ensureResponsesCallOutputs(out);
 }
 
 export function toOpenAIResponsesTool(t) {

@@ -289,6 +289,26 @@
   --mx-button: 0 0 0 .5px var(--mx-alpha-light-20);
   --mx-button-contrast: 0 0 0 .5px var(--mx-alpha-light-40);
 
+  /* ── Popup surface ──
+     ONE skin for everything that floats or modals over the shell — menus,
+     popovers, pickers, tooltips, toasts, dialog cards (user: 팝업 디자인 공통
+     규격, 컨텍스트 창 톤으로). The context gauge card is the reference: the
+     page's own base plate, a single half-pixel strong hairline, the floating
+     elevation. Theme-neutral because every value resolves through a themed
+     token. Dialog cards take the one-notch-larger card radius; everything
+     that hangs off a control keeps the compact radius. */
+  --mx-popup-bg: var(--mx-bg-base);
+  --mx-popup-border: .5px solid var(--mx-border-strong);
+  --mx-popup-shadow: var(--mx-floating);
+  --mx-popup-radius: var(--mx-radius-md);
+  --mx-popup-radius-card: var(--mx-radius-lg);
+  /* Quiet pressable plate inside a popup (the context card's Compact button):
+     a 4% ink tint under a muted hairline, so it reads as a button on the same
+     base plate without a filled block. */
+  --mx-popup-action-bg: color-mix(in srgb, var(--mx-text) 4%, transparent);
+  --mx-popup-action-ring: inset 0 0 0 .5px var(--mx-border-muted);
+  --mx-popup-action-ring-hover: inset 0 0 0 .5px var(--mx-border-strong);
+
   /* ── Base typography, metrics, motion ── */
   color: var(--mx-text);
   background: var(--mx-bg-deep);

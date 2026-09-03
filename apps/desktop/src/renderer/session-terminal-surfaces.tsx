@@ -257,11 +257,16 @@ export function SessionTerminalSlot({
       : null;
     observer?.observe(node);
     window.addEventListener("resize", schedule);
+    // The phone dock SLIDES in: the slot's size never changes during the
+    // transform, only its position, so the rect measured mid-slide would pin
+    // the surface off-screen. Any finished transition re-measures.
+    window.addEventListener("transitionend", schedule, true);
     schedule();
     return () => {
       if (frame) window.cancelAnimationFrame(frame);
       observer?.disconnect();
       window.removeEventListener("resize", schedule);
+      window.removeEventListener("transitionend", schedule, true);
     };
   }, [active, controller, sessionId]);
   return <div

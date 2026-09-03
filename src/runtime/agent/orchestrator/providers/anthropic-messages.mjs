@@ -105,8 +105,11 @@ export function buildSystemBlocks(systemMsgs, systemTtl, tier3Ttl) {
     // anthropic-oauth.mjs.
     const MAX_SYSTEM_BREAKPOINTS = 4;
     let bpCount = 0;
-    return items.map(it => {
-        const block = { type: 'text', text: it.text };
+    return items.map((it, index) => {
+        // Anthropic joins system text blocks with no separator; open every
+        // block after the first with a paragraph break so headings never glue
+        // onto the previous block's last line. Mirrors anthropic-oauth.mjs.
+        const block = { type: 'text', text: index ? `\n\n${it.text}` : it.text };
         const ttl = it.tier === 'tier3' ? tier3Ttl : it.tier === 'env' ? null : systemTtl;
         if (ttl && bpCount < MAX_SYSTEM_BREAKPOINTS) {
             block.cache_control = ttl;

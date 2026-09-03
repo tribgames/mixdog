@@ -1,0 +1,6 @@
+{
+  "name": "mixdog",
+  "title": "Mixdog Built-in",
+  "description": "Skills bundled with Mixdog. Installed and toggled through Settings → Built-in, never listed as a plugin.",
+  "skills": "./skills"
+}

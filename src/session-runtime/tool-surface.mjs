@@ -23,6 +23,7 @@ export function createToolSurface({
   getConfig,
   getToolProfile = () => 'interactive',
   getMcpScopeId = () => null,
+  getCurrentCwd = () => null,
   cfgMod,
   loadWorkflowPack,
   activeWorkflowId,
@@ -90,6 +91,7 @@ export function createToolSurface({
       ? mgr.previewSessionTools(toolSpecForMode(mode), [], {
         mcpScopeId: getMcpScopeId(),
         modelName: getRoute().model,
+        cwd: getCurrentCwd?.() || null,
       })
       : [];
     const denied = disallowedTools();

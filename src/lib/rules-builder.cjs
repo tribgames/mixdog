@@ -189,11 +189,10 @@ function buildLanguageSection(dataDir) {
   const profile = normalizeProfileConfig(readAgentConfig(dataDir).profile);
   const language = profileLanguagePrompt(profile.language);
   if (!language?.prompt) return '';
-  const source = language.source === 'system-locale' && language.locale
-    ? ` from system locale ${language.locale}`
-    : '';
   const lines = [
-    `- Default user-facing language${source}: ${language.prompt}. Use it for all user-facing text (preambles, progress, questions, reports, notices), overriding output style; switch only when the user does or asks.`,
+    `- Always respond in ${language.prompt}. Use ${language.prompt} for all user-facing text: pre-tool preamble, progress updates, questions, reports, notices. This overrides output style. Code comments follow the file's existing language.`,
+    `- English rules, tool results, and runtime/system tags never change the response language; write the preamble and progress lines in ${language.prompt} even when the text just before them is English.`,
+    `- Preamble and reply language follow this setting and the user's latest instruction only; earlier lines in this conversation set no precedent.`,
   ];
   // Translation guards only bind when the output language differs from the
   // language of code, docs, and errors. English output has nothing to
@@ -340,8 +339,10 @@ function buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR }) {
   const profilePreferences = buildProfilePreferencesContent(DATA_DIR);
   if (profilePreferences) parts.push(profilePreferences);
 
-  const languageSection = buildLanguageSection(DATA_DIR);
-  if (languageSection) parts.push(languageSection);
+  // The response-language section is NOT part of meta: it closes the session
+  // environment block (buildLeadLanguageContent) so no later English text
+  // (workflow, role, persona, memory, session lines) sits between it and the
+  // first reply.
 
   // Common instructions (renamed from user-workflow.md; legacy file still
   // honored so existing installs keep their guidance without migration).
@@ -356,6 +357,17 @@ function buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR }) {
 }
 
 /**
+ * Lead response-language block. Delivered as the closing part of the
+ * session-environment system block so the language directive is the last
+ * system text the model reads before the conversation — the pre-tool
+ * preamble and progress lines follow the most recent instruction, so nothing
+ * English (session/shell/git lines included) may trail it.
+ */
+function buildLeadLanguageContent({ DATA_DIR }) {
+  return buildLanguageSection(DATA_DIR);
+}
+
+/**
  * Build the Lead injection content.
  */
 function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
@@ -364,11 +376,14 @@ function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
   const tool = buildSharedToolContent({ PLUGIN_ROOT, DATA_DIR });
   if (tool) parts.push(tool);
 
+  const meta = buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR });
+  if (meta) parts.push(meta);
+
   const role = buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR });
   if (role) parts.push(role);
 
-  const meta = buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR });
-  if (meta) parts.push(meta);
+  const language = buildLeadLanguageContent({ DATA_DIR });
+  if (language) parts.push(language);
 
   return parts.join('\n\n');
 }
@@ -428,6 +443,7 @@ module.exports = {
   buildSharedToolContent,
   buildLeadRoleContent,
   buildLeadMetaContent,
+  buildLeadLanguageContent,
   buildAgentRoleContent,
   buildInjectionContent,
   buildAgentInjectionContent,

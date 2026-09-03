@@ -30,6 +30,7 @@ export function createNotify(mgr, { notifySessionCompletion } = {}) {
       // resume drops it rather than replaying it out-of-order (owner decision).
       return Boolean(mgr.enqueuePendingMessage(target, markCompletionEntry(visible, {
         executionId: meta?.execution_id,
+        meta,
       })) > 0);
     } catch {
       return false;

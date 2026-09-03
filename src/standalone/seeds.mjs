@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { pluginSkillsRoots } from '../runtime/shared/plugin-manifest.mjs';
 
 export function ensureStandaloneEnvironment({ rootDir, dataDir }) {
   if (!rootDir) throw new Error('standalone rootDir is required');
@@ -43,26 +44,28 @@ function cleanupRetiredChannelSecrets(dataDir) {
 // byte-identical to some bundled skill (the user never touched it) and keep
 // it when it differs, because then it is the user's own override.
 export function retireSeededSkillCopies({ rootDir, dataDir }) {
-  const bundledDir = join(rootDir, 'defaults', 'skills');
   const targetRoot = join(dataDir, 'skills');
-  if (!existsSync(bundledDir) || !existsSync(targetRoot)) return [];
-  let names;
-  try {
-    names = readdirSync(bundledDir, { withFileTypes: true });
-  } catch {
-    return [];
-  }
+  if (!existsSync(targetRoot)) return [];
   const retired = [];
-  for (const entry of names) {
-    if (!entry.isDirectory()) continue;
-    const copy = join(targetRoot, entry.name);
-    if (!existsSync(copy)) continue;
-    if (!sameTree(join(bundledDir, entry.name), copy)) continue;
+  // The bundle is a plugin root; walk the same skill roots the collector reads.
+  for (const bundledDir of pluginSkillsRoots(join(rootDir, 'defaults'))) {
+    let names;
     try {
-      rmSync(copy, { recursive: true, force: true });
-      retired.push(entry.name);
+      names = readdirSync(bundledDir, { withFileTypes: true });
     } catch {
-      // best-effort; a stuck copy simply keeps shadowing until removed by hand
+      continue;
+    }
+    for (const entry of names) {
+      if (!entry.isDirectory()) continue;
+      const copy = join(targetRoot, entry.name);
+      if (!existsSync(copy)) continue;
+      if (!sameTree(join(bundledDir, entry.name), copy)) continue;
+      try {
+        rmSync(copy, { recursive: true, force: true });
+        retired.push(entry.name);
+      } catch {
+        // best-effort; a stuck copy simply keeps shadowing until removed by hand
+      }
     }
   }
   return retired;

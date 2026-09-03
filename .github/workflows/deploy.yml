@@ -205,7 +205,7 @@ jobs:
           ]));
           const criticalChanged = changedSince(currentTag, RELEASE_CRITICAL_PATHS);
           // The release gate already ran the identical critical lane
-          // (test:release-critical) on every gated main push. When every gate
+          // (the default test lane) on every gated main push. When every gate
           // run covering commits since the published release succeeded and no
           // critical path changed after the newest gated commit, the release
           // validate step would only re-verify an already verified state, so

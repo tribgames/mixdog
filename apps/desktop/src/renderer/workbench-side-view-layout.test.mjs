@@ -32,10 +32,30 @@ test("a persisted layout restores its sides and re-seats newly available views",
       ["sessions", "projects", "agents", "search"],
     ),
     {
-      // Search belongs to the left rail now, so it re-seats there in default
-      // order instead of trailing whichever side happened to be stored.
-      left: [["search"], ["projects"]],
-      right: [["sessions", "agents"]],
+      // The right side is pane-bound: Sessions and Agents stored there before
+      // the rails were split re-seat on the left in default order, as does
+      // Search, instead of trailing whichever side happened to be stored.
+      left: [["agents"], ["sessions"], ["search"], ["projects"]],
+      right: [],
+    },
+  );
+});
+
+test("a stored right side keeps only the views the pane ships there", () => {
+  // Source Control lingered on the right of an install whose layout was
+  // stored before it moved rails; it comes back to the left without touching
+  // the rest of the hand-arranged left rail.
+  assert.deepEqual(
+    normalizeWorkbenchSideViewLayout(
+      {
+        left: [["sessions"], ["agents"], ["projects"]],
+        right: [["source-control"], ["session-diff"], ["browser"], ["terminal"]],
+      },
+      ["sessions", "agents", "projects", "source-control", "session-diff", "browser", "terminal"],
+    ),
+    {
+      left: [["sessions"], ["agents"], ["source-control"], ["projects"]],
+      right: [["session-diff"], ["browser"], ["terminal"]],
     },
   );
 });
@@ -46,7 +66,7 @@ test("restoration drops views this build no longer offers", () => {
       { left: [["sessions", "webhooks"]], right: [["agents"]] },
       ["sessions", "agents"],
     ),
-    { left: [["sessions"]], right: [["agents"]] },
+    { left: [["agents"], ["sessions"]], right: [] },
   );
 });
 
@@ -59,9 +79,12 @@ test("a corrupt or missing persisted layout falls back to the defaults", () => {
   assert.deepEqual(
     normalizeWorkbenchSideViewLayout(
       null,
-      ["sessions", "source-control", "browser", "terminal"],
+      ["sessions", "source-control", "session-diff", "browser", "terminal"],
     ),
-    { left: [["sessions"]], right: [["source-control"], ["browser"], ["terminal"]] },
+    {
+      left: [["sessions"], ["source-control"]],
+      right: [["session-diff"], ["browser"], ["terminal"]],
+    },
   );
 });
 
@@ -87,11 +110,11 @@ test("views missing from a stored side are restored in default order", () => {
   assert.deepEqual(
     normalizeWorkbenchSideViewLayout(
       { left: [["sessions"]], right: [] },
-      ["sessions", "agents", "schedules", "source-control", "browser", "terminal"],
+      ["sessions", "agents", "schedules", "source-control", "session-diff", "browser", "terminal"],
     ),
     {
-      left: [["agents"], ["sessions"], ["schedules"]],
-      right: [["source-control"], ["browser"], ["terminal"]],
+      left: [["agents"], ["sessions"], ["schedules"], ["source-control"]],
+      right: [["session-diff"], ["browser"], ["terminal"]],
     },
   );
 });
@@ -113,6 +136,18 @@ test("each side opens on its leading group, never a last-visited view", () => {
   );
 });
 
+test("the left drawer opens on Agents wherever a stored rail order put it", () => {
+  // A phone whose stored rail still leads with Sessions must not reboot into
+  // Sessions: Agents is the left home whenever the rail carries it.
+  assert.deepEqual(
+    initialActiveWorkbenchSideViews({
+      left: [["sessions"], ["schedules"], ["agents"]],
+      right: [],
+    }),
+    { left: "agents", right: null },
+  );
+});
+
 test("an empty side has no active view", () => {
   assert.deepEqual(
     initialActiveWorkbenchSideViews({ left: [], right: [["agents"]] }),
@@ -127,8 +162,8 @@ test("side view layout keeps every available category exactly once", () => {
       right: [["agents", "source-control"]],
     }, ["projects", "search", "agents", "source-control"]),
     {
-      left: [["projects", "search"]],
-      right: [["agents", "source-control"]],
+      left: [["agents"], ["source-control"], ["projects", "search"]],
+      right: [],
     },
   );
 });

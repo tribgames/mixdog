@@ -6,9 +6,10 @@
  */
 import type { WebContents } from 'electron';
 
-import { dialogBridgeFulfillParams } from './dialog-bridge';
+import type { BrowserCdpPort } from './cdp';
 import type { BrowserCommandResult } from './command';
-import { redactBrowserText, redactBrowserUrl } from './host-policy';
+import { dialogBridgeFulfillParams } from './dialog-bridge';
+import { redactBrowserText, redactBrowserUrl } from './redaction';
 
 export interface PendingBrowserDialog {
   type: string;
@@ -27,28 +28,12 @@ export interface BrowserDialogReportHost {
     console: { recentErrors(limit: number): string[] };
     networkFailures: string[];
   };
-  guestDebugger(guest: WebContents): Promise<Electron.Debugger>;
-  sendCdp<T>(
-    guest: WebContents,
-    cdp: Electron.Debugger,
-    method: string,
-    params?: Record<string, unknown>,
-    timeoutMs?: number,
-    signal?: AbortSignal,
-    sessionId?: string,
-  ): Promise<T>;
+  cdp: BrowserCdpPort;
   pageId(guest: WebContents): string;
-  cdpTimeoutMs: number;
 }
 
 export function createBrowserDialogReport(host: BrowserDialogReportHost) {
-  const {
-    diagnostics: diagnosticsFor,
-    guestDebugger,
-    sendCdp,
-    pageId: stablePageId,
-    cdpTimeoutMs: CDP_REQUEST_TIMEOUT_MS,
-  } = host;
+  const { diagnostics: diagnosticsFor, cdp, pageId: stablePageId } = host;
   async function handleDialog(
     guest: WebContents,
     accept: boolean,
@@ -58,27 +43,17 @@ export function createBrowserDialogReport(host: BrowserDialogReportHost) {
     const diagnostics = diagnosticsFor(guest);
     const pending = diagnostics.pendingDialog;
     if (!pending) throw new Error('no JavaScript dialog is currently open');
-    const cdp = await guestDebugger(guest);
+    const target = { sessionId: pending.sessionId };
     if (pending.bridgeRequestId) {
-      await sendCdp(
+      await cdp.call(
         guest,
-        cdp,
         'Fetch.fulfillRequest',
         dialogBridgeFulfillParams(pending.bridgeRequestId, accept, promptText),
-        CDP_REQUEST_TIMEOUT_MS,
         signal,
-        pending.sessionId,
+        target,
       );
     } else {
-      await sendCdp(
-        guest,
-        cdp,
-        'Page.handleJavaScriptDialog',
-        { accept, promptText },
-        CDP_REQUEST_TIMEOUT_MS,
-        signal,
-        pending.sessionId,
-      );
+      await cdp.call(guest, 'Page.handleJavaScriptDialog', { accept, promptText }, signal, target);
     }
     diagnostics.pendingDialog = null;
   }

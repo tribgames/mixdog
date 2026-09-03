@@ -1,6 +1,7 @@
 import { FileText, Minus, Plus, RefreshCw, X } from "lucide-react";
 import {
   lazy,
+  startTransition,
   Suspense,
   useCallback,
   useEffect,
@@ -26,8 +27,17 @@ import { createGitRefreshScheduler } from "./git-refresh-scheduler";
 import { prefetchDiffView } from "./lazy-widgets";
 import { subscribeProjectFileChanges } from "./project-file-changes";
 import { navigationKey } from "./text-format";
+import { fetchSessionDiffFilePatch } from "./session-diff-cache";
 
 type GitDiffSelection = Extract<WorkspaceSelection, { kind: "diff" }>;
+
+/** The session review diff is ONE patch for every file the session touched;
+ *  the pane shows the slice for `rel` (the Session Diff rows open here),
+ *  served from the shared session-diff cache so opening a file never
+ *  recomputes the whole session diff. */
+async function loadSessionFilePatch(sessionId: string, rel: string): Promise<string> {
+  return fetchSessionDiffFilePatch(sessionId, rel);
+}
 
 // Monaco DiffEditor loads on first use only.
 const MonacoGitDiff = lazy(async () => {
@@ -89,7 +99,9 @@ export function GitDiffPane({
     const request = epoch.current;
     setError("");
     try {
-      const next = selection.source === "commit"
+      const next = selection.source === "session"
+        ? await loadSessionFilePatch(String(selection.hash || ""), selection.rel)
+        : selection.source === "commit"
         ? await api?.gitShowDiff?.(
           selection.project,
           String(selection.hash || ""),
@@ -104,7 +116,11 @@ export function GitDiffPane({
         );
       if (request === epoch.current) {
         const nextPatch = next ?? "";
-        setPatch(nextPatch);
+        // The rows for a large patch render as a transition: React then
+        // yields between them, so a composer keystroke arriving while the
+        // diff opens or refreshes paints in its own frame instead of behind
+        // the whole diff (user: 디프창이 생성될 때 덜컹).
+        startTransition(() => setPatch(nextPatch));
         if (nextPatch) void prefetchDiffView().catch(() => undefined);
         reportBootSurfaceStage("diff", metricKey, "data");
         reportBootSurfaceReady("diff", metricKey);
@@ -155,9 +171,12 @@ export function GitDiffPane({
       document.removeEventListener("visibilitychange", visibilityChanged);
     };
   }, [active, load, metricKey, selection.source]);
+  // Hunk staging exists for the index/worktree sources only: a commit or a
+  // session slice is read-only, so it renders as ONE continuous diff.
+  const stageable = selection.source === "staged" || selection.source === "unstaged";
   const hunks = useMemo(
-    () => patch && selection.source !== "commit" ? splitGitPatchHunks(patch) : [],
-    [patch, selection.source],
+    () => patch && stageable ? splitGitPatchHunks(patch) : [],
+    [patch, stageable],
   );
   const applyHunk = async (hunk: GitPatchHunk, index: number) => {
     if (!api?.gitApplyPatch || busyHunk >= 0) return;
@@ -179,9 +198,13 @@ export function GitDiffPane({
     }
   };
 
-  const sourceLabel = selection.source === "commit"
+  const sourceLabel = selection.source === "session"
+    ? t("Session diff")
+    : selection.source === "commit"
     ? `Commit ${String(selection.hash || "").slice(0, 8)}`
     : selection.source === "staged" ? "Staged Changes" : "Working Tree Changes";
+  // The Monaco editor renderer reads git objects; a session slice has none.
+  const editorAvailable = selection.source !== "session";
   return <div className="workspace-git-diff">
     <header>
       <div>
@@ -193,10 +216,10 @@ export function GitDiffPane({
           onClick={() => setMode("unified")}>{t("Unified")}</button>
         <button type="button" aria-pressed={mode === "split"}
           onClick={() => setMode("split")}>{t("Split")}</button>
-        <button type="button" aria-pressed={renderer === "editor"}
+        {editorAvailable && <button type="button" aria-pressed={renderer === "editor"}
           onClick={() => setRenderer(renderer === "editor" ? "text" : "editor")}>
           {t("Editor")}
-        </button>
+        </button>}
         <button type="button" aria-label={t("Open file {{file}}", { file: selection.rel })}
           onClick={() => onOpenFile?.(selection.project, selection.rel)}>
           <FileText size={14} aria-hidden="true" />
@@ -211,12 +234,13 @@ export function GitDiffPane({
       </div>
     </header>
     <div className="workspace-git-diff-body">
-      {renderer === "editor"
+      {renderer === "editor" && editorAvailable
         ? <Suspense fallback={<p className="workspace-git-diff-state">
             <ProgressSpinner size={16} /> Loading editor…
           </p>}>
             <MonacoGitDiff project={selection.project} rel={selection.rel}
-              source={selection.source} hash={selection.hash}
+              source={selection.source === "session" ? "unstaged" : selection.source}
+              hash={selection.hash}
               sideBySide={mode === "split"} onSaved={() => void load()} />
           </Suspense>
         : patch === null

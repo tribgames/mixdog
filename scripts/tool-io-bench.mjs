@@ -55,8 +55,29 @@ try {
       path: entriesDir,
       depth: 3,
       hidden: true,
-      limit: 1000,
+      // 0 = no page cap; the page cap is 100 so a positive value never
+      // reaches the nested leaf that sits after 512 flat entries.
+      limit: 0,
     }, fixture, options), /nested\/deeper\/leaf\.txt\tfile/],
+    ['glob_entries', () => executeBuiltinTool('glob', {
+      pattern: 'entries/**/*.txt',
+      path: fixture,
+      limit: 0,
+    }, fixture, options), /entry-0511\.txt/],
+    ['find_leaf', () => executeBuiltinTool('find', {
+      query: 'deeper leaf',
+      path: fixture,
+    }, fixture, options), /leaf\.txt/],
+    ['grep_large', () => executeBuiltinTool('grep', {
+      pattern: '^line 4000 ',
+      path: largeFile,
+      context: 0,
+    }, fixture, options), /line 4000/],
+    ['grep_tree', () => executeBuiltinTool('grep', {
+      pattern: 'row 511',
+      path: entriesDir,
+      mode: 'files',
+    }, fixture, options), /entry-0511\.txt/],
     ['read_range', () => executeBuiltinTool('read', {
       path: largeFile,
       offset: 3000,

@@ -1,5 +1,5 @@
 import { ArrowUp, Command, Mic, X } from "lucide-react";
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MutableRefObject } from "react";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MutableRefObject, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { DesktopAbortOptions, DesktopCapability, DesktopModelSelection, DesktopPromptContent, DesktopSubmitOptions, SessionSnapshot } from "../shared/contract";
 import { type RecordValue } from "./desktop-types";
@@ -40,6 +40,8 @@ import {
 import {
   composerDraftAfterScopeChange,
   composerScopeOpensFreshDraft,
+  stashComposerDraft,
+  stashedComposerDraft,
 } from "./composer-draft";
 import { useComposerDictation } from "./use-composer-dictation";
 import { useComposerAttachments } from "./use-composer-attachments";
@@ -117,6 +119,7 @@ export const Composer = memo(function Composer({
   draftMode,
   onDraftModelSelection,
   onRoutePreferenceApplied,
+  modelAside,
   queued,
   hiddenQueueIds,
   pendingSubmissionIds,
@@ -163,6 +166,9 @@ export const Composer = memo(function Composer({
   draftMode?: boolean;
   onDraftModelSelection?: (selection: DesktopModelSelection) => void;
   onRoutePreferenceApplied?: (selection: DesktopModelSelection) => void;
+  /** Session readout seated right after the model trigger — the context
+   *  gauge (user: 컨텍스트는 모델 선택기 옆). */
+  modelAside?: ReactNode;
   queued?: unknown[];
   hiddenQueueIds?: Array<string | number>;
   pendingSubmissionIds?: Array<string | number>;
@@ -362,7 +368,17 @@ export const Composer = memo(function Composer({
   }, []);
   useLayoutEffect(() => {
     if (activeIdentityScope.current === identityScope) return;
+    const previousScope = activeIdentityScope.current;
     activeIdentityScope.current = identityScope;
+    // Park the text the user typed in the tab being left, so returning to
+    // that tab hands it back instead of opening empty.
+    const leavingElement = textarea.current;
+    stashComposerDraft(
+      previousScope,
+      document.activeElement === leavingElement && leavingElement
+        ? leavingElement.value
+        : draftRef.current,
+    );
     resetAttachments();
     composingRef.current = false;
     suppressImeLineBreakRef.current = false;
@@ -385,6 +401,7 @@ export const Composer = memo(function Composer({
         liveDomDraft: typingElement?.value ?? current,
         freshDraft,
         typingLive,
+        stashedDraft: stashedComposerDraft(identityScope),
       });
       draftRef.current = next;
       return next;
@@ -1171,6 +1188,7 @@ export const Composer = memo(function Composer({
           invokeResult={invokeResult} applySnapshot={applySnapshot}
           onOpenSettings={onOpenSettings} onDraftSelection={onDraftModelSelection}
           onRoutePreferenceApplied={onRoutePreferenceApplied} />
+        {modelAside && <span className="composer-model-aside">{modelAside}</span>}
         <span className="composer-primary-actions">
         {/* The mic appears only once the voice runtime is installed
             (Extensions → Voice transcription): an uninstalled feature never

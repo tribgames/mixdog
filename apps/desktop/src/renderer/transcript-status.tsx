@@ -215,20 +215,23 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
           ? <div><span>{t("Cost")}</span><b>${cost >= 1 ? cost.toFixed(2) : cost.toFixed(3)}</b></div>
           : null;
       })()}
-      {offerInheritance && <button type="button" className="context-action context-inherit"
-        disabled={compactBusy} onClick={() => {
-          setPinned(false);
-          setPopoverOpen(false);
-          onInherit?.();
-        }}>
-        <GitFork size={14} aria-hidden="true" />
-        {t("Inherit session")}
-      </button>}
-      <button type="button" className="context-action context-compact" disabled={compactBusy}
-        onClick={() => { void compact(); }}>
-        <FoldVertical size={14} aria-hidden="true" />
-        {t("Compact context")}
-      </button>
+      {/* One action at a time: a model switch offers inheritance (compact +
+          hand over); otherwise plain compaction. */}
+      {offerInheritance
+        ? <button type="button" className="context-action context-inherit"
+          disabled={compactBusy} onClick={() => {
+            setPinned(false);
+            setPopoverOpen(false);
+            onInherit?.();
+          }}>
+          <GitFork size={14} aria-hidden="true" />
+          {t("Inherit session")}
+        </button>
+        : <button type="button" className="context-action context-compact" disabled={compactBusy}
+          onClick={() => { void compact(); }}>
+          <FoldVertical size={14} aria-hidden="true" />
+          {t("Compact context")}
+        </button>}
     </div>}
   </div>;
 }

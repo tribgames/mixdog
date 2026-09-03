@@ -12,7 +12,6 @@ import {
 import { inferRecallPeriod, renderEntryLines } from '../src/runtime/memory/lib/recall-format.mjs';
 import { decodeRecallPageCursor, encodeRecallPageCursor } from '../src/runtime/memory/lib/recall-page-cursor.mjs';
 import { mergeRecallConceptTokens, tokenizeRecallQuery } from '../src/runtime/memory/lib/memory-text-utils.mjs';
-import { countQueryTokens, queryTokensLower } from '../src/runtime/memory/lib/recall-scoring.mjs';
 import { createQueryHandlers } from '../src/runtime/memory/lib/query-handlers.mjs';
 import {
   annotateRecallRootContext,
@@ -154,8 +153,6 @@ test('recall concept tokens come from analyzer output while identifiers survive'
     ['방식', '사용자', '타입', '고정값'],
   );
   assert.ok(tokenizeRecallQuery('cycle1 ECONNRESET failure cause').includes('cycle1'));
-  assert.ok(queryTokensLower('embedding worker isolation failure').includes('embedd'));
-  assert.ok(countQueryTokens('harbor operation -n 8 details') >= 3);
 });
 
 test('natural time expressions map to structural recall periods', () => {
@@ -351,7 +348,7 @@ test('core recall defaults to summary-only and binds the requested temporal wind
     getDb: () => db,
     log: () => {},
     resolveProjectScope: () => null,
-    embeddingWarmupCanStart: () => false,
+    embeddingOnDemandCanStart: () => false,
     getBootTimestamp: () => 0,
     getTraceDb: () => null,
   });

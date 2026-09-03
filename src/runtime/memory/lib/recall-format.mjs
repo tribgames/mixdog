@@ -1,6 +1,6 @@
 import { cleanMemoryText } from './memory.mjs'
 import { formatRecallTimestamp, localTimestampParts } from '../../shared/time-format.mjs'
-import { compareRecallNewestFirst } from './recall-order.mjs'
+import { compareRecallNewestFirst, compareRecallOldestFirst } from './recall-order.mjs'
 import { tokenizeRecallQuery } from './memory-text-utils.mjs'
 
 // Recall query/format helpers extracted verbatim from index.mjs
@@ -186,10 +186,18 @@ export function interleaveRawRows(hybridRows, rawRows) {
 
 export function renderEntryLines(rows, {
   recencyOrder = false,
+  chronologicalOrder = false,
   pendingMarks = true,
   maxBodyChars = 8000,
+  compactTimestamps = false,
 } = {}) {
   if (!rows || rows.length === 0) return '(no results)'
+  // compactTimestamps (compact handoff only): a `collected` row's ts is the
+  // ingest instant, not the event time — inside one compaction every such row
+  // carries the same second, so the 90-char stamp is pure noise. Drop the
+  // stamp and the [time=collected] mark; the #id and row order remain.
+  const isCollected = (row) => row?.time_source === 'collected'
+  const stamp = (row) => (compactTimestamps && isCollected(row) ? '' : `[${formatTs(row?.ts)}] `)
   const bodyLimit = Number.isFinite(Number(maxBodyChars)) && Number(maxBodyChars) > 0
     ? Math.floor(Number(maxBodyChars))
     : null
@@ -204,7 +212,7 @@ export function renderEntryLines(rows, {
   // break a strict newest-first contract (bench: recency-today).
   const units = []
   const timeSourceMark = (row) => {
-    if (row?.time_source === 'collected') return ' [time=collected]'
+    if (isCollected(row)) return compactTimestamps ? '' : ' [time=collected]'
     if (row?.time_source == null && /^(?:transcript|session):/i.test(String(row?.source_ref || ''))) {
       return ' [time=legacy; event-time=unverified]'
     }
@@ -237,7 +245,6 @@ export function renderEntryLines(rows, {
       // grouping artifact for retrieval — the caller wants the chunk
       // content (cycle1 raw), not the cycle2-compressed summary.
       for (const [memberIndex, m] of r.members.entries()) {
-        const mTs = formatTs(m.ts)
         const role = m.role === 'user' ? 'u' : m.role === 'assistant' ? 'a' : (m.role || '?')
         const content = boundBody(cleanMemoryText(String(m.content ?? '')))
         const rootElement = memberIndex === 0 ? cleanMemoryText(String(r._historicalRootElement ?? '')) : ''
@@ -250,14 +257,13 @@ export function renderEntryLines(rows, {
           ts: Number(m.ts) || 0,
           source_turn: m.source_turn,
           session_id: m.session_id,
-          text: `[${mTs}] ${role}: ${content}${rootContext}${timeSourceMark(m)} #${m.id}`,
+          text: `${stamp(m)}${role}: ${content}${rootContext}${timeSourceMark(m)} #${m.id}`,
         })
       }
     } else {
       // No chunks (root not yet chunked by cycle1, or orphan leaf): emit
       // the row itself in the same shape. element/summary fall back to
       // raw content when both are absent.
-      const ts = formatTs(r.ts)
       const element = r.element ?? ''
       const summary = r.summary ?? ''
       // Standalone leaf rows (is_root=0, no parent chunks_root resolved
@@ -283,11 +289,13 @@ export function renderEntryLines(rows, {
         ts: Number(r.ts) || 0,
         source_turn: r.source_turn,
         session_id: r.session_id,
-        text: `[${ts}] ${rolePrefix}${boundBody(body)}${rootContext}${pendingMark}${timeSourceMark(r)} #${r.id}`,
+        text: `${stamp(r)}${rolePrefix}${boundBody(body)}${rootContext}${pendingMark}${timeSourceMark(r)} #${r.id}`,
       })
     }
   }
-  if (recencyOrder) {
+  if (chronologicalOrder) {
+    units.sort(compareRecallOldestFirst)
+  } else if (recencyOrder) {
     units.sort(compareRecallNewestFirst)
   }
   return units.map((u) => u.text).join('\n')

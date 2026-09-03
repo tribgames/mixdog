@@ -499,6 +499,16 @@ function Assert-FastDirectPlanCurrent {
   }
 }
 
+function Test-FastDirectNoOp {
+  param([object]$Plan)
+  return (
+    -not [bool]$Plan.full -and
+    @($Plan.targets).Count -eq 0 -and
+    -not [bool]$Plan.daemon -and
+    -not [bool]$Plan.runtime
+  )
+}
+
 function Get-FastRendererWatchState {
   if (-not (Test-Path -LiteralPath $fastRendererWatchState -PathType Leaf)) { return $null }
   try {
@@ -823,6 +833,38 @@ function Install-UnpackedBuild {
   }
 }
 
+# The first open of a NEW file by Mixdog.exe pays a per-file antivirus scan
+# (~7ms each here); a FastDirect deploy rewrites the whole runtime tree, so
+# the next boot used to spend ~1s in the daemon's module graph and ~7ms on
+# every lazily imported module. Warm the tree from the installed exe before
+# launch (see prewarm-fast-runtime.mjs); the scan cache is per file.
+function Invoke-FastRuntimePrewarm {
+  param([string]$Exe, [string]$RuntimeDir)
+  if (-not (Test-Path -LiteralPath $Exe -PathType Leaf)) { return }
+  if (-not (Test-Path -LiteralPath $RuntimeDir -PathType Container)) { return }
+  $script = Join-Path $PSScriptRoot 'prewarm-fast-runtime.mjs'
+  $log = Join-Path $env:TEMP ("mixdog-fast-prewarm-" + [guid]::NewGuid().ToString('N') + '.log')
+  $previous = $env:ELECTRON_RUN_AS_NODE
+  try {
+    $env:ELECTRON_RUN_AS_NODE = '1'
+    Write-Step 'prewarming the FastDirect runtime files'
+    $process = Start-Process -FilePath $Exe -ArgumentList @("`"$script`"", "`"$RuntimeDir`"") `
+      -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $log
+    if ($process.ExitCode -eq 0 -and (Test-Path -LiteralPath $log -PathType Leaf)) {
+      $line = (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue | Select-Object -Last 1)
+      if ($line) { Write-Step $line }
+    } else {
+      Write-Step "prewarm skipped (exit $($process.ExitCode))"
+    }
+  } catch {
+    Write-Step "prewarm skipped ($($_.Exception.Message))"
+  } finally {
+    if ($null -eq $previous) { Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue }
+    else { $env:ELECTRON_RUN_AS_NODE = $previous }
+    Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
+  }
+}
+
 function Install-IncrementalBuild {
   param([object]$Plan)
   $shellChanged = @($Plan.targets).Count -gt 0 -or $Plan.daemon
@@ -922,6 +964,7 @@ function Install-IncrementalBuild {
         Install-PreparedArtifact $fastRuntime $installedFastRuntime
         Install-PreparedArtifact $runtimeNativeTools (Join-Path $installedResources 'native-tools')
       }
+      Invoke-FastRuntimePrewarm -Exe $installedExe -RuntimeDir $installedFastRuntime
     }
 
     if (-not $NoLaunch) {
@@ -1119,6 +1162,11 @@ if (-not $SkipBuild) {
     Write-Step 'fingerprinting FastDirect inputs'
     $forceFull = [bool]$targetVersion -and ((Get-InstalledSemVer) -ne $targetVersion)
     $fastPlan = Get-FastDirectPlan -ForceFull:$forceFull
+    if (Test-FastDirectNoOp $fastPlan) {
+      Write-Host 'FastDirect inputs are unchanged; nothing to build, stop, or restart.' -ForegroundColor Green
+      Write-FastDirectReceipt -Status 'completed' -Detail 'no changes'
+      exit 0
+    }
     if ($fastPlan.full) {
       Stop-FastRendererWatch
       Write-Step 'native/package inputs changed; building complete win-unpacked fallback'
@@ -1144,9 +1192,9 @@ if ($FastDirect -and $fastPlan.full) {
 } elseif (-not (Test-Path -LiteralPath $installer)) {
   if (-not $FastDirect) { throw "Installer artifact missing: $installer" }
 }
-if ($FastDirect -and -not $fastPlan.full -and @($fastPlan.targets).Count -eq 0 `
-    -and -not $fastPlan.daemon -and -not $fastPlan.runtime) {
+if ($FastDirect -and (Test-FastDirectNoOp $fastPlan)) {
   Write-Host 'FastDirect inputs are unchanged; nothing to build, stop, or restart.' -ForegroundColor Green
+  Write-FastDirectReceipt -Status 'completed' -Detail 'no changes'
   exit 0
 }
 

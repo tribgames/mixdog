@@ -35,11 +35,12 @@ The rules the overlays must keep:
   of each other's width (`EQUAL-THIRDS`) at every dock width,
 - the Push section shows its TEXT label, not an icon-only stub: at 380px and
   300px (`DESKTOP_UTILITY_DOCK_MIN_WIDTH`) `.dock-scm-remote-label` is rendered,
-  UNCLIPPED, with more than two characters (`TEXT`) and the icon survives. The
-  label degrades in whole pieces, never by truncation: the remote NAME goes
-  below 420px (`Push origin` → `Push`), the badge's direction arrows below
-  340px (the counts stay), and only below 260px — far under the product floor —
-  does the verb itself go,
+  UNCLIPPED, with more than two characters (`TEXT`); icon and label coexist at
+  every width. The label degrades in whole pieces, never by truncation: the
+  remote NAME goes below 420px (`Push origin` → `Push`), the badge's direction
+  arrows below 340px (the counts stay), and below the 300px floor only gaps
+  and side padding tighten — icons stay 14px, nothing hides and nothing
+  overlaps,
 - the toolbar is marked `data-i18n-skip`, so branch names and the fixed
   `Push`/`Fetch` Git action labels remain unchanged in every UI language,
 - the branch panel keeps ONE box across frames: its first frame (open, loading

@@ -21,6 +21,21 @@ import {
   memoryToolsEnabled,
   moduleEnabled,
 } from './config-helpers.mjs';
+import { readBridgeDiscovery } from '../runtime/bridge-discovery.mjs';
+
+// Browser Use / Computer Use have no install marker: the desktop app publishes
+// a loopback bridge discovery file while the feature is on. The same file
+// names gate the session tool surface in the bridge clients.
+const BROWSER_BRIDGE_DISCOVERY_FILE = 'browser-bridge.json';
+const COMPUTER_BRIDGE_DISCOVERY_FILE = 'computer-bridge.json';
+
+function bridgePresent(file) {
+  try {
+    return readBridgeDiscovery(file) !== null;
+  } catch {
+    return false;
+  }
+}
 
 export const INSTALLABLE_BUILTIN_IDS = Object.freeze(['git', 'memory', 'office']);
 
@@ -43,6 +58,15 @@ export function builtinFeatureActive(configLike, id) {
   if (id === 'office') {
     return featureEnvOverride('MIXDOG_FEATURE_OFFICE')
       ?? (builtinInstalled(configLike, 'office') && moduleEnabled(configLike, 'office', true));
+  }
+  // Bridge-gated features (skills that describe the `browser` / `computer`
+  // tools use these ids in metadata.requires so they are offered only while
+  // the tool itself can reach a live desktop bridge).
+  if (id === 'browser') {
+    return featureEnvOverride('MIXDOG_FEATURE_BROWSER') ?? bridgePresent(BROWSER_BRIDGE_DISCOVERY_FILE);
+  }
+  if (id === 'computer') {
+    return featureEnvOverride('MIXDOG_FEATURE_COMPUTER') ?? bridgePresent(COMPUTER_BRIDGE_DISCOVERY_FILE);
   }
   return false;
 }

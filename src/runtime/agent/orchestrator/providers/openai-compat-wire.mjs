@@ -21,6 +21,7 @@ import {
     customToolCallFromResponseItem,
 } from './custom-tool-wire.mjs';
 import { providerReplayItems } from './lib/provider-replay.mjs';
+import { ensureResponsesCallOutputs } from './lib/wire-pairing.mjs';
 
 export function positiveTokenInt(value) {
     const n = Number(value);
@@ -351,7 +352,11 @@ export function xaiSystemInstructions(messages) {
 
 export function toXaiResponsesInput(messages, providerState, options = {}) {
     const includeSystem = options.includeSystem !== false;
-    const state = providerState?.xaiResponses || null;
+    // Generic Responses callers (opencode-go gateway) keep their own state
+    // slot and replay tag so a provider switch never replays foreign items.
+    const stateKey = options.stateKey || 'xaiResponses';
+    const replayProvider = options.replayProvider || 'xai-responses';
+    const state = providerState?.[stateKey] || null;
     let startIndex = 0;
     let resetReason = null;
     let previousResponseId = typeof state?.previousResponseId === 'string' ? state.previousResponseId : null;
@@ -409,7 +414,7 @@ export function toXaiResponsesInput(messages, providerState, options = {}) {
         if (!includeSystem && m.role === 'system') continue;
         if (m.role !== 'tool') flushToolMedia();
         const orderedReplay = m.role === 'assistant'
-            ? providerReplayItems(m, 'xai-responses')
+            ? providerReplayItems(m, replayProvider)
             : undefined;
         if (orderedReplay?.length) {
             input.push(...orderedReplay);
@@ -429,5 +434,8 @@ export function toXaiResponsesInput(messages, providerState, options = {}) {
     flushToolMedia();
     const trailingReasoning = reasoningByMessageIndex.get(messages.length);
     if (trailingReasoning) input.push(...trailingReasoning);
-    return { input, previousResponseId, startIndex, continuationResetReason: resetReason };
+    // Wire-level pairing guard: replay envelopes can carry a call whose
+    // result never committed (cancel/abort). The provider hard-rejects the
+    // unpaired call, so synthesize the missing outputs here.
+    return { input: ensureResponsesCallOutputs(input), previousResponseId, startIndex, continuationResetReason: resetReason };
 }

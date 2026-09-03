@@ -87,6 +87,25 @@ test('compact handoff excludes the exact latest five-user range and splits an ov
   assert.equal(projected.some((row) => row.id === 100), false)
 })
 
+test('compact handoff renders oldest-first and drops ingest-time stamps from collected rows', () => {
+  const rows = [
+    { ...member(3, 3, 'assistant', 'latest answer'), is_root: 0, time_source: 'collected' },
+    { ...member(2, 2, 'user', 'latest request'), is_root: 0, time_source: 'collected' },
+    { id: 100, ts: 1000, session_id: 'session', is_root: 1, element: 'earlier', summary: 'episode', members: [] },
+  ]
+  const rendered = renderEntryLines(compactHandoffRows(rows), {
+    pendingMarks: false,
+    chronologicalOrder: true,
+    compactTimestamps: true,
+    maxBodyChars: null,
+  })
+  const lines = rendered.split('\n')
+  assert.match(lines[0], /^\[.*\] earlier — episode #100$/)
+  assert.equal(lines[1], 'u: latest request #2')
+  assert.equal(lines[2], 'a: latest answer #3')
+  assert.doesNotMatch(rendered, /time=collected/)
+})
+
 test('lossless compact rendering does not clip a large RAW episode body', () => {
   const suffix = 'RAW-END-MARKER'
   const projected = compactHandoffRows([

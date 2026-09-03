@@ -19,6 +19,19 @@ import {
     isRootLeadSession,
     sessionVisibility,
 } from './store-summary-visibility.mjs';
+import {
+    createStoredTranscriptCache,
+    nextProjectionStamp,
+} from './store-transcript-cache.mjs';
+
+// One cache per process: the daemon serves every cold pane read from it, and
+// the desktop service worker keeps its own for the deep-history prefetch.
+const storedTranscriptCache = createStoredTranscriptCache();
+
+/** Test seam: forget every cached projection. */
+export function clearStoredTranscriptCache() {
+    storedTranscriptCache.clear();
+}
 
 const SESSION_SUMMARY_INDEX_VERSION = 2;
 const DEAD_AGENT_STATUS =
@@ -331,6 +344,40 @@ export function listStoredAgentWorkerLinks() {
         .filter(Boolean);
 }
 
+// The agent pool only reads top-level session fields, yet each refresh used to
+// JSON.parse every active worker's whole transcript (megabytes per worker,
+// every catalog publish). Cache the header per file fingerprint instead.
+const WORKER_HEADER_CACHE_MAX = 256;
+const workerSessionHeaderCache = new Map();
+
+function readWorkerSessionHeader(sessionId) {
+    const path = join(dataDir(), 'sessions', `${sessionId}.json`);
+    const probe = probePath(path);
+    if (probe.state !== PROBE_PRESENT) return null;
+    const cached = workerSessionHeaderCache.get(path);
+    if (cached && cached.mtimeMs === probe.mtimeMs && cached.size === probe.size) {
+        // Refresh insertion order so the eviction below stays LRU-ish.
+        workerSessionHeaderCache.delete(path);
+        workerSessionHeaderCache.set(path, cached);
+        return cached.header;
+    }
+    let session = null;
+    try {
+        session = JSON.parse(readFileSync(path, 'utf8'));
+    } catch {
+        return null;
+    }
+    if (!session || typeof session !== 'object') return null;
+    const header = { ...session };
+    delete header.messages;
+    delete header.liveTurnMessages;
+    workerSessionHeaderCache.set(path, { mtimeMs: probe.mtimeMs, size: probe.size, header });
+    if (workerSessionHeaderCache.size > WORKER_HEADER_CACHE_MAX) {
+        workerSessionHeaderCache.delete(workerSessionHeaderCache.keys().next().value);
+    }
+    return header;
+}
+
 /** Process-global active agent pool. Fresh child heartbeat sidecars are the
  * cross-process running source even when their durable session is detached
  * (`closed`) and a terminal reaper has already removed the worker-index row.
@@ -353,13 +400,8 @@ export function listStoredAgentWorkers() {
         const sessionId = cleanValue(row.sessionId);
         const tag = cleanValue(row.tag);
         if (!sessionId || !tag || !/^[A-Za-z0-9_-]+$/.test(sessionId)) continue;
-        let session = null;
-        try {
-            session = JSON.parse(readFileSync(
-                join(dataDir(), 'sessions', `${sessionId}.json`),
-                'utf8',
-            ));
-        } catch { /* a new row may precede its first session save */ }
+        // A new row may precede its first session save (null header).
+        const session = readWorkerSessionHeader(sessionId);
         const declaredStatus = cleanValue(row.status) || 'running';
         const declaredStage = cleanValue(row.stage || row.status) || 'running';
         const declaredWorking = WORKING_AGENT_STATUS.test(declaredStatus)
@@ -409,15 +451,8 @@ export function listStoredAgentWorkers() {
     }
     for (const [sessionId, heartbeatAt] of heartbeatMtimes) {
         if (now - heartbeatAt > AGENT_POOL_HEARTBEAT_FRESH_MS) continue;
-        let session;
-        try {
-            session = JSON.parse(readFileSync(
-                join(dataDir(), 'sessions', `${sessionId}.json`),
-                'utf8',
-            ));
-        } catch {
-            continue;
-        }
+        const session = readWorkerSessionHeader(sessionId);
+        if (!session) continue;
         const current = bySessionId.get(sessionId) || {};
         const ownerSessionId = workerOwnerSessionId(current, session);
         const parentSessionId = workerParentSessionId(current, session);
@@ -838,15 +873,13 @@ export async function readStoredSessionTranscript(id, options = {}) {
     if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) return null;
     // Same strict authority as the store, and the same fail-closed rule: an
     // absent, unreadable, ambiguous or foreign record yields no transcript.
-    const read = readTextFile(join(dataDir(), 'sessions', `${sessionId}.json`));
-    if (read.state === PROBE_ABSENT) {
-        return options.metadataOnly === true ? null : readArchivedAgentResult(sessionId);
-    }
-    if (read.state !== PROBE_PRESENT) return null;
-    const record = readTopLevelLifecycleRecord(read.text);
-    if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
-    let session = record.doc;
+    const recordPath = join(dataDir(), 'sessions', `${sessionId}.json`);
     if (options.metadataOnly === true) {
+        const read = readTextFile(recordPath);
+        if (read.state !== PROBE_PRESENT) return null;
+        const record = readTopLevelLifecycleRecord(read.text);
+        if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
+        const session = record.doc;
         return {
             id: sessionId,
             sessionId,
@@ -880,14 +913,66 @@ export async function readStoredSessionTranscript(id, options = {}) {
             closed: session.closed === true,
         };
     }
+    // The checkpoint sidecar shapes the projection as much as the record does,
+    // so its identity joins the cache fingerprint. Only a PROVABLY absent
+    // checkpoint skips recovery: an unreadable probe must not silently
+    // downgrade an interrupted turn to a plain cold read.
+    const startedAt = performance.now();
+    const recordStat = probePath(recordPath);
+    if (recordStat.state === PROBE_ABSENT) return readArchivedAgentResult(sessionId);
+    if (recordStat.state !== PROBE_PRESENT) return null;
+    const checkpoint = probePath(join(dataDir(), 'turn-checkpoints', `${sessionId}.json`));
+    const requestedLimit = Number(options.transcriptItemLimit);
+    const itemLimit = Number.isFinite(requestedLimit) && requestedLimit > 0
+        ? requestedLimit
+        : Number.POSITIVE_INFINITY;
+    let readState = PROBE_PRESENT;
+    // The strict record parse (full JSON + duplicate-key scan) is itself a
+    // large share of a cold read, so it only runs when the content is new.
+    const { value, hit, read } = await storedTranscriptCache.read({
+        key: `${sessionId}|${itemLimit}|${options.includeMessages === true ? 'messages' : 'items'}`,
+        fingerprint: `${checkpoint.state}:${checkpoint.mtimeMs}:${checkpoint.size}`,
+        fileStat: { mtimeMs: recordStat.mtimeMs, size: recordStat.size },
+        loadText: () => {
+            const body = readTextFile(recordPath);
+            readState = body.state;
+            return body.state === PROBE_PRESENT ? body.text : null;
+        },
+        produce: (text) => {
+            const record = readTopLevelLifecycleRecord(text);
+            if (isLifecycleUnreadable(record) || record.id !== sessionId) return null;
+            return projectStoredTranscript(sessionId, record.doc, {
+                itemLimit,
+                includeMessages: options.includeMessages === true,
+                checkpointAbsent: checkpoint.state === PROBE_ABSENT,
+            });
+        },
+    });
+    // The record vanished between stat and read: same answer as an absent probe.
+    if (readState === PROBE_ABSENT) return readArchivedAgentResult(sessionId);
+    if (typeof options.trace === 'function') {
+        options.trace({
+            sessionId,
+            hit,
+            read,
+            ms: performance.now() - startedAt,
+            chars: recordStat.size,
+            items: Array.isArray(value?.items) ? value.items.length : 0,
+        });
+    }
+    return value;
+}
+
+/** The parse/recovery/projection body of a stored transcript read. Runs once
+ *  per distinct content; its result is shared read-only through the cache. */
+async function projectStoredTranscript(sessionId, doc, options) {
+    let session = doc;
     const owner = cleanValue(session.owner).toLowerCase();
     const agent = cleanValue(session.agent).toLowerCase();
     const liveDetachedAgent = session.closed === true
         && (owner === 'agent' || (agent && agent !== 'lead'))
         && Boolean(cleanValue(session.ownerSessionId || session.parentSessionId));
-    // Only a PROVABLY absent checkpoint skips recovery: an unreadable probe
-    // must not silently downgrade an interrupted turn to a plain cold read.
-    if (probePath(join(dataDir(), 'turn-checkpoints', `${sessionId}.json`)).state !== PROBE_ABSENT) {
+    if (!options.checkpointAbsent) {
         const {
             projectTurnCheckpointMessages,
             readTurnCheckpoint,
@@ -974,15 +1059,13 @@ export async function readStoredSessionTranscript(id, options = {}) {
         && (!displayContextWindow || rawAutoCompactTokenLimit < displayContextWindow)
         ? rawAutoCompactTokenLimit
         : 0;
-    const requestedLimit = Number(options.transcriptItemLimit);
     return {
         sessionId,
-        ...(options.includeMessages === true ? { messages } : {}),
+        projectionStamp: nextProjectionStamp(),
+        ...(options.includeMessages ? { messages } : {}),
         items: restoreTranscriptItems(messages, {
             sessionId,
-            itemLimit: Number.isFinite(requestedLimit) && requestedLimit > 0
-                ? requestedLimit
-                : Number.POSITIVE_INFINITY,
+            itemLimit: options.itemLimit,
         }),
         provider: session.provider || '',
         model: session.model || '',

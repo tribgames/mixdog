@@ -79,6 +79,14 @@ export function resolveTuiRuntimeNotificationDelivery(event, text) {
   const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
   // UI-only notices (e.g. boot auto-update outcome): render as a transient
   // notice, never enqueue anything model-visible or transcript-persistent.
+  // Setup tool `open`: the attached UI navigates to a settings surface. The
+  // command is the shared slash-command name (TUI runSlashCommand / Desktop
+  // resolveDesktopSlashCommand), so both surfaces route with their own tables.
+  if (meta.kind === 'ui-open') {
+    const command = String(meta.command || '').trim().replace(/^\//, '').toLowerCase();
+    if (!command) return { action: 'ignore' };
+    return { action: 'ui-open', command, displayText: trimmed };
+  }
   if (meta.kind === 'update-notice') {
     // Wording lives here (the notice surface), not in the emitting runtime:
     // the emitter only supplies meta.version; the sentence is composed here.

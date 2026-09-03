@@ -197,6 +197,13 @@ try {
         'LICENSE', 'LICENSES', 'scripts', 'src', 'vendor',
         'native/mixdog-browser-import', 'apps/desktop', 'apps/relay'
       )
+      # Optional package roots are not present in every checkout. Keep a path
+      # when it exists now or was tracked in HEAD (so deletions still enter the
+      # snapshot), and avoid making `git add` fail on an unknown pathspec.
+      $snapshotPaths = @($snapshotPaths | Where-Object {
+        (Test-Path -LiteralPath (Join-Path $repoRoot $_)) -or
+          @(& git ls-files -- $_).Count -gt 0
+      })
       & git -c core.safecrlf=false add -A -- @snapshotPaths
       if ($LASTEXITCODE -ne 0) { throw "git add exited with $LASTEXITCODE" }
       $tree = (& git write-tree).Trim()

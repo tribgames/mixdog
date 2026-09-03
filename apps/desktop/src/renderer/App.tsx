@@ -13,6 +13,7 @@ import React, {
 import {
   Bot,
   Clock,
+  FileDiff,
   GitCompare,
   Github,
   Globe,
@@ -38,10 +39,7 @@ import type {
 import {
   sessionSummaryTitle
 } from "../shared/session-title.mjs";
-import {
-  DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH,
-  DESKTOP_WORKSPACE_MIN_WIDTH,
-} from "../shared/window-layout";
+import { DESKTOP_WORKSPACE_MIN_WIDTH } from "../shared/window-layout";
 import {
   applyDesktopThemePreference,
   getDesktopThemePreference
@@ -68,6 +66,7 @@ import {
   useSessionLane,
 } from "./session-lane-store";
 import {
+  resolveDesktopSlashCommand,
   type SettingsSection as SlashSettingsSection
 } from "./slash-commands";
 import {
@@ -89,6 +88,12 @@ import {
   markBootStage,
 } from "./boot-metrics";
 import { BottomPanel } from "./BottomPanel";
+import {
+  armBootWarmup,
+  BOOT_WARMUP,
+  BOOT_WARMUP_ARM_DELAY_MS,
+  scheduleBootWarmup,
+} from "./boot-warmup";
 import { bottomPanelOpenForPane } from "./bottom-panel-pane-state";
 import { useBrowserFeatureInstalled } from "./browser-feature-install";
 import { agentActivitySessionIds, EMPTY_SNAPSHOT, type RecordValue, type Snapshot } from "./desktop-types";
@@ -167,10 +172,6 @@ export {
   shouldKeepFileEditorMounted,
 } from "./app-shell-components";
 
-/** Pane dock panels own their width via WorkbenchSidePanel; the section CSS
- *  hides UtilityDock's legacy resize handle, so its callback is inert. */
-const noopDockResize = () => {};
-
 const LAST_PROJECT_KEY = 'mixdog.desktop-last-project.v1';
 const LAST_SESSION_KEY = 'mixdog.desktop-last-session.v1';
 function applySessionLaneResult(sessionId: string, next: SessionSnapshot | null): void {
@@ -217,9 +218,8 @@ const CommandSurface = lazy(() => loadCommandSurfaceModule()
 // Route chunk warm-up is scheduled after startup settles below.
 import {
   DraftConversation,
-  PaneGoalIsland,
-  PaneStatusIsland,
   preloadUtilityDock,
+  prewarmUtilityDockGitState,
   selectDesktopSnapshot,
   SnapshotUtilityDock,
   requestSessionRead,
@@ -249,6 +249,7 @@ import { useAppPersistentPaneSurfaces } from "./use-app-persistent-pane-surfaces
 import { useStableEvent } from "./use-stable-event";
 import { resolveUnreadViewedSessionId, useUnreadSessions } from "./app-unread-sessions";
 import { DesktopLoadingSurface } from "./RendererRecovery";
+import { SessionDiffPane } from "./SessionDiffPane";
 import { useWorkbenchWorkspace } from "./workbench-workspace";
 import {
   DEFAULT_SIDEBAR_VIEW_ORDER,
@@ -267,10 +268,12 @@ import {
   type WorkbenchSideViewPlacement,
 } from "./workbench-side-view-layout";
 import {
-  paneGoalPlacement,
+  paneDockActiveRoot,
   PaneSideDock,
   usePaneSideDocks,
+  type PaneSideDockDiff,
 } from "./pane-side-dock";
+import { PaneDockToggles } from "./pane-dock-toggles";
 import {
   SessionBrowserParkingHost,
   SessionBrowserSlot,
@@ -282,7 +285,10 @@ import {
 } from "./session-browser-policy";
 import {
   sessionSideDockEntryForSession,
+  withSessionDiff,
+  withSessionPanelView,
   withSessionSideSurface,
+  type SessionSidePanelView,
   type SessionSideSurface,
 } from "./session-side-surface-policy";
 import {
@@ -290,7 +296,10 @@ import {
   SessionTerminalSlot,
   useSessionTerminalSurfaces,
 } from "./session-terminal-surfaces";
-import type { UtilityDockTab } from "./utility-dock-state";
+import type { UtilityDockTab } from "./UtilityDock";
+import { releaseSessionDiff } from "./session-diff-cache";
+
+const UI_OPEN_REQUEST_TTL_MS = 15_000;
 
 export function App() {
   markBootStage("app-render");
@@ -323,14 +332,44 @@ export function App() {
     setSessionSideSurfaces((current) =>
       withSessionSideSurface(current, sessionId, surface));
   }, []);
+  // The Session Diff LIST's open state, per session (user: 세션 종속 — 다른
+  // 세션으로 넘어가면 그 세션 기본값으로, 안 열려 있었으면 닫힘). The diff
+  // FILE rides `sessionDiffs`, the browser/terminal ride
+  // `sessionSideSurfaces`; this covers the list itself.
+  const [sessionPanelViews, setSessionPanelViews] =
+    useState<ReadonlyMap<string, SessionSidePanelView>>(() => new Map());
+  const setSessionPanelView = useCallback((
+    sessionId: string,
+    view: SessionSidePanelView | null,
+  ) => {
+    setSessionPanelViews((current) =>
+      withSessionPanelView(current, sessionId, view));
+  }, []);
+  // The Session Diff rows' open file, per session (user: 세션 종속): it rides
+  // the dock's diff column only while its own session is the pane's active
+  // conversation, and never touches the pane's remembered dock state.
+  const [sessionDiffs, setSessionDiffs] =
+    useState<ReadonlyMap<string, PaneSideDockDiff>>(() => new Map());
+  const setSessionDiff = useCallback((
+    sessionId: string,
+    diff: PaneSideDockDiff | null,
+  ) => {
+    setSessionDiffs((current) => withSessionDiff(current, sessionId, diff));
+  }, []);
   const pendingBrowserAutoReveal = useRef(new Set<string>());
   const releaseDeletedSessionSurfaces = useCallback((sessionId: string) => {
     pendingBrowserAutoReveal.current.delete(sessionId);
     setSessionSideSurfaces((current) =>
       withSessionSideSurface(current, sessionId, null));
+    setSessionDiffs((current) => withSessionDiff(current, sessionId, null));
+    setSessionPanelViews((current) => withSessionPanelView(current, sessionId, null));
+    releaseSessionDiff(sessionId);
     browserSurfaces.release(sessionId);
     terminalSurfaces.release(sessionId);
   }, [browserSurfaces, terminalSurfaces]);
+  useEffect(() => window.mixdogDesktop?.onBrowserRemoteViewerChanged?.((change) => {
+    browserSurfaces.setRemoteViewed(String(change?.sessionId || ""), change?.active === true);
+  }), [browserSurfaces]);
   useEffect(() => window.mixdogDesktop?.onBrowserSessionReleased?.((sessionId) => {
     pendingBrowserAutoReveal.current.delete(sessionId);
     setSessionSideSurfaces((current) => current.get(sessionId) === "browser"
@@ -383,6 +422,18 @@ export function App() {
   const settingsMounted = useRef(false);
   const mountedCommandSurfaces = useRef(new Set<string>());
   if (settingsOpen) settingsMounted.current = true;
+  // The dialog stays mounted after its first open for a warm reopen; the
+  // warm-up lane grants that first mount too, once the settings sweep has
+  // landed, so the gear click toggles a live tree (316ms cold → warm).
+  const [settingsPrewarmed, setSettingsPrewarmed] = useState(false);
+  useEffect(() => {
+    if (!desktopFeatureEnabled("settings") || settingsPrewarmed) return undefined;
+    return scheduleBootWarmup({
+      id: "settings:mount",
+      priority: BOOT_WARMUP.settingsMount,
+      run: () => loadSettingsViewModule().then(() => setSettingsPrewarmed(true)).catch(() => {}),
+    });
+  }, [settingsPrewarmed]);
   if (commandSurface) mountedCommandSurfaces.current.add(commandSurface);
   const browserFeatureInstalled = useBrowserFeatureInstalled();
   const availableSideViews = useMemo<WorkbenchSideViewId[]>(() => [
@@ -390,6 +441,7 @@ export function App() {
     ...DEFAULT_SIDEBAR_VIEW_ORDER.filter((panel) =>
       desktopSidebarDestinationEnabled(panel)),
     "studio" as const,
+    "session-diff" as const,
     // Browser Use is install-first, so its launcher joins the rail only once
     // the install marker resolves.
     ...(browserFeatureInstalled ? ["browser" as const] : []),
@@ -425,15 +477,27 @@ export function App() {
     const selection = leaf ? paneActiveSelection(leaf) : null;
     const sessionId = selection?.kind === "session" ? selection.id : "";
     const selectedSurface = sessionSideSurfaces.get(sessionId) ?? null;
+    const selectedPanelView = sessionPanelViews.get(sessionId) ?? null;
     const displayedEntry = sessionSideDockEntryForSession(
       rawEntry,
       sessionId,
       selectedSurface,
+      sessionDiffs.get(sessionId) ?? null,
+      selectedPanelView,
     );
     if (displayedEntry.open) {
       if ((displayedEntry.surface === "browser"
         || displayedEntry.surface === "terminal") && sessionId) {
         setSessionSideSurface(sessionId, null);
+      }
+      if (displayedEntry.diff?.source === "session" && sessionId) {
+        setSessionDiff(sessionId, null);
+      }
+      // Folding releases the session's own list with the unit, so the next
+      // open lands on the classic panel view again.
+      if (displayedEntry.view === "session-diff"
+        && displayedEntry.surface === "" && sessionId) {
+        setSessionPanelView(sessionId, null);
       }
       paneSideDocks.setOpen(leafId, false);
       return;
@@ -447,13 +511,51 @@ export function App() {
       paneSideDocks.setOpen(leafId, true);
       return;
     }
+    // Same adoption for the session-owned Session Diff list: an explicit
+    // reopen lands on the remembered child for this session.
+    if (sessionId && selectedPanelView === null && selectedSurface === null
+      && rawEntry.surface === "" && rawEntry.view === "session-diff") {
+      setSessionPanelView(sessionId, "session-diff");
+      paneSideDocks.setOpen(leafId, true);
+      return;
+    }
     paneSideDocks.toggle(leafId);
   });
   const toggleDock = useStableEvent(() => {
     togglePaneRightRegion(paneWorkspace.focusedLeafId);
   });
+  // Folding releases a session-owned surface (browser/terminal) with the
+  // unit, so the next open lands on the classic panel view again.
+  const closePaneRightRegion = useStableEvent((leafId: string) => {
+    const leaf = paneWorkspace.leaves.find((candidate) => candidate.id === leafId);
+    const selection = leaf ? paneActiveSelection(leaf) : null;
+    const sessionId = selection?.kind === "session" ? selection.id : "";
+    const entry = sessionSideDockEntryForSession(
+      paneSideDocks.entryFor(leafId),
+      sessionId,
+      sessionSideSurfaces.get(sessionId) ?? null,
+      sessionDiffs.get(sessionId) ?? null,
+      sessionPanelViews.get(sessionId) ?? null,
+    );
+    if ((entry.surface === "browser" || entry.surface === "terminal") && sessionId) {
+      setSessionSideSurface(sessionId, null);
+    }
+    if (entry.diff?.source === "session" && sessionId) {
+      setSessionDiff(sessionId, null);
+    }
+    if (entry.view === "session-diff" && entry.surface === "" && sessionId) {
+      setSessionPanelView(sessionId, null);
+    }
+    paneSideDocks.setOpen(leafId, false);
+  });
   const openDockTab = useStableEvent((tab: UtilityDockTab) => {
     if (!desktopUtilityDockTabEnabled(tab)) return;
+    if (workbenchSideLayout.sideOf(tab) === "left") {
+      setActiveSideViews((current) =>
+        current.left === tab ? current : { ...current, left: tab });
+      applySidebarOpen(true);
+      return;
+    }
     paneSideDocks.open(paneWorkspace.focusedLeafId, tab);
   });
   const [extensionsSection, setExtensionsSection] = useState<ExtensionsSection>("plugins");
@@ -577,11 +679,12 @@ export function App() {
     : "";
   useEffect(() => {
     const showProblems = () => {
-      bottomPanel.setTab("problems");
+      if (bottomPanel.open) bottomPanel.setOpen(false);
+      else bottomPanel.setTab("problems");
     };
     window.addEventListener("mixdog:show-problems", showProblems);
     return () => window.removeEventListener("mixdog:show-problems", showProblems);
-  }, [bottomPanel.setTab]);
+  }, [bottomPanel.open, bottomPanel.setOpen, bottomPanel.setTab]);
   const editorCommandCapabilities = useSyncExternalStore(
     subscribeEditorLanguageStore,
     getEditorCommandCapabilities,
@@ -688,26 +791,43 @@ export function App() {
   // boot gate waits on every catalog. Hidden mounting and reference DATA still
   // stay behind desktopBootReady below, so this removes click-time downloads
   // without competing RPC hydration with the opening conversation.
+  // Every warm-up rides ONE idle lane (boot-warmup.ts) that opens once the
+  // window has shown its first frames — see armBootWarmup below.
   useEffect(() => {
     if (!startupSettled) return undefined;
     const nativeWindow = Boolean(window.mixdogDesktop?.bootContext?.bootId);
-    const run = () => {
-      void loadStudioViewModule().catch(() => {});
-      if (nativeWindow) return;
-      void loadCommandSurfaceModule().catch(() => {});
-      if (connectionQuality() !== "normal") return;
-      void preloadUtilityDock().catch(() => {});
-      for (const panel of DEFAULT_SIDEBAR_VIEW_ORDER) {
-        if (!desktopSidebarDestinationEnabled(panel)) continue;
-        trackSidebarPanelModule(panel, loadSidebarPanelModule[panel]());
+    const cancels = [scheduleBootWarmup({
+      id: "module:studio",
+      priority: BOOT_WARMUP.studioModule,
+      run: () => loadStudioViewModule().catch(() => {}),
+    })];
+    if (!nativeWindow) {
+      cancels.push(scheduleBootWarmup({
+        id: "module:command-surface",
+        priority: BOOT_WARMUP.commandSurfaceModule,
+        run: () => loadCommandSurfaceModule().catch(() => {}),
+      }));
+      if (connectionQuality() === "normal") {
+        cancels.push(scheduleBootWarmup({
+          id: "module:utility-dock",
+          priority: BOOT_WARMUP.utilityDockModule,
+          run: () => preloadUtilityDock().catch(() => {}),
+        }));
+        for (const panel of DEFAULT_SIDEBAR_VIEW_ORDER) {
+          if (!desktopSidebarDestinationEnabled(panel)) continue;
+          cancels.push(scheduleBootWarmup({
+            id: `module:sidebar:${panel}`,
+            priority: BOOT_WARMUP.sidebarPanel,
+            run: () => {
+              const module = loadSidebarPanelModule[panel]();
+              trackSidebarPanelModule(panel, module);
+              return module.catch(() => {});
+            },
+          }));
+        }
       }
-    };
-    if (typeof window.requestIdleCallback === "function") {
-      const handle = window.requestIdleCallback(run, { timeout: nativeWindow ? 5_000 : 1_000 });
-      return () => window.cancelIdleCallback?.(handle);
     }
-    const timer = window.setTimeout(run, nativeWindow ? 1_500 : 100);
-    return () => window.clearTimeout(timer);
+    return () => { for (const cancel of cancels) cancel(); };
   }, [startupSettled, trackSidebarPanelModule]);
   // Callback-safe view of the active selection for tab-promotion decisions.
   const startupMeasured = useRef(false);
@@ -730,14 +850,21 @@ export function App() {
   useEffect(() => {
     preloadAgentPool(window.mixdogDesktop);
   }, []);
+  // The settings sweep (two dozen capability reads plus the full model
+  // catalog) used to start the moment App mounted — inside the boot cover,
+  // ahead of the opening conversation. It is the LAST warm-up now: Settings
+  // opens fine without it (the dialog sweeps on open), so it only has to
+  // beat the user to the gear icon, not to the composer.
   useEffect(() => {
     if (!desktopFeatureEnabled("settings")) return undefined;
-    const host = window.mixdogDesktop;
-    let live = true;
-    void loadSettingsViewModule().then((module) => {
-      if (live && host) void module.preloadSettings(host).catch(() => {});
-    }).catch(() => {});
-    return () => { live = false; };
+    return scheduleBootWarmup({
+      id: "settings:preload",
+      priority: BOOT_WARMUP.settingsPreload,
+      run: () => loadSettingsViewModule().then((module) => {
+        const host = window.mixdogDesktop;
+        return host ? module.preloadSettings(host).catch(() => {}) : undefined;
+      }).catch(() => {}),
+    });
   }, [warmSettingsView]);
   useEffect(() => {
     const host = window.mixdogDesktop;
@@ -1315,6 +1442,28 @@ export function App() {
     warmSettingsView,
     workbenchSideLayout.sideOf,
   ]);
+  // Setup tool `open`: the engine publishes { command, seq } on the session
+  // snapshot when the model asks for a settings surface. Route it exactly as
+  // the typed slash command would (settings row, rail page, or command
+  // surface); the seq guard makes a repeated identical request fire again.
+  const uiOpenSeen = useRef(0);
+  useEffect(() => {
+    const request = snapshot.uiOpenRequest;
+    const seq = Number(request?.seq) || 0;
+    if (!request?.command || seq <= uiOpenSeen.current) return;
+    uiOpenSeen.current = seq;
+    // A re-attached renderer replays the retained snapshot; a request older
+    // than a few seconds is history, not an instruction.
+    if (Number(request.at) > 0 && Date.now() - Number(request.at) > UI_OPEN_REQUEST_TTL_MS) return;
+    const command = resolveDesktopSlashCommand(request.command);
+    if (!command) return;
+    if (command.surface) {
+      openConversationCommandSurface(command.surface, String(snapshot.sessionId || ""));
+      return;
+    }
+    if (command.settingsRow) openSettings(command.settingsRow);
+    else if (command.action === "settings") openSettings(null);
+  }, [openConversationCommandSurface, openSettings, snapshot.sessionId, snapshot.uiOpenRequest]);
   /** /clear · /new typed in a session pane: close that session's tab and open
    *  a New Task draft in its exact strip position, seeded from the cleared
    *  session's own project/model/workflow and its remote seat (user rule:
@@ -1815,27 +1964,39 @@ export function App() {
     // strip row's right end. Non-session tabs keep the slot empty, and the
     // projected phone keeps its transcript-floating capsule instead.
     stripTrailing: (leaf) => {
-      if (isMobileRemoteSurface()) return null;
       const active = leaf.tabs.find((tab) => navigationKey(tab) === leaf.activeKey);
-      // A conversation surface owns the island even before its session
-      // exists: a NEW TASK draft keeps the resting capsule (idle chip, empty
-      // gauge, dock toggle) exactly like the transcript placement did (user:
-      // NEW TASK 파면 아일랜드 버튼 3개가 사라짐). Non-conversation tabs
-      // (file/terminal/Studio/browser) keep the slot empty.
+      // A conversation surface owns the dock toggles even before its session
+      // exists: a NEW TASK draft keeps the same three slots (session-bound
+      // children inert) so the strip never reflows on commit. Non-conversation
+      // tabs (file/Studio) keep the slot empty. The context gauge rides the
+      // composer footer now; the Agent/Shell readout is retired from chrome.
       if (!active || (active.kind !== "session" && active.kind !== "new")) return null;
+      const groups = workbenchSideLayout.layout.right;
+      if (groups.length === 0) return null;
       const sessionId = active.kind === "session" ? active.id : "";
-      const dockAvailable = workbenchSideLayout.layout.right.length > 0;
-      return <PaneStatusIsland
-        sessionId={sessionId}
-        hidden={false}
-        dockOpen={dockAvailable && paneSideDocks.entryFor(leaf.id).open}
-        onToggleDock={dockAvailable
-          ? () => {
-            paneWorkspace.focusLeaf(leaf.id);
-            togglePaneRightRegion(leaf.id);
-          }
-          : undefined}
-        onInherit={() => openConversationCommandSurface("inherit", sessionId)} />;
+      const entry = sessionSideDockEntryForSession(
+        paneSideDocks.entryFor(leaf.id),
+        sessionId,
+        sessionSideSurfaces.get(sessionId) ?? null,
+        sessionDiffs.get(sessionId) ?? null,
+        sessionPanelViews.get(sessionId) ?? null,
+      );
+      // The phone draws the SAME strip and the same trailing toggles (user:
+      // PC에 최대한 맞춰서); its old bottom-panel opener is gone with the
+      // Chrome-style toolbar (user: 하단 사이드탭 열리는 거 제거, 기능 없어).
+      return <PaneDockToggles
+        groups={groups}
+        descriptors={sideViewDescriptors}
+        activeRoot={paneDockActiveRoot(entry)}
+        sessionBound={Boolean(sessionId)}
+        onSelect={(id) => {
+          paneWorkspace.focusLeaf(leaf.id);
+          selectWorkbenchSideView(id, leaf.id);
+        }}
+        onClose={() => {
+          paneWorkspace.focusLeaf(leaf.id);
+          closePaneRightRegion(leaf.id);
+        }} />;
     },
     lastSessionStorageKey: LAST_SESSION_KEY,
   });
@@ -1963,22 +2124,14 @@ export function App() {
     renameProject,
     removeProject,
   });
-  // Chrome-mobile toolbar intents (1-pane surface): the tab strip renders the
-  // home/panel/dock buttons but does not own the shell panels, so the intents
-  // ride window events instead of prop-drilling through the pane tree.
+  // Phone strip home intent: the strip renders the brand-mark home button
+  // but does not own the session drawer, so the intent rides a window event
+  // instead of prop-drilling through the pane tree.
   useEffect(() => {
     const onHome = () => applySidebarOpen(!sidebarOpen);
-    const onPanel = () => bottomPanel.setOpen(!bottomPanel.open);
-    const onDock = () => toggleDock();
     window.addEventListener("mixdog:mobile-home", onHome);
-    window.addEventListener("mixdog:mobile-panel", onPanel);
-    window.addEventListener("mixdog:mobile-dock", onDock);
-    return () => {
-      window.removeEventListener("mixdog:mobile-home", onHome);
-      window.removeEventListener("mixdog:mobile-panel", onPanel);
-      window.removeEventListener("mixdog:mobile-dock", onDock);
-    };
-  }, [applySidebarOpen, bottomPanel, sidebarOpen, toggleDock]);
+    return () => window.removeEventListener("mixdog:mobile-home", onHome);
+  }, [applySidebarOpen, sidebarOpen]);
   // ABB (user: 백버튼 처리): each open transient layer arms one history
   // sentinel so hardware back closes it instead of leaving the PWA.
   // registerMobileBack no-ops outside the projected phone surface.
@@ -2077,6 +2230,10 @@ export function App() {
       void prefetchTerminalPane().catch(() => {});
       return;
     }
+    if (id === "session-diff") {
+      void prefetchDiffView().catch(() => {});
+      return;
+    }
     if (id !== "sessions") void preloadUtilityDock().catch(() => {});
   }, [trackSidebarPanelModule]);
   const sideViewDescriptors = useMemo(() => new Map<
@@ -2097,10 +2254,17 @@ export function App() {
     // Launchers: the icon mints a workspace tab instead of opening a panel.
     ["studio", { id: "studio", label: "Studio", icon: Sparkles,
       onPrefetch: () => prefetchWorkbenchSideView("studio") }],
-    ["browser", { id: "browser", label: "Browser Use", icon: Globe,
+    ["browser", { id: "browser", label: "Browser Use", title: "Browser", icon: Globe,
       onPrefetch: () => prefetchWorkbenchSideView("browser") }],
     ["terminal", { id: "terminal", label: "Terminal", icon: SquareTerminal,
       onPrefetch: () => prefetchWorkbenchSideView("terminal") }],
+    ["session-diff", {
+      id: "session-diff",
+      label: "Diff",
+      tooltip: "Session Diff",
+      icon: FileDiff,
+      onPrefetch: () => prefetchWorkbenchSideView("session-diff"),
+    }],
     ["agents", { id: "agents", label: "Agents", icon: Bot,
       onPrefetch: () => prefetchWorkbenchSideView("agents") }],
     ["search", { id: "search", label: "Search", icon: Search,
@@ -2119,10 +2283,6 @@ export function App() {
       onPrefetch: () => prefetchWorkbenchSideView("pull-requests"),
     }],
   ]), [prefetchWorkbenchSideView]);
-  const setSideOpen = useCallback((side: WorkbenchSide, open: boolean) => {
-    if (side === "left") applySidebarOpen(open);
-    else paneSideDocks.setOpen(focusedLeafIdRef.current, open);
-  }, [applySidebarOpen, paneSideDocks.setOpen]);
   const selectWorkbenchSideView = useCallback((
     id: WorkbenchSideViewId,
     paneLeafId?: string,
@@ -2160,6 +2320,10 @@ export function App() {
         setSessionSideSurface(selection.id, id);
       } else if (selection?.kind === "session") {
         setSessionSideSurface(selection.id, null);
+        // The Session Diff list is session-owned too (user: 브라우저랑
+        // 터미널도 마찬가지): opening it remembers the session, landing
+        // anywhere else forgets it for this session.
+        setSessionPanelView(selection.id, id === "session-diff" ? "session-diff" : null);
       }
       paneSideDocks.select(leafId, id);
       return;
@@ -2290,8 +2454,6 @@ export function App() {
       ? registeredProjectPath(sessionRow?.projectPath || "")
       : prefs.projectPath;
     const paneProjectLabel = projectChromeLabel(paneProjectPath);
-    const goalDockedToDiff =
-      paneGoalPlacement(paneSideDocks.entryFor(leafId)) === "diff";
     // An agent worker session is deliberately absent from the session catalog
     // (owner === 'agent' is filtered out), so `sessionRow` is undefined and a
     // catalog-derived title degrades to the "Untitled session" placeholder.
@@ -2323,15 +2485,6 @@ export function App() {
         : paneTitle}
       conversationProps={{
         focused,
-        goalDockedToDiff,
-        dockOpen: paneSideDocks.entryFor(leafId).open
-          && workbenchSideLayout.layout.right.length > 0,
-        onToggleDock: workbenchSideLayout.layout.right.length > 0
-          ? () => {
-              focusPane();
-              togglePaneRightRegion(leafId);
-            }
-          : undefined,
         sessionId: paneSessionId,
         hidden: false,
         transcriptPending: Boolean(paneSessionId) && paneTranscriptRendererPending,
@@ -2414,29 +2567,13 @@ export function App() {
       paneWorkspace.focusedLeafId,
     );
     if (sessionIds.length === 0) return undefined;
-    const host = window as typeof window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
-    let cancelled = false;
-    let stepTimer = 0;
-    const queue = sessionIds;
-    const step = () => {
-      stepTimer = 0;
-      if (cancelled) return;
-      const next = queue.shift();
-      if (!next) return;
-      requestSessionRead(next);
-      // Spread the reads so they never compete with a live interaction.
-      stepTimer = window.setTimeout(step, 250);
-    };
-    const idle = host.requestIdleCallback?.(step, { timeout: 3_000 });
-    if (idle === undefined) stepTimer = window.setTimeout(step, 1_000);
-    return () => {
-      cancelled = true;
-      if (idle !== undefined) host.cancelIdleCallback?.(idle);
-      window.clearTimeout(stepTimer);
-    };
+    // One lane task per tab, focused pane first (paneActiveSessionIds order).
+    const cancels = sessionIds.map((sessionId, index) => scheduleBootWarmup({
+      id: `transcript:${sessionId}`,
+      priority: BOOT_WARMUP.transcript + index,
+      run: () => requestSessionRead(sessionId),
+    }));
+    return () => { for (const cancel of cancels) cancel(); };
   }, [desktopBootReady, paneWorkspace.focusedLeafId, paneWorkspace.leaves]);
   // Restored file/terminal/diff/folder tabs are surfaces the user already
   // chose to keep open, and they own the heaviest chunks in the app — the
@@ -2451,86 +2588,82 @@ export function App() {
     if (!nativeSurface && connectionQuality() !== "normal") return undefined;
     const queue = paneWorkspace.leaves.flatMap((leaf) => [...leaf.tabs]);
     if (queue.length === 0) return undefined;
-    const host = window as typeof window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
-    let cancelled = false;
-    let stepTimer = 0;
-    const step = () => {
-      stepTimer = 0;
-      if (cancelled) return;
-      const next = queue.shift();
-      if (!next) return;
-      // Session and draft tabs resolve to no chunk at all; the rest join
-      // whatever load their own surface may already have started.
-      prefetchSurfaceForSelection(next);
-      // One at a time, spread wide: these must never compete with the first
-      // interaction or with the session reads scheduled above.
-      stepTimer = window.setTimeout(step, 400);
-    };
-    const idle = host.requestIdleCallback?.(step, { timeout: 4_000 });
-    if (idle === undefined) stepTimer = window.setTimeout(step, 1_500);
-    return () => {
-      cancelled = true;
-      if (idle !== undefined) host.cancelIdleCallback?.(idle);
-      window.clearTimeout(stepTimer);
-    };
+    // Session and draft tabs resolve to no chunk at all; the rest join
+    // whatever load their own surface may already have started. One lane
+    // task per tab keeps them behind the transcript reads.
+    const cancels = queue.map((selection, index) => scheduleBootWarmup({
+      id: `chunk:${navigationKey(selection)}`,
+      priority: BOOT_WARMUP.surfaceChunk + index,
+      run: () => prefetchSurfaceForSelection(selection),
+    }));
+    return () => { for (const cancel of cancels) cancel(); };
   }, [desktopBootReady, paneWorkspace.leaves]);
+  // The warm-up lane opens once boot is ready AND the window has shown its
+  // first frames (Electron emits mixdog:window-shown after two composed
+  // frames). Until then every scheduled task stays parked, so nothing
+  // competes with the boot cover or the opening conversation.
   useEffect(() => {
     if (!desktopBootReady) return undefined;
     const nativeWindow = Boolean(window.mixdogDesktop?.bootContext?.bootId);
-    let timer = 0;
-    let browserFallbackTimer = 0;
-    const warmPanels = () => {
-      window.removeEventListener("mixdog:window-shown", warmPanels);
-      window.clearTimeout(browserFallbackTimer);
-      // Keep boot and the hidden first frame clear, then resolve and
-      // HIDDEN-mount every rail pane. useSidebarReferences coalesces their
-      // shared hydration, so rows, route controls and overflow options are
-      // ready before first click.
-      timer = window.setTimeout(() => {
-      const warmPanel = (panel: SidebarPanelKey) => {
-        if (!desktopSidebarDestinationEnabled(panel)) return Promise.resolve();
-        const module = loadSidebarPanelModule[panel]();
-        trackSidebarPanelModule(panel, module);
-        void module.then(() => mountSidebarPanel(panel)).catch(() => {});
-        return module;
-      };
-      void Promise.all([
-        preloadUtilityDock(),
-        warmPanel("schedules"),
-        warmPanel("webhooks"),
-        warmPanel("projects"),
-        warmPanel("workflows"),
-        warmPanel("extensions"),
-      ]).catch(() => {});
-      }, nativeWindow ? 120 : 0);
-    };
     const host = window as typeof window & { __mixdogWindowShown?: boolean };
-    if (!nativeWindow || host.__mixdogWindowShown) warmPanels();
+    let fallbackTimer = 0;
+    const arm = () => {
+      window.removeEventListener("mixdog:window-shown", arm);
+      window.clearTimeout(fallbackTimer);
+      armBootWarmup(BOOT_WARMUP_ARM_DELAY_MS);
+    };
+    if (!nativeWindow || host.__mixdogWindowShown) arm();
     else {
-      window.addEventListener("mixdog:window-shown", warmPanels, { once: true });
-      // A native window normally emits this after show. Keep a bounded
-      // fallback for an abnormal missed event; browser/LAN clients warm
-      // immediately above because every rail click otherwise pays the chunk
-      // and reference-data round trip.
-      browserFallbackTimer = window.setTimeout(warmPanels, 1_200);
+      window.addEventListener("mixdog:window-shown", arm, { once: true });
+      // A native window normally emits this after show; keep a bounded
+      // fallback for an abnormal missed event.
+      fallbackTimer = window.setTimeout(arm, 1_200);
     }
     return () => {
-      window.removeEventListener("mixdog:window-shown", warmPanels);
-      window.clearTimeout(browserFallbackTimer);
-      window.clearTimeout(timer);
+      window.removeEventListener("mixdog:window-shown", arm);
+      window.clearTimeout(fallbackTimer);
     };
+  }, [desktopBootReady]);
+  // Rail panels HIDDEN-mount one per idle slice (user: 메뉴 진입 반응성):
+  // useSidebarReferences coalesces their shared hydration, so rows, route
+  // controls and overflow options are ready before the first click — without
+  // five module loads and five mounts landing in the same 120ms as before.
+  useEffect(() => {
+    if (!desktopBootReady) return undefined;
+    const cancels = [scheduleBootWarmup({
+      id: "module:utility-dock",
+      priority: BOOT_WARMUP.utilityDockModule,
+      run: () => preloadUtilityDock().catch(() => {}),
+    })];
+    const panels: SidebarPanelKey[] = ["schedules", "webhooks", "projects", "workflows", "extensions"];
+    panels.forEach((panel, index) => {
+      if (!desktopSidebarDestinationEnabled(panel)) return;
+      cancels.push(scheduleBootWarmup({
+        id: `mount:sidebar:${panel}`,
+        priority: BOOT_WARMUP.sidebarPanel + index,
+        run: () => {
+          const module = loadSidebarPanelModule[panel]();
+          trackSidebarPanelModule(panel, module);
+          return module.then(() => mountSidebarPanel(panel)).catch(() => {});
+        },
+      }));
+    });
+    return () => { for (const cancel of cancels) cancel(); };
   }, [desktopBootReady, mountSidebarPanel, trackSidebarPanelModule]);
   const renderWorkbenchSideView = (
     side: WorkbenchSide,
     id: WorkbenchSideViewId,
     active: boolean,
     titleDragProps: WorkbenchSideTitleDragProps,
-    // Pane-embedded right dock: binds project-scoped views to the pane's own
-    // active session/project and routes tab/close back to that pane.
-    pane?: { leafId: string; projectPath: string },
+    // Pane-embedded right dock: binds session Diff and project-scoped legacy
+    // views to the pane's own session/project, routing tab/close back to that
+    // pane. A prewarmed pane mounts its remembered view while still folded.
+    pane?: {
+      leafId: string;
+      projectPath: string;
+      sessionId: string;
+      prewarm?: boolean;
+    },
   ): React.ReactNode => {
     if (id === "sessions") {
       return <SessionSidebar
@@ -2569,18 +2702,33 @@ export function App() {
         {renderSidebarPanel(id as SidebarPanelKey, active)}
       </SessionSidebar>;
     }
+    if (id === "session-diff") {
+      if (!pane) return null;
+      const sessionId = pane.sessionId;
+      return <SessionDiffPane sessionId={sessionId} active={active}
+        openRel={sessionDiffs.get(sessionId)?.rel ?? ""}
+        onOpenDiff={sessionId && pane.projectPath
+          ? (rel) => {
+              void prefetchDiffView().catch(() => {});
+              setSessionDiff(sessionId, {
+                kind: "diff",
+                project: pane.projectPath,
+                rel,
+                source: "session",
+                hash: sessionId,
+              });
+            }
+          : undefined} />;
+    }
     // Launchers have no panel body, and session-owned surfaces render in the
     // pane dock's persistent stack.
     if (isWorkbenchSideLauncher(id) || id === "browser" || id === "terminal") return null;
     const tab = id as UtilityDockTab;
     return <SnapshotUtilityDock snapshotStore={snapshotStore}
       hidden={!active}
+      prewarm={Boolean(pane?.prewarm)}
       open={active}
-      width={DESKTOP_UTILITY_DOCK_DEFAULT_WIDTH}
       tab={tab}
-      availableViews={[tab]}
-      side={side}
-      showTabs={false}
       showTitle={!pane}
       title={sideViewDescriptors.get(id)?.label}
       titleDragProps={titleDragProps}
@@ -2594,12 +2742,6 @@ export function App() {
       metricSurface={side === "left" ? "sidebar" : "dock"}
       entering
       contentReady
-      onTab={(next) => selectWorkbenchSideView(next, pane?.leafId)}
-      onResize={noopDockResize}
-      onClose={() => {
-        if (pane) paneSideDocks.setOpen(pane.leafId, false);
-        else setSideOpen(side, false);
-      }}
       onOpenFile={dockOpenFile}
       onOpenFileAt={dockOpenFileAt}
       onOpenDiff={pane
@@ -2613,9 +2755,8 @@ export function App() {
       onOpenAgentSession={dockOpenAgentSession}
     />;
   };
-  // Project-scoped dock views (Search / Source Control / Pull Requests)
-  // follow the PANE's own active session project — the practical payoff of
-  // per-pane docks — falling back to the shared quick-access project.
+  // Pane-scoped tools follow the active session project, while the left-side
+  // Source Control uses the shared quick-access Project.
   const paneProjectPathFor = (leaf: PaneLeaf): string => {
     const active = paneActiveSelection(leaf);
     if (active?.kind === "session") {
@@ -2630,6 +2771,32 @@ export function App() {
     }
     return quickAccessProjectPath;
   };
+  const focusedPaneForDockPrewarm = paneWorkspace.leaves.find(
+    (leaf) => leaf.id === paneWorkspace.focusedLeafId,
+  );
+  const focusedPaneDockProjectPath = focusedPaneForDockPrewarm
+    ? paneProjectPathFor(focusedPaneForDockPrewarm)
+    : quickAccessProjectPath;
+  useEffect(() => {
+    if (!desktopBootReady || !focusedPaneDockProjectPath) return undefined;
+    if (isMobileRemoteSurface() || !window.mixdogDesktop?.gitStatus) return undefined;
+    return scheduleBootWarmup({
+      id: "dock:git-state",
+      priority: BOOT_WARMUP.dockGitState,
+      run: () => prewarmUtilityDockGitState(focusedPaneDockProjectPath).catch(() => {}),
+    });
+  }, [desktopBootReady, focusedPaneDockProjectPath]);
+  // The focused pane's dock body hidden-mounts only after the lane reaches it
+  // — a mount that big must not ride the boot-ready render itself.
+  const [dockBodyWarm, setDockBodyWarm] = useState(false);
+  useEffect(() => {
+    if (!desktopBootReady || dockBodyWarm || isMobileRemoteSurface()) return undefined;
+    return scheduleBootWarmup({
+      id: "dock:body",
+      priority: BOOT_WARMUP.dockBody,
+      run: () => setDockBodyWarm(true),
+    });
+  }, [desktopBootReady, dockBodyWarm]);
   const renderPaneSideDock = (leaf: PaneLeaf, focused: boolean) => {
     const active = paneActiveSelection(leaf);
     const sessionId = active?.kind === "session" ? active.id : "";
@@ -2637,26 +2804,30 @@ export function App() {
       paneSideDocks.entryFor(leaf.id),
       sessionId,
       sessionSideSurfaces.get(sessionId) ?? null,
+      sessionDiffs.get(sessionId) ?? null,
+      sessionPanelViews.get(sessionId) ?? null,
     );
+    const prewarm = focused && dockBodyWarm;
     return <PaneSideDock
       leafId={leaf.id}
       entry={entry}
       groups={workbenchSideLayout.layout.right}
       descriptors={sideViewDescriptors}
       focused={focused}
+      prewarm={prewarm}
       onFocusPane={() => paneWorkspace.focusLeaf(leaf.id)}
       onSelect={(id) => selectWorkbenchSideView(id, leaf.id)}
-      onClose={() => {
-        if ((entry.surface === "browser" || entry.surface === "terminal") && sessionId) {
-          setSessionSideSurface(sessionId, null);
+      onClose={() => closePaneRightRegion(leaf.id)}
+      onCloseDiff={() => {
+        // A session's own diff closes in its session map; the pane entry
+        // never held it.
+        if (entry.diff?.source === "session" && sessionId) {
+          setSessionDiff(sessionId, null);
+          return;
         }
-        paneSideDocks.setOpen(leaf.id, false);
+        paneSideDocks.closeDiff(leaf.id);
       }}
-      onCloseDiff={() => paneSideDocks.closeDiff(leaf.id)}
       openFileTab={openFileTab}
-      goalIsland={sessionId
-        ? <PaneGoalIsland sessionId={sessionId} hidden={false} />
-        : undefined}
       renderBrowserSurface={(active) => {
         if (!sessionId) return null;
         return <SessionBrowserSlot
@@ -2679,9 +2850,15 @@ export function App() {
       onMoveGroup={moveWorkbenchSideGroup}
       onMoveView={moveWorkbenchSideView}
       renderView={(id, active, titleDragProps) =>
-        renderWorkbenchSideView("right", id, active, titleDragProps, {
+        renderWorkbenchSideView("right", id,
+          // The Session Diff list fetches only while actually showing: a
+          // covering browser/terminal surface keeps it mounted but quiet.
+          id === "session-diff" ? active && entry.surface === "" : active,
+          titleDragProps, {
           leafId: leaf.id,
           projectPath: paneProjectPathFor(leaf),
+          sessionId,
+          prewarm,
         })}
     />;
   };
@@ -2956,7 +3133,7 @@ export function App() {
         : (commandSurface || onboardingOpen)
           ? <DesktopLoadingSurface label="Loading view…" overlay />
           : null}>
-        {(settingsOpen || settingsMounted.current) && <SettingsView
+        {(settingsOpen || settingsMounted.current || settingsPrewarmed) && <SettingsView
           open={settingsOpen}
           initialSection={settingsSection}
           onCompose={(text) => {

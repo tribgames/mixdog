@@ -6,15 +6,16 @@
  */
 import type { WebContents } from 'electron';
 
+import type { BrowserCdpPort } from './cdp';
 import type { BrowserCommand } from './command';
 import type { GuestSlot } from './guest-state';
-import { browserRefPointExpression } from './host-policy';
 import type { BrowserRefSet } from './ref-recovery';
 import type { AccessibilityRefSnapshot } from './snapshot-capture';
 import {
   formatSnapshot,
   type SnapshotDiagnosticsView,
 } from './snapshot-format';
+import { browserRefPointExpression } from './snapshot-scripts';
 
 /** The screenshot a coordinate action is allowed to be expressed in. */
 export interface VisualGrounding {
@@ -35,20 +36,10 @@ export interface BrowserRefPointHost {
     signal?: AbortSignal,
   ): Promise<{ handled: false } | { handled: true; value: T }>;
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T>;
-  guestDebugger(guest: WebContents): Promise<Electron.Debugger>;
-  sendCdp<T>(
-    guest: WebContents,
-    cdp: Electron.Debugger,
-    method: string,
-    params?: Record<string, unknown>,
-    timeoutMs?: number,
-    signal?: AbortSignal,
-    sessionId?: string,
-  ): Promise<T>;
+  cdp: BrowserCdpPort;
   /** Offset of the frame a ref lives in, relative to the top document. */
   frameOffsetForSession(
     guest: WebContents,
-    cdp: Electron.Debugger,
     sessionId: string | undefined,
     signal?: AbortSignal,
   ): Promise<{ x: number; y: number }>;
@@ -61,21 +52,18 @@ export interface BrowserRefPointHost {
   /** The ref table a covered-element report re-reads before it gives up. */
   accessibilityRefs: GuestSlot<AccessibilityRefSnapshot>;
   visualGrounding: GuestSlot<VisualGrounding>;
-  cdpTimeoutMs: number;
 }
 
 export function createBrowserRefPoints(host: BrowserRefPointHost) {
   const {
     callAccessibilityRef,
     evaluate,
-    guestDebugger,
-    sendCdp,
+    cdp,
     frameOffsetForSession,
     captureSnapshotPayload,
     diagnostics: diagnosticsFor,
     accessibilityRefs: accessibilityRefsByGuest,
     visualGrounding: visualGroundingByGuest,
-    cdpTimeoutMs: CDP_REQUEST_TIMEOUT_MS,
   } = host;
   async function resolveRefPoint(
     guest: WebContents,
@@ -166,17 +154,14 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
       if (accessibility.value?.error) {
         point = accessibility.value;
       } else {
-        const cdp = await guestDebugger(guest);
-        const box = await sendCdp<{
+        const box = await cdp.call<{
           model?: { content?: number[]; border?: number[] };
         }>(
           guest,
-          cdp,
           'DOM.getBoxModel',
           { backendNodeId: target.backendNodeId },
-          CDP_REQUEST_TIMEOUT_MS,
           signal,
-          target.sessionId,
+          { sessionId: target.sessionId },
         );
         const quad = box.model?.content || box.model?.border || [];
         if (quad.length < 8) {
@@ -190,7 +175,6 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
           const bottomY = quad[7] + (quad[5] - quad[7]) * rx;
           const frameOffset = await frameOffsetForSession(
             guest,
-            cdp,
             target.sessionId,
             signal,
           );

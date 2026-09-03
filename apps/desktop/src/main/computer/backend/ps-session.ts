@@ -57,6 +57,7 @@ $TS = [System.Windows.Automation.TreeScope]
 $Walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
 $Sessions = @{}
 $script:CurrentSession = $null
+$script:CurrentRequest = $null
 
 function Get-SessionState($id) {
   $key = if ($id) { [string]$id } else { 'default' }

@@ -30,6 +30,8 @@ const _agentRulesCacheByProfile = new Map();
 const _leadRulesCacheByDelegation = new Map();
 let _leadMetaCache = null;
 let _leadMetaMtime = 0;
+let _leadLanguageCache = null;
+let _leadLanguageMtime = 0;
 
 function omitToolsKey(omitTools) {
     return [...new Set((Array.isArray(omitTools) ? omitTools : [])
@@ -134,5 +136,27 @@ export function _buildLeadMetaContext() {
         return built;
     } catch (e) {
         throw new Error(`[session] lead meta context build failed: ${e.message}`);
+    }
+}
+
+// Trailing BP3 block: the configured response language. Kept out of BP2 so
+// it is the last instruction before the conversation (see
+// rules-builder.cjs buildLeadLanguageContent).
+export function _buildLeadLanguageContext() {
+    if (!_rulesBuilder || typeof _rulesBuilder.buildLeadLanguageContent !== 'function') return '';
+    const DATA_DIR = resolvePluginData();
+    const mtime = maxMtimeRecursive([
+        join(DATA_DIR, 'mixdog-config.json'),
+    ]);
+    if (_leadLanguageCache !== null && mtime <= _leadLanguageMtime) {
+        return _leadLanguageCache;
+    }
+    try {
+        const built = _rulesBuilder.buildLeadLanguageContent({ DATA_DIR });
+        _leadLanguageCache = built;
+        _leadLanguageMtime = mtime;
+        return built;
+    } catch (e) {
+        throw new Error(`[session] lead language context build failed: ${e.message}`);
     }
 }

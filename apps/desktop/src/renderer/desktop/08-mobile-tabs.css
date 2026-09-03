@@ -355,18 +355,8 @@
   visibility: visible !important;
   pointer-events: auto !important;
 }
-.workbench-side-section-body .session-sidebar-resize,
-.workbench-side-section-body .utility-dock-resize,
-.workbench-side-section-body .utility-dock-tabs-header {
-  display: none;
-}
-.workbench-side-section-body .utility-dock-view-section-header[hidden],
+.workbench-side-section-body .session-sidebar-resize { display: none; }
 .workbench-side-section-body .sidebar-view-section-header[hidden] { display: none; }
-.workbench-side-section-body > .utility-dock > .utility-dock-header,
-.workbench-side-section-body > .utility-dock > .utility-dock-body {
-  width: 100% !important;
-  min-width: 0 !important;
-}
 .workbench-side-section-body > .utility-dock .utility-dock-header {
   position: relative;
   box-sizing: border-box;
@@ -374,7 +364,10 @@
   height: 36px;
   margin: 0;
   gap: 6px;
-  padding: 0 4px 0 6px;
+  /* Title opens on the panel's 12px box line, the same edge the toolbar,
+     filter field and row checkboxes below it use (user: 헤더만 들여쓰기
+     간격이 아래랑 다르다). */
+  padding: 0 4px 0 12px;
   font-size: var(--mx-font-panel-title);
   font-weight: var(--mx-weight-semibold);
   line-height: var(--mx-line-emphasis);

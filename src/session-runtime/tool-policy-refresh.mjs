@@ -7,7 +7,7 @@ import { toSessionWorkflowMeta } from './workflow.mjs';
 import { applyDeferredToolSurface, filterDisallowedTools } from './tool-catalog.mjs';
 import { deferredSurfaceModeForLead } from './effort.mjs';
 import { applyInitialDeferredToolManifestToBp2, composeSystemPrompt } from '../runtime/agent/orchestrator/context/collect.mjs';
-import { _buildSharedRules, _buildLeadRules } from '../runtime/agent/orchestrator/session/manager/rules-cache.mjs';
+import { _buildSharedRules, _buildLeadRules, _buildLeadLanguageContext } from '../runtime/agent/orchestrator/session/manager/rules-cache.mjs';
 import { unusedModelEditToolName } from '../runtime/shared/edit-tool-dialect.mjs';
 
 function toolNames(list) {
@@ -118,6 +118,9 @@ export function createToolPolicyRefresh({
       skipRoleCatalog: true,
       workflowContext,
       coreMemoryContext,
+      // BP3 rebuild must keep the trailing language block, or a workflow
+      // switch would silently drop the response-language directive.
+      languageContext: _buildLeadLanguageContext(),
     });
     rewriteSystemHeading(session, '# Tool Use', baseRules);
     rewriteBp3Core(session, sessionMarkerCore);

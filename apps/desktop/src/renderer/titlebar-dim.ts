@@ -27,17 +27,24 @@ function parseColor(computed: string): Rgba | null {
 }
 
 // color-mix() variables resolve only on a live element, so a 1px offscreen
-// probe turns the token into a concrete rgb()/color(srgb) value.
+// probe turns the token into a concrete rgb()/color(srgb) value. ONE probe
+// stays in the document: appending and removing a node per read invalidated
+// layout, and the scrim rect reads that follow then forced a full relayout on
+// every frame of the follow loop (~60ms of a cold boot in getClientRects).
+// Repainting a fixed 1px box's background invalidates nothing but paint.
+let colorProbe: HTMLDivElement | null = null;
 function resolveCssColor(value: string): Rgba | null {
   if (typeof document === 'undefined' || !document.body) return null;
   if (typeof window === 'undefined' || typeof window.getComputedStyle !== 'function') return null;
-  const probe = document.createElement('div');
-  probe.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;pointer-events:none;';
-  probe.style.backgroundColor = value;
-  document.body.appendChild(probe);
-  const computed = window.getComputedStyle(probe).backgroundColor;
-  probe.remove();
-  return parseColor(computed);
+  if (!colorProbe || !colorProbe.isConnected) {
+    colorProbe = document.createElement('div');
+    colorProbe.setAttribute('aria-hidden', 'true');
+    colorProbe.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;'
+      + 'pointer-events:none;visibility:hidden;contain:strict;';
+    document.body.appendChild(colorProbe);
+  }
+  colorProbe.style.backgroundColor = value;
+  return parseColor(window.getComputedStyle(colorProbe).backgroundColor);
 }
 
 /** Every fullscreen scrim currently painting over the window band. Counting
@@ -102,6 +109,11 @@ function hex(color: Rgba): string {
 let holds = 0;
 let followFrame = 0;
 let followUntil = 0;
+let lastSent = '';
+let settledFrames = 0;
+/** A fade that has painted this many identical frames is over: the follow
+ *  loop stops early instead of sampling the DOM until its time budget ends. */
+const FOLLOW_SETTLED_FRAMES = 4;
 
 function handleViewportChange(): void {
   // Crossing the compact width/height breakpoint changes settings from a
@@ -115,10 +127,13 @@ function handleViewportChange(): void {
 function followCaption(durationMs = 450): void {
   if (typeof requestAnimationFrame !== 'function') return;
   followUntil = performance.now() + durationMs;
+  settledFrames = 0;
   if (followFrame) return;
   const step = (): void => {
-    sendCaption();
-    followFrame = performance.now() < followUntil ? requestAnimationFrame(step) : 0;
+    const changed = sendCaption();
+    settledFrames = changed ? 0 : settledFrames + 1;
+    const keepFollowing = performance.now() < followUntil && settledFrames < FOLLOW_SETTLED_FRAMES;
+    followFrame = keepFollowing ? requestAnimationFrame(step) : 0;
   };
   followFrame = requestAnimationFrame(step);
 }
@@ -127,7 +142,8 @@ function followCaption(durationMs = 450): void {
  *  tokens: pure black/white symbols read heavier than the DOM icons beside
  *  them (user: 아이콘이랑 최대최소닫기 색감이 동떨어져 있다). While a modal
  *  holds a claim, the same scrim is composited on top of both. */
-function sendCaption(): void {
+/** Returns whether the composited colors changed since the last send. */
+function sendCaption(): boolean {
   // Prefer the ACTUAL painted titlebar over the token: the caption band must
   // read as one surface with the strip beside it (user: 배경이랑 완전히
   // 동화됐으면), even if a surface tweak moves the token. Full-bleed settings
@@ -140,7 +156,7 @@ function sendCaption(): void {
     ? parseColor(window.getComputedStyle(captionSurface).backgroundColor)
     : null;
   const band = painted && painted.a === 1 ? painted : resolveCssColor('var(--mx-window-band)');
-  if (!band) return;
+  if (!band) return false;
   const light = window.getComputedStyle(document.documentElement).colorScheme === 'light';
   // Caption symbols share the EXACT ink of the DOM cluster beside them
   // (user: 그쪽만 혼자 다르게 튀어 보임): the native strokes are hairline,
@@ -156,7 +172,14 @@ function sendCaption(): void {
     plate = over(scrim, plate);
     symbol = over(scrim, symbol);
   }
-  bridge()?.setTitleBarDim?.({ color: hex(plate), symbolColor: hex(symbol) })?.catch?.(() => undefined);
+  const next = { color: hex(plate), symbolColor: hex(symbol) };
+  const signature = `${next.color}/${next.symbolColor}`;
+  // Identical colors are not re-sent: the follow loop samples every frame and
+  // the main process would otherwise repaint the native band for nothing.
+  if (signature === lastSent) return false;
+  lastSent = signature;
+  bridge()?.setTitleBarDim?.(next)?.catch?.(() => undefined);
+  return true;
 }
 
 /** One fullscreen-scrim claim; the returned release drops it (idempotent). */

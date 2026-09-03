@@ -12,9 +12,14 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { clean } from './session-text.mjs';
 import { readJsonSafe } from './fs-utils.mjs';
+import {
+  pluginManifest,
+  pluginSkillsRoots,
+  resolveContainedPluginPath,
+} from '../runtime/shared/plugin-manifest.mjs';
 
 // Config keys must compare the same cwd spelling on read and write. Windows
 // paths are case-insensitive, so canonicalize their resolved form to lowercase.
@@ -165,35 +170,9 @@ function isPlainObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-export function pluginManifest(root) {
-  return readJsonSafe(join(root, '.codex-plugin', 'plugin.json'))
-    || readJsonSafe(join(root, 'plugin.json'))
-    || {};
-}
-
-export function resolveContainedPluginPath(root, rel) {
-  const trimmed = String(rel || '').trim();
-  if (!trimmed || isAbsolute(trimmed)) return null;
-  const base = resolve(root);
-  const abs = resolve(base, trimmed);
-  const relToBase = relative(base, abs);
-  if (relToBase.startsWith('..') || isAbsolute(relToBase)) return null;
-  return abs;
-}
-
-function pluginSkillsRoots(root) {
-  const manifest = pluginManifest(root);
-  const roots = new Set();
-  const add = (rel) => {
-    const abs = resolveContainedPluginPath(root, rel);
-    if (abs) roots.add(abs);
-  };
-  add('./skills/');
-  if (typeof manifest.skills === 'string' && manifest.skills.trim()) {
-    add(manifest.skills.trim());
-  }
-  return [...roots];
-}
+// Manifest + contained-path resolution live in the shared module so skill
+// discovery and this status surface read the same roots.
+export { pluginManifest, resolveContainedPluginPath };
 
 function mcpServersMapFromJson(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;

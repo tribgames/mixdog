@@ -13,7 +13,7 @@ export const TOOL_SEARCH_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'Load named deferred tools and report activation status. Direct calls auto-load, so a pre-call is only needed when the exact arguments are unknown.',
+  description: 'Fetch the full schema of named deferred tools so they can be called. The result returns each matched tool as one <function>{"description": "...", "name": "...", "parameters": {...}}</function> line inside a <functions> block, the same encoding as the tool list at the top of the prompt; read that definition and call the tool exactly as it declares. Direct calls auto-load, so a pre-call is only needed when the exact arguments are unknown.',
   inputSchema: {
     type: 'object',
     properties: {

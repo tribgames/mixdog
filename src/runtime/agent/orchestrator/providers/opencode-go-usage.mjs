@@ -161,7 +161,9 @@ function windowFromUsage(kind, raw) {
     if (used !== null && quota > 0) usagePercent = (used / quota) * 100;
   }
   if (usagePercent === null) return null;
-  if (usagePercent >= 0 && usagePercent <= 1) usagePercent *= 100;
+  // Console `usagePercent` values are already percentages (e.g. 0.1 means
+  // 0.1%), matching `used/limit*100` above. Do not scale 0~1 values: the old
+  // `<= 1 → ×100` heuristic turned real 0.1% readings into 10%.
   const resetInSec = num(
     raw.resetInSec
       ?? raw.resetInSeconds

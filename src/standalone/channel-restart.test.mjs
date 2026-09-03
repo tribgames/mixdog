@@ -102,7 +102,7 @@ test('client registration cannot select or replace the pinned session', async ()
   }
 });
 
-test('daemon replacement drain preserves the session intent without deactivating it', async () => {
+test('daemon replacement keeps compatible channel clients live until handoff commits', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-channel-drain-'));
   const intentPath = join(dir, 'channel-remote-intent.json');
   const transcriptPath = join(dir, 'session_drain.jsonl');
@@ -136,8 +136,31 @@ test('daemon replacement drain preserves the session intent without deactivating
       },
     });
     assert.equal(transport.beginDrain('daemon replacement'), true);
+    await post(endpoint, '/call', {
+      token: registered.token,
+      name: 'read_channel_state',
+      args: { sessionId: 'session_drain' },
+    });
+    const compatibleNewcomer = await post(endpoint, '/client/register', {
+      leadPid: process.pid,
+      cwd: process.cwd(),
+      passive: true,
+      restoreSessionId: 'session_drain',
+    });
+    assert.ok(compatibleNewcomer.token);
+    assert.equal(transport.clientCount, 2);
     assert.equal(JSON.parse(readFileSync(intentPath, 'utf8')).sessionId, 'session_drain');
     assert.equal(calls.filter((call) => call.args?.active === false).length, 0);
+    assert.equal(transport.commitDrain('daemon replacement commit'), true);
+    await assert.rejects(
+      post(endpoint, '/call', {
+        token: registered.token,
+        name: 'must_not_run',
+        args: { sessionId: 'session_drain' },
+      }),
+      /daemon is draining/,
+    );
+    assert.equal(calls.filter((call) => call.name === 'must_not_run').length, 0);
   } finally {
     await transport.stop();
     rmSync(dir, { recursive: true, force: true });

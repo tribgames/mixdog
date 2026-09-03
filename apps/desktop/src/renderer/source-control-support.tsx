@@ -13,7 +13,7 @@ import {
 import { scmStatusKind, type ScmStatusKind } from "./ScmStatusIcon";
 
 export interface SourceControlDiffRequest {
-  source: "staged" | "unstaged" | "commit";
+  source: "staged" | "unstaged" | "commit" | "session";
   hash?: string;
   untracked?: boolean;
 }
@@ -187,8 +187,18 @@ export function useRowWindow(
   }, [active, resetKey, viewport]);
   return useMemo(() => {
     const { top, height } = metrics;
-    if (height <= 0 || count * rowHeight <= height) {
-      return { start: 0, end: count, leading: 0, trailing: 0, measured: height > 0 };
+    if (height <= 0) {
+      // First commit, viewport not measured yet: mount only what the tallest
+      // plausible viewport could show. Mounting EVERY row here and windowing
+      // on the next commit made a dock with a few hundred changes pay a full
+      // list build — rows, path measurement, layout — for one frame that the
+      // real window immediately threw away (user: 소스 제어 누르면 히칭).
+      const viewportGuess = typeof window === "undefined" ? 800 : window.innerHeight;
+      const end = Math.min(count, Math.ceil(viewportGuess / rowHeight) + SCM_ROW_OVERSCAN);
+      return { start: 0, end, leading: 0, trailing: (count - end) * rowHeight, measured: false };
+    }
+    if (count * rowHeight <= height) {
+      return { start: 0, end: count, leading: 0, trailing: 0, measured: true };
     }
     const start = Math.max(0, Math.floor(top / rowHeight) - SCM_ROW_OVERSCAN);
     const end = Math.min(count, Math.max(start,

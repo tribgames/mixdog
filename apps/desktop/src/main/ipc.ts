@@ -1529,10 +1529,11 @@ export function registerDesktopIpc(
   // Dock Git panel: plain git CLI scoped to an absolute project directory.
   handle(DESKTOP_IPC.gitStatus, (_event, cwd, options) => {
     const record = options && typeof options === 'object'
-      ? options as { reuseLineStats?: unknown }
+      ? options as { reuseLineStats?: unknown; skipLineStats?: unknown }
       : {};
     return gitStatus(requiredRepositoryCwd(cwd), {
       reuseLineStats: record.reuseLineStats === true,
+      skipLineStats: record.skipLineStats === true,
     });
   });
   handle(DESKTOP_IPC.gitBranches, (_event, cwd) => gitBranches(requiredRepositoryCwd(cwd)));

@@ -121,8 +121,6 @@ html[data-mixdog-remote] .titlebar-caption-space {
    16px EXACTLY keeps every line on device pixels — never resize these. The
    selector doubles up to outrank codicon.css's own font shorthand. */
 .sidebar-toggle-icon.codicon { font-size: 16px; }
-/* Rail destinations draw codicons at the activity-bar 24px. */
-.activity-rail .codicon { font-size: 24px; }
 /* One rail icon voice: the toggle, dock glyphs and the utility-dock tab row
    share the 18px frame (user: 사이드탭 아이콘이 더 작은 게 이해가 안 된다 —
    the dock tabs sat at 16px beside 18px header toggles). The stroke is the

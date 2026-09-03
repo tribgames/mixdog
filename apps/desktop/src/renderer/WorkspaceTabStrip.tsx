@@ -19,8 +19,10 @@ import {
   FileDiff,
   Folder,
   MessageCircle,
+  Plus,
   Sparkles,
   Terminal,
+  X,
 } from "lucide-react";
 
 import type { DesktopSessionSummary } from "../shared/contract";
@@ -83,9 +85,8 @@ function prefetchTabSurface(tab: WorkspaceTab): void {
   prefetchSurfaceForSelection(tab.selection);
 }
 
-/** Tab-kind glyph shared by the compact current-tab button and the switcher
- *  rows (the full strip keeps its inline chain untouched for the strip
- *  contract tests). */
+/** Tab-kind glyph for the phone title pill (the full strip keeps its inline
+ *  chain untouched for the strip contract tests). */
 function tabGlyph(tab: WorkspaceTab, size = 14) {
   switch (tab.selection.kind) {
     case "project": return <Folder size={size} />;
@@ -219,33 +220,24 @@ export function WorkspaceTabStrip({
   const shellNode = useRef<HTMLDivElement>(null);
   const [, setShellWidth] = useState(0);
   const [stripAvailable, setStripAvailable] = useState(0);
-  const [tabSwitcher, setTabSwitcher] = useState<{ left: number; top: number } | null>(null);
-  const switcherNode = useRef<HTMLDivElement>(null);
-  const switcherTriggers = useRef(new Set<HTMLElement>());
-  // Chrome-mobile compact header (label + count) engages ONLY where the
-  // workspace holds a single pane — the phone remote surface. Wide surfaces
-  // keep the full tab strip untouched; the count opens the grid
-  // overview instead of the old dropdown list.
-  const compact = isMobileRemoteSurface();
+  // The phone draws the SAME strip as the desktop (user: PC에 최대한 맞춰서 —
+  // 헤더가 완전 다르다): real tabs, X, + and the dock toggles. Its only
+  // addition is the brand mark at the front, which opens the session drawer
+  // the desktop reaches through its activity rail.
+  const mobile = isMobileRemoteSurface();
   // Layout INPUT: the width the tab run may spend — the shell minus the
-  // fixed + slot and the trailing controls.
+  // home slot, the fixed + slot and the three-control trailing safe zone.
   const measureWidths = useCallback(() => {
     const shell = shellNode.current;
     if (!shell) return;
     const width = shell.clientWidth;
     setShellWidth((previous) => previous === width ? previous : width);
+    const homeButton = shell.querySelector<HTMLElement>(":scope > .workspace-tab-home");
     const newButton = shell.querySelector<HTMLElement>(":scope > .workspace-tab-new");
     const trailingBox = shell.querySelector<HTMLElement>(":scope > .workspace-tabs-trailing");
-    const available = width - (newButton?.offsetWidth ?? 0) - (trailingBox?.offsetWidth ?? 0);
+    const available = width - (homeButton?.offsetWidth ?? 0)
+      - (newButton?.offsetWidth ?? 0) - (trailingBox?.offsetWidth ?? 0);
     setStripAvailable((previous) => previous === available ? previous : available);
-  }, []);
-  const switcherTrigger = useCallback((node: HTMLButtonElement | null) => {
-    if (node) switcherTriggers.current.add(node);
-    else {
-      for (const el of [...switcherTriggers.current]) {
-        if (!el.isConnected) switcherTriggers.current.delete(el);
-      }
-    }
   }, []);
   // Tab context menu (Close / Close Others / Close to the
   // Right / Keep Open) with standard outside-click dismissal.
@@ -268,51 +260,32 @@ export function WorkspaceTabStrip({
   }, [tabMenu]);
   // ABB: the context menu closes on hardware back like every other layer.
   useMobileBack(Boolean(tabMenu), () => setTabMenu(null));
-  // Compact-mode plumbing: shell width drives the collapse; the switcher
-  // follows the same dismissal grammar as the other strip menus.
+  // Shell width drives the Chrome tab-width ladder.
+  const hasTrailing = Boolean(trailing);
   useLayoutEffect(() => {
     const shell = shellNode.current;
     if (!shell || typeof ResizeObserver === "undefined") return undefined;
     measureWidths();
     const observer = new ResizeObserver(measureWidths);
     observer.observe(shell);
+    // The trailing controls resize WITHOUT resizing the shell (a dock toggle
+    // appears, a status chip grows); observing the box itself replaces the
+    // old re-measure on every render that handed a fresh `trailing` node —
+    // which was every App render, each a forced layout inside the commit.
+    const trailingBox = shell.querySelector<HTMLElement>(":scope > .workspace-tabs-trailing");
+    if (trailingBox) observer.observe(trailingBox);
     return () => observer.disconnect();
-  }, [measureWidths]);
-  // Trailing controls and tab-count changes move the available width without
-  // resizing the shell — re-measure on those renders too.
+  }, [measureWidths, hasTrailing]);
+  // Tab-count changes move the available width without resizing the shell —
+  // re-measure on those renders too.
   useLayoutEffect(() => {
     measureWidths();
-  }, [tabs.length, trailing, compact, measureWidths]);
-  useEffect(() => {
-    if (!compact) setTabSwitcher(null);
-  }, [compact]);
-  useEffect(() => {
-    if (!tabSwitcher) return undefined;
-    const closeOutside = (event: PointerEvent) => {
-      const target = event.target as Node | null;
-      if (target && (switcherNode.current?.contains(target)
-        || [...switcherTriggers.current].some((el) => el.contains(target)))) return;
-      setTabSwitcher(null);
-    };
-    const closeMenu = () => setTabSwitcher(null);
-    document.addEventListener("pointerdown", closeOutside);
-    window.addEventListener("resize", closeMenu);
-    window.addEventListener("scroll", closeMenu, true);
-    return () => {
-      document.removeEventListener("pointerdown", closeOutside);
-      window.removeEventListener("resize", closeMenu);
-      window.removeEventListener("scroll", closeMenu, true);
-    };
-  }, [tabSwitcher]);
-  // ABB: the switcher list closes on hardware back like the overview above.
-  useMobileBack(Boolean(tabSwitcher), () => setTabSwitcher(null));
-  useLayoutEffect(() => { clampOverlayIntoView(switcherNode.current); }, [tabSwitcher]);
+  }, [tabs.length, hasTrailing, measureWidths]);
   // Menus can anchor hard against the window's right edge; the measured box
   // is what keeps them on screen.
   useLayoutEffect(() => { clampOverlayIntoView(tabMenuNode.current); }, [tabMenu]);
-  // Fixed sizing freezes each tab's width while the
-  // pointer remains over the strip, allowing rapid repeated closes without
-  // any width animation or timer.
+  // Survivor widths follow the recalculated run immediately; the CSS width
+  // transition glides them instead of holding then jumping.
   const [fixedTabWidths, setFixedTabWidths] =
     useState<ReadonlyMap<string, number>>(() => new Map());
   const previousTabKeys = useRef(tabs.map((tab) => tab.key));
@@ -351,10 +324,15 @@ export function WorkspaceTabStrip({
   // Reveal-active-tab: switching tabs scrolls the strip MINIMALLY so
   // the active tab is always fully visible — overflow scrolls, it never
   // hides tabs. Right overflow aligns the tab's right edge; left overflow
-  // aligns its left edge.
+  // aligns its left edge. The reveal reads clientWidth/scrollWidth inside
+  // the commit, which forces a synchronous layout of the whole document —
+  // keyed on the tab SET (keys + titles) rather than the `tabs` array, whose
+  // identity changed on every App render and made each of those commits pay
+  // that layout (a keystroke sharing the frame painted 80–160ms late).
+  const tabSignature = tabs.map((tab) => `${tab.key}\u0000${tab.title}`).join("\u0001");
   useLayoutEffect(() => {
     revealActiveTab();
-  }, [activeKey, revealActiveTab, tabs]);
+  }, [activeKey, revealActiveTab, tabSignature]);
   // Parent layout calls are implicit in React/CSS, with no explicit
   // title-control layout pass. Observe this strip's OWN width so sash,
   // dock, sidebar and window changes all release mouse-close sizing and reveal
@@ -373,20 +351,10 @@ export function WorkspaceTabStrip({
     observer.observe(strip);
     return () => observer.disconnect();
   }, [revealActiveTab]);
-  const closeTab = useCallback((tab: WorkspaceTab, freezeSurvivorWidths = false) => {
-    const closingLastTab = tabs.at(-1)?.key === tab.key;
-    if (freezeSurvivorWidths && !closingLastTab) {
-      const overrides = new Map<string, number>();
-      for (const [key, node] of tabNodes.current) {
-        const tabWidth = node.getBoundingClientRect().width;
-        if (tabWidth > 0) overrides.set(key, tabWidth);
-      }
-      setFixedTabWidths(overrides);
-    } else {
-      setFixedTabWidths(new Map());
-    }
+  const closeTab = useCallback((tab: WorkspaceTab) => {
+    setFixedTabWidths(new Map());
     onCloseTab(tab);
-  }, [onCloseTab, tabs]);
+  }, [onCloseTab]);
   const setTabNode = useCallback((key: string, node: HTMLDivElement | null) => {
     if (node) tabNodes.current.set(key, node);
     else tabNodes.current.delete(key);
@@ -515,7 +483,7 @@ export function WorkspaceTabStrip({
 
   // Chromium CalculateTabBounds output for the current strip input; the
   // per-tab width variable pins basis/min/max exactly like gfx::Rect bounds.
-  const chromeWidths = !compact && stripAvailable > 0
+  const chromeWidths = stripAvailable > 0
     ? calculateChromeTabWidths(
         tabs.length,
         Math.max(0, tabs.findIndex((tab) => tab.key === activeKey)),
@@ -524,76 +492,51 @@ export function WorkspaceTabStrip({
     : null;
   return (
       <div ref={shellNode} className="workspace-tabs-shell" data-slot="workspace-tabs"
-        data-count={tabs.length} data-compact={compact ? "true" : undefined}
+        data-count={tabs.length} data-mobile={mobile ? "true" : undefined}
         data-focused={focused ? "true" : "false"}>
-        {compact ? (() => {
+        {/* Phone home slot: the brand mark opens the session drawer (user:
+            로고를 구글 홈버튼 위치에, 누르면 사이드탭) — the desktop reaches
+            the same drawer through its activity rail, which the phone has no
+            room for. Frameless, currentColor strokes. */}
+        {mobile && <button type="button" className="workspace-tab-home"
+          aria-label={t("Toggle session sidebar")}
+          onClick={() => window.dispatchEvent(new Event("mixdog:mobile-home"))}>
+          <svg className="workspace-tab-home-mark" viewBox="44 44 168 168" aria-hidden="true">
+            <g fill="none" stroke="currentColor" strokeWidth="22" strokeLinecap="round">
+              <path d="M116.2 61A68 68 0 0 1 191.9 104.7" />
+              <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(120 128 128)" />
+              <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(240 128 128)" />
+            </g>
+            <polygon points="128,112 133,123 144,128 133,133 128,144 123,133 112,128 123,123" fill="currentColor" />
+          </svg>
+        </button>}
+        {/* Phone title pill (user decision (a): 제목 알약은 그대로): the run
+            of tabs has no room on a phone, so ONE label names the active tab —
+            sessions live in the left drawer. Tapping does
+            nothing; long-press keeps the tab menu for closing. The + and the
+            dock toggles beside it are the desktop's. */}
+        {mobile ? (() => {
           const activeTab = tabs.find((tab) => tab.key === activeKey) ?? tabs[0];
           const working = tabIsWorking(activeTab, true, activeBusy, workingSessionIds);
-          return <>
-            {/* Chrome-mobile home slot: the brand mark opens the session
-                sidebar (user: 로고를 구글 홈버튼 위치에, 누르면 사이드탭). */}
-            <button type="button" className="workspace-tab-home"
-              aria-label={t("Toggle session sidebar")}
-              onClick={() => window.dispatchEvent(new Event("mixdog:mobile-home"))}>
-              {/* Frameless brand mark (user: 모바일은 프레임 안 들어간 로고):
-                  currentColor strokes so it inks like Chrome's home glyph. */}
-              <svg className="workspace-tab-home-mark" viewBox="44 44 168 168" aria-hidden="true">
-                <g fill="none" stroke="currentColor" strokeWidth="22" strokeLinecap="round">
-                  <path d="M116.2 61A68 68 0 0 1 191.9 104.7" />
-                  <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(120 128 128)" />
-                  <path d="M116.2 61A68 68 0 0 1 191.9 104.7" transform="rotate(240 128 128)" />
-                </g>
-                <polygon points="128,112 133,123 144,128 133,133 128,144 123,133 112,128 123,123" fill="currentColor" />
-              </svg>
-            </button>
-            {/* Label-only pill (user: 목록 전환도, 이름 탭 동작도 필요 없다 —
-                세션은 왼쪽 서랍, 옆 탭은 스와이프): tapping does nothing;
-                long-press keeps the tab menu for closing. */}
-            <button type="button" ref={switcherTrigger}
-              className="workspace-tab-compact-current"
-              data-tooltip={activeTab?.title}
-              onContextMenu={(event) => {
-                if (!activeTab) return;
-                event.preventDefault();
-                setTabMenu({
-                  key: activeTab.key,
-                  left: Math.max(8, Math.min(event.clientX, window.innerWidth - 208)),
-                  top: Math.max(8, Math.min(event.clientY, window.innerHeight - 264)),
-                });
-              }}>
-              {working
-                ? <ProgressSpinner size={14} className="workspace-tab-status" role="status"
-                  aria-label={t("{{name}} is working", { name: activeTab?.title ?? "" })} />
-                : activeTab ? tabGlyph(activeTab) : null}
-              <span>{activeTab?.title ?? ""}</span>
-            </button>
-            {/* The old count/overview slot is the phone's New task + (user:
-                처음 들어가면 new task에서 출발 안 하니 거기 +로 바꾸자):
-                the same 44dp box as its neighbors. */}
-            <button type="button"
-              className="workspace-tab-count"
-              aria-label={t("New task")}
-              data-tooltip={t("New task")}
-              onClick={onNewTask}>
-              <span className="codicon codicon-add" aria-hidden="true" />
-            </button>
-            {/* User: ⋮ 말고 — the trailing cluster stays [N][하단][우측],
-                three controls at ONE size (equal 40dp boxes, 24dp glyphs). */}
-            <button type="button" className="workspace-tab-mobile-panel"
-              aria-label={t("Open panel")}
-              onClick={() => window.dispatchEvent(new Event("mixdog:mobile-panel"))}>
-              <span className="codicon codicon-layout-panel" aria-hidden="true" />
-            </button>
-            <button type="button" className="workspace-tab-mobile-dock"
-              aria-label={t("Open utility panel")}
-              onClick={() => window.dispatchEvent(new Event("mixdog:mobile-dock"))}>
-              <span className="codicon codicon-layout-sidebar-right" aria-hidden="true" />
-            </button>
-          </>;
-        })() : <>
-        {/* Drop-border feedback: the pending insertion index paints
-            a 2px line between its two neighboring tabs. */}
-        <nav ref={tabStrip}
+          return <button type="button"
+            className="workspace-tab-compact-current"
+            data-tooltip={activeTab?.title}
+            onContextMenu={(event) => {
+              if (!activeTab) return;
+              event.preventDefault();
+              setTabMenu({
+                key: activeTab.key,
+                left: Math.max(8, Math.min(event.clientX, window.innerWidth - 208)),
+                top: Math.max(8, Math.min(event.clientY, window.innerHeight - 264)),
+              });
+            }}>
+            {working
+              ? <ProgressSpinner size={14} className="workspace-tab-status" role="status"
+                aria-label={t("{{name}} is working", { name: activeTab?.title ?? "" })} />
+              : activeTab ? tabGlyph(activeTab) : null}
+            <span>{activeTab?.title ?? ""}</span>
+          </button>;
+        })() : <nav ref={tabStrip}
           className={`workspace-tabs${dragScroll ? " drag-scroll" : ""}`}
           data-slot="workspace-tabs-scroll"
           data-group-dragging={draggingGroup ? "true" : undefined}
@@ -665,7 +608,7 @@ export function WorkspaceTabStrip({
                   onMouseDown={(event) => {
                     if (event.button !== 1) return;
                     event.preventDefault();
-                    closeTab(tab, true);
+                    closeTab(tab);
                   }}
                   onDoubleClick={() => onPinTab?.(tab)}
                   onContextMenu={(event) => {
@@ -719,20 +662,19 @@ export function WorkspaceTabStrip({
                     className="workspace-tab-close"
                     onClick={(event) => {
                       event.stopPropagation();
-                      closeTab(tab, true);
+                      closeTab(tab);
                     }}
                     aria-label={t("Close {{title}}", { title: tab.title })}
                     data-tooltip={t("Close tab")}
                   >
                     {tab.dirty
                       ? <span className="workspace-tab-dirty-glyph" aria-hidden="true">●</span>
-                      : <span className="codicon codicon-close" aria-hidden="true" />}
+                      : <X size={18} strokeWidth={2} aria-hidden="true" />}
                   </button>
                 </div>
             );
           })}
-        </nav>
-        </>}
+        </nav>}
         {/* The fixed add slot is OUTSIDE the horizontal viewport. At a pane's
             320px floor, tabs may scroll but can never paint beneath this
             control or make it disappear. */}
@@ -740,37 +682,13 @@ export function WorkspaceTabStrip({
           aria-label={t("New task")}
           data-tooltip={t("New task")}
           onClick={onNewTask}>
-          <span className="codicon codicon-add" aria-hidden="true" />
+          {/* Same lucide family and weight as the tab glyphs and dock toggles
+              beside it; the codicon + read as a foreign mark (user: + 버튼이
+              이질감이 있네). */}
+          {/* 18px @ stroke 2 → a 10.5px cross on a 1.5px line, the visible
+              size of the codicon X in the tabs beside it. */}
+          <Plus size={18} strokeWidth={2} aria-hidden="true" />
         </button>
-        {tabSwitcher ? createPortal(
-          <div ref={switcherNode} className="workspace-tab-new-menu workspace-tab-switcher"
-            role="menu" aria-label={t("Open tabs")}
-            style={{ left: tabSwitcher.left, top: tabSwitcher.top }}>
-            {tabs.map((tab) => {
-              const active = tab.key === activeKey;
-              return <div key={tab.key}
-                className={`workspace-tab-switcher-row${active ? " active" : ""}`}>
-                <button type="button" role="menuitem"
-                  aria-current={active ? "page" : undefined}
-                  onClick={() => {
-                    setTabSwitcher(null);
-                    selectTab(tab);
-                  }}>
-                  {tabGlyph(tab, 15)}<span>{tab.title}</span>
-                </button>
-                <button type="button" className="workspace-tab-switcher-close"
-                  aria-label={t("Close {{title}}", { title: tab.title })}
-                  data-tooltip={t("Close tab")}
-                  onClick={() => closeTab(tab)}>
-                  {tab.dirty
-                    ? <span className="workspace-tab-dirty-glyph" aria-hidden="true">●</span>
-                    : <span className="codicon codicon-close" aria-hidden="true" />}
-                </button>
-              </div>;
-            })}
-          </div>,
-          document.body,
-        ) : null}
         {tabMenu ? (() => {
           const menuIndex = tabs.findIndex((row) => row.key === tabMenu.key);
           const menuTab = tabs[menuIndex];
@@ -849,9 +767,10 @@ export function WorkspaceTabStrip({
             document.body,
           );
         })() : null}
-        {trailing
-          ? <div className="workspace-tabs-trailing">{trailing}</div>
-          : null}
+        {/* Keep the pane's three-control corner zone even when this surface
+            owns no controls (for example Studio or a file). Tabs and + must
+            never grow into a region that can later gain dock toggles. */}
+        <div className="workspace-tabs-trailing">{trailing}</div>
       </div>
   );
 }

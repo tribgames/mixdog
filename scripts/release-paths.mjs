@@ -28,48 +28,22 @@ export const DESKTOP_GATE_SCRIPT_BASES = [
   'scripts/runtime-dependency-cache-key',
 ];
 
-// Prefixes whose changes require the runtime gate (the release-critical lane
-// plus the tool-contract suites the gate also executes).
+// Prefixes whose changes require the runtime gate. The gate runs the
+// discovered default lane (scripts/test.mjs: every test file under src/ and
+// scripts/), so any change under those roots is a candidate.
 export const RUNTIME_GATE_PREFIXES = [
   '.github/workflows/',
   'native/',
-  'scripts/tool-contracts/',
-  'src/runtime/agent/orchestrator/',
-  'src/runtime/shared/',
+  'scripts/',
+  'src/',
 ];
-
-// Everything `npm run test:release-critical` executes
-// (test:release-assets + smoke:patch + test:providers).
-export const RELEASE_CRITICAL_SCRIPTS = [
-  'scripts/verify-release-assets.mjs',
-  'scripts/release-gate-test.mjs',
-  'scripts/prepare-native-assets.mjs',
-  'scripts/prepare-native-assets-test.mjs',
-  'scripts/generate-voice-runtime-manifest.mjs',
-  'scripts/generate-voice-runtime-manifest.test.mjs',
-  'scripts/apply-patch-edit-smoke.mjs',
-  'scripts/provider-contract-test.mjs',
-  'scripts/provider-stream-outcome-test.mjs',
-  'scripts/cursor-provider-test.mjs',
-];
-
-// Directory-shaped suites the critical lane executes (test:providers runs
-// scripts/provider-toolcall/*.test.mjs): deploy consumes these as git
-// pathspecs, the gate regex as path prefixes.
-export const RELEASE_CRITICAL_SUITE_DIRS = ['scripts/provider-toolcall'];
-
-// Gate-only suite files the runtime job executes beyond the critical lane
-// (test:compact); editing one must re-run the gate that executes it.
-export const RUNTIME_GATE_SUITE_FILES = ['scripts/suite-compact-test.mjs'];
 
 // deploy.yml plan: paths whose change since the published release tag marks
-// the critical lane as unverified.
+// the default lane as unverified.
 export const RELEASE_CRITICAL_PATHS = [
   'native',
-  'src/runtime/agent/orchestrator',
-  'src/runtime/shared',
-  ...RELEASE_CRITICAL_SCRIPTS,
-  ...RELEASE_CRITICAL_SUITE_DIRS,
+  'scripts',
+  'src',
   ...PACKAGE_MANIFESTS,
 ];
 
@@ -87,10 +61,6 @@ export function desktopGateRegex() {
 export function runtimeGateRegex() {
   return `^(${[
     ...RUNTIME_GATE_PREFIXES.map(escapeRegex),
-    ...RELEASE_CRITICAL_SCRIPTS.map((file) => `${escapeRegex(file)}$`),
-    ...RELEASE_CRITICAL_SUITE_DIRS.map((dir) => `${escapeRegex(dir)}/`),
-    ...RUNTIME_GATE_SUITE_FILES.map((file) => `${escapeRegex(file)}$`),
-    ...DESKTOP_GATE_SCRIPT_BASES.map((base) => `${escapeRegex(base)}(\\.test)?\\.mjs$`),
     ...PACKAGE_MANIFESTS.map((file) => `${escapeRegex(file)}$`),
     ...GATE_SELECTION_SOURCES.map((file) => `${escapeRegex(file)}$`),
   ].join('|')})`;

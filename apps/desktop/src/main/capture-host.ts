@@ -119,6 +119,13 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
   }],
   getUpdateSettings: { currentVersion: 'capture', latestVersion: 'capture', autoUpdate: false },
   getUpdateStatus: { phase: 'idle' },
+  getSessionReviewDiff: {
+    supported: true,
+    files: [],
+    patch: '',
+    snapshotKind: 'session',
+    authoritative: true,
+  },
   getTurnReviewDiff: {
     supported: true,
     files: [],

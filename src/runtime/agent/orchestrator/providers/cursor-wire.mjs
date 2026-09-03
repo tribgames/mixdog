@@ -31,6 +31,7 @@ import {
     buildCursorExecThrow,
     buildCursorInteractionResponse,
 } from './cursor-wire-interactions.mjs';
+import { markProviderRecoveryExhausted } from './retry-classifier.mjs';
 
 const API_URL = process.env.CURSOR_API_URL || 'https://api2.cursor.sh';
 const CLIENT_VERSION = process.env.MIXDOG_CURSOR_CLIENT_VERSION || 'cli-2026.08.11-e8db854';
@@ -93,7 +94,10 @@ function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }) {
     let status = 0;
     let retryAfter = null;
     let closeError = null;
-    let timeout = setTimeout(() => close(new Error('Cursor connection timed out')), 30_000);
+    let timeout = setTimeout(() => close(cursorError(
+        'Cursor connection timed out',
+        { code: 'connection_timeout' },
+    )), 30_000);
     const configuredIdle = Number(process.env.MIXDOG_CURSOR_H2_IDLE_TIMEOUT_MS);
     const idleTimeoutMs = Number.isFinite(configuredIdle) && configuredIdle > 0
         ? Math.floor(configuredIdle)
@@ -107,7 +111,10 @@ function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }) {
     const resetTimeout = () => {
         clearTimeout(timeout);
         timeout = idleTimeoutMs > 0
-            ? setTimeout(() => close(new Error('Cursor H2 stream timed out')), idleTimeoutMs)
+            ? setTimeout(() => close(cursorError(
+                'Cursor H2 stream timed out',
+                { code: 'stream_idle_timeout' },
+            )), idleTimeoutMs)
             : null;
     };
     const finish = (error = null) => {
@@ -1170,12 +1177,25 @@ function createStreamResponse({
                 return progress;
             };
             const recoverOrFail = (error) => {
-                const canRetry = retryCount < tuning.maxRetries
-                    && !cancelled
+                const retryable = isRetryableCursorStreamError(error);
+                const recoveryEligible = !cancelled
                     && typeof restart === 'function'
-                    && isRetryableCursorStreamError(error)
                     && (!state.visibleOutput || conversation.checkpoint);
+                const canRetry = retryCount < tuning.maxRetries
+                    && recoveryEligible
+                    && retryable;
                 if (!canRetry) {
+                    // A fresh Cursor run owns its bounded in-place retries. Mark
+                    // exhaustion so the outer loop does not multiply that budget.
+                    // Resumed tool-result streams have no restart closure; those
+                    // intentionally fall through unmarked so the outer loop can
+                    // rebuild from the committed assistant/tool-result history.
+                    if (retryable && recoveryEligible && retryCount >= tuning.maxRetries) {
+                        markProviderRecoveryExhausted(error, {
+                            owner: 'cursor-wire',
+                            attempts: retryCount + 1,
+                        });
+                    }
                     fail(error);
                     return;
                 }

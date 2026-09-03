@@ -125,8 +125,11 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   assert.equal(propertyFor('downloads', 'attach').description.includes('8 MiB'), true);
   assert.ok(propertyFor('drag', 'targetX'));
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('never replayed after dispatch'));
-  assert.ok(BROWSER_TOOL_DEFS[0].description.includes('same assistant turn'));
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('Do not batch calls that need earlier results'));
+  // Method lives in the built-in browser-use skill; the description is contract only.
+  assert.ok(BROWSER_TOOL_DEFS[0].description.includes('browser-use skill'));
+  assert.ok(!BROWSER_TOOL_DEFS[0].description.includes('fill.fields'));
+  assert.ok(BROWSER_TOOL_DEFS[0].description.length < 1000);
   assert.equal(propertyFor('snapshot', 'maxElements').maximum, 500);
   assert.equal(propertyFor('navigate', 'maxChars').maximum, 30_000);
   assert.equal(propertyFor('upload', 'paths').maxItems, 10);
@@ -138,11 +141,9 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   assert.equal(propertyFor('navigate', 'includeScreenshot').type, 'boolean');
   assert.equal(propertyFor('snapshot', 'includeScreenshot').type, 'boolean');
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('untrusted data'));
-  assert.ok(BROWSER_TOOL_DEFS[0].description.includes('mode=both'));
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('session-local'));
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('never provide session_id'));
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('visible foreground page by default'));
-  assert.ok(BROWSER_TOOL_DEFS[0].description.includes('before discussing it'));
   assert.ok(propertyFor('background', 'background').description.includes('not the primary user-visible page'));
 });
 
@@ -1216,13 +1217,15 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
   // Nine public operations and one compact core-action item keep every provider
   // on the same affordable custom-tool contract.
   assert.ok(Buffer.byteLength(JSON.stringify(COMPUTER_TOOL_DEFS[0])) <= 14_000);
-  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('list targets first'));
-  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('settle, verification, and fresh observation internally'));
-  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('pixel_unavailable'));
-  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('OCR marks when semantics are empty'));
-  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('not a permission error'));
+  // Method lives in the built-in computer-use skill; the description is contract only.
+  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('computer-use skill'));
+  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('capture the exact target before input'));
+  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('never guess ids'));
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('Browser Use'));
-  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('at most one computer call per model turn'));
+  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('one computer call per model turn'));
+  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('Never call the bridge'));
+  assert.ok(!COMPUTER_TOOL_DEFS[0].description.includes('pixel_unavailable'));
+  assert.ok(COMPUTER_TOOL_DEFS[0].description.length < 1100);
 });
 
 test('computer act result is normalized to actions plus one observation', () => {

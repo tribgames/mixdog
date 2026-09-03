@@ -20,7 +20,7 @@ import { CompletionStatus } from "./transcript-status";
 import { shouldSuppressFullyFailedToolItem } from "./transcript-tool-model";
 import { ToolCard } from "./transcript-tool-ui";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { isInternalTranscriptDisplayText, isTranscriptCancelledStatusText, isTranscriptHiddenControlToolName } from "../../../../src/runtime/shared/tool-execution-contract.mjs";
+import { isInternalTranscriptDisplayText, isTranscriptCancelledStatusText, isTranscriptHiddenToolItem } from "../../../../src/runtime/shared/tool-execution-contract.mjs";
 import { stripInjectedDisplayText, stripSessionEnvelope } from "../shared/session-title.mjs";
 
 let streamingMarkdownBodyPromise: Promise<typeof import("./StreamingMarkdownBody")> | null = null;
@@ -202,8 +202,8 @@ export function isVisibleTranscriptItem(item: TranscriptItem | undefined): boole
     const members = Array.isArray(item.toolMembers) ? item.toolMembers : [];
     const hiddenAggregate = item.aggregate === true
       && members.length > 0
-      && members.every((member) => isTranscriptHiddenControlToolName(member?.name));
-    return !isTranscriptHiddenControlToolName(item.name)
+      && members.every((member) => isTranscriptHiddenToolItem(member));
+    return !isTranscriptHiddenToolItem(item)
       && !hiddenAggregate
       && !shouldSuppressFullyFailedToolItem(item);
   }

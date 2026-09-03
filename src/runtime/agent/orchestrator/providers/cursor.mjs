@@ -7,6 +7,7 @@ import {
     toOpenAITools,
 } from './openai-compat-wire.mjs';
 import { consumeCompatChatCompletionStream } from './openai-compat-stream.mjs';
+import { ensureChatToolPairs } from './lib/wire-pairing.mjs';
 import {
     cursorTokenExpiry,
     exchangeCursorToken,
@@ -503,7 +504,10 @@ class CursorProviderBase {
                 model: cursorSelection.modelId,
                 mixdog_model_parameters: cursorSelection.parameters,
                 mixdog_max_mode: cursorSelection.maxMode === true,
-                messages: toCursorMessages(messages, this.name),
+                // Wire-level pairing guard: a call whose result never committed
+                // (cancel/abort) is hard-rejected unpaired, so synthesize the
+                // missing tool messages on the assembled array.
+                messages: ensureChatToolPairs(toCursorMessages(messages, this.name)),
                 mixdog_session_id: sessionScope,
                 stream: true,
                 stream_options: { include_usage: true },

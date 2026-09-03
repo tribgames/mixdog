@@ -22,11 +22,11 @@
   flex-direction: column;
   overflow: hidden;
   padding: 26px 34px 22px;
-  border: 0;
-  border-radius: var(--mx-radius-xl);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius-card);
   color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-overlay);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);

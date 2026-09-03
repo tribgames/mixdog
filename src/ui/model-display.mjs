@@ -95,13 +95,69 @@ export function canonicalModelDisplay(model, provider) {
     return `Gemini ${geminiLoose[1].split('-').map(titleModelPart).filter(Boolean).join(' ')}`;
   }
 
-  return raw;
+  return gatewayBrandDisplay(raw) || raw;
+}
+
+// Gateway brands (OpenCode Go and similar) whose ids carry the version
+// inside the first token (kimi-k2.7-code, qwen3.8-max, glm-5.3-flash).
+// Output follows the models.dev naming so online/offline labels match.
+const SPACED_BRANDS = [
+  [/^kimi-(.+)$/i, 'Kimi', ' '],
+  [/^qwen(\d.*)$/i, 'Qwen', ''],
+  [/^mimo-(.+)$/i, 'MiMo', ' '],
+  [/^muse-spark-(.+)$/i, 'Muse Spark', ' '],
+  [/^hy(\d.*)$/i, 'Hy', ''],
+];
+const HYPHENATED_BRANDS = [
+  [/^glm-(.+)$/i, 'GLM'],
+  [/^minimax-(.+)$/i, 'MiniMax'],
+  [/^longcat-(.+)$/i, 'LongCat'],
+];
+
+// Program-tier tokens the gateway appends to the id but that say nothing
+// about the model itself (muse-spark-1.3-contributor → "Muse Spark 1.3").
+const BRAND_NOISE_TOKENS = new Set(['contributor']);
+
+function brandVersionPart(part) {
+  const text = String(part || '').trim();
+  if (!text || BRAND_NOISE_TOKENS.has(text.toLowerCase())) return '';
+  // Version-ish tokens (k2.7, v2.5, 3.8, m3) upper-case a single leading
+  // letter; word tokens (code, max, flash, contributor) title-case.
+  return /^[a-z]?\d/i.test(text) ? text.toUpperCase() : titleModelPart(text);
+}
+
+export function gatewayBrandDisplay(raw) {
+  for (const [re, brand, joiner] of SPACED_BRANDS) {
+    const m = raw.match(re);
+    if (!m) continue;
+    const tail = m[1].split('-').map(brandVersionPart).filter(Boolean).join(' ');
+    return `${brand}${joiner}${tail}`;
+  }
+  for (const [re, brand] of HYPHENATED_BRANDS) {
+    const m = raw.match(re);
+    if (!m) continue;
+    const tail = m[1].split('-').map(brandVersionPart).filter(Boolean).join('-');
+    return `${brand}-${tail}`;
+  }
+  return '';
+}
+
+// A hint is "curated" when it is not merely the id re-spaced/re-cased
+// ("Claude Sonnet 4.5" for claude-sonnet-4-5 is not; "Muse Spark 1.3" for
+// muse-spark-1.3-contributor is). Curated hints — user aliases and catalog
+// names with real extra meaning — win over the id-derived rule.
+function displayKey(text) {
+  return String(text || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+function isCuratedHint(hint, id) {
+  return !!hint && !!id && displayKey(hint) !== displayKey(id);
 }
 
 export function displayModelName(model, provider = '', displayHint = '') {
   const id = stripModelId(model);
   const hint = normalizeDisplayHint(displayHint);
 
+  if (isCuratedHint(hint, id)) return hint;
   if (id) {
     const canonical = canonicalModelDisplay(id, provider);
     if (canonical && canonical !== id) return canonical;

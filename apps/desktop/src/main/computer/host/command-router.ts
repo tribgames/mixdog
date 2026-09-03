@@ -433,6 +433,7 @@ export function createCommandRouter(host: CommandRouterHost) {
           include_noninteractive: command.include_noninteractive ?? null,
           max_elements: command.max_elements ?? null,
           continuation: command.continuation ?? null,
+          known_injection_tick: command.known_injection_tick ?? null,
           session_id: sessionIdFor(command),
         };
         const integrity = command.delivery === 'foreground'

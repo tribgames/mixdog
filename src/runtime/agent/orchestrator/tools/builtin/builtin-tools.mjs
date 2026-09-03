@@ -44,7 +44,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Read',
         annotations: { title: 'Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Read-only; safe to batch in parallel. Known-file contents or line ranges, bounded to the narrowest range that answers the question — when the answer depends on content not yet seen, read the wider range once instead of deciding from a partial view. Images render for viewing; not directories. Replaces cat/head/tail.',
+        description: 'Known-file contents or line ranges, bounded to the narrowest range that answers the question — when the answer depends on content not yet seen, read the wider range once instead of deciding from a partial view. Images render for viewing; not directories. Replaces cat/head/tail.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -160,7 +160,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Grep',
         annotations: { title: 'Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Read-only; safe to batch in parallel. Search file contents for literal or regex matches and return contextual path:line blocks that are directly usable; read only the lines they omit. All rendered output is capped at 10 KB. A wide reconnaissance pattern goes to mode:files first; context:0 when only the location is needed. Ripgrep-dialect regex (e.g. "log.*Error"; escape literal braces; patterns match within one line). Replaces grep/rg.',
+        description: 'Search file contents for literal or regex matches and return contextual path:line blocks that are directly usable; read only the lines they omit. All rendered output is capped at 10 KB. A wide reconnaissance pattern goes to mode:files first; context:0 when only the location is needed. Ripgrep-dialect regex (e.g. "log.*Error"; escape literal braces; patterns match within one line). Replaces grep/rg.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -190,7 +190,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Glob',
         annotations: { title: 'Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Read-only; safe to batch in parallel. Return wildcard-matching file paths under a known base directory when those paths are needed. Omit path for the current Project; an unknown base directory goes to find first. Directories never match. Newest first by default. Replaces find -name.',
+        description: 'Return wildcard-matching file paths under a known base directory when those paths are needed. Omit path for the current Project; an unknown base directory goes to find first. Directories never match. Newest first by default. Replaces find -name.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -216,7 +216,7 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Find Files',
         annotations: { title: 'Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Read-only; safe to batch in parallel. Fuzzy filename/directory path lookup when the location itself is unknown; returns paths only. Skip it when the path is already known or resolvable.',
+        description: 'Fuzzy filename/directory path lookup when the location itself is unknown; returns paths only. Skip it when the path is already known or resolvable.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -235,7 +235,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'List Directory',
         annotations: { title: 'List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: "Read-only; safe to batch in parallel. Return a known directory's immediate entries (path + type) when the entry list itself is needed; never as a prerequisite for another tool on that directory. No wildcard; meta:true adds size/mtime/mode. Replaces ls/dir.",
+        description: "Return a known directory's immediate entries (path + type) when the entry list itself is needed; never as a prerequisite for another tool on that directory. No wildcard; meta:true adds size/mtime/mode. Replaces ls/dir.",
         inputSchema: {
             type: 'object',
             properties: {

@@ -1177,7 +1177,12 @@ export function SourceControlDock({
           className={`dock-scm-toolbar-section dock-scm-toolbar-${entry.key}`}>
           <button type="button" className="dock-scm-remote-button"
             data-remote-action={entry.key}
-            title={entry.reason || entry.label}
+            title={entry.key === "push" && (aheadCount > 0 || behindCount > 0)
+              ? `${entry.reason || entry.label} (${[
+                aheadCount > 0 ? `${aheadCount} ahead` : "",
+                behindCount > 0 ? `${behindCount} behind` : "",
+              ].filter(Boolean).join(", ")})`
+              : entry.reason || entry.label}
             aria-label={entry.label}
             disabled={Boolean(busy) || Boolean(status.operation) || entry.blocked}
             onClick={entry.perform}>
@@ -1190,14 +1195,18 @@ export function SourceControlDock({
                 ? <span className="dock-scm-remote-target">{` ${entry.target}`}</span>
                 : null}
             </span>
-            {entry.key === "push" && status.upstream && (aheadCount > 0 || behindCount > 0) &&
-              <span className="dock-scm-ahead-behind">
-                {aheadCount > 0 && <span>{aheadCount}
-                  <ArrowUp size={12} aria-hidden="true" /></span>}
-                {behindCount > 0 && <span>{behindCount}
-                  <ArrowDown size={12} aria-hidden="true" /></span>}
-              </span>}
           </button>
+          {/* Ahead/behind rides the section's corner as an overlay, outside
+              the button's clipped flex row: a third-width section cannot fit
+              icon + label + badge inline, and the badge was the piece that
+              got cut (user). The counts stay in the button's tooltip. */}
+          {entry.key === "push" && status.upstream && (aheadCount > 0 || behindCount > 0) &&
+            <span className="dock-scm-ahead-behind" aria-hidden="true">
+              {aheadCount > 0 && <span>{aheadCount}
+                <ArrowUp size={10} aria-hidden="true" /></span>}
+              {behindCount > 0 && <span>{behindCount}
+                <ArrowDown size={10} aria-hidden="true" /></span>}
+            </span>}
         </div>)}
     </div>}
     <div className="dock-scm-view-stage">
@@ -1319,8 +1328,11 @@ export function SourceControlDock({
                 && includedVisible < includableVisible;
             }}
             aria-label={checkAllLabel}
+            title={checkAllLabel}
             onChange={(event) => setAllIncluded(event.currentTarget.checked)} />
-          <span>{checkAllLabel}</span>
+          {/* No visible count line: the Changes tab above already carries
+              the counter (user: 변경 사항 태그가 위에 있어서 문자 굳이 필요
+              없어). The checkbox keeps the count as its accessible name. */}
           <span className="dock-scm-list-actions">
             <button type="button" aria-label="Stage All" title="Stage All"
               data-tooltip="Stage All"

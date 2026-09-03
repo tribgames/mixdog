@@ -354,8 +354,13 @@ export function createCycleScheduler(deps) {
           onCoalescedSuccess: async (result) => {
             // Only a real, error-free pass persists success; a run that returned
             // an error (LLM/unparseable) must not stamp last_success_at.
-            if (result?.error) { markCycleDone('cycle3', false, result.error); return }
+            if (result?.error) {
+              await setCycleLastRun('cycle3_last_error', String(result.error))
+              markCycleDone('cycle3', false, result.error)
+              return
+            }
             await setCycleLastRun('cycle3', Date.now())
+            await setCycleLastRun('cycle3_last_error', '')
             markCycleDone('cycle3', true)
             await onCoreMemoryChanged('cycle3')
           },
@@ -371,6 +376,10 @@ export function createCycleScheduler(deps) {
         }
       } catch (err) {
         log(`[cycle3] scheduled queue failed: ${err?.message || err}\n`)
+        // Persist the failure so `status` can surface it: a cycle3 that keeps
+        // throwing (e.g. a missing prompt file) previously left no trace
+        // outside the log while `last_cycle3` looked merely "due".
+        try { await setCycleLastRun('cycle3_last_error', String(err?.message || err)) } catch {}
         markCycleDone('cycle3', false, err?.message || err)
       } finally {
         _cycle3InFlight = false
@@ -537,8 +546,13 @@ export function createCycleScheduler(deps) {
     // cycles.cycle3.last_success_at honest. Non-mutating/failed runs skipped.
     finalizeCycle3Run: async (result) => {
       if (!result || result.skippedInFlight || result.coalescedRetryNoop) return
-      if (result.error) { markCycleDone('cycle3', false, result.error); return }
+      if (result.error) {
+        await setCycleLastRun('cycle3_last_error', String(result.error))
+        markCycleDone('cycle3', false, result.error)
+        return
+      }
       await setCycleLastRun('cycle3', Date.now())
+      await setCycleLastRun('cycle3_last_error', '')
       markCycleDone('cycle3', true)
       await onCoreMemoryChanged('cycle3')
     },

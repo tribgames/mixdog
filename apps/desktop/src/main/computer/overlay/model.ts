@@ -5,18 +5,11 @@ import type {
 } from '../session/coordinator';
 
 export interface ComputerUseOverlayPresentation {
-  state: 'hidden' | 'in_use' | 'user_control' | 'attention_required';
   visible: boolean;
-  interactive: boolean;
-  sessionId: string;
-  sessionLabel: string;
+  /** Every agent session currently using the computer; stop ends all their turns. */
+  sessionIds: string[];
   title: string;
-  chips: string[];
   accent: string;
-  showTakeover: boolean;
-  showResume: boolean;
-  showStopSession: boolean;
-  showStopAll: boolean;
 }
 
 export interface ComputerUseCursorPresentation extends ComputerUseCursor {
@@ -63,91 +56,18 @@ export function computerUseOverlayPresentation(
 ): ComputerUseOverlayPresentation {
   const ko = locale.toLowerCase().startsWith('ko');
   const activity = primaryActivity(snapshot.activities);
-  const sessionId = activity?.sessionId || '';
-  const queueCount = snapshot.activities.filter((entry) => (
-    entry.phase === 'queued_foreground' || entry.phase === 'queued_target'
-  )).length;
-  if (snapshot.attentionRequired) {
-    const attentionSessionId = snapshot.attentionRequired.sessionId || sessionId;
-    return {
-      state: 'attention_required',
-      visible: true,
-      interactive: true,
-      sessionId: attentionSessionId,
-      sessionLabel: shortSessionId(attentionSessionId),
-      title: ko ? '확인 필요' : 'Action required',
-      chips: [
-        snapshot.attentionRequired.detail
-          || (ko ? 'Computer Use에 사용자 판단이 필요합니다.' : 'Computer Use needs your input.'),
-      ],
-      accent: '#f85149',
-      showTakeover: false,
-      showResume: false,
-      showStopSession: Boolean(attentionSessionId),
-      showStopAll: snapshot.activities.length > 0,
-    };
+  const sessionIds = [...new Set([
+    ...snapshot.activities.map((entry) => entry.sessionId),
+    snapshot.attentionRequired?.sessionId || '',
+  ])].filter(Boolean);
+  if (sessionIds.length === 0) {
+    return { visible: false, sessionIds: [], title: '', accent: SESSION_COLORS[0] };
   }
-  if (snapshot.userControlActive) {
-    return {
-      state: 'user_control',
-      visible: true,
-      interactive: true,
-      sessionId,
-      sessionLabel: shortSessionId(sessionId),
-      title: ko ? '사용자가 제어 중' : 'You have control',
-      chips: [
-        ko
-          ? `${snapshot.activities.length}개 작업 일시정지`
-          : `${snapshot.activities.length} session${snapshot.activities.length === 1 ? '' : 's'} paused`,
-      ],
-      accent: '#f0b429',
-      showTakeover: false,
-      showResume: true,
-      showStopSession: Boolean(sessionId),
-      showStopAll: snapshot.activities.length > 0,
-    };
-  }
-  if (!activity) {
-    return {
-      state: 'hidden',
-      visible: false,
-      interactive: false,
-      sessionId: '',
-      sessionLabel: '',
-      title: '',
-      chips: [],
-      accent: SESSION_COLORS[0],
-      showTakeover: false,
-      showResume: false,
-      showStopSession: false,
-      showStopAll: false,
-    };
-  }
-  const target = visibleTarget(activity.target);
-  const foreground = activity.phase === 'active_foreground';
-  const chips = [
-    target,
-    activity.mode === 'foreground' ? 'Foreground' : 'Background',
-    snapshot.activities.length > 1
-      ? (ko ? `${snapshot.activities.length}개 세션` : `${snapshot.activities.length} sessions`)
-      : '',
-    queueCount > 0 ? (ko ? `대기 ${queueCount}` : `${queueCount} queued`) : '',
-  ].filter(Boolean);
   return {
-    state: 'in_use',
     visible: true,
-    // Foreground pointer input must pass through the overlay. The global
-    // takeover shortcut remains available while the banner is click-through.
-    interactive: !foreground,
-    sessionId: activity.sessionId,
-    sessionLabel: shortSessionId(activity.sessionId),
-    title: ko ? 'Mixdog 사용 중' : 'Mixdog in use',
-    chips,
-    accent: sessionColor(activity.sessionId),
-    showTakeover: !foreground,
-    showResume: false,
-    showStopSession: !foreground,
-    showStopAll: !foreground && snapshot.activities.length > 1,
+    sessionIds,
+    title: ko ? '컴퓨터 사용 중' : 'Computer in use',
+    accent: activity ? sessionColor(activity.sessionId) : SESSION_COLORS[0],
   };
 }
 

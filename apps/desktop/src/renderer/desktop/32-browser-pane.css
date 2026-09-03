@@ -38,6 +38,13 @@
   z-index: -1;
   pointer-events: none;
 }
+/* Remotely viewed while parked: inside the window so Chromium keeps composing
+   the guest's frames for the phone's captures, beneath every UI layer and
+   near-transparent so nothing shows through a gap. Fully transparent would
+   let the compositor drop the surface again. */
+.session-browser-surface-container[data-parked="true"][data-remote-viewed="true"] {
+  opacity: 0.02;
+}
 
 /* Electron guests can stay alive but stop repainting after display:none.
    Keep the pane mounted; the guest layer itself is parked below at 1px while
@@ -79,17 +86,13 @@
   cursor: default;
 }
 
-.browser-pane-import-button {
-  border: 1px solid var(--mx-border-muted);
-}
-
+/* ONE control grammar for the whole toolbar (user: 테두리 있고 없고, 아이콘
+   규격이 다르다): every icon control is the same borderless 28px cell with a
+   15px glyph; the address field is the only bordered element. The import and
+   credential buttons used to carry their own 1px frames. */
 .browser-pane-credential-control {
   position: relative;
   flex: none;
-}
-
-.browser-pane-credential-button {
-  border: 1px solid var(--mx-border-muted);
 }
 
 .browser-pane-credential-button.is-success {
@@ -111,10 +114,10 @@
   flex-direction: column;
   gap: 2px;
   padding: 5px;
-  border: 1px solid var(--mx-border-muted);
-  border-radius: 10px;
-  background: var(--mx-surface-plate);
-  box-shadow: var(--mx-floating);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 
 .browser-pane-credential-menu button {
@@ -167,27 +170,31 @@
 
 .browser-pane-viewport-picker {
   display: inline-flex;
-  width: 44px;
+  width: 28px;
   height: 28px;
   flex: none;
 }
 
 .browser-pane-viewport-control {
-  width: 44px;
+  width: 28px;
   flex: none;
 }
 
+/* Exactly the .browser-pane-nav-button cell: a single glyph, no chevron, so
+   the three trailing controls sit on one rhythm (user: 3개 간격이 안 맞네). */
 .browser-pane-viewport-control .mx-select-trigger {
-  width: 44px;
-  min-width: 44px;
+  width: 28px;
+  min-width: 28px;
   height: 28px;
   justify-content: center;
   align-items: center;
-  gap: 2px;
-  padding: 0 5px;
-  border: 1px solid var(--mx-border-muted);
-  border-radius: 7px;
-  background: var(--mx-surface-plate);
+  gap: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  /* The shared trigger draws its frame with --mx-button, not a border. */
+  box-shadow: none;
   color: var(--mx-text-muted);
   cursor: pointer;
 }
@@ -199,7 +206,13 @@
 }
 
 .browser-pane-viewport-control .mx-select-trigger:focus-visible {
-  border-color: var(--mx-focus);
+  outline: 2px solid var(--mx-focus);
+  outline-offset: -2px;
+}
+
+.browser-pane-viewport-control .mx-select-leading svg {
+  width: 15px;
+  height: 15px;
 }
 
 .browser-pane-viewport-control .mx-select-leading {
@@ -211,8 +224,7 @@
 }
 
 .browser-pane-viewport-control .mx-select-trigger > svg {
-  width: 12px;
-  height: 12px;
+  display: none;
 }
 
 .browser-pane-history-suggestions {
@@ -226,10 +238,10 @@
   flex-direction: column;
   padding: 5px;
   overflow-y: auto;
-  border: 1px solid var(--mx-border-muted);
-  border-radius: 10px;
-  background: var(--mx-surface-plate);
-  box-shadow: var(--mx-floating);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 
 .browser-pane-history-suggestions button {
@@ -286,7 +298,10 @@
   min-height: 0;
   flex: 1;
   overflow: hidden;
-  background: #fff;
+  /* App sheet, not white: the guest paints its own page background, and the
+     interval before its first frame used to flash white when the pane opened
+     (user: 브라우저 창 열 때 흰색으로 배경 깜빡임). */
+  background: var(--mx-workspace-sheet);
 }
 
 .browser-pane-content.is-device-frame .browser-pane-viewport {
@@ -294,6 +309,9 @@
   min-width: auto;
   min-height: auto;
   box-shadow: 0 8px 28px rgb(0 0 0 / 28%);
+  /* The pane scales an oversized frame down around its center, so the flex
+     centering above still holds on both axes. */
+  transform-origin: center center;
 }
 
 .browser-pane-webview {
@@ -302,10 +320,80 @@
   width: 100%;
   height: 100%;
   border: none;
-  background: #fff;
+  background: var(--mx-workspace-sheet);
+}
+
+/* Zoom pill: floats at the bottom centre of the content box, above the guest
+   (user: 화면 하단 중앙에 확대축소 프로그래스). Rests translucent, sharpens
+   under the pointer or while dragged. */
+.browser-zoom-pill {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 4px 0 2px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mx-surface-plate) 92%, transparent);
+  color: var(--mx-text-muted);
+  box-shadow: var(--mx-floating);
+  opacity: 0.55;
+  transition: opacity 120ms ease;
+}
+.browser-zoom-pill:hover,
+.browser-zoom-pill:focus-within,
+.browser-zoom-pill:active { opacity: 1; }
+.browser-zoom-step {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.browser-zoom-step:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
+.browser-zoom-step:disabled { opacity: 0.4; cursor: default; }
+/* Same range grammar as .studio-density / .route-context-slider: 4px track,
+   app ink instead of the OS accent. */
+.browser-zoom-range {
+  width: 96px;
+  height: 4px;
+  margin: 0 4px;
+  accent-color: var(--mx-text);
+  cursor: pointer;
+}
+/* Touch tier: 44dp hit boxes, no hover rest state. */
+html[data-mixdog-mobile-tabs] .browser-zoom-pill {
+  height: calc(36px * var(--mx-device-scale, 2.5));
+  bottom: calc(12px * var(--mx-device-scale, 2.5));
+  padding: 0 calc(6px * var(--mx-device-scale, 2.5)) 0 calc(2px * var(--mx-device-scale, 2.5));
+  opacity: 0.8;
+}
+html[data-mixdog-mobile-tabs] .browser-zoom-step {
+  width: calc(32px * var(--mx-device-scale, 2.5));
+  height: calc(32px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .browser-zoom-step > svg {
+  width: calc(14px * var(--mx-device-scale, 2.5));
+  height: calc(14px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .browser-zoom-range {
+  width: calc(110px * var(--mx-device-scale, 2.5));
+  height: calc(4px * var(--mx-device-scale, 2.5));
+  margin: 0 calc(6px * var(--mx-device-scale, 2.5));
 }
 
 .browser-remote-content {
+  position: relative;
   align-items: stretch;
   justify-content: stretch;
   background: #111;
@@ -425,8 +513,8 @@
   .browser-pane-viewport-picker,
   .browser-pane-viewport-control,
   .browser-pane-viewport-control .mx-select-trigger {
-    width: 40px;
-    min-width: 40px;
+    width: 27px;
+    min-width: 27px;
   }
 }
 
@@ -514,11 +602,11 @@
   flex: none;
   padding: 18px;
   overflow-y: auto;
-  border: 1px solid var(--mx-border-muted);
-  border-radius: 16px;
-  background: var(--mx-surface-plate);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius-card);
+  background: var(--mx-popup-bg);
   color: var(--mx-text);
-  box-shadow: var(--mx-floating);
+  box-shadow: var(--mx-popup-shadow);
 }
 
 .browser-import-dialog header {
@@ -746,9 +834,9 @@
     max-height: 100%;
     flex: none;
     padding: 18px;
-    border: 1px solid var(--mx-border-muted);
-    border-radius: 16px;
-    box-shadow: var(--mx-floating);
+    border: var(--mx-popup-border);
+    border-radius: var(--mx-popup-radius-card);
+    box-shadow: var(--mx-popup-shadow);
   }
 
   .browser-import-source {

@@ -67,13 +67,13 @@ export function splitScmPath(truncated: string, directory: string): {
   };
 }
 
-/** The longest character count whose truncation still FITS `available` px. */
-function fittingLength(
+/** Binary search over character counts — the general fallback for a path
+ *  without a directory (middle ellipsis), where no cheaper arithmetic holds. */
+function fittingLengthBySearch(
   text: string,
   available: number,
   width: (value: string) => number,
 ): number {
-  if (width(text) <= available) return text.length;
   let low = 0;
   let high = text.length;
   let best = 0;
@@ -89,18 +89,80 @@ function fittingLength(
   return best;
 }
 
+/** The longest character count whose truncation still FITS `available` px.
+ *
+ *  A `pre…/name` truncation only varies in how many DIRECTORY characters it
+ *  keeps, so the fit is found by summing memoized per-character widths from
+ *  the left until the `…/name` tail no longer fits, then confirmed with one
+ *  real measurement (stepping down a character if kerning made the sum
+ *  optimistic). The binary search this replaces measured ~8 fresh strings per
+ *  row — a Source Control list of a few hundred changes spent 100ms+ in
+ *  measureText on its first paint (user: 소스 제어 누르면 히칭). */
+function fittingLength(
+  text: string,
+  available: number,
+  width: (value: string) => number,
+): number {
+  if (width(text) <= available) return text.length;
+  const lastSeparator = text.lastIndexOf("/");
+  if (lastSeparator === -1) return fittingLengthBySearch(text, available, width);
+  const tail = text.slice(lastSeparator);
+  const tailWidth = width("…") + width(tail);
+  if (tailWidth > available) return fittingLengthBySearch(text, available, width);
+  const room = available - tailWidth;
+  let used = 0;
+  let kept = 0;
+  while (kept < lastSeparator) {
+    const next = used + width(text[kept]);
+    if (next > room) break;
+    used = next;
+    kept += 1;
+  }
+  // truncateScmPath spends `length` as: kept + "…" + "/name".
+  let length = kept + 1 + tail.length;
+  const floor = tail.length + 1;
+  while (length > floor && width(truncateScmPath(text, length)) > available) length -= 1;
+  return length;
+}
+
+/** ONE 2D context per document, re-fonted per call: every row used to mint
+ *  its own canvas + context on every measurement, and a windowed list of
+ *  1,000+ changes minted dozens per scroll tick (CPU profile: canvas
+ *  creation + getBoundingClientRect dominated the boot main thread). */
+const measureContexts = new WeakMap<Document, CanvasRenderingContext2D | null>();
+/** Text widths repeat heavily (same directories, same file names) — keep a
+ *  bounded per-font memo so a re-measure after a resize is mostly lookups. */
+const widthMemo = new Map<string, number>();
+const WIDTH_MEMO_LIMIT = 4_000;
+
+function measureContext(document: Document): CanvasRenderingContext2D | null {
+  if (measureContexts.has(document)) return measureContexts.get(document) ?? null;
+  const context = document.createElement("canvas").getContext("2d");
+  measureContexts.set(document, context);
+  return context;
+}
+
 /** Measures text in the row's OWN font, without reflowing anything. */
 function measurerFor(element: HTMLElement): ((value: string) => number) | null {
   const view = element.ownerDocument?.defaultView;
   if (!view) return null;
-  const context = element.ownerDocument.createElement("canvas").getContext("2d");
+  const context = measureContext(element.ownerDocument);
   if (!context) return null;
   const style = view.getComputedStyle(element);
-  context.font = style.font && style.font.trim()
+  const font = style.font && style.font.trim()
     ? style.font
     : `${style.fontStyle || "normal"} ${style.fontWeight || "400"}`
       + ` ${style.fontSize || "12.5px"} ${style.fontFamily || "sans-serif"}`;
-  return (value: string) => context.measureText(value).width;
+  return (value: string) => {
+    const key = `${font}\u0000${value}`;
+    const memo = widthMemo.get(key);
+    if (memo !== undefined) return memo;
+    if (context.font !== font) context.font = font;
+    const width = context.measureText(value).width;
+    if (widthMemo.size >= WIDTH_MEMO_LIMIT) widthMemo.clear();
+    widthMemo.set(key, width);
+    return width;
+  };
 }
 
 export function ScmPathText({ path, name, title }: {
@@ -125,8 +187,13 @@ export function ScmPathText({ path, name, title }: {
     const host = hostRef.current;
     const view = host?.ownerDocument?.defaultView;
     if (!host || !view) return;
+    // ResizeObserver storms (the whole list re-laying out) re-enter here for
+    // every row; an unchanged width is answered without touching layout.
+    let lastAvailable = -1;
     const remeasure = () => {
       const available = host.getBoundingClientRect().width;
+      if (available === lastAvailable) return;
+      lastAvailable = available;
       const width = available > 0 ? measurerFor(host) : null;
       // Unmeasurable (no layout engine, detached row): render the full path.
       const length = width

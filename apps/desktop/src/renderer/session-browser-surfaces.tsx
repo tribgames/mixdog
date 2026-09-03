@@ -52,7 +52,16 @@ export interface SessionBrowserSurfaceController {
   refresh(sessionId: string): void;
   release(sessionId: string): void;
   setParkingHost(node: HTMLDivElement | null): void;
+  /** A paired phone is polling this session's frames. A guest parked OFF the
+   *  window composes no frames, so its capture hangs; while viewed, the
+   *  parked guest stays inside the window beneath the UI instead. */
+  setRemoteViewed(sessionId: string, viewed: boolean): void;
 }
+
+/** In-window parking box for a remotely viewed guest: the phone's frame is
+ *  whatever the guest measures, so a desktop-shaped box keeps pages laid out
+ *  the way the agent sees them. */
+const REMOTE_VIEWED_PARK = { width: 1280, height: 900 };
 
 function preferredSlot(surface: BrowserSurface): [HTMLDivElement, BrowserSurfaceSlot] | null {
   const active = [...surface.slots].filter(([, slot]) => slot.active);
@@ -72,6 +81,7 @@ export function useSessionBrowserSurfaces(
 ): SessionBrowserSurfaceController {
   const surfaces = useRef(new Map<string, BrowserSurface>());
   const parkingHost = useRef<HTMLDivElement | null>(null);
+  const remoteViewers = useRef(new Set<string>());
 
   const position = useCallback((
     surface: BrowserSurface,
@@ -92,11 +102,17 @@ export function useSessionBrowserSurfaces(
       surface.container.removeAttribute("aria-hidden");
       return selected;
     }
-    surface.container.style.left = "-10000px";
+    const remoteViewed = remoteViewers.current.has(surface.sessionId);
+    surface.container.style.left = remoteViewed ? "0" : "-10000px";
     surface.container.style.top = "0";
-    surface.container.style.width = "1280px";
-    surface.container.style.height = "900px";
+    surface.container.style.width = `${remoteViewed
+      ? Math.min(REMOTE_VIEWED_PARK.width, window.innerWidth)
+      : REMOTE_VIEWED_PARK.width}px`;
+    surface.container.style.height = `${remoteViewed
+      ? Math.min(REMOTE_VIEWED_PARK.height, window.innerHeight)
+      : REMOTE_VIEWED_PARK.height}px`;
     surface.container.dataset.parked = "true";
+    surface.container.dataset.remoteViewed = remoteViewed ? "true" : "false";
     surface.container.setAttribute("aria-hidden", "true");
     return null;
   }, []);
@@ -164,6 +180,16 @@ export function useSessionBrowserSurfaces(
     surfaces.current.delete(sessionId);
   }, []);
 
+  const setRemoteViewed = useCallback((sessionId: string, viewed: boolean) => {
+    const changed = viewed
+      ? !remoteViewers.current.has(sessionId)
+      : remoteViewers.current.delete(sessionId);
+    if (viewed) remoteViewers.current.add(sessionId);
+    if (!changed) return;
+    const surface = surfaces.current.get(sessionId);
+    if (surface) commit(surface);
+  }, [commit]);
+
   const setParkingHost = useCallback((node: HTMLDivElement | null) => {
     parkingHost.current = node;
     for (const surface of surfaces.current.values()) commit(surface);
@@ -181,7 +207,8 @@ export function useSessionBrowserSurfaces(
     refresh,
     release,
     setParkingHost,
-  }), [ensure, refresh, registerSlot, release, setParkingHost, unregisterSlot]);
+    setRemoteViewed,
+  }), [ensure, refresh, registerSlot, release, setParkingHost, setRemoteViewed, unregisterSlot]);
 }
 
 export function SessionBrowserParkingHost({
@@ -234,11 +261,16 @@ export function SessionBrowserSlot({
       : null;
     observer?.observe(node);
     window.addEventListener("resize", schedule);
+    // The phone dock SLIDES in: only the slot's position changes during the
+    // transform, so a mid-slide rect would pin the guest off-screen. Any
+    // finished transition re-measures.
+    window.addEventListener("transitionend", schedule, true);
     schedule();
     return () => {
       if (frame) window.cancelAnimationFrame(frame);
       observer?.disconnect();
       window.removeEventListener("resize", schedule);
+      window.removeEventListener("transitionend", schedule, true);
     };
   }, [active, controller, sessionId]);
   return <div

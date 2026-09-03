@@ -6,7 +6,6 @@
    padding lives on as --mx-explorer-inset consumed by each row's own
    paddings, so the chevron keeps landing on the search icon's x. */
 .dock-files { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; --mx-explorer-inset: 12px; padding: 0; }
-.utility-dock[data-show-tabs="true"] .dock-files { --mx-explorer-inset: 8px; padding: 0 0 8px; }
 .workbench-explorer-root {
   width: 100%;
   height: 22px;
@@ -155,10 +154,10 @@
   min-width: 0;
   width: 100%;
   height: 28px;
-  display: grid;
-  grid-template-columns: minmax(18px, 1fr) minmax(0, max-content) minmax(18px, 1fr);
+  display: flex;
   align-items: center;
-  column-gap: 5px;
+  justify-content: center;
+  gap: 5px;
   padding: 0 7px;
   border: 0;
   border-radius: var(--mx-radius-md);
@@ -173,37 +172,35 @@
 .dock-scm-remote-button:hover:not(:disabled) { background: var(--mx-hover); }
 .dock-scm-branch-button:disabled, .dock-scm-remote-button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
 .dock-scm-branch-button > svg, .dock-scm-remote-button > svg { color: var(--mx-icon-muted); }
-.dock-scm-branch-button > svg:first-child,
-.dock-scm-remote-button > svg:first-child { grid-column: 1; justify-self: end; }
-.dock-scm-branch-button > svg:last-child,
-.dock-scm-remote-button > .dock-scm-ahead-behind { grid-column: 3; justify-self: start; }
-/* Only the LABEL may shrink; the ahead/behind badge is a sibling span and
-   must keep its intrinsic width. */
+.dock-scm-branch-button > svg, .dock-scm-remote-button > svg { flex: 0 0 auto; }
+/* Only the LABEL may shrink; icons and the ahead/behind badge keep their
+   intrinsic width. */
 .dock-scm-branch-button > span, .dock-scm-remote-label {
-  grid-column: 2;
   min-width: 0;
-  justify-self: center;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .dock-scm-remote-label { display: inline-flex; }
 .dock-scm-remote-verb, .dock-scm-remote-target { white-space: pre; }
-/* Narrow steps, in order. The section is a THIRD of the dock now, so the
-   remote NAME goes first and early (it is the only piece the verb does not
-   need); then the badge's direction ARROWS, which are decoration on top of
-   counts the verb already explains; the verb itself survives all the way
-   down — icon-only is the LAST resort, well below the product floor, never
-   the dock's normal state, and the icon and the counts never go at all. */
+/* Narrow steps, in order (user: all three labels stay). The section is a
+   THIRD of the dock, so the remote NAME goes first and early (it is the only
+   piece the verb does not need); then the badge's direction ARROWS, which are
+   decoration on top of counts the verb already explains; below the 300px floor
+   the buttons keep BOTH icon and text at full size on tighter gaps —
+   nothing hides, nothing overlaps. */
 @container (max-width: 420px) { .dock-scm-remote-target { display: none; } }
 @container (max-width: 340px) {
-  .dock-scm-ahead-behind { gap: 3px; padding: 0 4px; }
   .dock-scm-ahead-behind > span > svg { display: none; }
-  .dock-scm-remote-button { gap: 4px; padding: 0 5px; }
+  .dock-scm-branch-button, .dock-scm-remote-button { gap: 4px; padding: 0 5px; }
 }
-@container (max-width: 260px) {
-  .dock-scm-remote-label { display: none; }
-  .dock-scm-remote-button > svg:first-child { grid-column: 2; justify-self: center; }
+/* Labels never go, and neither do the icons (user: both stay at 14px): below
+   the 300px product floor only the gaps and side padding tighten, so icon
+   and text coexist at full size. If even that overflows, the label
+   ellipsizes; nothing ever overlaps. */
+@container (max-width: 299px) {
+  .dock-scm-branch-button, .dock-scm-remote-button { gap: 3px; padding: 0 4px; }
 }
 /* Below the product floor (DESKTOP_UTILITY_DOCK_MIN_WIDTH 300px) the name
    floors themselves have to give, or the row would overflow the dock and push
@@ -213,7 +210,31 @@
   .dock-scm-toolbar-branch { min-width: 56px; }
   .dock-scm-toolbar-push, .dock-scm-toolbar-fetch { min-width: 56px; }
 }
-.dock-scm-ahead-behind { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 0 5px; border-radius: var(--mx-radius-pill); color: var(--mx-text-muted); background: var(--mx-hover); font-size: var(--mx-font-micro); font-variant-numeric: tabular-nums; }
+/* Ahead/behind is an OVERLAY on the Push section's top-right corner, not a
+   flex sibling inside the clipped button: a third-width section cannot hold
+   icon + label + badge inline and the badge was what got cut. The 1px ring in
+   the sheet colour separates it from the button's hover fill. */
+.dock-scm-ahead-behind {
+  position: absolute;
+  top: -3px;
+  right: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  /* Same bubble as .dock-review-count on the Changes tab (user: 캡슐형,
+     같은 폰트): 2/5 padding, 20px radius, full ink, semibold micro. */
+  padding: 2px 5px;
+  border-radius: 20px;
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+  box-shadow: 0 0 0 1px var(--mx-window-band);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-semibold);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
 .dock-scm-ahead-behind > span { display: inline-flex; align-items: center; gap: 1px; }
 /* Push and Fetch are independent fixed actions; neither owns a dropdown. */
 .dock-scm-branch-new { height: 24px; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 0 8px; border: 0; border-radius: var(--mx-radius-md); color: var(--mx-text); background: var(--mx-hover); font-size: var(--mx-font-minor); cursor: pointer; }
@@ -235,11 +256,11 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--mx-border-strong);
-  border-radius: var(--mx-radius-md);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: var(--mx-floating);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .dock-scm-branch-picker > header {
   height: 32px;
@@ -580,11 +601,10 @@
    column and the labels start on one text axis (header 6 + 13 + 8 = row
    6 + 13 + 6 + 2 of .dock-scm-file-main padding = 27px). */
 .dock-scm-check-all { height: 29px; display: flex; align-items: center; gap: 8px; padding: 0 2px 0 var(--dock-scm-row-inset); color: var(--mx-text-muted); font-size: var(--mx-font-minor); cursor: default; }
-.dock-scm-check-all > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Bulk actions live in the `N changed files` header now (Stage All, Unstage
-   All, Discard All) with View & Sort beside them — the panel header's "…"
-   overflow menu that used to own them is gone. They never shrink the label:
-   the count line is what ellipsizes. */
+/* Bulk actions live in the select-all header (Stage All, Unstage All, Discard
+   All) with View & Sort beside them — the panel header's "…" overflow menu
+   that used to own them is gone. The row shows no count text: the Changes
+   tab's counter is the one place the number appears. */
 .dock-scm-check-all > .dock-scm-list-actions { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: 1px; overflow: visible; }
 .dock-scm-list-actions > button { width: 22px; height: 22px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
 .dock-scm-list-actions > button:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
@@ -699,38 +719,53 @@
 .dock-scm-unpushed:active:not(:disabled) { background: linear-gradient(var(--mx-alpha-dark-24), var(--mx-alpha-dark-24)), var(--mx-accent-bg); }
 .dock-scm-unpushed:focus-visible { outline: 0; box-shadow: 0 0 0 2px var(--mx-focus); }
 .dock-scm-unpushed:disabled { cursor: default; opacity: var(--mx-op-disabled); }
-/* Commit detail header: title + meta
-   row (author, short SHA with a copy button, +adds/−dels). */
-.dock-scm-commit-header { display: grid; gap: 6px; padding: 8px 10px 8px 6px; border-bottom: 1px solid var(--mx-border-muted); }
-.dock-scm-commit-headline { min-width: 0; display: flex; align-items: center; gap: 4px; }
-.dock-scm-commit-back { width: 22px; height: 22px; flex: 0 0 22px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
-.dock-scm-commit-back:hover { color: var(--mx-text); background: var(--mx-hover); }
-.dock-scm-commit-headline > b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--mx-font-code); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); letter-spacing: 0; }
-.dock-scm-commit-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 10px; padding-left: 26px; color: var(--mx-text-muted); font-size: var(--mx-font-micro); }
-.dock-scm-commit-meta > span, .dock-scm-commit-meta > time { min-width: 0; display: flex; align-items: center; gap: 4px; }
-.dock-scm-commit-author > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Commit detail header, two tiers on the dock gutter: a 29px toolbar strip
+   (back button on the file rows' inset, short SHA + copy, +adds/−dels
+   trailing) over the subject (up to two lines) and an `author · date`
+   byline. Nothing competes with the text for width any more, so the author
+   never collapses and the SHA never clips. */
+.dock-scm-commit-header { box-sizing: border-box; margin-inline: var(--dock-scm-gutter); display: grid; gap: 2px; padding: 2px 0 8px; border-bottom: 1px solid var(--mx-border-muted); }
+.dock-scm-commit-toolbar { min-height: var(--dock-scm-file-row); display: flex; align-items: center; gap: 6px; padding: 0 2px 0 var(--dock-scm-row-inset); }
+.dock-scm-commit-back { width: 22px; height: 22px; flex: 0 0 22px; margin-left: -4px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
+.dock-scm-commit-back:hover, .dock-scm-commit-back:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
+.dock-scm-commit-toolbar > .dock-scm-commit-ref { min-width: 0; flex: 0 1 auto; display: flex; align-items: center; gap: 4px; color: var(--mx-text-muted); font-size: var(--mx-font-micro); line-height: var(--mx-line-meta); white-space: nowrap; }
 .dock-scm-commit-ref code { font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); line-height: 1; }
 .dock-scm-commit-copy { width: 18px; height: 18px; flex: 0 0 18px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
-.dock-scm-commit-copy:hover { color: var(--mx-text); background: var(--mx-hover); }
+.dock-scm-commit-copy:hover, .dock-scm-commit-copy:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
+.dock-scm-commit-lines { flex: 0 0 auto; margin-left: auto; display: flex; gap: 5px; font-size: var(--mx-font-micro); font-variant-numeric: tabular-nums; }
 .dock-scm-commit-lines i { color: var(--mx-success); font-style: normal; }
 .dock-scm-commit-lines em { color: var(--mx-danger); font-style: normal; }
-/* The `N changed files` header. */
-.dock-scm-commit-files-header { padding: 7px 10px 5px; color: var(--mx-text-muted); font-size: var(--mx-font-micro); }
-.dock-scm-commit-file { border-bottom: 1px solid var(--mx-border-muted); }
-.dock-scm-commit-file-row { width: 100%; min-height: 22px; display: flex; align-items: center; gap: 6px; padding: 1px 8px 1px 11px; border: 0; color: var(--mx-text); background: transparent; text-align: left; cursor: pointer; }
-.dock-scm-commit-file-row:hover { background: var(--mx-hover); }
-.dock-scm-commit-file-row > .dock-scm-status { width: 14px; flex: 0 0 14px; }
+.dock-scm-commit-headline { min-width: 0; display: grid; gap: 2px; padding: 0 2px 0 calc(var(--dock-scm-row-inset) + 2px); }
+.dock-scm-commit-headline > b { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: var(--mx-font-code); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); letter-spacing: 0; }
+/* ONE byline, dot-separated like the History rows; the author takes the
+   slack and ellipsizes last, the date never wraps. */
+.dock-scm-commit-meta { min-width: 0; display: flex; align-items: center; gap: 4px; color: var(--mx-text-muted); font-size: var(--mx-font-micro); line-height: var(--mx-line-meta); white-space: nowrap; }
+.dock-scm-commit-meta > span, .dock-scm-commit-meta > time { min-width: 0; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; }
+.dock-scm-commit-meta > * + *::before { content: "·"; margin-right: 4px; color: var(--mx-text-faint); }
+.dock-scm-commit-meta > .dock-scm-commit-author { min-width: 4ch; flex: 0 1 auto; }
+.dock-scm-commit-author > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* File rows: the changed-file row band (.dock-scm-file) — same height,
+   gutter, inset, rounded hover and trailing status column; no per-row rule. */
+.dock-scm-commit-file { margin-inline: var(--dock-scm-gutter); }
+/* The count line is gone: the first file keeps its own breathing room under
+   the header rule. */
+.dock-scm-commit-header + .dock-scm-commit-file { margin-top: 4px; }
+.dock-scm-commit-file-row { box-sizing: border-box; width: 100%; height: var(--dock-scm-file-row); display: flex; align-items: center; gap: 6px; padding: 0 2px 0 calc(var(--dock-scm-row-inset) + 2px); border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text); background: transparent; text-align: left; cursor: pointer; }
+.dock-scm-commit-file-row:hover, .dock-scm-commit-file-row:focus-visible { background: var(--mx-hover); outline: 0; }
+.dock-scm-commit-file[data-open] > .dock-scm-commit-file-row { background: var(--mx-pressed); box-shadow: inset 0 0 0 .5px var(--mx-border-muted); }
 /* The path is ScmPathText, exactly as in the Changes list: .dock-scm-file-copy
    brings its own flex/type/truncation grammar, so nothing here may re-impose a
    CSS ellipsis — that is what chewed the FILE NAME's tail off. */
-/* The +adds/−dels live in a FIXED, right-aligned column so every row's path
-   starts and ends on the same x and takes all the remaining width. */
-.dock-scm-commit-file-row > small { flex: 0 0 auto; min-width: 54px; display: flex; justify-content: flex-end; gap: 4px; font-size: var(--mx-font-micro); font-variant-numeric: tabular-nums; }
+/* The +adds/−dels are the row's ONLY trailing column (no status glyph — it
+   doubled the signs), FIXED and right-aligned so every row's path starts and
+   ends on the same x and takes all the remaining width. */
+.dock-scm-commit-file-row > small { flex: 0 0 auto; min-width: 54px; display: flex; justify-content: flex-end; gap: 5px; padding-right: 4px; font-size: var(--mx-font-micro); font-variant-numeric: tabular-nums; }
 .dock-scm-commit-file-row > small i { color: var(--mx-success); font-style: normal; }
+.dock-scm-commit-file-row > small em { color: var(--mx-danger); font-style: normal; }
 /* Row context menus (right button, Menu key, Shift+F10) — the per-row "…"
    buttons they replace are gone. Portaled to <body> and clamped against the
    window like the dock's other overlays. */
-.dock-scm-context-menu { position: fixed; z-index: 470; min-width: 200px; max-width: min(320px, calc(100vw - 16px)); display: grid; overflow: auto; padding: 4px; border: 1px solid var(--mx-border-strong); border-radius: var(--mx-radius-md); background: var(--mx-bg-layer-1); box-shadow: var(--mx-floating); }
+.dock-scm-context-menu { position: fixed; z-index: 470; min-width: 200px; max-width: min(320px, calc(100vw - 16px)); display: grid; overflow: auto; padding: 4px; border: var(--mx-popup-border); border-radius: var(--mx-popup-radius); background: var(--mx-popup-bg); box-shadow: var(--mx-popup-shadow); }
 .dock-scm-context-menu button { width: 100%; min-height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 8px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text); background: transparent; box-shadow: none; font-family: inherit; font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); text-align: left; cursor: pointer; }
 .dock-scm-context-menu button:hover:not(:disabled),
 .dock-scm-context-menu button:focus-visible { background: var(--mx-hover); outline: 0; }
@@ -1066,7 +1101,7 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
   border-left: 4px solid var(--mx-editor-diff-del);
   pointer-events: none;
 }
-.dock-file-menu { position: fixed; z-index: 60; min-width: 180px; padding: 4px; border-radius: var(--mx-radius-md); border: .5px solid var(--mx-border-muted); background: var(--mx-workspace-sheet); box-shadow: var(--mx-floating); display: grid; }
+.dock-file-menu { position: fixed; z-index: 60; min-width: 180px; padding: 4px; border: var(--mx-popup-border); border-radius: var(--mx-popup-radius); background: var(--mx-popup-bg); box-shadow: var(--mx-popup-shadow); display: grid; }
 .dock-file-menu button { border: 0; background: none; color: var(--mx-text); font-size: var(--mx-font-minor); text-align: left; padding: 5px 10px; border-radius: var(--mx-radius-md); cursor: pointer; }
 .dock-file-menu button:hover { background: var(--mx-hover); }
 .dock-file-menu button.danger { color: var(--mx-danger); }

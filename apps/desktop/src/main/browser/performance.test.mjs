@@ -52,17 +52,17 @@ test('performance trace setup ends tracing when reload settlement fails', async 
   const traces = new WeakMap();
   const methods = [];
   const performanceCommands = createBrowserPerformanceCommands({
-    guestDebugger: async () => ({}),
-    sendCdp: async (_guest, _cdp, method) => {
-      methods.push(method);
-      return {};
+    cdp: {
+      call: async (_guest, method) => {
+        methods.push(method);
+        return {};
+      },
     },
     tracesByGuest: traces,
     settleAfterAction: async () => {
       throw new Error('fixture settle failure');
     },
     pause: async () => {},
-    cdpTimeoutMs: 100,
   });
 
   await assert.rejects(
@@ -77,17 +77,17 @@ test('performance trace setup keeps its ledger when cleanup must be retried', as
   const guest = { reload() {} };
   const traces = new WeakMap();
   const performanceCommands = createBrowserPerformanceCommands({
-    guestDebugger: async () => ({}),
-    sendCdp: async (_guest, _cdp, method) => {
-      if (method === 'Tracing.end') throw new Error('fixture cleanup failure');
-      return {};
+    cdp: {
+      call: async (_guest, method) => {
+        if (method === 'Tracing.end') throw new Error('fixture cleanup failure');
+        return {};
+      },
     },
     tracesByGuest: traces,
     settleAfterAction: async () => {
       throw new Error('fixture settle failure');
     },
     pause: async () => {},
-    cdpTimeoutMs: 100,
   });
 
   await assert.rejects(

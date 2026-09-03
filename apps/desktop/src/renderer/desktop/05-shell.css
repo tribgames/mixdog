@@ -19,35 +19,11 @@
    into one physical drawer, so the Activity Rail and session panel can never
    expose separate first-frame geometry. */
 .sidebar-drawer-frame { display: contents; }
-/* Flat layout: the dock separates with a hairline instead of a band gap. */
-.desktop-body > .utility-dock[data-side="right"] {
-  margin-left: 0;
-  border-left: 1px solid var(--mx-border-structure);
-}
-.desktop-body > .utility-dock[data-side="left"] {
-  margin-right: 0;
-  border-right: 1px solid var(--mx-border-structure);
-}
-/* Floor-overlap state (UtilityDock syncDockOverlay): past the workspace
-   min-width floor the dock covers the pane edge instead of pushing the
-   workbench into horizontal scroll — lift it above the sheet with a soft
-   edge shadow so the covered strip reads as underneath. */
-.desktop-body > .utility-dock[data-overlaying="true"] {
-  position: relative;
-  z-index: 7;
-}
-.desktop-body > .utility-dock[data-overlaying="true"][data-side="right"] {
-  box-shadow: -8px 0 20px var(--mx-alpha-dark-30);
-}
-.desktop-body > .utility-dock[data-overlaying="true"][data-side="left"] {
-  box-shadow: 8px 0 20px var(--mx-alpha-dark-30);
-}
 /* UI chrome is not selectable text (user: double-clicks left selection
    marks on menus). Content surfaces — transcript, composer — stay
    selectable. */
 .sidebar.session-sidebar,
 .workspace-tabs-shell,
-.utility-dock-tabs,
 .bottom-panel-tabs,
 .pane-session-header,
 .pane-draft,
@@ -64,13 +40,20 @@
   user-select: none;
   -webkit-user-select: none;
 }
-/* A transcript drag that enters the composer used to lose the range or
-   invert upward from the start (user). Freeze composer selection for that
-   gesture only — typing in the composer is unaffected. */
-:root[data-transcript-selecting] .composer-region,
-:root[data-transcript-selecting] .composer-region textarea {
+/* Transcript drag fence. When the pointer leaves the transcript, Chromium
+   sends the range's moving end to the nearest selectable position in DOM
+   order — with the composer frozen that was whatever text came after it
+   (user: 커서 위치를 잃네). With NOTHING else selectable for the gesture the
+   only candidates left are the transcript's own rows, so a drag below clamps
+   to its last row and a drag above to its first; native autoscroll then
+   reveals the rest. Typing in the composer is unaffected (button up). */
+:root[data-transcript-selecting] body {
   user-select: none;
   -webkit-user-select: none;
+}
+:root[data-transcript-selecting] [data-transcript-selection-root] {
+  user-select: text;
+  -webkit-user-select: text;
 }
 /* Desktop side-panel toggles commit their FINAL layout synchronously in one
    frame — workbench grammar (user decision). No snapshots, no

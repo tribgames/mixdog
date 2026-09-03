@@ -90,6 +90,9 @@ export interface SessionHostRuntime {
 type SessionProjection = {
   revision: number;
   snapshot: SessionSnapshot;
+  /** Identity of the stored (cold) projection this snapshot was read from.
+   *  Sent back on the refresh clock so an unchanged view answers bodiless. */
+  projectionStamp?: string;
 };
 
 const READ_CAPABILITIES = new Set<string>(DESKTOP_READ_CAPABILITIES);
@@ -99,6 +102,26 @@ const READ_CAPABILITIES = new Set<string>(DESKTOP_READ_CAPABILITIES);
 // transcript on a 2s clock, so a 1s reader keeps a visible agent pane current
 // without adding a faster poll than there is new content to read.
 const COLD_VIEW_REFRESH_MS = 1_000;
+const STORE_REFRESH_DEBOUNCE_MS = 400;
+const STORE_REFRESH_MIN_GAP_MS = 2_000;
+// Direct children of the data directory whose change can alter the session
+// catalog or agent pool. Everything else the daemon writes there (index lock
+// and temp files, shell job records, logs, tool snapshots) is noise that used
+// to trigger a full store rescan per event.
+const CATALOG_STORE_ENTRIES = new Set([
+  'sessions',
+  'session-summaries.json',
+  'agent-workers.json',
+  'lead-workers.json',
+  'turn-checkpoints',
+]);
+
+export function catalogRelevantStoreEntry(filename: string | Buffer | null | undefined): boolean {
+  const name = typeof filename === 'string' ? filename : filename ? String(filename) : '';
+  // Windows reports nested changes as "dir\\file"; only the top segment matters.
+  const top = name.split(/[\\/]/, 1)[0];
+  return top === '' || CATALOG_STORE_ENTRIES.has(top);
+}
 
 function statePatch(
   snapshot: SessionSnapshot,
@@ -218,6 +241,7 @@ export class SessionHost implements DesktopService {
   private sessionCatalogPromise: Promise<DesktopSessionSummary[]> | null = null;
   private storeWatcher: FSWatcher | null = null;
   private storeRefreshTimer: NodeJS.Timeout | null = null;
+  private storeRefreshedAt = 0;
   private coldViewTimer: NodeJS.Timeout | null = null;
   private remoteSessionId = '';
   private disposed = false;
@@ -425,7 +449,18 @@ export class SessionHost implements DesktopService {
     const unmoved = prior !== undefined
       && prior.snapshot === snapshot
       && prior.revision === nextRevision;
-    this.sessionProjections.set(id, { revision: nextRevision, snapshot });
+    // Only a stored projection names a stamp; a live frame clears it so the
+    // next cold refresh (after the owner lets go) reads a full body again.
+    const projectionStamp = typeof value?.projectionStamp === 'string' && value.projectionStamp
+      ? value.projectionStamp
+      : value?.unchanged === true
+        ? prior?.projectionStamp
+        : undefined;
+    this.sessionProjections.set(id, {
+      revision: nextRevision,
+      snapshot,
+      ...(projectionStamp ? { projectionStamp } : {}),
+    });
     this.trackShellJobsEngineState(snapshot);
     if (publish && !unmoved && id !== this.controlSessionId) this.publishSession(id, snapshot);
     return this.snapshotWithRemoteSession(snapshot);
@@ -543,6 +578,7 @@ export class SessionHost implements DesktopService {
       sessionId: id,
       open: this.openHints(id),
       baseRevision: prior?.revision ?? null,
+      ...(prior?.projectionStamp ? { baseProjectionStamp: prior.projectionStamp } : {}),
     }, this.callOptions());
     return this.applySessionResult(id, result);
   }
@@ -906,7 +942,9 @@ export class SessionHost implements DesktopService {
           open: this.openHints(sessionId),
           baseRevision: prior?.revision ?? null,
         }, this.callOptions());
-        this.applySessionResult(sessionId, result);
+        this.applySessionResult(sessionId, result, false);
+        const projection = this.sessionProjections.get(sessionId);
+        if (projection) this.publishSession(sessionId, projection.snapshot, 'replay');
         return sessionId;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -1215,23 +1253,24 @@ export class SessionHost implements DesktopService {
   async readCapabilities(
     requests: ReadonlyArray<DesktopCapabilityReadRequest>,
   ): Promise<DesktopCapabilityReadResult[]> {
-    const results: DesktopCapabilityReadResult[] = [];
-    for (const request of requests) {
+    // Reads are independent getters: they go to the control session TOGETHER
+    // so one slow status probe (MCP, plugins, skills, voice) never holds the
+    // rest of its batch (user: 설정값 반응성). Result order stays positional.
+    return Promise.all(requests.map(async (request): Promise<DesktopCapabilityReadResult> => {
       try {
-        results.push({
+        return {
           ok: true,
           value: copyCapabilityValue(
             await this.invokeControl(request.capability, request.args || []),
           ),
-        });
+        };
       } catch (error) {
-        results.push({
+        return {
           ok: false,
           error: error instanceof Error ? error.message : String(error),
-        });
+        };
       }
-    }
-    return results;
+    }));
   }
 
   async invokeDesktopOperation(): Promise<unknown> {
@@ -1283,13 +1322,9 @@ export class SessionHost implements DesktopService {
   private ensureStoreWatcher(): void {
     if (this.storeWatcher || this.disposed) return;
     try {
-      this.storeWatcher = watch(dataDirectory(), { persistent: false }, () => {
-        if (this.storeRefreshTimer) clearTimeout(this.storeRefreshTimer);
-        this.storeRefreshTimer = setTimeout(() => {
-          this.storeRefreshTimer = null;
-          void this.publishCatalogs();
-        }, 100);
-        this.storeRefreshTimer.unref?.();
+      this.storeWatcher = watch(dataDirectory(), { persistent: false }, (_event, filename) => {
+        if (!catalogRelevantStoreEntry(filename)) return;
+        this.scheduleCatalogRefresh();
       });
       this.storeWatcher.on('error', () => {
         try { this.storeWatcher?.close(); } catch {}
@@ -1320,15 +1355,37 @@ export class SessionHost implements DesktopService {
     }
   }
 
+  /** A catalog refresh re-enumerates every stored session (stat per file and a
+   *  re-parse of each changed transcript), so store events coalesce into one
+   *  trailing refresh no more often than STORE_REFRESH_MIN_GAP_MS. Session
+   *  frames stay live on their own lane; only the sidebar catalog waits. */
+  private scheduleCatalogRefresh(): void {
+    if (this.storeRefreshTimer || this.disposed) return;
+    const sinceLast = Date.now() - this.storeRefreshedAt;
+    const delay = Math.max(STORE_REFRESH_DEBOUNCE_MS, STORE_REFRESH_MIN_GAP_MS - sinceLast);
+    this.storeRefreshTimer = setTimeout(() => {
+      this.storeRefreshTimer = null;
+      this.storeRefreshedAt = Date.now();
+      void this.publishCatalogs();
+    }, delay);
+    this.storeRefreshTimer.unref?.();
+  }
+
   private async publishCatalogs(): Promise<void> {
     if (this.disposed) return;
+    // A failed listing is NOT an empty store: publishing `[]` for a transient
+    // daemon fault blanked every open tab's title (the tab strip and pane
+    // addressing both read the catalog) until the next refresh repainted it.
+    // Keep the last good catalog and let the next store event retry.
     const [sessions, agents] = await Promise.all([
-      this.listSessions().catch(() => []),
-      this.listAgentPool().catch(() => []),
+      this.listSessions().catch((): null => null),
+      this.listAgentPool().catch((): null => null),
     ]);
-    this.publishSessionCatalog(sessions);
-    for (const listener of [...this.agentPoolListeners]) {
-      try { listener(agents); } catch {}
+    if (sessions) this.publishSessionCatalog(sessions);
+    if (agents) {
+      for (const listener of [...this.agentPoolListeners]) {
+        try { listener(agents); } catch {}
+      }
     }
   }
 

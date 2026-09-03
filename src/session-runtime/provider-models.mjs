@@ -146,8 +146,13 @@ export function createProviderModels({
   function hydrateProviderModelRow(row) {
     const cfg = config();
     const saved = modelSettingsFor(cfg, row.provider, row.id);
+    // Display-only user alias (modelSettings["provider/model"].alias). It
+    // replaces the label everywhere the row's `display` is shown; the id and
+    // route selection are untouched.
+    const alias = typeof saved.alias === 'string' ? saved.alias.trim() : '';
     return {
       ...row,
+      ...(alias ? { display: alias, displayAlias: alias } : {}),
       effortOptions: effortItemsFor(row.provider, row, null),
       fastCapable: fastCapableFor(row.provider, row),
       fastPreferred: Object.prototype.hasOwnProperty.call(saved, 'fast')

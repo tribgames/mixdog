@@ -2,9 +2,10 @@
 import { clean } from './session-text.mjs';
 
 export const TOOL_MODES = new Set(['full', 'readonly', 'lead']);
-export const ALL_EFFORT_LEVELS = new Set(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+export const ALL_EFFORT_LEVELS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
 export const EFFORT_LABELS = {
   none: 'None',
+  minimal: 'Minimal',
   low: 'Low',
   medium: 'Medium',
   high: 'High',
@@ -43,12 +44,13 @@ export const EFFORT_BY_FAMILY = {
   grok: ['low', 'medium', 'high', 'xhigh'],
 };
 export const EFFORT_FALLBACKS = {
-  ultra: ['ultra', 'max', 'xhigh', 'high', 'medium', 'low'],
-  max: ['max', 'xhigh', 'high', 'medium', 'low'],
-  xhigh: ['xhigh', 'high', 'medium', 'low'],
-  high: ['high', 'medium', 'low'],
-  medium: ['medium', 'low'],
-  low: ['low'],
+  ultra: ['ultra', 'max', 'xhigh', 'high', 'medium', 'low', 'minimal'],
+  max: ['max', 'xhigh', 'high', 'medium', 'low', 'minimal'],
+  xhigh: ['xhigh', 'high', 'medium', 'low', 'minimal'],
+  high: ['high', 'medium', 'low', 'minimal'],
+  medium: ['medium', 'low', 'minimal'],
+  low: ['low', 'minimal'],
+  minimal: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
   none: ['none'],
 };
 
@@ -68,42 +70,36 @@ export function normalizeEffortInput(value) {
 
 export function effortOptionsFor(provider, model) {
   const providerAllowed = EFFORT_OPTIONS_BY_PROVIDER[provider] || null;
-  const filterProvider = (values) => {
-    const unique = [...new Set((values || []).map(clean).filter(Boolean))];
-    return providerAllowed ? unique.filter((v) => providerAllowed.includes(v)) : unique;
+  const normalizeCatalogValues = (values) => {
+    const seen = new Set();
+    const out = [];
+    for (const raw of values || []) {
+      const v = clean(raw).toLowerCase();
+      if (!v || seen.has(v)) continue;
+      seen.add(v);
+      if (ALL_EFFORT_LEVELS.has(v)) out.push(v);
+    }
+    return out;
   };
   const family = clean(model?.family).toLowerCase();
   const reasoningOptionEffort = Array.isArray(model?.reasoningOptions)
     ? model.reasoningOptions.find((option) => clean(option?.type).toLowerCase() === 'effort')
     : null;
   const reasoningOptionValues = Array.isArray(reasoningOptionEffort?.values)
-    ? reasoningOptionEffort.values.map(clean).filter(Boolean)
+    ? reasoningOptionEffort.values.map((v) => clean(v).toLowerCase()).filter(Boolean)
     : [];
-  // Grok/xAI: models.dev + native /models publish reasoningOptions. Prefer
-  // that over the hardcoded reasoningLevels grok-oauth used to stamp, so a
-  // catalog refresh (e.g. grok-4.6 adding xhigh) wins without a code bump.
-  if ((provider === 'xai' || provider === 'grok-oauth') && reasoningOptionValues.length) {
-    return filterProvider(reasoningOptionValues);
-  }
   const declared = Array.isArray(model?.reasoningLevels)
-    ? model.reasoningLevels.map(clean).filter(Boolean)
+    ? model.reasoningLevels.map((v) => clean(v).toLowerCase()).filter(Boolean)
     : [];
-  if (Array.isArray(model?.reasoningLevels)) {
-    if (declared.length) return filterProvider(declared);
-    if (Object.prototype.hasOwnProperty.call(EFFORT_BY_FAMILY, family)) {
-      return filterProvider(EFFORT_BY_FAMILY[family]);
-    }
-    // Unknown family with an empty declared list: fall back to the provider's
-    // default levels instead of [] so a new model family (e.g. fable before it
-    // was catalogued) never loses /effort entirely. Families that truly have
-    // no levels (haiku) stay empty via their explicit EFFORT_BY_FAMILY entry.
-    return providerAllowed || [];
-  }
-  if (reasoningOptionValues.length) return filterProvider(reasoningOptionValues);
+  // Catalog-first: when the catalog (models.dev / native /models) declares
+  // effort values, trust them as-is. Provider/family lists are fallbacks for
+  // catalog-empty models only, never a filter that narrows catalog values.
+  if (reasoningOptionValues.length) return normalizeCatalogValues(reasoningOptionValues);
+  if (declared.length) return normalizeCatalogValues(declared);
   if (Object.prototype.hasOwnProperty.call(EFFORT_BY_FAMILY, family)) {
-    return filterProvider(EFFORT_BY_FAMILY[family]);
+    return [...EFFORT_BY_FAMILY[family]];
   }
-  return providerAllowed || [];
+  return providerAllowed ? [...providerAllowed] : [];
 }
 
 export function coerceEffortFor(provider, model, effort) {

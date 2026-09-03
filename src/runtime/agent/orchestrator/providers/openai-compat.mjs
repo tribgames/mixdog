@@ -65,6 +65,8 @@ import {
 } from './openai-compat-xai.mjs';
 import { envFlag as _envFlag } from './lib/env-utils.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
+import { ensureChatToolPairs } from './lib/wire-pairing.mjs';
+import { sendCompatResponses } from './openai-compat-responses.mjs';
 
 const requireOpenAI = createRequire(import.meta.url);
 let _OpenAI = null;
@@ -428,6 +430,11 @@ export class OpenAICompatProvider {
             }
             return await sendHttpWithWarmup();
         }
+        // Gateway brands that only answer on /responses (OpenCode Go routes
+        // Muse Spark / GPT / Grok here via compatWireApi).
+        if (opts.compatWireApi === 'responses') {
+            return await sendCompatResponses(this, messages, useModel, tools, opts);
+        }
         const signal = opts.signal || null;
         if (signal?.aborted) {
             const reason = signal.reason;
@@ -442,7 +449,10 @@ export class OpenAICompatProvider {
             || (this.name === 'deepseek' && deepseekReplaysReasoningContent(useModel));
         const params = {
             model: useModel,
-            messages: toOpenAIMessages(messages, this.name, { replaysReasoningContent }),
+            // Wire-level pairing guard: a call whose result never committed
+            // (cancel/abort) is hard-rejected unpaired, so synthesize the
+            // missing tool messages here.
+            messages: ensureChatToolPairs(toOpenAIMessages(messages, this.name, { replaysReasoningContent })),
         };
         const maxOutputTokens = resolveCompatMaxOutputTokens(opts);
         if (maxOutputTokens) params.max_tokens = maxOutputTokens;

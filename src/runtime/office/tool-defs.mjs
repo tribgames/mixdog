@@ -51,7 +51,7 @@ export const TOOL_DEFS = [
         fields: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'PDF form fields; layout is linted before writing.' },
         operations: {
           type: 'array',
-          description: 'Atomic edits. Put every operation whose inputs are known in one batch; split only for result-dependent input. Semantic create ops: compose_document, compose_sheet, compose_slide. Call describe only when fields/support are unknown. fill_template accepts tokens/strict; non-Latin PDF text needs properties.fontPath.',
+          description: 'Atomic edits. Put every operation whose inputs are known in one batch; split only for result-dependent input. Semantic create ops: compose_document, compose_sheet; compose_slide edits or extends an existing deck (a new deck is always authored via action:author). Call describe only when fields/support are unknown. fill_template accepts tokens/strict; non-Latin PDF text needs properties.fontPath.',
           items: {
             type: 'object',
             additionalProperties: true,

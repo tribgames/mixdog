@@ -40,10 +40,11 @@
   min-width: 0;
   overflow: hidden;
   padding: 4px;
-  border-radius: var(--mx-radius-lg);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
   color: var(--mx-text);
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 60%), var(--mx-bg-layer-1);
-  box-shadow: var(--mx-floating), inset 0 0 0 .5px var(--mx-border-muted);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
   animation: route-popover-in var(--mx-motion-slow) var(--mx-ease-emphasized) both;
   will-change: transform, opacity;
 }
@@ -524,8 +525,10 @@
    goes with it: the sections carry their own padding, and the doubled inset
    was pure height on a phone. */
 .command-surface[data-surface="context"] {
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted), var(--mx-overlay);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius-card);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .command-surface[data-surface="context"] .mixdog-settings__panel {
   max-height: min(560px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
@@ -601,9 +604,10 @@
   width: min(400px, calc(100vw - 32px));
   height: auto;
   max-height: min(560px, calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px)));
-  border-radius: var(--mx-radius-xl);
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted), var(--mx-overlay);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius-card);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .command-surface[data-surface="inherit"] .mixdog-settings__panel {
   max-height: 100%;
@@ -857,17 +861,17 @@
   top: calc(100% + 6px);
   right: 0;
   /* Context, Shell, and Agent cards share one compact fixed width. */
-  width: var(--session-status-card-width);
+  width: var(--session-status-card-width, 220px);
   max-width: calc(100vw - 24px);
   display: grid;
   grid-template-columns: 1fr;
   gap: 4px;
   padding: 8px;
-  border: .5px solid var(--mx-border-strong);
-  border-radius: var(--mx-radius-md);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
   color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-floating);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
   opacity: 0;
   visibility: hidden;
   transform: translateY(-2px);

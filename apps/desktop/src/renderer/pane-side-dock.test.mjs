@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import React, { act } from "react";
+import { createRoot } from "react-dom/client";
+import { JSDOM } from "jsdom";
 import {
+  PaneSideDock,
   normalizePaneSideDocks,
   paneDiffStacks,
-  paneGoalPlacement,
+  paneDockActiveRoot,
+  paneDiffShowing,
   samePaneSideDocks,
   withPaneDockDiffClosed,
   withPaneDockDiffOpened,
@@ -16,6 +21,26 @@ const keyOf = (diff) =>
   `diff:${diff.project}:${diff.source}:${diff.hash || ""}:${diff.rel}`;
 const closed = (view = "source-control") =>
   ({ open: false, view, surface: "", diff: null });
+
+test("the strip toggles and the dock header agree on the showing child", () => {
+  // Folded: nothing is pressed, whatever the pane remembers.
+  assert.equal(paneDockActiveRoot(closed("source-control")), null);
+  // A session surface wins over the remembered panel view while it is up.
+  assert.equal(
+    paneDockActiveRoot({ open: true, view: "source-control", surface: "browser" }),
+    "browser",
+  );
+  assert.equal(
+    paneDockActiveRoot({ open: true, view: "source-control", surface: "terminal" }),
+    "terminal",
+  );
+  // The diff pair keeps its Source Control parent pressed.
+  assert.equal(
+    paneDockActiveRoot({ open: true, view: "source-control", surface: "diff" }),
+    "source-control",
+  );
+  assert.equal(paneDockActiveRoot({ open: true, view: null, surface: "" }), null);
+});
 
 test("a pane seen for the first time follows the mode default", () => {
   assert.deepEqual(
@@ -208,26 +233,26 @@ test("closing the diff hands the body back to the panel view", () => {
   assert.equal(browserFront.surface, "browser");
 });
 
-test("Goal follows only the visible diff and returns to the composer otherwise", () => {
-  assert.equal(paneGoalPlacement(closed()), "composer");
-  assert.equal(paneGoalPlacement({
+test("the diff child shows only when it is the open unit's surface", () => {
+  assert.equal(paneDiffShowing(closed()), false);
+  assert.equal(paneDiffShowing({
     open: false,
     view: "source-control",
     surface: "diff",
     diff: diffA,
-  }), "composer");
-  assert.equal(paneGoalPlacement({
+  }), false);
+  assert.equal(paneDiffShowing({
     open: true,
     view: "source-control",
     surface: "browser",
     diff: diffA,
-  }), "composer");
-  assert.equal(paneGoalPlacement({
+  }), false);
+  assert.equal(paneDiffShowing({
     open: true,
     view: "source-control",
     surface: "diff",
     diff: diffA,
-  }), "diff");
+  }), true);
 });
 
 test("mobile always stacks the visible diff so Goal has a visible DIFF anchor", () => {
@@ -235,4 +260,99 @@ test("mobile always stacks the visible diff so Goal has a visible DIFF anchor", 
   assert.equal(paneDiffStacks(true, 1_200, 640, false), false);
   assert.equal(paneDiffStacks(true, 500, 640, false), true);
   assert.equal(paneDiffStacks(false, 500, 640, true), false);
+});
+
+test("a cold pane dock paints its open shell before mounting the heavy body", async () => {
+  const dom = new JSDOM(
+    "<!doctype html><html><body><main id=\"root\"></main></body></html>",
+    { url: "https://mixdog.test/" },
+  );
+  const globals = [
+    "window",
+    "document",
+    "navigator",
+    "Element",
+    "HTMLElement",
+    "Node",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ];
+  const previous = new Map(globals.map((key) =>
+    [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  for (const [key, value] of Object.entries({
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    Element: dom.window.Element,
+    HTMLElement: dom.window.HTMLElement,
+    Node: dom.window.Node,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  })) {
+    Object.defineProperty(globalThis, key, { configurable: true, value });
+  }
+  let nextFrame = 1;
+  const pendingFrames = new Map();
+  dom.window.requestAnimationFrame = (callback) => {
+    const frame = nextFrame++;
+    pendingFrames.set(frame, callback);
+    return frame;
+  };
+  dom.window.cancelAnimationFrame = (frame) => pendingFrames.delete(frame);
+
+  const noop = () => {};
+  const Icon = () => React.createElement("span");
+  const descriptors = new Map([[
+    "source-control",
+    { id: "source-control", label: "Source Control", icon: Icon },
+  ]]);
+  const baseProps = {
+    leafId: "pane-1",
+    groups: [["source-control"]],
+    descriptors,
+    focused: true,
+    onSelect: noop,
+    onClose: noop,
+    onCloseDiff: noop,
+    onMoveGroup: noop,
+    onMoveView: noop,
+    onFocusPane: noop,
+    openFileTab: noop,
+    renderView: () => React.createElement(
+      "div",
+      { "data-testid": "heavy-dock-body" },
+      "ready",
+    ),
+  };
+  const root = createRoot(document.getElementById("root"));
+  try {
+    await act(async () => root.render(React.createElement(PaneSideDock, {
+      ...baseProps,
+      entry: closed(),
+    })));
+    await act(async () => root.render(React.createElement(PaneSideDock, {
+      ...baseProps,
+      entry: { ...closed(), open: true },
+    })));
+
+    const dock = document.querySelector(".pane-side-dock");
+    const panel = document.querySelector(".workbench-side-panel");
+    assert.equal(dock?.dataset.open, "true");
+    assert.ok(panel);
+    assert.equal(panel.hidden, false);
+    assert.equal(document.querySelector("[data-testid=\"heavy-dock-body\"]"), null);
+    assert.equal(pendingFrames.size, 1);
+
+    await act(async () => {
+      const callbacks = [...pendingFrames.values()];
+      pendingFrames.clear();
+      callbacks.forEach((callback) => callback(16));
+    });
+    assert.ok(document.querySelector("[data-testid=\"heavy-dock-body\"]"));
+  } finally {
+    await act(async () => root.unmount());
+    dom.window.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+  }
 });

@@ -108,7 +108,10 @@ function benchmarkLeadMeta(builder, pluginRoot) {
       }, null, 2)}\n`,
       'utf8',
     );
-    return builder.buildLeadMetaContent({ PLUGIN_ROOT: pluginRoot, DATA_DIR: dataDir });
+    return {
+      meta: builder.buildLeadMetaContent({ PLUGIN_ROOT: pluginRoot, DATA_DIR: dataDir }),
+      language: builder.buildLeadLanguageContent({ DATA_DIR: dataDir }),
+    };
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }
@@ -259,13 +262,14 @@ function promptSurfaceDigest(repoRoot, workflowId, routeContract) {
     DATA_DIR: '',
     includeLeadBrief: workflow.delegation !== 'none',
   });
-  const meta = benchmarkLeadMeta(builder, PLUGIN_ROOT);
+  const { meta, language } = benchmarkLeadMeta(builder, PLUGIN_ROOT);
   const payload = [
     shared,
     meta,
     routeContract.deferredManifest,
     workflow.rendered,
     lead,
+    language,
   ].join('\n\0\n');
   return {
     hash: sha256(payload),

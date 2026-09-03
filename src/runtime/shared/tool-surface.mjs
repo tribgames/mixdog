@@ -162,6 +162,7 @@ export function displayToolName(name, args = {}) {
     case 'list_mcp_resources':
     case 'list_mcp_resource_templates':
     case 'cwd':
+    case 'setup':
       return 'Setup';
     case 'request_user_input':
       return 'Ask User';
@@ -337,6 +338,11 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       return a.server ? `server "${truncateToolText(a.server, max)}"` : 'all servers';
     case 'cwd':
       return truncateToolText(firstText(a.path, a.cwd, a.dir), max);
+    case 'setup':
+      return compactParts([
+        String(a.action || ''),
+        truncateToolText(firstText(a.domain, a.target, a.name, a.agent, a.workflow, a.style), max),
+      ]);
     case 'memory':
     case 'remember':
     case 'save_memory':

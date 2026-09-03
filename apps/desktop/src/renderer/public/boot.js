@@ -134,6 +134,12 @@ if (mixdogInstalledApp) {
     if (!document.body || document.getElementById('mixdog-boot-error')) return;
     var root = document.getElementById('root');
     if (root && root.childElementCount > 0) return;
+    // A browser tab never mounts the app: remote-shim draws the install guide
+    // (or the approval wait) beside #root, so an empty root there is the
+    // expected state, not a bundle that failed. Painting the failure overlay
+    // over that guide after the timer is what the user saw as "No error
+    // captured" a few seconds after the guide appeared.
+    if (document.getElementById('mixdog-remote-pairing')) return;
     // The boot gate hides #root, so a failure message must not sit behind a
     // reveal that will never arrive.
     if (window.mixdogRevealApp) window.mixdogRevealApp();
@@ -151,11 +157,16 @@ if (mixdogInstalledApp) {
       errors.push('failed to load: ' + (target.src || target.href));
       // The worker answers this document from its last copy, so a launch that
       // follows a deploy can name chunks that deploy removed. Drop the cached
-      // shell and reload ONCE — the network copy names live chunks. The flag
-      // is what stops a genuinely broken build from reloading forever.
+      // shell and reload ONCE per missing chunk — the network copy names live
+      // chunks. The record is keyed by the URL that failed, not by the tab:
+      // Safari keeps a tab's sessionStorage for weeks, and a tab-wide flag
+      // from one earlier recovery skipped every later deploy straight to this
+      // overlay (user: qr로 연동하려고하니 저게뜸). A genuinely broken build
+      // fails on the SAME url twice and still stops here.
       try {
-        if (!sessionStorage.getItem('mixdog.shell-recovered') && window.caches) {
-          sessionStorage.setItem('mixdog.shell-recovered', '1');
+        var failedUrl = String(target.src || target.href);
+        if (sessionStorage.getItem('mixdog.shell-recovered') !== failedUrl && window.caches) {
+          sessionStorage.setItem('mixdog.shell-recovered', failedUrl);
           caches.delete('mixdog-shell-v1').then(function () { location.reload(); });
           return;
         }

@@ -8,7 +8,7 @@ import {
   buildCurrentTimeBlock,
   hasUserConversationMessage,
   isProtectedContextUserMessage as isManagerProtectedContextUserMessage,
-  prefixSessionStartContent,
+  suffixUserTurnReminders,
 } from '../src/runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import {
   isProtectedContextUserMessage as isCompactProtectedContextUserMessage,
@@ -46,13 +46,15 @@ test('time-related prompts receive both local and UTC context', () => {
   assert.equal(buildCurrentTimeBlock('파일을 읽어줘'), '');
 });
 
-test('a time reminder prefix keeps the first human task visible to context accounting', () => {
+test('a trailing time reminder keeps the human task leading and visible to context accounting', () => {
   const prompt = '최근 오류를 분석해줘';
   const reminder = buildCurrentTimeBlock(prompt);
-  const content = prefixSessionStartContent(
+  const content = suffixUserTurnReminders(
     prompt,
     `<system-reminder>\n# Current Time\n${reminder}\n</system-reminder>`,
   );
+  assert.ok(content.startsWith(prompt));
+  assert.ok(content.endsWith('</system-reminder>'));
   const message = { role: 'user', content };
   const pureReminder = {
     role: 'user',

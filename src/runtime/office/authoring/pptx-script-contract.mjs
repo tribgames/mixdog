@@ -1,5 +1,5 @@
 // What a pptxgenjs authoring script may rely on when the runner executes it.
-// The human-facing guide (workflow, design system, helper kit, footguns) is
+// The human-facing guide (workflow, composition grammar, device kit, footguns) is
 // the built-in `pptx` skill under src/defaults/skills/pptx; keep the two in
 // step when a global or a module is added here.
 export const PPTX_SCRIPT_CONTRACT = {

@@ -5,13 +5,21 @@ import type {
 } from "../shared/contract";
 import { GitFileDiff } from "./ReviewPane";
 import { ScmPathText } from "./ScmPathText";
-import { ScmStatusIcon, scmStatusKind } from "./ScmStatusIcon";
 import {
-  changedFilesLabel,
   EMPTY_SUMMARY,
   UNKNOWN_AUTHOR,
   type SourceControlDiffRequest,
 } from "./source-control-support";
+
+/** Compact `YYYY-MM-DD HH:mm` for the byline; the full locale string stays
+ *  in the tooltip. Falls back to the raw value when git gave no ISO date. */
+function formatCommitDate(iso: string): string {
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return iso;
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+    + `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 export function SourceControlCommitDetail({
   detail,
@@ -49,20 +57,16 @@ export function SourceControlCommitDetail({
   const copyState = detail && shaCopy?.hash === detail.hash ? shaCopy : null;
 
   return <div className="dock-scm-history dock-scm-commit-detail">
+    {/* Two-tier header: a toolbar strip (back button, then the short SHA with
+        its copy control and the +adds/−dels totals trailing) over the subject
+        and an `author · date` byline that gets the full width. */}
     <header className="dock-scm-commit-header">
-      <div className="dock-scm-commit-headline">
+      <div className="dock-scm-commit-toolbar">
         <button type="button" className="dock-scm-commit-back"
           aria-label="Back to commit history" onClick={onBack}>
           <ChevronLeft size={14} aria-hidden="true" />
         </button>
-        <b title={headline}
-          data-empty={detail && !detailSummary ? true : undefined}>{headline}</b>
-      </div>
-      {detail && <div className="dock-scm-commit-meta">
-        <span className="dock-scm-commit-author" title={detail.email}>
-          <span>{detailAuthor || UNKNOWN_AUTHOR}</span>
-        </span>
-        <span className="dock-scm-commit-ref">
+        {detail && <span className="dock-scm-commit-ref">
           <GitCommit size={12} aria-hidden="true" />
           <code>{detail.shortHash}</code>
           <button type="button" className="dock-scm-commit-copy"
@@ -80,18 +84,25 @@ export function SourceControlCommitDetail({
                 : "Could not copy the SHA to the clipboard"
               : ""}
           </span>
-        </span>
-        <span className="dock-scm-commit-lines">
-          <i>+{additions}</i><em>−{deletions}</em>
-        </span>
-        <time dateTime={detail.authoredAt}>
-          {new Date(detail.authoredAt).toLocaleString()}
-        </time>
-      </div>}
+        </span>}
+        {detail && <span className="dock-scm-commit-lines"
+          title={`+${additions.toLocaleString()} additions, −${deletions.toLocaleString()} deletions`}>
+          <i>+{additions.toLocaleString()}</i><em>−{deletions.toLocaleString()}</em>
+        </span>}
+      </div>
+      <div className="dock-scm-commit-headline">
+        <b title={headline}
+          data-empty={detail && !detailSummary ? true : undefined}>{headline}</b>
+        {detail && <div className="dock-scm-commit-meta">
+          <span className="dock-scm-commit-author" title={detail.email}>
+            <span>{detailAuthor || UNKNOWN_AUTHOR}</span>
+          </span>
+          <time dateTime={detail.authoredAt} title={new Date(detail.authoredAt).toLocaleString()}>
+            {formatCommitDate(detail.authoredAt)}
+          </time>
+        </div>}
+      </div>
     </header>
-    {detail && <div className="dock-scm-commit-files-header">
-      {changedFilesLabel(detailFiles.length, detailFiles.length)}
-    </div>}
     {detailFiles.map((file) => {
       const open = openCommitFile === file.path;
       const patch = commitDiffs[file.path];
@@ -110,11 +121,13 @@ export function SourceControlCommitDetail({
           }}>
           <ScmPathText title={file.path}
             path={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path} />
-          <small className="dock-scm-commit-file-lines">
+          {/* No status glyph here: with no checkbox column the square icon
+              only doubled the +/− signs of the counts beside it. */}
+          <small className="dock-scm-commit-file-lines"
+            title={`${file.additions} additions, ${file.deletions} deletions`}>
             {file.additions > 0 && <i>+{file.additions}</i>}
-            {file.deletions > 0 && <em>-{file.deletions}</em>}
+            {file.deletions > 0 && <em>−{file.deletions}</em>}
           </small>
-          <ScmStatusIcon kind={scmStatusKind(file.status)} size={12} />
         </button>
         {open && <div className="dock-scm-commit-diff">
           {patch === undefined || patch === null

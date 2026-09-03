@@ -5,7 +5,7 @@
  * touching the host that produced it.
  */
 import type { BrowserSnapshotPayload } from './accessibility';
-import { redactBrowserText, redactBrowserUrl } from './host-policy';
+import { redactBrowserText, redactBrowserUrl } from './redaction';
 
 /** Only what a snapshot report says about the page's live diagnostics. */
 export interface SnapshotDiagnosticsView {

@@ -384,6 +384,71 @@
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-minor);
 }
+/* Session Diff is the pane-scoped, cumulative counterpart to the turn review
+   bar. It reads in Source Control's Changes grammar — the same 29px header
+   band and file rows (.dock-scm-file, 25-scm-dock.css), the same gutter and
+   scrollbar reserve — so the two panels line up when opened side by side
+   (user: 레이아웃도 소스컨트롤이랑 대조해서 맞추고). The row set is already
+   attributed by the runtime, so there is no checkbox column and no commit
+   form; the inline diff opens beneath its row instead. */
+.session-diff-pane {
+  --dock-scm-gutter: 8px;
+  --dock-scm-scrollbar: var(--mx-scrollbar-gutter);
+  --dock-scm-row-inset: 6px;
+  --dock-scm-file-row: 29px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* Header band = .dock-scm-list-header + .dock-scm-check-all without the
+   checkbox: outside the scroller, so it pays the gutter and the scrollbar
+   reserve itself and its text starts on the rows' text axis. */
+.session-diff-header {
+  height: var(--dock-scm-file-row);
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Right inset: the rows end their 16px status glyph 2px short of the
+     scroller's content edge; the header's 22px icon button is 6px wider, so
+     it sits 3px FURTHER right for the two glyph centres to share one x
+     (user: 새로고침이 아래쪽 아이콘이랑 안 맞아). */
+  padding: 0 calc(var(--dock-scm-gutter) + var(--dock-scm-scrollbar) - 1px) 0 calc(var(--dock-scm-gutter) + var(--dock-scm-row-inset) + 2px);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+}
+.session-diff-summary { min-width: 0; flex: 1; display: flex; align-items: center; gap: 7px; overflow: hidden; }
+.session-diff-summary > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-diff-summary .diff-stats { flex: 0 0 auto; display: inline-flex; gap: 5px; font-size: var(--mx-font-meta); font-variant-numeric: tabular-nums; }
+.session-diff-actions { flex: 0 0 auto; margin-left: auto; display: flex; align-items: center; gap: 1px; }
+.session-diff-loading, .session-diff-state { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 16px 20px; color: var(--mx-text-muted); font-size: var(--mx-font-ui); }
+.session-diff-state { flex-direction: column; color: var(--mx-danger); text-align: center; }
+.session-diff-state button { min-height: 24px; padding: 0 8px; border: .5px solid var(--mx-border); border-radius: var(--mx-radius-sm); color: var(--mx-text); background: var(--mx-button-bg); cursor: pointer; }
+.session-diff-notice { margin: 0; padding: 5px calc(var(--dock-scm-gutter) + var(--dock-scm-row-inset) + 2px); color: var(--mx-warning); font-size: var(--mx-font-meta); }
+/* Scroller = .dock-scm-scroll: same padding, same reserved scrollbar. */
+.session-diff-files {
+  min-height: 0;
+  flex: 1;
+  margin: 0;
+  padding: 4px var(--dock-scm-gutter) 12px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  list-style: none;
+}
+.session-diff-files::-webkit-scrollbar { width: var(--mx-scrollbar-size); }
+.session-diff-files::-webkit-scrollbar-track { background: transparent; }
+.session-diff-files::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: var(--mx-radius-pill); background: var(--mx-scrollbar-thumb); background-clip: padding-box; }
+/* No checkbox column: the row still starts on the row inset so its text axis
+   matches the header above and the Source Control rows beside it. The row
+   carries NO per-file counts (the Changes rows carry none); the open file
+   reads as the selected row via .dock-scm-file[data-selected], and its diff
+   shows in the dock's left diff column, not beneath the row. */
+.session-diff-file { padding-left: var(--dock-scm-row-inset); }
 .queue-remove {
   width: 20px;
   height: 20px;
@@ -417,8 +482,8 @@
      pressable things in the card, so they may not read fainter than the
      readout rows they sit under. */
   color: var(--mx-text);
-  background: color-mix(in srgb, var(--mx-text) 4%, transparent);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  background: var(--mx-popup-action-bg);
+  box-shadow: var(--mx-popup-action-ring);
   font-size: var(--mx-font-minor);
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
@@ -431,7 +496,7 @@
 .context-action:hover:not(:disabled) {
   color: var(--mx-text);
   background: var(--mx-hover);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-strong);
+  box-shadow: var(--mx-popup-action-ring-hover);
 }
 /* Busy is not invisible: a dim colour on top of the shared disabled opacity
    compounded into unreadable grey. ONE step down the text ladder says "not
@@ -606,10 +671,10 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
   min-width: 192px;
   display: grid;
   padding: 4px;
-  border: .5px solid var(--mx-border-strong);
-  border-radius: var(--mx-radius-md);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-floating);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .review-context-menu button {
   min-height: 28px;

@@ -220,6 +220,27 @@ Audit note — custom alias sentinel.`);
     }
     aliasChecks.push('review-note=audit-note');
 
+    // A user common.md without `partial: true` still overrides the shared
+    // format and never shows up as a selectable "Common" style.
+    const overrideDir = join(baseDir, 'custom-common');
+    mkdirSync(join(overrideDir, 'output-styles'), { recursive: true });
+    writeFileSync(join(overrideDir, 'output-styles', 'common.md'), `---
+title: Common
+---
+
+## Shared Output Format
+
+- User shared-format override sentinel.`);
+    writeFileSync(join(overrideDir, 'mixdog-config.json'), JSON.stringify({ ...baseConfig, outputStyle: 'simple' }, null, 2));
+    const overrideCatalog = listOutputStyleCatalog(PLUGIN_ROOT, overrideDir, { fresh: true });
+    if (overrideCatalog.some((style) => style.id === 'common')) {
+      throw new Error('user common.md without partial flag leaked into the style catalog');
+    }
+    const overridden = outputStyleBodyFromMeta(rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR: overrideDir }));
+    if (!overridden.includes('shared-format override sentinel') || overridden.includes(sharedMarker)) {
+      throw new Error('user common.md did not replace the built-in shared format partial');
+    }
+
     // keep-shared-format: false — a standalone style that replaces the shared
     // format policy instead of extending it.
     const standaloneDir = join(baseDir, 'custom-standalone');
@@ -253,6 +274,7 @@ Standalone note — shared-format opt-out sentinel.`);
       compositionChecks: [
         'output-style header + user-facing-text anchor + shared format + depth variant',
         'custom styles inherit the shared format unless keep-shared-format: false',
+        'user common.md overrides the shared format and never lists as a style',
         'every shared format rule stated exactly once',
         'built-in depth variants share one Retain/Omit skeleton',
       ],

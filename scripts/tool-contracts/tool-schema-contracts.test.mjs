@@ -439,7 +439,7 @@ test('load_tool and Skill schemas stay pure loaders', () => {
   const toolSearchNamesSchema = TOOL_SEARCH_TOOL.inputSchema?.properties?.names;
   const toolSearchNamesStringSchema = toolSearchNamesSchema?.anyOf?.find((entry) => entry?.type === 'string');
   const toolSearchNamesArraySchema = toolSearchNamesSchema?.anyOf?.find((entry) => entry?.type === 'array');
-  if (!/Load named deferred tools/i.test(TOOL_SEARCH_TOOL.description || '')
+  if (!/full schema of named deferred tools/i.test(TOOL_SEARCH_TOOL.description || '')
     || !/auto-load/i.test(TOOL_SEARCH_TOOL.description || '')
     || !toolSearchNamesSchema
     || toolSearchNamesStringSchema?.minLength !== undefined

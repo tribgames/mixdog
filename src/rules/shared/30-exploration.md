@@ -5,7 +5,8 @@
 - Stop exploring once sufficient evidence determines the next action required
   by the request.
 - Ownership is exclusive: each evidence type has one owner;
-  a successful owner result closes that facet.
+  a successful owner result closes that facet. An owner miss (no match) does
+  not close it: fall through once to `grep` on the literal name.
 - Route the missing evidence to its primary owner:
   repository state, history, or diff→`git`;
   source-file structure or outline, and exact symbol declaration, body,

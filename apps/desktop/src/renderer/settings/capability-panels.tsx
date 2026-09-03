@@ -1,4 +1,5 @@
 import {
+  Blocks,
   Check,
   ChevronRight,
   Plug,
@@ -49,6 +50,16 @@ import { GitPanel } from './git-panel';
 import { PushNotificationToggle } from './push-notification-toggle';
 
 import { ActionButton, AutoSaveRow, CompactSwitch, FormRow, Group, ListEmpty, ResourceRow, SelectRow, settingsStatus, ToggleRow } from "./capability-controls";
+import {
+  currentProjectPath,
+  ExtensionFacts,
+  ExtensionHero,
+  ExtensionItemRow,
+  ExtensionScopeField,
+  ExtensionSection,
+  extensionScopeBadge,
+  scopeOf,
+} from './extension-detail';
 import { durationTextInput, formatDuration, label, providerLabel, rows, sectionError, sectionLoaded, type CapabilityApi, type CapabilityCategory, type PanelContext, type RecordValue } from "./capability-data";
 
 export function CategoryPanel({ category, context }: {
@@ -519,6 +530,11 @@ function GeneralPanel({ data, pending, run, api }: PanelContext) {
 }
 
 function ProvidersPanel({ data, pending, run, confirm }: PanelContext) {
+  const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
+  // The runtime catalog carries each API-key provider's key-console URL
+  // (provider-admin API_PROVIDERS.url); the row opens it in the system browser
+  // so a user with no key yet is one click from issuing one.
+  const openKeyConsole = (url: string) => void host?.openExternal?.(url).catch(() => undefined);
   const setup = record(data.providerSetup);
   const apiProviders = rows(setup.api);
   const oauthProviders = rows(setup.oauth);
@@ -550,6 +566,8 @@ function ProvidersPanel({ data, pending, run, confirm }: PanelContext) {
       status={providerStatus(provider)}
       actions={<>{String(provider.id) === 'opencode-go' && <ActionButton disabled={busy}
         onClick={() => void run('loginOpenCodeGoUsage')}>Usage sign-in</ActionButton>}
+        {!provider.authenticated && typeof provider.url === 'string' && /^https:\/\//.test(provider.url) &&
+          <ActionButton disabled={busy} onClick={() => openKeyConsole(String(provider.url))}>Get API key ↗</ActionButton>}
         {!provider.authenticated && <form className="settings-provider-secret" onSubmit={(event) => {
           event.preventDefault();
           const form = event.currentTarget;
@@ -718,9 +736,11 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
 
 /** Every extension list row is one drill-in action. Enabled state stays
  *  visible as metadata; its switch lives in the detail surface. */
-function ExtensionRow({ title, description, enabled, busy, onOpen, onToggle }: {
+function ExtensionRow({ title, description, badge, enabled, busy, onOpen, onToggle }: {
   title: string;
   description: string;
+  /** Project-scope note ("2 projects", "Not in this project"); '' hides it. */
+  badge?: string;
   enabled: boolean;
   busy: boolean;
   onOpen(): void;
@@ -732,6 +752,7 @@ function ExtensionRow({ title, description, enabled, busy, onOpen, onToggle }: {
       aria-label={title} disabled={busy} onClick={onOpen}>
       <span className="sidebar-resource-title">
         <b>{title}</b>
+        {badge ? <span className="extensions-row-badge">{badge}</span> : null}
       </span>
       <small>{description}</small>
     </button>
@@ -747,15 +768,16 @@ function ExtensionRow({ title, description, enabled, busy, onOpen, onToggle }: {
 
 /** Skills follow the Workflows row grammar: identity first, short source/status
  *  metadata second, and the full description only in the detail dialog. */
-function SkillRow({ title, description, disabled, busy, onOpen, onToggle }: {
+function SkillRow({ title, description, badge, disabled, busy, onOpen, onToggle }: {
   title: string;
   description: string;
+  badge?: string;
   disabled: boolean;
   busy: boolean;
   onOpen(): void;
   onToggle(enabled: boolean): void;
 }) {
-  return <ExtensionRow title={title} description={description}
+  return <ExtensionRow title={title} description={description} badge={badge}
     enabled={!disabled} busy={busy} onOpen={onOpen} onToggle={onToggle} />;
 }
 
@@ -764,10 +786,10 @@ function SkillRow({ title, description, disabled, busy, onOpen, onToggle }: {
  *  list (user: 다른것들처럼 클릭해서 들어가서 설정하는 걸로) — the same move
  *  Workflows, Schedules and Webhooks make. Portaled for their reason too: the
  *  list lives inside the sidebar's clipped box. */
-function ExtensionDetailDialog({ title, facts, content, actions, enabled, busy, onToggle, onClose }: {
+function ExtensionDetailDialog({ title, children, actions, enabled, busy, onToggle, onClose }: {
   title: string;
-  facts: ReadonlyArray<readonly [string, string]>;
-  content?: string;
+  /** Body sections: hero, scope, contents, facts — composed by the caller. */
+  children: ReactNode;
   actions: ReactNode;
   enabled?: boolean;
   busy?: boolean;
@@ -799,13 +821,7 @@ function ExtensionDetailDialog({ title, facts, content, actions, enabled, busy, 
         </div>
       </header>
       <div className="extensions-dialog-body">
-        <dl className="extensions-dialog-facts">
-          {facts.filter(([, value]) => value).map(([label, value]) => <div key={label}>
-            <dt>{t(label)}</dt>
-            <dd>{value}</dd>
-          </div>)}
-        </dl>
-        {content !== undefined && <pre className="extensions-skill-preview">{content}</pre>}
+        {children}
         <footer>
           {actions}
           <button type="button" className="secondary" onClick={onClose}>{t('Close')}</button>
@@ -815,12 +831,14 @@ function ExtensionDetailDialog({ title, facts, content, actions, enabled, busy, 
   </div>, document.body);
 }
 
-function SkillEditorDialog({ skill, instructions, disabled, busy, readOnly = false, onClose, onSave, onToggle }: {
+function SkillEditorDialog({ skill, instructions, disabled, busy, readOnly = false, scopeField, onClose, onSave, onToggle }: {
   skill: RecordValue | null;
   instructions: string;
   disabled: boolean;
   busy: boolean;
   readOnly?: boolean;
+  /** Project-scope control; rendered above the fields while editing. */
+  scopeField?: ReactNode;
   onClose(): void;
   onSave(payload: RecordValue): void;
   onToggle?(): void;
@@ -872,6 +890,7 @@ function SkillEditorDialog({ skill, instructions, disabled, busy, readOnly = fal
           instructions: body,
         });
       }}>
+        {editing ? scopeField : null}
         <label className="schedules-field"><span>{t('Name')}</span>
           <small>{t('Shown in skill lists and menus.')}</small>
           <input name="skill-name" defaultValue={String(skill?.name || '')}
@@ -1026,9 +1045,11 @@ function McpPairListEditor({ label, description, values, keyPlaceholder, valuePl
   </fieldset>;
 }
 
-function McpEditorDialog({ server, busy, onClose, onSave, onToggle, onRemove }: {
+function McpEditorDialog({ server, busy, scopeField, onClose, onSave, onToggle, onRemove }: {
   server: RecordValue | null;
   busy: boolean;
+  /** Project-scope control; rendered under the status line while editing. */
+  scopeField?: ReactNode;
   onClose(): void;
   onSave(payload: RecordValue): void;
   onToggle?(): void;
@@ -1104,6 +1125,7 @@ function McpEditorDialog({ server, busy, onClose, onSave, onToggle, onRemove }: 
         {editing && <p className="extensions-mcp-summary">
           {String(server?.status || 'unknown')}{server?.error ? ` · ${String(server.error)}` : ''}
         </p>}
+        {editing ? scopeField : null}
         <section className="extensions-mcp-card extensions-mcp-identity-card">
           <label className="schedules-field"><span>{t('Name')}</span>
             <small>{t('Shown in the MCP server list.')}</small>
@@ -1282,7 +1304,7 @@ function SkillExtensionCreateDialog({ onClose, onSelect }: {
   </div>, document.body);
 }
 
-function McpPanel({ data, pending, run, confirm, createOpen, closeCreate }: PanelContext) {
+function McpPanel({ api, data, pending, run, confirm, createOpen, closeCreate }: PanelContext) {
   const status = record(data.mcp);
   // Plugin-owned servers are installed, shown, and toggled with their plugin
   // (Extensions → Plugins); only standalone user servers are listed here.
@@ -1315,7 +1337,7 @@ function McpPanel({ data, pending, run, confirm, createOpen, closeCreate }: Pane
       const name = String(server.name);
       const enabled = server.enabled !== false;
       return <ExtensionRow key={name} title={name}
-        description={mcpRowDescription(server)}
+        description={mcpRowDescription(server)} badge={extensionScopeBadge(server)}
         enabled={enabled} busy={busy}
         onToggle={(next) => void run('setMcpServerEnabled', [name, next])}
         onOpen={() => void openEditor(name)} />;
@@ -1323,6 +1345,9 @@ function McpPanel({ data, pending, run, confirm, createOpen, closeCreate }: Pane
       ? 'No MCP servers configured.' : 'Loading MCP servers…'} />}
     {openName && openServer && <McpEditorDialog key={openName}
       server={openServer} busy={busy} onClose={closeEditor}
+      scopeField={<ExtensionScopeField api={api} run={run} kind="mcp" name={openName}
+        {...scopeOf(servers.find((server) => String(server.name) === openName) || openServer)}
+        currentPath={currentProjectPath(data)} busy={busy} />}
       onSave={(payload) => {
         closeEditor();
         void run('saveMcpServer', [payload]);
@@ -1345,7 +1370,7 @@ function McpPanel({ data, pending, run, confirm, createOpen, closeCreate }: Pane
   </Group>;
 }
 
-function SkillsPanel({ data, pending, run, createOpen, closeCreate }: PanelContext) {
+function SkillsPanel({ api, data, pending, run, createOpen, closeCreate }: PanelContext) {
   const status = record(data.skills);
   // Built-in and plugin skills belong to their feature or plugin: they install,
   // show, and toggle with it under Extensions, so only user skills appear here.
@@ -1389,6 +1414,7 @@ function SkillsPanel({ data, pending, run, createOpen, closeCreate }: PanelConte
       const off = disabled.has(name);
       const description = String(skill.description || '').trim() || t('Skill instructions');
       return <SkillRow key={name} title={name} description={description} disabled={off}
+        badge={extensionScopeBadge(skill)}
         onToggle={(enabled) => setEnabled(name, enabled)}
         busy={busy} onOpen={() => openDetail(name)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'skills')
@@ -1396,21 +1422,32 @@ function SkillsPanel({ data, pending, run, createOpen, closeCreate }: PanelConte
     {detail && open && <SkillEditorDialog key={detail.name} skill={open}
       instructions={detail.content} disabled={openOff} busy={busy}
       readOnly={open.editable === false}
+      scopeField={<ExtensionScopeField api={api} run={run} kind="skills" name={detail.name}
+        {...scopeOf(open)} currentPath={currentProjectPath(data)} busy={busy} />}
       onClose={() => setDetail(null)} onSave={(payload) => void save(payload)}
       onToggle={() => toggle(detail.name)} />}
   </Group>;
 }
 
-function PluginsPanel({ data, pending, run, confirm, createOpen, closeCreate }: PanelContext) {
+function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreate }: PanelContext) {
   const status = record(data.plugins);
   const plugins = rows(status, 'plugins');
   const busy = Boolean(pending);
   const [openId, setOpenId] = useState('');
   const open = openId ? plugins.find((plugin) => String(plugin.id || plugin.name) === openId) : undefined;
+  const disabledSkills = new Set((Array.isArray(record(data.disabledSkills).disabled)
+    ? record(data.disabledSkills).disabled as unknown[] : []).map(String));
   // A plugin's skills ride its toggle; they are listed here, not under Skills.
-  const ownedSkills = (id: string) => rows(record(data.skills), 'skills')
-    .filter((skill) => record(skill.owner).kind === 'plugin' && String(record(skill.owner).id || '') === id)
-    .map((skill) => String(skill.name));
+  const ownedSkillRows = (id: string) => rows(record(data.skills), 'skills')
+    .filter((skill) => record(skill.owner).kind === 'plugin' && String(record(skill.owner).id || '') === id);
+  const ownedSkills = (id: string) => ownedSkillRows(id).map((skill) => String(skill.name));
+  // The MCP server(s) a plugin installed carry its `plugin-<name>` prefix.
+  const ownedMcpServers = (plugin: RecordValue) => {
+    const base = String(plugin.mcpServerName || '');
+    if (!base) return [];
+    return rows(record(data.mcp), 'servers')
+      .filter((server) => String(server.name) === base || String(server.name).startsWith(`${base}--`));
+  };
   return <Group title="Plugins">
     {createOpen && <PluginInstallDialog busy={busy}
       onClose={() => closeCreate?.()}
@@ -1423,24 +1460,23 @@ function PluginsPanel({ data, pending, run, confirm, createOpen, closeCreate }: 
           .filter(Boolean).join(' · ')
         || t('Installed plugin');
       return <ExtensionRow key={id} title={label(plugin)}
-        description={description}
+        description={description} badge={extensionScopeBadge(plugin)}
         enabled={enabled} busy={busy}
         onToggle={(next) => void run('setPluginEnabled', [plugin, next])}
         onOpen={() => setOpenId(id)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'plugins')
       ? 'No plugins installed.' : 'Loading plugins…'} />}
-    {open && <ExtensionDetailDialog title={label(open)}
-      enabled={open.enabled !== false} busy={busy}
-      onToggle={(next) => void run('setPluginEnabled', [open, next])}
-      facts={[
-        ['Version', String(open.version || 'unversioned')],
-        ['Skills', ownedSkills(String(open.id || open.name)).join(', ') || String(open.skillCount ?? '')],
-        ['Description', String(open.description || '')],
-        ['Source', String(open.sourceType || '')],
-        ['Root', String(open.root || '')],
-        ['MCP server', String(open.mcpServerName || '')],
-      ]}
-      actions={<>
+    {open && (() => {
+      const id = String(open.id || open.name);
+      const skills = ownedSkillRows(id);
+      const servers = ownedMcpServers(open);
+      const contents = skills.length + servers.length;
+      const installedAt = formatInstallDate(open.installedAt);
+      const updatedAt = formatInstallDate(open.updatedAt);
+      return <ExtensionDetailDialog title={label(open)}
+        enabled={open.enabled !== false} busy={busy}
+        onToggle={(next) => void run('setPluginEnabled', [open, next])}
+        actions={<>
         <button type="button" disabled={busy} onClick={() => void run('updatePlugin', [open])}>
           {open.sourceType === 'local' ? t('Update metadata') : t('Update plugin')}
         </button>
@@ -1468,8 +1504,59 @@ function PluginsPanel({ data, pending, run, confirm, createOpen, closeCreate }: 
             },
           })}>{t('Remove')}</button>
       </>}
-      onClose={() => setOpenId('')} />}
+      onClose={() => setOpenId('')}>
+        <ExtensionHero icon={<Blocks size={22} aria-hidden="true" />} title={label(open)}
+          tagline={String(open.description || '').trim()
+            || [String(open.version || '').trim(), String(open.sourceType || '').trim()].filter(Boolean).join(' · ')} />
+        <ExtensionScopeField api={api} run={run} kind="plugins" name={id}
+          {...scopeOf(open)} currentPath={currentProjectPath(data)} busy={busy} />
+        <ExtensionSection title={t('Contents')} count={contents}>
+          {contents ? <div className="extensions-item-list">
+            {skills.map((skill) => {
+              const name = String(skill.name);
+              const off = disabledSkills.has(name);
+              return <ExtensionItemRow key={`skill:${name}`}
+                icon={<Sparkles size={15} aria-hidden="true" />}
+                title={name} description={String(skill.description || '').trim()}
+                status={off ? t('Disabled') : t('Enabled')} tone={off ? 'off' : 'ok'} />;
+            })}
+            {servers.map((server) => {
+              const name = String(server.name);
+              const enabled = server.enabled !== false;
+              const connected = server.connected === true;
+              return <ExtensionItemRow key={`mcp:${name}`}
+                icon={<Plug size={15} aria-hidden="true" />}
+                title={name} description={mcpRowDescription(server)}
+                status={!enabled ? t('Disabled') : connected ? t('Connected') : String(server.error ? t('Failed') : t('Not connected'))}
+                tone={!enabled ? 'off' : connected ? 'ok' : 'warn'} />;
+            })}
+          </div> : <p className="extensions-mcp-note">{open.mcpScript && !open.mcpEnabled
+            ? t('This plugin ships an MCP server. Enable MCP to connect it.')
+            : t('Nothing installed by this plugin yet.')}</p>}
+        </ExtensionSection>
+        <ExtensionSection title={t('Info')}>
+          <ExtensionFacts facts={[
+            ['Version', String(open.version || 'unversioned')],
+            ['Source', [String(open.sourceType || ''), String(open.sourceUrl || '')].filter(Boolean).join(' · ')],
+            ['Root', String(open.root || '')],
+            ['MCP server', String(open.mcpServerName || '')],
+            ['Installed', installedAt],
+            ['Updated', updatedAt],
+          ]} />
+        </ExtensionSection>
+      </ExtensionDetailDialog>;
+    })()}
   </Group>;
+}
+
+function formatInstallDate(value: unknown): string {
+  const stamp = typeof value === 'number' ? value : Date.parse(String(value || ''));
+  if (!Number.isFinite(stamp) || stamp <= 0) return '';
+  try {
+    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(stamp));
+  } catch {
+    return '';
+  }
 }
 
 function PluginExtensionsPanel(context: PanelContext) {

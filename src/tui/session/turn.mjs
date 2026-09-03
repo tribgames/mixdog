@@ -10,14 +10,39 @@ import { toolCallId, toolResultCallId, toolCallName, toolCallArgs } from './tool
 import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { TUI_FRAME_MS, yieldToRenderer } from './render-timing.mjs';
 import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, aggregateToolMembers, assignAggregateSummaryOrder, failureDetailText, toolCallOutcome } from './tool-result-status.mjs';
-import { isTranscriptHiddenControlToolName } from '../../runtime/shared/tool-execution-contract.mjs';
+import { isTranscriptHiddenControlToolName, isTranscriptSkillToolName } from '../../runtime/shared/tool-execution-contract.mjs';
 
 export const STREAM_BATCH_INTERVAL_MS = TUI_FRAME_MS;
 
-export function transcriptToolCallDisplayMode(name, args) {
+/**
+ * `builtinSkillNames` (optional Set) lets a live turn hide a built-in skill
+ * load before its result exists; restore paths use the result stub instead
+ * (isTranscriptHiddenToolItem).
+ */
+export function transcriptToolCallDisplayMode(name, args, builtinSkillNames = null) {
   if (isTaskWaitToolCall(name, args)) return 'task-wait';
   if (isTranscriptHiddenControlToolName(name)) return 'hidden-control';
+  if (builtinSkillNames?.size && isTranscriptSkillToolName(name)) {
+    const skill = String(args?.name || args?.skill || args?.skill_name || '').trim().toLowerCase();
+    if (skill && builtinSkillNames.has(skill)) return 'hidden-control';
+  }
   return 'visible';
+}
+
+// Skill source lookup is a status read (a promise over the daemon wire), so
+// it runs only when the batch actually carries a skill call.
+async function builtinSkillNamesFor(runtime, calls) {
+  if (!calls.some((call) => isTranscriptSkillToolName(toolCallName(call)))) return null;
+  try {
+    const status = await Promise.resolve(runtime?.skillsStatus?.());
+    const skills = Array.isArray(status?.skills) ? status.skills : [];
+    return new Set(skills
+      .filter((skill) => skill?.source === 'builtin')
+      .map((skill) => String(skill?.name || '').trim().toLowerCase())
+      .filter(Boolean));
+  } catch {
+    return null;
+  }
 }
 
 export function preserveGoalStateAfterTurn({
@@ -833,6 +858,12 @@ export function createRunTurn(bag) {
               steeringIds[0],
               'injected',
               {
+                // Queue mode + execution provenance: a task notification is
+                // rendered as a tool card, never as an injected user bubble.
+                ...(steeringMeta?.mode === 'task-notification' ? { mode: 'task-notification' } : {}),
+                ...(steeringMeta?.execution && typeof steeringMeta.execution === 'object'
+                  ? { execution: steeringMeta.execution }
+                  : {}),
                 ...(Array.isArray(steeringMeta?.images) && steeringMeta.images.length
                   ? { images: steeringMeta.images }
                   : {}),
@@ -855,10 +886,11 @@ export function createRunTurn(bag) {
           const batchCalls = (calls || []).filter(Boolean);
           if (batchCalls.length === 0) return;
           const displayCalls = [];
+          const builtinSkillNames = await builtinSkillNamesFor(runtime, batchCalls);
           for (const call of batchCalls) {
             const name = toolCallName(call);
             const args = toolCallArgs(call);
-            const displayMode = transcriptToolCallDisplayMode(name, args);
+            const displayMode = transcriptToolCallDisplayMode(name, args, builtinSkillNames);
             if (displayMode === 'visible') {
               displayCalls.push(call);
               continue;

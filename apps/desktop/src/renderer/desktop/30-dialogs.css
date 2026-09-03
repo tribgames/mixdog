@@ -40,13 +40,13 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 0;
-  border-radius: var(--mx-radius-xl);
+  /* The popup skin (user: 팝업 디자인 공통 규격, 컨텍스트 창 톤): base plate,
+     one strong hairline, floating elevation. Cards take the larger radius. */
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius-card);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  /* Flat by decision (user: 입체감은 별로, 플랫한 게 좋다): one hairline ring
-     and the scrim carry the separation — no drop shadow, no lift. */
-  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
   animation: mx-dialog-in var(--mx-motion-chrome);
 }
 .mx-dialog { width: min(480px, calc(100vw - 32px)); }
@@ -142,7 +142,9 @@
   gap: 8px;
   padding: 12px 16px;
 }
-/* One button ladder: quiet plate, contrast primary, ghost secondary, danger. */
+/* One button ladder: quiet plate, contrast primary, ghost secondary, danger.
+   The quiet plate is the context card's action tint — the card itself now
+   sits on the base plate, so a base-coloured button would vanish into it. */
 .schedules-dialog footer button,
 .settings-confirm-dialog > footer button,
 .settings-oauth-dialog > footer button,
@@ -157,8 +159,8 @@
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-button);
+  background: var(--mx-popup-action-bg);
+  box-shadow: var(--mx-popup-action-ring);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
@@ -176,13 +178,14 @@
 .onboarding-dialog > footer button:hover:not(:disabled),
 .mx-dialog > footer button:hover:not(:disabled) {
   color: var(--mx-text);
-  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
+  background: var(--mx-hover);
+  box-shadow: var(--mx-popup-action-ring-hover);
 }
 .schedules-dialog footer button:active:not(:disabled),
 .settings-confirm-dialog > footer button:active:not(:disabled),
 .settings-oauth-dialog > footer button:active:not(:disabled),
 .onboarding-dialog > footer button:active:not(:disabled),
-.mx-dialog > footer button:active:not(:disabled) { background: var(--mx-flat-press); }
+.mx-dialog > footer button:active:not(:disabled) { background: var(--mx-flat-press); box-shadow: var(--mx-popup-action-ring); }
 /* Submit IS the primary action of the panel editors. */
 .schedules-dialog footer button[type="submit"],
 .schedules-dialog footer button.primary,
@@ -200,13 +203,13 @@
 .settings-confirm-dialog > footer button.primary:hover:not(:disabled),
 .settings-oauth-dialog > footer button.primary:hover:not(:disabled),
 .onboarding-dialog > footer button.primary:hover:not(:disabled),
-.mx-dialog > footer button.primary:hover:not(:disabled) { background: var(--mx-flat-hover-contrast); }
+.mx-dialog > footer button.primary:hover:not(:disabled) { background: var(--mx-flat-hover-contrast); box-shadow: var(--mx-button-contrast); }
 .schedules-dialog footer button[type="submit"]:active:not(:disabled),
 .schedules-dialog footer button.primary:active:not(:disabled),
 .settings-confirm-dialog > footer button.primary:active:not(:disabled),
 .settings-oauth-dialog > footer button.primary:active:not(:disabled),
 .onboarding-dialog > footer button.primary:active:not(:disabled),
-.mx-dialog > footer button.primary:active:not(:disabled) { background: var(--mx-flat-press-contrast); }
+.mx-dialog > footer button.primary:active:not(:disabled) { background: var(--mx-flat-press-contrast); box-shadow: var(--mx-button-contrast); }
 /* Quiet exits (Cancel/Skip/Later) never compete with the primary plate. */
 .schedules-dialog footer button.secondary,
 .settings-confirm-dialog > footer button.secondary,
@@ -224,6 +227,7 @@
 .mx-dialog > footer button.secondary:hover:not(:disabled) {
   color: var(--mx-text);
   background: var(--mx-hover);
+  box-shadow: none;
 }
 .schedules-dialog footer button.danger,
 .settings-confirm-dialog > footer button.danger,
@@ -241,6 +245,7 @@
 .mx-dialog > footer button.danger:hover:not(:disabled) {
   color: var(--mx-danger);
   background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-danger-bg);
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-danger) 28%, transparent);
 }
 /* The solid pressed plate carries the danger read — drop the resting ring. */
 .schedules-dialog footer button.danger:active:not(:disabled),

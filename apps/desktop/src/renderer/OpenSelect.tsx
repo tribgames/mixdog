@@ -35,6 +35,10 @@ interface OpenSelectProps {
   onChange?: (value: string) => void;
   /** Catalog labels (effort levels) stay in English; generic keys like Medium collide. */
   localizeLabels?: boolean;
+  /** Menu floor in px for icon-only triggers whose options are wider than
+   *  the trigger (the browser viewport picker: a 44px button listing
+   *  "iPhone 14 Pro Max · 430×932"). Default follows the trigger width. */
+  menuMinWidth?: number;
 }
 
 type MenuPosition = CSSProperties & { transformOrigin?: string };
@@ -51,6 +55,7 @@ export function OpenSelect({
   variant = 'default',
   displayValue,
   leading,
+  menuMinWidth = 160,
   onChange,
   localizeLabels = true,
 }: OpenSelectProps) {
@@ -135,7 +140,7 @@ export function OpenSelect({
       : visible;
     const edge = 8;
     const width = Math.min(
-      Math.max(160, Math.min(368, anchorRect.width)),
+      Math.max(menuMinWidth, Math.min(368, anchorRect.width)),
       Math.max(0, bounds.right - bounds.left - edge * 2),
     );
     const estimatedHeight = Math.min(240, options.length * 30 + 8);
@@ -177,7 +182,7 @@ export function OpenSelect({
         }
         : { top: Math.min(bounds.bottom - edge, anchorRect.bottom + menuGap), maxHeight, transformOrigin: 'top center' }),
     };
-  }, [contextPillStyle, options.length, settingsStyle]);
+  }, [contextPillStyle, menuMinWidth, options.length, settingsStyle]);
   const rememberPosition = useCallback(() => {
     const next = readPosition();
     if (next) preparedPosition.current = next;

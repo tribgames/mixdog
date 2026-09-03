@@ -301,7 +301,50 @@ function canonicalModelDisplay(model: string) {
   if (gemini) return `Gemini ${gemini[1]} ${gemini[2].split("-").map(titleModelPart).filter(Boolean).join(" ")}`;
   const geminiLoose = raw.match(/^gemini-(.+)$/i);
   if (geminiLoose) return `Gemini ${geminiLoose[1].split("-").map(titleModelPart).filter(Boolean).join(" ")}`;
-  return raw;
+  return gatewayBrandDisplay(raw) || raw;
+}
+
+// Mirrors src/ui/model-display.mjs gatewayBrandDisplay: gateway brands whose
+// ids carry the version inside the first token, named models.dev-style.
+const SPACED_BRANDS: Array<[RegExp, string, string]> = [
+  [/^kimi-(.+)$/i, "Kimi", " "],
+  [/^qwen(\d.*)$/i, "Qwen", ""],
+  [/^mimo-(.+)$/i, "MiMo", " "],
+  [/^muse-spark-(.+)$/i, "Muse Spark", " "],
+  [/^hy(\d.*)$/i, "Hy", ""],
+];
+const HYPHENATED_BRANDS: Array<[RegExp, string]> = [
+  [/^glm-(.+)$/i, "GLM"],
+  [/^minimax-(.+)$/i, "MiniMax"],
+  [/^longcat-(.+)$/i, "LongCat"],
+];
+
+const BRAND_NOISE_TOKENS = new Set(["contributor"]);
+
+function brandVersionPart(part: string) {
+  const text = String(part || "").trim();
+  if (!text || BRAND_NOISE_TOKENS.has(text.toLowerCase())) return "";
+  return /^[a-z]?\d/i.test(text) ? text.toUpperCase() : titleModelPart(text);
+}
+
+function gatewayBrandDisplay(raw: string) {
+  for (const [re, brand, joiner] of SPACED_BRANDS) {
+    const m = raw.match(re);
+    if (!m) continue;
+    return `${brand}${joiner}${m[1].split("-").map(brandVersionPart).filter(Boolean).join(" ")}`;
+  }
+  for (const [re, brand] of HYPHENATED_BRANDS) {
+    const m = raw.match(re);
+    if (!m) continue;
+    return `${brand}-${m[1].split("-").map(brandVersionPart).filter(Boolean).join("-")}`;
+  }
+  return "";
+}
+
+// A hint is curated when it is not merely the id re-spaced/re-cased; curated
+// hints (user aliases, catalog names with extra meaning) win over the rule.
+function displayKey(text: string) {
+  return String(text || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 export function modelDisplayName(model: string | null | undefined, provider = "", displayHint = "") {
@@ -309,6 +352,7 @@ export function modelDisplayName(model: string | null | undefined, provider = ""
   const id = raw.includes("/") ? raw.split("/").filter(Boolean).at(-1) || raw : raw;
   const hint = String(displayHint || "").trim();
   if (String(provider || "").toLowerCase() === "cursor-oauth" && hint) return hint;
+  if (hint && id && displayKey(hint) !== displayKey(id)) return hint;
   if (id) {
     const canonical = canonicalModelDisplay(id);
     if (canonical && canonical !== id) return canonical;

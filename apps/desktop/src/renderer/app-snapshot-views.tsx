@@ -2,7 +2,7 @@
 // store through its OWN equality comparator, so a header-only change never
 // re-renders the conversation (and vice versa). Extracted from App.tsx, which
 // keeps composition and session flow.
-import React, { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import {
   beginBootSurface,
@@ -37,10 +37,8 @@ import {
   conversationMarkdownPending,
 } from "./first-submit-stability";
 import { readTranscriptVirtualSnapshot } from "./transcript-virtual-cache";
-import { isMobileRemoteSurface } from "./mobile-surface";
 import { SessionGoalIsland } from "./SessionGoalIsland";
-import { SessionStatusIsland } from "./SessionStatusIsland";
-import { TranscriptRow } from "./TranscriptView";
+import { ContextUsageIndicator, TranscriptRow } from "./TranscriptView";
 
 let utilityDockModulePromise: Promise<typeof import("./UtilityDock")> | null = null;
 function loadUtilityDockModule() {
@@ -52,6 +50,10 @@ function loadUtilityDockModule() {
 }
 export function preloadUtilityDock(): Promise<unknown> {
   return loadUtilityDockModule();
+}
+export async function prewarmUtilityDockGitState(projectPath: string): Promise<void> {
+  const module = await loadUtilityDockModule();
+  await module.prewarmUtilityDockGitState(projectPath);
 }
 const UtilityDock = React.lazy(() => loadUtilityDockModule()
   .then((module) => ({ default: module.UtilityDock })));
@@ -150,22 +152,16 @@ type PaneConversationProps =
     focused: boolean;
     sessionId: string;
     hidden: boolean;
-    dockOpen?: boolean;
-    onToggleDock?: () => void;
     transcriptPending?: boolean;
     reconcileOnMount?: boolean;
-    goalDockedToDiff?: boolean;
   };
 
 export const PaneConversation = memo(function PaneConversation({
   focused,
   sessionId,
   hidden,
-  dockOpen = false,
-  onToggleDock,
   transcriptPending = false,
   reconcileOnMount = true,
-  goalDockedToDiff = false,
   draftMode = false,
   ...props
 }: PaneConversationProps) {
@@ -304,8 +300,16 @@ export const PaneConversation = memo(function PaneConversation({
   // Keep Conversation mounted at its final geometry, but do not expose its
   // empty shell followed by a bulk Markdown/virtualizer insertion. The opaque
   // cover leaves only after the authoritative lane and composed frames settle.
-  // Desktop docks status at the strip's right end; only the projected phone
-  // keeps that capsule floating over the transcript.
+  // The context gauge sits beside the composer's model trigger on every
+  // surface (user: 컨텍스트는 모델 선택기 옆; 모바일도 PC에 맞춰) — the
+  // phone's floating status capsule is retired with it.
+  const onOpenCommandSurface = props.onOpenCommandSurface;
+  const contextIndicator = useMemo(() =>
+    <PaneContextIndicator
+      sessionId={presentedSessionId}
+      hidden={hidden}
+      onInherit={() => onOpenCommandSurface("inherit")} />,
+  [hidden, onOpenCommandSurface, presentedSessionId]);
   return <>
     <Conversation
       snapshot={paneSnapshot}
@@ -322,16 +326,8 @@ export const PaneConversation = memo(function PaneConversation({
         sessionId={sessionId}
         hidden={hidden} />}
       {...props}
-      goalIsland={goalDockedToDiff
-        ? undefined
-        : <PaneGoalIsland sessionId={presentedSessionId} hidden={hidden} />}
-      statusIsland={isMobileRemoteSurface() ? <PaneStatusIsland
-          sessionId={presentedSessionId}
-          hidden={hidden}
-          dockOpen={dockOpen}
-          onToggleDock={onToggleDock}
-          onInherit={() => props.onOpenCommandSurface("inherit")} />
-        : undefined}
+      goalIsland={<PaneGoalIsland sessionId={presentedSessionId} hidden={hidden} />}
+      contextIndicator={contextIndicator}
     />
     <PaneSurfaceCover ready={surfaceReady} label={t("Loading conversation…")}
       transitionKey={coverKey} showSpinner={false} />
@@ -426,8 +422,7 @@ function usePaneIslandSnapshot(sessionId: string, hidden: boolean): Snapshot {
   return hidden || !sessionId ? EMPTY_SNAPSHOT : lane ?? EMPTY_SNAPSHOT;
 }
 
-/** Goal capsule snapshot owner; the pane routes its host between composer and
- *  visible DIFF without duplicating Goal state. */
+/** Goal capsule snapshot owner for the composer. */
 export function PaneGoalIsland({
   sessionId,
   hidden,
@@ -438,28 +433,19 @@ export function PaneGoalIsland({
   return <SessionGoalIsland snapshot={usePaneIslandSnapshot(sessionId, hidden)} />;
 }
 
-/** Status capsule (work chips, context gauge, dock toggle). The DESKTOP tab
- *  strip docks it at the row's right end so its buttons share the side-tab
- *  header's center line (user: 아일랜드 버튼을 라벨줄 가운데 정렬에 맞춰);
- *  the phone keeps it floating over the transcript. */
-export function PaneStatusIsland({
+/** Context gauge alone, for the desktop composer footer: the same lane read
+ *  the status capsule uses, without the capsule frame. */
+export function PaneContextIndicator({
   sessionId,
   hidden,
-  dockOpen = false,
-  onToggleDock,
   onInherit,
 }: {
   sessionId: string;
   hidden: boolean;
-  dockOpen?: boolean;
-  onToggleDock?: () => void;
   onInherit?: () => void;
 }) {
   const visibleSnapshot = usePaneIslandSnapshot(sessionId, hidden);
-  return <SessionStatusIsland snapshot={visibleSnapshot}
-    dockOpen={dockOpen}
-    onToggleDock={onToggleDock}
-    onInherit={onInherit} />;
+  return <ContextUsageIndicator snapshot={visibleSnapshot} onInherit={onInherit} />;
 }
 
 
@@ -479,12 +465,15 @@ type SnapshotUtilityDockProps =
 export const SnapshotUtilityDock = memo(function SnapshotUtilityDock({
   snapshotStore,
   hidden,
+  prewarm = false,
   ...props
 }: SnapshotUtilityDockProps) {
-  const [activated, setActivated] = useState(!hidden);
+  // A prewarmed slot activates while still hidden, so the dock body exists
+  // before the first expand (user: 사이드탭 즉시 열리게).
+  const [activated, setActivated] = useState(!hidden || prewarm);
   useEffect(() => {
-    if (!hidden && !activated) setActivated(true);
-  }, [activated, hidden]);
+    if ((!hidden || prewarm) && !activated) setActivated(true);
+  }, [activated, hidden, prewarm]);
   const hostSnapshot = useDesktopSnapshotSelector(
     snapshotStore,
     selectDesktopSnapshot,
@@ -493,6 +482,7 @@ export const SnapshotUtilityDock = memo(function SnapshotUtilityDock({
   );
   if (!activated && hidden) return null;
   return <React.Suspense fallback={null}>
-    <UtilityDock {...props} snapshot={hidden ? EMPTY_SNAPSHOT : hostSnapshot} />
+    <UtilityDock {...props} prewarm={prewarm}
+      snapshot={hidden ? EMPTY_SNAPSHOT : hostSnapshot} />
   </React.Suspense>;
 });

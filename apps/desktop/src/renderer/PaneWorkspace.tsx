@@ -14,7 +14,6 @@ import {
   droppedLocalPaths,
 } from "./file-drag";
 import { isMobileRemoteSurface } from "./mobile-surface";
-import { installMobileTabSwipe } from "./mobile-tab-swipe-gesture";
 import { PaneSplitLayout } from "./PaneSplitLayout";
 import { PersistentPanePortal } from "./PaneSurfaceGate";
 import type { NavigationSelection, WorkspaceSelection } from "./nav-types";
@@ -646,21 +645,6 @@ export function PaneWorkspace({
       document.removeEventListener("pointercancel", release, true);
       release();
     };
-  }, []);
-  // Phone: a horizontal swipe across the work area steps to the neighbouring
-  // tab, giving the projected surface the same tab traversal the desktop gets
-  // from its keyboard (user: 좌우 스와이프로 pc 컨트롤 방향키처럼). Every
-  // element painted inside a pane participates; vertical scrolling stays native.
-  const swipeWorkspace = useRef(workspace);
-  swipeWorkspace.current = workspace;
-  const swipeFocusSelection = useRef(onFocusSelection);
-  swipeFocusSelection.current = onFocusSelection;
-  useEffect(() => {
-    if (!isMobileRemoteSurface()) return undefined;
-    return installMobileTabSwipe({
-      workspace: () => swipeWorkspace.current,
-      onFocusSelection: (selection) => swipeFocusSelection.current(selection),
-    });
   }, []);
   // Drag-to-split: native dragover publishes target-local frames once a tab
   // leaves the strip band; hit-test the pane under the

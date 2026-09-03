@@ -30,7 +30,7 @@ function buildMemoryHandoffText(sessionId, digestBody) {
     // scope line, then preserve the Memory handoff byte-for-byte instead of
     // parsing and rebuilding a second conversation/tool/file dump.
     return [
-        `memory_session=${sessionId} order=newest_first`,
+        `memory_session=${sessionId} order=oldest_first`,
         String(digestBody || '').trim(),
     ].join('\n');
 }

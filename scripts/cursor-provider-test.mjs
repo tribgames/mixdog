@@ -1613,6 +1613,78 @@ test('Cursor wire guards bound schemas, tool payloads, blobs, and frames', () =>
     assert.deepEqual(prepared.inputSchema.properties.mode.enum, ['safe', 'fast']);
     assert.deepEqual(prepared.inputSchema.required, ['mode']);
 
+    const compound = {
+        type: 'object',
+        properties: {
+            action: { type: 'string', enum: ['list', 'capture', 'act'] },
+            input: { type: 'object' },
+        },
+        required: ['action'],
+        additionalProperties: false,
+        oneOf: [
+            {
+                properties: {
+                    action: { enum: ['list'] },
+                    input: {
+                        type: 'object',
+                        properties: { kind: { type: 'string', enum: ['windows', 'apps'] } },
+                        required: ['kind'],
+                        additionalProperties: false,
+                    },
+                },
+                required: ['action', 'input'],
+            },
+            {
+                properties: {
+                    action: { enum: ['capture'] },
+                    input: {
+                        type: 'object',
+                        properties: {
+                            window_id: { type: 'string' },
+                            mode: { type: 'string', enum: ['state', 'vision'] },
+                        },
+                        additionalProperties: false,
+                    },
+                },
+                required: ['action'],
+            },
+            {
+                properties: {
+                    action: { enum: ['act'] },
+                    input: {
+                        type: 'object',
+                        properties: {
+                            actions: {
+                                type: 'array',
+                                items: { type: 'object', properties: { type: { type: 'string' } } },
+                            },
+                        },
+                        required: ['actions'],
+                        additionalProperties: false,
+                    },
+                },
+                required: ['action', 'input'],
+            },
+        ],
+    };
+    const compoundBefore = structuredClone(compound);
+    const flattened = prepareCursorToolDefinition({
+        function: {
+            name: 'computer',
+            description: 'Operate the desktop.',
+            parameters: compound,
+        },
+    }).inputSchema;
+    assert.equal(flattened.oneOf, undefined);
+    assert.deepEqual(flattened.required, ['action']);
+    assert.deepEqual(flattened.properties.action.enum, ['list', 'capture', 'act']);
+    assert.deepEqual(
+        Object.keys(flattened.properties.input.properties),
+        ['kind', 'window_id', 'mode', 'actions'],
+    );
+    assert.equal(flattened.properties.input.required, undefined);
+    assert.deepEqual(compound, compoundBefore);
+
     const capped = capCursorToolResult({
         content: 'x'.repeat(MAX_TOOL_TEXT_BYTES + 100),
         media: [],

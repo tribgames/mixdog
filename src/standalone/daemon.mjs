@@ -21,13 +21,12 @@ process.env.MIXDOG_DAEMON_HOST = '1';
 // uv-threadpool-boot.mjs) — imports below already touch fs.
 await import('../runtime/shared/uv-threadpool-boot.mjs');
 
-// V8 compile cache: the daemon is a standalone child entry (not via cli.mjs);
-// caching compiled bytecode across restarts removes the channels+memory
-// runtime parse cost from every daemon boot. Best-effort.
-try {
-  const { enableCompileCache } = await import('node:module');
-  enableCompileCache?.();
-} catch { /* launch-speed optimization only */ }
+// No V8 compile cache here, on purpose. Measured on this runtime: a cache hit
+// saves nothing (spawn→ready 316-347ms with the cache vs 318-323ms without,
+// lazy compilation is already that cheap), while every miss — first boot
+// after an update, every FastDirect deploy — eagerly compiles each module to
+// serialize it, turning a 110ms module graph into ~1.2s and taxing the ~900
+// lazily imported modules the same way.
 
 import os from 'node:os';
 import path from 'node:path';
@@ -353,7 +352,7 @@ function maybeSelfShutdown(reason) {
   const sessionClients = sessionTransport?.clientCount ?? 0;
   const remoteClients = sessionService?.externalClientCount ?? 0;
   const replacing = Boolean(replacementRequested);
-  if (channelClients > 0 || sessionClients > 0 || (!replacing && remoteClients > 0)) {
+  if (!replacing && (channelClients > 0 || sessionClients > 0 || remoteClients > 0)) {
     if (shutdownRecheckTimer) {
       clearTimeout(shutdownRecheckTimer);
       shutdownRecheckTimer = null;
@@ -401,6 +400,10 @@ function maybeSelfShutdown(reason) {
     }
     return;
   }
+  if (replacing) {
+    sessionTransport?.commitDrain?.(reason);
+    transport?.commitDrain?.(reason);
+  }
   void shutdown(reason);
 }
 
@@ -421,7 +424,7 @@ function requestDaemonReplacement({ protocol, revision, version } = {}) {
   ) return true;
   replacementRequested = requested;
   const reason = `daemon replacement by revision/build ${requested.revision}/${requested.version}`;
-  log(`${reason} requested — draining clients without interrupting live work`);
+  log(`${reason} requested — preserving clients until live work settles`);
   sessionTransport?.beginDrain?.(reason);
   transport?.beginDrain?.(reason);
   maybeSelfShutdown(reason);
@@ -431,7 +434,10 @@ function requestDaemonReplacement({ protocol, revision, version } = {}) {
 async function main() {
   const startedAt = performance.now();
   const bootPhases = createBootPhaseProfiler({ log, startedAt });
-  bootPhases.mark('daemon-main');
+  // processMs = fork → here (runtime start + module graph). The spawner sees
+  // only spawn → ready, so this is what separates a slow launch from a slow
+  // boot when the desktop attributes its daemon wait.
+  bootPhases.mark('daemon-main', { processMs: Math.round(process.uptime() * 1000) });
   // The discovery file carries both privileged loopback tokens. POSIX roots
   // are per-user and fail closed if another account owns the configured path.
   ensurePrivateRuntimeRoot(RUNTIME_ROOT);
@@ -690,6 +696,15 @@ async function main() {
   const bootCoordinator = createDaemonBootCoordinator({
     prewarmKeychain: () => sessionRuntimeHost.prewarmKeychain(),
     recoverActiveGoals: () => sessionService.recoverActiveGoals(),
+    // The modules every rail catalog request needs (session summaries,
+    // projects, statusline segments) — warm them once the desktop is up so
+    // the first Sessions/Projects click reads a hot module graph.
+    prewarmCatalogs: () => Promise.all([
+      desktopRuntime.loadSessionStore(),
+      desktopRuntime.loadProjects(),
+      desktopRuntime.loadStatuslineSegments(),
+      import('../runtime/agent/orchestrator/session/store.mjs'),
+    ]),
     measure: (phase, task) => bootPhases.measure(phase, task),
     log,
   });

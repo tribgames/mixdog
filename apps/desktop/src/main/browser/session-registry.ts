@@ -5,8 +5,8 @@
  */
 import type { WebContents } from 'electron';
 
+import { selectAndRefreshActiveBrowserGuest } from './tab-policy';
 import type { BackgroundPage } from './tabs';
-import { selectAndRefreshActiveBrowserGuest } from './host-policy';
 
 export const DEFAULT_BROWSER_SESSION_ID = 'browser';
 

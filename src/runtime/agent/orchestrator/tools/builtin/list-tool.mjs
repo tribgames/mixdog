@@ -588,9 +588,34 @@ export async function executeTreeTool(args, workDir, options = {}) {
 // Fuzzy filename search has one canonical implementation: the Rust search
 // server's resident inventory. A server failure is surfaced instead of
 // launching a second filesystem walk with different semantics.
+//
+// A pruned tree cannot report what it never enumerated. Dependency and cache
+// directories are skipped by default, so a file that exists only inside one
+// came back as "(no fuzzy match for X)", which reads as proven absence and
+// ends the search. A clean miss earns one noise-including pass; the default
+// answer still lists no dependency path, but names the flag that would.
+// Partial or timed-out passes say "no fuzzy match YET" and already tell the
+// caller to narrow, so they never pay for the second walk.
 export async function executeFuzzyFindTool(args, workDir, options = {}) {
-    return runFuzzyFindPass(args, workDir, options);
+    const startedAt = performance.now();
+    const result = await runFuzzyFindPass(args, workDir, options);
+    const text = String(result ?? '');
+    if (!/^\(no fuzzy match for /.test(text)) return result;
+    if (args?.include_noise === true || options?._findNoiseWidened === true) return result;
+    if (performance.now() - startedAt > FIND_NOISE_WIDEN_BUDGET_MS) return result;
+    const widened = String(await runFuzzyFindPass(
+        { ...args, include_noise: true },
+        workDir,
+        { ...options, _findNoiseWidened: true },
+    ) ?? '');
+    if (!widened || /^\(no fuzzy match|^Error/.test(widened)) return result;
+    const hits = widened.split('\n').filter((line) => line && !line.startsWith('... [') && !line.startsWith('[')).length;
+    return `${text}\n[notice] ${hits} match${hits === 1 ? '' : 'es'} exist inside dependency/cache trees the default scan skips`
+        + ' — pass include_noise:true to list them.';
 }
+
+/** A miss cheaper than this earns the one widening retry above. */
+const FIND_NOISE_WIDEN_BUDGET_MS = 2_000;
 
 async function runFuzzyFindPass(args, workDir, options = {}) {
     const query = String(args.query ?? '').trim();

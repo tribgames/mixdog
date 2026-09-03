@@ -294,6 +294,15 @@ export function createBrowserHost(
     cdp,
     invalidateInteractionState: (guest) => state.invalidateInteraction(guest),
     snapshotResult: reply.snapshotResult,
+    // An agent `emulate` viewport used to resize the page only; the pane kept
+    // drawing a responsive guest, so the emulated page sat top-left in a
+    // larger box (user: 브라우저 왜 가운데 정렬 안 되냐). The pane now hears
+    // every metrics change and frames the guest at that size.
+    onViewportChanged: (guest, viewport) => {
+      const sessionId = browserSessions.sessionIdForGuest(guest);
+      if (!sessionId || window.isDestroyed() || window.webContents.isDestroyed()) return;
+      window.webContents.send(DESKTOP_IPC.browserGuestViewportChanged, { sessionId, viewport });
+    },
   });
   const pageState = createBrowserPageState({
     partitionSession,
@@ -308,12 +317,39 @@ export function createBrowserHost(
     forgetSecret: (guest, secret) => state.forgetSecret(guest, secret),
     redactText: (guest, value) => state.redactText(guest, value),
   });
+  // A phone polls frames every 350–900ms while its Browser Use sheet is open.
+  // The desktop parks an unshown guest OFF-window, where Chromium composes no
+  // frames, so every capture for it timed out (user: 폰에서 브라우저 유즈만
+  // 안 됨). While a phone is viewing, the renderer keeps that guest inside
+  // the window under the UI; the flag drops after the polling stops.
+  const REMOTE_VIEWER_IDLE_MS = 4_000;
+  const remoteViewerTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const sendRemoteViewer = (sessionId: string, active: boolean) => {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) return;
+    window.webContents.send(DESKTOP_IPC.browserRemoteViewerChanged, { sessionId, active });
+  };
+  const noteRemoteViewer = (sessionId: string) => {
+    const timer = remoteViewerTimers.get(sessionId);
+    if (timer) clearTimeout(timer);
+    else sendRemoteViewer(sessionId, true);
+    remoteViewerTimers.set(sessionId, setTimeout(() => {
+      remoteViewerTimers.delete(sessionId);
+      sendRemoteViewer(sessionId, false);
+    }, REMOTE_VIEWER_IDLE_MS));
+  };
+  const dropRemoteViewer = (sessionId: string) => {
+    const timer = remoteViewerTimers.get(sessionId);
+    if (!timer) return;
+    clearTimeout(timer);
+    remoteViewerTimers.delete(sessionId);
+  };
   const remote = createBrowserRemoteControl({
     state,
     cdp,
     input,
     urlPolicy: browserUrlPolicy,
     ensureGuest: lifecycle.ensureGuest,
+    noteRemoteViewer,
     captureScreenshot: screenshots.capture,
     assertResolvedUrlAllowed: urls.assertResolvedUrlAllowed,
   });
@@ -491,6 +527,7 @@ export function createBrowserHost(
     },
     releaseSession(sessionId: string): void {
       const ownerSessionId = browserSessionId(sessionId);
+      dropRemoteViewer(ownerSessionId);
       lifecycle.releaseSession(ownerSessionId);
       downloadLedger.release(ownerSessionId);
       if (!window.isDestroyed() && !window.webContents.isDestroyed()) {

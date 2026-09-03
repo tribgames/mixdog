@@ -85,7 +85,7 @@ export function getToolKind(name) {
     return 'builtin';
 }
 export function buildSkillsListResponse(cwd) {
-    const skills = filterSkillsExcludingDisabled(collectSkillsCached(cwd));
+    const skills = filterSkillsExcludingDisabled(collectSkillsCached(cwd), null, cwd);
     const entries = skills.map(s => ({ name: s.name, description: s.description || '' }));
     return JSON.stringify({ skills: entries });
 }
@@ -102,7 +102,7 @@ export function viewSkill(cwd, name) {
     // Return the general tool envelope: the model-visible tool_result is the
     // short stub (`Loaded skill: <name>`) and the full SKILL.md body is
     // delivered ONCE as a separate injected role:'user' message (newMessages).
-    return buildSkillToolEnvelope(skillName, res.content, res.dir);
+    return buildSkillToolEnvelope(skillName, res.content, res.dir, { source: res.source });
 }
 
 /** Normalize PostToolUse hook override values (legacy MCP text envelopes only). */

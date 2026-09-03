@@ -412,7 +412,7 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
     }
   }
 
-  const rulesDigest = loadCurrentRulesDigest() || ''
+  const rulesDigest = loadCurrentRulesDigest(dataDir ?? null) || ''
   let cascadeVerdicts = new Map()
   if (cascadeCandidates.length > 0) {
     cascadeVerdicts = await sonnetCascade(cascadeCandidates, rulesDigest, { ...options, signal })

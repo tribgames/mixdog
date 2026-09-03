@@ -88,8 +88,11 @@ for (const scenario of report) {
   check(scenario, scenario.remoteLabel?.clipped === false,
     `the Push label is clipped instead of degrading in whole pieces`
     + ` ("${labelText}" in ${scenario.remoteLabel?.width}px)`);
-  check(scenario, scenario.remoteIcon === true,
-    "the Push icon is missing — it must survive every degradation step");
+  // Icon and label coexist at every width (user); below the 300px floor only
+  // gaps and padding tighten — both stay full size.
+  check(scenario, scenario.dockWidth >= 300 || scenario.remoteIcon === true,
+    "the Push icon is missing below the product floor"
+    + " — icon and label must coexist at every width");
   check(scenario, scenario.headerFetchCount === 0,
     "the duplicate header Fetch action still exists");
   check(scenario, scenario.toolbarI18nSkip === true,

@@ -49,6 +49,19 @@ export function prefixSessionStartContent(content, sessionBlock) {
     return `${sessionBlock}\n\n${content}`;
 }
 
+// Per-turn <system-reminder> blocks (current time, deferred-tool delta, Goal
+// state) trail the human's words instead of leading them: the user's own
+// language is then the last thing the model reads before answering, and the
+// English reminder text no longer sits at the head of the turn where it pulls
+// the pre-tool preamble toward English.
+export function suffixUserTurnReminders(content, reminderBlock) {
+    if (!reminderBlock) return content;
+    if (Array.isArray(content)) {
+        return [...content, { type: 'text', text: `\n\n${reminderBlock}` }];
+    }
+    return `${content}\n\n${reminderBlock}`;
+}
+
 function temporalPromptText(content) {
     const text = promptContentText(content)
         .replace(/\s+/g, ' ')
@@ -95,8 +108,8 @@ export function buildSessionStartBlock(session, cwd) {
         session.fast === true ? 'FAST' : '',
     ].filter(Boolean);
     if (modelBits.length) lines.push(`Model: ${modelBits.join(' · ')}`);
-    const workflowName = String(session.workflow?.name || session.workflow?.id || '').trim();
-    if (workflowName) lines.push(`Workflow: ${workflowName}`);
+    // The active workflow already leads the BP3 core (`# Active Workflow: …`),
+    // so it is not repeated here.
     return lines.length > 1 ? lines.join('\n') : '';
 }
 

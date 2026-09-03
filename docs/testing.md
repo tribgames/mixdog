@@ -4,6 +4,30 @@ Repository conventions that do not belong in the always-resident rule set
 (`src/rules/shared/`). The judgment rule for writing a test lives there; the
 mechanics below are enforced by configuration and CI instead.
 
+## Tests are discovered, not registered
+
+`npm test` (root and `apps/desktop`) runs `scripts/test.mjs`, which globs
+every `*.test.mjs` and `*-test.mjs` under `src/` and `scripts/` of the
+invoking package. A file joins the suite by existing; nothing in
+`package.json` lists test paths. The lane comes from the file name:
+
+| Name | Lane | Runs |
+| --- | --- | --- |
+| `*.test.mjs` | fast | `npm test`; every push in `release-gate.yml` |
+| `*.slow.test.mjs` | slow | `npm run test:slow`; its own gate job beside the fast one |
+| `*.live.test.mjs` | live | `npm run test:live`; needs a built artifact or live system |
+
+`npm test -- src/runtime/memory` narrows to a path substring; `--test-*`
+flags forward to `node --test`. Every run ends with the slowest files so a
+slow default lane always names its cause; a file over ~10s belongs in the
+slow lane (rename it). The desktop package passes its `--import` loaders
+through the same entry.
+
+The 2026-09 sweep found 201 of 401 test files registered nowhere: hand-kept
+path lists in `package.json` had drifted for weeks, and two of the unlisted
+files were already broken (a `find` widening notice dropped in a refactor, a
+renamed Computer Use host module). Discovery is the fix, not a longer list.
+
 ## Text matching is a last resort
 
 `assert.match` against source text pins names, spacing and constants rather
@@ -51,18 +75,25 @@ source behavior lives in `compact-fresh-context.test.mjs`.
 only on the developer's machine. When the agent-session schema was unified on
 2026-08-28, nothing forced the suite to follow: it kept asserting three
 retired contracts and would have failed on any run. Its replacement,
-`scripts/tool-contracts/`, runs as `npm run test:tool-contracts` in the
-`runtime` job of `release-gate.yml`, and `release-gate-test.mjs` pins that
-step so it cannot quietly drop out. A suite that asserts a contract but runs
-nowhere automatic is documentation with an expiry date.
+`scripts/tool-contracts/`, is discovered like every other file and runs in
+the `runtime` job of `release-gate.yml` on every push. A suite that asserts a
+contract but runs nowhere automatic is documentation with an expiry date.
 
-Suites that stay out of the gate are swept weekly instead: `suite-health.yml`
-runs every `test:*`/`smoke:*` script through the opt-out enumeration in
-`scripts/suite-health.mjs` (stale exclusions fail closed, new scripts join
-automatically) and opens a tracked issue on failure, so nothing local can rot
-silently for more than a week. Deliberate exclusions carry their reason in the
-runner: aggregates, live COM/desktop harnesses, and `test:fast-direct` — a
-dev-only deploy tool whose real deploys are its verification.
+Built-artifact checks are the exception: `packaging-artifact.live.test.mjs`
+reads `out/`, `.runtime/` and `dist/`, so it runs as
+`verify:packaging-artifact` after the platform package is built, and
+`daemon.e2e.live.test.mjs` boots the bundled daemon in the gate's desktop
+build job. Source-shape packaging invariants stayed in
+`packaging.test.mjs` and moved into the fast lane: a renamed browser-import
+module broke them twice in one day, each time eight minutes into a Deploy
+run, because the release's Windows packaging job was the only place they ran.
+
+Scripts that are not test files (`smoke:*`, harness runners) are swept
+weekly instead: `suite-health.yml` runs every `test:*`/`smoke:*` script
+through the opt-out enumeration in `scripts/suite-health.mjs` (stale
+exclusions fail closed, new scripts join automatically) and opens a tracked
+issue on failure. Deliberate exclusions carry their reason in the runner:
+lane aggregates, artifact-dependent lanes, and live COM/desktop harnesses.
 
 ## One domain, one test file
 
@@ -77,20 +108,23 @@ search across domains, not on line count alone.
 The 2026-09 sweep split `provider-toolcall-test.mjs` (3,533 lines, 134 tests),
 `session-transport-test.mjs` and `suite-shellhardening-test.mjs` the same way
 into `scripts/provider-toolcall/`, `scripts/session-transport/` and
-`scripts/shellhardening/`. `session-save-fault-store-test.mjs` stays whole on
-purpose: one stateful fixture chain (C1–C37 subtests over one live store)
-covering one domain is one file, whatever its line count.
+`scripts/shellhardening/`. `session-save-fault-store.slow.test.mjs` stays
+whole on purpose: one stateful fixture chain (C1–C37 subtests over one live
+store) covering one domain is one file, whatever its line count.
 
-## Slow files run as their own script
+## Slow files carry the slow lane in their name
 
-A test file over ~5s gets its own npm script and a parallel CI job so the
-default suite stays interactive.
+A test file over ~10s is renamed `*.slow.test.mjs`. Nothing else changes: it
+is still discovered, still runs in CI, but in the `runtime-slow` job (root)
+or the `slow` leg of `desktop-tests` beside the default lane, so the gate
+finishes at the longer of the two instead of their sum.
 
-`apps/desktop/src/main/git-cli.test.mjs` drives real `git` processes across 30
-tests and takes ~240s, while the other 20 files in that suite finish in ~10s
-combined. It runs as `npm run test:git --prefix apps/desktop` and as a separate
-matrix leg of the `desktop-tests` job in `release-gate.yml`, which leaves
-`npm run test:desktop-main` at ~3.6s.
+`apps/desktop/src/main/git-cli.slow.test.mjs` drives real `git` processes and
+takes minutes while the other ~120 desktop files finish in ~7s together. The
+root lane's ten slowest files (session runtime, git command tool, shell
+hardening, tool contracts) held the default run at ~57s on a 20-core machine;
+moving the eight over 10s into the slow lane cut it to the length of the
+longest remaining file.
 
 ## Published packages carry no tests
 
@@ -102,6 +136,6 @@ byte-identical output.
 
 ## A new test must fail when its subject is wrong
 
-Confirm it once, then restore. `git-cli.test.mjs` documents the procedure it
+Confirm it once, then restore. `git-cli.slow.test.mjs` documents the procedure it
 uses: copy the implementation aside, undo exactly one behavior, check that the
 failure names that behavior and that the other tests still run, restore.

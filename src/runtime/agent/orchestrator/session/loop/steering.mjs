@@ -28,6 +28,13 @@ function steeringEntryMetadata(entry) {
         ...(entry.transcriptMeta && typeof entry.transcriptMeta === 'object'
             ? { transcriptMeta: { ...entry.transcriptMeta } }
             : {}),
+        // Queue mode + execution provenance (pending-messages): a task
+        // notification keeps its identity through the merge so the loop can
+        // store it apart from what the user typed.
+        ...(typeof entry.mode === 'string' && entry.mode ? { mode: entry.mode } : {}),
+        ...(entry.execution && typeof entry.execution === 'object'
+            ? { execution: { ...entry.execution } }
+            : {}),
     };
 }
 
@@ -56,11 +63,21 @@ function mergeSteeringMetadata(entries) {
     const images = entries.flatMap((entry) => Array.isArray(entry.images) ? entry.images : []);
     const transcriptMeta = entries.find((entry) =>
         entry.transcriptMeta && typeof entry.transcriptMeta === 'object')?.transcriptMeta;
+    // A merged message is a task notification only when EVERY part is one;
+    // any typed text in the batch makes it the user's turn (callers group
+    // by mode before merging, so mixed batches are the legacy path).
+    const notification = entries.length > 0
+        && entries.every((entry) => entry.mode === 'task-notification');
+    const execution = notification
+        ? entries.find((entry) => entry.execution && typeof entry.execution === 'object')?.execution
+        : null;
     return {
         ...(ids.length ? { ids } : {}),
         ...(submittedTimes.length ? { submittedAt: Math.min(...submittedTimes) } : {}),
         ...(images.length ? { images } : {}),
         ...(transcriptMeta ? { transcriptMeta: { ...transcriptMeta } } : {}),
+        ...(notification ? { mode: 'task-notification' } : {}),
+        ...(execution ? { execution: { ...execution } } : {}),
     };
 }
 

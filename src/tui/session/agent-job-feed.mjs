@@ -122,6 +122,7 @@ export function createAgentJobFeed({
   const AGENT_STATUS_COALESCE_MS = 16;
   let agentStatusRefreshTimer = null;
   let agentStatusRefreshForce = false;
+  let uiOpenSeq = 0;
 
   const clearExecutionDedupState = () => {
     displayedExecutionNotificationKeys.clear();
@@ -337,6 +338,13 @@ export function createAgentJobFeed({
       const terminalStatus = /^(completed|complete|done|success|succeeded|ok|failed|error|timeout|killed|cancelled|canceled|denied)$/.test(status);
       if (terminalStatus) promoteExecutionDedupState(executionId);
       if (delivery.action === 'ignore') return;
+      if (delivery.action === 'ui-open') {
+        // Monotonic seq: the same command requested twice must fire twice, and
+        // the consuming App effect keys on the object identity + seq.
+        uiOpenSeq += 1;
+        set({ uiOpenRequest: { command: delivery.command, seq: uiOpenSeq, at: Date.now() } });
+        return true;
+      }
       if (delivery.action === 'notice') {
         pushNotice?.(delivery.displayText, delivery.tone || 'info', { transcript: delivery.transcript === true });
         return true;

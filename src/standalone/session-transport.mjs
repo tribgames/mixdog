@@ -160,6 +160,7 @@ export function createSessionTransport({
   let everHadLifecycleClient = false;
   let closed = false;
   let drainingReason = '';
+  let drainCommitted = false;
   const BODY_INFLIGHT_MAX_BYTES = Math.max(
     MAX_BODY_BYTES,
     (Number(process.env.MIXDOG_SESSION_BODY_INFLIGHT_MB) || 64)
@@ -422,7 +423,14 @@ export function createSessionTransport({
     if (drainingReason) return false;
     drainingReason = String(reason || 'daemon replacement');
     cancelGrace();
-    for (const token of [...clients.keys()]) dropClient(token, drainingReason);
+    return true;
+  }
+
+  function commitDrain(reason = 'daemon replacement') {
+    if (!drainingReason) beginDrain(reason);
+    if (drainCommitted) return false;
+    drainCommitted = true;
+    cancelGrace();
     return true;
   }
 
@@ -679,6 +687,7 @@ export function createSessionTransport({
           revision: SESSION_REVISION,
           capabilityFingerprint: SESSION_CAPABILITY_FINGERPRINT,
           draining: drainingReason || null,
+          drainCommitted,
           version: runtimeVersion(),
           ...getStatus(),
           activeCalls: normalCalls.active + interactiveCalls.active + criticalCalls.active,
@@ -708,7 +717,7 @@ export function createSessionTransport({
 
       if (req.method === 'POST' && pathName === '/client/register') {
         const body = await readBody(req);
-        if (drainingReason) {
+        if (drainCommitted) {
           sendError(res, `daemon is draining: ${drainingReason}`, 503);
           return;
         }
@@ -745,6 +754,10 @@ export function createSessionTransport({
         return; // stream stays open
       }
       if (req.method === 'POST' && pathName === '/call') {
+        if (drainCommitted) {
+          sendError(res, `daemon is draining: ${drainingReason}`, 503);
+          return;
+        }
         const body = await readBody(req);
         const clientToken = body.token ? String(body.token) : null;
         const c = clientToken ? clients.get(clientToken) : null;
@@ -931,6 +944,7 @@ export function createSessionTransport({
     stop,
     broadcast,
     beginDrain,
+    commitDrain,
     get port() { return boundPort; },
     get clientCount() { return lifecycleClientCount(); },
     get connectionCount() { return clients.size; },
@@ -941,5 +955,6 @@ export function createSessionTransport({
       return normalCalls.queued + interactiveCalls.queued + criticalCalls.queued;
     },
     get draining() { return Boolean(drainingReason); },
+    get drainCommitted() { return drainCommitted; },
   };
 }

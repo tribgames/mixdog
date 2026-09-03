@@ -77,6 +77,8 @@ export const DESKTOP_IPC = {
   browserSessionReleased: 'mixdog:browser-session-released',
   browserSetActiveGuest: 'mixdog:browser-set-active-guest',
   browserConfigureGuestViewport: 'mixdog:browser-configure-guest-viewport',
+  browserGuestViewportChanged: 'mixdog:browser-guest-viewport-changed',
+  browserRemoteViewerChanged: 'mixdog:browser-remote-viewer-changed',
   browserProfileImportSources: 'mixdog:browser-profile-import-sources',
   browserProfileImportStart: 'mixdog:browser-profile-import-start',
   browserProfileImportProgress: 'mixdog:browser-profile-import-progress',
@@ -605,6 +607,7 @@ export const DESKTOP_CAPABILITIES = [
   'setMcpServerEnabled',
   'getDisabledSkills',
   'setDisabledSkills',
+  'setExtensionScope',
   'skillsStatus',
   'skillContent',
   'addSkill',
@@ -618,6 +621,7 @@ export const DESKTOP_CAPABILITIES = [
   'removePlugin',
   'enablePluginMcp',
   'contextStatus',
+  'getSessionReviewDiff',
   'getTurnReviewDiff',
   'revertTurnReview',
   'revertTurnReviewFile',
@@ -713,6 +717,7 @@ export const DESKTOP_READ_CAPABILITIES = [
   'skillContent',
   'pluginsStatus',
   'contextStatus',
+  'getSessionReviewDiff',
   'getTurnReviewDiff',
   'listPresets',
   'getWebSearchRoute',
@@ -857,6 +862,17 @@ export interface DesktopBrowserViewportConfig {
   mobile: boolean;
   touch: boolean;
   userAgent: string | null;
+}
+
+export interface DesktopBrowserGuestViewportChange {
+  sessionId: string;
+  viewport: { width: number; height: number } | null;
+}
+
+/** A paired phone is polling frames of this session's Browser Use guest. */
+export interface DesktopBrowserRemoteViewerChange {
+  sessionId: string;
+  active: boolean;
 }
 
 export interface DesktopBrowserOpenRequest {
@@ -1340,6 +1356,8 @@ export interface DesktopGitStatus {
 export interface DesktopGitStatusOptions {
   /** Reuse the last accepted line totals when the status shape is unchanged. */
   reuseLineStats?: boolean;
+  /** Return repository and changed-file state without computing line totals. */
+  skipLineStats?: boolean;
 }
 
 export interface DesktopGitBranch {
@@ -1937,6 +1955,18 @@ export interface DesktopApi {
     webContentsId: number,
     config: DesktopBrowserViewportConfig,
   ): Promise<void>;
+  /** The visible guest's device metrics changed — by the pane's own picker or
+   *  by the agent's emulate command. `viewport` is null when metrics were
+   *  cleared. The pane draws a centered device frame at this size. */
+  onBrowserGuestViewportChanged?(
+    listener: (change: DesktopBrowserGuestViewportChange) => void,
+  ): () => void;
+  /** A phone started or stopped viewing a session's guest through the relay.
+   *  A guest parked off-window produces no frames, so its capture hangs; the
+   *  renderer keeps a remotely viewed guest inside the window while active. */
+  onBrowserRemoteViewerChanged?(
+    listener: (change: DesktopBrowserRemoteViewerChange) => void,
+  ): () => void;
   /** Local Chrome profile import into the isolated Browser Use partition.
    *  Secrets stay in main/native processes; renderer receives metadata/counts. */
   browserProfileImportSources?(): Promise<DesktopBrowserImportSource[]>;

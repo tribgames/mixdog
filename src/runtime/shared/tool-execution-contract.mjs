@@ -193,12 +193,36 @@ const TRANSCRIPT_HIDDEN_CONTROL_TOOL_NAMES = new Set([
   'update_goal',
   'load_tool',
   'tool_search',
-  'skill',
 ]);
+// Skill loads are visible cards EXCEPT for built-in skills: those ride a
+// built-in feature whose own card (Browser Use, Document work, ...) follows
+// immediately, so the skill card would only repeat it. The runtime marks a
+// built-in load in the tool_result stub (collect.mjs buildSkillStub); live
+// turns decide earlier from the skill source so no card flashes first.
+const TRANSCRIPT_SKILL_TOOL_RE = /^(?:skill|skill_view|use_skill|skill_execute)$/;
+const BUILTIN_SKILL_RESULT_RE = /^Loaded built-in skill:/i;
+
+function normalizeTranscriptToolName(name) {
+  return clean(name).toLowerCase().replace(/^functions\./, '');
+}
 
 export function isTranscriptHiddenControlToolName(name) {
-  const normalized = clean(name).toLowerCase().replace(/^functions\./, '');
-  return TRANSCRIPT_HIDDEN_CONTROL_TOOL_NAMES.has(normalized);
+  return TRANSCRIPT_HIDDEN_CONTROL_TOOL_NAMES.has(normalizeTranscriptToolName(name));
+}
+
+export function isTranscriptSkillToolName(name) {
+  return TRANSCRIPT_SKILL_TOOL_RE.test(normalizeTranscriptToolName(name));
+}
+
+export function isBuiltinSkillToolResult(result) {
+  return BUILTIN_SKILL_RESULT_RE.test(String(result ?? '').trim());
+}
+
+/** Settled tool item (name + result) that the transcript must not show. */
+export function isTranscriptHiddenToolItem(item) {
+  if (!item) return false;
+  if (isTranscriptHiddenControlToolName(item.name)) return true;
+  return isTranscriptSkillToolName(item.name) && isBuiltinSkillToolResult(item.result);
 }
 
 // Persisted USER cancellation control rows ("[Request interrupted by user]"

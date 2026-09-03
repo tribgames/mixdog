@@ -112,9 +112,16 @@ jobs:
       - name: Smoke
         run: npm run smoke
 
+      # The gate already ran the default lane on every gated main push; this
+      # re-runs it only when a critical path changed after the newest gated
+      # commit (deploy.yml run_critical). The tool-contract files inside the
+      # lane drive the debug native spawn binary.
       - name: Verify changed source-critical release invariants
         if: inputs.run_critical
-        run: npm run test:release-critical
+        run: |
+          npm run build:spawn:test
+          npm test
+          npm run smoke:patch
 
       - name: Pack staged npm release
         id: pack

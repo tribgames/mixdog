@@ -26,6 +26,7 @@ import { executeTool, _scopedCacheOutcomeForCall, resolveLiveToolCwd } from './l
 // this file; import it from there directly rather than via this module.
 import { recordToolBatch } from '../tools/tool-batch-trace.mjs';
 import { projectProviderEvidence } from './evidence-union.mjs';
+import { projectSyntheticUserEnvelopes } from './synthetic-user-envelope.mjs';
 import { prepareProviderPrefixGuard } from './provider-prefix-guard.mjs';
 import { traceCacheBreak } from '../cache-break-trace.mjs';
 
@@ -288,11 +289,21 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // distinct from preceding tool results. Keep each queued command as
             // its own user turn instead of collapsing priority/mode buckets
             // together.
+            // A drained task notification is the runtime reporting, not the
+            // user speaking: it keeps the user role the wire needs but is
+            // stored under its own source with its execution provenance, so
+            // envelope classification and the transcript never mistake it
+            // for typed input.
+            const notification = merged.mode === 'task-notification';
+            const execution = notification && merged.execution && typeof merged.execution === 'object'
+                ? { ...merged.execution }
+                : null;
             messages.push({
                 role: 'user',
                 content: merged.content,
                 meta: {
-                    source: 'steering',
+                    source: notification ? 'task-notification' : 'steering',
+                    ...(execution ? { execution } : {}),
                     ...(submissionIds.length ? { submissionIds } : {}),
                     ...(steeringTranscriptMeta ? { transcript: steeringTranscriptMeta } : {}),
                 },
@@ -306,6 +317,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                     submittedAt: Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : undefined,
                     injectedAt,
                     stage,
+                    ...(notification ? { mode: 'task-notification' } : {}),
+                    ...(execution ? { execution } : {}),
                     ...(Array.isArray(merged.images) && merged.images.length ? { images: merged.images } : {}),
                     ...(steeringTranscriptMeta ? { transcriptMeta: steeringTranscriptMeta } : {}),
                 });
@@ -634,7 +647,12 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         const _evidenceUnionShadow = /^(?:1|true|yes|on)$/i.test(
             String(process.env.MIXDOG_EVIDENCE_UNION_SHADOW || '').trim(),
         );
-        const _evidenceProjection = projectProviderEvidence(_providerMessageSource, {
+        // Wire-only: synthetic user rows (compaction state, runtime control,
+        // injected context) get the declared runtime envelope so the human's
+        // own prompt stays the only unwrapped user voice. The stored
+        // transcript and recoveryMessages keep the raw rows.
+        const _envelopeProjection = projectSyntheticUserEnvelopes(_providerMessageSource);
+        const _evidenceProjection = projectProviderEvidence(_envelopeProjection.messages, {
             enabled: !_evidenceUnionDisabled,
             apply: !_evidenceUnionShadow,
             // Path aliases are a whole-history projection: a later repeated
@@ -919,6 +937,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             const isOutputLimitStop = isOutputLimitStopReason(stopReason);
             if (hasContent && isOutputLimitStop) {
                 _committedTextParts.push(response.content);
+                if (!suppressMidTurnText) {
+                    try { opts.onAssistantText?.(response.content); } catch { /* best-effort */ }
+                }
                 if (_maxOutputRecoveryCount < MAX_OUTPUT_RECOVERY_LIMIT) {
                     // The partial assistant turn must be visible to the model so
                     // it can resume at the exact cutoff instead of reconstructing
@@ -1045,6 +1066,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 beforeAppend: () => {
                     if (pushIntermediateAssistantResponse(response) && hasContent && !suppressMidTurnText) {
                         _committedTextParts.push(response.content);
+                        try { opts.onAssistantText?.(response.content); } catch { /* best-effort */ }
                     }
                 },
             })) {

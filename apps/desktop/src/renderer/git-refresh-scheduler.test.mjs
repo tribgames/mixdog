@@ -3,6 +3,7 @@ import { setImmediate as waitForTurn, setTimeout as waitForDelay } from "node:ti
 import { test } from "node:test";
 
 import { createGitRefreshScheduler } from "./git-refresh-scheduler.ts";
+import { prewarmUtilityDockGitState } from "./UtilityDock.tsx";
 
 test("git refresh scheduler stays single-flight and keeps one trailing activity run", async () => {
   const releases = [];
@@ -33,4 +34,34 @@ test("git refresh scheduler stays single-flight and keeps one trailing activity 
   releases.shift()();
   await waitForTurn();
   scheduler.dispose();
+});
+
+test("utility dock prewarm fills one reusable fast Git cache entry", async () => {
+  const projectPath = "C:/utility-dock-prewarm";
+  const previousWindow = globalThis.window;
+  const calls = [];
+  globalThis.window = {
+    ...previousWindow,
+    mixdogDesktop: {
+      gitStatus: async (project, options) => {
+        calls.push({ project, options });
+        await waitForTurn();
+        return null;
+      },
+    },
+  };
+  try {
+    await Promise.all([
+      prewarmUtilityDockGitState(projectPath),
+      prewarmUtilityDockGitState(projectPath),
+    ]);
+    await prewarmUtilityDockGitState(projectPath);
+    assert.deepEqual(calls, [{
+      project: projectPath,
+      options: { skipLineStats: true },
+    }]);
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
 });

@@ -183,12 +183,6 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   backdrop-filter: none;
   box-shadow: inset 0 0 0 .5px var(--mx-border), var(--mx-raised);
 }
-/* The projected phone keeps the same stable plate without live backdrop work. */
-html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before {
-  background: var(--session-island-frame-bg);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
 /* Pane-owned slots: work status, context gauge, then the right utility-dock
    toggle. The work slot stays mounted while idle so the capsule keeps one
    resting width and only its count area grows with live work. */
@@ -442,15 +436,63 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   align-items: center;
   gap: 0;
 }
-/* Right-edge strip controls (editor actions): context/remote,
-   review, and panel toggles dock after the + button. */
+/* Right-edge strip controls dock after the + button. The 116px floor is the
+   permanent three-button safe zone: 3 × 28px buttons + 2 × 6px gaps + the
+   child's 12px and this wrapper's 8px inline air. It remains when a surface
+   such as Studio renders no buttons, so tabs and + never invade the corner. */
 .workspace-tabs-trailing {
   margin-left: auto;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   flex: 0 0 auto;
-  min-width: 0;
+  min-width: 116px;
+  box-sizing: border-box;
   padding-inline: 4px;
+}
+/* Dock child toggles at the strip's right end (user: 터미널 / 웹 / 디프창을
+   스트립 아이콘 자리에). One 28px slot per child with a 16px mark and 6px of
+   air between slots — the Claude Desktop tier (user: 클로드 대비 너무 조밀하고
+   큰 것 같다); the pressed child re-inks to text on a quiet plate, and a
+   child that needs a session behind the pane (browser, terminal) dims on a
+   draft. */
+.pane-dock-toggles {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-inline: 6px;
+}
+.pane-dock-toggle {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+/* 15px on a 1.5px stroke: the same weight as the strip's tab glyphs and the
+   browser toolbar, so the toggles stop reading heavier than their neighbours
+   (user: 소스컨트롤·브라우저·터미널 버튼 약간 두껍지 않아?). */
+.pane-dock-toggle svg.lucide { width: 16px; height: 16px; stroke-width: 1.5px; }
+.pane-dock-toggle:hover, .pane-dock-toggle:focus-visible {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+  outline: none;
+}
+.pane-dock-toggle[aria-pressed="true"] {
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+}
+.pane-dock-toggle[aria-disabled="true"] {
+  color: var(--mx-text-faint);
+  opacity: .45;
+  cursor: default;
+  background: transparent;
 }
 /* Status island docked at the strip's right end (user: 최종결정은 우상단 —
    Claude Desktop처럼 PANE 우상단). It joins the unified band frameless:
@@ -494,11 +536,22 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   background: var(--mx-window-band);
 }
 .workspace-tabs[data-group-dragging="true"] { cursor: grabbing; }
-.workspace-tab-close {
+/* ONE ink for the strip's two marks — the tab X and the + beside it (user:
+   +가 우측 메뉴들이랑 같은 색인데 X랑 같은 색이어야 할 듯). */
+.workspace-tab-close,
+.workspace-tabs-shell > .workspace-tab-new,
+.workspace-tabs-shell > .workspace-tab-new svg {
   color: var(--mx-text);
 }
+/* 02-base pins every lucide stroke to 1px in CSS, which beats the element's
+   strokeWidth attribute — a 1px cross reads as a lighter grey than solid
+   ink. Both marks share one real-pixel weight here. */
+.workspace-tab-close svg.lucide,
+.workspace-tabs-shell > .workspace-tab-new svg.lucide { stroke-width: 1.5px; }
 .workspace-tab-close:hover,
-.workspace-tab-close:focus-visible { color: var(--mx-text); }
+.workspace-tab-close:focus-visible,
+.workspace-tabs-shell > .workspace-tab-new:hover,
+.workspace-tabs-shell > .workspace-tab-new:focus-visible { color: var(--mx-text); }
 .workspace-tabs .workspace-tab { -webkit-app-region: no-drag; }
 .workspace-tab.preview .workspace-tab-main > span { font-style: italic; }
 .workspace-tab-dirty-glyph {
@@ -1166,8 +1219,9 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
   white-space: nowrap;
 }
 
-/* Goal island: one snapshot owner moves between the composer and the visible
-   DIFF. Hosts center the capsule; only the popover direction changes. */
+/* Goal island: the summary remains directly above the composer. Opening
+   grows the host upward while the task drawer unfolds below the raised
+   capsule, so progress never floats over the transcript as a dialog. */
 .session-goal-host {
   position: relative;
   z-index: 9;
@@ -1181,50 +1235,48 @@ html[data-mixdog-mobile-tabs] .transcript-shell > .session-status-island::before
 .session-goal-host[data-goal-placement="composer"] {
   margin-bottom: 8px;
 }
-.session-goal-host[data-goal-placement="diff"] {
-  flex: 0 0 auto;
-  padding: 8px 4px;
-  border-bottom: 1px solid var(--mx-border-muted);
-  background: var(--mx-workspace-sheet);
-}
 .session-goal-host > .session-goal-island {
   --session-island-frame-bg:
     color-mix(in srgb, var(--mx-bg-base) 62%, var(--mx-workspace-sheet));
   --session-goal-width: 320px;
-  --session-goal-trigger-height: 28px;
-  --session-goal-padding: 2px;
-  --session-goal-capsule-height:
-    calc(var(--session-goal-trigger-height) + var(--session-goal-padding) + var(--session-goal-padding));
+  --session-goal-trigger-height: 32px;
   position: relative;
   width: min(var(--session-goal-width), calc(100% - 16px));
+  height: var(--session-goal-trigger-height);
   max-width: none;
   box-sizing: border-box;
-  padding: var(--session-goal-padding);
-  border-radius: var(--mx-radius-pill);
   pointer-events: auto;
 }
-.session-goal-host > .session-goal-island::before {
-  content: "";
+.session-goal-stack {
   position: absolute;
-  z-index: -1;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
+  z-index: 1;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: grid;
+  grid-template-rows: auto auto;
+  border: .5px solid var(--mx-border);
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text);
   background: var(--session-island-frame-bg);
-  backdrop-filter: none;
-  box-shadow: inset 0 0 0 .5px var(--mx-border), var(--mx-raised);
+  box-shadow: var(--mx-raised);
+  overflow: hidden;
+  transition: none;
 }
-.session-goal-island[data-open="true"] :is(.session-goal-trigger, .session-goal-popover) {
-  pointer-events: auto;
+.session-goal-island[data-open="true"] .session-goal-stack {
+  border-radius: var(--mx-radius-md);
 }
-html[data-mixdog-mobile-tabs] .session-goal-host > .session-goal-island::before {
-  background: var(--session-island-frame-bg);
-  backdrop-filter: none;
+.session-goal-summary {
+  min-width: 0;
+  display: block;
+}
+/* Open drawer: separate the header from the task list. */
+.session-goal-island[data-open="true"] .session-goal-summary {
+  border-bottom: .5px solid var(--mx-border);
 }
 .session-goal-trigger {
   min-width: 0;
   width: 100%;
-  max-width: 100%;
   box-sizing: border-box;
   height: var(--session-goal-trigger-height, 28px);
   display: grid;
@@ -1233,7 +1285,7 @@ html[data-mixdog-mobile-tabs] .session-goal-host > .session-goal-island::before 
   column-gap: 10px;
   padding: 0 8px 0 6px;
   border: 0;
-  border-radius: var(--mx-radius-pill);
+  border-radius: inherit;
   color: var(--mx-text-muted);
   background: transparent;
   box-shadow: none;
@@ -1254,7 +1306,13 @@ html[data-mixdog-mobile-tabs] .session-goal-host > .session-goal-island::before 
   color: var(--mx-text);
   outline: none;
 }
-.session-goal-trigger:focus-visible { box-shadow: 0 0 0 2px var(--mx-focus); }
+.session-goal-trigger:hover,
+.session-goal-trigger:focus-visible {
+  background: color-mix(in srgb, var(--mx-text) 3%, transparent);
+}
+.session-goal-trigger:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--mx-focus);
+}
 .session-goal-glyph {
   width: var(--mx-icon-md);
   height: var(--mx-icon-md);
@@ -1314,159 +1372,52 @@ html[data-mixdog-mobile-tabs] .session-goal-host > .session-goal-island::before 
   line-height: var(--mx-line-minor);
   white-space: nowrap;
 }
-.session-goal-popover {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 6px);
-  left: 0;
-  width: 100%;
-  max-width: none;
+.session-goal-drawer {
+  display: grid;
+  grid-template-rows: 0fr;
+  min-height: 0;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: none;
+}
+.session-goal-island[data-open="true"] .session-goal-drawer {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.session-goal-drawer-clip {
+  min-height: 0;
+  overflow: hidden;
+}
+.session-goal-panel {
+  min-height: 0;
+  max-height: min(360px, 48dvh);
   box-sizing: border-box;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 10px;
-  padding: 10px;
-  border: .5px solid var(--mx-border-strong);
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-floating);
-  font-family: inherit;
-}
-.session-goal-island[data-open="true"] .session-goal-popover {
-  max-height: min(520px, 60cqh);
-  overflow: hidden;
-}
-.session-goal-host[data-goal-placement="composer"] .session-goal-popover {
-  top: auto;
-  bottom: calc(100% + 6px);
-}
-.session-goal-host[data-goal-placement="diff"] .session-goal-popover {
-  top: calc(100% + 6px);
-  bottom: auto;
-}
-.session-goal-popover > header {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
-  gap: 0;
-}
-.session-goal-popover > header.has-menu {
-  grid-template-columns: minmax(0, 1fr) 24px;
-  gap: 8px;
-}
-.session-goal-popover > header > div {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-.session-goal-popover > header strong {
-  overflow: hidden;
-  font-size: var(--mx-font-body);
-  font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-body);
-  letter-spacing: var(--mx-tracking-tight);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.session-goal-popover > header small,
-.session-goal-tasks small {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-  font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.session-goal-menu {
-  position: relative;
-  align-self: start;
-}
-.session-goal-menu > summary {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--mx-radius-sm);
-  color: var(--mx-icon-muted);
-  cursor: pointer;
-  list-style: none;
-}
-.session-goal-menu > summary::-webkit-details-marker { display: none; }
-.session-goal-menu > summary:hover,
-.session-goal-menu > summary:focus-visible,
-.session-goal-menu[open] > summary {
-  color: var(--mx-text);
-  background: var(--mx-hover);
-  outline: none;
-}
-.session-goal-menu > summary:focus-visible {
-  box-shadow: 0 0 0 2px var(--mx-focus);
-}
-.session-goal-menu > div {
-  position: absolute;
-  z-index: 1;
-  top: calc(100% + 4px);
-  right: 0;
-  min-width: 104px;
-  padding: 4px;
-  border: .5px solid var(--mx-border-strong);
-  border-radius: var(--mx-radius-md);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-floating);
-}
-.session-goal-menu button {
-  width: 100%;
-  min-height: 30px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 0 8px;
+  margin-top: 0;
+  /* Same inline inset as the trigger (6px left / 8px right) so the task
+     glyph column and text sit directly under the header glyph and title. */
+  padding: 2px 8px 8px 6px;
   border: 0;
-  border-radius: var(--mx-radius-sm);
-  color: var(--mx-danger);
+  border-radius: 0;
+  color: var(--mx-text);
   background: transparent;
-  font: inherit;
-  cursor: pointer;
-}
-.session-goal-menu button:hover:not(:disabled) { background: var(--mx-danger-bg); }
-.session-goal-menu button:disabled {
-  color: var(--mx-text-faint);
-  cursor: default;
+  box-shadow: none;
+  font-family: inherit;
+  overflow: hidden;
 }
 .session-goal-content {
   min-height: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: 8px;
 }
 .session-goal-tasks {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 8px;
-  padding-top: 10px;
-  border-top: .5px solid var(--mx-border);
-}
-.session-goal-tasks > b {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-minor);
-  font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-minor);
-}
-.session-goal-task-count {
-  color: var(--mx-text-faint);
-  /* Same datum as the trigger meta (1/3): meta size, not the heading's 14px. */
-  font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-regular);
-  font-variant-numeric: tabular-nums;
+  grid-template-rows: minmax(0, 1fr);
 }
 .session-goal-tasks ul {
   min-height: 0;
@@ -1477,22 +1428,28 @@ html[data-mixdog-mobile-tabs] .session-goal-host > .session-goal-island::before 
   padding: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
   list-style: none;
 }
 .session-goal-tasks li {
   min-width: 0;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 8px;
-  padding: 8px 0;
+  /* Mirrors .session-goal-title-region: icon column + 6px gap, no extra
+     inline padding, so rows align with the collapsed header. */
+  grid-template-columns: var(--mx-icon-md) minmax(0, 1fr);
+  align-items: start;
+  column-gap: 6px;
+  padding: 7px 0;
   border-radius: 0;
   background: transparent;
 }
-.session-goal-tasks li + li { border-top: .5px solid var(--mx-border-muted); }
+/* Hairline between rows: multi-line tasks otherwise merge into one block. */
+.session-goal-tasks li + li {
+  border-top: .5px solid color-mix(in srgb, var(--mx-border) 70%, transparent);
+}
 .session-goal-tasks li > span {
-  width: 18px;
-  height: 18px;
+  width: var(--mx-icon-md);
+  /* Match the text line box so the glyph centers on the first line. */
+  height: var(--mx-line-minor);
   display: grid;
   place-items: center;
   color: var(--mx-text-faint);
@@ -1527,77 +1484,36 @@ html[data-mixdog-mobile-tabs] .session-goal-host > .session-goal-island::before 
   line-height: var(--mx-line-minor);
 }
 .session-goal-blocker { color: var(--mx-warning); }
-.session-goal-popover > footer {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  padding-top: 10px;
-  border-top: .5px solid var(--mx-border);
-}
-.session-goal-popover > footer :is(button, .session-goal-complete) {
-  min-width: 0;
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
-  background: color-mix(in srgb, var(--mx-text) 4%, var(--mx-bg-base));
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  font-size: var(--mx-font-minor);
-  font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-minor);
-}
-.session-goal-popover > footer button {
-  cursor: pointer;
-}
-.session-goal-popover > footer :is(button, .session-goal-complete) svg {
-  flex: 0 0 auto;
-  color: var(--mx-icon-muted);
-}
-.session-goal-popover > footer button:hover:not(:disabled) {
-  color: var(--mx-text);
-  background: var(--mx-hover);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-strong);
-}
-.session-goal-popover > footer button.session-goal-resume svg {
-  color: color-mix(in srgb, var(--mx-text-accent) 78%, var(--mx-icon-muted));
-}
-.session-goal-popover > footer button.session-goal-stop svg {
-  color: color-mix(in srgb, var(--mx-danger) 78%, var(--mx-icon-muted));
-}
-.session-goal-popover > footer button.session-goal-stop:hover:not(:disabled) {
-  color: var(--mx-danger);
-  background: color-mix(in srgb, var(--mx-danger-bg) 76%, var(--mx-hover));
-  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-danger) 28%, transparent);
-}
-.session-goal-popover > footer .session-goal-complete {
-  color: var(--mx-success);
-  background: color-mix(in srgb, var(--mx-success) 7%, transparent);
-  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-success) 24%, transparent);
-}
-.session-goal-popover > footer .session-goal-complete svg {
-  color: currentColor;
-}
-.session-goal-popover > footer button:focus-visible {
-  outline: 2px solid var(--mx-focus);
-  outline-offset: 2px;
-}
-.session-goal-popover > footer button:disabled {
-  color: var(--mx-text-faint);
-  cursor: default;
-}
 
 html[data-mixdog-mobile-tabs] .session-goal-host > .session-goal-island {
   --session-goal-trigger-height: calc(36px * var(--mx-device-scale, 2.5));
-  --session-goal-padding: calc(36px * 2 / 28 * var(--mx-device-scale, 2.5));
   max-width: 72vw;
-  padding: var(--session-goal-padding);
 }
 html[data-mixdog-mobile-tabs] .session-goal-trigger {
-  gap: calc(5px * var(--mx-device-scale, 2.5));
   padding-inline: calc(8px * var(--mx-device-scale, 2.5));
+}
+/* Phone drawer rows: the same header-aligned grid, at a finger's row height
+   and the phone's 14/20 body line (user: 모바일도 PC에 맞춰). */
+html[data-mixdog-mobile-tabs] .session-goal-panel {
+  padding: calc(2px * var(--mx-device-scale, 2.5)) calc(8px * var(--mx-device-scale, 2.5))
+    calc(8px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .session-goal-tasks li {
+  grid-template-columns: calc(16px * var(--mx-device-scale, 2.5)) minmax(0, 1fr);
+  column-gap: calc(6px * var(--mx-device-scale, 2.5));
+  padding: calc(8px * var(--mx-device-scale, 2.5)) 0;
+}
+html[data-mixdog-mobile-tabs] .session-goal-tasks li > span {
+  width: calc(16px * var(--mx-device-scale, 2.5));
+  height: calc(20px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .session-goal-tasks li > span > svg {
+  width: calc(14px * var(--mx-device-scale, 2.5));
+  height: calc(14px * var(--mx-device-scale, 2.5));
+}
+html[data-mixdog-mobile-tabs] .session-goal-tasks li > div > span,
+html[data-mixdog-mobile-tabs] .session-goal-empty,
+html[data-mixdog-mobile-tabs] .session-goal-blocker {
+  font-size: calc(14px * var(--mx-device-scale, 2.5));
+  line-height: calc(20px * var(--mx-device-scale, 2.5));
 }

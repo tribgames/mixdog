@@ -47,13 +47,21 @@ export function GitDiffBody({ file, mode, hideHunkHeader }: {
   hideHunkHeader?: boolean;
 }) {
   const fallback = <pre className="diff-fallback">{file.patch}</pre>;
+  // One data identity per parsed file: the diff library rebuilds and
+  // re-highlights EVERY row whenever this object changes, so an inline
+  // literal turned each re-render of the host (an `active` flip on the
+  // pane dock, a refresh) into a full rebuild — measured at 140–230ms of
+  // main-thread time landing on whatever keystroke came next.
+  const data = useMemo(
+    () => ({ oldFile: file.oldFile, newFile: file.newFile, hunks: [file.renderPatch || file.patch] }),
+    [file],
+  );
   if (!file.renderable) return fallback;
   return <DiffBoundary fallback={fallback}>
     <Suspense fallback={<div className="diff-loading" role="status" aria-label={t("Rendering diff…")}>
       <ProgressSpinner size={24} className="desktop-loading-spinner" aria-hidden="true" />
     </div>}>
-      <DiffView data={{ oldFile: file.oldFile, newFile: file.newFile, hunks: [file.renderPatch || file.patch] }}
-        mode={mode} hideHunkHeader={hideHunkHeader} />
+      <DiffView data={data} mode={mode} hideHunkHeader={hideHunkHeader} />
     </Suspense>
   </DiffBoundary>;
 }

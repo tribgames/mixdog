@@ -344,6 +344,7 @@ export function renderAppView(ctx) {
                   ? [
                     providerPrompt.envName ? `Env: ${providerPrompt.envName}` : '',
                     providerPrompt.source ? `Current: ${providerPrompt.source}` : '',
+                    providerPrompt.keyUrl ? `Get a key: ${providerPrompt.keyUrl}` : '',
                     'Stored in the OS keychain.',
                   ].filter(Boolean).join(' · ')
                   : providerPrompt.kind === 'oauth-code'

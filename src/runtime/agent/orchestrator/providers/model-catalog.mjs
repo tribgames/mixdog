@@ -347,6 +347,18 @@ function warmModelsDevFromDiskSync() {
         }
     } catch { /* cold — async loadModelsDevCatalog will fill later */ }
 }
+// Human label from a models.dev row. Marketing tails such as "(New)",
+// "(2x usage)", "(Unlimited)" are catalog commentary, not part of the name.
+export function modelsDevDisplayName(row) {
+    const name = typeof row?.name === 'string' ? row.name : '';
+    const cleaned = name
+        .replace(/\s*\([^)]*\)\s*$/, '')
+        // Program-tier suffix ("Muse Spark 1.3 Contributor"), not a model trait.
+        .replace(/\s+contributor$/i, '')
+        .trim();
+    return cleaned || null;
+}
+
 // Adapt a models.dev model row (cost in $/M) to the LiteLLM-shaped row that
 // _normalize() consumes ($/token). Only fields present are emitted.
 function _modelsDevRowToOverride(row) {
@@ -574,8 +586,10 @@ export async function enrichModels(models, { fetchFn, force = false } = {}) {
         }
         let meta = entry ? _normalize(entry) : null;
         const metaFromPricingOverride = entry != null && entry === ov;
+        let catalogDisplay = null;
         if (m.provider) {
             const row = mappedProvider ? modelsDevCatalog?.[mappedProvider]?.models?.[id] : null;
+            catalogDisplay = modelsDevDisplayName(row);
             const providerMeta = row ? _normalize(_modelsDevRowToOverride(row)) : null;
             if (providerMeta) meta = mergeModelMetadata(meta, providerMeta, { preserveBaseCosts: metaFromPricingOverride });
             const providerNative = providerCachedModelMetadataSync(m.provider, id);
@@ -584,9 +598,12 @@ export async function enrichModels(models, { fetchFn, force = false } = {}) {
             }
             if (providerNative) meta = mergeModelMetadata(meta, providerNative, { preserveBaseCosts: true });
         }
-        if (!meta) return m;
+        if (!meta) return catalogDisplay && !m.display ? { ...m, display: catalogDisplay } : m;
         return {
             ...m,
+            // Provider endpoints that expose no label (opencode-go /models)
+            // borrow the catalog's human name; provider-supplied labels win.
+            ...(catalogDisplay && !m.display ? { display: catalogDisplay } : {}),
             // Provider-native limits are authoritative for request sizing.
             // External catalogs are pricing/metadata fillers and may describe
             // a public API SKU rather than the OAuth/backend route in use.

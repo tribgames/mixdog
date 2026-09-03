@@ -30,6 +30,6 @@ test('production recall uses light stems in prefix queries by default', () => {
   )
   assert.deepEqual(
     buildFtsPrefixQuery('임베딩 모델을 해제했던 결과'),
-    { query: '임베딩:* & 모델:* & 해제:* & 결과:*', prefix: true },
+    { query: '임베딩:* | 모델:* | 해제:* | 결과:*', prefix: true },
   )
 })

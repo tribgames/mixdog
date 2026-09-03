@@ -61,7 +61,7 @@ test('fresh Compact persists one verbatim Memory handoff without rebuilding a du
     ));
     assert.ok(summary);
     assert.ok(summary.content.includes(
-        `memory_session=${sessionId} order=newest_first\n${digest}`,
+        `memory_session=${sessionId} order=oldest_first\n${digest}`,
     ));
     assert.doesNotMatch(summary.content, /source=legacy-fasttrack|query_sha=/);
     assert.equal(summary.content.split('AUTHORITATIVE_MEMORY_STATE').length - 1, 1);
@@ -182,7 +182,7 @@ test('repeated compact rebuilds from the same session transcript instead of nest
             compactHandoffRows(stored, {
                 preserveLatestUserTurns: args.preserveLatestUserTurns,
             }),
-            { pendingMarks: false, recencyOrder: true },
+            { pendingMarks: false, chronologicalOrder: true, compactTimestamps: true },
         );
     };
     const compactPolicy = {

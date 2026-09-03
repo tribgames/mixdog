@@ -262,6 +262,41 @@ function containingSurface(textShape, shapes) {
     ))[0] || null;
 }
 
+// Presentation body copy stays at 12 pt or more, but page chrome (kickers,
+// page badges, captions, source lines) is legitimately smaller and may sit
+// closer to the edge. Chrome is a short line at caption size; anything
+// longer is body copy whatever its size.
+const PPTX_BODY_MIN_PT = 12;
+const PPTX_CHROME_MIN_PT = 9;
+const PPTX_EDGE_PT = 18;
+const PPTX_CHROME_EDGE_PT = 10;
+const PPTX_CHROME_MAX_CHARS = 90;
+
+// Slide-number fields (master placeholders) carry their size in the field run,
+// which the snapshot does not always surface; the numeral itself is the chrome.
+const PPTX_PAGE_NUMBER = /^\s*(?:\d+\s*(?:\/|of)\s*\d+|\d{1,3})\s*$/i;
+
+function isPptxChromeText(shape) {
+  const text = String(shape.text || '').trim();
+  const fontSize = Number(shape.font?.size) || 0;
+  if (shape.placeholder && PPTX_PAGE_NUMBER.test(text)) return true;
+  return fontSize > 0
+    && fontSize <= PPTX_BODY_MIN_PT
+    && text.length <= PPTX_CHROME_MAX_CHARS
+    && !/[\r\n]/.test(text);
+}
+
+// A numeral or short lead directly above its own description is one unit
+// (a hero number and its label, a step number and its detail); the tight gap
+// is the design, not a spacing defect.
+function isPptxLabelledUnit(left, right) {
+  const [upper, lower] = left.top <= right.top ? [left, right] : [right, left];
+  const upperText = String(upper.text || '').trim();
+  const upperSize = Number(upper.font?.size) || 0;
+  const lowerSize = Number(lower.font?.size) || 0;
+  return upperText.length <= 12 && upperSize > 0 && lowerSize > 0 && upperSize >= lowerSize * 1.5;
+}
+
 function reviewPptxStructure(document, auditProfile = '') {
   const issues = [];
   const width = Number(document?.slideWidth) || 0;
@@ -290,8 +325,12 @@ function reviewPptxStructure(document, auditProfile = '') {
       height: Number(shape.height),
     }));
     for (const shape of textShapes) {
-      if (Number(shape.font?.size) > 0 && Number(shape.font.size) < 12) {
-        issues.push(issue('small_font', shape.path || slide.path, 'Text is smaller than 12 pt.'));
+      const fontSize = Number(shape.font?.size) || 0;
+      const chrome = isPptxChromeText(shape);
+      if (fontSize > 0 && fontSize < PPTX_CHROME_MIN_PT) {
+        issues.push(issue('small_font', shape.path || slide.path, `Text is smaller than ${PPTX_CHROME_MIN_PT} pt.`));
+      } else if (fontSize > 0 && fontSize < PPTX_BODY_MIN_PT && !chrome) {
+        issues.push(issue('small_font', shape.path || slide.path, `Body text is smaller than ${PPTX_BODY_MIN_PT} pt.`));
       }
       const surface = containingSurface(shape, slide.shapes || []);
       const backgroundColor = solidShapeFill(shape)
@@ -305,13 +344,14 @@ function reviewPptxStructure(document, auditProfile = '') {
           `Text contrast is ${contrast.toFixed(2)}:1 against ${surface?.path || 'the slide background'}; the text is visually indistinguishable from its surface.`,
         ));
       }
+      const margin = chrome ? PPTX_CHROME_EDGE_PT : PPTX_EDGE_PT;
       if (width > 0 && height > 0 && (
-        shape.left < 18
-        || shape.top < 18
-        || shape.left + shape.width > width - 18
-        || shape.top + shape.height > height - 18
+        shape.left < margin
+        || shape.top < margin
+        || shape.left + shape.width > width - margin
+        || shape.top + shape.height > height - margin
       )) {
-        issues.push(issue('edge_margin', shape.path || slide.path, 'Text is within 18 pt of a slide edge.'));
+        issues.push(issue('edge_margin', shape.path || slide.path, `Text is within ${margin} pt of a slide edge.`));
       }
     }
     for (let leftIndex = 0; leftIndex < textShapes.length; leftIndex += 1) {
@@ -334,7 +374,12 @@ function reviewPptxStructure(document, auditProfile = '') {
           right.top - (left.top + left.height),
           left.top - (right.top + right.height),
         );
-        if (horizontalOverlap >= Math.min(left.width, right.width) * 0.3 && verticalGap >= 0 && verticalGap < 6) {
+        if (
+          horizontalOverlap >= Math.min(left.width, right.width) * 0.3
+          && verticalGap >= 0
+          && verticalGap < 6
+          && !isPptxLabelledUnit(left, right)
+        ) {
           issues.push(issue(
             'text_spacing_tight',
             slide.path || `/slide[${slide.index}]`,

@@ -11,16 +11,14 @@
   max-height: min(240px, calc(var(--vvh, 100vh) - 16px));
   padding: 6px;
   overflow: auto;
-  border-radius: var(--mx-radius-lg);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
   color: var(--mx-text);
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 60%), var(--mx-bg-layer-1);
-  box-shadow: var(--mx-floating), inset 0 0 0 .5px var(--mx-border-muted);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
   animation: mx-menu-in var(--mx-motion-chrome);
 }
-.mx-menu[data-trigger-style="settings"] {
-  min-width: 160px;
-  border-radius: var(--mx-radius-lg);
-}
+.mx-menu[data-trigger-style="settings"] { min-width: 160px; }
 .mx-menu-item {
   width: 100%;
   height: 34px;
@@ -82,11 +80,11 @@
   align-items: flex-start;
   gap: 12px;
   padding: 12px;
-  border-radius: var(--mx-radius-md);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  /* Toasts carry only the floating elevation — no inset ring. */
-  box-shadow: var(--mx-floating);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
   pointer-events: auto;
   animation: mx-toast-in var(--mx-motion-chrome);
 }
@@ -107,10 +105,11 @@
   max-width: min(280px, calc(100vw - 16px));
   box-sizing: border-box;
   padding: 5px 6px;
+  border: var(--mx-popup-border);
   border-radius: var(--mx-radius-sm);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: var(--mx-floating);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
   line-height: 12px;
@@ -174,10 +173,11 @@
   z-index: 1100;
   width: min(320px, calc(100vw - 16px));
   overflow: hidden;
-  border-radius: var(--mx-radius-md);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: var(--mx-floating);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .runtime-status-popover > header {
   min-height: 52px;
@@ -202,8 +202,8 @@
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-button);
+  background: var(--mx-popup-action-bg);
+  box-shadow: var(--mx-popup-action-ring);
 }
 .runtime-status-popover > header button { width: 24px; min-height: 24px; padding: 0; background: transparent; box-shadow: none; }
 .runtime-status-body { display: grid; padding: 8px 14px; }
@@ -211,8 +211,9 @@
 .runtime-status-body span { color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
 .runtime-status-body b { font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); }
 .runtime-status-body p { margin: 6px 0; color: var(--mx-danger); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
-.runtime-status-popover > footer { padding: 8px 10px; border-top: .5px solid var(--mx-border); background: var(--mx-bg-base); }
-.runtime-status-popover button:hover:not(:disabled) { background: var(--mx-hover); }
+.runtime-status-popover > footer { padding: 8px 10px; border-top: .5px solid var(--mx-border); }
+.runtime-status-popover button:hover:not(:disabled) { background: var(--mx-hover); box-shadow: var(--mx-popup-action-ring-hover); }
+.runtime-status-popover > header button:hover:not(:disabled) { box-shadow: none; }
 .runtime-status-popover button:disabled { opacity: var(--mx-op-disabled); }
 .mx-tooltip[data-side="bottom"] { transform-origin: top center; }
 .mx-tooltip[data-side="top"] { transform-origin: bottom center; }

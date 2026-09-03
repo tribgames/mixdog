@@ -90,6 +90,7 @@ const EVENT_STREAM_RECONNECT_BUDGET_MS = 10 * 60_000;
 const DEFAULT_DAEMON_READY_TIMEOUT_MS = 15_000;
 const DEFAULT_DAEMON_UPGRADE_TIMEOUT_MS = 120_000;
 const DAEMON_OWNER_POLL_MS = 50;
+const DAEMON_BOOT_PROBE_TIMEOUT_MS = 300;
 // A daemon that restarted needs a moment to rebind its port, so one immediate
 // re-attach often lands in the same gap the first call died in. Mirror the
 // event-stream policy above with a short bounded ladder; `callId` keeps a
@@ -254,6 +255,8 @@ async function replaceLowerDaemon(discovery, initialHealth, { log }) {
  *  caller then re-reads discovery and attaches to whoever won. */
 function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000 }) {
   return new Promise((resolve) => {
+    const t0 = performance.now();
+    const at = () => Math.round(performance.now() - t0);
     let settled = false;
     let timer = null;
     const done = () => {
@@ -289,13 +292,18 @@ function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000 }) {
       done();
       return;
     }
+    const forkMs = at();
+    child.once('spawn', () => { log(`daemon fork: forkMs=${forkMs} spawnEventMs=${at()}`); });
+    let firstStderrMs = -1;
     const mirror = (chunk) => {
+      if (firstStderrMs < 0) { firstStderrMs = at(); log(`daemon first stderr at=${firstStderrMs}ms`); }
       const text = String(chunk || '').trimEnd();
       if (text) log(text);
     };
     child.stderr?.on('data', mirror);
     child.once('message', (msg) => {
       if (msg?.type !== 'ready') return;
+      log(`daemon ready at=${at()}ms`);
       try { child.stderr?.off?.('data', mirror); } catch {}
       try { child.disconnect?.(); } catch {}
       try { child.unref?.(); } catch {}
@@ -329,11 +337,39 @@ export async function ensureDaemon({
   const maxSpawnAttempts = Math.max(0, Math.floor(Number(attempts) || 0));
   let spawnAttempts = 0;
   let waitingOwnerPid = 0;
+  let waitingDrainPid = 0;
+  const startedAt = Date.now();
+  const elapsed = () => Date.now() - startedAt;
   while (Date.now() < deadline) {
     const discovery = readSessionDiscovery();
     if (discovery) {
-      const health = await probeSessionHealth({ port: discovery.port, token: discovery.token });
+      // A live loopback daemon answers /health in single-digit milliseconds.
+      // Only a daemon mid-teardown (port still bound, loop gone) exhausts the
+      // timeout, and the desktop paid that wait on EVERY quick relaunch
+      // (user: 부팅 속도). Keep it short: a wrong verdict only spawns one
+      // contender, which loses the singleton claim and exits for attach.
+      const probeStartedAt = Date.now();
+      const health = await probeSessionHealth({
+        port: discovery.port,
+        token: discovery.token,
+        timeoutMs: DAEMON_BOOT_PROBE_TIMEOUT_MS,
+      });
+      log(
+        `discovery pid=${discovery.pid} port=${discovery.port}`
+        + ` health=${health ? 'ok' : 'none'} probeMs=${Date.now() - probeStartedAt}`
+        + ` at=${elapsed()}ms`,
+      );
       if (health && Number(health.pid) === Number(discovery.pid)) {
+        if (health.drainCommitted === true) {
+          const drainPid = Number(discovery.pid) || 0;
+          if (drainPid !== waitingDrainPid) {
+            waitingDrainPid = drainPid;
+            log(`waiting for committed daemon handoff pid=${drainPid}`);
+          }
+          await delay(Math.min(DAEMON_OWNER_POLL_MS, Math.max(1, deadline - Date.now())));
+          continue;
+        }
+        waitingDrainPid = 0;
         const compatibility = sessionDaemonCompatibility(health);
         if (compatibility.status === 'compatible' || compatibility.status === 'daemon-newer') {
           return discovery;
@@ -363,6 +399,7 @@ export async function ensureDaemon({
     waitingOwnerPid = 0;
     if (spawnAttempts >= maxSpawnAttempts) break;
     spawnAttempts += 1;
+    log(`spawning daemon candidate attempt=${spawnAttempts} at=${elapsed()}ms`);
     await spawnDaemonCandidate({
       cwd,
       log,

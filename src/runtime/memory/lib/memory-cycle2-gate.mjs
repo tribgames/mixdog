@@ -8,6 +8,7 @@ import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
 import { callAgentDispatch } from './agent-ipc.mjs'
 import { listCore } from './core-memory-store.mjs'
 import { __mixdogMemoryLog, throwIfAborted, resourceDir, createSemaphore } from './memory-cycle2-shared.mjs'
+import { readPromptSurfaceFile, renderPromptSurfaceDigest } from './prompt-surface-file.mjs'
 
 export const CYCLE2_ACTIVE_TARGET_CAP = 100
 const CYCLE2_PACKET_MATERIAL_CAP = 50
@@ -295,7 +296,7 @@ function parseUnifiedFormat(raw, statusById, ordinalToId = null, lineageCandidat
     // zero actions/rejections, leaving the rows un-reviewed and re-queued.
     sawValid = true
     if (action === 'core') {
-      actions.push({ entry_id: entryId, action: 'core', core_summary: parts.slice(2).join('|').trim().slice(0, 120) })
+      actions.push({ entry_id: entryId, action: 'core', core_summary: parts.slice(2).join('|').trim() })
       continue
     }
     if (action === 'lineage') {
@@ -370,9 +371,30 @@ function parseUnifiedFormat(raw, statusById, ordinalToId = null, lineageCandidat
 
 let _currentRulesDigest = null
 let _currentRulesDigestTs = 0
-export function loadCurrentRulesDigest() {
+let _currentRulesDigestDataDir = null
+// Per-call cap: cycle2 pays for the digest on every packet of every hourly
+// pass, so it takes a tighter slice than the once-a-day cycle3 review.
+const RULES_DIGEST_DEFAULT_CHARS = 48_000
+const RULES_DIGEST_MAX_CHARS = 160_000
+function capDigest(text, maxChars) {
+  const cap = Math.min(RULES_DIGEST_MAX_CHARS, Math.max(4_000, Number(maxChars) || RULES_DIGEST_DEFAULT_CHARS))
+  return text.length > cap ? text.slice(0, cap) + '\n…[truncated]' : text
+}
+export function loadCurrentRulesDigest(dataDir = null, { maxChars } = {}) {
   const now = Date.now()
-  if (_currentRulesDigest && now - _currentRulesDigestTs < 60_000) return _currentRulesDigest
+  if (_currentRulesDigest && _currentRulesDigestDataDir === (dataDir ?? null)
+      && now - _currentRulesDigestTs < 60_000) return capDigest(_currentRulesDigest, maxChars)
+  const parts = []
+  // Preferred authority: the prompt-surface snapshot the session runtime
+  // writes from the exact blocks a live Lead session receives (rules, skill
+  // catalog, workflow, role rules, AND every tool description). Rule files
+  // below remain as fallback / supplement for cycles that run before any
+  // session has started.
+  if (dataDir) {
+    const surface = readPromptSurfaceFile(dataDir)
+    const rendered = renderPromptSurfaceDigest(surface)
+    if (rendered) parts.push(rendered)
+  }
   // Collect every rule file that loads into live sessions (lead + shared).
   // Discovered dynamically so rule-layout refactors can't silently empty the
   // digest again (the old hardcoded shared/* list rotted to one file and the
@@ -396,7 +418,6 @@ export function loadCurrentRulesDigest() {
       }
     }
   } catch {}
-  const parts = []
   for (const p of sources) {
     try {
       if (!existsSync(p)) continue
@@ -404,11 +425,11 @@ export function loadCurrentRulesDigest() {
       if (txt) parts.push(`# Source: ${p}\n${txt}`)
     } catch {}
   }
-  const joined = parts.join('\n\n---\n\n')
-  const CAP = 40_000
-  _currentRulesDigest = joined.length > CAP ? joined.slice(0, CAP) + '\n…[truncated]' : joined
+  // The live surface sits first so truncation only ever trims fallback files.
+  _currentRulesDigest = parts.join('\n\n---\n\n')
   _currentRulesDigestTs = now
-  return _currentRulesDigest
+  _currentRulesDigestDataDir = dataDir ?? null
+  return capDigest(_currentRulesDigest, maxChars)
 }
 
 function uniqueIds(values) {
@@ -669,7 +690,7 @@ export async function runUnifiedGate(db, rows, activeContext, config = {}, optio
   }
   const template = readFileSync(promptPath, 'utf8')
   const userCoreRows = options.dataDir ? await listCore(options.dataDir, '*').catch(() => []) : []
-  const rulesDigest = loadCurrentRulesDigest() || '(no current rules digest available)'
+  const rulesDigest = loadCurrentRulesDigest(options.dataDir ?? null) || '(no current rules digest available)'
   const lineageCandidates = await loadLineageCandidates(db, rows, {
     perRowLimit: config?.lineage_per_row,
     queryBatchSize: config?.lineage_query_batch,

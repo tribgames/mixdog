@@ -201,7 +201,12 @@ function buildSystemBlocks(systemMsgs, model, systemTtl, tier3Ttl) {
             body = body.slice(CLAUDE_CODE_SYSTEM_PREFIX.length).trim();
             if (!body) continue;
         }
-        blocks.push({ type: 'text', text: body, _tier: items[i].tier });
+        // Anthropic concatenates system text blocks byte-for-byte with no
+        // separator, so a trimmed block would glue its last line onto the next
+        // block's heading (`...Claude.# General`, `...and b# Session`). Every
+        // block after the first opens with a paragraph break; the gating
+        // prefix block itself stays byte-exact.
+        blocks.push({ type: 'text', text: blocks.length ? `\n\n${body}` : body, _tier: items[i].tier });
     }
     // Apply per-tier cache_control. BP1/BP2 -> systemTtl, BP3 -> tier3Ttl. The
     // gating prefix block is never cached (Anthropic routes on its exact bytes).

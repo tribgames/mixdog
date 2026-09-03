@@ -23,8 +23,17 @@ import type {
 } from "../shared/contract";
 import { remoteBrowserImagePoint } from "../shared/remote-browser";
 import { normalizeAddressInput } from "./browser-address";
+import { readBrowserZoom, writeBrowserZoom } from "./browser-zoom-level";
+import { BrowserZoomPill } from "./BrowserZoomPill";
 import { t } from "./i18n";
 import type { BrowserPaneProps } from "./BrowserPane.lazy";
+
+/** Keep a zoomed frame's edges inside the box: the image may pan only as far
+ *  as its overflow on each axis. */
+function clampPan(offset: number, size: number, zoom: number): number {
+  const reach = Math.max(0, (size * (zoom - 1)) / 2);
+  return Math.min(reach, Math.max(-reach, offset));
+}
 
 const ACTIVE_POLL_MS = 350;
 const IDLE_POLL_MS = 900;
@@ -48,6 +57,24 @@ export default function RemoteBrowserPane({
   const [failure, setFailure] = useState("");
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const refreshSoon = useCallback(() => wakePoll.current?.(), []);
+  // Client-side zoom of the frame image (user: 화면 하단 중앙에 확대축소):
+  // the desktop keeps sending the same frame; the phone scales and pans it.
+  // Tap coordinates read the image's transformed box, so they stay exact.
+  const [zoomLevel, setZoomLevel] = useState(() =>
+    readBrowserZoom(window.localStorage, sessionId));
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const panStart = useRef({ x: 0, y: 0 });
+  const changeZoomLevel = useCallback((level: number) => {
+    const next = writeBrowserZoom(window.localStorage, ownerSessionId, level);
+    setZoomLevel(next);
+    const image = imageRef.current;
+    setPan((current) => next <= 1 || !image
+      ? { x: 0, y: 0 }
+      : {
+        x: clampPan(current.x, image.clientWidth, next),
+        y: clampPan(current.y, image.clientHeight, next),
+      });
+  }, [ownerSessionId]);
 
   useEffect(() => {
     if (!active || !api?.remoteBrowserFrame) return undefined;
@@ -145,6 +172,19 @@ export default function RemoteBrowserPane({
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     pointerStart.current = { clientX: event.clientX, clientY: event.clientY, ...point };
+    panStart.current = pan;
+  };
+
+  // Zoomed in, a one-finger drag pans the frame instead of swiping the page.
+  const pointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const start = pointerStart.current;
+    const image = imageRef.current;
+    if (!start || zoomLevel <= 1 || !image) return;
+    event.preventDefault();
+    setPan({
+      x: clampPan(panStart.current.x + (event.clientX - start.clientX), image.clientWidth, zoomLevel),
+      y: clampPan(panStart.current.y + (event.clientY - start.clientY), image.clientHeight, zoomLevel),
+    });
   };
 
   const pointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -159,6 +199,7 @@ export default function RemoteBrowserPane({
       void control({ type: "tap", frameId: frameId.current, x: end.x, y: end.y });
       return;
     }
+    if (zoomLevel > 1) return;
     void control({
       type: "swipe",
       frameId: frameId.current,
@@ -260,6 +301,7 @@ export default function RemoteBrowserPane({
     </div>}
     <div className="browser-pane-content browser-remote-content"
       onPointerDown={pointerDown}
+      onPointerMove={pointerMove}
       onPointerUp={pointerUp}
       onPointerCancel={() => { pointerStart.current = null; }}
       onWheel={(event) => {
@@ -276,6 +318,9 @@ export default function RemoteBrowserPane({
       }}>
       {imageUrl
         ? <img ref={imageRef} src={imageUrl} draggable={false}
+          style={zoomLevel !== 1 || pan.x || pan.y
+            ? { transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoomLevel})` }
+            : undefined}
           alt={frame?.title || "Browser Use"} />
         : <div className="browser-remote-empty">
             {failure
@@ -289,6 +334,7 @@ export default function RemoteBrowserPane({
         <span>{failure}</span>
         <button type="button" onClick={refreshSoon}>다시 연결</button>
       </div>}
+      {imageUrl && <BrowserZoomPill level={zoomLevel} onChange={changeZoomLevel} />}
     </div>
   </div>;
 }

@@ -9,9 +9,9 @@ import type { WebContents } from 'electron';
 
 import { BrowserConsoleLedger } from './console';
 import type { PendingBrowserDialog } from './dialog-report';
-import { redactBrowserKnownSecrets, redactBrowserText } from './host-policy';
 import { BrowserNetworkLedger } from './network';
 import type { ActiveBrowserPerformanceTrace } from './performance';
+import { redactBrowserKnownSecrets, redactBrowserText } from './redaction';
 import type { VisualGrounding } from './ref-points';
 import type { BrowserRefSet } from './ref-recovery';
 import type { AccessibilityRefSnapshot } from './snapshot-capture';

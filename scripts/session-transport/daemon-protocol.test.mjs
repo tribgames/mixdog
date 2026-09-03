@@ -151,11 +151,15 @@ test('revision 0 clients keep read compatibility without retired channel mutatio
   }
 });
 
-test('a higher app build request drains clients and rejects fresh registration', async () => {
+test('a higher app build keeps compatible clients live until handoff commits', async () => {
   let transport;
   let upgrade = null;
+  const calls = [];
   transport = createSessionTransport({
-    handleCall: async () => null,
+    handleCall: async (name, args) => {
+      calls.push({ name, args });
+      return { name, args };
+    },
     clientGraceMs: 5,
     onClientsEmpty: () => {},
     onUpgradeRequested(details) {
@@ -181,6 +185,30 @@ test('a higher app build request drains clients and rejects fresh registration',
     await waitForValue(() => upgrade);
     assert.equal(upgrade.protocol, SESSION_PROTOCOL);
     assert.equal(upgrade.version, '9999.0.0');
+    const duringDrain = await daemonPost(discovery, '/call', {
+      token: registered.token,
+      name: 'test.compatible-call',
+      args: { value: 1 },
+      callId: 'compatible-call-during-drain',
+    });
+    assert.deepEqual(duringDrain.result, {
+      name: 'test.compatible-call',
+      args: { value: 1 },
+    });
+    const compatibleNewcomer = await daemonPost(discovery, '/client/register', {
+      protocol: SESSION_PROTOCOL,
+      revision: SESSION_REVISION,
+      leadPid: process.pid,
+      lifecycle: false,
+    });
+    assert.ok(compatibleNewcomer.token);
+    const softHealth = await probeSessionHealth(discovery);
+    assert.match(softHealth.draining, /test replacement/);
+    assert.equal(softHealth.drainCommitted, false);
+    assert.equal(transport.connectionCount, 2);
+    assert.equal(transport.commitDrain('test replacement commit'), true);
+    const committedHealth = await probeSessionHealth(discovery);
+    assert.equal(committedHealth.drainCommitted, true);
     await assert.rejects(
       daemonPost(discovery, '/client/register', {
         protocol: SESSION_PROTOCOL,
@@ -189,6 +217,16 @@ test('a higher app build request drains clients and rejects fresh registration',
       }),
       /daemon is draining/,
     );
+    await assert.rejects(
+      daemonPost(discovery, '/call', {
+        token: registered.token,
+        name: 'test.must-not-run',
+        args: {},
+        callId: 'rejected-after-drain-commit',
+      }),
+      /daemon is draining/,
+    );
+    assert.equal(calls.length, 1);
   } finally {
     await transport.stop();
   }

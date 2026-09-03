@@ -135,6 +135,17 @@ export function contrastRatio(foreground, background) {
   return (light + 0.05) / (dark + 0.05);
 }
 
+// A short label (a chevron stage, a node name, a step number) sits by design
+// next to its neighbour in the run or its own note; the block gap applies
+// between blocks of copy, not inside a labelled construct.
+const LABEL_MAX_CHARS = 16;
+
+function isLabelBox(box) {
+  const paragraphs = Array.isArray(box?.paragraphs) ? box.paragraphs : [];
+  const text = paragraphs.map((paragraph) => String(paragraph.text ?? '').trim()).filter(Boolean).join('\n');
+  return text.length > 0 && text.length <= LABEL_MAX_CHARS && !text.includes('\n');
+}
+
 export function reviewShapeSpacing(boxes = [], { minimumGap = 21.6 } = {}) {
   const issues = [];
   const slides = new Map();
@@ -159,6 +170,7 @@ export function reviewShapeSpacing(boxes = [], { minimumGap = 21.6 } = {}) {
         if (apart[0] === apart[1]) continue;
         const gap = apart[0] ? horizontal : vertical;
         if (gap >= minimumGap) continue;
+        if (isLabelBox(left) || isLabelBox(right)) continue;
         if (!apart[0]) {
           const aligned = Math.min(left.left + left.width, right.left + right.width)
             - Math.max(left.left, right.left);

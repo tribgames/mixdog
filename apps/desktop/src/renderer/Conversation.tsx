@@ -234,7 +234,7 @@ export function Conversation({
   streamingTailSlot,
   runtimeProgressSlot,
   goalIsland,
-  statusIsland,
+  contextIndicator,
   readOnly = false,
   reviewActive = true,
   warmPaintHandoff = false,
@@ -282,10 +282,9 @@ export function Conversation({
   /** Goal capsule routed to the composer unless the pane's visible DIFF owns
    *  it instead. */
   goalIsland?: ReactNode;
-  /** Session status island: the context gauge and the live Agent/Shell chips
-   *  as ONE capsule at the transcript's top-right corner, so neither readout
-   *  competes with the composer for space. */
-  statusIsland?: ReactNode;
+  /** Context gauge seated in the composer footer beside the model trigger
+   *  on every surface (user: 컨텍스트는 모델 선택기 옆; 모바일도 PC에 맞춰). */
+  contextIndicator?: ReactNode;
   /** Transcript-only child-agent view: no submit, retry, approval, review, or
    *  other session runtime-mutating controls are mounted. */
   readOnly?: boolean;
@@ -638,6 +637,20 @@ export function Conversation({
     || activeStreamingTail
     || optimisticActivityStartedAt
   );
+  // Submit-gap batching: the optimistic user row opens the next review scope
+  // in the SAME commit it appends, so the diff bar unmounts there; the goal
+  // capsule instead follows the lane snapshot, which lands one commit later,
+  // and the composer height then steps twice (user: 엔터 치면 투툭투툭 튄다 —
+  // 한 프레임에 동시 처리). While the submit gap is open, hide the goal in
+  // that same commit — but only when this submit actually closes a
+  // file-touching scope, so persistent goals on conversation-only turns are
+  // left alone.
+  const turnTouchesFilesRef = useRef(turnTouchesFiles);
+  turnTouchesFilesRef.current = turnTouchesFiles;
+  const hideGoalForSubmitRef = useRef(false);
+  const submitGapOpen = transcriptPendingPromptItems.length > 0;
+  if (!submitGapOpen && hideGoalForSubmitRef.current) hideGoalForSubmitRef.current = false;
+  const hideGoalForSubmit = hideGoalForSubmitRef.current && submitGapOpen;
   useEffect(() => {
     if (previousTranscriptSessionKey.current === transcriptSessionKey) return;
     previousTranscriptSessionKey.current = transcriptSessionKey;
@@ -874,6 +887,12 @@ export function Conversation({
     };
     const materializingDraft = draftModeRef.current;
     if (materializingDraft) suppressDraftSubmitPaintHandoff.current = true;
+    // Batch the goal hide into the same commit as the append + diff hide (see
+    // submit-gap batching above). Queued follow-ups ride the active turn and
+    // must not touch the current chrome.
+    if (turnTouchesFilesRef.current && !queuedBehindTurnAtSubmit.current) {
+      hideGoalForSubmitRef.current = true;
+    }
     setOptimisticPrompts((current) => [
       ...current.filter((item) => item.id !== submissionId),
       optimistic,
@@ -1045,10 +1064,6 @@ export function Conversation({
           ?.focus({ preventScroll: true });
       }}>
       <div className="transcript-shell">
-      {/* Session status island (user: 우상단에 동그란 섬): it floats over the
-          scroller's top-right corner instead of riding the composer, so the
-          gauge and the Agent/Shell chips never cover the input surface. */}
-      {statusIsland}
       <div className="transcript" ref={viewport} role="log" aria-label={t("Conversation transcript")}
         style={transcriptRevealed ? undefined : { visibility: "hidden" }}
         data-session-key={transcriptSessionKey}
@@ -1132,7 +1147,7 @@ export function Conversation({
       </button>}
       </div>
       {!readOnly && <div className="composer-region">
-        <SessionGoalHost placement="composer">{goalIsland}</SessionGoalHost>
+        <SessionGoalHost placement="composer">{hideGoalForSubmit ? null : goalIsland}</SessionGoalHost>
         {runtimeProgressSlot ?? (Boolean(asRecord(snapshot.progressHint)?.text)
           ? <div className="runtime-progress" role="status">
             {String(asRecord(snapshot.progressHint)?.text)}
@@ -1210,6 +1225,7 @@ export function Conversation({
           draftMode={draftMode}
           onDraftModelSelection={onDraftModelSelection}
           onRoutePreferenceApplied={onRoutePreferenceApplied}
+          modelAside={contextIndicator}
           queued={composerQueued}
           hiddenQueueIds={pendingPromptIds}
           pendingSubmissionIds={pendingPromptIds}

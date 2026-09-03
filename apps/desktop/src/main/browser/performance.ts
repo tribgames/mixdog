@@ -1,5 +1,6 @@
 import type { WebContents } from 'electron';
 
+import type { BrowserCdpPort } from './cdp';
 import type { GuestSlot } from './guest-state';
 
 interface TraceAggregate {
@@ -71,33 +72,17 @@ export interface ActiveBrowserPerformanceTrace {
 }
 
 export interface BrowserPerformanceCommandHost {
-  guestDebugger(guest: WebContents): Promise<Electron.Debugger>;
-  sendCdp<T>(
-    guest: WebContents,
-    cdp: Electron.Debugger,
-    method: string,
-    params?: Record<string, unknown>,
-    timeoutMs?: number,
-    signal?: AbortSignal,
-  ): Promise<T>;
+  cdp: BrowserCdpPort;
   /** Shared with the CDP listener that feeds and completes a running trace. */
   tracesByGuest: GuestSlot<ActiveBrowserPerformanceTrace>;
   settleAfterAction(guest: WebContents, signal?: AbortSignal): Promise<unknown>;
   pause(ms: number, signal?: AbortSignal): Promise<void>;
-  cdpTimeoutMs: number;
 }
 
 const TRACE_COMPLETION_TIMEOUT_MS = 10_000;
 
 export function createBrowserPerformanceCommands(host: BrowserPerformanceCommandHost) {
-  const {
-    guestDebugger,
-    sendCdp,
-    tracesByGuest,
-    settleAfterAction,
-    pause,
-    cdpTimeoutMs,
-  } = host;
+  const { cdp, tracesByGuest, settleAfterAction, pause } = host;
 
   async function performanceResult(
     guest: WebContents,
@@ -105,15 +90,12 @@ export function createBrowserPerformanceCommands(host: BrowserPerformanceCommand
     signal?: AbortSignal,
   ): Promise<{ text: string }> {
     const operation = String(command.operation || 'metrics').toLowerCase();
-    const cdp = await guestDebugger(guest);
     if (operation === 'metrics') {
-      await sendCdp(guest, cdp, 'Performance.enable', {}, cdpTimeoutMs, signal);
-      const result = await sendCdp<{ metrics?: Array<{ name?: string; value?: number }> }>(
+      await cdp.call(guest, 'Performance.enable', {}, signal);
+      const result = await cdp.call<{ metrics?: Array<{ name?: string; value?: number }> }>(
         guest,
-        cdp,
         'Performance.getMetrics',
         {},
-        cdpTimeoutMs,
         signal,
       );
       return { text: formatPerformanceMetrics(result.metrics || []) };
@@ -132,11 +114,11 @@ export function createBrowserPerformanceCommands(host: BrowserPerformanceCommand
       tracesByGuest.set(guest, active);
       let tracingStarted = false;
       try {
-        await sendCdp(guest, cdp, 'Tracing.start', {
+        await cdp.call(guest, 'Tracing.start', {
           categories: 'devtools.timeline,v8.execute,blink.user_timing,loading,disabled-by-default-v8.cpu_profiler',
           options: 'sampling-frequency=10000',
           transferMode: 'ReportEvents',
-        }, cdpTimeoutMs, signal);
+        }, signal);
         tracingStarted = true;
         if (command.reload) {
           guest.reload();
@@ -147,7 +129,7 @@ export function createBrowserPerformanceCommands(host: BrowserPerformanceCommand
           try {
             // Cancellation may be the reason setup failed, but cleanup must
             // still reach Chromium instead of inheriting the cancelled signal.
-            await sendCdp(guest, cdp, 'Tracing.end', {}, cdpTimeoutMs);
+            await cdp.call(guest, 'Tracing.end');
             tracesByGuest.delete(guest);
           } catch (cleanupError) {
             throw new Error(
@@ -169,7 +151,7 @@ export function createBrowserPerformanceCommands(host: BrowserPerformanceCommand
       const active = tracesByGuest.get(guest);
       if (!active) return { text: 'No performance trace is running for this page.' };
       try {
-        await sendCdp(guest, cdp, 'Tracing.end', {}, cdpTimeoutMs, signal);
+        await cdp.call(guest, 'Tracing.end', {}, signal);
         await Promise.race([
           active.complete,
           pause(TRACE_COMPLETION_TIMEOUT_MS, signal).then(() => {

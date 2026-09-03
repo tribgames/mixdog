@@ -154,7 +154,10 @@ const firstScreenHints: Plugin = {
 
 export default defineConfig({
   main: buildTargetEnabled('main') ? {
-    plugins: [externalizeDepsPlugin()],
+    // qrcode is bundled, not resolved from the shipped node_modules: an
+    // installed shell once lost its transitive deps (dijkstrajs, pngjs) and
+    // the pairing QR silently never rendered. Pure JS, so bundling is safe.
+    plugins: [externalizeDepsPlugin({ exclude: ['qrcode'] })],
     build: {
       rollupOptions: {
         input: {

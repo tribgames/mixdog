@@ -10,7 +10,7 @@ import { basename, join } from 'node:path';
 
 import type { WebContents } from 'electron';
 
-import { redactBrowserText, redactBrowserUrl } from './host-policy';
+import { redactBrowserText, redactBrowserUrl } from './redaction';
 
 export interface TrackedBrowserDownload {
   id: string;

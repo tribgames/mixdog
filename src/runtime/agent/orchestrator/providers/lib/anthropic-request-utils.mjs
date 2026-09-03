@@ -11,8 +11,6 @@ import {
     anthropicFallbackProviderMetadata,
     parseAnthropicFallbackBlock,
 } from '../anthropic-server-fallback.mjs';
-import { SUMMARY_PREFIX_ANCHOR } from '../../session/compact/constants.mjs';
-
 export const ANTHROPIC_CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };
 export const ANTHROPIC_CACHE_TTL_VOLATILE = { type: 'ephemeral' };
 
@@ -66,18 +64,18 @@ export function resolveAnthropicCacheTtls(opts) {
 // messages), which frees its slot for the messages tail. The system blocks hold
 // BP1/BP2/BP3 (tier3), so every consumed slot is already counted there.
 //
-// Env override: ANTHROPIC_MSG_SLOTS=0 disables message caching entirely; any
-// value >=1 first marks the previous user text turn so consecutive requests
-// share a breakpoint, and a second free slot marks the tail for the newest
-// delta. messageTtl === null (no slot, or ttls.messages disabled) turns the
-// tail off.
+// Claude Code parity: exactly one message-level breakpoint advances with the
+// live tail on every request. ANTHROPIC_MSG_SLOTS=0 disables message caching;
+// any positive value enables that one marker when the system layout leaves a
+// slot. messageTtl === null turns the tail off.
 export function resolveAnthropicMessageCacheSlots(systemBlocks, ttls) {
     const usedSlots = systemBlocks.filter(b => b.cache_control).length;
     const slotsCap = Number.parseInt(process.env.ANTHROPIC_MSG_SLOTS, 10);
-    const defaultSlots = Math.max(0, 4 - usedSlots);
-    const messageSlots = ttls.messages
-        ? (Number.isFinite(slotsCap) && slotsCap >= 0 ? Math.min(slotsCap, defaultSlots) : defaultSlots)
-        : 0;
+    const hasFreeSlot = usedSlots < 4;
+    const capAllowsMessage = Number.isFinite(slotsCap) && slotsCap >= 0
+        ? slotsCap > 0
+        : true;
+    const messageSlots = ttls.messages && hasFreeSlot && capAllowsMessage ? 1 : 0;
     // Key order matches the object both call sites built inline: messageTtl
     // first, then messageSlots.
     return { messageTtl: messageSlots > 0 ? ttls.messages : null, messageSlots };
@@ -123,6 +121,32 @@ function toolResultContentWithoutReferences(message, droppedNames) {
         type: 'text',
         text: `[tool references dropped - no longer available: ${droppedNames.join(', ')}]`,
     }];
+}
+
+// API constraint: an `is_error` tool_result may hold ONLY text blocks
+// ("all content must be type `text` if `is_error` is true" — a 400 that
+// repeats on every later turn of the session once the block is in history).
+// Computer Use / Browser Use failures legitimately carry a screenshot, so the
+// media is not dropped: the tool_result keeps its text (joined, is_error
+// intact) and the non-text blocks are hoisted as sibling blocks of the same
+// user message, right after the tool_result. Applied at request-build time so
+// already-persisted histories recover on their next request.
+const ERROR_RESULT_EMPTY_TEXT = '[error result had no text; its attached content follows this block]';
+const ERROR_RESULT_MEDIA_NOTE = '[attached screenshot/media for this failed call follows this block]';
+function splitErrorToolResultContent(content) {
+    if (!Array.isArray(content)) return { content, hoisted: [] };
+    const texts = [];
+    const hoisted = [];
+    for (const block of content) {
+        if (block?.type === 'text' && typeof block.text === 'string') texts.push(block.text);
+        else if (block && typeof block === 'object') hoisted.push(block);
+    }
+    if (hoisted.length === 0) return { content, hoisted };
+    const text = texts.map((t) => t.trim()).filter(Boolean).join('\n\n');
+    return {
+        content: [{ type: 'text', text: text ? `${text}\n\n${ERROR_RESULT_MEDIA_NOTE}` : ERROR_RESULT_EMPTY_TEXT }],
+        hoisted,
+    };
 }
 
 export function toAnthropicMessages(messages, availableTools) {
@@ -182,20 +206,24 @@ export function toAnthropicMessages(messages, availableTools) {
             const droppedReferences = usableReferences.length === references.length
                 ? []
                 : references.filter((name) => !usableReferences.includes(name));
+            const isError = m.toolKind === 'error' || m.isError === true;
+            let content = usableReferences.length
+                ? usableReferences.map((tool_name) => ({ type: 'tool_reference', tool_name }))
+                : (droppedReferences.length
+                    ? toolResultContentWithoutReferences(m, droppedReferences)
+                    : normalizeContentForAnthropic(m.content));
+            let hoisted = [];
+            if (isError) ({ content, hoisted } = splitErrorToolResultContent(content));
             const block = {
                 type: 'tool_result',
                 tool_use_id: m.toolCallId || '',
-                content: usableReferences.length
-                    ? usableReferences.map((tool_name) => ({ type: 'tool_reference', tool_name }))
-                    : (droppedReferences.length
-                        ? toolResultContentWithoutReferences(m, droppedReferences)
-                        : normalizeContentForAnthropic(m.content)),
-                ...((m.toolKind === 'error' || m.isError === true) ? { is_error: true } : {}),
+                content,
+                ...(isError ? { is_error: true } : {}),
             };
             if (last?.role === 'user' && Array.isArray(last.content)) {
-                last.content.push(block);
+                last.content.push(block, ...hoisted);
             } else {
-                result.push({ role: 'user', content: [block] });
+                result.push({ role: 'user', content: [block, ...hoisted] });
             }
             continue;
         }
@@ -458,81 +486,9 @@ export function applyAnthropicCacheMarkers(sanitizedMessages, {
     if (!Array.isArray(sanitizedMessages) || sanitizedMessages.length === 0) {
         return sanitizedMessages;
     }
-    const firstText = (content) => {
-        if (typeof content === 'string') return content;
-        if (Array.isArray(content)) {
-            const first = content.find((block) => block?.type === 'text');
-            return first && typeof first.text === 'string' ? first.text : '';
-        }
-        return '';
-    };
-    const isSystemReminder = (content) => firstText(content).startsWith('<system-reminder>');
-    const hasUserText = (message) => {
-        if (message?.role !== 'user' || isSystemReminder(message.content)) return false;
-        if (typeof message.content === 'string') return message.content.trim().length > 0;
-        if (!Array.isArray(message.content)) return false;
-        return message.content.some((block) => block?.type === 'text'
-            && typeof block.text === 'string' && block.text.trim().length > 0);
-    };
-    const previousUserTextAnchorIdx = () => {
-        for (let i = sanitizedMessages.length - 2; i >= 0; i--) {
-            if (hasUserText(sanitizedMessages[i])) return i;
-        }
-        return -1;
-    };
-    const latestToolResultTailIdx = () => {
-        for (let i = sanitizedMessages.length - 1; i >= 0; i--) {
-            const message = sanitizedMessages[i];
-            if (message?.role !== 'user' || !Array.isArray(message.content) || message.content.length === 0) continue;
-            if (message.content[message.content.length - 1]?.type === 'tool_result') return i;
-        }
-        return -1;
-    };
-    const firstRequestUserPromptIdx = () => {
-        if (latestToolResultTailIdx() !== -1 || previousUserTextAnchorIdx() !== -1) return -1;
-        const tailIdx = sanitizedMessages.length - 1;
-        return hasUserText(sanitizedMessages[tailIdx]) ? tailIdx : -1;
-    };
-    // True-tip anchor: when the request ends with a PERSISTED user text turn
-    // (the current prompt — it re-appears verbatim in every later request's
-    // prefix), mark it first. Without this, mid-session turn-first requests
-    // (multi-turn only; single-turn sessions are already covered by
-    // firstRequestUserPromptIdx) leave the fresh prompt unmarked: its tokens
-    // bill once at $5/M uncached, then again as a cache write when a later
-    // anchor advances past them — cost bounded by the prompt's size, so it
-    // matters for large pasted prompts. (2026-08-03 A/B note: session totals'
-    // totalUncachedInputTokens = input + cacheWrite by design, see
-    // uncachedInputTokensForProvider; billing-uncached input measured via
-    // usage.json was already ~0 on single-turn bench tasks before and after
-    // this change.) Synthetic system-reminder tails are excluded by
-    // hasUserText, so per-call volatile content still never keys the cache.
-    const currentTailUserIdx = () => {
-        const tailIdx = sanitizedMessages.length - 1;
-        return hasUserText(sanitizedMessages[tailIdx]) ? tailIdx : -1;
-    };
-    const compactSummaryIdx = () => {
-        for (let i = sanitizedMessages.length - 1; i >= 0; i--) {
-            const message = sanitizedMessages[i];
-            if (message?.role === 'user' && firstText(message.content).startsWith(SUMMARY_PREFIX_ANCHOR)) return i;
-        }
-        return -1;
-    };
-    if (messageTtl !== null) {
-        const slots = Math.max(0, Math.min(4, Number(messageSlots) || 0));
-        const marked = new Set();
-        // A post-compact summary is the largest stable session-specific prefix:
-        // reserve the first available message slot for it. Additional slots
-        // still advance through the normal live-tail candidates.
-        const candidates = [compactSummaryIdx(), currentTailUserIdx(), latestToolResultTailIdx(), previousUserTextAnchorIdx(), firstRequestUserPromptIdx()];
-        for (const idx of candidates) {
-            if (slots <= 0) break;
-            if (idx < 0 || marked.has(idx)) continue;
-            const message = sanitizedMessages[idx];
-            if (messageTtl?.ttl === '1h' && isSystemReminder(message?.content)) continue;
-            message.content = appendAnthropicCacheControl(message.content, messageTtl);
-            marked.add(idx);
-            if (marked.size >= slots) break;
-        }
+    if (messageTtl !== null && Number(messageSlots) > 0) {
+        const message = sanitizedMessages[sanitizedMessages.length - 1];
+        message.content = appendAnthropicCacheControl(message.content, messageTtl);
     }
     return sanitizedMessages;
 }

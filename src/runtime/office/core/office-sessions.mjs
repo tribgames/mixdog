@@ -334,13 +334,22 @@ export async function createAuthoredSession(args, cwd, dataDir, target) {
     throw new Error('author requires auto, background, or portable mode');
   }
   const selected = await selectMode(requestedMode, format, target);
-  const designContext = await resolveOfficeDesignContext({
+  const resolved = await resolveOfficeDesignContext({
     args,
     dataDir,
     target,
     format,
     created: true,
   });
+  // The script's brief owns the background plan and the slide roles; the
+  // composer's deck plan (sandwich/dark/light) would only contradict it.
+  const designContext = {
+    ...resolved,
+    design: {
+      ...resolved.design,
+      deck: { ...(resolved.design?.deck || {}), backgroundMode: 'custom', enforce: false },
+    },
+  };
   const id = `office_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
   const session = {
     id,

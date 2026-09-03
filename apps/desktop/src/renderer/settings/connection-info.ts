@@ -7,6 +7,7 @@ interface ConnectionInfoCacheEntry {
   value?: DesktopRemoteAccessInfo | null;
   promise?: Promise<DesktopRemoteAccessInfo | null>;
   requestVersion?: number;
+  appliedRequestVersion?: number;
 }
 
 const connectionInfoCache = new WeakMap<object, ConnectionInfoCacheEntry>();
@@ -38,7 +39,11 @@ export function setCachedConnectionInfo(
   api: ConnectionInfoApi,
   value: DesktopRemoteAccessInfo | null,
 ): void {
-  cacheEntry(api).value = value;
+  const entry = cacheEntry(api);
+  const requestVersion = (entry.requestVersion ?? 0) + 1;
+  entry.requestVersion = requestVersion;
+  entry.appliedRequestVersion = requestVersion;
+  entry.value = value;
 }
 
 export function preloadConnectionInfo(
@@ -61,8 +66,20 @@ export function preloadConnectionInfo(
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   const request = api.getRemoteAccessInfo()
     .then((value) => {
-      if (entry.requestVersion !== requestVersion) return entry.value ?? null;
-      entry.value = value ?? null;
+      const next = value ?? null;
+      const appliedRequestVersion = entry.appliedRequestVersion ?? 0;
+      // A deadline releases the shared attempt so polling can retry, but the
+      // original IPC call keeps running. Keep a late READY result unless a
+      // newer completed request already won; otherwise a response slower than
+      // the polling interval is invalidated forever by every following retry.
+      if (requestVersion < appliedRequestVersion) return entry.value ?? null;
+      // Once any request produced a usable QR, an overlapping empty response
+      // must not erase it and send the card back to its loading state.
+      if (!connectionInfoReady(next) && connectionInfoReady(entry.value)) {
+        return entry.value;
+      }
+      entry.appliedRequestVersion = requestVersion;
+      entry.value = next;
       return entry.value;
     })
     // A transient IPC/startup failure must not poison later Settings opens:

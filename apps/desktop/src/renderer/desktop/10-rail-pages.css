@@ -688,10 +688,11 @@
   right: 0;
   width: 132px;
   padding: 4px;
-  border-radius: var(--mx-radius-md);
+  border: var(--mx-popup-border);
+  border-radius: var(--mx-popup-radius);
   color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: var(--mx-floating);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .session-row-menu button {
   width: 100%;
@@ -714,7 +715,15 @@
 .session-row-menu button.danger { color: var(--mx-danger); }
 .session-title-input {
   position: absolute;
-  inset: 6px 8px 6px 10px;
+  /* Centered in the 31px row and starting on the row's own text line: the
+     old 6px/10px insets with a fixed 24px height hung 5px below the row and
+     began 8px right of the title (user: 이름 바꾸기 누르면 정렬 틀어짐). The
+     2px left inset plus the 6px inner padding lands the caret on the 8px
+     title inset. */
+  top: 50%;
+  right: 8px;
+  left: 2px;
+  transform: translateY(-50%);
   min-width: 0;
   width: auto;
   height: 24px;

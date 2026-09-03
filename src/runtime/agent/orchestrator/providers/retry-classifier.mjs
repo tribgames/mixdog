@@ -141,6 +141,12 @@ export function classifyError(err) {
   // still fails closed for anything already relayed or dispatched.
   if (isNonTerminalStreamClose(err)) return 'transient'
 
+  // Cursor's resumed tool-result stream cannot safely reopen the same wire
+  // request. Let the outer loop rebuild a fresh request from committed history.
+  if (!status && chain.some((item) => CURSOR_TRANSIENT_ERROR_CODES.has(
+    String(item?.cursorCode || ''),
+  ))) return 'transient'
+
   // Socket-level codes (Node errno) — DNS / reset / refused / timeout are all
   // transient: we can retry the same request and may succeed.
   if (chain.some((item) => TRANSIENT_ERROR_CODES.has(String(item?.code || '')))) return 'transient'
@@ -190,6 +196,18 @@ const TRANSIENT_ERROR_CODES = new Set([
   'ECONNABORTED', 'ENETRESET', 'ERR_STREAM_DESTROYED',
   'ERR_HTTP2_STREAM_ERROR', 'ERR_HTTP2_SESSION_ERROR', 'ERR_HTTP2_INVALID_SESSION',
   'ERR_SOCKET_CONNECTION_TIMEOUT',
+])
+
+// Cursor's HTTP/2 bridge preserves provider-specific codes in `cursorCode`.
+// These codes all describe an incomplete transport turn, not a model verdict.
+// Replay permission remains fail-closed in the stream-outcome gate above.
+const CURSOR_TRANSIENT_ERROR_CODES = new Set([
+  'stream_aborted',
+  'goaway',
+  'connection_timeout',
+  'stream_idle_timeout',
+  'stream_park_timeout',
+  'incomplete_stream',
 ])
 
 // WebSocket close codes that can end a Responses stream BEFORE its terminal

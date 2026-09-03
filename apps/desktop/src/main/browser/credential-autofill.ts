@@ -1,5 +1,6 @@
 import type { WebContents } from 'electron';
 
+import type { BrowserCdpPort } from './cdp';
 import type { BrowserCredentialValue } from './profile-import';
 
 export interface BrowserCredentialFillResult {
@@ -118,13 +119,7 @@ export const BROWSER_CREDENTIAL_AUTOFILL_FUNCTION = String.raw`async function(cr
 }`;
 
 export interface BrowserCredentialFillHost {
-  guestDebugger(guest: WebContents): Promise<Electron.Debugger>;
-  sendCdp<T>(
-    guest: WebContents,
-    cdp: Electron.Debugger,
-    method: string,
-    params?: Record<string, unknown>,
-  ): Promise<T>;
+  cdp: BrowserCdpPort;
   /** Remember the password so replies redact it; returns the live secret set. */
   rememberSecret(guest: WebContents, secret: string): unknown;
   forgetSecret(guest: WebContents, secret: string): void;
@@ -134,21 +129,19 @@ export interface BrowserCredentialFillHost {
 /** Fill a stored credential through an isolated world, so the page script
  *  never sees the values as source text or renderer IPC. */
 export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
-  const { guestDebugger, sendCdp, rememberSecret, forgetSecret, redactText } = host;
+  const { cdp, rememberSecret, forgetSecret, redactText } = host;
 
   async function fillCredentialInGuest(
     guest: WebContents,
     credential: Readonly<BrowserCredentialValue>,
   ): Promise<BrowserCredentialFillResult> {
-    const cdp = await guestDebugger(guest);
-    const frameTree = await sendCdp<{
+    const frameTree = await cdp.call<{
       frameTree?: { frame?: { id?: string } };
-    }>(guest, cdp, 'Page.getFrameTree');
+    }>(guest, 'Page.getFrameTree');
     const frameId = String(frameTree.frameTree?.frame?.id || '');
     if (!frameId) throw new Error('The current page frame is unavailable.');
-    const world = await sendCdp<{ executionContextId?: number }>(
+    const world = await cdp.call<{ executionContextId?: number }>(
       guest,
-      cdp,
       'Page.createIsolatedWorld',
       {
         frameId,
@@ -158,12 +151,11 @@ export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
     );
     if (!world.executionContextId) throw new Error('The secure credential fill context is unavailable.');
     rememberSecret(guest, credential.password);
-    const response = await sendCdp<{
+    const response = await cdp.call<{
       result?: { value?: BrowserCredentialFillResult };
       exceptionDetails?: { text?: string; exception?: { description?: string } };
     }>(
       guest,
-      cdp,
       'Runtime.callFunctionOn',
       {
         executionContextId: world.executionContextId,

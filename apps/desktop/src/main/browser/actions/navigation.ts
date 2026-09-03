@@ -3,7 +3,7 @@
  */
 import { type BrowserCommandResult, NAVIGATE_SETTLE_TIMEOUT_MS } from '../command';
 import { pushBounded } from '../guest-state';
-import { redactBrowserText } from '../host-policy';
+import { redactBrowserText } from '../redaction';
 import { pause } from '../settle';
 import { type BrowserActionContext, defineBrowserActions } from './types';
 

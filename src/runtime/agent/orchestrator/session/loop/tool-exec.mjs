@@ -197,6 +197,7 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
                 if (visible) {
                     enqueuePendingMessage(notificationSessionId, markCompletionEntry(visible, {
                         executionId: meta?.execution_id,
+                        meta,
                     }));
                 }
             } catch { /* best effort */ }

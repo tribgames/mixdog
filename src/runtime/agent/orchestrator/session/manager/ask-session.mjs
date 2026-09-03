@@ -29,13 +29,14 @@ import {
     hasModelVisiblePromptContent,
     promptContentBytes,
     prefixUserTurnContent,
-    prefixSessionStartContent,
+    suffixUserTurnReminders,
     buildCurrentTimeBlock,
     refreshSessionBp3Environment,
     hasUserConversationMessage,
 } from './prompt-utils.mjs';
 import {
-    _mergePendingMessageEntries,
+    _groupPendingMessageEntries,
+    PENDING_MODE_TASK_NOTIFICATION,
     acknowledgePendingMessages,
     finalizePendingMessageDelivery,
     drainPendingMessages,
@@ -281,6 +282,17 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         let _turnPendingEntries = [];
         let _turnDeferredToolDelta = null;
         let _turnGoalReminder = null;
+        // Provenance of a queue-fed turn: a task notification served as its
+        // own turn is stored as such (meta.source/execution), never as the
+        // user speaking.
+        let _turnPromptSource = null;
+        const _tailTurnFor = (group) => ({
+            content: group.content,
+            entries: group.entries,
+            ...(group.mode === PENDING_MODE_TASK_NOTIFICATION
+                ? { source: PENDING_MODE_TASK_NOTIFICATION, ...(group.execution ? { execution: group.execution } : {}) }
+                : {}),
+        });
         // After the first turn, the next prompt comes from the drained queue.
         // (On the first iteration _pendingTail is empty and `prompt` is the
         // caller's original message.)
@@ -288,6 +300,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             const pendingTurn = _pendingTail.shift();
             prompt = pendingTurn.content;
             _turnPendingEntries = pendingTurn.entries;
+            _turnPromptSource = pendingTurn.source
+                ? { source: pendingTurn.source, ...(pendingTurn.execution ? { execution: pendingTurn.execution } : {}) }
+                : null;
             // Queued follow-ups are plain user turns — no caller context /
             // prefetch is re-applied (those belonged to the original ask).
             context = null;
@@ -296,14 +311,24 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             // Idle resume: TUI kicks an empty ask() after execution completions
             // mirror model-visible bodies into session pending. Drain that queue
             // here so we never synthesize an empty user turn for the model.
+            // Modes are never mixed: the first group runs now, the rest queue
+            // as their own follow-up turns (task notifications one each).
             const _preDrained = drainPendingMessages(sessionId);
             if (_preDrained.length > 0) {
-                const _mergedPre = _mergePendingMessageEntries(_preDrained);
-                if (_mergedPre?.content) {
-                    prompt = _mergedPre.content;
-                    _turnPendingEntries = _preDrained;
+                const _groups = _groupPendingMessageEntries(_preDrained);
+                const _first = _groups[0];
+                if (_first?.content) {
+                    const _firstTurn = _tailTurnFor(_first);
+                    prompt = _firstTurn.content;
+                    _turnPendingEntries = _firstTurn.entries;
+                    _turnPromptSource = _firstTurn.source
+                        ? { source: _firstTurn.source, ...(_firstTurn.execution ? { execution: _firstTurn.execution } : {}) }
+                        : null;
+                    _pendingTail.unshift(..._groups.slice(1).map(_tailTurnFor));
                     context = null;
                     explicitPrefetch = null;
+                } else {
+                    releasePendingMessages(sessionId, _preDrained);
                 }
             }
         }
@@ -626,12 +651,18 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 _turnGoalReminder?.content || '',
             ].filter(Boolean).join('\n\n');
             const _baseUserTurnContent = prefixUserTurnContent(prompt, _contextBlock);
-            const _userTurnContent = prefixSessionStartContent(_baseUserTurnContent, _turnReminderBlock);
+            // Reminders trail the human text (same order as the reference
+            // CLI): the user's language stays the last signal before the reply.
+            const _userTurnContent = suffixUserTurnReminders(_baseUserTurnContent, _turnReminderBlock);
             cancelledUserTurnContent = _userTurnContent;
+            const _userTurnMeta = {
+                ...(_transcriptMeta ? { transcript: _transcriptMeta } : {}),
+                ...(_turnPromptSource || {}),
+            };
             const outgoing = [...historyMessages, {
                 role: 'user',
                 content: _userTurnContent,
-                ...(_transcriptMeta ? { meta: { transcript: _transcriptMeta } } : {}),
+                ...(Object.keys(_userTurnMeta).length ? { meta: _userTurnMeta } : {}),
             }];
             _turnOutgoing = outgoing;
             // Expose the in-flight working transcript so contextStatus() can
@@ -842,10 +873,21 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                         if (drainOptions?.stage === 'terminal') {
                             const _pendingNow = drainPendingMessages(sessionId);
                             if (_pendingNow.length > 0) {
-                                const _mergedNow = _mergePendingMessageEntries(_pendingNow);
-                                if (_mergedNow?.content) {
+                                // One steering entry per mode group: the merged
+                                // prompt (if any) and each task notification on
+                                // its own, so the loop stores them apart.
+                                const _groupsNow = _groupPendingMessageEntries(_pendingNow);
+                                if (_groupsNow.length > 0) {
                                     _turnPendingEntries.push(..._pendingNow);
-                                    out.push(_mergedNow);
+                                    for (const group of _groupsNow) {
+                                        out.push({
+                                            content: group.content,
+                                            text: group.text,
+                                            ids: group.ids,
+                                            mode: group.mode,
+                                            ...(group.execution ? { execution: group.execution } : {}),
+                                        });
+                                    }
                                 } else {
                                     releasePendingMessages(sessionId, _pendingNow);
                                 }
@@ -1340,15 +1382,14 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             ? _pwstTurnDrained
             : drainPendingMessages(sessionId);
         if (_drained.length > 0) {
-            // Same merge rule as the mid-turn steering drain (loop.mjs) and
-            // the TUI engine.mjs drain(): a single drain batch is joined with
-            // "\n" and delivered as ONE follow-up turn, not N isolated turns.
-            // Keeps every steering/follow-up path on identical
-            // merge-then-deliver semantics. Anything that arrives AFTER this
-            // drain enqueues for the next loop pass and is merged there.
-            const _mergedTail = _mergePendingMessageEntries(_drained);
-            if (_mergedTail?.content) {
-                _pendingTail.push({ content: _mergedTail.content, entries: _drained });
+            // Same grouping as the mid-turn steering drain: queued PROMPT
+            // entries in one batch are joined with "\n" and delivered as ONE
+            // follow-up turn, while each task notification is its own turn
+            // (modes never share a user message). Anything that arrives AFTER
+            // this drain enqueues for the next loop pass.
+            const _tailGroups = _groupPendingMessageEntries(_drained);
+            if (_tailGroups.length > 0) {
+                _pendingTail.push(..._tailGroups.map(_tailTurnFor));
                 // Carry the just-committed in-memory session into the follow-up
                 // turn so the queued tail sees the preceding assistant/tool
                 // context. loadSession() would return this same live snapshot

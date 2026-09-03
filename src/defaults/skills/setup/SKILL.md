@@ -1,464 +1,238 @@
 ---
 name: setup
-description: Use this skill only to inspect or modify a Mixdog user's persisted configuration and settings. Skip Mixdog source changes, builds, installs, releases, and development deployment.
+description: Use this skill only to inspect or modify a Mixdog user's persisted configuration and settings through the built-in `setup` tool — models and routes, workflow, output style, profile, auto-clear/compact, memory, built-in features, providers, MCP servers, skills, plugins, update. Skip Mixdog source changes, builds, installs, releases, and development deployment.
 ---
 
 # mixdog Setup Runbook
 
 사용자 요청을 아래 레시피에 매칭하고 **확인 → 변경 → 검증** 순서로 진행한다.
 
-> **METHOD·POINTER만 기록한다.** 모델명·토큰·URL·채널 ID 같은 라이브 값은 이 문서에 넣지 않고, 매번 config·런타임 status·환경변수에서 읽는다.
+> **METHOD·POINTER만 기록한다.** 모델명·토큰·URL·채널 ID 같은 라이브 값은 이 문서에 넣지 않고, 매번 `setup status`·환경변수에서 읽는다.
 
-## 0. 기준과 저장 구조
+## 0. 도구 계약
 
-### 공통 경로
+### `setup` 툴이 유일한 변경 경로다
 
-- `<mixdogData>` 해석 순서: `MIXDOG_DATA_DIR` → `<MIXDOG_HOME|~/.mixdog>/data` (`src/runtime/shared/plugin-paths.mjs`)
-- 통합 config: `<mixdogData>/mixdog-config.json`
-- 프로젝트 config: `<cwd>/.mixdog/hooks.json`
-- TUI 명령 목록: `src/tui/app/slash-commands.mjs`
-- TUI 설정 허브: `/setting` (별칭 `/settings`, `/config`) → `src/tui/app/settings-picker.mjs`
-- Desktop 설정: `Ctrl+,` → General / Context / Output style / Providers / Git / Skills / MCP / Plugins / Connection / System / Shortcuts / About
-- Desktop rail: **Projects / Workflows / Schedules / Webhooks / Utilities**
+- 모든 조회·변경은 `setup` 툴로 한다. `mixdog-config.json`을 `edit`으로 고치지 않는다 — 정규화·마이그레이션·MCP 재연결·빈 세션 툴 표면 재동기화를 전부 우회한다.
+- 예외는 UI·툴 어디에도 없는 키(§3 memory cycle interval, §6 레거시 감사)만이며, 그때도 백업 후 편집한다.
+- **비밀값은 툴이 받지 않는다.** API 키·OAuth·usage 로그인은 `setup open providers`로 화면을 열고 사용자가 입력한다. 값을 트랜스크립트에 쓰지도, 사용자에게 붙여넣으라고 요청하지도 않는다.
+- 변경은 기본적으로 **다음 세션**부터 적용된다. 결과의 `appliedToCurrentSession`·`appliesTo`를 그대로 사용자에게 전달한다.
 
-사용자 경로와 지원 여부는 **현재 Desktop 구현을 최신 기준**으로 판정한다. TUI는 Desktop에 없는 고급 경로를 보완할 때만 사용하며, 저장만 왕복되고 실제 소비되지 않는 key는 사용자 옵션으로 설명하지 않는다.
+### 액션 지도
 
-### config 중첩 규칙
+| 목적 | 액션 | 주요 인자 |
+|---|---|---|
+| 조회 | `status` | `domain`: summary(기본) · model · agents · workflow · websearch · output-style · profile · autoclear · compaction · memory · features · shell · providers · mcp · skills · plugins · update · onboarding |
+| 화면 열기 | `open` | `target`: settings · providers · model · websearch · workflow · agents · outputstyle · theme · profile · autoclear · memory · mcp · skills · plugins · update · usage · doctor · context |
+| 메인 모델 | `set_route` | `route {provider, model, effort, fast}` — 일부만 주면 나머지는 유지 |
+| 에이전트 모델 | `set_agent_route` | `agent`, `route` — `provider: ""`이면 override 제거(Main 상속) |
+| 웹 검색 모델 | `set_web_search_route` | `route` — provider 비우면 기본 route |
+| 워크플로 팩 | `set_workflow` | `workflow` |
+| 출력 스타일 | `set_output_style` | `style` |
+| 프로필 | `set_profile` | `profile {title, language, experienceLevel}` |
+| Auto-clear | `set_autoclear` | `autoclear {enabled, duration, provider}` |
+| Auto-compact | `set_compaction` | `enabled` |
+| Memory 마스터 | `set_memory_enabled` | `enabled` (툴·코어 주입·배경 사이클 함께) |
+| 배경 사이클만 | `set_recap_enabled` | `enabled` |
+| Web search 툴 | `set_web_search_enabled` | `enabled` |
+| Git/Office 켜기·끄기 | `set_builtin_enabled` | `name` git\|office, `enabled` |
+| 내장 기능 설치 | `install_builtin` | `name` git\|memory\|office |
+| 시스템 셸 | `set_system_shell` | `command` (빈 값 = 자동) |
+| 자동 업데이트 | `set_auto_update` | `enabled` |
+| 로컬 provider | `set_local_provider` | `name`, `enabled`, `baseURL` |
+| 인증 삭제 | `forget_provider_auth` | `name` |
+| MCP | `add_mcp_server` · `save_mcp_server` · `remove_mcp_server` · `set_mcp_enabled` · `reconnect_mcp` | `server {...}` 또는 `name`, `enabled` |
+| Skills 비활성 목록 | `set_disabled_skills` | `skills` (전체 목록으로 교체) |
+| 적용 프로젝트 | `set_extension_scope` | `kind` skills\|mcp\|plugins, `name`, `projects` (프로젝트 루트 경로 목록; 빈 배열 = 모든 프로젝트) |
+| Plugins | `add_plugin` · `update_plugin` · `set_plugin_enabled` · `remove_plugin` | `source` 또는 `name`, `enabled` |
 
-런타임 API는 agent 설정을 flat object처럼 다루지만, 디스크에서는 대부분 `agent` 섹션 아래에 저장한다.
+`open`은 세션에 붙은 앱(Desktop/TUI)이 있으면 그 화면으로 이동하고 `opened:true`를 돌려준다. 헤드리스(스케줄·웹훅·exec)면 `opened:false`와 안내 문구가 오므로 그 문구를 사용자에게 전달한다.
 
-| 영역 | 디스크 경로 |
-|---|---|
-| Lead 모델 | `agent.presets[id=workflow-lead]` + `agent.default` |
-| 에이전트 라우트 | `agent.agents.<id>` |
-| Web Search 모델 | `agent.webSearchRoute` |
-| Provider·MCP·프로필·스킬·업데이트·셸·autoClear·compaction | `agent.*` |
-| Web search 도구 | `agent.modules.webSearch.enabled` |
-| Recap(배경 사이클) | `agent.recap.enabled` |
-| 출력 스타일 | 루트 `outputStyle` |
-| Webhook server | `channels.webhook.*` |
-| 메모리 cycle interval | `memory.cycle1.interval`, `memory.cycle2.interval` |
-| 음성 전사 | `voice.enabled` |
-| TUI 테마 | `ui.theme` |
+### 저장 구조(참고)
 
-`agent.workflowRoutes`는 저장하지 않는다. 로드 시 레거시 값을 `agent.agents`로 이관한 뒤 제거한다.
+- `<mixdogData>`: `MIXDOG_DATA_DIR` → `<MIXDOG_HOME|~/.mixdog>/data`. 통합 config는 `<mixdogData>/mixdog-config.json`.
+- 런타임은 flat, 디스크는 대부분 `agent.*` 아래. 출력 스타일만 루트 `outputStyle`, 음성은 `voice.enabled`, TUI 테마는 `ui.theme`, 메모리 주기는 `memory.cycle1/2.interval`.
+- API 키·토큰·OAuth 자격은 OS keychain/provider 저장소에 있고 config에 없다.
 
-API 키·토큰·OAuth 자격은 config에 쓰지 않는다.
+### UI 지도 (Desktop 기준, TUI는 보조)
 
-### 공통 진단
+Desktop **Settings** (`Ctrl+,`) 카테고리와 그 안의 그룹:
 
-- MCP: `/mcp`, Desktop **Settings → MCP**, 또는 `mcpStatus()`
-- Skills: `/skills`, Desktop **Settings → Skills**, 또는 `skillsStatus()`
-- Providers: `/providers`, Desktop **Settings → Providers**, 또는 `getProviderSetup()`
-- Webhooks: Desktop **Webhooks** 뷰, 또는 `getChannelSetup()` (webhook enabled/port)
-- 비밀 존재 여부: `hasStoredSecret(account)`만 사용하고 값은 출력하지 않는다.
+| 카테고리 | 그룹(행) | 툴 액션 |
+|---|---|---|
+| General | Profile(Title·Language·Experience level) · Features(Web search 토글) · Notifications(웹앱 전용) · Display language · Theme · Side panels | `set_profile`, `set_web_search_enabled`. Display language·Theme·Side panels·Notifications는 Desktop 로컬(localStorage) — 툴 없음 |
+| Context | Session lifecycle(Auto-compact · Auto-clear · provider별 idle window) | `set_compaction`, `set_autoclear` |
+| Output style | 스타일 선택 | `set_output_style` |
+| Providers | OAuth providers(Connect) · API-key providers(Get API key ↗ · 키 입력 · Save) · Local providers · Usage sign-in | `set_local_provider`, `forget_provider_auth`; 비밀값은 화면에서 |
+| Git | GitHub(CLI Connect) · Commit messages | Desktop 로컬 — 툴 없음 |
+| Connection | Web app(페어링 QR) · Linked devices | Desktop 전용 — 툴 없음 |
+| System | Update · Power(Keep system awake, Desktop 로컬) · Doctor(Run doctor) | `set_auto_update`, `status update`; Doctor는 `open doctor` |
+| Shortcuts / About | 키바인드 참조 · 커뮤니티 링크 | 읽기 전용 |
+
+Desktop **레일**(사이드탭):
+
+| 레일 | 내용 | 툴 액션 |
+|---|---|---|
+| Projects | Add project · 프로젝트별 Name·Instructions·**Memories**(코어 메모리) · **Common Instructions**(모든 프로젝트 공통) | 프로젝트·Instructions는 툴 없음(파일·UI). 코어 메모리는 `memory` 툴 |
+| Workflows | Workflows(팩 목록·생성·편집) · Default agents(Main · Web Search) · Agents(정의·Edit) | `set_workflow`, `set_route`, `set_web_search_route`, `set_agent_route`. 팩·에이전트 정의 생성/편집은 UI/파일만 |
+| Extensions → **Plugin** 탭 | **Built-in** 카드(Web search · Memory · Git · Office · Browser Use · Computer Use · Voice transcription) + **Plugins** | `set_builtin_enabled`, `install_builtin`, `set_memory_enabled`, `set_web_search_enabled`, plugin 액션들. Browser/Computer/Voice는 UI만 |
+| Extensions → **Skill** 탭 | **Skills** + **MCP**(헤더 `+` = Add skill or MCP) | `set_disabled_skills`, MCP 액션들 |
+| Schedules / Webhooks | 자동화(§5) | 툴 없음 |
+
+- Memory 마스터 토글과 Voice는 **Settings에 없다** — Extensions → Plugin → Built-in 카드다. 코어 메모리 목록은 **Projects → 프로젝트 → Memories**.
+- Desktop의 `/workflow`·`/websearch`·`/agents`는 **Workflows** 페이지로, `/mcp`·`/skills`는 Extensions **Skill** 탭으로, `/plugins`·`/memory`·`/voice`는 Extensions **Plugin** 탭으로 열린다. `/settings`는 Settings 다이얼로그.
+- 웹앱(원격) 화면에서는 Providers 카테고리가 숨겨진다 — 인증은 Desktop에서만 안내한다.
+- TUI 허브: `/setting` (별칭 `/settings`, `/config`). System shell·Memory cycles는 TUI에만 있다.
 
 ---
 
 ## 1. 모델·라우팅·워크플로
 
-### 메인 모델 변경
+### 메인 모델
+1. `status model` — provider/model/effort/fast/effortOptions.
+2. `set_route`. provider만 주면 그 provider의 기본 모델, model만 주면 현재 provider에서 찾는다.
+3. 빈 세션이면 즉시, 대화가 있으면 다음 세션부터. `/clear` 뒤 확인을 안내한다.
+- UI: Desktop 세션 헤더 모델 피커 · TUI `/model`, `/effort`, `/fast`. `open model`.
 
-1. **확인**: 상태줄·세션 헤더, TUI `/setting → Model`, 디스크 `agent.presets[id=workflow-lead]` / `agent.default`.
-2. **변경**: `/model` 또는 세션 헤더 모델 피커 → provider → model → effort/Fast → 저장 (`setRoute` → `persistLeadRoute`).
-3. **검증**: 비어 있는 현재 세션은 즉시 반영된다. 대화 이력이 있으면 기존 세션 route는 유지되고 다음 세션부터 적용되므로 `/clear` 후 provider/model을 확인한다.
+### 에이전트 모델
+- 고정 서비스는 **Maintainer**만이고 `worker`/`heavy-worker`/`reviewer`·사용자 에이전트는 custom 정의다. 두 상태만 있다: 모델 지정 또는 off. 지정이 없으면 Main을 따른다.
+1. `status agents` — id·route·disabled·userOverride.
+2. `set_agent_route {agent, route}`. 상속 복원은 `route: {provider: ""}`.
+- UI: Desktop **Workflows → Agents → Edit** · TUI `/agents`. `open agents`.
 
-온보딩 일괄 설정은 `mixdog --onboarding` 또는 Desktop wizard **Main**.
-
-### 특정 에이전트 모델 변경
-
-고정 서비스는 **Maintainer**뿐이다. `worker` / `heavy-worker` / `reviewer`와 사용자 에이전트는 custom 정의다.
-
-1. **확인**: Desktop rail **Workflows → Default agents / Agents**, 또는 TUI `/agents`. 저장 override는 `agent.agents.<id>`.
-2. **변경**:
-   - Desktop: **Workflows** → 해당 행 **Edit**
-   - TUI: `/agents` → agent → model picker
-   - API: `setAgentRoute(id, route)` (`src/session-runtime/workflow-agents-api.mjs`)
-3. **저장 계약**: `agent.agents.<id>`만 갱신한다. `workflow-agent-*` preset과 `workflowRoutes`는 쓰지 않는다.
-4. **검증**: 목록의 route와 `agent.agents.<id>`가 같은 provider/model/effort/Fast를 가리키는지 확인한다.
-
-**Main 상속으로 복원**
-
-- TUI `/agents`와 Desktop route editor에는 override 삭제 버튼이 없다.
-- API: `setAgentRoute(id, { provider: '' })`가 `agent.agents.<id>`를 제거하고 inherited를 반환한다.
-- 수동 복원 시 `agent.agents.<id>`만 제거한다.
-- 온보딩 **Default**는 wizard draft만 비우며, 이미 저장된 override 삭제를 보장하지 않는다.
-
-### 워크플로 슬롯
-
-`WORKFLOW_ROUTE_SLOTS = ['lead','agent','memory']` (`src/session-runtime/workflow.mjs`). 온보딩 입력용이며 디스크에는 남기지 않는다.
-
-| 슬롯 | 저장 | 사용자 경로 |
-|---|---|---|
-| `lead` | `agent.presets[id=workflow-lead]` + `agent.default` | `/model` / 세션 헤더 |
-| `memory` | `agent.agents.maintainer` | Desktop **Workflows → Maintainer** 또는 `/agents → Maintainer` |
-| `agent` | `agent.agents.worker` | 전용 행 없음. onboarding 또는 `setAgentRoute('worker', …)` |
-
-`explorer` 슬롯은 없다. Desktop이 Explore 행을 그리는 것은 catalog에 `explore` id가 남아 있을 때만이다.
-
-### 웹 검색 모델
-
-1. **확인**: Desktop **Workflows → Default agents → Web Search**, TUI `/websearch`, `getWebSearchRoute()`, 디스크 `agent.webSearchRoute`.
-2. **변경**: Desktop **Web Search → Edit** 또는 TUI `/websearch` → `setWebSearchRoute()`.
-3. **검증**: 저장 route가 native web-search 가능 provider/model인지 확인하고 다음 `web_search` 도구 호출에서 사용되는지 확인한다.
-
-`/websearch` 인자는 route를 직접 지정하지 않으며 피커를 연다.
-
-### Web search 도구 토글
-
-모델과 별개다. 새 세션의 search/fetch 도구 노출을 제어한다.
-
-1. **확인**: Desktop **Settings → General → Web search**, TUI `/setting → Web search`.
-2. **변경**: toggle → `setWebSearchEnabled()`.
-3. **저장**: `agent.modules.webSearch.enabled`.
-4. **검색 범위**: 전역 `<mixdogData>/skills/`와 활성 Plugin skill만 사용한다. Project `.mixdog/skills/`는 읽지 않는다.
-5. **검증**: 열린 runtime과 다음 세션의 tool surface.
-
-### reasoning effort / Fast
-
-- Effort: `/effort [level]` 또는 model picker의 ←/→ → 현재 Main route에 저장
-- Fast: `/fast [on|off]` 또는 model picker의 Tab → 현재 Main route에 저장
-- Desktop 세션 헤더에서도 같은 Main route를 바꾼다.
-- 진행 중 turn은 시작 값을 유지하고 새 값은 다음 turn부터 적용된다.
-- agent/web-search route의 effort/Fast는 각 route에 격리되며 Main의 `modelSettings`를 덮어쓰지 않는다.
+### 웹 검색 모델·툴
+- 모델(`set_web_search_route`)과 툴 노출(`set_web_search_enabled`)은 별개다. 모델은 native web-search 가능 provider/model만 허용된다(툴이 검증).
+- UI: Desktop **Workflows → Web Search** / **Settings → General → Web search** · TUI `/websearch`, `/setting → Web search`.
 
 ### 워크플로 팩
-
-1. **확인**: Desktop 세션 헤더 workflow 피커, TUI `/workflow`, 디스크 `agent.workflow.active`.
-2. **변경**:
-   - 활성 팩: Desktop 세션 헤더 피커 또는 TUI `/workflow` → `setWorkflow()`.
-   - 팩·에이전트 정의: Desktop rail **Workflows**에서 생성·편집·삭제. 이 페이지에는 활성 팩 버튼이 없다.
-   - Desktop `/workflow`·`/agents`는 Settings가 아니라 Workflows 페이지를 연다.
-3. **저장**: 사용자 pack은 `<mixdogData>/workflows/<id>/WORKFLOW.md`, agent는 `<mixdogData>/agents/<id>/AGENT.md`.
-4. **검증**: `listWorkflows()` active 값과 pack agent 목록, `listAgents()` route를 확인한다.
+1. `status workflow` — 팩 목록과 active.
+2. `set_workflow`. 팩 정의 생성·편집은 Desktop **Workflows**에서만(툴 없음).
+- 사용자 pack은 `<mixdogData>/workflows/<id>/WORKFLOW.md`, agent는 `<mixdogData>/agents/<id>/AGENT.md`.
 
 ---
 
-## 2. Provider·인증·비밀
+## 2. Provider·인증
 
-### Provider API 키
-
-1. **확인**: `/providers`, `/setting → Providers`, 또는 Desktop **Settings → Providers**의 authenticated/env/stored 상태.
-2. **변경**:
-   - TUI: provider → **Add/Replace API key**
-   - Desktop: unauthenticated API-key provider의 secret 입력. 저장 key 교체는 **Forget** 후 다시 저장한다.
-   - env로 authenticated인 provider는 Desktop 입력란이 숨겨지므로 해당 env를 변경한다.
-   - API: `saveProviderApiKey(provider, secret)`
-3. **저장**: OS keychain account `agent.<provider>.apiKey`. 디스크 `agent.providers.<provider>`에는 enabled/baseURL 등 비밀이 아닌 값만 남는다.
-4. **검증**: provider가 authenticated이고 `/model` catalog가 로드되는지 확인한다.
-
-표준 provider env가 있으면 런타임에서 우선 사용할 수 있다. 실제 env 이름은 `src/runtime/shared/config.mjs`에서 읽는다.
-
-### OAuth 로그인 / 해제
-
-1. **확인**: Providers 화면의 OAuth provider authenticated 상태.
-2. **변경**: provider → **Login/Re-login** (`beginOAuthProviderLogin`) 또는 **Forget login** (`forgetProviderAuth`).
-3. **저장**: provider별 credential 파일 또는 provider auth 저장소. 경로·값을 문서에 복사하지 않는다.
-4. **검증**: authenticated 상태와 model catalog를 확인한다.
-
-### 로컬 Provider
-
-1. **확인**: Providers의 local provider enabled/detected/baseURL.
-2. **변경**: provider → **Enable / Set URL**, **Update Base URL**, **Disable** (`setLocalProvider`).
-3. **저장**: `agent.providers.<id>.enabled/baseURL`.
-4. **검증**: provider status와 model catalog를 확인한다.
-
-### Usage 로그인
-
-- OpenCode Go 등 지원 provider: Providers → **Usage login (browser)** (`loginOpenCodeGoUsage`).
-- 자격은 OS keychain의 전용 account에 저장한다. `/usage` 새로고침으로 검증한다.
-
-### Secrets 원칙
-
-| account | 용도 |
-|---|---|
-| `agent.<provider>.apiKey` | Provider API key |
-| `agent.openai.usageSessionKey` | OpenAI usage |
-| `agent.opencode-go.authCookie` | OpenCode Go usage |
-
-값은 출력하지 않고 `hasStoredSecret()`으로 존재만 확인한다. MCP `env`는 keychain이 아니라 자식 프로세스 환경이다.
+1. `status providers` — api/oauth/local 행의 authenticated·source(env/keychain/none)·`keyUrl`. 비밀값은 절대 오지 않는다.
+2. **API 키가 없는 provider**: `open providers` → 사용자가 해당 행의 **Get API key ↗**로 콘솔에서 키를 발급받아 입력란에 붙여넣고 Save. TUI는 `/providers` → provider → **Get API key (browser)** / **Add API key**. env 변수로 인증된 provider는 입력란이 숨겨지므로 env를 바꾸라고 안내한다.
+3. **OAuth**: `open providers` → 행의 **Connect**가 브라우저를 열고 대화상자가 상태를 폴링한다(Anthropic은 코드 붙여넣기 방식). 툴이 대신 시작하지 않는다.
+4. **해제**: `forget_provider_auth {name}` — 사용자 확인 후에만.
+5. **로컬 provider**(Ollama·LM Studio): `set_local_provider {name, enabled, baseURL}`.
+6. **Usage 로그인**(OpenCode Go 등): Providers 화면의 **Usage sign-in**. `/usage`로 검증.
+- 검증: `status providers`에서 authenticated, 그리고 `status model`의 catalog 로드.
 
 ---
 
 ## 3. 출력·프로필·세션·메모리·셸
 
 ### 출력 스타일
+- `status output-style` → `set_output_style`. 사용자 정의는 `<mixdogData>/output-styles/<id>.md`(기본은 `common.md` 상속, 전면 교체는 frontmatter `keep-shared-format: false`).
+- 대화 중이면 현재 채팅에 적용되지 않는다.
 
-1. **확인**: `/OutputStyle status`, `/setting → Output style`, Desktop **Settings → Output style**, 디스크 루트 `outputStyle`.
-2. **변경**: `/OutputStyle`, `/style`, `/OutputStyle <id>`, 또는 Desktop에서 선택 → `setOutputStyle()`.
-3. **사용자 정의**: `<mixdogData>/output-styles/<id>.md`.
-4. **검증**: 대화 이력이 있으면 현재 chat에는 적용되지 않으므로 `/clear` 후 확인한다.
-
-루트 `outputStyle`만 읽고 쓴다. `agent.outputStyle`은 더 이상 읽지 않으므로 발견하면 제거한다.
-
-사용자 정의 스타일은 기본적으로 빌트인 공통 포맷(`output-styles/common.md`)을 상속한다. 전면 교체는 frontmatter에 `keep-shared-format: false`를 넣고, 공통 포맷 자체를 바꾸려면 `<mixdogData>/output-styles/common.md`를 둔다.
+### 프로필
+- `set_profile {title, language, experienceLevel}`. 미지원 language는 `system`으로 정규화. 응답 언어와 Desktop **Display language**(chrome, localStorage)는 별개다.
 
 ### 테마
+- TUI `/theme`은 `ui.theme`. Desktop 테마는 localStorage라 툴 범위 밖이다 — `open theme`(TUI) 또는 Desktop **Settings → General → Theme** 안내.
 
-- TUI: `/theme [id]` 또는 `/setting → Theme`; 즉시 적용, `ui.theme`에 저장.
-- Desktop: **Settings → General → Theme**; Desktop `localStorage`에만 저장하며 TUI 테마와 독립적이다.
+### Auto-clear / Auto-compact
+- `set_autoclear {enabled, duration, provider}` — provider를 주면 provider별 idle window. 최소 1분.
+- `set_compaction {enabled}` — 하나의 fresh-context Compact 계약, 타입 선택 없음.
+- UI: Desktop **Settings → Context** · TUI `/autoclear`, `/setting → Auto-compact`.
 
-### 프로필 — 호칭·응답 언어
+### Memory
+- 마스터 `set_memory_enabled`는 모델 memory/recall 툴·코어 메모리 주입·배경 사이클을 함께 움직인다. 켜면 installed로도 표시된다.
+- 사이클만 끄려면 `set_recap_enabled false`(TUI **Memory cycles**와 동일; Desktop에는 행이 없음).
+- Core memory 편집은 `memory` 툴. 화면은 TUI `/memory`, Desktop **Projects → 프로젝트 → Memories**(`open memory`는 Desktop에서 Extensions → Plugin의 Memory 카드를 연다).
+- cycle interval(`memory.cycle1/2.interval`)만 UI·툴이 없다 — 백업 후 config 편집, 재시작이 적용 경계.
 
-1. **확인**: `/profile`, `/setting → Profile`, Desktop **Settings → General → Profile**, 디스크 `agent.profile`.
-2. **변경**: title/language → `setProfile()`. 미지원 language id는 `system`으로 정규화된다.
-3. **검증**: `getProfile()`과 새 세션의 system prompt 반영을 확인한다.
-
-응답 언어(`agent.profile.language`)와 Desktop **Display language**(chrome UI, `localStorage`)는 별개다.
-
-### Auto-clear
-
-1. **확인**: `/autoclear status`, `/setting → Auto-clear`, Desktop **Settings → Context**, 디스크 `agent.autoClear`.
-2. **변경**:
-   - `/autoclear [on|off|duration]`
-   - TUI `/setting → Auto-clear → Advanced`에서 provider별 idle window
-   - Desktop Context에서 toggle·provider별 duration·Reset
-3. **검증**: `getAutoClear()`의 enabled/idleMs/providerDefaults. 최소 duration은 1분이다.
-
-### Auto-compact
-
-1. **확인**: `/setting → Auto-compact`, Desktop **Settings → Context**, 디스크 `agent.compaction`.
-2. **변경**: Auto-compact toggle → `setCompactionSettings({ auto })`.
-3. **고정 계약**: 모든 session은 하나의 fresh-context Compact를 사용한다. Main은 Memory handoff, Agent는 session-local handoff를 사용하며 type 선택 UI는 없다.
-
-### Memory / Recap / Core Memory
-
-**구분**
-
-- Desktop **Settings → General → Memory**와 TUI **Memory**는 마스터다. `setMemoryToolsEnabled()`가 모델 memory/recall 도구·core-memory 주입·배경 recap을 함께 움직인다.
-- TUI **Memory cycles**만 recap 단독 토글이다 (`setRecapEnabled()`). Desktop에는 이 행이 없다.
-- 지속 저장은 `agent.recap.enabled`. `memoryTools` 디스크 키를 사용자 옵션으로 편집하지 않는다.
-
-1. **확인**: Desktop General Memory, TUI `/setting → Memory` / **Memory cycles**, `/memory`.
-2. **변경**: 마스터는 `setMemoryToolsEnabled()`, 사이클만은 TUI Memory cycles → `setRecapEnabled()`.
-3. **Core Memory**: Desktop **Settings → Context → Core memories**, TUI `/memory` 또는 `/setting → Core memories`.
-4. **검증**: `getToolModuleSettings().memory`, `getRecapSettings().enabled`. toggle은 재시작 없이 다음 세션/cycle부터 적용된다.
-
-### Memory cycle interval
-
-TUI·Desktop interval 편집 UI는 없다.
-
-1. **확인/변경**: 디스크 `memory.cycle1.interval`, `memory.cycle2.interval` duration 문자열.
-2. **검증**: config 재읽기. 재시작이 가장 확실한 적용 경계다.
-
-### 시스템 셸
-
-1. **확인**: `/setting → System shell`, `getSystemShell()`의 command/effective/source, 디스크 `agent.shell.command`.
-2. **변경**: `/setting → System shell` → command 입력; 빈 값은 자동 선택 (`setSystemShell()`).
-3. **적용**: 런타임 shell resolver가 즉시 갱신된다. `MIXDOG_SHELL`은 config가 비어 있을 때 env fallback이다.
-4. **경계**: Desktop Settings에는 셸 override가 없다.
-
-### Desktop 전용 로컬 설정
-
-- **General → Display language**: Desktop chrome 언어. `localStorage`. 변경 시 창 reload.
-- **General → Side panels**: Desktop local preference
-- **Git**: GitHub CLI 로그인, commit format(Plain / Conventional / Custom), Auto commit message. mixdog-config가 아니다.
-- **System → Keep system awake while working**: Electron desktop settings
-- **Connection**: phone/browser pairing
-- **Shortcuts / About**: 조회·링크 중심이며 runtime config 레시피가 아니다.
-- **Utilities** rail: Studio / Terminal / Explorer 실행. 설정 저장이 아니다.
+### 시스템 셸 (TUI 전용)
+- `set_system_shell {command}`; 빈 값은 자동 선택. `MIXDOG_SHELL`은 config가 비었을 때 fallback.
 
 ---
 
-## 4. MCP·Skills·Plugins·Hooks(내부)
+## 4. 내장 기능·Extensions
 
-### MCP 추가
+### 내장 기능 (Extensions → Built-in)
+- `status features` — webSearch/memory/git/office의 enabled·installed, browser/computer의 active.
+- Git·Memory·Office는 **install-first**: `install_builtin`이 준비(모델 다운로드·구성요소 확인) → installed+enabled. 이후 켜고 끄기는 `set_builtin_enabled`(git/office) · `set_memory_enabled`.
+- Browser Use / Computer Use는 Desktop 로컬 설정(install 마커 + control 토글)이고 브리지가 살아 있을 때만 활성이다. Desktop **Extensions → Plugin → Built-in**에서 Install/토글하며 툴 액션이 없다. Computer Use는 Windows 전용.
+- Voice transcription도 같은 Built-in 카드(managed Whisper 설치·토글). 툴 액션 없음 — `open plugins`로 화면을 열고 사용자에게.
+- Git 카드의 Install은 시스템 Git 설치까지, Office 카드의 Install은 LibreOffice 의존성까지 UI가 안내한다. 툴 `install_builtin`은 런타임 준비만 하므로 의존성이 없으면 UI Install을 안내한다.
+- `MIXDOG_FEATURE_*` env 오버라이드(WEB_SEARCH/MEMORY/GIT/OFFICE/BROWSER/COMPUTER)는 headless/bench용이며 설정을 이긴다.
 
-1. **확인**: `/mcp` 또는 Desktop **Settings → MCP**, `mcpStatus()`, `agent.mcpServers`.
-2. **변경**:
-   - Desktop: **Settings → MCP → Add**
-   - 디스크: `agent.mcpServers.<name>` 편집
-   - API 자동화: `addMcpServer()`, `removeMcpServer()`, `reconnectMcp()`
-3. **transport**:
-   - stdio: `type`, `command`, `args`, `cwd`, `env`
-   - URL: `http`, `sse`, `ws`와 `url`, 선택 `headers`
-4. **검증**: `connected`, `toolCount`, `transport`, `error`.
+### MCP
+1. `status mcp` — name·enabled·connected·transport·toolCount·error.
+2. `add_mcp_server {server}` — stdio: `{name, type:"stdio", command, args, cwd, env}`; URL: `{name, type:"http"|"sse"|"ws", url, headers}`. 수정은 `save_mcp_server`(이름 변경은 `originalName` 포함), 삭제는 `remove_mcp_server`, 토글은 `set_mcp_enabled`, 재연결은 `reconnect_mcp`. 전부 즉시 재연결·세션 툴 표면 재동기화까지 수행한다.
+3. 진단: error를 먼저 읽고, stdio는 command·args·cwd·env, URL은 scheme·endpoint·headers·방화벽 순으로.
+- Project `.mcp.json`은 읽지 않는다. 전역 `agent.mcpServers`만.
+- UI: Desktop **Extensions → Skill 탭 → MCP** · TUI `/mcp`. `open mcp`.
 
-파일을 직접 편집했다면 mixdog 재시작이 기본 적용 경로다.
+### Skills
+- `status skills` → `set_disabled_skills [..]`(전체 목록 교체). 다음 세션부터 반영.
+- 생성은 파일: 글로벌 `<mixdogData>/skills/<name>/SKILL.md`, 프로젝트 `<cwd>/.mixdog/skills/<name>/SKILL.md`. 우선순위 프로젝트 → 글로벌 → plugin. frontmatter `name`·`description` 필수.
+- UI: Desktop **Extensions → Skill 탭 → Skills** · TUI `/skills`(use 액션 포함). `open skills`.
 
-### MCP enable / disable
-
-TUI `/mcp`와 Desktop MCP 모두 서버별 toggle을 지원하며 live connection과 세션 tool surface를 재동기화한다.
-
-- 서버 정의는 유지하고 `agent.mcpServers.<name>.enabled`를 전역으로 변경한다.
-- Project `.mcp.json`과 Project별 override는 읽지 않는다.
-- turn 실행 중 toggle은 turn 종료 경계에서 세션을 재생성한다.
-
-### MCP 진단
-
-1. `/mcp`의 transport/error를 먼저 읽는다.
-2. stdio는 command·args·cwd·자식 env, URL transport는 scheme·endpoint·headers·방화벽을 확인한다.
-3. `connected:true`와 기대 tool 노출로 검증한다.
-
-### Skills enable / disable
-
-1. **확인**: `/skills` 또는 Desktop **Settings → Skills**.
-2. **변경**: Enable/Disable → `setDisabledSkills()`.
-3. **저장**: 디스크 `agent.skills.disabled`.
-4. **적용**: prompt/tool surface는 다음 세션부터 갱신되므로 `/clear` 후 검증한다.
-
-Desktop Skills는 enable/disable만 한다. TUI `/skills`는 같은 토글에 더해 활성 skill을 다음 요청에 붙이는 **use** 액션이 있다.
-
-### Skill 생성
-
-UI 생성 액션은 없다.
-
-- 프로젝트: `<cwd>/.mixdog/skills/<name>/SKILL.md`
-- 글로벌: `<mixdogData>/skills/<name>/SKILL.md`
-- API `addSkill()`은 프로젝트 skill skeleton만 생성한다.
-- 우선순위: 프로젝트 → 글로벌 → plugin; frontmatter `name`이 같으면 먼저 발견된 항목이 이긴다.
-- frontmatter에 `name`, `description`을 넣고 `/skills`에서 검증한다.
+### 적용 프로젝트 (scope)
+- Skill·MCP·Plugin은 전부 머신 전역으로 설치·연결되지만, `set_extension_scope {kind, name, projects}`로 특정 프로젝트 루트에서만 보이게 제한할 수 있다. `projects`가 비면 전역. 세션 cwd가 루트 자체이거나 그 하위면 해당 프로젝트로 본다.
+- Plugin의 scope는 그 플러그인이 가져온 Skills·MCP에 그대로 상속된다. status 응답의 `scope`(자기 목록)·`inheritedScope`(플러그인 목록)·`activeHere`(현재 cwd에서 보이는지)로 확인한다.
+- 저장: `agent.extensionScopes.{skills|mcp|plugins}[name] = [root, …]`. 연결·파일은 건드리지 않고 다음 세션(또는 빈 세션 즉시)부터 반영.
+- UI: 각 항목 상세 다이얼로그의 **적용 범위**(모든 프로젝트 / 선택한 프로젝트).
 
 ### Plugins
+- `add_plugin {source}`(Git URL · owner/repo · 로컬 경로) → `set_plugin_enabled` · `update_plugin` · `remove_plugin`. 토글은 그 플러그인의 Skills·MCP를 함께 움직인다.
+- 저장: `<mixdogData>/plugins/registry.json`, checkout은 `<mixdogData>/plugins/installed/`.
+- UI: Desktop **Extensions → Plugin 탭 → Plugins** · TUI `/plugins`. `open plugins`. 상세 대화상자에 Update·Enable MCP·Remove가 있다.
 
-1. **확인**: `/plugins` 또는 Desktop **Settings → Plugins**.
-2. **추가**: Git URL, `owner/repo`, 기존 local path → `addPlugin()`.
-3. **관리**: 전역 enable/disable, update/metadata refresh, plugin MCP enable/reconfigure, root/MCP name 복사, uninstall.
-4. **저장**: `<mixdogData>/plugins/registry.json`; managed Git checkout은 `<mixdogData>/plugins/installed/`.
-5. **검증**: `pluginsStatus()`, plugin skill 수, MCP server 노출.
-
-Plugin toggle은 해당 Plugin의 Skills와 MCP를 전역으로 함께 활성화/비활성화한다. 개별 MCP와 Skill은 각 화면에서도 관리할 수 있다.
-
-### Hooks (사용자 설정 UI 없음)
-
-1. **범위**: hook은 plugin·내부 연동 전용이다. Desktop 설정 화면과 `/hooks` 슬래시 명령은 제공하지 않으므로 사용자 옵션으로 안내하지 않는다.
-2. **구성**: hook config 파일을 직접 편집하거나 runtime `addHookRule()` / `setHookRuleEnabled()` / `deleteHookRule()`을 사용한다.
-3. **검색 경로**: `MIXDOG_HOOKS_FILE` → 프로젝트 `.mixdog/hooks.json`·`.mixdog/hooks/hooks.json` → 글로벌 `<mixdogData>/hooks.json`·`hooks/hooks.json` → plugin hooks.
-4. **형식**: 표준 `{ "hooks": { "<Event>": [{ "matcher": "...", "hooks": [...] }] } }`; 레거시 before-tool 배열도 읽는다.
-5. **검증**: mtime 기반 자동 reload 후 `/doctor`의 hooks 행과 대상 event 발동을 확인한다.
+### Hooks (사용자 UI 없음)
+- plugin·내부 연동 전용. 검색 경로 `MIXDOG_HOOKS_FILE` → `.mixdog/hooks.json` → `<mixdogData>/hooks.json` → plugin hooks. 사용자 옵션으로 안내하지 않는다.
 
 ---
 
-## 5. Voice·Automation
+## 5. Automation (Desktop 전용)
 
-Discord/Telegram messaging은 제거됐다. schedules/webhooks 자동화와 voice transcription만 남는다.
-
-### Voice transcription
-
-1. **확인**: `/channels → Voice` 또는 Desktop **Settings → Channels → Voice transcription**, 디스크 `voice.enabled`.
-2. **변경**: toggle → managed Whisper/model/ffmpeg가 없으면 설치 후 활성화.
-3. **검증**: voice status와 실제 channel voice message 전사.
-
-### Schedules / Webhooks
-
-관리 UI는 **Desktop rail 전용**이다.
-
-- Desktop **Schedules**: 생성·편집·pause/resume·run now·삭제
-- Desktop **Webhooks**: 생성·편집·pause/resume·secret regenerate·URL/secret 복사·삭제
-- TUI palette에는 `/schedules`, `/webhooks`가 없고 직접 입력하면 Desktop에서 관리하라는 notice만 표시한다.
-
-**Schedules**
-
-- 저장소: PG `scheduler.schedules` (`schedules-db.mjs`)
-- 반복: `time` 5/6-field cron, 선택 `days`; 1회: `at`; 둘은 XOR
-- UI frequency: Hourly / Daily / Weekdays / Weekly / One-shot
-- model·effort·Fast, workflow, project cwd, attachments, instructions, enabled
-- delivery: `app` / `channel` / `both`
-
-**Webhooks**
-
-- 저장소: PG `webhooks.endpoints` (`webhooks-db.mjs`)
-- parser: `generic` / `github` / `stripe` / `sentry`
-- model·effort·Fast, workflow, project cwd, attachments, instructions, enabled, delivery
-- 새 endpoint는 signing secret을 생성한다. 일반 edit에서 빈 secret은 기존 값을 보존하고, rotate는 명시적 regenerate로 한다.
-- list/status 경로는 plaintext secret을 내보내지 않고 `secretSet`만 제공한다.
-
-기존 파일형 schedules는 최초 DB init 때 import 후 `schedules.migrated`로 보존한다. 기존 webhook 디렉터리는 성공적으로 모두 import된 경우 삭제한다.
-
-활성 schedule/webhook이 있으면 automation worker가 자동 시작한다.
+- **Schedules**·**Webhooks**는 Desktop rail에서만 관리한다(툴 액션·TUI 명령 없음). 저장소는 PG(`scheduler.schedules`, `webhooks.endpoints`).
+- Schedules: cron `time`(+`days`) 또는 1회 `at`(XOR), model/effort/Fast, workflow, cwd, attachments, instructions, delivery(app/channel/both).
+- Webhooks: parser generic/github/stripe/sentry, signing secret은 생성 시 1회 노출·`secretSet`만 조회 가능, rotate는 명시적 regenerate.
+- 활성 항목이 있으면 automation worker가 자동 시작한다.
 
 ---
 
-## 6. Project·업데이트·진단
-
-### 프로젝트 전환
-
-1. **확인**: 상태줄 cwd, `/project`, Desktop rail **Projects**.
-2. **변경**: `/project [path]` 또는 picker. TUI picker는 등록·생성·rename도 지원한다.
-3. **적용**: cwd 변경은 실행 경로만 바꾸며 전역 Skills·Plugins·MCP 상태는 유지한다.
-4. **검증**: cwd와 실행 경로.
-
-### Git (Desktop 전용)
-
-1. **확인**: Desktop **Settings → Git**.
-2. **변경**: GitHub CLI Connect/Disconnect, commit Format, Auto commit message. identity는 연결된 GitHub 계정에서 비어 있을 때 자동 동기화한다.
-3. **저장**: Desktop local preference + git global config. mixdog-config 레시피가 아니다.
-4. **검증**: Git panel의 authenticated/account와 다음 수동 commit 힌트.
+## 6. 업데이트·진단·레거시
 
 ### 업데이트
-
-- TUI: `/update` 또는 `/setting → Update`
-- Desktop: **Settings → System → Update**
-- 지원 동작: check, auto-update toggle, update install; 설치 후 재시작 필요
-- 저장: `agent.update.auto`
+- `status update` — autoUpdate·currentVersion·latestVersion. `set_auto_update`. 설치 실행은 UI(Desktop **Settings → System → Update** · TUI `/update`)에서. `open update`.
 
 ### Doctor
+- `open doctor`(TUI `/doctor`, Desktop 컴포저 `/doctor` 또는 **Settings → System → Doctor → Run doctor**). runtime·providers·integrations·local installation 결과.
 
-- TUI `/doctor`
-- Desktop **Settings → System → Doctor**
-- runtime, providers, integrations, local installation 결과를 확인한다.
+### Desktop 로컬 설정 (툴 범위 밖 — 화면 안내만)
+- **Settings → General**: Display language(UI 언어, 응답 언어와 별개) · Theme · Side panels · Notifications(웹앱).
+- **Settings → System → Power**: Keep system awake while working.
+- **Settings → Git**: GitHub CLI Connect, Commit messages(형식·자동 메시지). git global config 포함.
+- **Settings → Connection**: 웹앱 페어링 QR, Linked devices 해제.
+- **Projects**: 프로젝트 추가·이름·Instructions, Common Instructions. 코어 메모리만 `memory` 툴로 다룬다.
 
-### 레거시 config 감사
-
-Desktop과 현재 runtime에서 소비되지 않는 아래 key는 사용자 옵션이 아니다. 발견하면 config 백업 후 제거하고, writer가 다시 생성하지 않는지 재시작 뒤 확인한다.
+### 레거시 config 감사 (직접 편집 허용 유일 구간)
+발견하면 백업 후 제거하고, 재시작 뒤 writer가 다시 만들지 않는지 확인한다.
 
 | 레거시 key | 처리 |
 |---|---|
-| `agent.workflowRoutes` | `agent.agents`로 이관된 뒤 제거. 수동 편집 금지 |
-| `agent.fastModels` | 제거 (이관 없음; `modelSettings.<provider/model>.fast`만 유효) |
+| `agent.workflowRoutes` | 로드 시 `agent.agents`로 이관되고 제거됨. 수동 편집 금지 |
+| `agent.fastModels` | 제거 (`modelSettings.<provider/model>.fast`만 유효) |
 | `agent.agentMaintenance`, `agent.runtime` | 제거 |
-| `remote.autoStart` | 제거; Remote는 session header에서 수동 claim |
-| `ui.mouseMode` | 제거; `ui.theme`은 TUI 현행 설정 |
-| `channels.backend`, `channels.provider`, `channels.channel.*` | 제거; Discord/Telegram messaging 은퇴로 전부 데드 key |
-| `channels.quiet`, `channels.schedules` | 제거; schedule은 PG가 단일 저장소 |
-| `channels.webhook.ngrokDomain`, `channels.webhook.respectQuiet` | 제거; endpoint URL은 Desktop Webhooks가 발급 |
-| `agent.outputStyle` | 제거 (이관 없음; 루트 `outputStyle`만 유효) |
+| `remote.autoStart` | 제거 |
+| `ui.mouseMode` | 제거 (`ui.theme`은 현행) |
+| `channels.backend/provider/channel.*`, `channels.quiet`, `channels.schedules`, `channels.webhook.ngrokDomain/respectQuiet` | 제거 — 메시징 은퇴, schedule은 PG 단일 저장소 |
+| `agent.outputStyle` | 제거 (루트 `outputStyle`만 유효) |
 
-다음 항목은 레거시처럼 보여도 현행이므로 유지한다: 루트 `outputStyle`, `agent.shell`, `agent.modules`, compaction의 `auto`, `summaryModel`, `timeoutMs`, `memoryTimeoutMs`, buffer/target fields.
+현행이므로 유지: 루트 `outputStyle`, `agent.shell`, `agent.modules`, `agent.builtins`, compaction의 `auto`·`summaryModel`·`timeoutMs`·buffer/target 필드.
 
 ---
 
-## 부록 — 핵심 스키마
+## 금지·우선순위
 
-### MCP
-
-```json
-{
-  "agent": {
-    "mcpServers": {
-      "<name>": {
-        "type": "stdio",
-        "command": "...",
-        "args": [],
-        "cwd": "<project-subdir>",
-        "env": {}
-      }
-    }
-  }
-}
-```
-
-URL transport는 `type` + `url` + 선택 `headers`를 사용한다.
-
-### Channels
-
-```json
-{
-  "channels": {
-    "webhook": {
-      "enabled": true,
-      "port": 3333
-    }
-  },
-  "voice": { "enabled": false }
-}
-```
-
-### 우선순위와 금지
-
-- MCP는 전역 `agent.mcpServers`만 사용한다.
-- Skill 이름 충돌: global > plugin
-- `Mixdog.md` 자동 프롬프트 로드는 없다. skill/core memory를 사용한다.
+- UI에 없는 내부 API를 사용자 옵션처럼 설명하지 않는다. 툴 액션 표와 UI 지도가 기준이다.
 - 확인되지 않은 key는 추측하지 말고 TODO로 남긴다.
-- UI에 없는 runtime API를 사용자 UI처럼 설명하지 않는다.
-- config 수동 편집 전 백업하고 JSON 유효성을 유지한다.
+- `Mixdog.md` 자동 프롬프트 로드는 없다. skill/core memory를 쓴다.
+- 배포·재시작이 필요한 변경(memory cycle interval 등)은 반드시 사용자 승인 뒤 진행한다.

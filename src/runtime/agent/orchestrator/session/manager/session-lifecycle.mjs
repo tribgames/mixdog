@@ -18,6 +18,7 @@ import {
     _buildAgentRules,
     _buildLeadRules,
     _buildLeadMetaContext,
+    _buildLeadLanguageContext,
 } from './rules-cache.mjs';
 import {
     finalizeSessionToolList,
@@ -41,6 +42,7 @@ import { clearTurnCheckpoint, recoverTurnCheckpoint } from './turn-checkpoint.mj
 import { IMPLICIT_APPROVAL_MODE } from '../approval-mode.mjs';
 import { describeGitStartupState } from '../../tools/builtin/runtime-capabilities.mjs';
 import { captureOriginalUserCwd } from '../../../../shared/user-cwd.mjs';
+import { publishPromptSurface } from './prompt-surface-publish.mjs';
 import { refreshSessionBp3Environment } from './prompt-utils.mjs';
 
 function buildSessionProviderCacheOpts(providerName, sessionId, agent = null) {
@@ -236,6 +238,7 @@ export function createSession(opts) {
         ownerIsAgentSession: ownerIsAgent,
         mcpScopeId: opts.mcpScopeId || null,
         modelName,
+        cwd: opts.cwd || null,
     });
 
     const workflowMeta = toSessionWorkflowMeta(opts.workflow);
@@ -270,6 +273,9 @@ export function createSession(opts) {
             ? _buildAgentRules(agentRulesProfile)
             : _buildLeadRules({ includeLeadBrief: !delegationFree }));
     const metaContext = skipAgentRules ? '' : (ownerIsAgent ? '' : _buildLeadMetaContext());
+    // Lead-only response language; closes the environment block so no English
+    // system text (session/shell/git lines) follows it.
+    const languageContext = skipAgentRules ? '' : (ownerIsAgent ? '' : _buildLeadLanguageContext());
     // Preserve the exact pre-layout environment payload: Lead carried the
     // shell preference in Profile Preferences, while any routing surface with
     // shell carried the startup capability line in BP1.
@@ -295,11 +301,18 @@ export function createSession(opts) {
             ? describeGitStartupState(sessionCwdLine ? { cwd: sessionCwdLine } : {})
             : '',
     ].filter(Boolean).join('\n');
+    // Persisted env tail: refreshSessionBp3Environment rebuilds the env block
+    // as [session, project, bp3EnvironmentContext], so the language block must
+    // already sit at the end of this string to stay last after a refresh.
+    const environmentTailContext = [shellEnvironmentContext, languageContext]
+        .filter(Boolean)
+        .join('\n\n---\n\n');
     const { baseRules, stableSystemContext, sessionMarkerCore, sessionEnvironment } = composeSystemPrompt({
         userPrompt: opts.systemPrompt,
         agentRules: injectedRules || undefined,
         roleRules: roleRules || undefined,
         metaContext: metaContext || undefined,
+        languageContext: languageContext || undefined,
         skipRoleCatalog: !ownerIsAgent,
         profile: profile || undefined,
         agent: resolvedAgent,
@@ -315,9 +328,9 @@ export function createSession(opts) {
     //     deferred/MCP catalog
     //   system block #3 = sessionMarkerCore — BP3 (1h) workflow/role + memory
     //   system block #4 = sessionEnvironment — UNMARKED volatile session/
-    //     project environment (cacheTier:'env'); covered by the messages-tail
-    //     BP so an environment change (e.g. a different Cwd) can never
-    //     invalidate the BP3 core write.
+    //     project environment (cacheTier:'env') closed by the response
+    //     language; covered by the messages-tail BP so an environment change
+    //     (e.g. a different Cwd) can never invalidate the BP3 core write.
     //   later normal messages        = BP4/tail (task, role data, tool history)
     // Anthropic multi-block system pins each marked block with cache_control
     // (BP3 is the 3rd system block, tagged cacheTier:'tier3'; the env block
@@ -341,6 +354,22 @@ export function createSession(opts) {
         // the volatile environment rides the messages-tail breakpoint instead
         // of invalidating the stable BP3 core prefix.
         messages.push({ role: 'system', content: sessionEnvironment, cacheTier: 'env' });
+    }
+    // Lead sessions define the surface the user actually sees every turn;
+    // publish it for the memory cycles' restatement check. Core memory itself
+    // is deliberately excluded (it would match against itself), as is the
+    // volatile environment block.
+    if (!ownerIsAgent) {
+        publishPromptSurface({
+            rules: [
+                baseRules,
+                stableSystemContext,
+                opts.workflowContext || '',
+                roleRules || '',
+                languageContext || '',
+            ],
+            tools,
+        });
     }
     if (opts.files?.length) {
         const fileContext = opts.files
@@ -387,7 +416,7 @@ export function createSession(opts) {
         agent: opts.agent,
         owner: opts.owner || 'user',
         bp3CoreContext: sessionMarkerCore,
-        bp3EnvironmentContext: shellEnvironmentContext,
+        bp3EnvironmentContext: environmentTailContext,
         // BP3 core and the volatile environment live in SEPARATE system
         // blocks (cacheTier 'tier3' vs 'env'). Legacy persisted sessions
         // without this flag keep the combined-BP3 refresh path.
@@ -625,6 +654,7 @@ function _prepareResumeTools(session, preset) {
         ownerIsAgentSession: ownerIsAgent,
         mcpScopeId: session.mcpScopeId || null,
         modelName: session.model,
+        cwd: session.cwd || null,
     });
     return {
         session,

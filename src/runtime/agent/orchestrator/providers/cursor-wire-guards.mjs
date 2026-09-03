@@ -48,6 +48,63 @@ function slimSchema(value, depth = 0) {
     return output;
 }
 
+function mergeCursorFlatProperty(current, incoming) {
+    if (!current || typeof current !== 'object') return structuredClone(incoming);
+    if (!incoming || typeof incoming !== 'object') return structuredClone(current);
+    const merged = { ...structuredClone(incoming), ...structuredClone(current) };
+    if (Array.isArray(current.enum) || Array.isArray(incoming.enum)) {
+        merged.enum = [...new Set([
+            ...(Array.isArray(current.enum) ? current.enum : []),
+            ...(Array.isArray(incoming.enum) ? incoming.enum : []),
+        ])];
+    }
+    if (current.properties || incoming.properties) {
+        merged.properties = {};
+        for (const [name, property] of Object.entries(current.properties || {})) {
+            merged.properties[name] = structuredClone(property);
+        }
+        for (const [name, property] of Object.entries(incoming.properties || {})) {
+            merged.properties[name] = mergeCursorFlatProperty(merged.properties[name], property);
+        }
+    }
+    if (Array.isArray(current.required) && Array.isArray(incoming.required)) {
+        const incomingRequired = new Set(incoming.required);
+        const sharedRequired = current.required.filter((name) => incomingRequired.has(name));
+        if (sharedRequired.length) merged.required = sharedRequired;
+        else delete merged.required;
+    } else {
+        delete merged.required;
+    }
+    return merged;
+}
+
+function flattenCursorTopLevelCompoundSchema(schema) {
+    const branches = [
+        ...(Array.isArray(schema?.oneOf) ? schema.oneOf : []),
+        ...(Array.isArray(schema?.anyOf) ? schema.anyOf : []),
+        ...(Array.isArray(schema?.allOf) ? schema.allOf : []),
+    ];
+    if (!branches.length) return schema;
+    const {
+        oneOf: _oneOf,
+        anyOf: _anyOf,
+        allOf: _allOf,
+        properties: rootProperties,
+        ...root
+    } = schema;
+    const properties = structuredClone(rootProperties || {});
+    for (const branch of branches) {
+        for (const [name, property] of Object.entries(branch?.properties || {})) {
+            properties[name] = mergeCursorFlatProperty(properties[name], property);
+        }
+    }
+    return {
+        ...root,
+        type: 'object',
+        properties,
+    };
+}
+
 function conciseDescription(value) {
     const normalized = String(value || '').replace(/\s+/g, ' ').trim();
     if (normalized.length <= 120) return normalized;
@@ -58,7 +115,7 @@ function conciseDescription(value) {
 export function prepareCursorToolDefinition(tool) {
     const fn = tool?.function || tool || {};
     const inputSchema = fn.parameters && typeof fn.parameters === 'object'
-        ? slimSchema(fn.parameters)
+        ? flattenCursorTopLevelCompoundSchema(slimSchema(fn.parameters))
         : { type: 'object', properties: {} };
     return {
         name: fn.name,

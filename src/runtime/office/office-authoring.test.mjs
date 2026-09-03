@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { executeOfficeTool } from './index.mjs';
 import { value, workspace } from './office-test-support.mjs';
 import { runPptxAuthoringScript } from './authoring/pptx-script-runner.mjs';
+import { normalizeParagraphProperties } from './authoring/pptx-script-normalize.mjs';
+import { loadPackage, zipText } from './portable/portable-opc.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
 
@@ -61,6 +63,33 @@ test('author reports script failures with the offending line', async (t) => {
   assert.equal(failed.reason, 'script_failed');
   assert.match(failed.error.message, /undefinedCall/);
   assert.equal(failed.error.line, 3);
+});
+
+test('authored decks keep one paragraph-properties element per paragraph', async (t) => {
+  const doubled = '<a:p><a:pPr indent="0"/><a:r><a:t>a</a:t></a:r><a:pPr indent="0"><a:buNone/></a:pPr><a:r><a:t>b</a:t></a:r></a:p><a:p><a:pPr/><a:r><a:t>c</a:t></a:r></a:p>';
+  const normalized = normalizeParagraphProperties(doubled);
+  assert.equal(normalized.removed, 1);
+  assert.equal(normalized.xml, '<a:p><a:pPr indent="0"/><a:r><a:t>a</a:t></a:r><a:r><a:t>b</a:t></a:r></a:p><a:p><a:pPr/><a:r><a:t>c</a:t></a:r></a:p>');
+
+  // pptxgenjs writes a pPr for every run; a two-run paragraph must come out of
+  // the runner schema-valid without an Office re-save.
+  const cwd = await workspace(t);
+  const path = join(cwd, 'runs.pptx');
+  const run = await runPptxAuthoringScript(`
+const pptxgen = require('pptxgenjs');
+const pres = new pptxgen();
+pres.layout = 'LAYOUT_WIDE';
+const slide = pres.addSlide();
+slide.addText([{ text: 'plain ', options: {} }, { text: '42%', options: { bold: true, color: 'B85042' } }, { text: ' of users', options: {} }],
+  { x: 1, y: 1, w: 8, h: 1, fontSize: 18, lineSpacingMultiple: 1.3 });
+await pres.writeFile({ fileName: OUTPUT });
+`, path);
+  assert.equal(run.ok, true, run.error?.message);
+  assert.ok(run.normalizedParagraphs >= 2);
+  const slideXml = await zipText(await loadPackage(path), 'ppt/slides/slide1.xml');
+  for (const paragraph of slideXml.match(/<a:p>[\s\S]*?<\/a:p>/g)) {
+    assert.ok((paragraph.match(/<a:pPr/g) || []).length <= 1, paragraph);
+  }
 });
 
 test('authoring scripts cannot require modules outside the contract', async (t) => {

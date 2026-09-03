@@ -385,22 +385,26 @@ test('release path selection classifies desktop, runtime, and critical paths', (
   for (const path of ['docs/guide.md', 'apps/relay/src/index.ts', 'scripts/session-bench.mjs']) {
     assert.doesNotMatch(path, desktop, `desktop gate must skip ${path}`);
   }
+  // The runtime gate runs the discovered default lane, so every source and
+  // script root selects it; only trees with no runtime tests stay out.
   for (const path of [
     '.github/workflows/release.yml',
     'native/mixdog-spawn/src/main.rs',
     'src/runtime/agent/orchestrator/session/loop.mjs',
+    'src/tui/app.mjs',
+    'src/runtime/memory/lib/query-handlers.mjs',
     'scripts/provider-contract-test.mjs',
     'scripts/tool-contracts/search-tools.test.mjs',
-    'scripts/provider-toolcall/openai-api.test.mjs',
-    'scripts/suite-compact-test.mjs',
+    'scripts/test.mjs',
     'scripts/release-paths.mjs',
     'package.json',
   ]) assert.match(path, runtime, `runtime gate must select ${path}`);
-  for (const path of ['src/tui/app.mjs', 'apps/desktop/src/main/index.ts', 'scripts/smoke.mjs']) {
+  for (const path of ['docs/testing.md', 'apps/desktop/src/main/index.ts', 'apps/relay/src/index.ts']) {
     assert.doesNotMatch(path, runtime, `runtime gate must skip ${path}`);
   }
-  assert.ok(RELEASE_CRITICAL_PATHS.includes('scripts/provider-toolcall'));
-  assert.ok(RELEASE_CRITICAL_PATHS.includes('package-lock.json'));
+  for (const path of ['src', 'scripts', 'native', 'package-lock.json']) {
+    assert.ok(RELEASE_CRITICAL_PATHS.includes(path), `critical paths must cover ${path}`);
+  }
 });
 
 test('the weekly suite-health sweep runs the opt-out catalog and reports failures', async () => {
@@ -429,19 +433,24 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   assert.match(automaticGate, /release-paths\.mjs desktop-regex/);
   assert.match(automaticGate, /release-paths\.mjs runtime-regex/);
   // A suite that guards a contract must run in CI: tool-smoke stayed
-  // local-only and silently drifted three contracts behind the runtime.
-  assert.match(automaticGate, /npm run test:tool-contracts/,
-    'the runtime gate must execute the tool-contract suites');
-  assert.match(automaticGate, /npm run test:compact/,
-    'the runtime gate must execute the compaction contracts');
+  // local-only and silently drifted three contracts behind the runtime. The
+  // gate runs the discovered default lane, so a new file joins by existing.
+  assert.match(automaticGate, /runtime:[\s\S]*npm run build:spawn:test[\s\S]*run:\s*npm test\b/,
+    'the runtime gate must build the spawn test binary and run the default lane');
+  assert.match(automaticGate, /runtime-slow:[\s\S]*npm run test:slow/,
+    'the slow lane must run beside the default lane');
+  assert.match(automaticGate, /desktop-tests:[\s\S]*lane:\s*fast[\s\S]*lane:\s*slow[\s\S]*runner:\s*windows-latest/,
+    'the desktop lanes must run as separate legs with a Windows Computer Use leg');
+  assert.match(automaticGate, /npm run test:daemon:e2e --prefix apps\/desktop/,
+    'the built daemon must be verified end to end where it is built');
   assert.match(automaticGate, /needs\.changes\.outputs\.desktop == 'true'/);
   assert.match(automaticGate, /needs\.changes\.outputs\.graph == 'true'/);
   assert.match(release,
     /identity:[\s\S]*Verify release tag matches package version/);
   assert.match(release, /validate:[\s\S]*needs:\s*identity[\s\S]*fetch-depth:\s*0/);
   assert.match(release,
-    /validate:[\s\S]*Verify bundled release assets[\s\S]*Verify changed source-critical release invariants[\s\S]*npm run test:release-critical/,
-    'the deploy gate runs only the critical release lane');
+    /validate:[\s\S]*Verify bundled release assets[\s\S]*Verify changed source-critical release invariants[\s\S]*if: inputs\.run_critical[\s\S]*npm run build:spawn:test\s*\n\s*npm test\b/,
+    'the deploy gate re-runs the default lane only when the gate did not cover it');
   assert.doesNotMatch(release, /Install ripgrep|apt-get[^\n]*ripgrep/,
     'the native search backend must not pay for a system ripgrep install');
   assert.doesNotMatch(release, /\n  release-invariants:/);
@@ -491,9 +500,36 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   assert.match(desktopPackage, /name:\s*Restore prepared runtime archive/);
   assert.match(desktopPackage,
     /name:\s*Restore prepared runtime archive[\s\S]*id:\s*prepared-runtime/);
-  assert.equal((desktopPackage.match(
-    /if:\s*steps\.prepared-runtime\.outputs\.cache-hit != 'true'/g,
-  ) || []).length, 2);
+  // The prepared runtime is saved the moment it exists, not in a post step
+  // that a later packaging failure would skip: a failed Windows job used to
+  // discard five minutes of preparation and the retry paid it again.
+  assert.match(desktopPackage,
+    /name:\s*Restore prepared runtime archive[\s\S]*actions\/cache\/restore@/);
+  assert.match(desktopPackage,
+    /name:\s*Save prepared runtime archive[\s\S]*actions\/cache\/save@[\s\S]*cache-primary-key/);
+  assert.ok(
+    desktopPackage.indexOf('name: Prepare platform runtime')
+      < desktopPackage.indexOf('name: Save prepared runtime archive')
+    && desktopPackage.indexOf('name: Save prepared runtime archive')
+      < desktopPackage.indexOf('name: Build Windows installer'),
+    'the prepared runtime must be saved before any packaging step can fail',
+  );
+  assert.doesNotMatch(desktopPackage, /npm run test:packaging/,
+    'source-shape packaging invariants run in the gate, not after a full package build');
+  // The Chrome password importer build (~230s of Rust on Windows) is keyed
+  // on its own source and restored before prepare-runtime, whose marker
+  // check then skips the build; the save follows preparation directly.
+  assert.match(desktopPackage,
+    /name:\s*Restore built browser importer[\s\S]*actions\/cache\/restore@[\s\S]*apps\/desktop\/\.cache\/browser-import[\s\S]*hashFiles\('native\/mixdog-browser-import\/\*\*'/);
+  assert.ok(
+    desktopPackage.indexOf('name: Restore built browser importer')
+      < desktopPackage.indexOf('name: Prepare platform runtime')
+    && desktopPackage.indexOf('name: Prepare platform runtime')
+      < desktopPackage.indexOf('name: Save built browser importer')
+    && desktopPackage.indexOf('name: Save built browser importer')
+      < desktopPackage.indexOf('name: Build Windows installer'),
+    'the browser importer cache must bracket runtime preparation',
+  );
   const preparedRuntimeKey = desktopPackage.match(/desktop-prepared-runtime-v\d+-[^\n]*/)?.[0] || '';
   assert.ok(preparedRuntimeKey, 'the prepared runtime cache key must be present');
   assert.doesNotMatch(preparedRuntimeKey, /hashFiles\([^)]*package(?:-lock)?\.json/,
@@ -585,12 +621,13 @@ advisoryTest('desktop production dependencies contain only main-process runtime 
   assert.deepEqual(Object.keys(desktop.dependencies).sort(), [
     '@homebridge/node-pty-prebuilt-multiarch',
     'electron-updater',
-    'qrcode',
+    'graceful-fs',
     'vscode-jsonrpc',
     'ws',
   ]);
   for (const bundled of [
     '@fontsource-variable/inter',
+    'qrcode',
     '@git-diff-view/react',
     '@monaco-editor/react',
     'monaco-editor',

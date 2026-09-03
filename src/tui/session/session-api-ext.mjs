@@ -4,7 +4,7 @@
 import { listThemes, getThemeSetting, setThemeSetting } from '../theme.mjs';
 import { resetAllStreamingMarkdownStablePrefixes } from '../markdown/streaming-markdown.mjs';
 import { toolResultText } from './tool-result-text.mjs';
-import { parseModelVisibleCompletionWrapper, parseSyntheticAgentMessage } from './agent-envelope.mjs';
+import { completionCardFromExecution, parseModelVisibleCompletionWrapper, parseSyntheticAgentMessage } from './agent-envelope.mjs';
 import { flushTuiSteeringPersist } from './tui-steering-persist.mjs';
 import { getVoiceStatus, toggleVoice } from '../lib/voice-setup.mjs';
 import { createSessionOAuthFlowRegistry } from './oauth-flows.mjs';
@@ -13,6 +13,7 @@ import { aggregateBucketForCategory, aggregateRawResult, aggregateToolMembers, f
 import {
   isInternalTranscriptDisplayText,
   isTranscriptHiddenControlToolName,
+  isTranscriptHiddenToolItem,
   isTranscriptCancelledStatusText,
 } from '../../runtime/shared/tool-execution-contract.mjs';
 import { toolResultTerminalStatus } from '../../runtime/shared/tool-status.mjs';
@@ -231,6 +232,9 @@ function mergeRestoredToolItems(items) {
     run = null;
   };
   for (const item of items || []) {
+    // Result-dependent hiding (built-in skill loads) resolves here, after
+    // every role:'tool' result has been attached to its restored call.
+    if (item?.kind === 'tool' && isTranscriptHiddenToolItem(item)) continue;
     const mergeable = item?.kind === 'tool' && item.aggregate !== true;
     if (!mergeable) { flushRun(); merged.push(item); continue; }
     const category = classifyToolCategory(item.name, item.args);
@@ -271,7 +275,14 @@ function restoredUserTranscriptItems(message, nextId) {
   // rebuild. Restore them as tool cards instead of dropping them with the
   // internal-display suppression below (2026-08-17 field report: bench shell
   // output permanently missing from the pane after rebuild).
-  const completion = parseModelVisibleCompletionWrapper(text);
+  // A row stored under the task-notification source carries its execution
+  // provenance in meta, so it restores as a card even when its body has no
+  // parseable envelope (restart-recovery notices). Text parsing remains the
+  // fallback for rows persisted before the source existed.
+  const notificationRow = message?.meta?.source === 'task-notification';
+  const completion = notificationRow
+    ? completionCardFromExecution(message?.meta?.execution, text)
+    : parseModelVisibleCompletionWrapper(text);
   if (completion) {
     const completionLabel = completion.label || 'notification';
     const completionAt = Number(message?.meta?.transcript?.at);
@@ -677,6 +688,9 @@ export function createSessionApiB(bag) {
     },
     getTurnReviewDiff: async (options = {}) => {
       return (await runtime.getTurnReviewDiff?.(options)) ?? { supported: false, files: [], patch: '' };
+    },
+    getSessionReviewDiff: async () => {
+      return (await runtime.getSessionReviewDiff?.()) ?? { supported: false, files: [], patch: '' };
     },
     revertTurnReview: async (checkpointId) => {
       if (typeof runtime.revertTurnReview !== 'function') {

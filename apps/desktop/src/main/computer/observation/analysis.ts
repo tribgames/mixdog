@@ -436,7 +436,8 @@ export function recommendedRecovery(
   targetWindow?: ComputerWindowRecord,
 ): 'switch_target' | 'recapture' | 'pixel' | 'foreground' | 'browser_use' | undefined {
   if (transition?.next_target) return 'switch_target';
-  if (code === 'target_mismatch' || code === 'stale_target' || code === 'stale_frame') {
+  if (code === 'target_mismatch' || code === 'stale_target' || code === 'stale_frame'
+    || code === 'user_input_active') {
     return 'recapture';
   }
   if (code === 'foreground_unavailable' || code === 'foreground_changed') {

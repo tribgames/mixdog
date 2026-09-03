@@ -468,11 +468,17 @@ async function snapshotPptx(zip, options = {}) {
         const colors = [...new Set([...shape.xml.matchAll(/<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/gi)]
           .map((match) => match[1].toUpperCase()))];
         const shapeName = xmlDecode(/<p:cNvPr\b[^>]*\bname="([^"]*)"/i.exec(shape.xml)?.[1] || '');
+        // Preset geometry tells the diversity review which native structure a
+        // slide carries (chevron process, block-arc share, trapezoid tiers).
+        const geometry = shape.name === 'p:sp'
+          ? (/<a:custGeom\b/i.test(shape.xml) ? 'custGeom' : /<a:prstGeom\b[^>]*\bprst="([^"]+)"/i.exec(shape.xml)?.[1] || '')
+          : '';
         return {
           path: shapePath,
           index: shapeIndex + 1,
           type: shape.name,
           ...(shapeName ? { name: shapeName } : {}),
+          ...(geometry ? { geometry } : {}),
           text: paragraphTexts(shape.xml, 'a:t').join(''),
           ...(shape.name === 'p:grpSp' ? { group: true } : {}),
           ...(/<p:ph\b/i.test(shape.xml) ? { placeholder: true } : {}),
