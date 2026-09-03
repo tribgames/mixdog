@@ -13,6 +13,10 @@ import {
   type GitRefreshReason,
 } from "./git-refresh-scheduler";
 import { subscribeProjectFileChanges } from "./project-file-changes";
+import {
+  describeSourceControlError,
+  SourceControlErrorNotice,
+} from "./SourceControlErrorNotice";
 
 // ── Dock Git panel ───────────────────────
 interface GitPanelStatus {
@@ -85,8 +89,10 @@ export function GitFileDiff({ patch, mode, hideHunkHeader }: {
 export function ReviewPane({ cwd }: { cwd: string | null }) {
   const [status, setStatus] = useState<GitPanelStatus | null>(null);
   const [review, setReview] = useState<GitReviewInfo | null>(null);
-  const [error, setError] = useState("");
+  const [readError, setReadError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState(false);
+  useEffect(() => setActionError(""), [cwd]);
   // Single-open accordion (user decision): opening a file closes the rest
   // and snaps the opened card flush under the sticky header.
   const [openFile, setOpenFile] = useState("");
@@ -124,7 +130,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
   const refresh = useCallback(async (reason: GitRefreshReason = "activity") => {
     if (!cwd) { setStatus(null); return; }
     if (!window.mixdogDesktop.gitStatus || !window.mixdogDesktop.gitReview) {
-      setError(t("Review needs an app restart to finish updating."));
+      setReadError(t("Review needs an app restart to finish updating."));
       return;
     }
     try {
@@ -153,10 +159,10 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
           return dirty ? draft : current;
         });
       }
-      setError("");
-    } catch (reason) {
+      setReadError("");
+    } catch {
       setStatus(null);
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setReadError(t("Review is temporarily unavailable."));
     }
   }, [cwd]);
   useEffect(() => {
@@ -199,21 +205,24 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
         .then((patch) => setDiffs((current) => ({ ...current, [file.path]: patch || "" })))
         .catch((reason) => setDiffs((current) => ({
           ...current,
-          [file.path]: `Error: ${reason instanceof Error ? reason.message : String(reason)}`,
+          [file.path]: describeSourceControlError(reason).summary,
         })));
     }
   }, [cwd, review, openFile, diffs]);
   const act = async (action: () => Promise<unknown> | undefined) => {
     setBusy(true);
+    setActionError("");
     try {
       await action();
       setDiffs({});
       await refresh();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    } catch (reason) { setActionError(reason instanceof Error ? reason.message : String(reason)); }
     finally { setBusy(false); }
   };
   if (!cwd) return <div className="review-pane"><p className="review-empty">{t("Select a project to review changes.")}</p></div>;
-  if (error) return <div className="review-pane"><p className="review-empty">{error}</p></div>;
+  if (readError) return <div className="review-pane">
+    <p className="review-empty">{readError}</p>
+  </div>;
   if (!status) return <div className="review-pane"><p className="review-empty">{t("Loading review…")}</p></div>;
   if (!status.repository) return <div className="review-pane"><p className="review-empty">{t("Not a git repository.")}</p></div>;
   const changed = review?.files ?? [];
@@ -257,6 +266,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
         </div>}
       </div>
     </header>
+    {actionError && <SourceControlErrorNotice error={actionError} className="review-git-error" />}
     <div className="review-scroll">
     {changed.length === 0 && <div className="review-empty-state">
       <p className="review-empty">{base === "HEAD" ? t("Working tree clean.") : t("No changes vs {{base}}.", { base })}</p>

@@ -143,9 +143,7 @@ export function classifyError(err) {
 
   // Cursor's resumed tool-result stream cannot safely reopen the same wire
   // request. Let the outer loop rebuild a fresh request from committed history.
-  if (!status && chain.some((item) => CURSOR_TRANSIENT_ERROR_CODES.has(
-    String(item?.cursorCode || ''),
-  ))) return 'transient'
+  if (isCursorTransientTransportError(err)) return 'transient'
 
   // Socket-level codes (Node errno) — DNS / reset / refused / timeout are all
   // transient: we can retry the same request and may succeed.
@@ -275,6 +273,21 @@ function isExplicitUserAbortError(err) {
   } catch {
     return false
   }
+}
+
+/**
+ * Detect Cursor's typed incomplete-stream transport failures independently of
+ * replay permission. A reasoning/text-bearing failure is still classified as
+ * permanent by classifyError(), but a caller that can retract that output may
+ * use this predicate to continue from already-committed tool history.
+ */
+export function isCursorTransientTransportError(err) {
+  if (!err || (typeof err !== 'object' && typeof err !== 'function')) return false
+  const chain = boundedCauseChain(err)
+  if (chain.some(isExplicitUserAbortError)) return false
+  const status = Number(err.httpStatus || err.status || err.response?.status || 0) || 0
+  if (status) return false
+  return chain.some((item) => CURSOR_TRANSIENT_ERROR_CODES.has(String(item?.cursorCode || '')))
 }
 
 // Provider error-text signatures for a context-window / input-too-large

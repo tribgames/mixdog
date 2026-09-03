@@ -45,6 +45,20 @@ function cursorStreamAbort() {
     return error;
 }
 
+function committedToolHistory() {
+    return [
+        {
+            role: 'assistant',
+            tool_calls: [{
+                id: 'call-complete',
+                type: 'function',
+                function: { name: 'read', arguments: '{"file_path":"done.txt"}' },
+            }],
+        },
+        { role: 'tool', tool_call_id: 'call-complete', content: 'done' },
+    ];
+}
+
 const baseCtx = {
     messages: [],
     model: 'test-model',
@@ -114,17 +128,7 @@ test('a first attempt keeps its own stages and restores the caller callbacks', a
 });
 
 test('a Cursor abort after committed tool history retries the empty continuation', async () => {
-    const messages = [
-        {
-            role: 'assistant',
-            tool_calls: [{
-                id: 'call-complete',
-                type: 'function',
-                function: { name: 'read', arguments: '{"file_path":"done.txt"}' },
-            }],
-        },
-        { role: 'tool', tool_call_id: 'call-complete', content: 'done' },
-    ];
+    const messages = committedToolHistory();
     const attempts = [];
     const { opts } = recordingOpts();
     const provider = {
@@ -146,6 +150,94 @@ test('a Cursor abort after committed tool history retries the empty continuation
     assert.equal(result.action, 'retry_transport');
     assert.equal(attempts.length, 1);
     assert.equal(attempts[0], messages);
+});
+
+test('a Cursor abort retries a reasoning-only continuation after committed tool history', async () => {
+    const messages = committedToolHistory();
+    const abort = cursorStreamAbort();
+    abort.emittedReasoning = true;
+    const { opts } = recordingOpts();
+    const provider = {
+        send: async () => {
+            throw abort;
+        },
+    };
+
+    const result = await sendWithRecovery({
+        ...baseCtx,
+        provider,
+        opts,
+        messages,
+        recoveryMessages: messages,
+        transportRetriesUsed: 0,
+    });
+
+    assert.equal(result.action, 'retry_transport');
+});
+
+test('a Cursor abort retries visible text only after the owner retracts it', async () => {
+    const abort = cursorStreamAbort();
+    abort.partialContent = 'partial answer';
+    abort.liveTextEmitted = true;
+    const resets = [];
+    const { opts } = recordingOpts({
+        onTextDelta: () => {},
+        onTextReset: async (detail) => {
+            resets.push(detail);
+            return true;
+        },
+    });
+    const provider = {
+        send: async (_messages, _model, _tools, sendOpts) => {
+            sendOpts.onTextDelta(abort.partialContent);
+            throw abort;
+        },
+    };
+
+    const result = await sendWithRecovery({
+        ...baseCtx,
+        provider,
+        opts,
+        transportRetriesUsed: 0,
+    });
+
+    assert.equal(result.action, 'retry_transport');
+    assert.deepEqual(resets, [{
+        chars: abort.partialContent.length,
+        reasoning: false,
+        reason: 'loop-transport-retraction',
+    }]);
+});
+
+test('a Cursor abort does not retry visible text when the owner rejects retraction', async () => {
+    const abort = cursorStreamAbort();
+    abort.partialContent = 'partial answer';
+    abort.liveTextEmitted = true;
+    let resetAttempts = 0;
+    const { opts } = recordingOpts({
+        onTextDelta: () => {},
+        onTextReset: async () => {
+            resetAttempts += 1;
+            return false;
+        },
+    });
+    const provider = {
+        send: async (_messages, _model, _tools, sendOpts) => {
+            sendOpts.onTextDelta(abort.partialContent);
+            throw abort;
+        },
+    };
+
+    await assert.rejects(
+        sendWithRecovery({
+            ...baseCtx,
+            provider,
+            opts,
+            transportRetriesUsed: 0,
+        }),
+        (error) => error === abort,
+    );
+    assert.equal(resetAttempts, 1);
 });
 
 test('a Cursor abort does not replay a tool dispatched by the failing send', async () => {

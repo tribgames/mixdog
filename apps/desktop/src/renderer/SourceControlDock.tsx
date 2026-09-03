@@ -15,6 +15,10 @@ import React, {
   useState,
 } from "react";
 import { ProgressSpinner } from "./ProgressSpinner";
+import {
+  describeSourceControlError,
+  SourceControlErrorNotice,
+} from "./SourceControlErrorNotice";
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from "./immediate-overlay";
 import type {
   DesktopGitBranch,
@@ -796,7 +800,7 @@ export function SourceControlDock({
     } catch (reason) {
       setCommitDiffs((current) => ({
         ...current,
-        [file.path]: `Error: ${reason instanceof Error ? reason.message : String(reason)}`,
+        [file.path]: describeSourceControlError(reason).summary,
       }));
     }
   };
@@ -1067,7 +1071,7 @@ export function SourceControlDock({
         clearSelected();
       }}
     />}
-    {error && <p className="dock-scm-error" role="alert">{error}</p>}
+    {error && <SourceControlErrorNotice error={error} className="dock-scm-error" />}
     {!prOnly && status?.operation && <div className="dock-scm-operation" role="status">
       <div>
         <b>{status.operation.replace("-", " ")} in progress</b>

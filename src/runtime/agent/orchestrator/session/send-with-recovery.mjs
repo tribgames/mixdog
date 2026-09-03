@@ -8,6 +8,7 @@ import { appendAgentTrace } from '../agent-trace.mjs';
 import {
     classifyError,
     isContextOverflowError,
+    isCursorTransientTransportError,
     isNonTerminalStreamClose,
     isRetryableWireErrorEvent,
     isRetryableStreamErrorEvent,
@@ -504,6 +505,10 @@ export async function sendWithRecovery(ctx) {
                             // text is retracted, then the send is replayed.
                             || isRetryableWireErrorEvent(sendErr)
                             || isRetryableStreamErrorEvent(sendErr)
+                            // Cursor continuation streams carry a typed
+                            // transport code even when reasoning/text exposure
+                            // makes classifyError() intentionally permanent.
+                            || isCursorTransientTransportError(sendErr)
                             || isNonTerminalStreamClose(sendErr))
                         && await retractExposedTextForReplay()
                     )

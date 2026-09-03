@@ -5,6 +5,7 @@ import { resolveCursorStreamTuning } from './cursor-wire-guards.mjs';
 import { __cursorWireInternals } from './cursor-wire.mjs';
 import {
     classifyError,
+    isCursorTransientTransportError,
     isProviderRecoveryExhausted,
 } from './retry-classifier.mjs';
 
@@ -34,11 +35,19 @@ function fakeBridge() {
 }
 
 test('Cursor transport aborts are structurally transient before output exposure', () => {
-    assert.equal(classifyError(cursorStreamAbort()), 'transient');
+    const abort = cursorStreamAbort();
+    assert.equal(isCursorTransientTransportError(abort), true);
+    assert.equal(classifyError(abort), 'transient');
+
+    const reasoningAbort = cursorStreamAbort();
+    reasoningAbort.emittedReasoning = true;
+    assert.equal(isCursorTransientTransportError(reasoningAbort), true);
+    assert.equal(classifyError(reasoningAbort), 'permanent');
 
     const refusal = cursorStreamAbort();
     refusal.status = 400;
     refusal.httpStatus = 400;
+    assert.equal(isCursorTransientTransportError(refusal), false);
     assert.equal(classifyError(refusal), 'permanent');
 });
 

@@ -516,6 +516,7 @@ div.diff-tailwindcss-wrapper[data-theme="dark"] {
 /* The scrollbar belongs to the CONTENT band under the header (user), so the
    header sits outside the scroller and file headers stick at top 0. */
 .review-scroll { min-height: 0; flex: 1; overflow: auto; padding-bottom: 24px; }
+.review-git-error { width: min(calc(100% - 24px), 736px); flex: 0 0 auto; margin: 8px auto 0; }
 .review-title { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .review-title h2 { font-size: var(--mx-font-body); font-weight: var(--mx-weight-semibold); line-height: 1; }
 .review-branch { color: var(--mx-text-muted); font-size: var(--mx-font-minor); white-space: nowrap; }

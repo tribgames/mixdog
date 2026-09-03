@@ -682,7 +682,22 @@
   .dock-scm-view-stage { --dock-scm-gutter: 6px; }
 }
 .dock-scm-clean { margin: 0; padding: 14px 14px 10px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); text-align: center; }
-.dock-scm-error { margin: 0; padding: 7px 10px; border-bottom: 1px solid var(--mx-danger); color: var(--mx-danger); font-size: var(--mx-font-meta); }
+.source-control-error-notice { min-width: 0; display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: start; gap: 8px; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--mx-danger) 28%, var(--mx-border-muted)); border-radius: var(--mx-radius-md); color: var(--mx-text); background: color-mix(in srgb, var(--mx-danger) 7%, transparent); }
+.source-control-error-notice > svg { margin-top: 1px; color: var(--mx-danger); }
+.source-control-error-copy { min-width: 0; display: grid; gap: 3px; }
+.source-control-error-copy > strong { font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); }
+.source-control-error-copy > p { margin: 0; overflow-wrap: anywhere; color: var(--mx-text-muted); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+.source-control-error-details { min-width: 0; margin-top: 2px; }
+.source-control-error-details > summary { width: fit-content; display: flex; align-items: center; gap: 4px; list-style: none; color: var(--mx-text-faint); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); cursor: pointer; user-select: none; }
+.source-control-error-details > summary::-webkit-details-marker { display: none; }
+.source-control-error-details > summary::before { content: "›"; display: inline-block; color: var(--mx-text-muted); transition: transform 120ms ease; }
+.source-control-error-details[open] > summary::before { transform: rotate(90deg); }
+.source-control-error-details > pre { max-height: 160px; margin: 6px 0 0; padding: 7px 8px; overflow: auto; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: color-mix(in srgb, var(--mx-bg-contrast) 72%, transparent); font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); line-height: var(--mx-line-meta); overflow-wrap: anywhere; white-space: pre-wrap; }
+.source-control-error-copy > button { width: fit-content; min-height: 23px; margin-top: 3px; padding: 0 7px; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-sm); color: var(--mx-text); background: transparent; font-size: var(--mx-font-meta); cursor: pointer; }
+.source-control-error-copy > button:hover { background: var(--mx-hover); }
+.source-control-error-notice[data-compact] { grid-template-columns: 14px minmax(0, 1fr); gap: 7px; padding: 7px 8px; }
+.source-control-error-notice[data-compact] > svg { width: 14px; height: 14px; }
+.dock-scm-error { margin: 8px var(--dock-scm-gutter, 8px) 0; }
 .dock-scm-loading { height: 100%; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
 /* History rows: ONE-line summary and a
    `author · relative age` byline (no avatar monogram), on a FIXED row height.
@@ -847,9 +862,8 @@
 .dock-pr-base-select .mx-select-value { min-width: 0; flex: 1; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .dock-pr-create-draft { height: 28px; display: flex; align-items: center; gap: 7px; padding: 0 7px; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-sm); color: var(--mx-text); font-size: var(--mx-font-minor); cursor: pointer; }
 .dock-pr-create-draft:hover { background: var(--mx-hover); }
-.dock-pr-create-note, .dock-pr-create-error { margin: -2px 0 0; font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
-.dock-pr-create-note { color: var(--mx-text-faint); }
-.dock-pr-create-error { color: var(--mx-danger); }
+.dock-pr-create-note { margin: -2px 0 0; color: var(--mx-text-faint); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
+.dock-pr-create-error { margin: -2px 0 0; }
 .dock-pr-create > footer { display: flex; justify-content: flex-end; gap: 6px; padding-top: 2px; }
 .dock-pr-create > footer button { min-height: 27px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 10px; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-sm); color: var(--mx-text); background: transparent; font-size: var(--mx-font-meta); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-minor); cursor: pointer; }
 .dock-pr-create > footer button:hover:not(:disabled) { background: var(--mx-hover); }
@@ -899,13 +913,7 @@ i.dock-pr-row-checks[data-checks="pending"] { background: var(--mx-warning); }
 .dock-pr-state-draft { color: var(--mx-text-muted); }
 .dock-pr-state-merged { color: var(--mx-merged); }
 .dock-pr-state-closed { color: var(--mx-danger); }
-.dock-pr-error-state { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 8px; margin: 8px; padding: 9px 10px; border: 1px solid color-mix(in srgb, var(--mx-danger) 30%, var(--mx-border-muted)); border-radius: var(--mx-radius-md); color: var(--mx-text); background: color-mix(in srgb, var(--mx-danger) 7%, transparent); }
-.dock-pr-error-state > svg { margin-top: 1px; color: var(--mx-danger); }
-.dock-pr-error-state > div { min-width: 0; display: grid; gap: 2px; }
-.dock-pr-error-state b { font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); }
-.dock-pr-error-state span { overflow-wrap: anywhere; color: var(--mx-text-muted); font-size: var(--mx-font-meta); line-height: var(--mx-line-meta); }
-.dock-pr-error-state > button { grid-column: 2; justify-self: start; min-height: 22px; padding: 0 7px; border: 1px solid var(--mx-border-muted); border-radius: var(--mx-radius-sm); color: var(--mx-text); background: transparent; font-size: var(--mx-font-meta); cursor: pointer; }
-.dock-pr-error-state > button:hover { background: var(--mx-hover); }
+.dock-pr-error-state { margin: 8px; }
 /* PR detail: a title/meta hierarchy and three stable content tabs,
    hosted inside Mixdog editor groups. */
 .workspace-pr-editor { min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; color: var(--mx-text); background: var(--mx-workspace-sheet); container-type: inline-size; }

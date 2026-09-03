@@ -33,6 +33,7 @@ import { useSurfaceActive } from "./surface-activity";
 import { RowOverflowMenu } from "./RowOverflowMenu";
 import { ScmPathText } from "./ScmPathText";
 import { ScmStatusIcon, type ScmStatusKind } from "./ScmStatusIcon";
+import { SourceControlErrorNotice } from "./SourceControlErrorNotice";
 
 export type PullRequestViewMode = "overview" | "changes";
 export type PullRequestListView = "open" | "mine" | "review";
@@ -508,7 +509,11 @@ export function PullRequestsPane({
           <span>Create as draft</span>
         </label>
         {!prUrl && <p className="dock-pr-create-note">{createHint || "The branch will be pushed before creation."}</p>}
-        {createError && <p className="dock-pr-create-error" role="alert">{createError}</p>}
+        {createError && <SourceControlErrorNotice error={createError}
+          className="dock-pr-create-error" compact
+          onAuthenticationHelp={() =>
+            void api?.openExternal?.("https://cli.github.com/manual/gh_auth_login")}
+          authenticationHelpLabel={t("GitHub CLI help")} />}
         <footer>
           <button type="button" onClick={cancelCreatePullRequest} disabled={busy === "create"}>Cancel</button>
           <button type="submit" disabled={createDisabled}>
@@ -519,17 +524,11 @@ export function PullRequestsPane({
         </footer>
       </form>}
       {!createOpen && <>
-      {actionError && <div className="dock-pr-error-state" role="alert">
-        <Github size={18} aria-hidden="true" />
-        <div>
-          <b>{t("Pull request action failed")}</b>
-          <span>{actionError}</span>
-        </div>
-        <button type="button" onClick={() =>
-          void api?.openExternal?.("https://cli.github.com/manual/gh_auth_login")}>
-          {t("GitHub CLI help")}
-        </button>
-      </div>}
+      {actionError && <SourceControlErrorNotice error={actionError}
+        className="dock-pr-error-state"
+        onAuthenticationHelp={() =>
+          void api?.openExternal?.("https://cli.github.com/manual/gh_auth_login")}
+        authenticationHelpLabel={t("GitHub CLI help")} />}
       {categories === null && readError && <div className="dock-pr-empty" role="status">
         <Github size={24} aria-hidden="true" />
         <b>{t("Pull requests are temporarily unavailable")}</b>

@@ -38,10 +38,6 @@
   height: 24px;
 }
 .activity-rail .codicon { font-size: 24px; }
-/* The gear inks a smaller share of its em than the destination glyphs, so it
-   read a step small at the foot (user: 좌하단 설정 버튼만 유독 작다). One
-   size up lands its optical box on the same line. */
-.activity-rail .codicon-settings-gear { font-size: 27px; }
 /* Direct rail controls only: the usage popup nests its own buttons (rows,
    detail actions) that must keep their list styling. */
 .activity-rail > nav > button,

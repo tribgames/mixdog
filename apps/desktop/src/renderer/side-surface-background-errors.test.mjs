@@ -34,10 +34,10 @@ test("right side background reads stay neutral while action failures remain aler
   assert.match(sourceControl, /if \(!status && statusError\)/);
   assert.match(sourceControl, /className="utility-dock-empty" role="status"/);
   assert.doesNotMatch(sourceControl, /\(error \|\| statusError\).*dock-scm-error/);
-  assert.match(sourceControl, /\{error && <p className="dock-scm-error" role="alert"/);
+  assert.match(sourceControl, /<SourceControlErrorNotice error=\{error\} className="dock-scm-error"/);
 
   assert.match(pullRequests, /categories === null && readError/);
   assert.match(pullRequests, /className="dock-pr-empty" role="status"/);
-  assert.match(pullRequests, /actionError && <div className="dock-pr-error-state" role="alert"/);
+  assert.match(pullRequests, /<SourceControlErrorNotice error=\{actionError\}/);
   assert.doesNotMatch(pullRequests, /\{listError &&/);
 });
