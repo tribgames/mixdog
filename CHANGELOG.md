@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.161 - 2026-09-03
+
 - The session Goal island aligns its task list with the collapsed header,
   separates rows with hairlines, and collapses on outside click or Escape.
 
