@@ -6,7 +6,7 @@ export const MEDIA_KINDS = Object.freeze(['image', 'video']);
 /** The lane catalog (which providers, models, and controls exist) lives in the
  *  runtime and is read through `list`; neither this description nor the media
  *  skill names a lane, so a provider change never strands the model. */
-const MEDIA_SKILL_ROUTING = 'Load the media Skill before the first call: it carries when to generate, the prompt contract, aspect from placement, references, and provenance.';
+const MEDIA_SKILL_ROUTING = 'Load the image Skill before the first image call and the video Skill before the first video call: they carry the prompt form, the edit brief, references, aspect, inspection, saving, and provenance.';
 
 export const TOOL_DEFS = [
   {

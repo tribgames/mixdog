@@ -19,7 +19,7 @@ This file owns the process, the brief contract, and the QA gate. Every design de
 | `references/pictures.md` | P skeletons, picture modifiers, picture generation, picture helpers | when the user supplied picture files, when the family is photo-editorial, or when the plan gives the cover or a section a generated picture (P skeleton) |
 
 ## 2. Workflow
-1. Read the always-loaded references; add `pictures.md` on its trigger. A deck that wants a cover picture and has none generates it with the `media` tool (load the `media` skill; pictures.md §0) before the script; if no image lane is signed in, the cover uses a ghost numeral or a gradient field and the summary says a picture was not available.
+1. Read the always-loaded references; add `pictures.md` on its trigger. A deck that wants a cover picture and has none generates it with the `media` tool (load the `image` skill; pictures.md §0) before the script; if no image lane is signed in, the cover uses a ghost numeral or a gradient field and the summary says a picture was not available.
 2. Ground first: with source material, read it and write the fact sheet (each figure with its page or cell) before any outline; then the outline as action titles that read as one argument when read in sequence; then the brief (§3) as a comment block, then the whole deck as one pptxgenjs script built on the kit and the archetypes.
 3. `office action:'author' path:<deck.pptx> script:<script>` — writes the file, opens the session, returns every slide rendered. `overwrite:true` when re-authoring the same path.
 4. Inspect every rendered image against §5. Fix defects in the script, never in the file, and author again; one or two loops is normal.

@@ -59,9 +59,11 @@ export function builtinFeatureActive(configLike, id) {
     return featureEnvOverride('MIXDOG_FEATURE_OFFICE')
       ?? (builtinInstalled(configLike, 'office') && moduleEnabled(configLike, 'office', true));
   }
-  // Media Studio needs no install: the lane catalog ships with the runtime and
-  // sign-in happens per provider. A module toggle (or the env override) is the
-  // only gate; a signed-out catalog fails per call with the lanes it does have.
+  // Media Studio is a hidden built-in like setup: no Settings card, no install
+  // step, always on. The lane catalog ships with the runtime and sign-in happens
+  // per provider; only the env override (headless) or a hand-edited module
+  // toggle gates it, and a signed-out catalog fails per call with the lanes it
+  // does have. The image/video skills follow through `requires: media`.
   if (id === 'media') {
     return featureEnvOverride('MIXDOG_FEATURE_MEDIA') ?? moduleEnabled(configLike, 'media', true);
   }
