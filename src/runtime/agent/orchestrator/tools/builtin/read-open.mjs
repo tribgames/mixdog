@@ -19,20 +19,7 @@ import {
     isWindowsDevicePath,
     hasUnsafeWin32Component,
 } from './device-paths.mjs';
-
-function detectReadEncodingFromBuffer(head) {
-    const n = head.length;
-    if (n >= 2 && head[0] === 0xff && head[1] === 0xfe) {
-        return { encoding: 'utf16le', bomLen: 2 };
-    }
-    if (n >= 2 && head[0] === 0xfe && head[1] === 0xff) {
-        return { encoding: 'utf16be', bomLen: 2 };
-    }
-    if (n >= 3 && head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf) {
-        return { encoding: 'utf8', bomLen: 3 };
-    }
-    return { encoding: 'utf8', bomLen: 0 };
-}
+import { detectReadEncodingFromBuffer } from './snapshot-helpers.mjs';
 
 export async function detectReadEncoding(fullPath) {
     let fh;

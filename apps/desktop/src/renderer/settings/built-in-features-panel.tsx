@@ -5,6 +5,7 @@ import {
   Globe2,
   Mic,
   Monitor,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -17,7 +18,14 @@ import type {
 import { t } from '../i18n';
 import { record } from '../record-utils';
 import { CompactSwitch, Group } from './capability-controls';
-import { sectionLoaded, type PanelContext } from './capability-data';
+import { sectionLoaded, type PanelContext, type RecordValue } from './capability-data';
+import {
+  ExtensionDetailDialog,
+  ExtensionHero,
+  ExtensionItemRow,
+  ExtensionRow,
+  ExtensionSection,
+} from './extension-detail';
 import {
   BUILT_IN_FEATURES,
   type BuiltInFeatureDefinition,
@@ -70,22 +78,10 @@ function SlotProgress({ percent, label }: { percent: number | null; label: strin
   </span>;
 }
 
-function FeatureCard({
-  feature,
-  bundledSkills,
-  installed,
-  enabled,
-  ready,
-  available,
-  busy,
-  action,
-  progressPercent,
-  onInstall,
-  onToggle,
-}: {
+type FeatureState = {
   feature: BuiltInFeatureDefinition;
-  /** Names of the built-in skills that install and toggle with this feature. */
-  bundledSkills: string[];
+  /** Built-in skills that install and toggle with this feature. */
+  bundledSkills: RecordValue[];
   installed: boolean;
   enabled: boolean;
   ready: boolean;
@@ -95,41 +91,81 @@ function FeatureCard({
   busy: boolean;
   action: FeatureAction | null;
   progressPercent: number | null;
+};
+
+/** Short list badge for the state the row cannot show as a switch. */
+function featureBadge({ ready, installed, available, action, progressPercent }: FeatureState): string {
+  if (!available) return t('Windows only');
+  if (!ready) return '';
+  if (action?.status === 'installing') {
+    return progressPercent === null ? t('Installing…') : `${t('Installing…')} ${progressPercent}%`;
+  }
+  if (action?.status === 'failed') return t('Failed');
+  if (!installed) return t('Not installed');
+  return '';
+}
+
+/** Header slot of the detail dialog: placeholder → progress → Install/Retry →
+ *  switch, in the order the feature's own status source allows. */
+function FeatureControl({ state, onInstall, onToggle }: {
+  state: FeatureState;
   onInstall(): void;
   onToggle(enabled: boolean): void;
 }) {
-  const Icon = FEATURE_ICONS[feature.id];
+  const { feature, installed, enabled, ready, available, busy, action, progressPercent } = state;
   const installing = action?.status === 'installing';
   const failed = action?.status === 'failed';
-  return <article className="built-in-feature-card" data-feature-id={feature.id}
-    aria-busy={installing || action?.status === 'toggling' || undefined}>
-    <header>
-      <span className="built-in-feature-title">
-        <Icon className="built-in-feature-title-icon" size={14} aria-hidden="true" />
-        <b>{t(feature.title)}</b>
-      </span>
-      <span className="built-in-feature-control">
-        {!ready
-          ? <span className="built-in-feature-control-placeholder" aria-hidden="true" />
-          : installing
-          ? <SlotProgress percent={progressPercent} label={t('Installing {{name}}…', { name: t(feature.title) })} />
-          : !installed
-          ? <button type="button" disabled={!available || busy}
-              aria-label={t('Install {{name}}', { name: t(feature.title) })} onClick={onInstall}>
-              {t(failed ? 'Retry' : 'Install')}
-            </button>
-          : <CompactSwitch label={t(feature.title)} checked={enabled} optimistic={false}
-              disabled={!available || busy} onChange={onToggle} />}
-      </span>
-      <small className="built-in-feature-description">
-        {t(feature.description)}
-        {bundledSkills.length > 0 && <> {t('Includes skills: {{names}}', { names: bundledSkills.join(', ') })}</>}
-      </small>
-    </header>
-    {failed && action?.message
+  return <span className="built-in-feature-control">
+    {!ready
+      ? <span className="built-in-feature-control-placeholder" aria-hidden="true" />
+      : installing
+      ? <SlotProgress percent={progressPercent} label={t('Installing {{name}}…', { name: t(feature.title) })} />
+      : !installed
+      ? <button type="button" disabled={!available || busy}
+          aria-label={t('Install {{name}}', { name: t(feature.title) })} onClick={onInstall}>
+          {t(failed ? 'Retry' : 'Install')}
+        </button>
+      : <CompactSwitch label={t(feature.title)} checked={enabled} optimistic={false}
+          disabled={!available || busy} onChange={onToggle} />}
+  </span>;
+}
+
+/** Detail for one built-in feature: the same dialog grammar as plugins, with
+ *  its install/enable control in the header and each bundled skill switching
+ *  on its own under Contents. */
+function FeatureDetailDialog({ state, disabledSkills, onInstall, onToggle, onSkillToggle, onClose }: {
+  state: FeatureState;
+  disabledSkills: ReadonlySet<string>;
+  onInstall(): void;
+  onToggle(enabled: boolean): void;
+  onSkillToggle(name: string, enabled: boolean): void;
+  onClose(): void;
+}) {
+  const { feature, bundledSkills, busy, action } = state;
+  const Icon = FEATURE_ICONS[feature.id];
+  const title = t(feature.title);
+  return <ExtensionDetailDialog title={title} onClose={onClose}
+    dataAttributes={{ 'data-feature-id': feature.id }}
+    headerControl={<FeatureControl state={state} onInstall={onInstall} onToggle={onToggle} />}>
+    <ExtensionHero icon={<Icon size={22} aria-hidden="true" />} title={title}
+      tagline={t(feature.description)} />
+    {action?.status === 'failed' && action.message
       ? <div className="built-in-feature-error" role="alert">{action.message}</div>
       : null}
-  </article>;
+    <ExtensionSection title={t('Contents')} count={bundledSkills.length}>
+      {bundledSkills.length ? <div className="extensions-item-list">
+        {bundledSkills.map((skill) => {
+          const name = String(skill.name);
+          const off = disabledSkills.has(name);
+          return <ExtensionItemRow key={name} icon={<Sparkles size={15} aria-hidden="true" />}
+            title={name} description={String(skill.description || '').trim()}
+            tone={off ? 'off' : 'ok'}
+            control={<CompactSwitch label={`${name} · ${t('Enabled')}`} checked={!off}
+              disabled={busy} onChange={(next) => onSkillToggle(name, next)} />} />;
+        })}
+      </div> : <p className="extensions-mcp-note">{t('This feature ships no skills.')}</p>}
+    </ExtensionSection>
+  </ExtensionDetailDialog>;
 }
 
 export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api }: PanelContext) {
@@ -149,17 +185,25 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api }: Pane
   const windows = navigator.userAgent.includes('Windows');
   // Built-in skills ride their feature's Install and toggle, so the card names
   // them instead of the Skills panel listing them as loose entries.
-  const bundledSkills = useMemo<Partial<Record<BuiltInFeatureId, string[]>>>(() => {
-    const byFeature: Partial<Record<BuiltInFeatureId, string[]>> = {};
+  const bundledSkills = useMemo<Partial<Record<BuiltInFeatureId, RecordValue[]>>>(() => {
+    const byFeature: Partial<Record<BuiltInFeatureId, RecordValue[]>> = {};
     const skills = record(data.skills).skills;
     for (const skill of Array.isArray(skills) ? skills : []) {
       const owner = record(record(skill).owner);
       if (owner.kind !== 'builtin' || typeof owner.feature !== 'string') continue;
       const feature = owner.feature as BuiltInFeatureId;
-      (byFeature[feature] ??= []).push(String(record(skill).name));
+      (byFeature[feature] ??= []).push(record(skill));
     }
     return byFeature;
   }, [data.skills]);
+  const disabledSkills = useMemo(() => new Set((Array.isArray(record(data.disabledSkills).disabled)
+    ? record(data.disabledSkills).disabled as unknown[] : []).map(String)), [data.disabledSkills]);
+  const setSkillEnabled = (name: string, next: boolean) => {
+    const nextSet = new Set(disabledSkills);
+    if (next) nextSet.delete(name); else nextSet.add(name);
+    void run('setDisabledSkills', [[...nextSet]]);
+  };
+  const [openId, setOpenId] = useState<BuiltInFeatureId | null>(null);
 
   useEffect(() => {
     if (voice.installed === true) setVoiceInstalled(true);
@@ -289,27 +333,44 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api }: Pane
   };
 
   const busy = Boolean(pending) || (action !== null && action.status !== 'failed');
+  const stateOf = (feature: BuiltInFeatureDefinition): FeatureState => {
+    const available = feature.platform !== 'windows' || windows;
+    // Every entry waits for its own status source before painting a control,
+    // so an Install pill never flashes into a toggle (or back).
+    const ready = feature.id === 'git'
+      ? gitStatus !== null && sectionLoaded(data, 'toolModules')
+      : feature.id === 'browser' || feature.id === 'computer' ? settings !== null
+      : feature.id === 'voice' ? sectionLoaded(data, 'voice')
+      : sectionLoaded(data, 'toolModules');
+    return {
+      feature,
+      bundledSkills: bundledSkills[feature.id] || [],
+      installed: installed[feature.id],
+      enabled: optimistic?.id === feature.id ? optimistic.value : enabled[feature.id],
+      ready,
+      available,
+      busy,
+      action: action?.id === feature.id ? action : null,
+      progressPercent: feature.id === 'voice' || feature.id === 'memory' ? progress.percent : null,
+    };
+  };
+  const open = openId ? BUILT_IN_FEATURES.find((feature) => feature.id === openId) : undefined;
   return <Group title="Built-in">
-    <div className="built-in-feature-list">
-      {BUILT_IN_FEATURES.map((feature) => {
-        const available = feature.platform !== 'windows' || windows;
-        // Every card waits for its own status source before painting a
-        // control, so an Install pill never flashes into a toggle (or back).
-        const ready = feature.id === 'git'
-          ? gitStatus !== null && sectionLoaded(data, 'toolModules')
-          : feature.id === 'browser' || feature.id === 'computer' ? settings !== null
-          : feature.id === 'voice' ? sectionLoaded(data, 'voice')
-          : sectionLoaded(data, 'toolModules');
-        return <FeatureCard key={feature.id} feature={feature}
-          bundledSkills={bundledSkills[feature.id] || []}
-          installed={installed[feature.id]}
-          enabled={optimistic?.id === feature.id ? optimistic.value : enabled[feature.id]}
-          ready={ready} available={available} busy={busy}
-          action={action?.id === feature.id ? action : null}
-          progressPercent={feature.id === 'voice' || feature.id === 'memory' ? progress.percent : null}
-          onInstall={() => install(feature.id)}
-          onToggle={(next) => toggle(feature.id, next)} />;
-      })}
-    </div>
+    {BUILT_IN_FEATURES.map((feature) => {
+      const state = stateOf(feature);
+      const Icon = FEATURE_ICONS[feature.id];
+      return <ExtensionRow key={feature.id} icon={<Icon size={16} aria-hidden="true" />}
+        title={t(feature.title)} description={t(feature.description)}
+        badge={featureBadge(state)}
+        enabled={state.installed && state.enabled}
+        busy={false} onOpen={() => setOpenId(feature.id)}
+        dataAttributes={{ 'data-built-in-feature': feature.id }} />;
+    })}
+    {open && <FeatureDetailDialog key={open.id} state={stateOf(open)}
+      disabledSkills={disabledSkills}
+      onInstall={() => install(open.id)}
+      onToggle={(next) => toggle(open.id, next)}
+      onSkillToggle={setSkillEnabled}
+      onClose={() => setOpenId(null)} />}
   </Group>;
 }

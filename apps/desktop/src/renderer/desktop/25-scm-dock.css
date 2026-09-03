@@ -719,23 +719,19 @@
 .dock-scm-unpushed:active:not(:disabled) { background: linear-gradient(var(--mx-alpha-dark-24), var(--mx-alpha-dark-24)), var(--mx-accent-bg); }
 .dock-scm-unpushed:focus-visible { outline: 0; box-shadow: 0 0 0 2px var(--mx-focus); }
 .dock-scm-unpushed:disabled { cursor: default; opacity: var(--mx-op-disabled); }
-/* Commit detail header, two tiers on the dock gutter: a 29px toolbar strip
-   (back button on the file rows' inset, short SHA + copy, +adds/−dels
-   trailing) over the subject (up to two lines) and an `author · date`
-   byline. Nothing competes with the text for width any more, so the author
-   never collapses and the SHA never clips. */
-.dock-scm-commit-header { box-sizing: border-box; margin-inline: var(--dock-scm-gutter); display: grid; gap: 2px; padding: 2px 0 8px; border-bottom: 1px solid var(--mx-border-muted); }
-.dock-scm-commit-toolbar { min-height: var(--dock-scm-file-row); display: flex; align-items: center; gap: 6px; padding: 0 2px 0 var(--dock-scm-row-inset); }
-.dock-scm-commit-back { width: 22px; height: 22px; flex: 0 0 22px; margin-left: -4px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
+/* Commit detail header, ONE row on the dock gutter like the Changes list's
+   toolbar: the subject (up to two lines) over an `author · date · sha`
+   byline takes the width, the 22px back button trails on the right at the
+   same x as the Changes toolbar's action buttons. No totals, no SHA chip. */
+.dock-scm-commit-header { box-sizing: border-box; margin-inline: var(--dock-scm-gutter); display: flex; align-items: center; gap: 6px; padding: 4px 2px 6px var(--dock-scm-row-inset); border-bottom: 1px solid var(--mx-border-muted); }
+.dock-scm-commit-back { width: 22px; height: 22px; flex: 0 0 22px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
 .dock-scm-commit-back:hover, .dock-scm-commit-back:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
-.dock-scm-commit-toolbar > .dock-scm-commit-ref { min-width: 0; flex: 0 1 auto; display: flex; align-items: center; gap: 4px; color: var(--mx-text-muted); font-size: var(--mx-font-micro); line-height: var(--mx-line-meta); white-space: nowrap; }
+/* The SHA IS the copy control: a text button in the byline, monospace with
+   the copy/check glyph trailing. */
+.dock-scm-commit-ref { min-width: 0; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 3px; margin: -2px 0; padding: 1px 3px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; font: inherit; line-height: var(--mx-line-meta); cursor: pointer; }
+.dock-scm-commit-ref:hover, .dock-scm-commit-ref:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
 .dock-scm-commit-ref code { font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); line-height: 1; }
-.dock-scm-commit-copy { width: 18px; height: 18px; flex: 0 0 18px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
-.dock-scm-commit-copy:hover, .dock-scm-commit-copy:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
-.dock-scm-commit-lines { flex: 0 0 auto; margin-left: auto; display: flex; gap: 5px; font-size: var(--mx-font-micro); font-variant-numeric: tabular-nums; }
-.dock-scm-commit-lines i { color: var(--mx-success); font-style: normal; }
-.dock-scm-commit-lines em { color: var(--mx-danger); font-style: normal; }
-.dock-scm-commit-headline { min-width: 0; display: grid; gap: 2px; padding: 0 2px 0 calc(var(--dock-scm-row-inset) + 2px); }
+.dock-scm-commit-headline { min-width: 0; flex: 1; display: grid; gap: 2px; padding: 0 0 0 2px; }
 .dock-scm-commit-headline > b { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: var(--mx-font-code); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); letter-spacing: 0; }
 /* ONE byline, dot-separated like the History rows; the author takes the
    slack and ellipsizes last, the date never wraps. */

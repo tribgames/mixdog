@@ -261,8 +261,8 @@ function DesktopBrowserPane({
       setLoading(false);
       setPageFailure({
         kind: "load",
-        title: "페이지를 불러오지 못했습니다",
-        detail: `${failure.errorDescription || "네트워크 또는 사이트 응답 오류"}`
+        title: t("Failed to load page"),
+        detail: `${failure.errorDescription || t("Network or site error")}`
           + `${failure.errorCode ? ` (${failure.errorCode})` : ""}`,
       });
     };
@@ -271,16 +271,16 @@ function DesktopBrowserPane({
       setLoading(false);
       setPageFailure({
         kind: "renderer",
-        title: "브라우저 화면이 중단되었습니다",
+        title: t("Browser crashed"),
         detail: details?.reason
           ? `${details.reason}${details.exitCode ? ` (${details.exitCode})` : ""}`
-          : "페이지 renderer가 종료되었습니다.",
+          : t("The page renderer process exited."),
       });
     };
     const onUnresponsive = () => setPageFailure({
       kind: "unresponsive",
-      title: "페이지가 응답하지 않습니다",
-      detail: "잠시 기다리거나 페이지를 다시 불러오세요.",
+      title: t("Page unresponsive"),
+      detail: t("Wait or reload the page."),
     });
     const onResponsive = () => setPageFailure((failure) =>
       failure?.kind === "unresponsive" ? null : failure);
@@ -536,7 +536,7 @@ function DesktopBrowserPane({
       <div className="browser-pane-viewport-picker" data-tooltip={viewportPreset.label}>
         <OpenSelect className="browser-pane-viewport-control"
           value={viewportPresetId}
-          ariaLabel={`브라우저 화면 크기: ${viewportPreset.label}`}
+          ariaLabel={t("Browser viewport size: {{label}}", { label: viewportPreset.label })}
           localizeLabels={false}
           leading={<Smartphone size={15} aria-hidden="true" />}
           menuMinWidth={236}
@@ -565,15 +565,15 @@ function DesktopBrowserPane({
             }
           }}
           aria-label={credentialStatus === "success"
-            ? "저장된 계정을 채웠습니다"
+            ? t("Filled stored credentials")
             : credentialStatus === "error"
-              ? "저장된 계정을 채우지 못했습니다"
-              : "저장된 계정으로 채우기"}
+              ? t("Could not fill stored credentials")
+              : t("Fill with stored credentials")}
           data-tooltip={credentialStatus === "success"
-            ? "저장된 계정을 채웠습니다"
+            ? t("Filled stored credentials")
             : credentialStatus === "error"
-              ? "저장된 계정을 채우지 못했습니다"
-              : "저장된 계정으로 채우기"}>
+              ? t("Could not fill stored credentials")
+              : t("Fill with stored credentials")}>
           {credentialBusy
             ? <LoaderCircle size={15} className="is-spinning" />
             : credentialStatus === "success"
@@ -602,8 +602,8 @@ function DesktopBrowserPane({
       {desktopApi?.browserProfileImportSources && <button type="button"
         className="browser-pane-nav-button browser-pane-import-button"
         onClick={() => setImportOpen(true)}
-        aria-label="브라우저에서 가져오기"
-        data-tooltip="브라우저에서 가져오기">
+        aria-label={t("Import from browser")}
+        data-tooltip={t("Import from browser")}>
         {/* Import links this pane to a system browser's profile (user: 링크를
             연상시키는 버튼) — a chain glyph, not a download arrow. */}
         <Link2 size={15} />
@@ -646,7 +646,7 @@ function DesktopBrowserPane({
             }
           }}>
             <RotateCw size={14} />
-            다시 불러오기
+            {t("Reload")}
           </button>
         </div>}
       </div>

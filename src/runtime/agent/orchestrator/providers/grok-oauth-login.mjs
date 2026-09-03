@@ -15,7 +15,7 @@
  * injected via config.extraHeaders, bearer swapped for the OAuth access token.
  */
 import { createServer } from 'http';
-import { randomBytes, randomUUID, createHash } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
 import { join, resolve } from 'path';
 import { getPluginData } from '../config.mjs';
@@ -28,15 +28,14 @@ import { OpenAICompatProvider } from './openai-compat.mjs';
 import { createTimeoutSignal } from '../stall-policy.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { normalizeGrokToolSchemas } from './lib/grok-tool-schema.mjs';
+import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
 
 // --- Constants ---
 // xAI's shared OAuth client. The consent screen renders this as "Grok Build".
 import { CLIENT_ID, SCOPE, CALLBACK_HOST, CALLBACK_PORT, CALLBACK_PATH, REDIRECT_URI, TOKEN_TIMEOUT_MS, LOGIN_TIMEOUT_MS, fetchDiscovery, _normalizeExpiresAt, _identityFromAccessToken, saveTokens, _scrubTokens } from './grok-oauth-tokens.mjs';
 
 export function generatePKCE() {
-    const verifier = randomBytes(32).toString('base64url');
-    const challenge = createHash('sha256').update(verifier).digest('base64url');
-    return { verifier, challenge };
+    return createOAuthPkce();
 }
 
 export async function exchangeAuthorizationCode({ discovery, pkce, code }) {
@@ -84,26 +83,6 @@ export async function exchangeAuthorizationCode({ discovery, pkce, code }) {
     };
     saveTokens(tokens);
     return tokens;
-}
-
-function parseOAuthCodeInput(input) {
-    const value = String(input || '').trim();
-    if (!value) return { code: '', state: '' };
-    try {
-        const url = new URL(value);
-        const code = url.searchParams.get('code') || '';
-        const state = url.searchParams.get('state') || '';
-        if (code || state) return { code, state };
-    } catch { /* not a URL */ }
-    if (value.includes('#')) {
-        const [code, state] = value.split('#', 2);
-        return { code: String(code || '').trim(), state: String(state || '').trim() };
-    }
-    if (value.includes('code=')) {
-        const params = new URLSearchParams(value.startsWith('?') ? value.slice(1) : value);
-        return { code: params.get('code') || '', state: params.get('state') || '' };
-    }
-    return { code: value, state: '' };
 }
 
 export async function beginOAuthLogin() {
@@ -177,7 +156,7 @@ export async function beginOAuthLogin() {
         url: url.toString(),
         waitForCallback,
         completeCode: async (input) => {
-            const parsed = parseOAuthCodeInput(input);
+            const parsed = parseOAuthCodeInput(input, { allowHashState: true });
             if (parsed.state && parsed.state !== state) throw new Error('[grok-oauth] OAuth state mismatch');
             const tokens = await exchangeAuthorizationCode({ discovery, pkce, code: parsed.code });
             finish?.(tokens);

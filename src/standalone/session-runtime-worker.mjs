@@ -18,7 +18,7 @@ process.env.MIXDOG_QUIET_SESSION_LOG ??= '1';
 
 import { getEventListeners } from 'node:events';
 import { safeIpcSend } from '../runtime/shared/safe-ipc-send.mjs';
-import { sanitizeForWire } from './session-service.mjs';
+import { sanitizeForWire } from './session-wire-values.mjs';
 import { disposeSessionRuntimeRecord } from './session-runtime-record.mjs';
 import { releaseAllComputerSessions } from '../runtime/computer-bridge/client.mjs';
 import { diffSessionState } from './session-state-patch.mjs';

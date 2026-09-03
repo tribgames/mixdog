@@ -5,7 +5,6 @@ import { createCommitMessageGenerator } from './commit-message.ts';
 
 const conventional = {
   commitPreset: 'conventional',
-  commitTemplate: '',
   commitExample: '',
   commitInstructions: '',
   autoCommitMessage: true,

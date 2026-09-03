@@ -145,43 +145,6 @@
   gap: 6px;
   padding-right: 6px;
 }
-.turn-review-undo {
-  min-height: 24px;
-  min-width: 62px;
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 0 7px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text);
-  background: var(--mx-pressed);
-  box-shadow: var(--mx-button);
-  font: inherit;
-  font-size: var(--mx-font-meta);
-  font-weight: var(--mx-weight-medium);
-  cursor: pointer;
-  justify-content: center;
-}
-.turn-review-undo:hover:not(:disabled) {
-  color: var(--mx-text);
-  background: color-mix(in srgb, var(--mx-text) 14%, transparent);
-}
-.turn-review-undo:disabled {
-  /* Busy/unavailable still needs to read as a labeled action at 12px; the
-     quieter plate and lack of hover carry the disabled state. */
-  color: var(--mx-text-soft);
-  background: var(--mx-hover);
-  box-shadow: 0 0 0 .5px var(--mx-border-muted);
-  opacity: 1;
-  cursor: default;
-}
-.turn-review-undo:disabled:hover {
-  color: var(--mx-text-soft);
-  background: var(--mx-hover);
-}
-.turn-review-confirm-all { flex: 0 0 auto; }
 .turn-review-style {
   flex: 0 0 auto;
   gap: 0;
@@ -347,12 +310,6 @@
 }
 @container (max-width: 540px) {
   .turn-review-attribution { display: none; }
-  .turn-review-undo {
-    min-width: 24px;
-    width: 24px;
-    padding: 0;
-  }
-  .turn-review-undo > span { display: none; }
 }
 @container (max-width: 440px) {
   .turn-review-style button { padding: 0 5px; }
@@ -360,7 +317,9 @@
 /* Inline X/✓ confirm replaces the native window.confirm (user: OS popup
    clashed with the app chrome). Same grammar as session-row delete. */
 .turn-review-confirm { display: inline-flex; align-items: center; gap: 2px; }
-.turn-review-revert.danger { color: var(--mx-text); }
+/* The destructive commit stays neutral at rest (SCM row-action grammar) and
+   reads danger on hover (session-row delete grammar). */
+.turn-review-revert.danger:hover { color: var(--mx-danger); }
 /* A refused revert states its reason on the bar itself. Silence read as a
    broken button. */
 .turn-review-error {

@@ -26,7 +26,7 @@ import { fileURLToPath } from 'url'
 import { pipeline } from 'stream/promises'
 import { spawnSync } from 'child_process'
 import { renameWithRetrySync, writeFileAtomicSync, writeJsonAtomicSync } from '../../shared/atomic-file.mjs'
-import { streamResponseToFile } from '../../shared/bounded-download.mjs'
+import { downloadToFileWithRetry } from '../../shared/bounded-download.mjs'
 
 // Bundled fallback manifest shipped alongside Mixdog. fileURLToPath required
 // for cross-platform path resolution (URL.pathname returns /C:/... on Windows).
@@ -136,36 +136,15 @@ function runtimePaths(verDir) {
 // ---------------------------------------------------------------------------
 
 async function downloadWithRetry(url, destPath, expectedBytes) {
-  // 4 total attempts: 1 initial + 3 retries; waits between attempts: 1s, 3s, 9s.
-  const delays = [1000, 3000, 9000]
-  let lastErr
-  for (let attempt = 0; attempt < 4; attempt++) {
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(180_000) })
-      if (res.status >= 400 && res.status < 500) {
-        // 4xx: terminal — do not retry.
-        throw new Error(`[runtime-fetcher] asset download HTTP ${res.status} (terminal) — ${url}`)
-      }
-      if (!res.ok) {
-        throw new Error(`[runtime-fetcher] asset download HTTP ${res.status} — ${url}`)
-      }
-      await streamResponseToFile(res, destPath, {
-        maxBytes: expectedBytes,
-        expectedBytes,
-        label: 'memory runtime download',
-      })
-      return // success
-    } catch (err) {
-      lastErr = err
-      // Terminal 4xx: do not retry.
-      if (err.message.includes('(terminal)')) throw err
-      if (attempt < 3) {
-        __mixdogMemoryLog(`[runtime-fetcher] download attempt ${attempt + 1} failed (${err.message}), retrying in ${delays[attempt]}ms…\n`)
-        await new Promise(r => setTimeout(r, delays[attempt]))
-      }
-    }
-  }
-  throw lastErr
+  return downloadToFileWithRetry(url, destPath, {
+    maxBytes: expectedBytes,
+    expectedBytes,
+    label: 'memory runtime download',
+    httpLabel: '[runtime-fetcher] asset download',
+    onRetry: ({ attempt, delayMs, error }) => {
+      __mixdogMemoryLog(`[runtime-fetcher] download attempt ${attempt} failed (${error?.message}), retrying in ${delayMs}ms…\n`)
+    },
+  })
 }
 
 function runtimeAssetUrlCandidates(url) {

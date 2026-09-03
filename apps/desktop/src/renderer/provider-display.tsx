@@ -3,6 +3,8 @@ import { type SVGProps } from "react";
 import type { DesktopModelOption } from "../shared/contract";
 
 import { t } from "./i18n";
+// @ts-expect-error Shared runtime ESM intentionally has no separate declaration file.
+import { canonicalModelDisplay } from "../../../../src/ui/model-display.mjs";
 
 const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   anthropic: "Anthropic API",
@@ -252,93 +254,6 @@ export function modelDetailTooltip(model: DesktopModelOption): string {
     model.latest ? t("Latest") : "",
     model.releaseDate ? t("Released {{date}}", { date: model.releaseDate }) : "",
   ].filter(Boolean).join(" · ");
-}
-
-function titleModelPart(part: string) {
-  const text = String(part || "").trim();
-  if (!text) return "";
-  const lower = text.toLowerCase();
-  if (lower === "gpt") return "GPT";
-  if (lower === "api") return "API";
-  if (lower === "v4") return "V4";
-  return `${lower[0]?.toUpperCase() || ""}${lower.slice(1)}`;
-}
-
-function canonicalModelDisplay(model: string) {
-  const raw = String(model || "").trim()
-    .replace(/-\d{4}-\d{2}-\d{2}$/, "")
-    .replace(/-\d{8}$/, "");
-  if (!raw) return "";
-
-  const gpt = raw.match(/^gpt-(\d+(?:\.\d+)?)(?:-(.+))?$/i);
-  if (gpt) {
-    const suffix = gpt[2] ? `-${gpt[2].split("-").map(titleModelPart).filter(Boolean).join("-")}` : "";
-    return `GPT-${gpt[1]}${suffix}`;
-  }
-  if (/^gpt-/i.test(raw)) {
-    return raw.split("-").map((part, index) => index === 0 ? part.toUpperCase() : titleModelPart(part))
-      .filter(Boolean).join("-");
-  }
-  const openaiO = raw.match(/^o(\d+(?:\.\d+)?)(?:-(.+))?$/i);
-  if (openaiO) {
-    const tail = openaiO[2] ? ` ${openaiO[2].split("-").map(titleModelPart).filter(Boolean).join(" ")}` : "";
-    return `O${openaiO[1]}${tail}`;
-  }
-  const codex = raw.match(/^codex-(.+)$/i);
-  if (codex) return `Codex ${codex[1].split("-").map(titleModelPart).filter(Boolean).join(" ")}`;
-  const deepseek = raw.match(/^deepseek-(.+)$/i);
-  if (deepseek) return `DeepSeek ${deepseek[1].split("-").map(titleModelPart).filter(Boolean).join(" ")}`;
-  const grok = raw.match(/^grok-(.+)$/i);
-  if (grok) return `Grok ${grok[1].split("-").map(titleModelPart).filter(Boolean).join(" ")}`;
-  const claudeLegacy = raw.match(/^claude-(\d+)(?:-(\d+))?-(opus|sonnet|haiku|fable)(?:-|$)/i);
-  if (claudeLegacy) {
-    const version = `${claudeLegacy[1]}${claudeLegacy[2] ? `.${claudeLegacy[2]}` : ""}`;
-    return `Claude ${titleModelPart(claudeLegacy[3])} ${version}`;
-  }
-  const claude = raw.match(/^claude-(opus|sonnet|haiku|fable)-(.+)$/i);
-  if (claude) return `Claude ${titleModelPart(claude[1])} ${claude[2].replace(/-/g, ".")}`;
-  const gemini = raw.match(/^gemini-(\d+(?:\.\d+)?)-(.+)$/i);
-  if (gemini) return `Gemini ${gemini[1]} ${gemini[2].split("-").map(titleModelPart).filter(Boolean).join(" ")}`;
-  const geminiLoose = raw.match(/^gemini-(.+)$/i);
-  if (geminiLoose) return `Gemini ${geminiLoose[1].split("-").map(titleModelPart).filter(Boolean).join(" ")}`;
-  return gatewayBrandDisplay(raw) || raw;
-}
-
-// Mirrors src/ui/model-display.mjs gatewayBrandDisplay: gateway brands whose
-// ids carry the version inside the first token, named models.dev-style.
-const SPACED_BRANDS: Array<[RegExp, string, string]> = [
-  [/^kimi-(.+)$/i, "Kimi", " "],
-  [/^qwen(\d.*)$/i, "Qwen", ""],
-  [/^mimo-(.+)$/i, "MiMo", " "],
-  [/^muse-spark-(.+)$/i, "Muse Spark", " "],
-  [/^hy(\d.*)$/i, "Hy", ""],
-];
-const HYPHENATED_BRANDS: Array<[RegExp, string]> = [
-  [/^glm-(.+)$/i, "GLM"],
-  [/^minimax-(.+)$/i, "MiniMax"],
-  [/^longcat-(.+)$/i, "LongCat"],
-];
-
-const BRAND_NOISE_TOKENS = new Set(["contributor"]);
-
-function brandVersionPart(part: string) {
-  const text = String(part || "").trim();
-  if (!text || BRAND_NOISE_TOKENS.has(text.toLowerCase())) return "";
-  return /^[a-z]?\d/i.test(text) ? text.toUpperCase() : titleModelPart(text);
-}
-
-function gatewayBrandDisplay(raw: string) {
-  for (const [re, brand, joiner] of SPACED_BRANDS) {
-    const m = raw.match(re);
-    if (!m) continue;
-    return `${brand}${joiner}${m[1].split("-").map(brandVersionPart).filter(Boolean).join(" ")}`;
-  }
-  for (const [re, brand] of HYPHENATED_BRANDS) {
-    const m = raw.match(re);
-    if (!m) continue;
-    return `${brand}-${m[1].split("-").map(brandVersionPart).filter(Boolean).join("-")}`;
-  }
-  return "";
 }
 
 // A hint is curated when it is not merely the id re-spaced/re-cased; curated

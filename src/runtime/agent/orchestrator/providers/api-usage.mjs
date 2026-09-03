@@ -1,32 +1,17 @@
-import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getAgentApiKey, getOpenAIUsageSessionKey } from '../../../shared/config.mjs';
 import { num, round } from './lib/usage-primitives.mjs';
+import { JsonMemoryCache } from './lib/json-memory-cache.mjs';
 
 const CACHE_FILE = 'api-usage-cache.json';
 const LIVE_TTL_MS = 5 * 60_000;
 const STALE_TTL_MS = 60 * 60_000;
-const DISK_JSON_MEMORY_TTL_MS = 1000;
-let diskJsonCache = { at: 0, file: '', value: null };
+const diskJsonCache = new JsonMemoryCache();
 
 function cachePath() {
   return join(resolvePluginData(), CACHE_FILE);
-}
-
-function readJson(file) {
-  if (diskJsonCache.file === file && Date.now() - diskJsonCache.at < DISK_JSON_MEMORY_TTL_MS) {
-    return diskJsonCache.value;
-  }
-  try {
-    if (!existsSync(file)) return null;
-    const value = JSON.parse(readFileSync(file, 'utf8'));
-    diskJsonCache = { at: Date.now(), file, value };
-    return value;
-  } catch {
-    return null;
-  }
 }
 
 function cacheKey(provider) {
@@ -41,7 +26,7 @@ function freshSnapshot(snapshot, ttlMs) {
 }
 
 export function readCachedApiUsageSnapshot(provider, { allowStale = true } = {}) {
-  const raw = readJson(cachePath());
+  const raw = diskJsonCache.read(cachePath());
   const snapshot = raw?.snapshots?.[cacheKey(provider)] || null;
   return freshSnapshot(snapshot, allowStale ? STALE_TTL_MS : LIVE_TTL_MS);
 }
@@ -72,7 +57,7 @@ function writeCachedApiUsageSnapshot(provider, snapshot) {
       };
     }, { lock: true, fsyncDir: true, timeoutMs: 1000 }); // best-effort cache write: short lock timeout, don't block on contention
   } catch {}
-  if (next) diskJsonCache = { at: Date.now(), file, value: next };
+  if (next) diskJsonCache.remember(file, next);
 }
 
 function authHeaders(key, extra = {}) {

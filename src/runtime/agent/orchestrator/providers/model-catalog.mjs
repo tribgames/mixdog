@@ -349,7 +349,7 @@ function warmModelsDevFromDiskSync() {
 }
 // Human label from a models.dev row. Marketing tails such as "(New)",
 // "(2x usage)", "(Unlimited)" are catalog commentary, not part of the name.
-export function modelsDevDisplayName(row) {
+function modelsDevDisplayName(row) {
     const name = typeof row?.name === 'string' ? row.name : '';
     const cleaned = name
         .replace(/\s*\([^)]*\)\s*$/, '')

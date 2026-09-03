@@ -25,6 +25,7 @@ import type {
   DesktopPullRequestDetail,
   DesktopPullRequestEntry,
 } from "../shared/contract";
+import { t } from "./i18n";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { GitFileDiff } from "./ReviewPane";
 import { OpenSelect } from "./OpenSelect";
@@ -521,18 +522,18 @@ export function PullRequestsPane({
       {actionError && <div className="dock-pr-error-state" role="alert">
         <Github size={18} aria-hidden="true" />
         <div>
-          <b>Pull request action failed</b>
+          <b>{t("Pull request action failed")}</b>
           <span>{actionError}</span>
         </div>
         <button type="button" onClick={() =>
           void api?.openExternal?.("https://cli.github.com/manual/gh_auth_login")}>
-          GitHub CLI help
+          {t("GitHub CLI help")}
         </button>
       </div>}
       {categories === null && readError && <div className="dock-pr-empty" role="status">
         <Github size={24} aria-hidden="true" />
-        <b>Pull requests are temporarily unavailable</b>
-        <span>Refresh when the project is ready.</span>
+        <b>{t("Pull requests are temporarily unavailable")}</b>
+        <span>{t("Refresh when the project is ready.")}</span>
       </div>}
       {categories === null && !readError && <p className="utility-dock-empty">
         <ProgressSpinner size={14} aria-hidden="true" /> Loading pull requests…

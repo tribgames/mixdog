@@ -1,5 +1,4 @@
 import React, {
-  // Lucide's Wifi draws its base dot as a 0.01-length stroke ("M12 20h.01") —
   lazy,
   Suspense,
   useCallback,
@@ -10,28 +9,10 @@ import React, {
   useState,
   useSyncExternalStore
 } from "react";
-import {
-  Bot,
-  Clock,
-  FileDiff,
-  GitCompare,
-  Github,
-  Globe,
-  Layers3,
-  MessageSquare,
-  Package,
-  PanelsTopLeft,
-  Search,
-  Sparkles,
-  SquareTerminal,
-  Webhook,
-} from "lucide-react";
 // react-markdown and the remark/unified ecosystem are heavy; they load as a
 // separate lazy chunk (MarkdownBody) so the first paint never pays for them.
 import type {
   DesktopModelSelection,
-  DesktopProjectSummary,
-  DesktopUpdaterState,
   DesktopWorkflowState,
   DesktopWorkspaceFolder,
   SessionSnapshot
@@ -95,7 +76,6 @@ import {
   scheduleBootWarmup,
 } from "./boot-warmup";
 import { bottomPanelOpenForPane } from "./bottom-panel-pane-state";
-import { useBrowserFeatureInstalled } from "./browser-feature-install";
 import { agentActivitySessionIds, EMPTY_SNAPSHOT, type RecordValue, type Snapshot } from "./desktop-types";
 import {
   desktopFeatureEnabled,
@@ -184,21 +164,6 @@ function applySessionLaneResult(sessionId: string, next: SessionSnapshot | null)
     frameSource: "live",
   });
 }
-function desktopProjectPathKey(value: unknown): string {
-  return String(value || "")
-    .trim()
-    .replace(/[\\/]+/g, "/")
-    .replace(/\/$/, "")
-    .toLocaleLowerCase();
-}
-function registeredDesktopProjectPath(
-  projects: readonly DesktopProjectSummary[],
-  candidate: unknown,
-): string {
-  const key = desktopProjectPathKey(candidate);
-  if (!key) return "";
-  return projects.find((project) => desktopProjectPathKey(project.path) === key)?.path || "";
-}
 interface EditorSaveHandle {
   save(): Promise<boolean>;
   discard(): Promise<void>;
@@ -228,12 +193,6 @@ import {
 
 import { useDesktopState } from "./app-desktop-state";
 import { createProjectActions } from "./app-project-actions";
-import {
-  acceptedProjectCatalog,
-  readCachedProjectCatalog,
-  resolveProjectPathAgainstCatalog,
-  writeCachedProjectCatalog,
-} from "./project-catalog-cache";
 import { useSessionCatalog } from "./app-session-catalog";
 import { useAppShellPanels } from "./use-app-shell-panels";
 import {
@@ -245,39 +204,33 @@ import {
 import { useAppSubmitRouting } from "./use-app-submit-routing";
 import { useAppSidebarSurface } from "./use-app-sidebar-surface";
 import { buildAppWorkbenchCommands } from "./app-workbench-commands";
+import type { UtilityDockTab } from "./UtilityDock";
 import { useAppPersistentPaneSurfaces } from "./use-app-persistent-pane-surfaces";
+import { createAppSideViewDescriptors } from "./app-side-view-descriptors";
 import { useStableEvent } from "./use-stable-event";
 import { resolveUnreadViewedSessionId, useUnreadSessions } from "./app-unread-sessions";
 import { DesktopLoadingSurface } from "./RendererRecovery";
 import { SessionDiffPane } from "./SessionDiffPane";
 import { useWorkbenchWorkspace } from "./workbench-workspace";
-import {
-  DEFAULT_SIDEBAR_VIEW_ORDER,
-  type SidebarViewGroup,
-} from "./sidebar-view-layout";
+import { DEFAULT_SIDEBAR_VIEW_ORDER } from "./sidebar-view-layout";
 import {
   WorkbenchSideIconBar,
   WorkbenchSidePanel,
-  initialActiveWorkbenchSideViews,
   isWorkbenchSideLauncher,
-  useWorkbenchSideViewLayout,
   type WorkbenchSide,
   type WorkbenchSideTitleDragProps,
-  type WorkbenchSideViewDescriptor,
   type WorkbenchSideViewId,
   type WorkbenchSideViewPlacement,
 } from "./workbench-side-view-layout";
 import {
   paneDockActiveRoot,
   PaneSideDock,
-  usePaneSideDocks,
-  type PaneSideDockDiff,
 } from "./pane-side-dock";
 import { PaneDockToggles } from "./pane-dock-toggles";
+import { SidebarDiffColumn, sidebarDiffColumnAvailable } from "./sidebar-diff-column";
 import {
   SessionBrowserParkingHost,
   SessionBrowserSlot,
-  useSessionBrowserSurfaces,
 } from "./session-browser-surfaces";
 import {
   browserSurfaceRequestShouldReveal,
@@ -285,19 +238,15 @@ import {
 } from "./session-browser-policy";
 import {
   sessionSideDockEntryForSession,
-  withSessionDiff,
-  withSessionPanelView,
-  withSessionSideSurface,
-  type SessionSidePanelView,
-  type SessionSideSurface,
 } from "./session-side-surface-policy";
 import {
   SessionTerminalParkingHost,
   SessionTerminalSlot,
-  useSessionTerminalSurfaces,
 } from "./session-terminal-surfaces";
-import type { UtilityDockTab } from "./UtilityDock";
-import { releaseSessionDiff } from "./session-diff-cache";
+import { useSessionPaneSurfaces } from "./use-session-pane-surfaces";
+import { useAppProjectCatalog } from "./use-app-project-catalog";
+import { useDesktopUpdater } from "./use-desktop-updater";
+import { useAppSideDocks } from "./use-app-side-docks";
 
 const UI_OPEN_REQUEST_TTL_MS = 15_000;
 
@@ -321,62 +270,19 @@ export function App() {
     desktopChromeSnapshotsEqual,
   );
   const paneWorkspace = usePaneWorkspace();
-  const browserSurfaces = useSessionBrowserSurfaces();
-  const terminalSurfaces = useSessionTerminalSurfaces();
-  const [sessionSideSurfaces, setSessionSideSurfaces] =
-    useState<ReadonlyMap<string, SessionSideSurface>>(() => new Map());
-  const setSessionSideSurface = useCallback((
-    sessionId: string,
-    surface: SessionSideSurface | null,
-  ) => {
-    setSessionSideSurfaces((current) =>
-      withSessionSideSurface(current, sessionId, surface));
-  }, []);
-  // The Session Diff LIST's open state, per session (user: 세션 종속 — 다른
-  // 세션으로 넘어가면 그 세션 기본값으로, 안 열려 있었으면 닫힘). The diff
-  // FILE rides `sessionDiffs`, the browser/terminal ride
-  // `sessionSideSurfaces`; this covers the list itself.
-  const [sessionPanelViews, setSessionPanelViews] =
-    useState<ReadonlyMap<string, SessionSidePanelView>>(() => new Map());
-  const setSessionPanelView = useCallback((
-    sessionId: string,
-    view: SessionSidePanelView | null,
-  ) => {
-    setSessionPanelViews((current) =>
-      withSessionPanelView(current, sessionId, view));
-  }, []);
-  // The Session Diff rows' open file, per session (user: 세션 종속): it rides
-  // the dock's diff column only while its own session is the pane's active
-  // conversation, and never touches the pane's remembered dock state.
-  const [sessionDiffs, setSessionDiffs] =
-    useState<ReadonlyMap<string, PaneSideDockDiff>>(() => new Map());
-  const setSessionDiff = useCallback((
-    sessionId: string,
-    diff: PaneSideDockDiff | null,
-  ) => {
-    setSessionDiffs((current) => withSessionDiff(current, sessionId, diff));
-  }, []);
-  const pendingBrowserAutoReveal = useRef(new Set<string>());
-  const releaseDeletedSessionSurfaces = useCallback((sessionId: string) => {
-    pendingBrowserAutoReveal.current.delete(sessionId);
-    setSessionSideSurfaces((current) =>
-      withSessionSideSurface(current, sessionId, null));
-    setSessionDiffs((current) => withSessionDiff(current, sessionId, null));
-    setSessionPanelViews((current) => withSessionPanelView(current, sessionId, null));
-    releaseSessionDiff(sessionId);
-    browserSurfaces.release(sessionId);
-    terminalSurfaces.release(sessionId);
-  }, [browserSurfaces, terminalSurfaces]);
-  useEffect(() => window.mixdogDesktop?.onBrowserRemoteViewerChanged?.((change) => {
-    browserSurfaces.setRemoteViewed(String(change?.sessionId || ""), change?.active === true);
-  }), [browserSurfaces]);
-  useEffect(() => window.mixdogDesktop?.onBrowserSessionReleased?.((sessionId) => {
-    pendingBrowserAutoReveal.current.delete(sessionId);
-    setSessionSideSurfaces((current) => current.get(sessionId) === "browser"
-      ? withSessionSideSurface(current, sessionId, null)
-      : current);
-    browserSurfaces.release(sessionId);
-  }), [browserSurfaces]);
+  const sessionPaneSurfaces = useSessionPaneSurfaces();
+  const {
+    browserSurfaces,
+    pendingBrowserAutoReveal,
+    releaseDeletedSessionSurfaces,
+    sessionDiffs,
+    sessionPanelViews,
+    sessionSideSurfaces,
+    setSessionDiff,
+    setSessionPanelView,
+    setSessionSideSurface,
+    terminalSurfaces,
+  } = sessionPaneSurfaces;
   const {
     applySidebarOpen,
     bottomPanel,
@@ -435,184 +341,36 @@ export function App() {
     });
   }, [settingsPrewarmed]);
   if (commandSurface) mountedCommandSurfaces.current.add(commandSurface);
-  const browserFeatureInstalled = useBrowserFeatureInstalled();
-  const availableSideViews = useMemo<WorkbenchSideViewId[]>(() => [
-    ...(desktopFeatureEnabled("sessions") ? ["sessions" as const] : []),
-    ...DEFAULT_SIDEBAR_VIEW_ORDER.filter((panel) =>
-      desktopSidebarDestinationEnabled(panel)),
-    "studio" as const,
-    "session-diff" as const,
-    // Browser Use is install-first, so its launcher joins the rail only once
-    // the install marker resolves.
-    ...(browserFeatureInstalled ? ["browser" as const] : []),
-    "terminal" as const,
-    ...(["agents", "search", "source-control", "pull-requests"] as const)
-      .filter((panel) => desktopUtilityDockTabEnabled(panel)),
-  ], [browserFeatureInstalled]);
-  const workbenchSideLayout = useWorkbenchSideViewLayout(availableSideViews);
-  const sidebarViewGroups = useMemo<readonly SidebarViewGroup[]>(() =>
-    [...workbenchSideLayout.layout.left, ...workbenchSideLayout.layout.right]
-      .map((group) => group.filter((id) =>
-        DEFAULT_SIDEBAR_VIEW_ORDER.includes(id as SidebarPanelKey)) as SidebarViewGroup)
-      .filter((group) => group.length > 0),
-  [workbenchSideLayout.layout]);
-  const [activeSideViews, setActiveSideViews] = useState<
-    Record<WorkbenchSide, WorkbenchSideViewId | null>
-  >(() => initialActiveWorkbenchSideViews(workbenchSideLayout.layout));
-  // Per-pane right docks (user: 오른쪽 사이드탭을 PANE에 종속): every pane
-  // leaf owns its own dock open/view state, and window-level dock actions
-  // (shortcuts, status-island toggle, rail drops) land on the focused pane.
-  const paneSideDocks = usePaneSideDocks({
-    leafIds: paneWorkspace.leaves.map((leaf) => leaf.id),
-    groups: workbenchSideLayout.layout.right,
-  });
-  const focusedPaneDockOpen =
-    paneSideDocks.entryFor(paneWorkspace.focusedLeafId).open
-    && workbenchSideLayout.layout.right.length > 0;
-  // The fold toggle folds the WHOLE side-tab unit (user: 한몸) — header,
-  // panel view, browser, and diff surfaces together; children survive folds.
-  const togglePaneRightRegion = useStableEvent((leafId: string) => {
-    const rawEntry = paneSideDocks.entryFor(leafId);
-    const leaf = paneWorkspace.leaves.find((candidate) => candidate.id === leafId);
-    const selection = leaf ? paneActiveSelection(leaf) : null;
-    const sessionId = selection?.kind === "session" ? selection.id : "";
-    const selectedSurface = sessionSideSurfaces.get(sessionId) ?? null;
-    const selectedPanelView = sessionPanelViews.get(sessionId) ?? null;
-    const displayedEntry = sessionSideDockEntryForSession(
-      rawEntry,
-      sessionId,
-      selectedSurface,
-      sessionDiffs.get(sessionId) ?? null,
-      selectedPanelView,
-    );
-    if (displayedEntry.open) {
-      if ((displayedEntry.surface === "browser"
-        || displayedEntry.surface === "terminal") && sessionId) {
-        setSessionSideSurface(sessionId, null);
-      }
-      if (displayedEntry.diff?.source === "session" && sessionId) {
-        setSessionDiff(sessionId, null);
-      }
-      // Folding releases the session's own list with the unit, so the next
-      // open lands on the classic panel view again.
-      if (displayedEntry.view === "session-diff"
-        && displayedEntry.surface === "" && sessionId) {
-        setSessionPanelView(sessionId, null);
-      }
-      paneSideDocks.setOpen(leafId, false);
-      return;
-    }
-    // A closed session surface remains the pane's last child. Reopening the
-    // dock adopts that child for the CURRENT session rather than leaking the
-    // previous session's selection or leaving the global toggle inert.
-    if (sessionId && selectedSurface === null
-      && (rawEntry.surface === "browser" || rawEntry.surface === "terminal")) {
-      setSessionSideSurface(sessionId, rawEntry.surface);
-      paneSideDocks.setOpen(leafId, true);
-      return;
-    }
-    // Same adoption for the session-owned Session Diff list: an explicit
-    // reopen lands on the remembered child for this session.
-    if (sessionId && selectedPanelView === null && selectedSurface === null
-      && rawEntry.surface === "" && rawEntry.view === "session-diff") {
-      setSessionPanelView(sessionId, "session-diff");
-      paneSideDocks.setOpen(leafId, true);
-      return;
-    }
-    paneSideDocks.toggle(leafId);
-  });
-  const toggleDock = useStableEvent(() => {
-    togglePaneRightRegion(paneWorkspace.focusedLeafId);
-  });
-  // Folding releases a session-owned surface (browser/terminal) with the
-  // unit, so the next open lands on the classic panel view again.
-  const closePaneRightRegion = useStableEvent((leafId: string) => {
-    const leaf = paneWorkspace.leaves.find((candidate) => candidate.id === leafId);
-    const selection = leaf ? paneActiveSelection(leaf) : null;
-    const sessionId = selection?.kind === "session" ? selection.id : "";
-    const entry = sessionSideDockEntryForSession(
-      paneSideDocks.entryFor(leafId),
-      sessionId,
-      sessionSideSurfaces.get(sessionId) ?? null,
-      sessionDiffs.get(sessionId) ?? null,
-      sessionPanelViews.get(sessionId) ?? null,
-    );
-    if ((entry.surface === "browser" || entry.surface === "terminal") && sessionId) {
-      setSessionSideSurface(sessionId, null);
-    }
-    if (entry.diff?.source === "session" && sessionId) {
-      setSessionDiff(sessionId, null);
-    }
-    if (entry.view === "session-diff" && entry.surface === "" && sessionId) {
-      setSessionPanelView(sessionId, null);
-    }
-    paneSideDocks.setOpen(leafId, false);
-  });
-  const openDockTab = useStableEvent((tab: UtilityDockTab) => {
-    if (!desktopUtilityDockTabEnabled(tab)) return;
-    if (workbenchSideLayout.sideOf(tab) === "left") {
-      setActiveSideViews((current) =>
-        current.left === tab ? current : { ...current, left: tab });
-      applySidebarOpen(true);
-      return;
-    }
-    paneSideDocks.open(paneWorkspace.focusedLeafId, tab);
+  const {
+    workbenchSideLayout,
+    sidebarViewGroups,
+    activeSideViews,
+    setActiveSideViews,
+    paneSideDocks,
+    focusedPaneDockOpen,
+    sidebarDiff,
+    setSidebarDiff,
+    closeSidebarDiff,
+    toggleDock,
+    closePaneRightRegion,
+    openDockTab,
+  } = useAppSideDocks({
+    paneWorkspace,
+    sessionSurfaces: sessionPaneSurfaces,
+    applySidebarOpen,
   });
   const [extensionsSection, setExtensionsSection] = useState<ExtensionsSection>("plugins");
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingReady, setOnboardingReady] = useState(false);
-  const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: "disabled" });
-  const [updaterStateReady, setUpdaterStateReady] = useState(false);
-  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
-  useEffect(() => {
-    if (updaterState.status !== "ready") setUpdateDialogOpen(false);
-  }, [updaterState.status]);
-  const [projects, setProjects] = useState<DesktopProjectSummary[]>(
-    readCachedProjectCatalog,
-  );
-  const [projectCatalogReady, setProjectCatalogReady] = useState(
-    // Only the relay-backed phone needs cache-first boot. Desktop keeps its
-    // existing authoritative catalog gate and merely refreshes the cache.
-    () => projects.length > 0 && isMobileRemoteSurface(),
-  );
-  const [projectCatalogValidated, setProjectCatalogValidated] = useState(false);
-  const registeredProjectPath = useCallback(
-    (candidate: unknown) => registeredDesktopProjectPath(projects, candidate),
-    [projects],
-  );
-  // `snapshot.project` is the engine workspace, not a desktop project. For a
-  // projectless task it may be an internal folder or the process cwd (the
-  // reported `C:\Users\tempe`), so only currentProject + the authoritative
-  // recent registry order may seed a New task.
-  const preferredDraftProjectPath = useMemo(() => {
-    const recent = Array.isArray(snapshot.recentProjects) ? snapshot.recentProjects : [];
-    const candidates = [
-      String(snapshot.currentProject || ""),
-      ...recent.map((path) => String(path || "")),
-      String(projects[0]?.path || ""),
-    ].filter(Boolean);
-    if (!projectCatalogValidated) return candidates[0] || "";
-    for (const candidate of candidates) {
-      const registered = registeredProjectPath(candidate);
-      if (registered) return registered;
-    }
-    return "";
-  }, [
-    projectCatalogValidated,
+  const {
     projects,
+    projectCatalogReady,
+    projectCatalogValidated,
     registeredProjectPath,
-    snapshot.currentProject,
-    snapshot.recentProjects,
-  ]);
-  const effectiveDraftProjectPath = useCallback((candidate: unknown): string => {
-    const requested = String(candidate || "").trim();
-    return resolveProjectPathAgainstCatalog(
-      requested,
-      projectCatalogValidated,
-      registeredProjectPath(requested),
-      preferredDraftProjectPath,
-    );
-  }, [preferredDraftProjectPath, projectCatalogValidated, registeredProjectPath]);
+    preferredDraftProjectPath,
+    effectiveDraftProjectPath,
+    refreshProjects,
+  } = useAppProjectCatalog(snapshot);
   // Persisted panes restore synchronously. Session addresses are reconciled
   // incrementally after first paint and remain guarded by exact daemon reads.
   const startupFocusedPaneSelection = paneWorkspace.focusedLeaf
@@ -867,28 +625,6 @@ export function App() {
     });
   }, [warmSettingsView]);
   useEffect(() => {
-    const host = window.mixdogDesktop;
-    let live = true;
-    const getUpdaterState = host?.getUpdaterState;
-    if (typeof getUpdaterState !== "function") {
-      setUpdaterStateReady(true);
-    } else {
-      void getUpdaterState().then((next) => {
-        if (live) setUpdaterState(next);
-      }).catch(() => {}).finally(() => {
-        if (live) setUpdaterStateReady(true);
-      });
-    }
-    const unsubscribe = host?.subscribeUpdaterState?.((next) => {
-      if (live) setUpdaterState(next);
-    });
-    return () => {
-      live = false;
-      unsubscribe?.();
-    };
-  }, []);
-
-  useEffect(() => {
     let live = true;
     const systemTheme = typeof window.matchMedia === 'function'
       ? window.matchMedia('(prefers-color-scheme: dark)')
@@ -1060,17 +796,14 @@ export function App() {
       return undefined;
     }
   }, [setError]);
-  const openDesktopUpdate = useCallback(() => {
-    if (updaterState.status === "ready") setUpdateDialogOpen(true);
-  }, [updaterState.status]);
-  const closeDesktopUpdate = useCallback(() => setUpdateDialogOpen(false), []);
-  const installDesktopUpdate = useCallback(() => {
-    setUpdateDialogOpen(false);
-    void invoke(async () => {
-      const next = await window.mixdogDesktop.showDesktopUpdate();
-      setUpdaterState(next);
-    });
-  }, [invoke]);
+  const {
+    state: updaterState,
+    ready: updaterStateReady,
+    dialogOpen: updateDialogOpen,
+    openDialog: openDesktopUpdate,
+    closeDialog: closeDesktopUpdate,
+    install: installDesktopUpdate,
+  } = useDesktopUpdater(invoke);
   // The session currently on screen (selection or in-flight switch target):
   // reconcile must never dot it, and selectionRef lags behind a switch.
   const viewedSessionRef = useRef("");
@@ -1142,26 +875,6 @@ export function App() {
       return changed ? next : current;
     });
   }, [sessions]);
-  const refreshProjects = useCallback(async (
-    options: { acceptEmpty?: boolean } = {},
-  ) => {
-    const host = window.mixdogDesktop;
-    const listProjects = (host as {
-      listProjects?: () => Promise<DesktopProjectSummary[]>;
-    } | undefined)?.listProjects;
-    if (!listProjects) return [];
-    const next = await listProjects();
-    const accepted = acceptedProjectCatalog(
-      Array.isArray(next) ? next : [],
-      options.acceptEmpty !== false,
-    );
-    if (accepted) {
-      setProjects(accepted);
-      setProjectCatalogValidated(true);
-      writeCachedProjectCatalog(accepted);
-    }
-    return next;
-  }, []);
   useEffect(() => {
     let live = true;
     // React commits child pane effects before this parent effect, so visible
@@ -1174,36 +887,8 @@ export function App() {
     void refreshSessions().catch(() => undefined).finally(() => {
       if (live) setSessionCatalogReady(true);
     });
-    void refreshProjects({
-      // An empty phone result before the relay leg connects is not an
-      // authoritative project registry. Keep the cached catalog until a
-      // recovered connection can answer.
-      acceptEmpty: !isMobileRemoteSurface(),
-    }).catch(() => []).finally(() => {
-      if (live) setProjectCatalogReady(true);
-    });
     return () => { live = false; };
-  }, [refreshProjects, refreshSessions]);
-  // A phone's first catalog read can land before the relay leg is up. The boot
-  // pass then settles to an EMPTY list and nothing ever asks again, so the
-  // composer's project pill stays blank (user: 모바일에서 오래 비어 있다).
-  // A gap may still be mid-recovery, so its empty response remains
-  // unverified. Reconnected is the authority boundary and may legitimately
-  // replace the cache with an empty registry.
-  useEffect(() => {
-    const retry = () => {
-      void refreshProjects({ acceptEmpty: false }).catch(() => undefined);
-    };
-    const revalidate = () => {
-      void refreshProjects({ acceptEmpty: true }).catch(() => undefined);
-    };
-    window.addEventListener("mixdog:remote-state-gap", retry);
-    window.addEventListener("mixdog:remote-reconnected", revalidate);
-    return () => {
-      window.removeEventListener("mixdog:remote-state-gap", retry);
-      window.removeEventListener("mixdog:remote-reconnected", revalidate);
-    };
-  }, [refreshProjects]);
+  }, [refreshSessions]);
   useAppStartupRestore({
     restorePending: paneWorkspace.restorePending,
     restoredFromStorage: paneWorkspace.restoredFromStorage,
@@ -2236,53 +1921,10 @@ export function App() {
     }
     if (id !== "sessions") void preloadUtilityDock().catch(() => {});
   }, [trackSidebarPanelModule]);
-  const sideViewDescriptors = useMemo(() => new Map<
-    WorkbenchSideViewId,
-    WorkbenchSideViewDescriptor
-  >([
-    ["sessions", { id: "sessions", label: "Sessions", icon: MessageSquare }],
-    ["projects", { id: "projects", label: "Projects", icon: PanelsTopLeft,
-      onPrefetch: () => prefetchWorkbenchSideView("projects") }],
-    ["workflows", { id: "workflows", label: "Workflows", icon: Layers3,
-      onPrefetch: () => prefetchWorkbenchSideView("workflows") }],
-    ["extensions", { id: "extensions", label: "Extensions", icon: Package,
-      onPrefetch: () => prefetchWorkbenchSideView("extensions") }],
-    ["schedules", { id: "schedules", label: "Schedules", icon: Clock,
-      onPrefetch: () => prefetchWorkbenchSideView("schedules") }],
-    ["webhooks", { id: "webhooks", label: "Webhooks", icon: Webhook,
-      onPrefetch: () => prefetchWorkbenchSideView("webhooks") }],
-    // Launchers: the icon mints a workspace tab instead of opening a panel.
-    ["studio", { id: "studio", label: "Studio", icon: Sparkles,
-      onPrefetch: () => prefetchWorkbenchSideView("studio") }],
-    ["browser", { id: "browser", label: "Browser Use", title: "Browser", icon: Globe,
-      onPrefetch: () => prefetchWorkbenchSideView("browser") }],
-    ["terminal", { id: "terminal", label: "Terminal", icon: SquareTerminal,
-      onPrefetch: () => prefetchWorkbenchSideView("terminal") }],
-    ["session-diff", {
-      id: "session-diff",
-      label: "Diff",
-      tooltip: "Session Diff",
-      icon: FileDiff,
-      onPrefetch: () => prefetchWorkbenchSideView("session-diff"),
-    }],
-    ["agents", { id: "agents", label: "Agents", icon: Bot,
-      onPrefetch: () => prefetchWorkbenchSideView("agents") }],
-    ["search", { id: "search", label: "Search", icon: Search,
-      onPrefetch: () => prefetchWorkbenchSideView("search") }],
-    ["source-control", {
-      id: "source-control",
-      label: "Source Control",
-      icon: GitCompare,
-      onPrefetch: () => prefetchWorkbenchSideView("source-control"),
-    }],
-    ["pull-requests", {
-      id: "pull-requests",
-      label: "Pull Requests",
-      tooltip: "GitHub Pull Requests",
-      icon: Github,
-      onPrefetch: () => prefetchWorkbenchSideView("pull-requests"),
-    }],
-  ]), [prefetchWorkbenchSideView]);
+  const sideViewDescriptors = useMemo(
+    () => createAppSideViewDescriptors(prefetchWorkbenchSideView),
+    [prefetchWorkbenchSideView],
+  );
   const selectWorkbenchSideView = useCallback((
     id: WorkbenchSideViewId,
     paneLeafId?: string,
@@ -2749,7 +2391,22 @@ export function App() {
             void prefetchDiffView().catch(() => {});
             paneSideDocks.openDiff(pane.leafId, project, rel, request);
           }
-        : dockOpenDiff}
+        : (project, rel, request) => {
+            // Left sidebar: the diff pairs beside the panel; narrow bands
+            // keep the diff tab.
+            const cleanProject = String(project || "").trim();
+            const cleanRel = String(rel || "").replace(/\\/g, "/").replace(/^\/+/, "");
+            if (!cleanProject || !cleanRel) return;
+            if (!sidebarDiffColumnAvailable()) {
+              dockOpenDiff(project, rel, request);
+              return;
+            }
+            void prefetchDiffView().catch(() => {});
+            setSidebarDiff({
+              view: id,
+              diff: { kind: "diff", project: cleanProject, rel: cleanRel, ...request },
+            });
+          }}
       onOpenPullRequest={dockOpenPullRequest}
       onOpenLeadSession={dockOpenLeadSession}
       onOpenAgentSession={dockOpenAgentSession}
@@ -2993,6 +2650,13 @@ export function App() {
           renderView={(id, active, titleDragProps) =>
             renderWorkbenchSideView("left", id, active, titleDragProps)}
         />
+        <SidebarDiffColumn
+          diff={sidebarDiff?.diff ?? null}
+          showing={Boolean(sidebarDiff) && sidebarOpen
+            && workbenchSideLayout.layout.left.length > 0
+            && activeSideViews.left === sidebarDiff?.view}
+          onClose={closeSidebarDiff}
+          openFileTab={openFileTab} />
         </div>
         {/* The scrim stays mounted so it can FADE with the drawer instead of
             blinking out the moment the slide starts (CSS shows it only on

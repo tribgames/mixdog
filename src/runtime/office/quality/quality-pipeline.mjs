@@ -64,6 +64,10 @@ const POLISH_GUIDANCE = Object.freeze({
   recent_composition_repeat: 'Recompose the document-level hierarchy and evidence sequence while preserving the Brand kit tokens and facts.',
   card_grid_overuse: 'Replace repeated cards with one dominant hierarchy, comparison, process, chart, or table.',
   number_without_source: 'Add a source note that identifies the workbook cell, range, or external document.',
+  number_without_fact: 'Add the figure to the brief facts line with its source (F<n> <value> — <source>), or remove it from the slide.',
+  facts_missing: 'Write the brief facts line: every figure the deck shows, each with a source, before authoring again.',
+  plan_promise_missing: 'Draw the slide with the skeleton its plan line names (the archetype), or change the plan line to the skeleton actually used.',
+  plan_count_mismatch: 'Make the slide plan and the deck agree on the slide count; the plan is the contract the review reads.',
   generic_takeaway: 'Rewrite the title as a specific conclusion or decision, not a topic label.',
 });
 

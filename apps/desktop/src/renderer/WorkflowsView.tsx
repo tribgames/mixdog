@@ -74,15 +74,11 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): Ag
   };
 }
 
-function SidebarResourceTitle({ label, disabled }: {
+function SidebarResourceTitle({ label }: {
   label: string;
-  disabled: boolean;
 }) {
   return <span className="sidebar-resource-title">
     <b>{label}</b>
-    <span className={`sidebar-resource-state ${disabled ? 'is-disabled' : 'is-enabled'}`}>
-      {t(disabled ? 'Disabled' : 'Enabled')}
-    </span>
   </span>;
 }
 
@@ -598,7 +594,7 @@ export function WorkflowsPane({
       <button type="button" className="schedules-row-copy utilities-row-copy projects-row-open"
         title={agent.description || agent.label}
         onClick={() => void openAgentEditor(agent.id, agent.custom)}>
-        <SidebarResourceTitle label={agent.label} disabled={row?.disabled === true} />
+        <SidebarResourceTitle label={agent.label} />
         <AgentRouteSummaryView summary={agentRouteSummary(route, models)} />
       </button>
       <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
@@ -727,8 +723,7 @@ export function WorkflowsPane({
                 description: exploreAgent.description,
                 readOnlyDefinition: true,
               })}>
-              <SidebarResourceTitle label={exploreAgent.label}
-                disabled={exploreRow?.disabled === true} />
+              <SidebarResourceTitle label={exploreAgent.label} />
               <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models)} />
             </button>
             <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
@@ -761,8 +756,7 @@ export function WorkflowsPane({
                 description: maintainerAgent.description,
                 readOnlyDefinition: true,
               })}>
-              <SidebarResourceTitle label={maintainerAgent.label}
-                disabled={maintainerRow?.disabled === true} />
+              <SidebarResourceTitle label={maintainerAgent.label} />
               <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models)} />
             </button>
             <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}

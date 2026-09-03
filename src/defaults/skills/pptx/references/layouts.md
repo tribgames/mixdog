@@ -18,12 +18,13 @@ Canvas: `W 13.33`, `H 7.5`, margin `M 0.6`; safe area x 0.6-12.73, y 0.6-6.9. Ki
 ## 2. Evidence skeletons (E) — chart, table, or number as the field
 | Id | Skeleton | Starting geometry |
 |---|---|---|
-| E1 | Chart as spine + takeaway | `addChart` at box(M, 1.8, 8.0-8.4, 4.4), quiet axes; one `hero()` or a 3-line note at x 9.4 width 3.3; `takeaway()` at y 6.3. The chart is the largest element |
-| E2 | Chart with side rail | chart at box(M, 1.8, 7.6, 4.8); `field()` rail at x 8.6 width 4.1 with a bold lead and 2-3 bullets or one mini-table. The rail explains the chart; it is not a card |
-| E3 | Small multiples | 3-4 identical `addChart` frames in one row (w = (W - 2M - 0.3(n-1)) / n, h 3.4, y 2.4), same axis ranges, one label above each, one comparison sentence under. "Same shape, different size" |
+| E1 | Chart as spine + takeaway | `chart()` at box(M, 1.8, 8.0-8.4, 4.4) with `accent` on the category the claim is about; one `hero()` or a 3-line note at x 9.4 width 3.3; `takeaway()` at y 6.2. The chart is the largest element |
+| E2 | Chart with side rail | `chart()` at box(M, 1.8, 7.6, 4.8); `field()` rail at x 8.6 width 4.1 with a bold lead and 2-3 bullets or one mini-table. The rail explains the chart; it is not a card |
+| E3 | Small multiples | `smallMultiples()` at box(M, 2.4, W - 2M, 3.8), 3-4 panels, shared `max`, one label above each, one comparison sentence under at y 6.4. "Same shape, different size" |
 | E4 | Stat band | 3-5 `hero()` blocks on one baseline y 2.4 (x = M + i·step), `hairline` at y 4.25 spanning the row, one line of context 13-16 pt under each. Numbers 54-60 pt; never boxed |
 | E5 | Table with verdict | `addTable` at box(M, 1.8, W - 2M, 4.4); header row accent; alternate rows paperAlt; verdict column bold + accent tint, never color-only; source line 11 pt at y 6.5 |
 | E7 | Gauge / share | `gauge()` r 1.6 at the left third; meaning at the right in 18 pt with one `emphasis` run. Single proportion only; two or more become E3 or E4 |
+| E8 | Specimen | the subject drawn (`design.md` §4.0): `specimen()` rows at box(M, top, 7.6-8, …) — a weight ladder, a size ramp, a pairing sample, or swatches through `field()` — with labels in the left 1.6 in; the claim as prose at x 9.0 width 3.7, or one line under the rows. The specimen is the largest element; nothing describes what it shows |
 
 ## 3. Relationship skeletons (R) — order, link, parent, membership, contrast, overlap
 | Id | Skeleton | Starting geometry |

@@ -4,6 +4,16 @@ import { constants as fsConstants } from 'node:fs';
 import { dirname } from 'node:path';
 import { PPTX_SCRIPT_CONTRACT } from './pptx-script-contract.mjs';
 import { normalizeAuthoredPptx } from './pptx-script-normalize.mjs';
+import { measureTextBlock } from '../portable/text-metrics.mjs';
+
+// Text measurement for the script, in inches, with the metrics the review
+// reads the saved file with; a box sized here does not overflow there.
+// lineHeight is the PowerPoint multiple the box will carry (lineSpacingMultiple; 1 = single).
+function measureForScript(text, { font = 'Calibri', size = 18, bold = false, italic = false, width = 0, lineHeight = 1 } = {}) {
+  const paragraphs = String(text ?? '').split('\n').map((line) => ({ text: line, fontName: font, fontSize: size, bold, italic }));
+  const measured = measureTextBlock(paragraphs, { width: Math.max(0, Number(width) || 0) * 72, lineSpacing: lineHeight });
+  return { lines: measured.lines, height: measured.height / 72, width: measured.width / 72 };
+}
 
 // The script runs inside this process: a child node cannot resolve pptxgenjs
 // out of the packaged archive, and the model already holds shell access, so a
@@ -75,7 +85,7 @@ export async function runPptxAuthoringScript(script, output, { timeoutMs = PPTX_
   const startedAt = performance.now();
   let body;
   try {
-    body = new AsyncFunction('require', 'module', 'exports', 'OUTPUT', 'console', 'process', `"use strict";\n${source}\n`);
+    body = new AsyncFunction('require', 'module', 'exports', 'OUTPUT', 'console', 'process', 'MEASURE', `"use strict";\n${source}\n`);
   } catch (error) {
     return { ok: false, error: scriptError(error, source), logs, elapsedMs: 0 };
   }
@@ -86,7 +96,7 @@ export async function runPptxAuthoringScript(script, output, { timeoutMs = PPTX_
   });
   try {
     await Promise.race([
-      body(scriptRequire, module, module.exports, output, captureConsole(logs), scopedProcess),
+      body(scriptRequire, module, module.exports, output, captureConsole(logs), scopedProcess, measureForScript),
       timeout,
     ]);
     if (!await pathExists(output)) {

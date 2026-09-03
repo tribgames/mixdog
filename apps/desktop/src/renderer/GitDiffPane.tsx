@@ -1,8 +1,6 @@
-import { FileText, Minus, Plus, RefreshCw, X } from "lucide-react";
+import { FileText, Minus, Plus, X } from "lucide-react";
 import {
-  lazy,
   startTransition,
-  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -18,8 +16,14 @@ import {
   reportBootSurfaceReady,
   reportBootSurfaceStage,
 } from "./boot-metrics";
-import { loadMonacoLocale } from "./monaco-locale";
 import type { WorkspaceSelection } from "./nav-types";
+import {
+  type DiffStyle,
+  readDiffStyle,
+  SCM_DIFF_STYLE_KEY,
+  SESSION_DIFF_STYLE_KEY,
+  writeDiffStyle,
+} from "./desktop-types";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { GitFileDiff } from "./ReviewPane";
 import { createSingleFlightRefresh } from "./git-diff-refresh";
@@ -38,12 +42,6 @@ type GitDiffSelection = Extract<WorkspaceSelection, { kind: "diff" }>;
 async function loadSessionFilePatch(sessionId: string, rel: string): Promise<string> {
   return fetchSessionDiffFilePatch(sessionId, rel);
 }
-
-// Monaco DiffEditor loads on first use only.
-const MonacoGitDiff = lazy(async () => {
-  await loadMonacoLocale();
-  return import("./MonacoGitDiff.lazy");
-});
 
 export function GitDiffPane({
   selection,
@@ -76,10 +74,17 @@ export function GitDiffPane({
   );
   const [patch, setPatch] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [mode, setMode] = useState<"unified" | "split">("unified");
-  // "text" = @git-diff-view rows with Stage/Unstage Hunk; "editor" = Monaco
-  // DiffEditor (char-level highlights, revert arrows, editable worktree side).
-  const [renderer, setRenderer] = useState<"text" | "editor">("text");
+  // Unified/Split persists per surface: the session dock's diff tab and the
+  // Source Control diff tab remember their own choice.
+  const styleKey = selection.source === "session" ? SESSION_DIFF_STYLE_KEY : SCM_DIFF_STYLE_KEY;
+  const [mode, setModeState] = useState<DiffStyle>(() => readDiffStyle(styleKey));
+  useEffect(() => { setModeState(readDiffStyle(styleKey)); }, [styleKey]);
+  const setMode = useCallback((next: DiffStyle) => {
+    setModeState(next);
+    writeDiffStyle(styleKey, next);
+  }, [styleKey]);
+  // One renderer only: @git-diff-view rows with Stage/Unstage Hunk (the
+  // Monaco "Editor" mode was dropped — user: 에디터 빼주라).
   const [busyHunk, setBusyHunk] = useState(-1);
   // The shell owns its own visible Loading diff… / error states. Reveal it as
   // soon as it mounts instead of keeping those states hidden behind a
@@ -203,8 +208,6 @@ export function GitDiffPane({
     : selection.source === "commit"
     ? `Commit ${String(selection.hash || "").slice(0, 8)}`
     : selection.source === "staged" ? "Staged Changes" : "Working Tree Changes";
-  // The Monaco editor renderer reads git objects; a session slice has none.
-  const editorAvailable = selection.source !== "session";
   return <div className="workspace-git-diff">
     <header>
       <div>
@@ -216,16 +219,9 @@ export function GitDiffPane({
           onClick={() => setMode("unified")}>{t("Unified")}</button>
         <button type="button" aria-pressed={mode === "split"}
           onClick={() => setMode("split")}>{t("Split")}</button>
-        {editorAvailable && <button type="button" aria-pressed={renderer === "editor"}
-          onClick={() => setRenderer(renderer === "editor" ? "text" : "editor")}>
-          {t("Editor")}
-        </button>}
         <button type="button" aria-label={t("Open file {{file}}", { file: selection.rel })}
           onClick={() => onOpenFile?.(selection.project, selection.rel)}>
           <FileText size={14} aria-hidden="true" />
-        </button>
-        <button type="button" aria-label={t("Refresh diff")} onClick={() => void load()}>
-          <RefreshCw size={14} aria-hidden="true" />
         </button>
         {onClose && <button type="button" aria-label={t("Close diff")}
           data-tooltip={t("Close diff")} onClick={onClose}>
@@ -234,16 +230,7 @@ export function GitDiffPane({
       </div>
     </header>
     <div className="workspace-git-diff-body">
-      {renderer === "editor" && editorAvailable
-        ? <Suspense fallback={<p className="workspace-git-diff-state">
-            <ProgressSpinner size={16} /> Loading editor…
-          </p>}>
-            <MonacoGitDiff project={selection.project} rel={selection.rel}
-              source={selection.source === "session" ? "unstaged" : selection.source}
-              hash={selection.hash}
-              sideBySide={mode === "split"} onSaved={() => void load()} />
-          </Suspense>
-        : patch === null
+      {patch === null
         ? <p className="workspace-git-diff-state"><ProgressSpinner size={16} /> Loading diff…</p>
         : error
           ? <p className="workspace-git-diff-state" role="alert">{error}</p>

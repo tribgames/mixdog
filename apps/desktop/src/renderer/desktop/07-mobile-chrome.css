@@ -1305,8 +1305,7 @@ html[data-mixdog-mobile-tabs] .workbench-search-input button {
 /* Fixed tier: these rows are windowed on a constant that lives in TSX, so the
    row height is not ours to change and the action fills what the row has. */
 html[data-mixdog-mobile-tabs] .dock-scm-file-actions button,
-html[data-mixdog-mobile-tabs] .dock-scm-group-actions button,
-html[data-mixdog-mobile-tabs] .dock-scm-commit-copy {
+html[data-mixdog-mobile-tabs] .dock-scm-group-actions button {
   width: var(--mx-touch-fixed);
   height: var(--mx-touch-fixed);
   flex-basis: var(--mx-touch-fixed);

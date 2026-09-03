@@ -33,8 +33,3 @@ export function publishPromptSurface({ rules, tools, dataDir = null } = {}) {
             }
         });
 }
-
-export function _resetPromptSurfacePublisherForTests() {
-    _lastHash = null;
-    _inFlight = null;
-}

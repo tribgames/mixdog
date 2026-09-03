@@ -425,7 +425,7 @@ export function normalizeWebSearchRouteConfig(routeLike, fallback = {}) {
     provider,
     model,
     ...(effort ? { effort } : {}),
-    ...(fast === true ? { fast: true } : {}),
+    ...(typeof fast === 'boolean' ? { fast } : {}),
     ...(modelParameters && typeof modelParameters === 'object' ? { modelParameters: { ...modelParameters } } : {}),
     ...(toolType ? { toolType } : {}),
   };
@@ -446,7 +446,7 @@ export function normalizeWorkflowRoute(routeLike, fallback = {}) {
     provider,
     model,
     ...(effort ? { effort } : {}),
-    ...(fast === true ? { fast: true } : {}),
+    ...(typeof fast === 'boolean' ? { fast } : {}),
     ...(modelParameters && typeof modelParameters === 'object' ? { modelParameters: { ...modelParameters } } : {}),
   };
 }

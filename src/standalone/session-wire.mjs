@@ -15,7 +15,7 @@ export const SESSION_PROTOCOL = 1;
 /** Monotonic API index inside protocol 1. Increment when actions or payload
  * shapes change. Newer clients replace older daemons; older clients attach to
  * newer daemons and are normalized at the session boundary. */
-export const SESSION_REVISION = 4;
+export const SESSION_REVISION = 5;
 
 /** Diagnostic-only action-surface identity. It never advances the protocol. */
 export const SESSION_CAPABILITY_FINGERPRINT = createHash('sha256')

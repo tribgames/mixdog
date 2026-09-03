@@ -558,6 +558,12 @@ export function createSessionApiA(bag) {
     },
     getDisabledSkills: () => runtime.getDisabledSkills?.() || { disabled: [] },
     setDisabledSkills: (disabled) => runtime.setDisabledSkills?.(disabled) || { disabled: [] },
+    setExtensionScope: async (kind, name, projects = null) => {
+      if (typeof runtime.setExtensionScope !== 'function') {
+        throw new Error('Extension scope is unavailable');
+      }
+      return await runtime.setExtensionScope(kind, name, projects);
+    },
     skillsStatus: () => {
       return runtime.skillsStatus?.() || { cwd: getState().cwd, count: 0, skills: [] };
     },

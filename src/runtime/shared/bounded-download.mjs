@@ -3,6 +3,7 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 export const MAX_NATIVE_BINARY_DOWNLOAD_BYTES = 256 * 1024 * 1024;
+const DEFAULT_RETRY_DELAYS_MS = [1000, 3000, 9000];
 
 export async function readResponseBuffer(
   response,
@@ -97,4 +98,43 @@ export async function streamResponseToFile(
     try { rmSync(destPath, { force: true }); } catch {}
     throw error;
   }
+}
+
+export async function downloadToFileWithRetry(
+  url,
+  destPath,
+  {
+    maxBytes,
+    expectedBytes = 0,
+    label = 'download',
+    httpLabel = label,
+    fetchFn = globalThis.fetch,
+    timeoutMs = 180_000,
+    retryDelaysMs = DEFAULT_RETRY_DELAYS_MS,
+    onRetry = null,
+  } = {},
+) {
+  let lastError;
+  for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
+    try {
+      const response = await fetchFn(url, { signal: AbortSignal.timeout(timeoutMs) });
+      const terminal = response.status >= 400 && response.status < 500;
+      if (!response.ok) {
+        throw new Error(`${httpLabel} HTTP ${response.status}${terminal ? ' (terminal)' : ''} — ${url}`);
+      }
+      return await streamResponseToFile(response, destPath, {
+        maxBytes,
+        expectedBytes,
+        label,
+      });
+    } catch (error) {
+      lastError = error;
+      if (String(error?.message || error).includes('(terminal)')) throw error;
+      const delayMs = retryDelaysMs[attempt];
+      if (delayMs === undefined) break;
+      onRetry?.({ attempt: attempt + 1, delayMs, error });
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw lastError;
 }

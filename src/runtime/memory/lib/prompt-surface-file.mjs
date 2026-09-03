@@ -12,8 +12,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { updateJsonAtomic } from '../../shared/atomic-file.mjs'
 
-export const PROMPT_SURFACE_FILE_VERSION = 1
-export const PROMPT_SURFACE_FILE_NAME = 'prompt-surface.json'
+const PROMPT_SURFACE_FILE_VERSION = 1
+const PROMPT_SURFACE_FILE_NAME = 'prompt-surface.json'
 // Hard ceiling per section so a runaway catalog cannot balloon the digest.
 const SECTION_CAP = 120_000
 

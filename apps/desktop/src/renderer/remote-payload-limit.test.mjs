@@ -1090,10 +1090,10 @@ test("the browser is advertised the relay's published ceilings", async () => {
 });
 
 test("an unattributed refusal reaches the desktop UI, naming no call", async () => {
-  const [relay, service, ipc, contract, preload, notifications] = await Promise.all([
+  const [relay, service, stateBridge, contract, preload, notifications] = await Promise.all([
     readFile(new URL("../main/remote-relay.ts", import.meta.url), "utf8"),
     readFile(new URL("../main/desktop-service.ts", import.meta.url), "utf8"),
-    readFile(new URL("../main/ipc.ts", import.meta.url), "utf8"),
+    readFile(new URL("../main/ipc-state-bridge.ts", import.meta.url), "utf8"),
     readFile(new URL("../shared/contract.ts", import.meta.url), "utf8"),
     readFile(new URL("../preload/index.ts", import.meta.url), "utf8"),
     readFile(new URL("./notifications.tsx", import.meta.url), "utf8"),
@@ -1105,7 +1105,7 @@ test("an unattributed refusal reaches the desktop UI, naming no call", async () 
   );
   // …and carried out to the window process, then to the renderer.
   assert.match(service, /name: 'relay-payload-refused', value/);
-  assert.match(ipc, /window\.webContents\.send\(DESKTOP_IPC\.relayPayloadRefused, value\)/);
+  assert.match(stateBridge, /this\.send\(DESKTOP_IPC\.relayPayloadRefused, value\)/);
   assert.match(contract, /relayPayloadRefused: 'mixdog:relay-payload-refused',/);
   assert.match(contract, /subscribeRelayPayloadRefused\?\(/);
   assert.match(preload, /ipcRenderer\.on\(DESKTOP_IPC\.relayPayloadRefused, receive\);/);

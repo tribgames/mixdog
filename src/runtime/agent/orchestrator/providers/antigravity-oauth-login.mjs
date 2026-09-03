@@ -8,7 +8,8 @@
  * request carries `project`.
  */
 import { createServer } from 'http';
-import { createHash, randomBytes } from 'crypto';
+import { randomBytes } from 'crypto';
+import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
 import {
     AUTH_URL,
     CALLBACK_HOST,
@@ -34,9 +35,7 @@ const ONBOARD_MAX_ATTEMPTS = 8;
 const ONBOARD_INTERVAL_MS = 2_000;
 
 export function generatePKCE() {
-    const verifier = randomBytes(32).toString('base64url');
-    const challenge = createHash('sha256').update(verifier).digest('base64url');
-    return { verifier, challenge };
+    return createOAuthPkce();
 }
 
 function readProjectId(value) {
@@ -191,22 +190,6 @@ export async function exchangeAuthorizationCode({ code, verifier, fetchFn = fetc
     };
     saveTokens(tokens);
     return tokens;
-}
-
-function parseOAuthCodeInput(input) {
-    const value = String(input || '').trim();
-    if (!value) return { code: '', state: '' };
-    try {
-        const url = new URL(value);
-        const code = url.searchParams.get('code') || '';
-        const state = url.searchParams.get('state') || '';
-        if (code || state) return { code, state };
-    } catch { /* not a URL */ }
-    if (value.includes('code=')) {
-        const params = new URLSearchParams(value.startsWith('?') ? value.slice(1) : value);
-        return { code: params.get('code') || '', state: params.get('state') || '' };
-    }
-    return { code: value, state: '' };
 }
 
 export async function beginOAuthLogin({ fetchFn = fetch } = {}) {

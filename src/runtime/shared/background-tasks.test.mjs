@@ -15,10 +15,10 @@ import { modelVisibleToolCompletionMessage } from './tool-execution-contract.mjs
 import { executeTaskTool } from '../agent/orchestrator/tools/builtin/task-tool.mjs';
 import {
   _dropPendingMessageState,
-  _settlePendingMessageWrites,
   drainPendingMessages,
   enqueuePendingMessage,
   markCompletionEntry,
+  settlePendingMessageWrites,
 } from '../agent/orchestrator/session/manager/pending-messages.mjs';
 import { _clearDeliveredCompletions } from '../agent/orchestrator/session/manager/delivered-completions.mjs';
 
@@ -53,7 +53,7 @@ test('terminal task read ACKs queued and racing completion notifications', async
     });
     const entry = markCompletionEntry(visible, { executionId: taskId });
     assert.ok(enqueuePendingMessage(sessionId, entry) > 0);
-    await _settlePendingMessageWrites();
+    await settlePendingMessageWrites({ throwOnTimeout: true });
 
     assert.match(
       await executeTaskTool({ action: 'read', task_id: taskId }, { sessionId }),
@@ -65,10 +65,10 @@ test('terminal task read ACKs queued and racing completion notifications', async
     // enqueue that races in after the read ACK.
     assert.ok(enqueuePendingMessage(sessionId, entry) > 0);
     assert.deepEqual(drainPendingMessages(sessionId), []);
-    await _settlePendingMessageWrites();
+    await settlePendingMessageWrites({ throwOnTimeout: true });
   } finally {
     _dropPendingMessageState(sessionId);
-    await _settlePendingMessageWrites().catch(() => {});
+    await settlePendingMessageWrites({ throwOnTimeout: true }).catch(() => {});
     cleanupBackgroundTasks({ force: true });
     _clearDeliveredCompletions();
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;

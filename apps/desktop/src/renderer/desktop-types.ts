@@ -151,4 +151,28 @@ export function agentActivitySessionIds(
 }
 
 
+/** Legacy shared Unified/Split key; the three surfaces below persist
+ *  separately now and only read this one as the first-run fallback. */
 export const REVIEW_DIFF_STYLE_KEY = 'mixdog.review-diff-style.v1';
+/** Unified/Split is remembered PER SURFACE (user: 통합/분할은 소스컨트롤 /
+ *  세션 컴포저 위 / 세션 변경사항 독 3개 분리 저장): the Source Control diff
+ *  tab, the TurnReview bar above the composer, the Session Diff dock's tab. */
+export const SCM_DIFF_STYLE_KEY = 'mixdog.scm-diff-style.v1';
+export const TURN_REVIEW_DIFF_STYLE_KEY = 'mixdog.turn-review-diff-style.v1';
+export const SESSION_DIFF_STYLE_KEY = 'mixdog.session-diff-style.v1';
+
+export type DiffStyle = 'unified' | 'split';
+
+export function readDiffStyle(key: string): DiffStyle {
+  try {
+    const own = window.localStorage.getItem(key);
+    if (own === 'split' || own === 'unified') return own;
+    return window.localStorage.getItem(REVIEW_DIFF_STYLE_KEY) === 'split' ? 'split' : 'unified';
+  } catch {
+    return 'unified';
+  }
+}
+
+export function writeDiffStyle(key: string, style: DiffStyle): void {
+  try { window.localStorage.setItem(key, style); } catch { /* persistence only */ }
+}

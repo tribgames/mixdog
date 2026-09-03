@@ -15,6 +15,7 @@ import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { resolveCliVersion } from './anthropic-oauth-client-version.mjs';
+import { expiryFromAccessToken, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
 
 // SSRF guard for the OAuth token endpoint override. Env-supplied URLs must be
 // https with a valid http(s) URL shape; reject file:/data:/ftp:/etc. and any
@@ -75,16 +76,6 @@ function credentialCandidates() {
 // which ensureAuth reads as "never expires", disabling proactive refresh. Claude
 // OAuth tokens are opaque so this returns 0 and the file's expiresAt governs.
 // JWT `exp` is epoch SECONDS (RFC 7519).
-function _expiryFromAccessToken(token) {
-    try {
-        const parts = String(token || '').split('.');
-        if (parts.length !== 3) return 0;
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
-        const exp = Number(payload?.exp);
-        return Number.isFinite(exp) && exp > 0 ? exp * 1000 : 0;
-    } catch { return 0; }
-}
-
 function _loadCredentialsFile(path) {
     if (!existsSync(path)) return null;
     try {
@@ -97,7 +88,7 @@ function _loadCredentialsFile(path) {
             mtimeMs: stat.mtimeMs,
             accessToken: oauth.accessToken,
             refreshToken: oauth.refreshToken || null,
-            expiresAt: _normalizeExpiresAt(oauth.expiresAt ?? oauth.expires_at) || _expiryFromAccessToken(oauth.accessToken),
+            expiresAt: _normalizeExpiresAt(oauth.expiresAt ?? oauth.expires_at) || expiryFromAccessToken(oauth.accessToken),
             scopes: Array.isArray(oauth.scopes) ? oauth.scopes : [],
             subscriptionType: oauth.subscriptionType || null,
         };
@@ -216,21 +207,7 @@ export function _normalizeExpiresAt(value) {
 }
 
 export function _scrubTokens(text, secretValues = []) {
-    let scrubbed = String(text || '')
-        .replace(/Bearer [A-Za-z0-9._\-]+/gi, 'Bearer [REDACTED]')
-        .replace(/sk-ant-[A-Za-z0-9._\-]+/g, '[REDACTED]')
-        .replace(/"access[Tt]oken"\s*:\s*"[^"]+"/g, '"accessToken":"[REDACTED]"')
-        .replace(/"refresh[Tt]oken"\s*:\s*"[^"]+"/g, '"refreshToken":"[REDACTED]"')
-        .replace(/"access_token"\s*:\s*"[^"]+"/g, '"access_token":"[REDACTED]"')
-        .replace(/"refresh_token"\s*:\s*"[^"]+"/g, '"refresh_token":"[REDACTED]"');
-    // Token services sometimes echo submitted values in non-JSON diagnostics.
-    // Scrub the exact request secrets as a final guard without logging them.
-    for (const secret of secretValues) {
-        if (typeof secret === 'string' && secret) {
-            scrubbed = scrubbed.split(secret).join('[REDACTED]');
-        }
-    }
-    return scrubbed;
+    return scrubOAuthSecrets(text, secretValues);
 }
 
 function _tokenEndpointError(operation, status, text, secretValues = []) {

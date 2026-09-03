@@ -659,7 +659,7 @@ const WORKSPACE_SEARCH_KEYS = new Set([
   'query', 'include', 'exclude', 'matchCase', 'wholeWord', 'regex', 'maxResults',
 ]);
 const GIT_PREFERENCE_KEYS = new Set([
-  'commitTemplate', 'commitExample', 'commitInstructions', 'commitPreset', 'autoCommitMessage',
+  'commitExample', 'commitInstructions', 'commitPreset', 'autoCommitMessage',
 ]);
 const MAX_TEXT_FILE_LENGTH = 4_194_304;
 
@@ -674,7 +674,6 @@ export interface DesktopWorkspaceSearchOptionsInput {
 }
 
 export interface DesktopGitPreferencesInput {
-  commitTemplate?: string;
   commitExample?: string;
   commitInstructions?: string;
   commitPreset?: 'none' | 'conventional' | 'custom';
@@ -805,7 +804,6 @@ export function requiredGitPreferencesInput(value: unknown): DesktopGitPreferenc
     }
     return input;
   };
-  const template = text(source.commitTemplate, 'commitTemplate');
   const example = text(source.commitExample, 'commitExample');
   const instructions = text(source.commitInstructions, 'commitInstructions');
   const preset = source.commitPreset;
@@ -818,7 +816,6 @@ export function requiredGitPreferencesInput(value: unknown): DesktopGitPreferenc
     throw new TypeError('autoCommitMessage must be a boolean.');
   }
   return {
-    ...(typeof template === 'string' ? { commitTemplate: template } : {}),
     ...(typeof example === 'string' ? { commitExample: example } : {}),
     ...(typeof instructions === 'string' ? { commitInstructions: instructions } : {}),
     ...(typeof preset === 'string'

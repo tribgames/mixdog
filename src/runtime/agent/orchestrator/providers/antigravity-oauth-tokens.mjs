@@ -18,6 +18,7 @@ import { join, resolve } from 'path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
+import { scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
 
 // The Antigravity IDE's installed-app OAuth client, which every copy of that
 // IDE ships (a native-app client is not a confidential credential). It is
@@ -170,11 +171,7 @@ export function saveTokens(tokens) {
 }
 
 export function _scrubTokens(text) {
-    return String(text || '')
-        .replace(/Bearer [A-Za-z0-9._\-]+/g, 'Bearer [REDACTED]')
-        .replace(/"access_token"\s*:\s*"[^"]+"/g, '"access_token":"[REDACTED]"')
-        .replace(/"refresh_token"\s*:\s*"[^"]+"/g, '"refresh_token":"[REDACTED]"')
-        .replace(/"code"\s*:\s*"[^"]+"/g, '"code":"[REDACTED]"');
+    return scrubOAuthSecrets(text);
 }
 
 export function hasAntigravityOAuthCredentials() {

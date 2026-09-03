@@ -28,6 +28,11 @@ import { OpenAICompatProvider } from './openai-compat.mjs';
 import { createTimeoutSignal } from '../stall-policy.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { normalizeGrokToolSchemas } from './lib/grok-tool-schema.mjs';
+import {
+    decodeJwtPayload,
+    expiryFromAccessToken,
+    scrubOAuthSecrets,
+} from './lib/oauth-token-utils.mjs';
 
 // --- Constants ---
 // xAI's shared OAuth client. The consent screen renders this as "Grok Build".
@@ -203,34 +208,19 @@ export function _normalizeExpiresAt(value) {
 // store carries no explicit expires_at — without it expires_at stays 0, which
 // ensureAuth reads as "never expires", disabling proactive refresh. Returns 0
 // for opaque (non-JWT) tokens. JWT `exp` is epoch SECONDS (RFC 7519).
-export function _expiryFromAccessToken(token) {
-    try {
-        const parts = String(token || '').split('.');
-        if (parts.length !== 3) return 0;
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
-        const exp = Number(payload?.exp);
-        return Number.isFinite(exp) && exp > 0 ? exp * 1000 : 0;
-    } catch { return 0; }
-}
+export const _expiryFromAccessToken = expiryFromAccessToken;
 
 export function _identityFromAccessToken(token) {
-    try {
-        const parts = String(token || '').split('.');
-        if (parts.length !== 3) return {};
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
-        const principalId = payload?.principal_id || payload?.principalId || '';
-        const principalType = payload?.principal_type || payload?.principalType || '';
-        const userId = payload?.user_id
-            || payload?.userId
-            || principalId
-            || payload?.sub
-            || '';
-        return {
-            ...(userId ? { user_id: String(userId) } : {}),
-            ...(principalType ? { principal_type: String(principalType) } : {}),
-            ...(principalId ? { principal_id: String(principalId) } : {}),
-        };
-    } catch { return {}; }
+    const payload = decodeJwtPayload(token);
+    if (!payload) return {};
+    const principalId = payload.principal_id || payload.principalId || '';
+    const principalType = payload.principal_type || payload.principalType || '';
+    const userId = payload.user_id || payload.userId || principalId || payload.sub || '';
+    return {
+        ...(userId ? { user_id: String(userId) } : {}),
+        ...(principalType ? { principal_type: String(principalType) } : {}),
+        ...(principalId ? { principal_id: String(principalId) } : {}),
+    };
 }
 
 export function _mtimeMs(path) {
@@ -279,11 +269,7 @@ export function saveTokens(tokens) {
 }
 
 export function _scrubTokens(text) {
-    return String(text || '')
-        .replace(/Bearer [A-Za-z0-9._\-]+/g, 'Bearer [REDACTED]')
-        .replace(/"access_token"\s*:\s*"[^"]+"/g, '"access_token":"[REDACTED]"')
-        .replace(/"refresh_token"\s*:\s*"[^"]+"/g, '"refresh_token":"[REDACTED]"')
-        .replace(/"key"\s*:\s*"[^"]+"/g, '"key":"[REDACTED]"');
+    return scrubOAuthSecrets(text);
 }
 
 // Public predicate used by config.buildDefaultConfig — enabled when Mixdog's

@@ -42,8 +42,14 @@ export function shapeParagraphs(shapeXml) {
     const runProperties = /^<a:rPr\b([^>]*?)(?:\/>|>)/.exec(runElement)?.[1] || '';
     const size = Number(xmlAttribute(runProperties, 'sz'));
     if (!Number.isFinite(size) || size <= 0) return null;
+    const lineSpacingPct = Number(/<a:lnSpc>\s*<a:spcPct\b[^>]*\bval="(\d+)"/.exec(block)?.[1] || 0);
+    const spaceAfter = Number(/<a:spcAft>\s*<a:spcPts\b[^>]*\bval="(\d+)"/.exec(block)?.[1] || 0) / 100;
+    const spaceBefore = Number(/<a:spcBef>\s*<a:spcPts\b[^>]*\bval="(\d+)"/.exec(block)?.[1] || 0) / 100;
     paragraphs.push({
       text,
+      ...(lineSpacingPct > 0 ? { lineSpacing: lineSpacingPct / 100_000 } : {}),
+      ...(spaceAfter > 0 ? { spaceAfter } : {}),
+      ...(spaceBefore > 0 ? { spaceBefore } : {}),
       fontSize: size / 100,
       bold: xmlAttribute(runProperties, 'b') === '1',
       italic: xmlAttribute(runProperties, 'i') === '1',

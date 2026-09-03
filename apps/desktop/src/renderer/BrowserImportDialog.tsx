@@ -14,6 +14,7 @@ import type {
   DesktopBrowserImportProgress,
   DesktopBrowserImportSource,
 } from "../shared/contract";
+import { t } from "./i18n";
 
 interface BrowserImportDialogProps {
   open: boolean;
@@ -119,7 +120,7 @@ export function BrowserImportDialog({
       setSourceId(source?.id || "");
       setProfileId(profile?.id || "");
       setItems(supportedItems(source));
-      if (!source || !profile) setError("가져올 수 있는 Chrome 프로필을 찾지 못했습니다.");
+      if (!source || !profile) setError(t("Could not find any importable Chrome profiles."));
     }).catch((reason) => {
       if (live) setError(reason instanceof Error ? reason.message : String(reason));
     }).finally(() => {
@@ -152,14 +153,14 @@ export function BrowserImportDialog({
     const requestedItems = (Object.keys(items) as DesktopBrowserImportItem[])
       .filter((item) => items[item]);
     if (!requestedItems.length) {
-      setError("가져올 항목을 하나 이상 선택하세요.");
+      setError(t("Select at least one item to import."));
       return;
     }
     const requiresApproval = requestedItems.some((item) =>
       (item === "passwords" || item === "cookies")
       && selectedSource?.supports[item] === true);
     if (requiresApproval && !administratorApproved) {
-      setError("비밀번호·쿠키를 가져오려면 관리자 승인 안내를 확인하세요.");
+      setError(t("Acknowledge administrator approval to import passwords and cookies."));
       return;
     }
     busyRef.current = true;
@@ -212,15 +213,15 @@ export function BrowserImportDialog({
             || selectedSource?.passwordSupportReason}</small>
           : null}
         {showProgress && progressState === "completed"
-          ? <small>{itemProgress?.count?.toLocaleString() || "0"}개 가져옴</small>
+          ? <small>{t("{{total}} imported", { total: itemProgress?.count?.toLocaleString() || "0" })}</small>
           : null}
         {showProgress && progressState === "failed"
-          ? <small>가져오지 못함</small>
+          ? <small>{t("Failed to import")}</small>
           : null}
       </span>
       {showProgress
         ? <span className={`browser-import-state is-${progressState}`}
-          aria-label={progressState === "completed" ? "완료" : progressState === "failed" ? "실패" : "진행 중"}>
+          aria-label={progressState === "completed" ? t("Completed") : progressState === "failed" ? t("Failed") : t("In progress")}>
           {progressState === "completed"
             ? <Check size={16} />
             : progressState === "failed"
@@ -228,7 +229,7 @@ export function BrowserImportDialog({
               : <LoaderCircle size={16} className="is-spinning" />}
         </span>
         : busy || finished
-          ? <span className="browser-import-skipped">제외</span>
+          ? <span className="browser-import-skipped">{t("Excluded")}</span>
           : <input type="checkbox"
             checked={supported && items[item]}
             disabled={!supported || loading}
@@ -248,24 +249,24 @@ export function BrowserImportDialog({
       aria-labelledby="browser-import-title" aria-describedby="browser-import-description">
       <header>
         <div>
-          <h2 id="browser-import-title">브라우저에서 가져오기</h2>
+          <h2 id="browser-import-title">{t("Import from browser")}</h2>
           <p id="browser-import-description">{busy
-            ? "브라우저 데이터를 가져오는 중..."
+            ? t("Importing browser data…")
             : finished
               ? error
-                ? "일부 데이터를 가져오지 못했습니다"
-                : "브라우저 데이터를 가져왔습니다"
-              : "내장 브라우저로 가져올 데이터를 선택하세요"}</p>
+                ? t("Some data could not be imported")
+                : t("Browser data imported")
+              : t("Select data to import into the built-in browser")}</p>
         </div>
         {!busy && <button type="button" className="browser-pane-nav-button"
-          onClick={requestClose} aria-label="닫기">
+          onClick={requestClose} aria-label={t("Close")}>
           <X size={16} />
         </button>}
       </header>
       {!busy && !finished && <div className="browser-import-source">
-        <span>원본</span>
+        <span>{t("Source")}</span>
         <select value={`${sourceId}\u0000${profileId}`}
-          aria-label="가져올 Chrome 프로필"
+          aria-label={t("Chrome profile to import")}
           disabled={loading}
           onChange={(event) => {
             const [nextSourceId, nextProfileId] = event.target.value.split("\u0000");
@@ -283,23 +284,23 @@ export function BrowserImportDialog({
         </select>
       </div>}
       <div className="browser-import-items">
-        {importItemRow("passwords", "저장된 비밀번호", <KeyRound size={18} />)}
-        {importItemRow("cookies", "쿠키", <Cookie size={18} />)}
-        {importItemRow("history", "방문 기록", <History size={18} />)}
+        {importItemRow("passwords", t("Saved passwords"), <KeyRound size={18} />)}
+        {importItemRow("cookies", t("Cookies"), <Cookie size={18} />)}
+        {importItemRow("history", t("Browsing history"), <History size={18} />)}
       </div>
       {!busy && !finished && sensitiveSelected && <label className="browser-import-admin">
-        <strong>관리자 승인 필요</strong>
+        <strong>{t("Administrator approval required")}</strong>
         <span className="browser-import-admin-check">
           <input type="checkbox" checked={administratorApproved}
             onChange={(event) => setAdministratorApproved(event.target.checked)} />
-          앱이 Chrome 데이터를 가져오려고 관리자 승인을 요청한다는 점을 이해합니다
+          {t("I understand the app requests administrator approval to import Chrome data")}
         </span>
       </label>}
       {error && <div className="browser-import-error" role="alert">{error}</div>}
       <footer>
         <button type="button" className="browser-import-secondary"
           disabled={busy} onClick={requestClose}>
-          {finished ? "닫기" : "취소"}
+          {finished ? t("Close") : t("Cancel")}
         </button>
         {(!finished || Boolean(error)) && <button type="button" className="browser-import-primary"
           disabled={
@@ -311,7 +312,7 @@ export function BrowserImportDialog({
           }
           onClick={startImport}>
           {busy ? <LoaderCircle size={15} className="is-spinning" /> : null}
-          {finished ? "다시 시도" : "가져오기"}
+          {finished ? t("Retry") : t("Import")}
         </button>}
       </footer>
     </section>

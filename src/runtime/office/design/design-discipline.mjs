@@ -14,6 +14,8 @@ export const SAFE_FONT_FAMILIES = Object.freeze([
   'Century Schoolbook',
   'Malgun Gothic',
   '맑은 고딕',
+  'Batang',
+  '바탕',
 ]);
 
 const SAFE_FONT_KEYS = new Set(SAFE_FONT_FAMILIES.map((name) => fontFamilyKey(name)));

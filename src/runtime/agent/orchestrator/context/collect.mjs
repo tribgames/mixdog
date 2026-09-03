@@ -38,7 +38,7 @@ function mixdogAssetDirs(_projectDir, kind) {
  * immediately, and a user-global or plugin skill of the same name shadows it.
  * It is not in the registry: the Built-in settings panel owns its UI.
  */
-export function builtinPluginRoot() {
+function builtinPluginRoot() {
     return join(mixdogRoot(), 'defaults');
 }
 function builtinSkillDirs() {

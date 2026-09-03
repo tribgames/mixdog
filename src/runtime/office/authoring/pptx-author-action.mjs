@@ -4,6 +4,7 @@ import { closeSession, render } from '../core/office-actions.mjs';
 import { documentFormat, documentSessionKey, documentSessions, sessions } from '../core/office-core.mjs';
 import { createAuthoredSession, fullPath } from '../core/office-sessions.mjs';
 import { runPptxAuthoringScript } from './pptx-script-runner.mjs';
+import { parseAuthoringBrief } from './pptx-brief.mjs';
 
 /** The design guide lives in the built-in `pptx` skill; the tool never
  *  serves it so one copy stays authoritative and user-overridable. */
@@ -57,6 +58,7 @@ export async function authorPptx(args, { cwd, dataDir, signal = null }) {
     };
   }
   const session = await createAuthoredSession(signal ? { ...args, __signal: signal } : args, cwd, dataDir, target);
+  session.authoredBrief = parseAuthoringBrief(args.script);
   const result = {
     ok: true,
     session: session.id,

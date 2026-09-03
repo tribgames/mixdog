@@ -615,7 +615,6 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
     return <EditorPaneDocumentSurface
       breadcrumbs={editorBreadcrumbs}
       preview={documentPreview}
-      relPath={relPath}
       error={documentError}
       loading={documentPagesLoading}
       onRequestPages={loadDocumentPages}

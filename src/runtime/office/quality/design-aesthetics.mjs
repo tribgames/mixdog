@@ -151,9 +151,12 @@ function roleAwareComposition(metric, role) {
     rangeFit(metric.spatialCoverage, target.spatial),
   ]);
   const quadrantFit = clamp(metric.occupiedQuadrants / target.quadrants);
+  // Balance and quadrant spread only mean something once the role's density
+  // is met; an empty page is not "balanced", so both are weighted by density.
+  const presence = Math.sqrt(clamp(densityFit));
   return {
     densityFit,
-    score: clamp((densityFit * 0.45) + (metric.spatialBalance * 0.35) + (quadrantFit * 0.2)),
+    score: clamp((densityFit * 0.45) + (presence * ((metric.spatialBalance * 0.35) + (quadrantFit * 0.2)))),
   };
 }
 
@@ -165,6 +168,29 @@ function metricDistance(left, right) {
     Math.abs(left.edgeDensity - right.edgeDensity),
     Math.abs(left.foregroundCoverage - right.foregroundCoverage),
   ]);
+}
+
+const INK_WIDTH = 640;
+const INK_HEIGHT = 360;
+const INK_FOREGROUND = 28 / 255;
+
+// Legibility of the marks themselves. The 160-sample grid blends type strokes
+// into the background, so the strongest decile of foreground luminance deltas
+// is read at a resolution where strokes survive.
+async function measureInkContrast(image, backgroundLuminance) {
+  const grey = await sharp(Buffer.from(image.data, 'base64'))
+    .flatten({ background: '#ffffff' })
+    .resize(INK_WIDTH, INK_HEIGHT, { fit: 'fill' })
+    .greyscale()
+    .raw()
+    .toBuffer();
+  const deltas = [];
+  for (let index = 0; index < grey.length; index += 1) {
+    const delta = Math.abs((grey[index] / 255) - backgroundLuminance);
+    if (delta >= INK_FOREGROUND) deltas.push(delta);
+  }
+  deltas.sort((left, right) => left - right);
+  return quantile(deltas, 0.9);
 }
 
 async function renderedAestheticMetric(image, index) {
@@ -210,6 +236,7 @@ async function renderedAestheticMetric(image, index) {
   const occupancySamples = Array.from({ length: occupancy.length }, () => 0);
   let foreground = 0;
   let foregroundLuminanceDelta = 0;
+  const inkContrast = await measureInkContrast(image, backgroundLuminance);
   let colorfulForeground = 0;
   const hueHistogram = Array.from({ length: 12 }, () => 0);
   let edges = 0;
@@ -267,6 +294,9 @@ async function renderedAestheticMetric(image, index) {
     luminanceMean: rounded(mean(luminance)),
     contrastSpan: rounded(quantile(sortedLuminance, 0.9) - quantile(sortedLuminance, 0.1)),
     foregroundContrast: rounded(foreground ? foregroundLuminanceDelta / foreground : 0),
+    // The marks themselves: anti-aliased type and tinted fields pull the mean
+    // toward the background, so legibility is read from the strongest decile.
+    inkContrast: rounded(inkContrast),
     colorfulness: rounded(rawColorfulness, 2),
     colorfulnessScore: rounded(clamp(rawColorfulness / 45)),
     accentCoverage: rounded(foreground ? colorfulForeground / foreground : 0),
@@ -427,7 +457,7 @@ export async function reviewRenderedOfficeAesthetics(images = [], {
   });
   const pages = evaluated.map(({ _structure, ...metric }) => metric);
   const contrastScore = mean(pages.map((metric) => clamp(
-    (Math.max(metric.contrastSpan, metric.foregroundContrast) - 0.1) / 0.65,
+    (Math.max(metric.contrastSpan, metric.foregroundContrast, metric.inkContrast || 0) - 0.1) / 0.65,
   )));
   const paletteScore = mean(pages.map((metric) => metric.paletteDiscipline));
   const compositionScore = mean(pages.map((metric) => metric.compositionScore));

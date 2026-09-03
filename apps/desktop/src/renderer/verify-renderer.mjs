@@ -21,8 +21,6 @@ await build({
     'lucide-react',
     '@git-diff-view/react',
     '@git-diff-view/react/*',
-    '@fontsource-variable/inter',
-    '@fontsource-variable/geist',
     '@fontsource-variable/jetbrains-mono',
     '*.css',
     // Vite-only module kinds the electron-vite build resolves natively:

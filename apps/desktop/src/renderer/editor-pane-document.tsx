@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { type DocumentPreview } from "./editor-document-model";
+import { t } from "./i18n";
 import { ProgressSpinner } from "./ProgressSpinner";
 
 // A4 portrait: the shape most conversions land on. It only reserves space for
@@ -27,7 +28,6 @@ function samePages(left: number[], right: number[]): boolean {
 export function EditorPaneDocumentSurface({
   breadcrumbs,
   preview,
-  relPath,
   error,
   loading,
   onRequestPages,
@@ -35,13 +35,11 @@ export function EditorPaneDocumentSurface({
 }: {
   breadcrumbs: ReactNode;
   preview: DocumentPreview;
-  relPath: string;
   error: string;
   loading: boolean;
   onRequestPages(pages: number[]): void;
   onFirstPageLoad(): void;
 }) {
-  const name = relPath.split("/").at(-1) || relPath;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [visiblePages, setVisiblePages] = useState<number[]>([1]);
   const loaded = useMemo(
@@ -98,7 +96,7 @@ export function EditorPaneDocumentSurface({
           }}>
           {image
             ? <img src={`data:${image.mime};base64,${image.base64}`}
-              alt={`${name} page ${page}`}
+              alt={t("Preview page {{page}}", { page })}
               onLoad={page === 1 ? onFirstPageLoad : undefined} />
             : <ProgressSpinner size={16} className="editor-pane-spinner" aria-hidden="true" />}
         </div>;

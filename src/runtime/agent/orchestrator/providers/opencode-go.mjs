@@ -32,10 +32,6 @@ export function openCodeGoWireApi(model) {
     return 'chat';
 }
 
-export function isResponsesGoModel(model) {
-    return openCodeGoWireApi(model) === 'responses';
-}
-
 const OPENCODE_GO_CONTEXT_WINDOWS = Object.freeze({
     // OpenCode models catalog fixture / models.dev opencode-go provider rows.
     'minimax-m2.7': 204800,

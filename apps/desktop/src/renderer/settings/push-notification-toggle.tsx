@@ -100,9 +100,9 @@ export function PushNotificationToggle({ api }: { api: PushApi }) {
   }, [api, busy]);
 
   if (!supported) return null;
-  return <Group title="Notifications"
-    description="Get a notification on this device when a task finishes, even while the app is closed.">
-    <ToggleRow title="Notify me when a task finishes" checked={enabled} disabled={busy}
+  return <Group title={t('Notifications')}
+    description={t('Get a notification on this device when a task finishes, even while the app is closed.')}>
+    <ToggleRow title={t('Notify me when a task finishes')} checked={enabled} disabled={busy}
       optimistic={false} onChange={change} />
     {note && <p className="settings-connection-note">{t(note)}</p>}
   </Group>;

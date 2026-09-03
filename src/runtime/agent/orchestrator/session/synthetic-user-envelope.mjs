@@ -58,21 +58,6 @@ function isAlreadyEnveloped(text) {
     return ENVELOPE_OPEN_RE.test(text);
 }
 
-const ENVELOPE_KIND_RE = new RegExp(
-    `^\\s*<${SYNTHETIC_USER_ENVELOPE_TAG}\\s+kind="([a-z-]+)">\\n?([\\s\\S]*?)\\n?</${SYNTHETIC_USER_ENVELOPE_TAG}>\\s*$`,
-    'i',
-);
-
-// Reads a wire-side envelope back: { kind, body } for an enveloped text,
-// null otherwise. Provider lowerings use this to decide the wire role.
-export function parseSyntheticEnvelope(text) {
-    const match = ENVELOPE_KIND_RE.exec(String(text ?? ''));
-    if (!match) return null;
-    const kind = match[1].toLowerCase();
-    if (!Object.values(SYNTHETIC_USER_KINDS).includes(kind)) return null;
-    return { kind, body: match[2] };
-}
-
 // null => a real user instruction (or nothing to wrap); otherwise the kind.
 export function classifySyntheticUserMessage(message) {
     if (message?.role !== 'user') return null;

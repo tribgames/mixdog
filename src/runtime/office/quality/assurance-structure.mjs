@@ -294,7 +294,7 @@ function isPptxLabelledUnit(left, right) {
   const upperText = String(upper.text || '').trim();
   const upperSize = Number(upper.font?.size) || 0;
   const lowerSize = Number(lower.font?.size) || 0;
-  return upperText.length <= 12 && upperSize > 0 && lowerSize > 0 && upperSize >= lowerSize * 1.5;
+  return upperText.length <= 12 && upperSize > 0 && lowerSize > 0 && upperSize >= lowerSize * 1.2;
 }
 
 function reviewPptxStructure(document, auditProfile = '') {
@@ -354,10 +354,12 @@ function reviewPptxStructure(document, auditProfile = '') {
         issues.push(issue('edge_margin', shape.path || slide.path, `Text is within ${margin} pt of a slide edge.`));
       }
     }
-    for (let leftIndex = 0; leftIndex < textShapes.length; leftIndex += 1) {
-      for (let rightIndex = leftIndex + 1; rightIndex < textShapes.length; rightIndex += 1) {
-        const left = textShapes[leftIndex];
-        const right = textShapes[rightIndex];
+    // Page-number fields live on the master; their distance to content is chrome, not spacing.
+    const pairShapes = textShapes.filter((shape) => !(shape.placeholder && PPTX_PAGE_NUMBER.test(String(shape.text || '').trim())));
+    for (let leftIndex = 0; leftIndex < pairShapes.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < pairShapes.length; rightIndex += 1) {
+        const left = pairShapes[leftIndex];
+        const right = pairShapes[rightIndex];
         if (overlapRatio(left, right) >= 0.25) {
           issues.push(issue(
             'shape_overlap',

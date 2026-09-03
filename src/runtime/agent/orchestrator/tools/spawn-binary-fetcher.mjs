@@ -12,8 +12,8 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  downloadToFileWithRetry,
   MAX_NATIVE_BINARY_DOWNLOAD_BYTES,
-  streamResponseToFile,
 } from '../../../shared/bounded-download.mjs';
 
 const BUNDLED_MANIFEST_PATH = fileURLToPath(new URL('./spawn-manifest.json', import.meta.url));
@@ -57,28 +57,12 @@ async function sha256File(filePath) {
   return createHash('sha256').update(await readFile(filePath)).digest('hex');
 }
 
-async function downloadWithRetry(url, destPath) {
-  const delays = [1000, 3000, 9000];
-  let lastError;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(180_000) });
-      if (response.status >= 400 && response.status < 500) {
-        throw new Error(`[spawn-fetcher] asset HTTP ${response.status} (terminal) — ${url}`);
-      }
-      if (!response.ok) throw new Error(`[spawn-fetcher] asset HTTP ${response.status} — ${url}`);
-      await streamResponseToFile(response, destPath, {
-        maxBytes: MAX_NATIVE_BINARY_DOWNLOAD_BYTES,
-        label: 'spawn binary download',
-      });
-      return;
-    } catch (error) {
-      lastError = error;
-      if (String(error?.message || '').includes('(terminal)')) throw error;
-      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
-    }
-  }
-  throw lastError;
+function downloadSpawnBinary(url, destPath) {
+  return downloadToFileWithRetry(url, destPath, {
+    maxBytes: MAX_NATIVE_BINARY_DOWNLOAD_BYTES,
+    label: 'spawn binary download',
+    httpLabel: '[spawn-fetcher] asset',
+  });
 }
 
 function gcSpawnBin(dir, keepFile) {
@@ -131,7 +115,7 @@ export function ensureSpawnBinary(dataDir, options = {}) {
       } catch {}
     }
     const tmpPath = `${destPath}.tmp-${process.pid}-${Date.now()}`;
-    await (options.download || downloadWithRetry)(asset.url, tmpPath);
+    await (options.download || downloadSpawnBinary)(asset.url, tmpPath);
     const actual = await sha256File(tmpPath);
     if (actual !== asset.sha256.toLowerCase()) {
       try { rmSync(tmpPath, { force: true }); } catch {}

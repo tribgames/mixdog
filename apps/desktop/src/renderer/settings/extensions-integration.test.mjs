@@ -129,7 +129,9 @@ test('Plugin combines built-in features and installed plugins', async () => {
     },
   });
   try {
-    assert.equal(document.querySelectorAll('[data-feature-id]').length, 6);
+    assert.equal(document.querySelectorAll('[data-built-in-feature]').length, 6);
+    // Built-in rows share the extension row grammar and carry no switch.
+    assert.equal(document.querySelector('[data-built-in-feature] input'), null);
     assert.deepEqual(
       [...document.querySelectorAll('.settings-group > header h3')].map((heading) => heading.textContent),
       ['Built-in', 'Plugins'],
@@ -138,8 +140,14 @@ test('Plugin combines built-in features and installed plugins', async () => {
     assert.match(document.body.textContent, /Example plugin/);
     assert.equal(document.querySelector('[data-feature-id="memory"] .built-in-feature-state'), null);
     assert.equal(document.querySelector('[data-extension-row="Example plugin"] .sidebar-resource-state'), null);
+    // List rows carry no switch; the row is icon + title + one-line description.
+    assert.equal(document.querySelector('[data-extension-row="Example plugin"] input'), null);
+    assert.ok(document.querySelector('[data-extension-row="Example plugin"] .extensions-row-icon'));
     await act(async () => {
-      document.querySelector('[data-extension-row="Example plugin"] input').click();
+      document.querySelector('[data-extension-row="Example plugin"] .extensions-row-open').click();
+    });
+    await act(async () => {
+      document.querySelector('.extensions-dialog header input').click();
     });
     assert.equal(calls.at(-1)[0], 'setPluginEnabled');
     assert.equal(calls.at(-1)[1][1], false);
@@ -191,8 +199,10 @@ test('Browser Use and Computer Use mount at their real state without replaying a
   };
   const first = await renderPanel('plugins', { api });
   try {
+    await act(async () => {
+      document.querySelector('[data-built-in-feature="browser"] .extensions-row-open').click();
+    });
     assert.equal(document.querySelector('[data-feature-id="browser"] input'), null);
-    assert.equal(document.querySelector('[data-feature-id="computer"] input'), null);
     await act(async () => {
       // Mirrors the settings store: an already-on control arrives with its
       // grandfathered install marker.
@@ -205,14 +215,15 @@ test('Browser Use and Computer Use mount at their real state without replaying a
       await settings.promise;
     });
     assert.equal(document.querySelector('[data-feature-id="browser"] input').checked, true);
-    assert.equal(document.querySelector('[data-feature-id="computer"] input').checked, true);
   } finally {
     await first.cleanup();
   }
 
   const second = await renderPanel('plugins', { api });
   try {
-    assert.equal(document.querySelector('[data-feature-id="browser"] input').checked, true);
+    await act(async () => {
+      document.querySelector('[data-built-in-feature="computer"] .extensions-row-open').click();
+    });
     assert.equal(document.querySelector('[data-feature-id="computer"] input').checked, true);
   } finally {
     await second.cleanup();
@@ -264,15 +275,63 @@ test('project scope shows as a row badge and saves from the plugin detail', asyn
     });
     const scopeField = document.querySelector('[data-extension-scope="plugins"]');
     assert.ok(scopeField);
-    assert.equal(scopeField.querySelector('button[aria-pressed="true"]').textContent, 'All projects');
+    // One dropdown: Shared, or a single project.
+    assert.equal(scopeField.querySelector('.mx-select-value').textContent, 'Shared (all projects)');
     assert.match(document.body.textContent, /Contents/);
     assert.match(document.body.textContent, /Info/);
 
-    // Choosing "Selected projects" starts from the current project.
     await act(async () => {
-      [...scopeField.querySelectorAll('.extensions-scope-mode button')][1].click();
+      scopeField.querySelector('.mx-select-trigger').click();
     });
-    assert.deepEqual(calls.at(-1), ['setExtensionScope', ['plugins', 'open-plugin', ['C:\\work\\alpha']]]);
+    const options = [...document.querySelectorAll('.mx-menu [role="option"]')].map((option) => option.textContent);
+    assert.deepEqual(options, ['Shared (all projects)', 'alpha · Current project', 'Beta']);
+    await act(async () => {
+      document.querySelectorAll('.mx-menu [role="option"]')[2].click();
+    });
+    assert.deepEqual(calls.at(-1), ['setExtensionScope', ['plugins', 'open-plugin', ['C:\\work\\beta']]]);
+  } finally {
+    await rendered.cleanup();
+  }
+});
+
+test('plugin detail toggles each bundled skill and MCP server on its own', async () => {
+  const calls = [];
+  const rendered = await renderPanel('plugins', {
+    data: {
+      toolModules: {
+        git: { enabled: true, installed: true },
+        memory: { enabled: true, installed: true },
+        office: { enabled: true, installed: true },
+      },
+      voice: { enabled: false, installed: false },
+      plugins: {
+        plugins: [{ id: 'bundle', name: 'Bundle', enabled: true, mcpServerName: 'plugin-bundle', mcpScript: 'mcp.mjs', mcpEnabled: true }],
+      },
+      skills: {
+        skills: [
+          { name: 'bundled-skill', description: 'Ships with Bundle', owner: { kind: 'plugin', id: 'bundle' } },
+          { name: 'loose-skill', description: 'User skill' },
+        ],
+      },
+      disabledSkills: { disabled: ['loose-skill'] },
+      mcp: { servers: [{ name: 'plugin-bundle', enabled: true, source: 'plugin', config: { type: 'stdio', command: 'x' } }] },
+    },
+    async run(capability, args) {
+      calls.push([capability, args]);
+    },
+  });
+  try {
+    await act(async () => {
+      document.querySelector('[data-extension-row="Bundle"] .extensions-row-open').click();
+    });
+    await act(async () => {
+      document.querySelector('[data-extension-item="bundled-skill"] input').click();
+    });
+    assert.deepEqual(calls.at(-1), ['setDisabledSkills', [['loose-skill', 'bundled-skill']]]);
+    await act(async () => {
+      document.querySelector('[data-extension-item="plugin-bundle"] input').click();
+    });
+    assert.deepEqual(calls.at(-1), ['setMcpServerEnabled', ['plugin-bundle', false]]);
   } finally {
     await rendered.cleanup();
   }
@@ -298,14 +357,9 @@ test('Skill combines skills and MCP and lets the add action choose either kind',
     assert.match(document.body.textContent, /example-mcp/);
     assert.ok(document.querySelector('[data-extension-create-kind="skill"]'));
     assert.ok(document.querySelector('[data-extension-create-kind="mcp"]'));
-    await act(async () => {
-      document.querySelector('[data-extension-row="example-skill"] input').click();
-      document.querySelector('[data-extension-row="example-mcp"] input').click();
-    });
-    assert.deepEqual(calls.slice(-2).map(([capability, args]) => [capability, args]), [
-      ['setDisabledSkills', [['example-skill']]],
-      ['setMcpServerEnabled', ['example-mcp', false]],
-    ]);
+    // Rows carry no switch; enabling happens inside each detail dialog.
+    assert.equal(document.querySelector('[data-extension-row="example-skill"] input'), null);
+    assert.equal(document.querySelector('[data-extension-row="example-mcp"] input'), null);
     assert.equal(document.querySelector('#extensions-skill-dialog-title'), null);
 
     await act(async () => {

@@ -1,6 +1,6 @@
 import { hashText } from './hash-utils.mjs';
 
-/** Mirrors read-single-tool.mjs detectReadEncoding (BOM-only, no sniffing). */
+/** BOM-only encoding detection shared by reads and snapshot validation. */
 export function detectReadEncodingFromBuffer(buf) {
     if (!Buffer.isBuffer(buf) || buf.length < 2) {
         return { encoding: 'utf8', bomLen: 0 };

@@ -70,6 +70,7 @@ import {
 } from './openai-oauth-http-sse.mjs';
 import { createOpenAIOAuthLogin } from './openai-oauth-login.mjs';
 import { warmCodexClientVersion } from './codex-client-meta.mjs';
+import { decodeJwtPayload, expiryFromAccessToken } from './lib/oauth-token-utils.mjs';
 import {
     _displayCodexModel,
     _codexFamily,
@@ -266,7 +267,7 @@ function _loadOwnCodexTokens() {
         if (own.access_token && own.refresh_token) {
             return {
                 ...own,
-                expires_at: _normalizeExpiresAt(own.expires_at ?? own.expiresAt) || _expiryFromAccessToken(own.access_token),
+                expires_at: _normalizeExpiresAt(own.expires_at ?? own.expiresAt) || expiryFromAccessToken(own.access_token),
                 account_id: own.account_id || extractAccountId(own.access_token),
                 source: 'Mixdog token store',
                 _mtimeMs: stat.mtimeMs,
@@ -297,29 +298,7 @@ export function forgetOpenAIOAuthCredentials() {
     return { removed };
 }
 function extractAccountId(token) {
-    try {
-        const parts = token.split('.');
-        if (parts.length !== 3)
-            return undefined;
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
-        return payload?.['https://api.openai.com/auth']?.chatgpt_account_id;
-    }
-    catch {
-        return undefined;
-    }
-}
-// Derive token expiry from the access_token's JWT `exp` claim (epoch ms), as a
-// fallback when the Mixdog token store carries no explicit expires_at. Returns
-// 0 for opaque (non-JWT) tokens. JWT `exp` is epoch SECONDS (RFC 7519).
-function _expiryFromAccessToken(token) {
-    try {
-        const parts = String(token || '').split('.');
-        if (parts.length !== 3) return 0;
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
-        const exp = Number(payload?.exp);
-        return Number.isFinite(exp) && exp > 0 ? exp * 1000 : 0;
-    }
-    catch { return 0; }
+    return decodeJwtPayload(token)?.['https://api.openai.com/auth']?.chatgpt_account_id;
 }
 // --- Token refresh ---
 async function refreshTokens(refreshToken) {
@@ -1127,7 +1106,7 @@ const { beginOAuthLogin, loginOAuth } = createOpenAIOAuthLogin({
     clientId: CLIENT_ID,
     originator: CODEX_OAUTH_ORIGINATOR,
     extractAccountId,
-    expiryFromAccessToken: _expiryFromAccessToken,
+    expiryFromAccessToken,
     saveTokens,
 });
 export { beginOAuthLogin, loginOAuth };

@@ -6,61 +6,43 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import React, { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 import type {
   DesktopApi,
-  DesktopRemoteAccessInfo,
 } from '../../shared/contract';
 import {
-  desktopThemeOptions,
-  desktopThemePreferenceForTheme,
-  getDesktopThemePreference,
-  setDesktopThemePreference,
-  type DesktopThemePreference,
-} from '../desktop-theme';
-import {
-  getUiLanguagePreference,
-  resolveUiLanguage,
-  setUiLanguagePreference,
-  SUPPORTED_UI_LANGUAGES,
   t,
-  type UiLanguagePreference,
 } from '../i18n';
-import { registerMobileBack, useMobileBack } from '../mobile-back';
+import { useMobileBack } from '../mobile-back';
 import { showDesktopToast } from '../notifications';
 import { providerDisplayName } from '../provider-display';
 import { acquireTitleBarDim } from '../titlebar-dim';
 import { record } from '../record-utils';
-import {
-  getSidePanelMode,
-  setSidePanelMode,
-  subscribeSidePanelMode,
-  type SidePanelMode,
-} from '../side-panel-preferences';
-import {
-  connectionInfoReady,
-  getCachedConnectionInfo,
-  preloadConnectionInfo,
-  setCachedConnectionInfo,
-} from './connection-info';
+import { AboutPanel } from './about-panel';
 import { BuiltInFeaturesPanel } from './built-in-features-panel';
+import { ConnectionPanel } from './connection-panel';
+import { GeneralPanel } from './general-panel';
 import { GitPanel } from './git-panel';
-import { PushNotificationToggle } from './push-notification-toggle';
 
-import { ActionButton, AutoSaveRow, CompactSwitch, FormRow, Group, ListEmpty, ResourceRow, SelectRow, settingsStatus, ToggleRow } from "./capability-controls";
+import { ActionButton, AutoSaveRow, CompactSwitch, Group, ListEmpty, ResourceRow, ToggleRow } from "./capability-controls";
 import {
   currentProjectPath,
+  ExtensionDetailDialog,
   ExtensionFacts,
   ExtensionHero,
   ExtensionItemRow,
+  ExtensionRow,
   ExtensionScopeField,
   ExtensionSection,
   extensionScopeBadge,
   scopeOf,
 } from './extension-detail';
-import { durationTextInput, formatDuration, label, providerLabel, rows, sectionError, sectionLoaded, type CapabilityApi, type CapabilityCategory, type PanelContext, type RecordValue } from "./capability-data";
+import { durationTextInput, formatDuration, label, rows, sectionError, sectionLoaded, type CapabilityCategory, type PanelContext, type RecordValue } from "./capability-data";
+import { ProvidersPanel } from './provider-panel';
+
+export { OAuthControl } from './provider-panel';
 
 export function CategoryPanel({ category, context }: {
   category: CapabilityCategory;
@@ -132,245 +114,6 @@ function ShortcutsPanel() {
   </>;
 }
 
-// Settings → Connection: pairing card for the installable web app. Data and
-// the pre-rendered QR SVG come from the main process; the remote shim omits
-// the API, so a browser session reports its current connection instead.
-// Until the relay QR exists the card polls (each read also makes the main
-// process retry a failed relay leg) and keeps a QR-sized loading
-// shell, so the panel heals in place instead of flashing notes.
-const CONNECTION_RETRY_MS = 2_000;
-// ~10s of polling before the explanatory notes replace the loading card.
-const CONNECTION_STALLED_ATTEMPTS = 5;
-
-function ConnectionPanel({ api }: { api: CapabilityApi }) {
-  const [info, setInfo] = useState<DesktopRemoteAccessInfo | null | undefined>(
-    () => getCachedConnectionInfo(api),
-  );
-  const [rotating, setRotating] = useState(false);
-  const [confirmRotate, setConfirmRotate] = useState(false);
-  const [revokingClient, setRevokingClient] = useState('');
-  const [confirmClient, setConfirmClient] = useState('');
-  const [stalledAttempts, setStalledAttempts] = useState(0);
-  const ready = connectionInfoReady(info);
-  // Linked devices freshness: the cached card paints instantly, but browsers
-  // pair and drop while Settings is closed — refresh in the background for as
-  // long as the panel stays open.
-  useEffect(() => {
-    if (!ready || !api.getRemoteAccessInfo) return undefined;
-    let live = true;
-    const refresh = () => {
-      void api.getRemoteAccessInfo?.()
-        .then((value) => {
-          if (!live || !value) return;
-          setCachedConnectionInfo(api, value);
-          setInfo(value);
-        })
-        .catch(() => { /* keep the current card */ });
-    };
-    refresh();
-    const timer = window.setInterval(refresh, 10_000);
-    return () => {
-      live = false;
-      window.clearInterval(timer);
-    };
-  }, [ready, api]);
-  useEffect(() => {
-    if (ready || !api.getRemoteAccessInfo) return undefined;
-    let live = true;
-    let timer = 0;
-    const attempt = () => {
-      const startedAt = Date.now();
-      void preloadConnectionInfo(api, CONNECTION_RETRY_MS).then((value) => {
-        if (!live) return;
-        setInfo(value);
-        if (connectionInfoReady(value)) return;
-        setStalledAttempts((count) => count + 1);
-        timer = window.setTimeout(
-          attempt,
-          Math.max(0, CONNECTION_RETRY_MS - (Date.now() - startedAt)),
-        );
-      });
-    };
-    attempt();
-    return () => { live = false; window.clearTimeout(timer); };
-  }, [api, ready]);
-  if (!api.getRemoteAccessInfo) {
-    // Remote browser: the desktop API is absent by design —
-    // report where this device is connected instead of desktop-only pairing.
-    const remoteServer = (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer;
-    if (remoteServer) {
-      return <Group title="Web app">
-        <p className="settings-connection-note">
-          {t('This web app is paired and connected through {{server}}. Pairing QR codes for other browsers live in the desktop app under Settings → Connection.', { server: remoteServer })}
-        </p>
-      </Group>;
-    }
-    return <Group title="Web app">
-      <p className="settings-connection-note">
-        {t('Connecting to the Mixdog relay… this card refreshes automatically. If this persists, check this PC’s internet connection.')}
-      </p>
-    </Group>;
-  }
-  if (!ready) {
-    if (stalledAttempts >= CONNECTION_STALLED_ATTEMPTS) {
-      if (info === null) {
-        return <Group title="Web app">
-          <p className="settings-connection-note">
-            {t('Connecting to the Mixdog relay… this card refreshes automatically. If this persists, check this PC’s internet connection.')}
-          </p>
-        </Group>;
-      }
-      return <Group title="Web app">
-        <p className="settings-connection-note">
-          {t('Connecting to the Mixdog relay… this card refreshes automatically. If this persists, check this PC’s internet connection.')}
-        </p>
-      </Group>;
-    }
-    return <Group title="Web app"
-      description="Works on any network. Open the secure link in a browser.">
-      <div className="settings-connection-grid">
-        <figure className="settings-connection-card settings-connection-card--loading"
-          aria-label={t('Preparing pairing code')} aria-busy="true">
-          <div className="settings-connection-qr-placeholder" aria-hidden="true" />
-          <figcaption>
-            <b>{t('Preparing pairing code…')}</b>
-            <small>{t('Starting the secure relay')}</small>
-          </figcaption>
-        </figure>
-      </div>
-    </Group>;
-  }
-  // Relay-only pairing: the installed web app is the only remote client. The
-  // scanned link routes to this desktop and carries no credential — approving
-  // the request the installed app makes is what grants access.
-  const browserQrSvg = info.relayBrowserQrSvg || '';
-  return <>
-    <Group title="Web app"
-      description="Works on any network. Scan to install the app, then approve it here.">
-      <div className="settings-connection-grid">
-        <figure className="settings-connection-card">
-          <div aria-hidden="true" dangerouslySetInnerHTML={{ __html: browserQrSvg }} />
-          <figcaption><b>{t('Scan to install the web app')}</b><small>{t('Chrome/Edge: Install app · Safari: Add to Home Screen')}</small></figcaption>
-        </figure>
-      </div>
-    </Group>
-    {info.clients.length > 0 && <Group title={t('Linked devices')}
-      description={t('Review and revoke browsers paired with this desktop.')}>
-    <div className="settings-resource-list">
-      {info.clients.map((client) => {
-        const lastSeen = client.lastSeenAt
-          ? new Date(client.lastSeenAt).toLocaleString()
-          : t('Never');
-        return <ResourceRow key={client.id}
-          title={client.name || `${client.platform || 'Device'} · ${client.browser || 'Browser'}`}
-          meta={t('Added {{created}} · Last used {{lastSeen}}', {
-            created: new Date(client.createdAt).toLocaleDateString(),
-            lastSeen,
-          })}
-          status={client.online ? 'Connected' : 'Not connected'}
-          actions={<ActionButton danger disabled={Boolean(revokingClient)}
-            onClick={() => {
-              if (confirmClient !== client.id) {
-                setConfirmClient(client.id);
-                return;
-              }
-              if (!api.revokeRemoteAccessClient) return;
-              setConfirmClient('');
-              setRevokingClient(client.id);
-              void api.revokeRemoteAccessClient(client.id)
-                .then((value) => {
-                  const next = value ?? null;
-                  setCachedConnectionInfo(api, next);
-                  setInfo(next);
-                })
-                .catch(() => { /* keep the current list for retry */ })
-                .finally(() => setRevokingClient(''));
-            }}>
-            {revokingClient === client.id
-              ? 'Unpairing…'
-              : confirmClient === client.id ? 'Confirm unpair' : 'Unpair'}
-          </ActionButton>} />;
-      })}
-    </div>
-    <ResourceRow title="Unpair every device"
-      description="Every device approved so far loses access and must be approved again."
-      actions={<ActionButton disabled={rotating} onClick={() => {
-        if (!confirmRotate) {
-          setConfirmRotate(true);
-          return;
-        }
-        if (!api.rotateRemoteAccess) return;
-        setConfirmRotate(false);
-        setRotating(true);
-        void api.rotateRemoteAccess()
-          .then((value) => {
-            const next = value ?? null;
-            setCachedConnectionInfo(api, next);
-            setInfo(next);
-          })
-          .catch(() => { /* card keeps the previous QRs */ })
-          .finally(() => setRotating(false));
-      }}>{rotating ? 'Unpairing…' : confirmRotate ? 'Confirm unpair' : 'Unpair'}</ActionButton>} />
-    </Group>}
-  </>;
-}
-
-// Settings → About: repo, issue, and sponsorship links (user decision:
-// GitHub star / issues / Ko-fi / MIT). The Star button stars instantly
-// through the local gh CLI when it is signed in and falls back to opening
-// the repo page otherwise (also on the remote shim, which omits the API).
-const MIXDOG_REPO_URL = 'https://github.com/tribgames/mixdog';
-const MIXDOG_ISSUES_URL = 'https://github.com/tribgames/mixdog/issues';
-const MIXDOG_SPONSOR_URL = 'https://ko-fi.com/tribgamesdev';
-
-function AboutPanel() {
-  const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
-  const [ghReady, setGhReady] = useState(false);
-  const [starred, setStarred] = useState(false);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    let live = true;
-    void host?.githubStarStatus?.()
-      ?.then((status) => {
-        if (!live || !status) return;
-        setGhReady(status.available === true);
-        setStarred(status.starred === true);
-      })
-      .catch(() => { /* the button stays a plain repo link */ });
-    return () => { live = false; };
-  }, [host]);
-  const open = (url: string) => void host?.openExternal?.(url).catch(() => undefined);
-  const star = () => {
-    if (starred || !ghReady || !host?.starGithub) {
-      open(MIXDOG_REPO_URL);
-      return;
-    }
-    setBusy(true);
-    void host.starGithub()
-      .then((result) => setStarred(result?.starred === true))
-      .catch(() => open(MIXDOG_REPO_URL))
-      .finally(() => setBusy(false));
-  };
-  return <>
-    <Group title="Community">
-      <ResourceRow title="GitHub" className="settings-about-row"
-        description="Source, releases, and discussions — a star helps mixdog grow."
-        actions={<>
-          <ActionButton disabled={busy || starred} onClick={star}>
-            {starred ? 'Starred ★' : busy ? 'Starring…' : ghReady ? 'Star ☆' : 'Star on GitHub ↗'}
-          </ActionButton>
-          <ActionButton disabled={busy} onClick={() => open(MIXDOG_REPO_URL)}>Open ↗</ActionButton>
-        </>} />
-      <ResourceRow title="Report an issue" className="settings-about-row"
-        description="Bug reports and feature requests."
-        actions={<ActionButton disabled={busy} onClick={() => open(MIXDOG_ISSUES_URL)}>Issues ↗</ActionButton>} />
-      <ResourceRow title="Sponsor" className="settings-about-row"
-        description="Support mixdog development."
-        actions={<ActionButton disabled={busy} onClick={() => open(MIXDOG_SPONSOR_URL)}>Ko-fi ↗</ActionButton>} />
-    </Group>
-  </>;
-}
-
 function ChoicePanel({ title, values, active, pending, emptyText, onChoose }: {
   title: string; values: RecordValue[]; active: string; pending: string; emptyText?: string; onChoose(id: string): void;
 }) {
@@ -435,402 +178,8 @@ function UpdatePanel({
   </Group>;
 }
 
-function ThemeChoices({ data, pending }: Pick<PanelContext, 'data' | 'pending'>) {
-  const loadedTheme = String(data.theme || 'basic');
-  const [preference, setPreference] = useState<DesktopThemePreference>(() =>
-    getDesktopThemePreference() || desktopThemePreferenceForTheme(loadedTheme));
-  useEffect(() => {
-    setPreference(getDesktopThemePreference() || desktopThemePreferenceForTheme(loadedTheme));
-  }, [loadedTheme]);
-  // Desktop-local theme (user decision): the toggle persists to desktop
-  // storage only and never writes the engine/TUI theme.
-  const choose = (next: string) => {
-    const selected = next as DesktopThemePreference;
-    setPreference(selected);
-    setDesktopThemePreference(selected);
-  };
-  return <Group title="Theme">
-    <SelectRow title="Theme" value={preference} disabled={Boolean(pending)}
-      options={desktopThemeOptions()}
-      onChange={choose} />
-  </Group>;
-}
-
-// UI language is desktop-local (localStorage), like the theme rows: it never
-// writes engine config. Changing the RESOLVED language reloads the window —
-// module-scope strings bake their translation at import time, so a live swap
-// would leave mixed-language chrome. The pane layout restores from storage.
-function UiLanguageChoices({ pending }: Pick<PanelContext, 'pending'>) {
-  const [preference, setPreference] = useState<UiLanguagePreference>(() => getUiLanguagePreference());
-  return <Group title="Display language">
-    <SelectRow title="Display language" value={preference} disabled={Boolean(pending)}
-      options={[
-        { value: 'system', label: 'System default' },
-        ...SUPPORTED_UI_LANGUAGES,
-      ]}
-      onChange={(next) => {
-        const selected = next as UiLanguagePreference;
-        const previous = resolveUiLanguage();
-        setPreference(selected);
-        setUiLanguagePreference(selected);
-        if (resolveUiLanguage(selected) !== previous) window.location.reload();
-      }} />
-  </Group>;
-}
-
-function SidePanelChoices({ pending }: Pick<PanelContext, 'pending'>) {
-  const configuredMode = useSyncExternalStore(
-    subscribeSidePanelMode,
-    getSidePanelMode,
-    () => 'close-both',
-  );
-  const narrow = window.matchMedia?.('(max-width: 760px)').matches === true;
-  const mode = narrow ? 'close-both' : configuredMode;
-  return <Group title="Side panels">
-    <SelectRow title="Side panels" value={mode} disabled={Boolean(pending) || narrow}
-      options={[
-        { value: 'close-left', label: 'Left closed' },
-        { value: 'close-right', label: 'Right closed' },
-        { value: 'close-both', label: 'Both closed' },
-        { value: 'keep-open', label: 'Keep open' },
-      ]}
-      onChange={(next) => setSidePanelMode(next as SidePanelMode)} />
-  </Group>;
-}
-
-function GeneralPanel({ data, pending, run, api }: PanelContext) {
-  const profile = record(data.profile);
-  const toolModules = record(data.toolModules);
-  const webSearchModule = record(toolModules.webSearch);
-  const languageOptions = rows(profile.languages).map((entry) => ({ value: String(entry.id || entry.value || 'system'), label: label(entry) }));
-  const experienceLevelOptions = rows(profile.experienceLevels).map((entry) => ({ value: String(entry.id || entry.value || ''), label: label(entry) }));
-  const busy = Boolean(pending);
-  return <>
-    <Group title="Profile">
-      <AutoSaveRow title="Title" name="title" value={String(profile.title || '')}
-        placeholder="Your name or role" disabled={busy}
-        onSave={(title) => void run('setProfile', [{ title }])} />
-      <SelectRow title="Language" value={String(profile.language || 'system')} disabled={busy}
-        options={languageOptions} onChange={(language) => void run('setProfile', [{ language }])} />
-      <SelectRow title="Experience level" value={String(profile.experienceLevel || '')} disabled={busy}
-        options={experienceLevelOptions} onChange={(experienceLevel) => void run('setProfile', [{ experienceLevel }])} />
-    </Group>
-    <Group title="Features">
-      <ToggleRow title="Web search" description={t("Expose web search and web fetch tools to new sessions.")}
-        checked={webSearchModule.enabled !== false} disabled={busy}
-        onChange={(enabled) => void run('setWebSearchEnabled', [enabled])} />
-    </Group>
-    {/* Web app only: it renders nothing where the push API is absent, which is
-        every Electron window. */}
-    <PushNotificationToggle api={api} />
-    <UiLanguageChoices pending={pending} />
-        <ThemeChoices data={data} pending={pending} />
-    <SidePanelChoices pending={pending} />
-  </>;
-}
-
-function ProvidersPanel({ data, pending, run, confirm }: PanelContext) {
-  const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
-  // The runtime catalog carries each API-key provider's key-console URL
-  // (provider-admin API_PROVIDERS.url); the row opens it in the system browser
-  // so a user with no key yet is one click from issuing one.
-  const openKeyConsole = (url: string) => void host?.openExternal?.(url).catch(() => undefined);
-  const setup = record(data.providerSetup);
-  const apiProviders = rows(setup.api);
-  const oauthProviders = rows(setup.oauth);
-  const localProviders = rows(setup.local);
-  const busy = Boolean(pending);
-  // Until the read lands, "none" would be a lie; and a snapshot taken before
-  // the OS keychain answered reports every provider as not connected, so that
-  // status reads as "Checking…" instead.
-  const loading = !sectionLoaded(data, 'providerSetup');
-  const secretsPending = setup.pendingSecrets === true;
-  const providerStatus = (provider: RecordValue) => {
-    if (secretsPending && !provider.authenticated) return 'Checking…';
-    const status = String(provider.status || '');
-    if (provider.reauthRequired === true) return status || 'Reauth required';
-    if (provider.authenticated && /^(valid|set|access only)$/i.test(status)) return 'Connected';
-    return status || (provider.authenticated ? 'Connected' : 'Not connected');
-  };
-  return <>
-    <Group title="OAuth providers">{oauthProviders.length ? oauthProviders.map((provider) => <ResourceRow key={String(provider.id)} title={providerLabel(provider)}
-      description={String(provider.detail || '')}
-      status={providerStatus(provider)}
-      actions={<><OAuthControl provider={provider} disabled={busy} run={run} />
-        {(provider.authenticated || provider.reauthRequired) && <ActionButton danger disabled={busy} onClick={() => {
-          confirm({ title: 'Forget provider authentication?', description: t('Remove the saved authentication for {{name}}.', { name: providerLabel(provider) }),
-            confirmLabel: 'Forget', danger: true, onConfirm: () => void run('forgetProviderAuth', [provider.id]) });
-        }}>Forget</ActionButton>}</>} />) : <ListEmpty text={loading ? 'Loading providers…' : 'No OAuth providers available.'} />}</Group>
-    <Group title="API-key providers">{apiProviders.length ? apiProviders.map((provider) => <ResourceRow key={String(provider.id)} title={providerLabel(provider)}
-      description={String(provider.detail || provider.envName || '')}
-      status={providerStatus(provider)}
-      actions={<>{String(provider.id) === 'opencode-go' && <ActionButton disabled={busy}
-        onClick={() => void run('loginOpenCodeGoUsage')}>Usage sign-in</ActionButton>}
-        {!provider.authenticated && typeof provider.url === 'string' && /^https:\/\//.test(provider.url) &&
-          <ActionButton disabled={busy} onClick={() => openKeyConsole(String(provider.url))}>Get API key ↗</ActionButton>}
-        {!provider.authenticated && <form className="settings-provider-secret" onSubmit={(event) => {
-          event.preventDefault();
-          const form = event.currentTarget;
-          const secret = new FormData(form).get('secret');
-          form.reset();
-          void run('saveProviderApiKey', [provider.id, secret], `provider-key-${String(provider.id)}`);
-        }}>
-          <input name="secret" type="password" autoComplete="off" placeholder="API key"
-            aria-label={`${providerLabel(provider)} API key`} required />
-          <button disabled={busy}>Save</button>
-        </form>}
-        {Boolean(provider.stored || (!provider.env && provider.authenticated)) &&
-          <ActionButton danger disabled={busy} onClick={() => {
-        confirm({ title: 'Forget provider authentication?', description: t('Remove the saved authentication for {{name}}.', { name: providerLabel(provider) }),
-          confirmLabel: 'Forget', danger: true, onConfirm: () => void run('forgetProviderAuth', [provider.id]) });
-        }}>Forget</ActionButton>}</>} />) : <ListEmpty text={loading ? 'Loading providers…' : 'No API-key providers available.'} />}</Group>
-    <Group title="Local providers">{localProviders.length ? localProviders.map((provider) => <React.Fragment key={String(provider.id)}>
-      <ResourceRow title={providerLabel(provider)} description={String(provider.baseURL || provider.detail || '')}
-        status={String(provider.status || (provider.detected ? 'Detected' : 'Off'))}
-        actions={<ActionButton disabled={busy} onClick={() => void run('setLocalProvider', [provider.id, {
-          enabled: provider.enabled !== true, baseURL: provider.baseURL,
-        }])}>{provider.enabled ? 'Disable' : 'Enable'}</ActionButton>} />
-      <FormRow title={`${providerLabel(provider)} endpoint`} description="Update the OpenAI-compatible base URL."
-        onSubmit={(form) => void run('setLocalProvider', [provider.id, {
-          enabled: provider.enabled === true, baseURL: form.get('baseURL'),
-        }], `local-${provider.id}`)}>
-        <input name="baseURL" type="url" defaultValue={String(provider.baseURL || provider.defaultURL || '')}
-          aria-label={`${providerLabel(provider)} endpoint`}
-          placeholder={String(provider.defaultURL || 'http://127.0.0.1:11434/v1')} required />
-        <button disabled={busy}>Save</button>
-      </FormRow>
-    </React.Fragment>) : <ListEmpty text={loading ? 'Loading providers…' : 'No local providers available.'} />}</Group>
-  </>;
-}
-
-export function OAuthControl({ provider, disabled, run, onComplete }: {
-  provider: RecordValue;
-  disabled: boolean;
-  run: PanelContext['run'];
-  onComplete?: () => void;
-}) {
-  const [flow, setFlow] = useState<RecordValue | null>(null);
-  const [error, setError] = useState('');
-  const completedFlowRef = useRef('');
-  const onCompleteRef = useRef(onComplete);
-  const runRef = useRef(run);
-  const providerId = String(provider.id || '');
-  const flowId = String(flow?.flowId || '');
-  const flowOpen = Boolean(flow);
-  const flowState = String(flow?.state || '');
-  const manualCodeFlow = providerId === 'anthropic-oauth';
-  const loginLabel = providerId === 'cursor-oauth' ? 'Cursor OAuth' : `${providerLabel(provider)} OAuth`;
-  const status = settingsStatus(flowState || 'pending');
-  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
-  useEffect(() => { runRef.current = run; }, [run]);
-  useEffect(() => {
-    if (!flowId || flowState !== 'pending') return undefined;
-    let cancelled = false;
-    let timer = 0;
-    const poll = async () => {
-      const next = await runRef.current<RecordValue>(
-        'getOAuthProviderLoginStatus',
-        [flowId],
-        `oauth-status-${providerId}`,
-        false,
-        true,
-      );
-      if (cancelled) return;
-      if (!next) {
-        setError(providerId === 'cursor-oauth'
-          ? t('Cursor OAuth status could not be checked.')
-          : t('OAuth status could not be checked.'));
-        return;
-      }
-      const nextFlow = record(next);
-      setFlow(nextFlow);
-      if (String(nextFlow.state || 'pending') === 'pending') {
-        timer = window.setTimeout(() => void poll(), 500);
-      }
-    };
-    timer = window.setTimeout(() => void poll(), 500);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [flowId, flowState, providerId]);
-  useEffect(() => {
-    if (!flowId || flowState !== 'complete' || completedFlowRef.current === flowId) return;
-    completedFlowRef.current = flowId;
-    void runRef.current<RecordValue>(
-      'getProviderSetup',
-      [{ force: true }],
-      `oauth-refresh-${providerId}`,
-      true,
-    ).then((next) => {
-      if (completedFlowRef.current !== flowId) return;
-      if (!next) {
-        completedFlowRef.current = '';
-        setError('Connected, but provider status could not be refreshed.');
-        return;
-      }
-      setFlow((current) => String(current?.flowId || '') === flowId ? null : current);
-      onCompleteRef.current?.();
-    });
-  }, [flowId, flowState, providerId]);
-  const start = async () => {
-    setError('');
-    completedFlowRef.current = '';
-    const next = await run<RecordValue>('beginOAuthProviderLogin', [providerId], `oauth-begin-${providerId}`, false);
-    if (next) setFlow(record(next));
-  };
-  const close = () => {
-    const currentFlowId = String(flow?.flowId || '');
-    const currentState = String(flow?.state || '');
-    setFlow(null);
-    setError('');
-    if (currentFlowId && currentState !== 'complete' && currentState !== 'cancelled') {
-      void run('cancelOAuthProviderLogin', [currentFlowId], `oauth-cancel-${providerId}`, false);
-    }
-  };
-  const closeRef = useRef(close);
-  closeRef.current = close;
-  useEffect(() => {
-    if (!flowOpen) return undefined;
-    return registerMobileBack(() => closeRef.current());
-  }, [flowOpen]);
-  return <>
-    <ActionButton disabled={disabled} onClick={() => void start()}>{provider.authenticated || provider.reauthRequired ? 'Reconnect' : 'Connect'}</ActionButton>
-    {flow && <div className="settings-oauth-layer" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) close();
-    }}><section className="settings-oauth-dialog" role="dialog" aria-modal="true" data-settings-nested-dialog
-      aria-labelledby={`settings-oauth-title-${providerId}`} aria-describedby={`settings-oauth-description-${providerId}`}>
-      <header><div><h3 id={`settings-oauth-title-${providerId}`}>{loginLabel}</h3>
-        <p id={`settings-oauth-description-${providerId}`}>{manualCodeFlow
-          ? t('Complete the browser login, then paste the authorization code.')
-          : t('Finish signing in in your browser. This window updates automatically.')}</p></div>
-        <button type="button" aria-label={t(providerId === 'cursor-oauth' ? 'Close Cursor OAuth' : 'Close OAuth login')} data-settings-nested-close autoFocus onClick={close}>
-          <X aria-hidden="true" size={16} />
-        </button></header>
-      <div className="settings-oauth-body">
-        <div className="settings-oauth-status" role="status"><span>{t('Status')}</span>
-          <b className={`tone-${status.tone}`}>{t(status.label)}</b></div>
-        {String(flow.error || '') && <p className="settings-oauth-error" role="alert">{String(flow.error)}</p>}
-        {manualCodeFlow && Boolean(flow.manualUrl || flow.url) && <label className="settings-oauth-url">{t('Manual login URL')}
-          <textarea readOnly value={String(flow.manualUrl || flow.url)} /></label>}
-        {manualCodeFlow && Boolean(flow.manualCodeSupported) && flow.state !== 'complete' && <form className="settings-oauth-code" onSubmit={(event) => {
-        event.preventDefault();
-        const form = event.currentTarget;
-        const code = new FormData(form).get('code');
-        form.reset();
-        void run<RecordValue>('completeOAuthProviderLogin', [flow.flowId, code], `oauth-complete-${providerId}`, false)
-          .then((next) => {
-            if (next) setFlow(record(next));
-            else setError('The authorization code could not be completed.');
-          });
-      }}><input name="code" placeholder={t('Authorization code or code#state')} aria-label={t('Anthropic authorization code')} required />
-          <button type="submit" className="primary" disabled={disabled}>{t('Complete')}</button></form>}
-        {error && <p className="settings-oauth-error" role="alert">{error}</p>}
-      </div>
-      <footer><button type="button" disabled={disabled} onClick={close}>
-        {flow.state === 'pending' ? t('Cancel') : t('Close')}
-      </button></footer>
-    </section></div>}
-  </>;
-}
-
 /** Every extension list row is one drill-in action. Enabled state stays
  *  visible as metadata; its switch lives in the detail surface. */
-function ExtensionRow({ title, description, badge, enabled, busy, onOpen, onToggle }: {
-  title: string;
-  description: string;
-  /** Project-scope note ("2 projects", "Not in this project"); '' hides it. */
-  badge?: string;
-  enabled: boolean;
-  busy: boolean;
-  onOpen(): void;
-  onToggle(enabled: boolean): void;
-}) {
-  return <div className="schedules-row utilities-row extensions-row" data-extension-row={title}>
-    <button type="button"
-      className="schedules-row-copy utilities-row-copy projects-row-open extensions-row-open"
-      aria-label={title} disabled={busy} onClick={onOpen}>
-      <span className="sidebar-resource-title">
-        <b>{title}</b>
-        {badge ? <span className="extensions-row-badge">{badge}</span> : null}
-      </span>
-      <small>{description}</small>
-    </button>
-    <CompactSwitch className="extensions-row-toggle"
-      label={`${title} · ${t('Enabled')}`} checked={enabled}
-      disabled={busy} onChange={onToggle} />
-    <button type="button" className="session-panel-action workflows-row-enter extensions-row-enter"
-      aria-label={t('Edit {{name}}', { name: title })} disabled={busy} onClick={onOpen}>
-      <ChevronRight size={16} aria-hidden="true" />
-    </button>
-  </div>;
-}
-
-/** Skills follow the Workflows row grammar: identity first, short source/status
- *  metadata second, and the full description only in the detail dialog. */
-function SkillRow({ title, description, badge, disabled, busy, onOpen, onToggle }: {
-  title: string;
-  description: string;
-  badge?: string;
-  disabled: boolean;
-  busy: boolean;
-  onOpen(): void;
-  onToggle(enabled: boolean): void;
-}) {
-  return <ExtensionRow title={title} description={description} badge={badge}
-    enabled={!disabled} busy={busy} onOpen={onOpen} onToggle={onToggle} />;
-}
-
-/** The detail card every section shares: facts, optional content, then the
- *  entry's actions. Rows drill IN here instead of exposing their actions in the
- *  list (user: 다른것들처럼 클릭해서 들어가서 설정하는 걸로) — the same move
- *  Workflows, Schedules and Webhooks make. Portaled for their reason too: the
- *  list lives inside the sidebar's clipped box. */
-function ExtensionDetailDialog({ title, children, actions, enabled, busy, onToggle, onClose }: {
-  title: string;
-  /** Body sections: hero, scope, contents, facts — composed by the caller. */
-  children: ReactNode;
-  actions: ReactNode;
-  enabled?: boolean;
-  busy?: boolean;
-  onToggle?(enabled: boolean): void;
-  onClose(): void;
-}) {
-  useMobileBack(true, onClose);
-  useEffect(() => acquireTitleBarDim(), []);
-  return createPortal(<div className="schedules-dialog-layer"
-    onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
-    onKeyDown={(event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        onClose();
-      }
-    }}>
-    <section className="schedules-dialog extensions-dialog" role="dialog" aria-modal="true"
-      aria-labelledby="extensions-dialog-title">
-      <header>
-        <h2 id="extensions-dialog-title">{title}</h2>
-        <div className="schedules-dialog-header-actions">
-          {typeof enabled === 'boolean' && onToggle && <CompactSwitch
-            label={`${title} · ${t('Enabled')}`} checked={enabled}
-            disabled={busy} onChange={onToggle} />}
-          <button type="button" aria-label={t("Close")} onClick={onClose}>
-            <X size={16} aria-hidden="true" />
-          </button>
-        </div>
-      </header>
-      <div className="extensions-dialog-body">
-        {children}
-        <footer>
-          {actions}
-          <button type="button" className="secondary" onClick={onClose}>{t('Close')}</button>
-        </footer>
-      </div>
-    </section>
-  </div>, document.body);
-}
-
 function SkillEditorDialog({ skill, instructions, disabled, busy, readOnly = false, scopeField, onClose, onSave, onToggle }: {
   skill: RecordValue | null;
   instructions: string;
@@ -1336,10 +685,9 @@ function McpPanel({ api, data, pending, run, confirm, createOpen, closeCreate }:
     {servers.length ? servers.map((server) => {
       const name = String(server.name);
       const enabled = server.enabled !== false;
-      return <ExtensionRow key={name} title={name}
+      return <ExtensionRow key={name} icon={<Plug size={16} aria-hidden="true" />} title={name}
         description={mcpRowDescription(server)} badge={extensionScopeBadge(server)}
         enabled={enabled} busy={busy}
-        onToggle={(next) => void run('setMcpServerEnabled', [name, next])}
         onOpen={() => void openEditor(name)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'mcp')
       ? 'No MCP servers configured.' : 'Loading MCP servers…'} />}
@@ -1413,9 +761,9 @@ function SkillsPanel({ api, data, pending, run, createOpen, closeCreate }: Panel
       const name = String(skill.name);
       const off = disabled.has(name);
       const description = String(skill.description || '').trim() || t('Skill instructions');
-      return <SkillRow key={name} title={name} description={description} disabled={off}
+      return <ExtensionRow key={name} icon={<Sparkles size={16} aria-hidden="true" />}
+        title={name} description={description} enabled={!off}
         badge={extensionScopeBadge(skill)}
-        onToggle={(enabled) => setEnabled(name, enabled)}
         busy={busy} onOpen={() => openDetail(name)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'skills')
       ? 'No skills found.' : 'Loading skills…'} />}
@@ -1440,7 +788,6 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
   // A plugin's skills ride its toggle; they are listed here, not under Skills.
   const ownedSkillRows = (id: string) => rows(record(data.skills), 'skills')
     .filter((skill) => record(skill.owner).kind === 'plugin' && String(record(skill.owner).id || '') === id);
-  const ownedSkills = (id: string) => ownedSkillRows(id).map((skill) => String(skill.name));
   // The MCP server(s) a plugin installed carry its `plugin-<name>` prefix.
   const ownedMcpServers = (plugin: RecordValue) => {
     const base = String(plugin.mcpServerName || '');
@@ -1459,10 +806,9 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
         || [String(plugin.version || '').trim(), String(plugin.sourceType || plugin.source || '').trim()]
           .filter(Boolean).join(' · ')
         || t('Installed plugin');
-      return <ExtensionRow key={id} title={label(plugin)}
+      return <ExtensionRow key={id} icon={<Blocks size={16} aria-hidden="true" />} title={label(plugin)}
         description={description} badge={extensionScopeBadge(plugin)}
         enabled={enabled} busy={busy}
-        onToggle={(next) => void run('setPluginEnabled', [plugin, next])}
         onOpen={() => setOpenId(id)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'plugins')
       ? 'No plugins installed.' : 'Loading plugins…'} />}
@@ -1480,9 +826,9 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
         <button type="button" disabled={busy} onClick={() => void run('updatePlugin', [open])}>
           {open.sourceType === 'local' ? t('Update metadata') : t('Update plugin')}
         </button>
-        {Boolean(open.mcpScript) && <button type="button" disabled={busy}
+        {Boolean(open.mcpScript && open.mcpEnabled) && <button type="button" disabled={busy}
           onClick={() => void run('enablePluginMcp', [open])}>
-          {open.mcpEnabled ? t('Reconfigure MCP') : t('Enable MCP')}
+          {t('Reconfigure MCP')}
         </button>}
         {Boolean(open.root) && <button type="button"
           onClick={() => void navigator.clipboard?.writeText(String(open.root))}>
@@ -1510,6 +856,10 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
             || [String(open.version || '').trim(), String(open.sourceType || '').trim()].filter(Boolean).join(' · ')} />
         <ExtensionScopeField api={api} run={run} kind="plugins" name={id}
           {...scopeOf(open)} currentPath={currentProjectPath(data)} busy={busy} />
+        {/* Each bundled skill / MCP server switches on its own here (user:
+            플러그인 안에서 연동 필요한 게 있거나 스킬 보고 싶으면 안에서 온오프
+            토글 따로), and a shipped-but-unconnected MCP server shows its
+            Enable action in the same row instead of the footer. */}
         <ExtensionSection title={t('Contents')} count={contents}>
           {contents ? <div className="extensions-item-list">
             {skills.map((skill) => {
@@ -1518,7 +868,13 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
               return <ExtensionItemRow key={`skill:${name}`}
                 icon={<Sparkles size={15} aria-hidden="true" />}
                 title={name} description={String(skill.description || '').trim()}
-                status={off ? t('Disabled') : t('Enabled')} tone={off ? 'off' : 'ok'} />;
+                tone={off ? 'off' : 'ok'}
+                control={<CompactSwitch label={`${name} · ${t('Enabled')}`} checked={!off}
+                  disabled={busy} onChange={(next) => {
+                    const nextSet = new Set(disabledSkills);
+                    if (next) nextSet.delete(name); else nextSet.add(name);
+                    void run('setDisabledSkills', [[...nextSet]]);
+                  }} />} />;
             })}
             {servers.map((server) => {
               const name = String(server.name);
@@ -1527,12 +883,23 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
               return <ExtensionItemRow key={`mcp:${name}`}
                 icon={<Plug size={15} aria-hidden="true" />}
                 title={name} description={mcpRowDescription(server)}
-                status={!enabled ? t('Disabled') : connected ? t('Connected') : String(server.error ? t('Failed') : t('Not connected'))}
-                tone={!enabled ? 'off' : connected ? 'ok' : 'warn'} />;
+                status={!enabled ? '' : connected ? t('Connected') : String(server.error ? t('Failed') : t('Not connected'))}
+                tone={!enabled ? 'off' : connected ? 'ok' : 'warn'}
+                control={<CompactSwitch label={`${name} · ${t('Enabled')}`} checked={enabled}
+                  disabled={busy} onChange={(next) => void run('setMcpServerEnabled', [name, next])} />} />;
             })}
-          </div> : <p className="extensions-mcp-note">{open.mcpScript && !open.mcpEnabled
-            ? t('This plugin ships an MCP server. Enable MCP to connect it.')
-            : t('Nothing installed by this plugin yet.')}</p>}
+          </div> : null}
+          {Boolean(open.mcpScript && !open.mcpEnabled) && <div className="extensions-item-list">
+            <ExtensionItemRow icon={<Plug size={15} aria-hidden="true" />}
+              title={String(open.mcpServerName || t('MCP server'))}
+              description={t('This plugin ships an MCP server. Enable MCP to connect it.')}
+              tone="muted"
+              control={<button type="button" className="extensions-item-action" disabled={busy}
+                onClick={() => void run('enablePluginMcp', [open])}>{t('Enable MCP')}</button>} />
+          </div>}
+          {!contents && !(open.mcpScript && !open.mcpEnabled) && <p className="extensions-mcp-note">
+            {t('Nothing installed by this plugin yet.')}
+          </p>}
         </ExtensionSection>
         <ExtensionSection title={t('Info')}>
           <ExtensionFacts facts={[

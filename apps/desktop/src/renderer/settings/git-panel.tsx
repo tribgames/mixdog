@@ -34,19 +34,14 @@ const CONVENTIONAL_PATTERN = 'feat(scope): summary';
 
 function customExample(preferences: {
   commitExample?: string;
-  commitTemplate?: string;
 } | null | undefined): string {
-  return String(preferences?.commitExample
-    || String(preferences?.commitTemplate || '').split(/\r?\n/)[0]
-    || '');
+  return String(preferences?.commitExample || '');
 }
 
 function customInstructions(preferences: {
   commitInstructions?: string;
-  commitTemplate?: string;
 } | null | undefined): string {
-  if (preferences?.commitInstructions) return String(preferences.commitInstructions);
-  return String(preferences?.commitTemplate || '').split(/\r?\n/).slice(1).join('\n').trim();
+  return String(preferences?.commitInstructions || '');
 }
 
 export function GitPanel() {

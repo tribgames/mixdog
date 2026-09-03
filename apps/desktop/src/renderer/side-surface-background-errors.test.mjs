@@ -5,8 +5,9 @@ import test from "node:test";
 const source = (name) => readFile(new URL(name, import.meta.url), "utf8");
 
 test("side panel background reads do not escalate into red notifications", async () => {
-  const [app, schedules, webhooks, workflows] = await Promise.all([
+  const [app, projectCatalog, schedules, webhooks, workflows] = await Promise.all([
     source("./App.tsx"),
+    source("./use-app-project-catalog.ts"),
     source("./SchedulesView.tsx"),
     source("./WebhooksView.tsx"),
     source("./WorkflowsView.tsx"),
@@ -19,7 +20,7 @@ test("side panel background reads do not escalate into red notifications", async
   assert.doesNotMatch(app, /void invoke\(refreshProjects\)/);
   assert.match(app, /refreshSessions\(\)\.catch\(\(\) => undefined\)/);
   assert.match(
-    app,
+    projectCatalog,
     /refreshProjects\(\{[\s\S]*?acceptEmpty:\s*!isMobileRemoteSurface\(\),[\s\S]*?\}\)\.catch\(\(\) => \[\]\)/,
   );
 });

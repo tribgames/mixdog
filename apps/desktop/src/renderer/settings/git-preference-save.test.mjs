@@ -5,7 +5,6 @@ import { createGitPreferenceSaveQueue } from './git-preference-save.ts';
 
 const preferences = (patch = {}) => ({
   commitPreset: 'none',
-  commitTemplate: '',
   commitExample: '',
   commitInstructions: '',
   autoCommitMessage: true,

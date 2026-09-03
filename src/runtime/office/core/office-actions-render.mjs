@@ -145,6 +145,7 @@ export async function qa(session, args, cwd) {
         ...(session.format === 'pptx' ? {
           slidePlans: reviewSlidePlans,
           freeformSelection: session.designState?.freeformSelection || null,
+          ...(session.authoredBrief ? { brief: session.authoredBrief } : {}),
         } : {}),
         compositions: session.designState?.compositions || [],
       },

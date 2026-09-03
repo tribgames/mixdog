@@ -412,6 +412,9 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
     ...(deck ? { deck } : {}),
     ...(normalizedFormat === 'pptx' ? {
       slidePlans: Array.isArray(input.slidePlans) ? clone(input.slidePlans) : [],
+      // The authoring brief (plan lines + fact sheet) parsed from the script; the
+      // review holds the saved deck to it.
+      ...(plainObject(input.brief) ? { brief: clone(input.brief) } : {}),
     } : {}),
     compositions: Array.isArray(input.compositions) ? clone(input.compositions) : [],
     review: {

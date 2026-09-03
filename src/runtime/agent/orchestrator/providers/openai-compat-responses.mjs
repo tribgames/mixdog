@@ -27,8 +27,8 @@ import { createProviderReplay } from './lib/provider-replay.mjs';
 
 // providerState slot + providerReplay tag. Distinct from the xAI slot so a
 // provider switch never replays foreign encrypted items into this gateway.
-export const COMPAT_RESPONSES_STATE_KEY = 'compatResponses';
-export const COMPAT_RESPONSES_REPLAY_PROVIDER = 'openai-responses';
+const COMPAT_RESPONSES_STATE_KEY = 'compatResponses';
+const COMPAT_RESPONSES_REPLAY_PROVIDER = 'openai-responses';
 
 function encryptedReasoningItems(output) {
     if (!Array.isArray(output)) return [];

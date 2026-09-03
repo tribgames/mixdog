@@ -237,8 +237,8 @@ test('desktop activity groups by work unit, not by shared category', () => {
     { unitKey: 'Git|Staged|change', category: 'Git', label: 'Git staging', count: 1 },
     { unitKey: 'Read|Read|code map', category: 'Read', label: 'Code structure', count: 1 },
     { unitKey: 'Read|Read|file', category: 'Read', label: 'File reading', count: 1 },
-    { unitKey: 'MCP|srv', category: 'MCP', label: 'Srv', count: 1 },
-    { unitKey: 'MCP|other', category: 'MCP', label: 'Other', count: 1 },
+    { unitKey: 'MCP|srv', category: 'MCP', label: 'MCP Srv', count: 1 },
+    { unitKey: 'MCP|other', category: 'MCP', label: 'MCP Other', count: 1 },
   ]);
 });
 
@@ -249,14 +249,20 @@ test('desktop activity uses concrete control, MCP server, and skill names', () =
     { kind: 'tool', id: 'office', name: 'office', args: { action: 'inspect' }, result: 'ok' },
     { kind: 'tool', id: 'unity', name: 'mcp__UnityMCP__manage_scene', args: { action: 'get' }, result: 'ok' },
     { kind: 'tool', id: 'skill', name: 'Skill', args: { name: 'gamerscroll-article' }, result: 'ok' },
+    { kind: 'tool', id: 'media-image', name: 'media', args: { action: 'generate', kind: 'image', prompt: 'x', path: 'a.png' }, result: 'ok' },
+    { kind: 'tool', id: 'media-video', name: 'media', args: { action: 'generate', kind: 'video', prompt: 'x', path: 'a.mp4' }, result: 'ok' },
+    { kind: 'tool', id: 'media-list', name: 'media', args: { action: 'list', kind: 'image' }, result: 'ok' },
   ]);
 
   assert.deepEqual(groups.map(({ unitKey, category, label, count }) => ({ unitKey, category, label, count })), [
     { unitKey: 'Browser', category: 'Browser', label: 'Browser Use', count: 1 },
     { unitKey: 'Computer', category: 'Computer', label: 'Computer Use', count: 1 },
     { unitKey: 'Office', category: 'Office', label: 'Document work', count: 1 },
-    { unitKey: 'MCP|UnityMCP', category: 'MCP', label: 'UnityMCP', count: 1 },
-    { unitKey: 'Skill|gamerscroll-article', category: 'Skill', label: 'gamerscroll-article', count: 1 },
+    { unitKey: 'MCP|UnityMCP', category: 'MCP', label: 'MCP UnityMCP', count: 1 },
+    { unitKey: 'Skill|gamerscroll-article', category: 'Skill', label: 'Skill gamerscroll-article', count: 1 },
+    { unitKey: 'Media|image', category: 'Media', label: 'Image generation', count: 1 },
+    { unitKey: 'Media|video', category: 'Media', label: 'Video generation', count: 1 },
+    { unitKey: 'Media|lookup', category: 'Media', label: 'Media lookup', count: 1 },
   ]);
 
   assert.equal(desktopToolActivityItemPresentation({

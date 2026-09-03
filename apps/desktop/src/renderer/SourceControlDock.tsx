@@ -6,14 +6,11 @@ import {
   ArrowUpDown,
   Check,
   Minus,
-  Search,
   Undo2,
-  X
 } from "lucide-react";
 import React, {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -48,9 +45,16 @@ import {
 import { sourceControlRemoteActions } from "./source-control-remote-actions";
 import { SourceControlBranchPicker } from "./source-control-branch-picker";
 import { SourceControlCommitDetail } from "./source-control-commit-detail";
+import { SourceControlCommitForm } from "./SourceControlCommitForm";
+import {
+  SourceControlViewControls,
+  type SourceControlView,
+} from "./SourceControlViewControls";
+import { buildSourceControlCommitMenu } from "./source-control-history-menu";
+import { sourceControlCommitSelection } from "./source-control-commit-selection";
+import { useSourceControlFiles } from "./use-source-control-files";
 import { useSurfaceActive } from "./surface-activity";
 import {
-  changedFilesLabel,
   DEFAULT_BRANCH_NAMES,
   EMPTY_SUMMARY,
   gitRemoteWebUrl,
@@ -59,19 +63,13 @@ import {
   indexOnly,
   isDirtyResetRefusal,
   leavesStateBehind,
-  partiallyStaged,
   pathsFor,
   pullRequestUrl,
   RowSpacer,
   SCM_COMMIT_ROW_HEIGHT,
-  SCM_FILE_ROW_HEIGHT,
-  SCM_SORT_KEY,
-  stagedInIndex,
-  statusKind,
   UNKNOWN_AUTHOR,
   useAnchoredPanel,
   useRowWindow,
-  type ScmSortKey,
   type SourceControlDiffRequest,
 } from "./source-control-support";
 export {
@@ -139,7 +137,7 @@ export function SourceControlDock({
   const [contextMenu, setContextMenu] = useState<ScmContextMenuState | null>(null);
   const viewSortMenuPoint = useRef<{ x: number; y: number } | null>(null);
   const viewSortClickGuard = useImmediateOverlayClickGuard();
-  const [view, setView] = useState<"changes" | "history">("changes");
+  const [view, setView] = useState<SourceControlView>("changes");
   const [selectedCommit, setSelectedCommit] = useState("");
   const [commitDetail, setCommitDetail] = useState<DesktopGitCommitDetails | null>(null);
   /** Outcome of the last SHA copy — the copy affordance's confirmation
@@ -156,17 +154,6 @@ export function SourceControlDock({
    *  turns out to be all duplicates leaves the length unchanged, and without
    *  this the same skip would be re-requested forever. */
   const autoPagedSkip = useRef(-1);
-  const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  /** Every changed file is included until unchecked, so only exclusions are
-   *  tracked and newly discovered files stay included. */
-  const [excluded, setExcluded] = useState<Set<string>>(() => new Set());
-  const [fileFilter, setFileFilter] = useState("");
-  const [sortKey, setSortKey] = useState<ScmSortKey>(() => {
-    try {
-      const saved = window.localStorage.getItem(SCM_SORT_KEY);
-      return saved === "name" || saved === "status" ? saved : "path";
-    } catch { return "path"; }
-  });
   const [branches, setBranches] = useState<DesktopGitBranch[]>([]);
   /** Real default branch, resolved from the remote HEAD (see loadBranches). */
   const [defaultBranchName, setDefaultBranchName] = useState("");
@@ -180,7 +167,6 @@ export function SourceControlDock({
   const branchPanelRef = useRef<HTMLDivElement>(null);
   const dockRootRef = useRef<HTMLDivElement>(null);
   /** The two windowed scroll containers (see `useRowWindow`). */
-  const filesScrollRef = useRef<HTMLDivElement>(null);
   const historyScrollRef = useRef<HTMLDivElement>(null);
   // Both the row context menu and the branch picker are document.body PORTALS,
   // and the Dock keeps this pane MOUNTED (inert + aria-hidden) while another
@@ -206,10 +192,34 @@ export function SourceControlDock({
     align: "start",
     placement: "below",
   });
-  const chooseSortKey = (next: ScmSortKey) => {
-    setSortKey(next);
-    try { window.localStorage.setItem(SCM_SORT_KEY, next); } catch { /* convenience */ }
-  };
+  const {
+    files,
+    conflicts,
+    includedFiles,
+    filteredFiles,
+    visibleFiles,
+    fileWindow,
+    filesScrollRef,
+    fileFilter,
+    setFileFilter,
+    sortKey,
+    chooseSortKey,
+    selected,
+    selectedCount,
+    clearSelected,
+    isIncluded,
+    setIncluded,
+    setAllIncluded,
+    toggleSelected,
+    selectedActionFiles,
+    includedVisible,
+    includableVisible,
+    checkAllLabel,
+  } = useSourceControlFiles({
+    projectPath,
+    status,
+    active: !prOnly && view === "changes",
+  });
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
   /** The guards are also read at EXECUTION time. An open context menu holds
    *  the `busy` / `status.operation` SNAPSHOT of the render that built it, so
@@ -358,9 +368,6 @@ export function SourceControlDock({
     setCommitDiffs({});
     setHistoryQuery("");
     setHistoryHasMore(false);
-    setSelected(new Set());
-    setExcluded(new Set());
-    setFileFilter("");
     setBranches([]);
     setDefaultBranchName("");
     setBranchPickerOpen(false);
@@ -428,57 +435,6 @@ export function SourceControlDock({
     }
   }, [reload]);
 
-  // ONE flat working-directory list: no staged /
-  // unstaged / merge groups, just changed files with checkboxes.
-  const files = useMemo(() => status?.files ?? [], [status]);
-  const conflicts = useMemo(() => files.filter((file) => file.conflicted), [files]);
-  const isIncluded = useCallback(
-    (file: DesktopGitFile) => !file.conflicted && !excluded.has(file.path),
-    [excluded],
-  );
-  const includedFiles = useMemo(() => files.filter(isIncluded), [files, isIncluded]);
-  // Exclusions belong to files that EXIST. A path that is unchecked, then
-  // disappears (discarded, committed elsewhere, stashed) must come back
-  // CHECKED — the default state — when it shows up again, so the set is
-  // reconciled against every refreshed status (and cleared on project switch).
-  useEffect(() => {
-    setExcluded((current) => {
-      if (!current.size) return current;
-      const present = new Set(files.map((file) => file.path));
-      const next = new Set([...current].filter((path) => present.has(path)));
-      return next.size === current.size ? current : next;
-    });
-  }, [files]);
-  const sortedFiles = useMemo(() => [...files].sort((left, right) => {
-    if (sortKey === "name") {
-      const leftName = left.path.split("/").at(-1) || left.path;
-      const rightName = right.path.split("/").at(-1) || right.path;
-      return leftName.localeCompare(rightName) || left.path.localeCompare(right.path);
-    }
-    if (sortKey === "status") {
-      return statusKind(left).localeCompare(statusKind(right))
-        || left.path.localeCompare(right.path);
-    }
-    return left.path.localeCompare(right.path);
-  }), [files, sortKey]);
-  const filterText = fileFilter.trim().toLocaleLowerCase();
-  const filteredFiles = useMemo(
-    () => filterText
-      ? sortedFiles.filter((file) => file.path.toLocaleLowerCase().includes(filterText))
-      : sortedFiles,
-    [filterText, sortedFiles],
-  );
-  // The list is SCROLLED, never paged: every changed file is reachable and
-  // only the band the viewport shows is mounted (the `Show N more` button is
-  // gone). Same for the commit history below it.
-  const fileWindow = useRowWindow(
-    filesScrollRef,
-    SCM_FILE_ROW_HEIGHT,
-    filteredFiles.length,
-    !prOnly && view === "changes",
-    `${projectPath}\u0000${sortKey}\u0000${filterText}`,
-  );
-  const visibleFiles = filteredFiles.slice(fileWindow.start, fileWindow.end);
   const historyWindow = useRowWindow(
     historyScrollRef,
     SCM_COMMIT_ROW_HEIGHT,
@@ -497,10 +453,6 @@ export function SourceControlDock({
     autoPagedSkip.current = history.length;
     void loadHistory(false);
   }, [history.length, historyHasMore, historyLoading, historyWindow, loadHistory]);
-  const includedVisible = filteredFiles.filter(isIncluded).length;
-  const includableVisible = filteredFiles.filter((file) => !file.conflicted).length;
-  const checkAllLabel = changedFilesLabel(files.length, filteredFiles.length);
-  const selectedCount = selected.size;
   // Commit message = summary, blank line, description.
   const commitMessage = description.trim()
     ? `${summary.trim()}\n\n${description.trim()}`
@@ -525,33 +477,13 @@ export function SourceControlDock({
       : visibleBranches.find((branch) =>
         !branch.remote && DEFAULT_BRANCH_NAMES.includes(branch.name)));
   const otherBranches = visibleBranches.filter((branch) => branch !== defaultBranch);
-  const setIncluded = (file: DesktopGitFile, include: boolean) => {
-    setExcluded((current) => {
-      const next = new Set(current);
-      if (include) next.delete(file.path);
-      else next.add(file.path);
-      return next;
-    });
-  };
-  const setAllIncluded = (include: boolean, rows: DesktopGitFile[] = filteredFiles) => {
-    setExcluded((current) => {
-      const next = new Set(current);
-      for (const file of rows) {
-        if (include) next.delete(file.path);
-        else next.add(file.path);
-      }
-      return next;
-    });
-  };
   useEffect(() => {
     if (!active) return;
     let live = true;
     void api?.readGitPreferences?.().then((preferences) => {
       if (live) setCommitFormat({
         preset: String(preferences?.commitPreset || "none"),
-        example: String(preferences?.commitExample
-          || String(preferences?.commitTemplate || "").split(/\r?\n/)[0]
-          || ""),
+        example: String(preferences?.commitExample || ""),
         auto: preferences?.autoCommitMessage === true,
       });
     }).catch(() => { /* the default placeholders remain */ });
@@ -562,15 +494,13 @@ export function SourceControlDock({
   useEffect(() => {
     const onPreferences = (event: Event) => {
       const detail = (event as CustomEvent<{
-        commitPreset?: string; commitTemplate?: string; commitExample?: string;
+        commitPreset?: string; commitExample?: string;
         autoCommitMessage?: boolean;
       }>).detail;
       if (!detail) return;
       setCommitFormat({
         preset: String(detail.commitPreset || "none"),
-        example: String(detail.commitExample
-          || String(detail.commitTemplate || "").split(/\r?\n/)[0]
-          || ""),
+        example: String(detail.commitExample || ""),
         auto: detail.autoCommitMessage === true,
       });
     };
@@ -592,91 +522,27 @@ export function SourceControlDock({
     setSummary("");
     setDescription("");
   };
-  /** Resolves the checkbox selection into the exact path list to commit.
-   *
-   *  The status prop is a POLLED snapshot, so it may already be stale: the
-   *  index is therefore re-read here and every decision is taken against that
-   *  fresh read. Rules:
-   *   - the commit is constrained to paths the user could see AND checked,
-   *   - a staged path that was never on screen aborts the commit instead of
-   *     being swept into it (or silently reset),
-   *   - conflicted paths are never reset (that would drop conflict stages),
-   *   - replacing partially staged content is confirmed, not assumed.
-   *
-   *  `gitCommitPaths` (pathspec commit) makes the index churn unnecessary: git
-   *  itself constrains the commit to these paths and leaves every other index
-   *  entry untouched, so nothing is staged or reset around the commit. Only
-   *  when the contract does not carry it does the legacy stage/unstage dance
-   *  run as the fallback.
-   *  Returns null when the user declines; throws when the commit must not run. */
+  // Re-read Git status immediately before committing; the rendered status is
+  // polled and may no longer describe the index.
   const prepareCommitPaths = async (): Promise<string[] | null> => {
-    if (!api?.gitStatus) throw new Error("Cannot verify the working tree before committing.");
+    if (!api?.gitStatus || !api.gitCommitPaths) {
+      throw new Error("This build cannot commit selected files.");
+    }
     const fresh = await api.gitStatus(projectPath);
     if (fresh.operation) {
       throw new Error(`Finish the in-progress ${fresh.operation.replace("-", " ")} before committing.`);
     }
-    const freshConflicts = fresh.files.filter((file) => file.conflicted);
-    if (freshConflicts.length) {
-      throw new Error(`Resolve ${freshConflicts.length} conflicted file${
-        freshConflicts.length === 1 ? "" : "s"} before committing.`);
-    }
-    // Both halves of an on-screen rename count as seen: the row shows
-    // `old → new` and its checkbox commits the pair.
-    const seen = new Set(files.flatMap(pathsFor));
-    const selected = fresh.files.filter((file) =>
-      !file.conflicted && seen.has(file.path) && !excluded.has(file.path));
-    if (!selected.length) throw new Error("Select one or more files to commit.");
-    const selectedPaths = new Set(selected.flatMap(pathsFor));
-    const stagedNow = fresh.files.filter((file) =>
-      stagedInIndex(file) && !selectedPaths.has(file.path));
-    // Nothing the user never saw may be committed OR reset. That covers a
-    // staged path outside the list AND every path the commit itself would
-    // carry — including the OLD half of a rename the fresh read just
-    // discovered, which can be a file that was recreated off-screen.
-    // Both halves count on the reset side too: the fallback below resets
-    // `pathsFor(file)`, so an unchecked staged RENAME whose old path was
-    // never on screen must abort instead of losing that index entry.
-    const unseen = [...new Set([
-      ...[...selectedPaths].filter((path) => !seen.has(path)),
-      ...stagedNow.flatMap(pathsFor).filter((path) => !seen.has(path)),
-    ])];
-    if (unseen.length) {
-      const names = unseen.slice(0, 3).join(", ");
-      throw new Error(
-        `The index changed outside this list (${names}${unseen.length > 3 ? ", …" : ""}). `
-        + "Refresh the changes list and commit again.",
-      );
-    }
-    const byPathspec = Boolean(api?.gitCommitPaths);
-    // A pathspec commit replaces the staged content of the paths it COMMITS
-    // with their worktree version; the unselected staged entries it never
-    // touches need no consent, so the prompt names only what is at risk.
-    const partials = (byPathspec ? selected : [...selected, ...stagedNow])
-      .filter(partiallyStaged);
-    if (partials.length && !window.confirm(
-      `${partials.length} file${partials.length === 1 ? " has" : "s have"} staged changes that `
+    const selection = sourceControlCommitSelection(files, fresh.files, isIncluded);
+    if (selection.partiallyStaged.length && !window.confirm(
+      `${selection.partiallyStaged.length} file${
+        selection.partiallyStaged.length === 1 ? " has" : "s have"
+      } staged changes that `
       + "differ from the working tree:\n\n"
-      + `${partials.slice(0, 5).map((file) => file.path).join("\n")}`
-      + `${partials.length > 5 ? "\n…" : ""}\n\n`
+      + `${selection.partiallyStaged.slice(0, 5).map((file) => file.path).join("\n")}`
+      + `${selection.partiallyStaged.length > 5 ? "\n…" : ""}\n\n`
       + "Committing replaces that staged content with the full working-tree version. Continue?",
     )) return null;
-    const commitPaths = [...selectedPaths];
-    if (byPathspec) return commitPaths;
-    // The fallback only works as a WHOLE: without gitUnstage an unchecked
-    // staged path would ride along, without gitStage a checked path would be
-    // dropped, and without gitCommit nothing lands at all. A partial API
-    // refuses instead of committing something the checkboxes never described.
-    if (!api?.gitStage || !api?.gitUnstage || !api?.gitCommit) {
-      throw new Error(
-        "This build cannot commit the selected files: the Git commit API is incomplete "
-        + "(gitCommitPaths, gitStage, gitUnstage or gitCommit is missing).",
-      );
-    }
-    const unstagePaths = [...new Set(stagedNow.flatMap(pathsFor))]
-      .filter((path) => !selectedPaths.has(path));
-    if (commitPaths.length) await api.gitStage(projectPath, commitPaths);
-    if (unstagePaths.length) await api.gitUnstage(projectPath, unstagePaths);
-    return commitPaths;
+    return selection.paths;
   };
   /** ONE commit entry point for the button, the split menu and the title menu:
    *  the draft is cleared only after the commit lands, and a failing follow-up
@@ -700,9 +566,8 @@ export function SourceControlDock({
       if (!message.trim()) throw new Error("A commit summary is required to commit.");
       // A rejected commit must never clear the draft: it throws out of run(),
       // which reports it and leaves the composer untouched.
-      if (api?.gitCommitPaths) await api.gitCommitPaths(projectPath, message, prepared);
-      else if (api?.gitCommit) await api.gitCommit(projectPath, message);
-      else throw new Error("This build cannot commit: no Git commit API is available.");
+      if (!api?.gitCommitPaths) throw new Error("This build cannot commit selected files.");
+      await api.gitCommitPaths(projectPath, message, prepared);
       clearCommitDraft();
       if (!followUp) return;
       try {
@@ -716,21 +581,6 @@ export function SourceControlDock({
    *  at EVERY entry point (the operation banner's Continue owns that path). */
   const commitBlocked = Boolean(busy) || (!summary.trim() && !autoCommitMessage)
     || includedFiles.length === 0 || Boolean(status?.operation) || conflicts.length > 0;
-  const toggleSelected = (file: DesktopGitFile, additive = false) => {
-    const key = file.path;
-    setSelected((current) => {
-      if (!additive) return new Set([key]);
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
-  const selectedActionFiles = (file: DesktopGitFile): DesktopGitFile[] => {
-    if (!selected.has(file.path)) return [file];
-    const rows = filteredFiles.filter((candidate) => selected.has(candidate.path));
-    return rows.length ? rows : [file];
-  };
   const discardFiles = async (files: DesktopGitFile[]) => {
     for (const file of files) {
       await api?.gitRevert?.(projectPath, file.path, file.untracked, "worktree");
@@ -777,13 +627,6 @@ export function SourceControlDock({
     : status?.operation
       ? `Finish the in-progress ${status.operation.replace("-", " ")} first`
       : "";
-  /** The tag entries read `DesktopGitLogEntry.tags`, which gitLog now fills per
-   *  entry (contract.ts:975-981). Only an OLDER host answers without the field
-   *  at all — `refs` alone cannot tell a tag from a branch — and only then do
-   *  the two tag-reading entries stay disabled, saying exactly that. */
-  const TAGS_UNKNOWN = "Tag names are not available yet: this host's gitLog answers"
-    + " without the per-entry `tags` field, and the mixed `refs` decorations cannot"
-    + " tell a tag from a branch. Update the app so gitLog carries `tags`.";
   const commitTitle = (entry: DesktopGitLogEntry) =>
     (entry.subject ?? "").trim() || EMPTY_SUMMARY;
   /** Every destructive history action confirms first, and the prompt NAMES the
@@ -976,7 +819,7 @@ export function SourceControlDock({
         : `Discard ${actionFiles.length} selected working tree changes? This cannot be undone.`;
       if (!window.confirm(message)) return;
       void run(`revert:${file.path}`, () => discardFiles(actionFiles),
-        () => setSelected(new Set()));
+        clearSelected);
     };
     const fileMenuItems = () => changedFileMenuItems({
       file,
@@ -1021,7 +864,7 @@ export function SourceControlDock({
     const targets = files.filter((file) => !file.conflicted);
     if (!targets.length
       || !window.confirm(`Discard all ${targets.length} working tree changes? This cannot be undone.`)) return;
-    void run("discard-all", () => discardFiles(targets), () => setSelected(new Set()));
+    void run("discard-all", () => discardFiles(targets), clearSelected);
   };
   // ONE implementation per branch action, shared by the branch row's inline
   // buttons and by its right-click menu.
@@ -1119,7 +962,7 @@ export function SourceControlDock({
     // first pass, so keep that failure in the panel's neutral empty-state
     // grammar instead of flashing the red action-error bar.
     return <p className="utility-dock-empty" role="status">
-      Source Control is temporarily unavailable.
+      {t("Source Control is temporarily unavailable.")}
     </p>;
   }
   if (status && !status.repository) {
@@ -1210,76 +1053,20 @@ export function SourceControlDock({
         </div>)}
     </div>}
     <div className="dock-scm-view-stage">
-    {/* Search first, then the Changes | History selector, matching the Search
-        panel's query-field + mode-selector order. The selector remains a RADIO
-        GROUP (two mutually exclusive views), driven by click or arrow keys. */}
-    {!prOnly && <div className="dock-scm-view-controls">
-      <label className="dock-scm-search workbench-search-input">
-        <Search size={14} aria-hidden="true" />
-        {view === "changes" ? <>
-          <input type="search" value={fileFilter}
-            aria-label="Filter changed files" placeholder="Filter"
-            onInput={(event) => setFileFilter(event.currentTarget.value)} />
-          {fileFilter && <button type="button" aria-label="Clear the file filter"
-            onClick={() => setFileFilter("")}><X size={14} aria-hidden="true" /></button>}
-        </> : <>
-          <input type="search" value={historyQuery} placeholder="Search commits"
-            aria-label="Search commits"
-            onInput={(event) => setHistoryQuery(event.currentTarget.value)} />
-          {historyQuery && <button type="button" aria-label="Clear the commit search"
-            onClick={() => setHistoryQuery("")}><X size={14} aria-hidden="true" /></button>}
-        </>}
-      </label>
-      {(() => {
-      const options = [
-        { id: "changes" as const, label: "Changes" },
-        { id: "history" as const, label: "History" },
-      ];
-      // One entry point for both pointer and keyboard so the surface switch
-      // keeps its side effects (history load + selection clear).
-      const selectView = (next: "changes" | "history") => {
+    {!prOnly && <SourceControlViewControls
+      fileCount={files.length}
+      fileFilter={fileFilter}
+      historyQuery={historyQuery}
+      view={view}
+      onFileFilterChange={setFileFilter}
+      onHistoryQueryChange={setHistoryQuery}
+      onViewChange={(next) => {
         if (next === view) return;
         if (next === "history") setHistoryLoading(true);
         setView(next);
-        setSelected(new Set());
-      };
-      // Two equal tabs span the panel; the selected tab owns the inset marker
-      // and the Changes tab carries the counter. Semantics remain a radio group
-      // with roving tabindex.
-      return <div className="dock-scm-tab-bar" role="radiogroup"
-        aria-label="Changes or history">
-        {options.map((option, index) => <button type="button" role="radio" key={option.id}
-          className="dock-scm-tab"
-          data-review-option={option.id}
-          aria-checked={view === option.id}
-          // Roving tabindex: the group is a SINGLE tab stop; the checked
-          // option owns it and the arrows move within the group.
-          tabIndex={view === option.id ? 0 : -1}
-          onClick={() => selectView(option.id)}
-          onKeyDown={(event) => {
-            const forward = event.key === "ArrowRight" || event.key === "ArrowDown";
-            const backward = event.key === "ArrowLeft" || event.key === "ArrowUp";
-            if (!forward && !backward) return;
-            event.preventDefault();
-            const step = forward ? 1 : options.length - 1;
-            const next = options[(index + step) % options.length];
-            // WAI-ARIA radio group: selection follows focus.
-            selectView(next.id);
-            event.currentTarget.parentElement
-              ?.querySelector<HTMLButtonElement>(`[data-review-option="${next.id}"]`)
-              ?.focus();
-          }}>
-          {/* One `with-indicator` span per tab, the
-              label then the changed-file counter. */}
-          <span className="dock-scm-tab-content">
-            <span className="dock-scm-tab-label">{option.label}</span>
-            {option.id === "changes" && files.length > 0 &&
-              <span className="dock-review-count">{files.length}</span>}
-          </span>
-        </button>)}
-      </div>;
-      })()}
-    </div>}
+        clearSelected();
+      }}
+    />}
     {error && <p className="dock-scm-error" role="alert">{error}</p>}
     {!prOnly && status?.operation && <div className="dock-scm-operation" role="status">
       <div>
@@ -1431,7 +1218,7 @@ export function SourceControlDock({
         // 하면 어떻게 언셀렉함) — the toolbar Clear button is the mouse path.
         if (event.key !== "Escape" || selectedCount === 0) return;
         event.stopPropagation();
-        setSelected(new Set());
+        clearSelected();
       }}>
       {/* Windowed rows: the spacers carry the height of every row that is not
           mounted, so the scrollbar measures the WHOLE changed-file set and
@@ -1443,98 +1230,25 @@ export function SourceControlDock({
       {files.length > 0 && filteredFiles.length === 0 &&
         <p className="dock-scm-clean">No changed files match the filter.</p>}
       </div>
-      {/* Commit box lives in NORMAL FLOW as the bottom region of the view
-          stage (never an overlay over the file list) and follows the chat
-          composer grammar: textarea row, then an action row. */}
-      {(() => {
-        // The primary button carries the whole action — verb, file count and
-        // target branch — and it is the form's ONLY control. Push and Fetch
-        // remain fixed in the toolbar; Amend and Undo commit live on history
-        // rows, and the stash pair lives on the changed-files header.
-        const committing = busy === "commit" || busy === "amend";
-        // With auto messages on, an empty summary still commits in one press
-        // (silent generation); the tooltip below is the only tell.
-        const autoDraft = !summary.trim() && autoCommitMessage;
-        const branchName = status?.detached ? "" : status?.branch || "";
-        const selectedCommitCount = includedFiles.length;
-        // Button text: verb, then
-        // "N file(s) ", then "to " and the BOLD branch.
-        const verb = committing ? "Committing…" : "Commit";
-        const countText = selectedCommitCount > 0
-          ? `${selectedCommitCount} ${selectedCommitCount > 1 ? "files" : "file"} `
-          : "";
-        // Disabled set (shared with the title menu through `commitBlocked`):
-        // blank summary, nothing selected, a commit in flight, an in-progress
-        // Git operation, or unresolved conflicts.
-        const primaryDisabled = commitBlocked;
-        // Tooltip strings.
-        const primaryTitle = autoDraft
-          ? "Commit with an auto-generated message"
-          : !summary.trim()
-            ? "A commit summary is required to commit"
-            : selectedCommitCount === 0 && files.length > 0
-              ? "Select one or more files to commit"
-              : committing
-                ? "Committing changes…"
-                : status?.operation
-                  ? "Finish the in-progress Git operation first"
-                  : conflicts.length > 0
-                    ? "Resolve conflicts before committing"
-                    : branchName ? `Commit to ${branchName}` : "Commit";
-        const submitOnAccelerator = (
-          event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
-        ) => {
-          // Ctrl/Cmd+Enter submits from either field only when the user typed a
-          // summary; an empty draft never starts
-          // auto generation or a commit from a stray accelerator.
-          if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
-          event.preventDefault();
-          if (!summary.trim()) return;
-          event.currentTarget.form?.requestSubmit();
-        };
-        // noValidate: commit gating is OURS (commitBlocked disables the
-        // button and the submit handler re-checks). The browser's native
-        // "fill out this field" balloon is off-theme and, with auto commit
-        // messages, plain wrong — an empty summary is a valid submit.
-        return <form className="dock-scm-commit" noValidate onSubmit={(event) => {
-          event.preventDefault();
-          if (primaryDisabled) return;
-          runCommitFlow("commit");
-        }}>
-          {/* Two DISTINCT fields, never two identical empty boxes
-              — a real single-line
-              bordered text input, then the description's own focus container
-              underneath it. */}
-          <input type="text" className="dock-scm-commit-summary" aria-label="Summary"
-            placeholder={summaryPlaceholder} value={summary}
-            readOnly={committing}
-            onInput={(event) => setSummary(event.currentTarget.value)}
-            onKeyDown={submitOnAccelerator} />
-          <div className="dock-scm-commit-description-box">
-            <textarea className="dock-scm-commit-description" aria-label="Description"
-              placeholder={descriptionPlaceholder} value={description} rows={1}
-              readOnly={committing}
-              onInput={(event) => setDescription(event.currentTarget.value)}
-              onKeyDown={submitOnAccelerator} />
-          </div>
-          {conventionalWarning && <p className="dock-scm-commit-format-warning" role="status">
-            {t("Expected {{format}}. You can still commit this message.", { format: "type(scope)!: description" })}
-          </p>}
-          <div className="dock-scm-commit-split">
-            <button type="submit" className="dock-scm-commit-button"
-              disabled={primaryDisabled} title={primaryTitle}>
-              {committing && <ProgressSpinner size={14} aria-hidden="true" />}
-              {/* Wrapped like .model-trigger > span so a narrow dock
-                  ellipsizes the label instead of clipping the button. */}
-              <span>
-                {`${verb} ${countText}${branchName ? "to " : ""}`}
-                {branchName ? <strong>{branchName}</strong> : null}
-              </span>
-            </button>
-          </div>
-          {/* Create Pull Request moved to the Graph/PR tab (user: PR 분리). */}
-        </form>;
-      })()}
+      <SourceControlCommitForm
+        autoCommitMessage={autoCommitMessage}
+        branch={status?.branch || ""}
+        busy={busy}
+        commitBlocked={commitBlocked}
+        conflictCount={conflicts.length}
+        conventionalWarning={conventionalWarning}
+        description={description}
+        descriptionPlaceholder={descriptionPlaceholder}
+        detached={Boolean(status?.detached)}
+        fileCount={files.length}
+        operation={status?.operation}
+        selectedFileCount={includedFiles.length}
+        summary={summary}
+        summaryPlaceholder={summaryPlaceholder}
+        onCommit={() => runCommitFlow("commit")}
+        onDescriptionChange={setDescription}
+        onSummaryChange={setSummary}
+      />
     </> : selectedCommit ? <SourceControlCommitDetail
       detail={commitDetail}
       selectedCommit={selectedCommit}
@@ -1558,14 +1272,6 @@ export function SourceControlDock({
       {visibleHistory.map((entry, windowIndex) => {
         const entryIndex = historyWindow.start + windowIndex;
         const refs = entry.refs ?? [];
-        // gitLog now splits the decorations per KIND (contract.ts:975-981).
-        // An OLDER host answers without `tags` at all — that, and only that,
-        // is what keeps the two tag-reading entries disabled.
-        const tagsKnown = Array.isArray(entry.tags);
-        const tags = entry.tags ?? [];
-        // `Amend commit…` / `Undo commit…` belong to the most recent commit
-        // undo additionally applies to a LOCAL one.
-        const isTipCommit = entryIndex === 0;
         const summary = (entry.subject ?? "").trim();
         const author = (entry.author ?? "").trim();
         // The row is the focusable element, so the truncated title, the hidden
@@ -1576,147 +1282,43 @@ export function SourceControlDock({
           refs.length ? `refs: ${refs.join(", ")}` : "",
           entry.pushed ? "" : "unpushed",
         ].filter(Boolean).join(" · ");
-        // The history context menu in its
-        // own order: Amend, Undo, Reset, Checkout, Reorder, Revert, then the
-        // branch/tag group and the copy group. Every destructive entry confirms
-        // while NAMING the commit, every entry is refused (with the reason in
-        // its tooltip) while a Git action or an in-progress operation owns the
-        // repository, and an entry whose channel this build has no IPC for
-        // stays VISIBLE and DISABLED.
-        const commitMenuItems = (): ScmContextMenuItem[] => [
-          {
-            id: "amend",
-            label: "Amend commit…",
-            disabled: Boolean(historyBusyReason) || !isTipCommit
-              || Boolean(status?.unborn) || conflicts.length > 0 || !api?.gitAmend,
-            title: historyBusyReason
-              || (!isTipCommit
-                ? "Only the most recent commit can be amended"
-                : conflicts.length > 0
-                  ? "Resolve conflicts before amending"
-                  : api?.gitAmend ? undefined : missingChannel("Amending a commit")),
-            onSelect: () => guarded(() => amendCommitAt(entry)),
+        const hostedCommitUrl = commitWebUrl(entry.hash);
+        const commitMenuItems = () => buildSourceControlCommitMenu({
+          entry,
+          entryIndex,
+          historyBusyReason,
+          statusUnborn: Boolean(status?.unborn),
+          conflictCount: conflicts.length,
+          commitUrl: hostedCommitUrl,
+          missingChannel,
+          capabilities: {
+            amend: Boolean(api?.gitAmend),
+            checkout: Boolean(api?.gitCheckoutCommit),
+            cherryPick: Boolean(api?.gitCherryPickCommit),
+            createBranch: Boolean(api?.gitCreateBranchAtCommit),
+            createTag: Boolean(api?.gitCreateTag),
+            deleteTag: Boolean(api?.gitDeleteTag),
+            openExternal: Boolean(api?.openExternal),
+            reset: Boolean(api?.gitResetToCommit),
+            revert: Boolean(api?.gitRevertCommit),
+            undo: Boolean(api?.gitUndoLastCommit),
           },
-          {
-            id: "undo",
-            label: "Undo commit…",
-            danger: true,
-            disabled: Boolean(historyBusyReason) || !isTipCommit || entry.pushed
-              || !api?.gitUndoLastCommit,
-            title: historyBusyReason
-              || (!isTipCommit
-                ? "Only the most recent commit can be undone"
-                : entry.pushed
-                  ? "This commit is already pushed, so it cannot be undone here"
-                  : api?.gitUndoLastCommit
-                    ? undefined
-                    : missingChannel("Undoing a commit")),
-            onSelect: () => guarded(() => undoCommitAt(entry)),
+          actions: {
+            amend: () => guarded(() => amendCommitAt(entry)),
+            checkout: () => guarded(() => checkoutCommit(entry)),
+            cherryPick: () => guarded(() => cherryPickCommit(entry)),
+            copySha: () => void copyText(entry.hash, "SHA"),
+            copyTags: (values) => void copyText(values.join(" "),
+              values.length > 1 ? "tags" : "tag"),
+            createBranch: () => guarded(() => createBranchAtCommit(entry)),
+            createTag: () => guarded(() => createTagAt(entry)),
+            deleteTag: (tag) => guarded(() => deleteTagAt(entry, tag)),
+            openHostedCommit: () => void api?.openExternal?.(hostedCommitUrl),
+            reset: () => guarded(() => resetToCommit(entry)),
+            revert: () => guarded(() => revertCommit(entry)),
+            undo: () => guarded(() => undoCommitAt(entry)),
           },
-          {
-            id: "reset",
-            label: "Reset to commit…",
-            danger: true,
-            separatorBefore: true,
-            disabled: Boolean(historyBusyReason) || !api?.gitResetToCommit,
-            title: historyBusyReason
-              || (api?.gitResetToCommit ? undefined : missingChannel("Resetting to a commit")),
-            onSelect: () => guarded(() => resetToCommit(entry)),
-          },
-          {
-            id: "checkout",
-            label: "Checkout commit",
-            disabled: Boolean(historyBusyReason) || !api?.gitCheckoutCommit,
-            title: historyBusyReason
-              || (api?.gitCheckoutCommit ? undefined : missingChannel("Checking out a commit")),
-            onSelect: () => guarded(() => checkoutCommit(entry)),
-          },
-          { id: "reorder", label: "Reorder commit", disabled: true, title: missingChannel("Reordering a commit") },
-          {
-            id: "revert",
-            label: "Revert changes in commit",
-            danger: true,
-            disabled: Boolean(historyBusyReason) || !api?.gitRevertCommit,
-            title: historyBusyReason
-              || (api?.gitRevertCommit ? undefined : missingChannel("Reverting a commit")),
-            onSelect: () => guarded(() => revertCommit(entry)),
-          },
-          {
-            id: "create-branch",
-            label: "Create branch from commit",
-            separatorBefore: true,
-            disabled: Boolean(historyBusyReason) || !api?.gitCreateBranchAtCommit,
-            title: historyBusyReason
-              || (api?.gitCreateBranchAtCommit
-                ? undefined
-                : missingChannel("Creating a branch from a commit")),
-            onSelect: () => guarded(() => createBranchAtCommit(entry)),
-          },
-          {
-            id: "create-tag",
-            label: "Create Tag…",
-            disabled: Boolean(historyBusyReason) || !api?.gitCreateTag,
-            title: historyBusyReason
-              || (api?.gitCreateTag ? undefined : missingChannel("Creating a tag")),
-            onSelect: () => guarded(() => createTagAt(entry)),
-          },
-          // One `Delete tag <name>` per tag — the reference names the tag in
-          // the item. Without tag data (older host)
-          // or without a tag on this commit, ONE disabled entry says why.
-          ...(tags.length
-            ? tags.map((tag, tagIndex) => ({
-              id: `delete-tag:${tag}`,
-              label: `Delete tag ${tag}`,
-              danger: true,
-              separatorBefore: tagIndex === 0,
-              disabled: Boolean(historyBusyReason) || !api?.gitDeleteTag,
-              title: historyBusyReason
-                || (api?.gitDeleteTag ? undefined : missingChannel("Deleting a tag")),
-              onSelect: () => guarded(() => deleteTagAt(entry, tag)),
-            }))
-            : [{
-              id: "delete-tag",
-              label: "Delete tag",
-              separatorBefore: true,
-              disabled: true,
-              title: tagsKnown ? "This commit carries no tag to delete" : TAGS_UNKNOWN,
-            }]),
-          {
-            id: "cherry-pick",
-            label: "Cherry-pick commit…",
-            disabled: Boolean(historyBusyReason) || !api?.gitCherryPickCommit,
-            title: historyBusyReason
-              || (api?.gitCherryPickCommit
-                ? undefined
-                : missingChannel("Cherry-picking a commit")),
-            onSelect: () => guarded(() => cherryPickCommit(entry)),
-          },
-          {
-            id: "copy-sha",
-            label: "Copy SHA",
-            separatorBefore: true,
-            onSelect: () => void copyText(entry.hash, "SHA"),
-          },
-          {
-            id: "copy-tags",
-            label: tags.length > 1 ? "Copy tags" : "Copy tag",
-            disabled: tags.length === 0,
-            title: tagsKnown
-              ? tags.length ? undefined : "This commit carries no tag to copy"
-              : TAGS_UNKNOWN,
-            onSelect: () => void copyText(tags.join(" "),
-              tags.length > 1 ? "tags" : "tag"),
-          },
-          {
-            id: "open-github",
-            label: "View on GitHub",
-            disabled: !commitWebUrl(entry.hash) || !api?.openExternal,
-            title: commitWebUrl(entry.hash)
-              ? undefined
-              : "This repository has no hosted remote to open the commit on",
-            onSelect: () => void api?.openExternal?.(commitWebUrl(entry.hash)),
-          },
-        ];
+        });
         // The row hosts its own push BUTTON now, so it cannot be a <button>
         // itself (nested interactive content); it keeps the button role, the
         // single tab stop and Enter/Space activation instead.

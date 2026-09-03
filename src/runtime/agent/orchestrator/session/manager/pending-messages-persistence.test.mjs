@@ -26,7 +26,6 @@ process.on('exit', () => { try { rmSync(root, { recursive: true, force: true });
 const {
     _dropPendingMessageState,
     _setPendingPersistTailForTest,
-    _settlePendingMessageWrites,
     drainForeignUserInjections,
     enqueuePendingMessage,
     enqueueRemotePendingMessage,
@@ -307,14 +306,9 @@ test('settlePendingMessageWrites is the public, runtime-safe shutdown drain', as
         // A stuck spool tail must not break (or hang) an exit path...
         _setPendingPersistTailForTest(stuckSessionId, new Promise(() => {}));
         assert.equal(await settlePendingMessageWrites({ timeoutMs: 80 }), false);
-        // ...while the underscore alias keeps its strict test semantics, and a
-        // caller cannot switch that strictness off through the options bag.
+        // Tests and explicit callers can opt into strict timeout semantics.
         await assert.rejects(
-            () => _settlePendingMessageWrites({ timeoutMs: 80 }),
-            /did not settle/,
-        );
-        await assert.rejects(
-            () => _settlePendingMessageWrites({ timeoutMs: 80, throwOnTimeout: false }),
+            () => settlePendingMessageWrites({ timeoutMs: 80, throwOnTimeout: true }),
             /did not settle/,
         );
     } finally {

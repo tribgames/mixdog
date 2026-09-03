@@ -1,9 +1,14 @@
-import { Check, FileDiff, RotateCcw, X } from "lucide-react";
+import { Check, FileDiff, Undo2, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t } from "./i18n";
 import { GitDiffBody } from "./ReviewPane";
 import { findPatch, PATCH_CACHE_LIMIT } from "./TranscriptView";
-import { REVIEW_DIFF_STYLE_KEY, type TranscriptItem } from "./desktop-types";
+import {
+  readDiffStyle,
+  TURN_REVIEW_DIFF_STYLE_KEY,
+  type TranscriptItem,
+  writeDiffStyle,
+} from "./desktop-types";
 import { parseUnifiedDiff, turnReviewScope } from "./renderer-logic.mjs";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { classifyToolCategory, parseLineDelta, parseToolArgs, summarizeToolResult } from "../../../../src/runtime/shared/tool-surface.mjs";
@@ -322,8 +327,6 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
   const [expanded, setExpanded] = useState(false);
   const [openFile, setOpenFile] = useState("");
   const [confirmFile, setConfirmFile] = useState("");
-  const [confirmAll, setConfirmAll] = useState(false);
-  const [revertingAll, setRevertingAll] = useState(false);
   const [reverted, setReverted] = useState<string[]>([]);
   // A refused revert used to vanish into an empty catch, so a legitimate
   // runtime refusal was indistinguishable from a dead button.
@@ -337,7 +340,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
   // never collapses under its own controls.
   const barElement = useRef<HTMLElement | null>(null);
   useEffect(() => {
-    if (!expanded && !confirmAll) return undefined;
+    if (!expanded) return undefined;
     const closeOnOutsidePointer = (event: Event) => {
       const element = barElement.current;
       const target = event.target as Node | null;
@@ -345,12 +348,11 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
       setExpanded(false);
       setOpenFile("");
       setConfirmFile("");
-      setConfirmAll(false);
       setRevertError("");
     };
     window.addEventListener("pointerdown", closeOnOutsidePointer, true);
     return () => window.removeEventListener("pointerdown", closeOnOutsidePointer, true);
-  }, [confirmAll, expanded]);
+  }, [expanded]);
   const reviewScope = useMemo(() => turnReviewScope(items), [items]);
   const turnScopeKey = `${String(sessionId || "draft")}:${reviewScope.key}`;
   const activeScope = useRef(turnScopeKey);
@@ -408,8 +410,6 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     setExpanded(false);
     setOpenFile("");
     setConfirmFile("");
-    setConfirmAll(false);
-    setRevertingAll(false);
     setReverted([]);
     setRevertedBoundary("");
   }, [turnScopeKey]);
@@ -569,16 +569,12 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     schedule();
     return () => window.clearTimeout(timer);
   }, [active, busy, expanded, refreshAgentReviews, hasTurnActivity, agentReviews.length, turnBoundaryKey]);
-  // Shares the Review pane's persisted diff-style preference (user request:
-  // the expanded bar renders real diffs, so it needs the same Unified/Split
-  // control).
-  const [diffStyle, setDiffStyle] = useState<"unified" | "split">(() => {
-    try { return window.localStorage.getItem(REVIEW_DIFF_STYLE_KEY) === "split" ? "split" : "unified"; }
-    catch { return "unified"; }
-  });
-  useEffect(() => {
-    try { window.localStorage.setItem(REVIEW_DIFF_STYLE_KEY, diffStyle); } catch { /* persistence only */ }
-  }, [diffStyle]);
+  // The bar's own persisted Unified/Split choice, separate from the Source
+  // Control and Session Diff tabs (user: 3개 분리 저장).
+  const [diffStyle, setDiffStyle] = useState<"unified" | "split">(
+    () => readDiffStyle(TURN_REVIEW_DIFF_STYLE_KEY),
+  );
+  useEffect(() => { writeDiffStyle(TURN_REVIEW_DIFF_STYLE_KEY, diffStyle); }, [diffStyle]);
   const transcriptSummary = useMemo(() => {
     const patches: string[] = [];
     let latestUiDiff: string | null = null;
@@ -696,7 +692,6 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
             if (!next) {
               setOpenFile("");
               setConfirmFile("");
-              setConfirmAll(false);
               setRevertError("");
             }
             return next;
@@ -720,69 +715,18 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
               })}
           </span>}
         </button>
-        {(expanded || Boolean(cwd)) && <div className="turn-review-controls">
-          {expanded && <div className="review-style-toggle turn-review-style" role="radiogroup"
+        {expanded && <div className="turn-review-controls">
+          <div className="review-style-toggle turn-review-style" role="radiogroup"
             aria-label={t("Diff style")}>
             <button type="button" aria-pressed={diffStyle === "unified"}
               onClick={() => setDiffStyle("unified")}>{t("Unified")}</button>
             <button type="button" aria-pressed={diffStyle === "split"}
               onClick={() => setDiffStyle("split")}>{t("Split")}</button>
-          </div>}
-          {Boolean(cwd) && (confirmAll ? (
-            <span className="turn-review-confirm turn-review-confirm-all" role="group"
-              aria-label={t("Confirm")}>
-              <button type="button" className="turn-review-revert"
-                aria-label={t("Cancel")} data-tooltip={t("Cancel")}
-                onClick={() => setConfirmAll(false)}>
-                <X size={12} />
-              </button>
-              <button type="button" className="turn-review-revert danger"
-                aria-label={t("Confirm")} data-tooltip={t("Confirm")}
-                onClick={() => {
-                  setConfirmAll(false);
-                  setRevertingAll(true);
-                  setRevertError("");
-                  void window.mixdogDesktop.invokeCapability?.({
-                    capability: "revertTurnReview",
-                    args: [requestedCheckpointId],
-                    sessionId,
-                  })
-                    .then(async () => {
-                      setOpenFile("");
-                      setConfirmFile("");
-                      setReverted([]);
-                      setRevertedBoundary(turnBoundaryKey);
-                      await refreshAgentReviews(true);
-                    })
-                    .catch((reason: unknown) => {
-                      setConfirmAll(true);
-                      setRevertError(
-                        reason instanceof Error ? reason.message : String(reason),
-                      );
-                    })
-                    .finally(() => setRevertingAll(false));
-                }}>
-                <Check size={12} />
-              </button>
-            </span>
-          ) : (
-            <button type="button" className="turn-review-undo"
-              aria-label={t("Undo")} data-tooltip={canRevertTurn
-                ? t("Undo all files to the start of this turn")
-                : t("Undo is unavailable for this review")}
-              disabled={busy || revertingAll || !canRevertTurn}
-              onClick={() => {
-                setConfirmFile("");
-                setConfirmAll(true);
-              }}>
-              <RotateCcw size={12} aria-hidden="true" />
-              <span>{t("Undo")}</span>
-            </button>
-          ))}
+          </div>
         </div>}
       </div>
-      {/* A refusal stays OUTSIDE the disclosure: Undo lives in the collapsed
-          head, so its reason has to be readable without expanding the bar. */}
+      {/* A refusal stays OUTSIDE the disclosure so its reason is readable
+          without expanding the bar. */}
       {revertError && <p className="turn-review-error" role="alert">{revertError}</p>}
       <div className="turn-review-collapse" inert={!expanded} aria-hidden={!expanded}>
         <div className="turn-review-collapse-inner">
@@ -863,8 +807,8 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
               <button type="button" className="turn-review-revert"
                 aria-label={t("Revert {{file}}", { file: rel })} data-tooltip={t("Revert file to turn start")}
                 disabled={!canRevertFile}
-                onClick={() => { setConfirmAll(false); setConfirmFile(name); }}>
-                <RotateCcw size={12} />
+                onClick={() => setConfirmFile(name)}>
+                <Undo2 size={12} />
               </button>
             ))}
             </span>

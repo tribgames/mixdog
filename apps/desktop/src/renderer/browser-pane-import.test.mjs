@@ -210,7 +210,7 @@ test('cookie-only import exposes approval and sends only the selected data', asy
 
     assert.deepEqual(request.items, ['cookies']);
     assert.equal(request.administratorApproved, true);
-    assert.match(document.querySelector('[role="dialog"]').textContent, /브라우저 데이터를 가져왔습니다/);
+    assert.match(document.querySelector('[role="dialog"]').textContent, /Browser data imported/);
   } finally {
     await act(async () => view.root.unmount());
     view.host.remove();
@@ -383,7 +383,7 @@ test('remote Browser Use renders a frame and forwards reload, tap, and page text
       },
     });
 
-    const keyboard = document.querySelector('button[aria-label="페이지에 입력"]');
+    const keyboard = document.querySelector('button[aria-label="Type on page"]');
     assert.equal(keyboard.getAttribute('aria-pressed'), 'false');
     await act(async () => keyboard.click());
     assert.equal(keyboard.getAttribute('aria-pressed'), 'true');

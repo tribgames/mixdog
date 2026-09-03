@@ -157,6 +157,7 @@ const ANTHROPIC_VERSION = '2023-06-01';
 // gated and ignores this prefix.
 const CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude.";
 const OAUTH_BETA_HEADERS = 'oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,extended-cache-ttl-2025-04-11';
+const FABLE_51_BATCHING_GUIDANCE = 'Privately identify all independent next actions, then request them together in this response.';
 
 function requiresSystemPrefix(model) {
     // High-tier Claude OAuth models require the first-party system prefix for
@@ -164,6 +165,40 @@ function requiresSystemPrefix(model) {
     // Sonnet, Fable, and future non-Haiku families) on the prefixed path.
     const id = String(model || '').toLowerCase();
     return /^claude-/.test(id) && !/^claude-haiku(?:-|$)/.test(id);
+}
+
+function usesFable51PromptBundle(model) {
+    const id = String(model || '').toLowerCase().replace(/\./g, '-');
+    return /^claude-fable-5-1(?:$|[-@])/.test(id);
+}
+
+function appendFable51BatchingGuidance(messages, model) {
+    if (!usesFable51PromptBundle(model) || !Array.isArray(messages) || messages.length === 0) {
+        return false;
+    }
+    const tail = messages[messages.length - 1];
+    const followsToolResult = tail?.role === 'user'
+        && Array.isArray(tail.content)
+        && tail.content.some(block => block?.type === 'tool_result');
+    if (!followsToolResult) return false;
+    messages.push({ role: 'system', content: FABLE_51_BATCHING_GUIDANCE });
+    return true;
+}
+
+function buildOAuthBetaHeaders(body, {
+    fastMode = false,
+    toolSearch = false,
+    model,
+    opts = {},
+} = {}) {
+    return buildAnthropicBetaHeaders({
+        base: OAUTH_BETA_HEADERS,
+        fastMode,
+        toolSearch,
+        midConversationSystem: body?.messages?.some((message) => message?.role === 'system'),
+        effort: shouldIncludeEffortBeta(model, opts),
+        serverFallback: body?.fallbacks === 'default',
+    });
 }
 
 // OAuth rate-limit pool routing is gated by the server inspecting the first
@@ -316,6 +351,13 @@ function buildRequestBody(messages, model, tools, sendOpts) {
         toAnthropicMessages(chatMsgs, requestTools),
         messageCacheSlots,
     );
+    // Fable 5.1's first-party prompt bundle adds one request-scoped system
+    // boundary after a tool result. It asks the model to collect independent
+    // next actions into the same assistant turn, which avoids narrating each
+    // routine continuation. This is provider projection only: it is never
+    // written back to session history, and a later steering user turn remains
+    // the tail so the guidance is not added.
+    appendFable51BatchingGuidance(anthropicMessages, model);
 
     const body = {
         model,
@@ -604,12 +646,11 @@ export class AnthropicOAuthProvider {
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'anthropic-version': ANTHROPIC_VERSION,
-                        'anthropic-beta': buildAnthropicBetaHeaders({
-                            base: OAUTH_BETA_HEADERS,
+                        'anthropic-beta': buildOAuthBetaHeaders(requestBody, {
                             fastMode: this.fastModeBetaHeaderLatched,
                             toolSearch: hasDeferredTools,
-                            effort: shouldIncludeEffortBeta(useModel, opts),
-                            serverFallback: body.fallbacks === 'default',
+                            model: useModel,
+                            opts,
                         }),
                         'anthropic-dangerous-direct-browser-access': 'true',
                         'user-agent': `claude-cli/${resolveCliVersion()} (external, sdk-cli)`,
@@ -1292,5 +1333,8 @@ export const _test = {
     resolveMaxTokens,
     deferredAnthropicTools,
     requestAnthropicTools,
+    usesFable51PromptBundle,
+    appendFable51BatchingGuidance,
+    buildOAuthBetaHeaders,
     sanitizeInputSchema: (schema, toolName) => sanitizeAnthropicInputSchema(schema, toolName, 'anthropic-oauth'),
 };

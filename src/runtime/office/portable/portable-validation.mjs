@@ -147,7 +147,18 @@ export async function validatePortableOoxml(path, format, options = {}) {
   const signatures = entries.filter((name) => /(?:^|\/)(?:_xmlsignatures\/|origin\.sigs$|signatures?\.xml$)/i.test(name));
   const externalLinks = entries.filter((name) => /(?:^|\/)externalLinks\//i.test(name));
   const dataConnections = entries.filter((name) => /(?:^|\/)connections\.xml$/i.test(name));
-  const embeddedObjects = entries.filter((name) => /(?:^|\/)embeddings\//i.test(name));
+  // A chart's data workbook is native chart evidence, not an activatable
+  // object: it is excluded from the embedded-object security finding.
+  const chartWorkbooks = new Set();
+  for (const relPath of entries.filter((name) => /(?:^|\/)charts\/_rels\/chart[^/]*\.xml\.rels$/i.test(name))) {
+    const xml = await zipText(zip, relPath);
+    for (const match of xml.matchAll(/<Relationship\b([^>]+?)\/?>/gi)) {
+      if (!/\/package$/i.test(xmlAttribute(match[1], 'Type'))) continue;
+      const target = xmlAttribute(match[1], 'Target');
+      chartWorkbooks.add(posix.normalize(posix.join(posix.dirname(relPath.replace(/_rels\/$|_rels\//, '')), target)));
+    }
+  }
+  const embeddedObjects = entries.filter((name) => /(?:^|\/)embeddings\//i.test(name) && !chartWorkbooks.has(name));
   const malformedXml = await inspectXmlParts(zip, entries);
   const contentTypes = contentTypeCoverage(entries, await zipText(zip, '[Content_Types].xml'), format);
   const missingRelationships = [];
@@ -631,6 +642,7 @@ export async function issuesPortableOoxml(path, format, options = {}) {
     for (const balance of reviewVerticalBalance(inspected.content, {
       slideWidth: inspected.slideWidth,
       slideHeight: inspected.slideHeight,
+      boxes: inspected.boxes,
     })) {
       issues.push({ severity: 'warning', source: 'text-metrics', ...balance });
     }

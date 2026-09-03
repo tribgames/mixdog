@@ -5,7 +5,11 @@ import { normalizeInputPath } from './path-utils.mjs';
 import { buildNotFoundHint, finalizeReadFamilyEnoentTail, tryReadFamilyEnoentRedirect } from './search-path-diagnostics.mjs';
 import { getReadSnapshot } from './read-snapshot-runtime.mjs';
 import { recordReadPathRedirect } from './snapshot-store.mjs';
-import { snapshotCoversFullFile, statMatchesSnapshot } from './snapshot-helpers.mjs';
+import {
+    detectReadEncodingFromBuffer,
+    snapshotCoversFullFile,
+    statMatchesSnapshot,
+} from './snapshot-helpers.mjs';
 import {
     formatBinaryReadPreviewFromBuffer,
     inspectBinaryFile,
@@ -18,27 +22,6 @@ function snapshotBodyWasReturnedByRead(snapshot) {
     return source.startsWith('read')
         || source === 'edit'
         || source.startsWith('apply_patch_');
-}
-
-// BOM-only read-encoding detection: buffer[0]===0xff && buffer[1]===0xfe
-// means 'utf16le', and so on. STRICTLY a leading-BOM rule — no content sniffing
-// and no heuristic fallback.
-// Returns the decoder name plus the BOM byte length to strip before
-// decoding. utf8-with-BOM (EF BB BF) keeps the utf-8 decoder; its leading
-// U+FEFF is stripped for display downstream, so bomLen is reported but not
-// applied for utf8.
-function detectReadEncodingFromBuffer(head) {
-    const n = head?.length || 0;
-    if (n >= 2 && head[0] === 0xff && head[1] === 0xfe) {
-        return { encoding: 'utf16le', bomLen: 2 };
-    }
-    if (n >= 2 && head[0] === 0xfe && head[1] === 0xff) {
-        return { encoding: 'utf16be', bomLen: 2 };
-    }
-    if (n >= 3 && head[0] === 0xef && head[1] === 0xbb && head[2] === 0xbf) {
-        return { encoding: 'utf8', bomLen: 3 };
-    }
-    return { encoding: 'utf8', bomLen: 0 };
 }
 
 async function detectReadEncoding(fullPath) {

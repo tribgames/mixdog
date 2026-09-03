@@ -114,6 +114,7 @@ export async function finalize(session, args, cwd, signal) {
     ? reviewPptxVisualCritique({
         critique: args.design?.critique,
         pageCount: Number(review?.preview?.pageCount || 0),
+        requireChecks: session.authoredBrief?.present === true,
       })
     : null;
   if (review && visualCritique) review.visualCritique = visualCritique;

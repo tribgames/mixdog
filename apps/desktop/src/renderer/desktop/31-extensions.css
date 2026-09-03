@@ -177,14 +177,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* One row grammar for plugins, skills, and MCP servers: icon | title line /
+   one-line description | chevron. No switch in the list — enabling lives in
+   the detail dialog. */
 .extensions-row {
   width: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
-  align-items: start;
+  align-items: center;
   column-gap: 10px;
-  row-gap: 3px;
   color: inherit;
   font: inherit;
   text-align: left;
@@ -196,74 +197,45 @@
 }
 .extensions-row .extensions-row-open {
   grid-column: 1;
-  grid-row: 1 / 3;
   min-width: 0;
-  align-self: stretch;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 2px;
 }
-.extensions-row .extensions-row-toggle {
+.extensions-row .extensions-row-icon {
+  grid-column: 1;
+  grid-row: 1 / 3;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-icon-muted);
+  background: var(--mx-rail-item-surface);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+}
+.extensions-row[data-enabled="false"] .extensions-row-icon { opacity: var(--mx-op-disabled); }
+.extensions-row .extensions-row-open > .sidebar-resource-title { grid-column: 2; grid-row: 1; min-width: 0; }
+.extensions-row .extensions-row-open > small {
   grid-column: 2;
-  grid-row: 1;
-  flex: 0 0 auto;
-  align-self: flex-start;
-  justify-self: end;
+  grid-row: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .extensions-row .extensions-row-enter {
   grid-column: 2;
-  grid-row: 2;
   align-self: center;
   justify-self: center;
   margin: 0;
 }
 
-.built-in-feature-list {
-  min-width: 0;
-  display: grid;
-  gap: var(--mx-rail-gap);
-}
-.built-in-feature-card {
-  min-width: 0;
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border-radius: var(--mx-radius-md);
-  background: var(--mx-rail-item-surface);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
-}
-.built-in-feature-card > header {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  column-gap: 10px;
-  row-gap: 0;
-}
-.built-in-feature-title {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  align-self: center;
-  gap: 7px;
-}
-.built-in-feature-title-icon {
-  flex: 0 0 auto;
-  color: var(--mx-icon-muted);
-}
-.built-in-feature-title b {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--mx-text);
-  font-size: var(--mx-font-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.built-in-feature-description {
-  grid-column: 1 / -1;
-  min-width: 0;
-  padding: 3px 2px 0;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-}
+/* Built-in features list as plain extension rows; the install/enable control
+   lives in the detail dialog header. */
 .built-in-feature-control { display: flex; align-items: center; align-self: center; }
 .built-in-feature-control .mixdog-settings__switch span { height: 18px; }
 .built-in-feature-control .mixdog-settings__switch span::after {
@@ -312,7 +284,11 @@
 }
 .built-in-feature-slot-progress > .built-in-feature-progress-bar { height: 4px; }
 .built-in-feature-error {
+  padding: 8px 10px;
+  border-radius: var(--mx-radius-md);
   color: var(--mx-danger);
+  background: var(--mx-rail-item-surface);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
   overflow-wrap: anywhere;
@@ -743,6 +719,26 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.extensions-item-trailing {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.extensions-item-trailing:empty { display: none; }
+.extensions-item-action {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  font: inherit;
+  font-size: var(--mx-font-meta);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.extensions-item-action:hover:not(:disabled) { background: var(--mx-hover); }
+.extensions-item-action:disabled { opacity: var(--mx-op-disabled); cursor: default; }
 .extensions-item-status {
   display: inline-flex;
   align-items: center;
@@ -761,70 +757,10 @@
 .extensions-item[data-tone="warn"] .extensions-item-status > i { background: var(--mx-warning); }
 .extensions-item[data-tone="off"] .extensions-item-status > i { opacity: var(--mx-op-disabled); }
 
-/* "Applies to": the MCP transport segment, then a project checklist. */
+/* "Applies to": one dropdown — Shared, or a single project. */
 .extensions-scope-field { min-width: 0; }
-.extensions-scope-mode { justify-self: start; }
-.extensions-scope-projects {
-  min-width: 0;
-  display: grid;
-  gap: 6px;
-  margin-top: 2px;
-}
-.extensions-scope-project {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
-  align-items: center;
-  column-gap: 10px;
-  padding: 8px 10px;
-  border-radius: var(--mx-radius-md);
-  background: var(--mx-rail-item-surface);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
-  cursor: pointer;
-}
-.extensions-scope-project:hover { background: var(--mx-hover); }
-.extensions-scope-project[data-selected="true"] { box-shadow: inset 0 0 0 1px var(--mx-focus); }
-.extensions-scope-project > input {
-  width: 14px;
-  height: 14px;
-  margin: 0;
-  accent-color: var(--mx-accent);
-}
-.extensions-scope-project > svg { color: var(--mx-icon-muted); }
-.extensions-scope-project-copy {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-.extensions-scope-project-copy b {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  overflow: hidden;
-  color: var(--mx-text);
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-regular);
-  white-space: nowrap;
-}
-.extensions-scope-project-copy b > em {
-  flex: 0 0 auto;
-  padding: 0 6px;
-  border-radius: var(--mx-radius-pill);
-  color: var(--mx-text-muted);
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  font-size: var(--mx-font-micro);
-  font-style: normal;
-  line-height: 16px;
-}
-.extensions-scope-project-copy small {
-  overflow: hidden;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.extensions-scope-select { min-width: 0; justify-self: stretch; }
+.extensions-scope-select .mx-select-trigger { width: 100%; }
 
 /* Skill content inside the shared dialog body. */
 .extensions-skill-preview {

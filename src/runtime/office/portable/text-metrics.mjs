@@ -10,17 +10,43 @@ function context() {
   return measureContext;
 }
 
+// Office stores the localized or weight-suffixed name (맑은 고딕, Malgun Gothic
+// Semilight, Calibri Light); the canvas only resolves the registered family, and
+// an unresolved name silently measures in a fallback face at roughly half the
+// Hangul width. Map to the registered family plus a numeric weight instead.
+const FONT_ALIASES = Object.freeze({
+  '맑은 고딕': 'Malgun Gothic',
+  '바탕': 'Batang',
+  '돋움': 'Dotum',
+  '굴림': 'Gulim',
+});
+const WEIGHT_SUFFIX = /\s+(semilight|light|semibold|medium|black|thin|extrabold)$/iu;
+// Semilight faces register at weight 300 (Windows enumerates Malgun Gothic
+// Semilight there); a non-standard 350 makes the canvas synthesize nonsense.
+const SUFFIX_WEIGHT = Object.freeze({ thin: 100, light: 300, semilight: 300, medium: 500, semibold: 600, extrabold: 800, black: 900 });
+
+function resolveFont(fontName) {
+  let family = String(fontName || 'Calibri').replace(/"/g, '').trim();
+  family = FONT_ALIASES[family] || family;
+  let weight = 0;
+  const suffix = WEIGHT_SUFFIX.exec(family);
+  if (suffix && !installedFamilies().has(family.toLowerCase())) {
+    weight = SUFFIX_WEIGHT[suffix[1].toLowerCase()] || 0;
+    family = family.replace(WEIGHT_SUFFIX, '');
+  }
+  return { family, weight };
+}
+
 function fontSpec({ fontName = 'Calibri', fontSize = 18, bold = false, italic = false } = {}) {
   const size = Math.max(1, Number(fontSize) || 18);
-  const family = String(fontName || 'Calibri').replace(/"/g, '');
-  return `${italic ? 'italic ' : ''}${bold ? '700 ' : ''}${size}px "${family}"`;
+  const { family, weight } = resolveFont(fontName);
+  const weightSpec = bold ? '700 ' : weight ? `${weight} ` : '';
+  return `${italic ? 'italic ' : ''}${weightSpec}${size}px "${family}"`;
 }
 
 let installedFonts = null;
 
-export function fontAvailable(name) {
-  const family = String(name || '').trim().toLowerCase();
-  if (!family) return true;
+function installedFamilies() {
   if (!installedFonts) {
     try {
       installedFonts = new Set((GlobalFonts.families || [])
@@ -30,6 +56,13 @@ export function fontAvailable(name) {
       installedFonts = new Set();
     }
   }
+  return installedFonts;
+}
+
+export function fontAvailable(name) {
+  const family = (FONT_ALIASES[String(name || '').trim()] || String(name || '')).trim().toLowerCase();
+  if (!family) return true;
+  installedFamilies();
   if (!installedFonts.size) return true;
   if (installedFonts.has(family)) return true;
   // Weight-suffixed families (Malgun Gothic Semilight, Segoe UI Semibold)
@@ -88,9 +121,35 @@ export function wrapParagraph(text, width, font = {}) {
   return lines.length ? lines : [''];
 }
 
+// PowerPoint's single line spacing is the face's own line height (ascent +
+// descent), not 1 em: Calibri and Arial sit near 1.2, Malgun Gothic at 1.33. A
+// percentage line spacing multiplies that, so a Hangul paragraph at 150% runs
+// 2.0 em per line. Measure with the face's ratio, floored at the Latin default.
+const naturalRatios = new Map();
+function naturalLineRatio(fontName) {
+  const { family } = resolveFont(fontName);
+  if (naturalRatios.has(family)) return naturalRatios.get(family);
+  let ratio = LINE_HEIGHT_RATIO;
+  try {
+    const ctx = context();
+    ctx.font = `100px "${family}"`;
+    const metrics = ctx.measureText('가Ag');
+    const measured = ((Number(metrics.fontBoundingBoxAscent) || 0) + (Number(metrics.fontBoundingBoxDescent) || 0)) / 100;
+    if (measured > 0) ratio = Math.max(LINE_HEIGHT_RATIO, measured);
+  } catch {
+    ratio = LINE_HEIGHT_RATIO;
+  }
+  naturalRatios.set(family, ratio);
+  return ratio;
+}
+
+// lineSpacing: the PowerPoint multiple (1.0 = single); a paragraph's own
+// `lineSpacing` (read from lnSpc) overrides it. `lineHeightRatio` is the legacy
+// pitch-per-em override for callers that already resolved spacing themselves.
 export function measureTextBlock(paragraphs = [], {
   width = 0,
-  lineHeightRatio = LINE_HEIGHT_RATIO,
+  lineSpacing = 1,
+  lineHeightRatio = 0,
 } = {}) {
   let height = 0;
   let lines = 0;
@@ -106,8 +165,11 @@ export function measureTextBlock(paragraphs = [], {
     const wrapped = width > 0 ? wrapParagraph(paragraph.text, width, font) : [String(paragraph.text ?? '')];
     for (const line of wrapped) widest = Math.max(widest, measureTextWidth(line, font));
     lines += wrapped.length;
-    height += wrapped.length * size * lineHeightRatio;
+    const multiple = Number(paragraph.lineSpacing) > 0 ? Number(paragraph.lineSpacing) : Math.max(0.5, Number(lineSpacing) || 1);
+    const pitch = lineHeightRatio > 0 ? lineHeightRatio : naturalLineRatio(paragraph.fontName) * multiple;
+    height += wrapped.length * size * pitch;
     height += Math.max(0, Number(paragraph.spaceBefore) || 0);
+    height += Math.max(0, Number(paragraph.spaceAfter) || 0);
   }
   return { height, lines, width: widest };
 }
@@ -291,15 +353,41 @@ export function reviewTextBoxFit(boxes = [], {
   return issues;
 }
 
-export function reviewVerticalBalance(bounds = [], { slideWidth = 0, slideHeight = 0 } = {}) {
+// A statement slide (one thesis, quote, or number and air) is balanced by its
+// air, not by filling the canvas; the same criterion design-review uses for
+// authored decks, read here from the text boxes.
+function statementSlides(boxes = []) {
+  const perSlide = new Map();
+  for (const box of boxes) {
+    const paragraphs = Array.isArray(box.paragraphs) ? box.paragraphs : [];
+    const text = paragraphs.map((paragraph) => String(paragraph.text || '')).join('').trim();
+    if (!text) continue;
+    const entry = perSlide.get(box.slide) || { count: 0, sizes: [], chars: 0 };
+    entry.count += 1;
+    entry.sizes.push(Math.max(0, ...paragraphs.map((paragraph) => Number(paragraph.fontSize) || 0)));
+    entry.chars += text.length;
+    perSlide.set(box.slide, entry);
+  }
+  const result = new Set();
+  for (const [slide, entry] of perSlide) {
+    if (entry.count > 5) continue;
+    const largest = Math.max(...entry.sizes);
+    if (largest >= 42 || entry.sizes.filter((size) => size >= 34).length >= 2 || (largest >= 24 && entry.chars <= 280)) result.add(slide);
+  }
+  return result;
+}
+
+export function reviewVerticalBalance(bounds = [], { slideWidth = 0, slideHeight = 0, boxes = [] } = {}) {
   if (!(slideHeight > 0) || !(slideWidth > 0)) return [];
   const issues = [];
   const slides = new Map();
+  const statements = statementSlides(boxes);
   for (const box of bounds) {
     if (!slides.has(box.slide)) slides.set(box.slide, []);
     slides.get(box.slide).push(box);
   }
   for (const [slide, shapes] of slides) {
+    if (statements.has(slide)) continue;
     const content = shapes.filter((shape) => (
       Math.max(0, shape.width) * Math.max(0, shape.height) < slideWidth * slideHeight * 0.8
     ));

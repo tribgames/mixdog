@@ -1704,3 +1704,65 @@ test('Cursor wire guards bound schemas, tool payloads, blobs, and frames', () =>
         /exceeds 67108864 bytes/,
     );
 });
+
+test('Cursor recognizes suffixed effort ids and keeps the first alias claimant', () => {
+    const raw = [{
+        id: 'gemini-3.8-flash',
+        name: 'Gemini 3.8 Flash',
+        contextWindow: 1_000_000,
+        supportsMaxMode: true,
+        supportsNonMaxMode: true,
+        parameterDefinitions: [{
+            id: 'reasoning_effort',
+            name: 'Effort',
+            kind: 'enum',
+            values: [
+                { value: 'low', label: 'Low' },
+                { value: 'high', label: 'High' },
+            ],
+        }],
+        variants: [{
+            parameters: { reasoning_effort: 'low' },
+            defaultNonMax: false,
+            defaultMax: false,
+            legacySlug: 'gemini-3.8-flash-low',
+        }, {
+            parameters: { reasoning_effort: 'high' },
+            defaultNonMax: true,
+            defaultMax: true,
+            legacySlug: 'gemini-3.8-flash-high',
+        }],
+        aliases: ['gemini-3.8-flash-low', 'gemini-3.8-flash-high', 'shared-alias'],
+    }, {
+        id: 'gemini-3.7-flash',
+        name: 'Gemini 3.7 Flash',
+        contextWindow: 1_000_000,
+        supportsMaxMode: true,
+        supportsNonMaxMode: true,
+        parameterDefinitions: [{
+            id: 'effort',
+            name: 'Effort',
+            kind: 'enum',
+            values: [{ value: 'high', label: 'High' }],
+        }],
+        variants: [{
+            parameters: { effort: 'high' },
+            defaultNonMax: true,
+            defaultMax: true,
+            legacySlug: 'gemini-3.7-flash-high',
+        }],
+        aliases: ['gemini-3.7-flash-high', 'shared-alias'],
+    }];
+    const catalog = __cursorModelInternals.normalizeCursorCatalog(raw, 'cursor-oauth');
+    const flash = catalog.models.find((entry) => entry.id === 'gemini-3.8-flash');
+    assert.deepEqual(flash.reasoningLevels, ['low', 'high']);
+    assert.equal(flash.defaultEffort, 'high');
+    assert.equal(catalog.parameterGroups.get('gemini-3.8-flash').effortParameterId, 'reasoning_effort');
+    const selection = __cursorModelInternals.selectParameterizedCursorVariant(
+        catalog.parameterGroups.get('gemini-3.8-flash'),
+        { baseId: 'gemini-3.8-flash' },
+        { effort: 'low' },
+    );
+    assert.deepEqual(selection.parameters, [{ id: 'reasoning_effort', value: 'low' }]);
+    assert.equal(catalog.aliases.get('shared-alias').baseId, 'gemini-3.8-flash');
+});

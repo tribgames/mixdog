@@ -59,6 +59,12 @@ export function builtinFeatureActive(configLike, id) {
     return featureEnvOverride('MIXDOG_FEATURE_OFFICE')
       ?? (builtinInstalled(configLike, 'office') && moduleEnabled(configLike, 'office', true));
   }
+  // Media Studio needs no install: the lane catalog ships with the runtime and
+  // sign-in happens per provider. A module toggle (or the env override) is the
+  // only gate; a signed-out catalog fails per call with the lanes it does have.
+  if (id === 'media') {
+    return featureEnvOverride('MIXDOG_FEATURE_MEDIA') ?? moduleEnabled(configLike, 'media', true);
+  }
   // Bridge-gated features (skills that describe the `browser` / `computer`
   // tools use these ids in metadata.requires so they are offered only while
   // the tool itself can reach a live desktop bridge).
@@ -89,6 +95,7 @@ export function featureDisallowedToolsFor(configLike, {
     ...(browser ? [] : ['browser']),
     ...(computer ? [] : ['computer']),
     ...(builtinFeatureActive(configLike, 'office') ? [] : ['office']),
+    ...(builtinFeatureActive(configLike, 'media') ? [] : ['media']),
   ];
 }
 

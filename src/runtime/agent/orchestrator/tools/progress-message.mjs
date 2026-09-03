@@ -76,6 +76,10 @@ export function formatToolStartProgress(name, args = {}) {
             return a.path
                 ? `office ${_t(a.action || 'command')} ${_t(a.path)}`
                 : `office ${_t(a.action || 'command')}`;
+        case 'media':
+            return a.action === 'generate'
+                ? `generating ${_t(a.kind || 'media')}${a.path ? ` ${_t(a.path)}` : ''}`
+                : `media ${_t(a.action || 'command')}`;
 
         // ── agent module: agent / models ─────────────────────────────────
         case 'agent': {

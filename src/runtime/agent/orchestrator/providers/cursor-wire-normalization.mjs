@@ -1,10 +1,10 @@
 export const FALLBACK_MODELS = [
-    { id: 'composer-1.5', name: 'Composer 1.5', reasoning: true, contextWindow: 200_000 },
-    { id: 'claude-4.6-opus-high', name: 'Claude 4.6 Opus', reasoning: true, contextWindow: 200_000 },
-    { id: 'claude-4.6-sonnet-medium', name: 'Claude 4.6 Sonnet', reasoning: true, contextWindow: 200_000 },
-    { id: 'gpt-5.4-medium', name: 'GPT-5.4', reasoning: true, contextWindow: 272_000 },
-    { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', reasoning: true, contextWindow: 1_000_000 },
-    { id: 'grok-code-fast-1', name: 'Grok Code Fast 1', reasoning: false, contextWindow: 128_000 },
+    { id: 'composer-2.5', name: 'Composer 2.5', reasoning: false, contextWindow: 200_000 },
+    { id: 'claude-opus-5-high', name: 'Claude Opus 5', reasoning: true, contextWindow: 200_000 },
+    { id: 'claude-sonnet-5-medium', name: 'Claude Sonnet 5', reasoning: true, contextWindow: 200_000 },
+    { id: 'gpt-5.6-sol-medium', name: 'GPT-5.6 Sol', reasoning: true, contextWindow: 272_000 },
+    { id: 'gemini-3.8-flash-high', name: 'Gemini 3.8 Flash', reasoning: true, contextWindow: 1_000_000 },
+    { id: 'grok-4.6-high', name: 'Grok 4.6', reasoning: true, contextWindow: 128_000 },
 ];
 
 export const AUTO_MODEL = {
@@ -13,6 +13,11 @@ export const AUTO_MODEL = {
     reasoning: false,
     contextWindow: 200_000,
 };
+
+function isCursorEffortParameterId(id) {
+    const key = String(id || '').trim().toLowerCase();
+    return key === 'effort' || key === 'reasoning' || key.endsWith('_effort') || key.endsWith('-effort');
+}
 
 export function normalizeModels(models) {
     const byId = new Map();
@@ -77,7 +82,7 @@ export function normalizeParameterizedModels(models) {
             supportsMaxMode: model.supportsMaxMode === true,
             supportsNonMaxMode: model.supportsNonMaxMode === true,
             supportsVision: model.supportsImages === true,
-            supportsReasoning: parameterDefinitions.some((definition) => definition.id === 'effort' || definition.id === 'reasoning')
+            supportsReasoning: parameterDefinitions.some((definition) => isCursorEffortParameterId(definition.id))
                 || model.supportsThinking === true,
             parameterDefinitions,
             variants,

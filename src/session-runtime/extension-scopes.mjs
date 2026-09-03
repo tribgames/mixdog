@@ -95,9 +95,3 @@ export function filterMcpToolsForSession(tools, cwd, config = null) {
   if (!hasExtensionScopes(scopes)) return list;
   return filterMcpToolsForCwd(list, scopes, cwd, { plugins: registeredPluginIdentities() });
 }
-
-/** Short summary for list rows / TUI: '' for global, else the root count. */
-export function describeExtensionScope(projects) {
-  const list = Array.isArray(projects) ? projects : [];
-  return list.length ? `${list.length}` : '';
-}

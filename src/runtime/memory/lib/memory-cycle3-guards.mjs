@@ -243,7 +243,7 @@ async function digestLineVectors(rulesDigest, embed) {
 
 // `embed` is injectable so callers without a live embedding runtime (tests,
 // proposal-only dry runs) can pass a stub or `null` to skip the semantic leg.
-export async function digestSemanticRedundancy(text, rulesDigest, { embed = embedText } = {}) {
+async function digestSemanticRedundancy(text, rulesDigest, { embed = embedText } = {}) {
   if (!text || !rulesDigest || typeof embed !== 'function') return 0
   let query
   try { query = await embed(text, { inputType: 'query' }) } catch { return 0 }

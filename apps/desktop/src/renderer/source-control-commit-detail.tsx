@@ -1,10 +1,11 @@
-import { Check, ChevronLeft, Copy, GitCommit } from "lucide-react";
+import { Check, ChevronLeft, Copy } from "lucide-react";
 import type {
   DesktopGitCommitDetails,
   DesktopGitCommitFile,
 } from "../shared/contract";
 import { GitFileDiff } from "./ReviewPane";
 import { ScmPathText } from "./ScmPathText";
+import { ScmStatusIcon, scmStatusKind } from "./ScmStatusIcon";
 import {
   EMPTY_SUMMARY,
   UNKNOWN_AUTHOR,
@@ -49,47 +50,16 @@ export function SourceControlCommitDetail({
   onToggleFile(file: DesktopGitCommitFile): Promise<void>;
 }) {
   const detailFiles = detail?.files ?? [];
-  const additions = detailFiles.reduce((sum, file) => sum + file.additions, 0);
-  const deletions = detailFiles.reduce((sum, file) => sum + file.deletions, 0);
   const detailSummary = (detail?.subject ?? "").trim();
   const headline = detail ? detailSummary || EMPTY_SUMMARY : "Loading commit…";
   const detailAuthor = (detail?.author ?? "").trim();
   const copyState = detail && shaCopy?.hash === detail.hash ? shaCopy : null;
 
   return <div className="dock-scm-history dock-scm-commit-detail">
-    {/* Two-tier header: a toolbar strip (back button, then the short SHA with
-        its copy control and the +adds/−dels totals trailing) over the subject
-        and an `author · date` byline that gets the full width. */}
+    {/* ONE header block: the subject over an `author · date · sha` byline
+        (the SHA is the copy control), with the back button trailing on the
+        right — the same one-row grammar as the Changes list's toolbar. */}
     <header className="dock-scm-commit-header">
-      <div className="dock-scm-commit-toolbar">
-        <button type="button" className="dock-scm-commit-back"
-          aria-label="Back to commit history" onClick={onBack}>
-          <ChevronLeft size={14} aria-hidden="true" />
-        </button>
-        {detail && <span className="dock-scm-commit-ref">
-          <GitCommit size={12} aria-hidden="true" />
-          <code>{detail.shortHash}</code>
-          <button type="button" className="dock-scm-commit-copy"
-            aria-label="Copy the full SHA"
-            title={copyState ? copyState.ok ? "Copied" : "Copy failed" : "Copy the full SHA"}
-            onClick={() => void onCopySha(detail.hash)}>
-            {copyState?.ok
-              ? <Check size={12} aria-hidden="true" />
-              : <Copy size={12} aria-hidden="true" />}
-          </button>
-          <span className="dock-scm-copy-status" role="status" aria-live="polite">
-            {copyState
-              ? copyState.ok
-                ? "Full SHA copied to the clipboard"
-                : "Could not copy the SHA to the clipboard"
-              : ""}
-          </span>
-        </span>}
-        {detail && <span className="dock-scm-commit-lines"
-          title={`+${additions.toLocaleString()} additions, −${deletions.toLocaleString()} deletions`}>
-          <i>+{additions.toLocaleString()}</i><em>−{deletions.toLocaleString()}</em>
-        </span>}
-      </div>
       <div className="dock-scm-commit-headline">
         <b title={headline}
           data-empty={detail && !detailSummary ? true : undefined}>{headline}</b>
@@ -100,15 +70,45 @@ export function SourceControlCommitDetail({
           <time dateTime={detail.authoredAt} title={new Date(detail.authoredAt).toLocaleString()}>
             {formatCommitDate(detail.authoredAt)}
           </time>
+          <span className="dock-scm-commit-sha">
+            <button type="button" className="dock-scm-commit-ref"
+              aria-label="Copy the full SHA"
+              title={copyState ? copyState.ok ? "Copied" : "Copy failed" : "Copy the full SHA"}
+              onClick={() => void onCopySha(detail.hash)}>
+              <code>{detail.shortHash}</code>
+              {copyState?.ok
+                ? <Check size={11} aria-hidden="true" />
+                : <Copy size={11} aria-hidden="true" />}
+            </button>
+          </span>
         </div>}
       </div>
+      <span className="dock-scm-copy-status" role="status" aria-live="polite">
+        {copyState
+          ? copyState.ok
+            ? "Full SHA copied to the clipboard"
+            : "Could not copy the SHA to the clipboard"
+          : ""}
+      </span>
+      <button type="button" className="dock-scm-commit-back"
+        aria-label="Back to commit history" onClick={onBack}>
+        <ChevronLeft size={14} aria-hidden="true" />
+      </button>
     </header>
     {detailFiles.map((file) => {
       const open = openCommitFile === file.path;
       const patch = commitDiffs[file.path];
+      const slash = file.path.lastIndexOf("/");
+      const fileName = slash >= 0 ? file.path.slice(slash + 1) : file.path;
+      const oldSlash = file.oldPath?.lastIndexOf("/") ?? -1;
+      const oldFileName = file.oldPath
+        ? oldSlash >= 0 ? file.oldPath.slice(oldSlash + 1) : file.oldPath
+        : "";
+      const displayName = file.oldPath ? `${oldFileName} → ${fileName}` : fileName;
       return <section className="dock-scm-commit-file"
         data-open={open || undefined} key={file.path}>
         <button type="button" className="dock-scm-commit-file-row"
+          title={file.path}
           aria-expanded={onOpenDiff ? undefined : open} onClick={() => {
             if (onOpenDiff) {
               onOpenDiff(projectPath, file.path, {
@@ -119,15 +119,10 @@ export function SourceControlCommitDetail({
               void onToggleFile(file);
             }
           }}>
-          <ScmPathText title={file.path}
-            path={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path} />
-          {/* No status glyph here: with no checkbox column the square icon
-              only doubled the +/− signs of the counts beside it. */}
-          <small className="dock-scm-commit-file-lines"
-            title={`${file.additions} additions, ${file.deletions} deletions`}>
-            {file.additions > 0 && <i>+{file.additions}</i>}
-            {file.deletions > 0 && <em>−{file.deletions}</em>}
-          </small>
+          {/* Same row as the Changes list: the path, then ONE trailing
+              status icon — no +/− counts. */}
+          <ScmPathText path={file.path} name={displayName} />
+          <ScmStatusIcon kind={scmStatusKind(file.status)} className="dock-scm-file-state" />
         </button>
         {open && <div className="dock-scm-commit-diff">
           {patch === undefined || patch === null

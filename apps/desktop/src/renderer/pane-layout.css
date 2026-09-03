@@ -745,6 +745,61 @@
 /* The phone keeps its fixed right sheet; the pair column has no place in
    that band. */
 html[data-mixdog-mobile-tabs] .pane-dock-diff-column { display: none; }
+/* ── Left sidebar diff column ──
+   Source Control on the LEFT opens its diff paired to the RIGHT of the
+   sidebar (user: 왼쪽 소스컨트롤도 우측 확장 스타일), the same column grammar
+   as the pane dock pair above: own draggable width, hidden-not-unmounted on
+   close, overlay over the workspace when the pair would crush it. */
+.sidebar-diff-column {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  width: var(--sidebar-diff-width, 480px);
+  flex: 0 0 var(--sidebar-diff-width, 480px);
+  overflow: visible;
+  border-right: 1px solid var(--mx-border-structure);
+  background: var(--mx-workspace-sheet);
+}
+.sidebar-diff-column[hidden] {
+  display: flex;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 100%;
+  content-visibility: hidden;
+  pointer-events: none;
+  clip-path: inset(100%);
+}
+.sidebar-diff-column[data-overlay="true"] {
+  position: absolute;
+  z-index: 30;
+  top: 0;
+  bottom: 0;
+  left: var(--sidebar-diff-left, 0px);
+  height: auto;
+  box-shadow: var(--mx-overlay);
+}
+.sidebar-diff-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.sidebar-diff-resize {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  bottom: 0;
+  right: -4px;
+  width: 8px;
+  cursor: col-resize;
+}
+html[data-mixdog-mobile-tabs] .sidebar-diff-column { display: none; }
+@media (max-width: 760px) { .sidebar-diff-column { display: none; } }
 .pane-surface-stack {
   position: relative;
   display: flex;

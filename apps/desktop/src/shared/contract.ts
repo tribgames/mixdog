@@ -982,8 +982,6 @@ export type DesktopGitCommitPreset = 'none' | 'conventional' | 'custom';
 /** Settings → Git: desktop-stored commit-message preferences. */
 export interface DesktopGitPreferences {
   commitPreset: DesktopGitCommitPreset;
-  /** Legacy combined field retained for older desktop/daemon build skew. */
-  commitTemplate: string;
   /** Custom commit shown as the Source Control ghost-text/preview. */
   commitExample: string;
   /** Custom natural-language instructions supplied to AI generation. */

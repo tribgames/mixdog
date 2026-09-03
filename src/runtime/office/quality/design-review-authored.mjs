@@ -48,9 +48,10 @@ export function isOrnamentalStripe(shape, shapes, size) {
   const horizontal = height <= 7 && width >= 320;
   if (!vertical && !horizontal) return false;
   if (vertical) {
-    // A vertical rule that text hangs from (editorial carrier) starts a text
-    // block within a small gutter and spans it; an edge stripe has no such text.
-    const hanging = shapes.some((other) => {
+    // A vertical rule that text hangs from (editorial carrier) is scoped to its
+    // block: at most half the page tall, with text starting within a small
+    // gutter and overlapping it. A page-height edge stripe is ornament.
+    const hanging = height <= size.height * 0.5 && shapes.some((other) => {
       if (other === shape || !String(other.text || '').trim()) return false;
       const gutter = num(other.left) - (left + width);
       const overlap = Math.min(top + height, num(other.top) + num(other.height)) - Math.max(top, num(other.top));
@@ -69,12 +70,25 @@ export function isOrnamentalStripe(shape, shapes, size) {
   });
 }
 
-// A card grid is three or more same-size text cards on one grid line. Nodes,
-// hero numbers, stage labels, and staggered blocks share a size without
-// sharing a line or carrying copy, and are not cards.
-export function isCardGridSlide(textShapes) {
-  const cards = textShapes.filter((shape) => num(shape.height) >= CARD_MIN_HEIGHT
-    && String(shape.text || '').trim().length >= CARD_MIN_TEXT);
+// A card grid is three or more same-size filled surfaces on one grid line,
+// each carrying copy (its own or a text box inside it). Nodes, hero numbers,
+// stage labels, staggered blocks, and unfilled text columns share a size
+// without being cards. Snapshots without fill data fall back to text blocks.
+function contains(surface, shape) {
+  return num(shape.left) >= num(surface.left) - 2
+    && num(shape.top) >= num(surface.top) - 2
+    && num(shape.left) + num(shape.width) <= num(surface.left) + num(surface.width) + 2
+    && num(shape.top) + num(shape.height) <= num(surface.top) + num(surface.height) + 2;
+}
+
+export function isCardGridSlide(textShapes, allShapes = null) {
+  const shapes = Array.isArray(allShapes) ? allShapes : textShapes;
+  const fillKnown = shapes.some((shape) => shape.fill);
+  const copy = (shape) => String(shape.text || '').trim().length >= CARD_MIN_TEXT;
+  const cards = fillKnown
+    ? shapes.filter((surface) => surface.fill && num(surface.height) >= CARD_MIN_HEIGHT
+      && (copy(surface) || textShapes.some((shape) => shape !== surface && copy(shape) && contains(surface, shape))))
+    : textShapes.filter((shape) => num(shape.height) >= CARD_MIN_HEIGHT && copy(shape));
   const groups = new Map();
   for (const shape of cards) {
     const key = `${Math.round(num(shape.width) / 12)}:${Math.round(num(shape.height) / 12)}`;

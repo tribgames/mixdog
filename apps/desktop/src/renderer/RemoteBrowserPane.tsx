@@ -257,7 +257,7 @@ export default function RemoteBrowserPane({
         className={`browser-pane-nav-button browser-remote-keyboard-button${keyboardOpen ? " is-active" : ""}`}
         onClick={() => setKeyboardOpen((open) => !open)}
         aria-pressed={keyboardOpen}
-        aria-label="페이지에 입력" data-tooltip="페이지에 입력">
+        aria-label={t("Type on page")} data-tooltip={t("Type on page")}>
         <Keyboard size={15} />
       </button>
       <button type="button" className="browser-pane-nav-button"
@@ -276,7 +276,7 @@ export default function RemoteBrowserPane({
       <input ref={inputRef} type="text" inputMode="text"
         maxLength={2_000}
         autoComplete="off" autoCapitalize="none"
-        placeholder="선택한 페이지 항목에 입력"
+        placeholder={t("Type into selected page element")}
         onCompositionStart={() => { composing.current = true; }}
         onCompositionEnd={(event) => {
           composing.current = false;
@@ -324,15 +324,15 @@ export default function RemoteBrowserPane({
           alt={frame?.title || "Browser Use"} />
         : <div className="browser-remote-empty">
             {failure
-              ? <><Globe size={28} /><strong>브라우저 화면을 연결하지 못했습니다</strong>
+              ? <><Globe size={28} /><strong>{t("Could not connect to browser screen")}</strong>
                   <span>{failure}</span>
-                  <button type="button" onClick={refreshSoon}>다시 연결</button></>
+                  <button type="button" onClick={refreshSoon}>{t("Reconnect")}</button></>
               : <><LoaderCircle size={24} className="is-spinning" />
-                  <span>데스크톱 Browser Use에 연결 중…</span></>}
+                  <span>{t("Connecting to desktop Browser Use…")}</span></>}
           </div>}
       {failure && imageUrl && <div className="browser-remote-status" role="status">
         <span>{failure}</span>
-        <button type="button" onClick={refreshSoon}>다시 연결</button>
+        <button type="button" onClick={refreshSoon}>{t("Reconnect")}</button>
       </div>}
       {imageUrl && <BrowserZoomPill level={zoomLevel} onChange={changeZoomLevel} />}
     </div>

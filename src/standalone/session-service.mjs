@@ -9,13 +9,14 @@
 //
 // The session runtime factory is injected by the daemon entry.
 import { randomUUID } from 'node:crypto';
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
 import {
   SESSION_CONFIGURE_ACTION_SET,
   SESSION_READ_ACTION_SET,
 } from './session-protocol.mjs';
 import { diffSessionState } from './session-state-patch.mjs';
+import { DesktopServiceRegistry } from './desktop-service-registry.mjs';
+import { createSessionServiceApi } from './session-service-api.mjs';
+import { sanitizeForWire } from './session-wire-values.mjs';
 import {
   materializePromptSubmission,
   preparePromptSubmissionForProvider,
@@ -25,9 +26,7 @@ import {
   hasActiveBackgroundTasks,
 } from '../runtime/shared/background-tasks.mjs';
 
-const MAX_CLONE_DEPTH = 24;
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
-const requireDesktopService = createRequire(import.meta.url);
 const EXTERNAL_SESSION_ACTIONS = new Set([
   ...SESSION_READ_ACTION_SET,
   ...SESSION_CONFIGURE_ACTION_SET,
@@ -36,73 +35,7 @@ const EXTERNAL_SESSION_ACTIONS = new Set([
   'resolveToolApproval',
 ]);
 
-async function loadDesktopServiceModule(moduleUrl) {
-  const parsed = new URL(moduleUrl);
-  if (!parsed.pathname.toLowerCase().endsWith('.cjs')) {
-    return import(moduleUrl);
-  }
-  // Node's CJS bridge ignores URL search parameters and otherwise returns the
-  // previous install's cached exports after an in-place desktop update. Keep
-  // already-instantiated adapters alive, but load this newly keyed artifact
-  // from disk for the new desktop build.
-  const modulePath = fileURLToPath(parsed);
-  const resolved = requireDesktopService.resolve(modulePath);
-  delete requireDesktopService.cache[resolved];
-  return requireDesktopService(resolved);
-}
-
-/** JSON-safe projection of a session snapshot. Functions, symbols, and
- *  undefined never survive a transport hop; dropping them here (instead of at
- *  JSON.stringify time) keeps object identity stable for the receiver and
- *  makes cycles impossible rather than fatal. */
-export function sanitizeForWire(value, depth = 0, seen = new WeakSet()) {
-  if (value === null) return null;
-  const type = typeof value;
-  if (type === 'string' || type === 'boolean') return value;
-  if (type === 'number') return Number.isFinite(value) ? value : null;
-  if (type === 'bigint') return Number(value);
-  if (type === 'undefined' || type === 'function' || type === 'symbol') return undefined;
-  if (value instanceof Date) return value.toISOString();
-  if (value instanceof Error) return { name: value.name, message: value.message };
-  if (type !== 'object') return undefined;
-  if (depth >= MAX_CLONE_DEPTH) return undefined;
-  if (seen.has(value)) return undefined;
-  seen.add(value);
-  try {
-    if (Array.isArray(value)) {
-      const out = [];
-      for (const entry of value) {
-        const cloned = sanitizeForWire(entry, depth + 1, seen);
-        out.push(cloned === undefined ? null : cloned);
-      }
-      return out;
-    }
-    if (value instanceof Map) {
-      const out = {};
-      for (const [key, entry] of value) {
-        const cloned = sanitizeForWire(entry, depth + 1, seen);
-        if (cloned !== undefined) out[String(key)] = cloned;
-      }
-      return out;
-    }
-    if (value instanceof Set) {
-      const out = [];
-      for (const entry of value) {
-        const cloned = sanitizeForWire(entry, depth + 1, seen);
-        if (cloned !== undefined) out.push(cloned);
-      }
-      return out;
-    }
-    const out = {};
-    for (const [key, entry] of Object.entries(value)) {
-      const cloned = sanitizeForWire(entry, depth + 1, seen);
-      if (cloned !== undefined) out[key] = cloned;
-    }
-    return out;
-  } finally {
-    seen.delete(value);
-  }
-}
+export { sanitizeForWire } from './session-wire-values.mjs';
 
 export function createSessionService({
   createSessionRuntime = null,
@@ -150,11 +83,13 @@ export function createSessionService({
   let agentRehydrated = false;
   let agentRehydratePromise = null;
   let busyEntries = 0;
-  // Desktop adapters are keyed by their exact module URL so a dev preview and
-  // installed build never share module state accidentally.
-  const desktopServicesById = new Map();
-  const desktopServicesByModule = new Map();
-  const desktopServicePromises = new Map();
+  const desktopServices = new DesktopServiceRegistry({
+    runtime: desktopRuntime,
+    onFrame,
+    log,
+    onExternalClientsChanged,
+    onReady: onDesktopReady,
+  });
   let projectStorePromise = null;
   let closed = false;
   // A turn belongs to the DAEMON, not to whoever is watching it: closing the
@@ -261,9 +196,7 @@ export function createSessionService({
       entry.subscribers?.delete(token);
       if ((entry.subscribers?.size || 0) === 0) externalViewEntries.delete(sessionId);
     }
-    for (const service of desktopServicesById.values()) {
-      service.subscribers.delete(token);
-    }
+    desktopServices.releaseClient(token);
     return { ok: true };
   }
 
@@ -1869,178 +1802,6 @@ export function createSessionService({
     return { ok: true };
   }
 
-  // ── Desktop service adapter ────────────────────────────────────────────────
-  // The adapter is a BUILD artifact supplied by the desktop install, but it is
-  // instantiated here. Electron and its renderer only keep a transport view;
-  // project/session/capability execution therefore shares this daemon process
-  // with TUI sessions, channels, memory, MCP, and automation.
-  function desktopEventKey(desktopId, message) {
-    const kind = String(message?.kind || 'event');
-    if (kind === 'session-state') {
-      return `desktop-event:${desktopId}:${kind}:${String(message?.sessionId || '')}`;
-    }
-    // Service events are NOT one lane. Under one shared `desktop-event` key a
-    // terminal flood clobbered LSP/folder events — and every other terminal —
-    // whenever the stream backed up, because the backlog is latest-wins per
-    // key. Name (and terminal id) keep each producer on its own key.
-    if (kind === 'desktop-event') {
-      const name = String(message?.name || '');
-      const terminalId = name === 'terminal-data' ? String(message?.value?.id || '') : '';
-      return `desktop-event:${desktopId}:${kind}:${name}${terminalId ? `:${terminalId}` : ''}`;
-    }
-    return `desktop-event:${desktopId}:${kind}`;
-  }
-
-  function publishDesktopEvent(desktopId, message) {
-    const wire = sanitizeForWire(message);
-    const service = desktopServicesById.get(desktopId);
-    if (!wire || !service) return;
-    onFrame({
-      type: 'desktop-event',
-      key: desktopEventKey(desktopId, wire),
-      desktopId,
-      message: wire,
-    }, service.subscribers);
-  }
-
-  async function initializeDesktopService({ desktopId, moduleUrl, options = {} } = {}) {
-    if (closed) throw new Error('session service is closed');
-    const requestedId = String(desktopId || '').trim();
-    if (!requestedId || !/^[A-Za-z0-9_-]+$/.test(requestedId)) {
-      throw new TypeError('desktopId is invalid');
-    }
-    const requestedModule = String(moduleUrl || '').trim();
-    let parsed;
-    try { parsed = new URL(requestedModule); }
-    catch { throw new TypeError('desktop service moduleUrl is invalid'); }
-    if (parsed.protocol !== 'file:') {
-      throw new TypeError('desktop service moduleUrl must be a file URL');
-    }
-    const existingByModule = desktopServicesByModule.get(requestedModule);
-    if (existingByModule) return existingByModule;
-    const existingById = desktopServicesById.get(requestedId);
-    if (existingById) {
-      if (existingById.moduleUrl !== requestedModule) {
-        throw new Error(`desktopId ${requestedId} is already bound to another service module`);
-      }
-      return existingById;
-    }
-    const pending = desktopServicePromises.get(requestedModule);
-    if (pending) return pending;
-    const loading = (async () => {
-      const loaded = await loadDesktopServiceModule(requestedModule);
-      if (typeof loaded.createDesktopService !== 'function') {
-        throw new TypeError('desktop service module has no createDesktopService export');
-      }
-      const instance = await loaded.createDesktopService({
-        options: sanitizeForWire(options) || {},
-        runtime: desktopRuntime,
-        emit: (message) => publishDesktopEvent(requestedId, message),
-        onClientCountChanged: () => {
-          try { onExternalClientsChanged(); } catch {}
-        },
-      });
-      if (!instance || typeof instance.invoke !== 'function'
-        || typeof instance.control !== 'function') {
-        throw new TypeError('desktop service adapter is invalid');
-      }
-      const record = {
-        desktopId: requestedId,
-        moduleUrl: requestedModule,
-        instance,
-        subscribers: new Set(),
-      };
-      desktopServicesById.set(requestedId, record);
-      desktopServicesByModule.set(requestedModule, record);
-      log(`desktop service loaded id=${requestedId} module=${requestedModule}`);
-      return record;
-    })();
-    desktopServicePromises.set(requestedModule, loading);
-    try {
-      return await loading;
-    } finally {
-      if (desktopServicePromises.get(requestedModule) === loading) {
-        desktopServicePromises.delete(requestedModule);
-      }
-    }
-  }
-
-  async function desktopInit(params = {}, ctx = null) {
-    const service = await initializeDesktopService(params);
-    const token = subscriberToken(ctx);
-    if (token) service.subscribers.add(token);
-    return { desktopId: service.desktopId };
-  }
-
-  function requireDesktopService(desktopId) {
-    const id = String(desktopId || '');
-    const service = desktopServicesById.get(id);
-    if (!service) throw new Error('desktop service is not initialized');
-    return service;
-  }
-
-  async function desktopInvoke({ desktopId, method, args = [] } = {}, ctx = null) {
-    const service = requireDesktopService(desktopId);
-    const token = subscriberToken(ctx);
-    if (token) service.subscribers.add(token);
-    const name = String(method || '');
-    if (!name) throw new TypeError('desktop service method is required');
-    return sanitizeForWire(await service.instance.invoke(name, Array.isArray(args) ? args : [])) ?? null;
-  }
-
-  async function desktopControl({ desktopId, message } = {}, ctx = null) {
-    const service = requireDesktopService(desktopId);
-    const token = subscriberToken(ctx);
-    if (token) service.subscribers.add(token);
-    await service.instance.control(sanitizeForWire(message) || {});
-    return { ok: true };
-  }
-
-  function desktopReady({ desktopId } = {}, ctx = null) {
-    const service = requireDesktopService(desktopId);
-    const token = subscriberToken(ctx);
-    if (token) service.subscribers.add(token);
-    onDesktopReady({ desktopId: service.desktopId, clientToken: token || null });
-    return { ok: true };
-  }
-
-  async function desktopUnsubscribe({ desktopId } = {}, ctx = null) {
-    const service = requireDesktopService(desktopId);
-    const token = subscriberToken(ctx);
-    if (token) service.subscribers.delete(token);
-    return { ok: true, unsubscribed: true };
-  }
-
-  const routes = {
-    'desktop.init': desktopInit,
-    'desktop.invoke': desktopInvoke,
-    'desktop.control': desktopControl,
-    'desktop.ready': desktopReady,
-    'desktop.unsubscribe': desktopUnsubscribe,
-    'project.list': listProjectCatalog,
-    'project.inspect': inspectProjectPath,
-    'project.add': addProjectEntry,
-    'project.touch': touchProjectEntry,
-    'project.rename': renameProjectEntry,
-    'project.remove': removeProjectEntry,
-    'project.ensureDirectory': ensureProjectDirectory,
-    'session.list': listSessionCatalog,
-    'session.create': createSession,
-    'session.read': readSession,
-    'session.subscribe': subscribeSession,
-    'session.unsubscribe': unsubscribeSession,
-    'session.submit': submitSession,
-    'session.abort': abortSession,
-    'session.approve': approveSession,
-    'session.configure': configureSession,
-  };
-
-  async function handleCall(name, args = {}, ctx = null) {
-    const route = routes[String(name || '')];
-    if (!route) throw new Error(`unknown session service call ${name}`);
-    return route(args || {}, ctx);
-  }
-
   async function stop(reason = 'service stop') {
     closed = true;
     try { unsubscribeExternalSessionStates(); } catch {}
@@ -2048,30 +1809,59 @@ export function createSessionService({
     agentSessions.clear();
     agentChildren.clear();
     if (evictTimer) { clearInterval(evictTimer); evictTimer = null; }
-    const services = [...new Set(desktopServicesById.values())];
-    desktopServicesById.clear();
-    desktopServicesByModule.clear();
-    desktopServicePromises.clear();
-    for (const service of services) {
-      if (!service?.instance?.dispose) continue;
-      try { await service.instance.dispose(reason); }
-      catch (error) { log(`desktop service dispose failed: ${error?.message || error}`); }
-    }
+    await desktopServices.dispose(reason);
     for (const entry of [...sessions]) {
       await destroy(entry, reason);
     }
   }
 
-  return {
-    handleCall, listSessionCatalog, createSession, readSession, subscribeSession, unsubscribeSession,
-    submitSession, materializeSession, recoverActiveGoals, abortSession, approveSession,
-    configureSession, stop, releaseClient,
-    agentSurface, agentManager, agentDescriptor, rootOwnerSessionId, rehydrateAgentSessions,
-    cancelAgentTree, cancelAgentDescendants,
-    get size() { return sessions.size; },
-    /** Live work the daemon must not abandon (self-shutdown guard). */
-    get busyCount() { return liveBusyCount(); },
-    get status() {
+  return createSessionServiceApi({
+    desktop: desktopServices,
+    project: {
+      list: listProjectCatalog,
+      inspect: inspectProjectPath,
+      add: addProjectEntry,
+      touch: touchProjectEntry,
+      rename: renameProjectEntry,
+      remove: removeProjectEntry,
+      ensureDirectory: ensureProjectDirectory,
+    },
+    session: {
+      list: listSessionCatalog,
+      create: createSession,
+      read: readSession,
+      subscribe: subscribeSession,
+      unsubscribe: unsubscribeSession,
+      submit: submitSession,
+      abort: abortSession,
+      approve: approveSession,
+      configure: configureSession,
+    },
+    methods: {
+      listSessionCatalog,
+      createSession,
+      readSession,
+      subscribeSession,
+      unsubscribeSession,
+      submitSession,
+      materializeSession,
+      recoverActiveGoals,
+      abortSession,
+      approveSession,
+      configureSession,
+      stop,
+      releaseClient,
+      agentSurface,
+      agentManager,
+      agentDescriptor,
+      rootOwnerSessionId,
+      rehydrateAgentSessions,
+      cancelAgentTree,
+      cancelAgentDescendants,
+    },
+    getSize: () => sessions.size,
+    getBusyCount: liveBusyCount,
+    getStatus: () => {
       const busy = liveBusyCount();
       let watched = 0;
       let retained = 0;
@@ -2091,14 +1881,6 @@ export function createSessionService({
         evictionSweepActive: evictTimer !== null,
       };
     },
-    /** Phone clients hosted by daemon-owned desktop adapters. */
-    get externalClientCount() {
-      let total = 0;
-      for (const service of desktopServicesById.values()) {
-        const count = Number(service?.instance?.clientCount ?? 0);
-        if (Number.isSafeInteger(count) && count > 0) total += count;
-      }
-      return total;
-    },
-  };
+    getExternalClientCount: () => desktopServices.externalClientCount,
+  });
 }

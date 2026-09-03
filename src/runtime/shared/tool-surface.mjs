@@ -159,6 +159,8 @@ export function displayToolName(name, args = {}) {
       return 'Computer';
     case 'office':
       return 'Office';
+    case 'media':
+      return 'Media';
     case 'list_mcp_resources':
     case 'list_mcp_resource_templates':
     case 'cwd':
@@ -330,6 +332,12 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       return compactParts([
         String(a.action || ''),
         a.path ? truncateToolText(a.path, max) : a.session ? String(a.session) : '',
+      ]);
+    case 'media':
+      return compactParts([
+        String(a.action || ''),
+        String(a.kind || ''),
+        a.path ? truncateToolText(a.path, max) : a.job ? String(a.job) : '',
       ]);
     case 'read_mcp_resource':
       return truncateToolText(a.uri || '', max);
@@ -626,6 +634,10 @@ export function toolWorkUnit(name, args = {}, category = '') {
       return unitDescriptor('Computer', { count: 1, active: 'Operating', done: 'Operated', noun: 'action' });
     case 'office':
       return unitDescriptor('Office', { count: 1, active: 'Editing', done: 'Edited', noun: 'document action' });
+    case 'media':
+      return a.action === 'generate'
+        ? unitDescriptor('Media', { count: 1, active: 'Generating', done: 'Generated', noun: a.kind === 'video' ? 'video' : 'image' })
+        : unitDescriptor('Media', { count: 1, active: 'Checking', done: 'Checked', noun: 'media action' });
     case 'fetch': {
       const fetchLimit = Number(a.limit ?? a.messages);
       const fetchCount = Number.isFinite(fetchLimit) && fetchLimit > 0

@@ -84,6 +84,12 @@ function context({ run, snapshot = null, voice = {}, api = {}, toolModules = {} 
   };
 }
 
+// Built-in rows carry no control; the install pill / progress / switch live
+// in the feature's detail dialog, which the row opens.
+const openFeature = (id) => act(async () => {
+  document.querySelector(`[data-built-in-feature="${id}"] .extensions-row-open`).click();
+});
+
 test('voice installs inline with live progress and enables on completion', async () => {
   const host = document.createElement('main');
   document.body.append(host);
@@ -103,6 +109,7 @@ test('voice installs inline with live progress and enables on completion', async
 
   try {
     await render(context({ run }));
+    await openFeature('voice');
     const installButton = document.querySelector(
       '[data-feature-id="voice"] button[aria-label="Install Voice transcription"]',
     );
@@ -152,6 +159,7 @@ test('failed inline voice installation stays actionable with retry', async () =>
         context: context({ run }),
       }));
     });
+    await openFeature('voice');
     await act(async () => document.querySelector('[data-feature-id="voice"] button').click());
     const retry = document.querySelector('[data-feature-id="voice"] button');
     assert.equal(retry.textContent, 'Retry');
@@ -181,6 +189,7 @@ test('voice disable keeps the installed runtime and leaves an off toggle', async
 
   try {
     await render({ enabled: true, installed: true });
+    await openFeature('voice');
     const toggle = document.querySelector('[data-feature-id="voice"] input[aria-label="Voice transcription"]');
     assert.equal(toggle.checked, true);
     await act(async () => toggle.click());
@@ -223,6 +232,7 @@ test('missing Git dependency installs inline and enables the tool on completion'
         }),
       }));
     });
+    await openFeature('git');
     const install = document.querySelector(
       '[data-feature-id="git"] button[aria-label="Install Git"]',
     );
@@ -261,6 +271,7 @@ test('system Git alone does not bypass the Mixdog install marker', async () => {
         }),
       }));
     });
+    await openFeature('git');
     assert.ok(document.querySelector('[data-feature-id="git"] button[aria-label="Install Git"]'));
     assert.equal(document.querySelector('[data-feature-id="git"] input[aria-label="Git"]'), null);
   } finally {
@@ -303,6 +314,7 @@ test('missing LibreOffice dependency installs inline before the Office feature',
 
   try {
     await render({ office: { enabled: false, installed: false } });
+    await openFeature('office');
     const install = document.querySelector(
       '[data-feature-id="office"] button[aria-label="Install Office"]',
     );
@@ -357,6 +369,7 @@ test('a present LibreOffice skips the dependency step of the Office install', as
         }),
       }));
     });
+    await openFeature('office');
     await act(async () => document.querySelector('[data-feature-id="office"] button').click());
     assert.deepEqual(apiCalls, []);
     assert.deepEqual(calls, [['installBuiltinFeature', ['office']]]);
@@ -386,6 +399,7 @@ test('an uninstalled built-in installs through the shared capability', async () 
         }),
       }));
     });
+    await openFeature('memory');
     const install = document.querySelector(
       '[data-feature-id="memory"] button[aria-label="Install Memory"]',
     );
@@ -436,7 +450,9 @@ test('built-in feature switches route to their existing authoritative settings',
         }),
       }));
     });
+    await openFeature('memory');
     await act(async () => document.querySelector('[data-feature-id="memory"] input').click());
+    await openFeature('office');
     await act(async () => document.querySelector('[data-feature-id="office"] input').click());
     assert.equal(document.querySelector('input[aria-label="Observation only"]'), null);
     assert.deepEqual(calls, [
@@ -480,6 +496,7 @@ test('Browser Use install survives OFF and can be turned back ON without reinsta
         context: context({ run: async () => ({}), api }),
       }));
     });
+    await openFeature('browser');
     const install = document.querySelector(
       '[data-feature-id="browser"] button[aria-label="Install Browser Use"]',
     );
@@ -546,6 +563,7 @@ test('Computer Use install survives OFF and can be turned back ON without reinst
         context: context({ run: async () => ({}), api }),
       }));
     });
+    await openFeature('computer');
     const install = document.querySelector(
       '[data-feature-id="computer"] button[aria-label="Install Computer Use"]',
     );
@@ -625,6 +643,7 @@ test('runtime-backed Built-ins stay installed through OFF and ON', async () => {
     for (const id of ['memory', 'git', 'office', 'voice']) {
       const label = id === 'voice' ? 'Voice transcription'
         : id[0].toUpperCase() + id.slice(1);
+      await openFeature(id);
       let toggle = document.querySelector(`[data-feature-id="${id}"] input[aria-label="${label}"]`);
       assert.equal(toggle.checked, true, `${id} starts on`);
 

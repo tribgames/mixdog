@@ -19,6 +19,7 @@ import {
   isOrnamentalStripe,
   slideSize,
 } from './design-review-authored.mjs';
+import { reviewBriefPromises, reviewFactCoverage } from '../authoring/pptx-brief.mjs';
 
 function designIssue(code, path, message, severity = 'warning') {
   return { severity, code, path, message, source: 'design-review' };
@@ -212,7 +213,7 @@ function normalizedShapeSignature(slide) {
 // criterion is read from the saved shapes and shared with the render review.
 export function isPptxStatementSlide(slide) {
   const textShapes = (Array.isArray(slide?.shapes) ? slide.shapes : [])
-    .filter((shape) => String(shape.text || '').trim() && !isMotifShape(shape));
+    .filter((shape) => String(shape.text || '').trim() && !isMotifShape(shape) && !shape.placeholder);
   if (!textShapes.length || textShapes.length > 5) return false;
   const sizes = textShapes.map((shape) => Number(shape.font?.size) || 0);
   const largest = Math.max(...sizes);
@@ -222,6 +223,21 @@ export function isPptxStatementSlide(slide) {
     || (largest >= 24 && totalText <= 280);
 }
 
+
+// A specimen draws its subject: three or more text blocks sharing one left edge,
+// each a different size/weight step, with the largest at 24 pt or more.
+function isPptxSpecimenSlide(textShapes) {
+  const columns = new Map();
+  for (const shape of textShapes) {
+    const key = Math.round((Number(shape.left) || 0) / 12);
+    const step = `${Number(shape.font?.size) || 0}|${shape.font?.bold === true ? 1 : 0}|${String(shape.font?.name || '')}`;
+    if (!columns.has(key)) columns.set(key, { steps: new Set(), largest: 0 });
+    const column = columns.get(key);
+    column.steps.add(step);
+    column.largest = Math.max(column.largest, Number(shape.font?.size) || 0);
+  }
+  return [...columns.values()].some((column) => column.steps.size >= 3 && column.largest >= 24);
+}
 
 export function inferPptxSlideRoles(document) {
   const slides = Array.isArray(document?.slides) ? document.slides : [];
@@ -238,6 +254,11 @@ function reviewPptx(document, design) {
   const size = slideSize(document);
   reviewPptxTheme(document, design, issues);
   reviewPptxDiscipline(slides, design, issues);
+  // An authored deck is held to its own brief: the skeleton each plan line
+  // promised, and the fact sheet behind every figure it shows.
+  if (design.brief) {
+    issues.push(...reviewBriefPromises(document, design.brief), ...reviewFactCoverage(document, design.brief));
+  }
   let cardGridSlides = 0;
   const signatures = new Map();
   let nativeEvidenceSlides = 0;
@@ -247,7 +268,14 @@ function reviewPptx(document, design) {
     const pictures = shapes.filter(isPictureShape);
     const richVisuals = shapes.filter((shape) => shape.chart || shape.table || shape.group);
     const nonTextShapes = shapes.filter((shape) => !String(shape.text || '').trim() && !shape.placeholder);
-    const typographicVisual = isPptxStatementSlide(slide);
+    // One statement, a band of hero numerals (E4), or a drawn specimen (E8: the
+    // subject itself set in three or more size/weight steps down one column) is
+    // a typographic visual; an authored brief that names S1/S3/E8 says so directly.
+    const plannedSkeleton = String((design.brief?.plan || []).find((entry) => Number(entry.slide) === Number(slide.index))?.skeleton || '');
+    const typographicVisual = isPptxStatementSlide(slide)
+      || textShapes.filter((shape) => (Number(shape.font?.size) || 0) >= 40).length >= 3
+      || isPptxSpecimenSlide(textShapes)
+      || ['S1', 'S3', 'E8'].includes(plannedSkeleton);
     const semanticVisual = String(plansBySlide.get(Number(slide.index))?.visualType || '');
     const inferredDiagram = nonTextShapes.length >= 2
       && nonTextShapes.length <= 8
@@ -298,7 +326,7 @@ function reviewPptx(document, design) {
         'Thin decorative stripe or rule resembles generic AI slide ornamentation.',
       ));
     }
-    if (isCardGridSlide(textShapes.filter(isAutoShape))) cardGridSlides += 1;
+    if (isCardGridSlide(textShapes.filter(isAutoShape), shapes.filter(isAutoShape))) cardGridSlides += 1;
     if (contentSlide) {
       const signature = normalizedShapeSignature(slide);
       if (signature) signatures.set(signature, (signatures.get(signature) || 0) + 1);
@@ -339,7 +367,19 @@ function reviewPptx(document, design) {
 }
 
 
-export function reviewPptxVisualCritique({ critique = [], pageCount = 0 } = {}) {
+// Instance-specific checks: binary questions derived from the slide's own
+// plan line ("the chart's accent bar is the category the title names"),
+// answered against the render. A judged deck needs at least three per slide.
+const MIN_CHECKS = 3;
+
+function parseChecks(raw) {
+  return (Array.isArray(raw) ? raw : []).filter(plainObject).map((check) => ({
+    item: String(check.item || check.question || '').trim(),
+    pass: check.pass === true || String(check.answer || '').toLowerCase() === 'yes',
+  })).filter((check) => check.item);
+}
+
+export function reviewPptxVisualCritique({ critique = [], pageCount = 0, requireChecks = false } = {}) {
   const total = Math.max(0, Number(pageCount) || 0);
   const issues = [];
   const entries = [];
@@ -362,18 +402,21 @@ export function reviewPptxVisualCritique({ critique = [], pageCount = 0 } = {}) 
     const fixes = strings(raw.fixes);
     const verdict = String(raw.verdict || '').toLowerCase();
     const validScores = PPTX_CRITIQUE_AXES.every((axis) => Number.isInteger(scores[axis]) && scores[axis] >= 1 && scores[axis] <= 5);
-    const entry = { slide, verdict, ...scores, note, fixes };
+    const checks = parseChecks(raw.checks);
+    const entry = { slide, verdict, ...scores, note, fixes, ...(checks.length ? { checks } : {}) };
     entries.push(entry);
     bySlide.set(slide, entry);
-    if (!validScores || note.length < 40) {
+    if (!validScores || note.length < 40 || (requireChecks && checks.length < MIN_CHECKS)) {
       issues.push({
         severity: 'warning',
         code: 'visual_critique_incomplete',
         path: `/slide[${slide}]`,
-        message: 'Visual critique requires five integer scores from 1-5 and a slide-specific note of at least 40 characters.',
+        message: requireChecks
+          ? `Visual critique requires five integer scores from 1-5, a slide-specific note of at least 40 characters, and at least ${MIN_CHECKS} checks ({ item, pass }) derived from the slide's plan line.`
+          : 'Visual critique requires five integer scores from 1-5 and a slide-specific note of at least 40 characters.',
         source: 'visual-critique',
       });
-    } else if (verdict !== 'pass' || fixes.length || PPTX_CRITIQUE_AXES.some((axis) => scores[axis] < 4)) {
+    } else if (verdict !== 'pass' || fixes.length || PPTX_CRITIQUE_AXES.some((axis) => scores[axis] < 4) || checks.some((check) => !check.pass)) {
       issues.push({
         severity: 'warning',
         code: 'visual_critique_needs_polish',

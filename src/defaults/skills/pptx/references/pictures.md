@@ -1,6 +1,13 @@
 # Pictures
 
-Owns everything that exists only when the user supplied picture files: the picture skeletons, the tone and crop modifiers, and the kit functions that place them. Loaded on that trigger (`SKILL.md` §1); a deck without pictures never reads this file. Geometry conventions and the canvas are the same as `layouts.md`.
+Owns everything that exists only when the deck carries pictures — supplied by the user or generated: the picture skeletons, the tone and crop modifiers, generation, and the kit functions that place them. Loaded on that trigger (`SKILL.md` §1); a deck without pictures never reads this file. Geometry conventions and the canvas are the same as `layouts.md`.
+
+## 0. Generated pictures (when the user supplied none)
+The `media` skill makes the picture; this file only decides where it goes in a deck. Load `media`, follow its call order (`list` → `generate kind:'image'` → inspect), and pass what the deck knows: `path:<beside the deck>.png` and `aspect:<the P skeleton's frame ratio>`. No signed-in lane means no generated pictures, and the deck says so instead of substituting a photo library it does not have.
+
+**Default — where a generated picture earns its place**: the cover (P1/P5), one section anchor, and a photo-editorial family that needs one per slide. Evidence slides keep charts and tables; a generated picture never stands in for evidence.
+**Default — what the deck hands the media prompt**: the `Asset:` line ("deck cover, full-bleed, type on the left"), the family's treatment as `Style:` (`editorial`: muted documentary photograph, shallow depth; `dark-tech`: macro of a lit surface on black; `swiss-minimal`: single object on a plain field; `soft-rounded`: soft daylight, pastel), the palette temperature (§design.md 6) as `Mood:`, and the calm zone for type as `Composition:`. A cover is a field for copy, so the media skill's no-text / no-faces exclusions apply. The subject comes from the brief, never the deck's topic word.
+**Hard rule — a generated picture is treated as a picture**: it recedes under type through `scrim()` / `wash()` like any other, is named in the plan line as its P skeleton, and its lane/model and prompt go into the speaker notes of the slide so a reader knows it is synthetic (the media skill's provenance rule, landed here). → manual
 
 ## 1. Placing a picture (contract)
 ```js
@@ -9,8 +16,8 @@ function picture(slide, path, x, y, w, h, { round = false, transparency = 0 } = 
   slide.addImage({ path, ...box(x, y, w, h), sizing: { type: 'cover', w, h }, rounding: round, transparency });
 }
 ```
-**Hard rule — text over a picture sits on a scrim**: a `scrim()` or `spotlight()` goes between the picture and any text on it; text straight on a picture fails the readability check at finalize.
-**Hard rule — one modifier per picture**: a crop and one tone treatment at most; a flat plate is never a tone.
+**Hard rule — text over a picture sits on a scrim**: a `scrim()` or `spotlight()` goes between the picture and any text on it; text straight on a picture fails the readability check at finalize. → runtime `low_visual_contrast` (render); scrim presence → manual
+**Hard rule — one modifier per picture**: a crop and one tone treatment at most; a flat plate is never a tone. → manual
 **Default — presence follows the job (may override when the picture is the evidence)**: a cover or atmosphere picture recedes (`transparency: 55-70` or `wash()`); an evidence picture keeps full presence and gets annotation instead.
 
 ## 2. Picture skeletons (P)

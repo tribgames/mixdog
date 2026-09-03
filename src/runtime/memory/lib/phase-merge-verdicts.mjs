@@ -10,7 +10,7 @@ import { createHash } from 'node:crypto'
 
 let _ensured = new WeakSet()
 
-export function summaryHash(text) {
+function summaryHash(text) {
   return createHash('sha1').update(String(text ?? '').replace(/\s+/g, ' ').trim().toLowerCase()).digest('hex')
 }
 
@@ -51,14 +51,4 @@ export async function writePhaseMergeVerdict(db, kind, a, b, verdict, now = Date
            verdict = EXCLUDED.verdict, judged_at = EXCLUDED.judged_at`,
     [kind, Number(a.id), Number(b.id), summaryHash(a.summary), summaryHash(b.summary), verdict, now],
   )
-}
-
-// Rows whose either side no longer exists are dead weight; prune on demand.
-export async function prunePhaseMergeVerdicts(db, maxAgeMs = 30 * 24 * 3600 * 1000, now = Date.now()) {
-  const r = await db.query(`DELETE FROM phase_merge_verdicts WHERE judged_at < $1`, [now - maxAgeMs])
-  return Number(r.rowCount ?? 0)
-}
-
-export function _resetPhaseMergeVerdictCacheForTests() {
-  _ensured = new WeakSet()
 }

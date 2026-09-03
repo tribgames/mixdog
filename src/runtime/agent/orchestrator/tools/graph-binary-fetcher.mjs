@@ -19,8 +19,8 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  downloadToFileWithRetry,
   MAX_NATIVE_BINARY_DOWNLOAD_BYTES,
-  streamResponseToFile,
 } from '../../../shared/bounded-download.mjs';
 
 // Bundled fallback manifest shipped with Mixdog. CI rewrites this on each
@@ -80,32 +80,15 @@ async function sha256File(filePath) {
   return createHash('sha256').update(await readFile(filePath)).digest('hex');
 }
 
-async function downloadWithRetry(url, destPath) {
-  // 4 attempts total (1 + 3 retries); backoff 1s/3s/9s. 4xx is terminal.
-  const delays = [1000, 3000, 9000];
-  let lastErr;
-  for (let attempt = 0; attempt < 4; attempt++) {
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(180_000) });
-      if (res.status >= 400 && res.status < 500) {
-        throw new Error(`[graph-fetcher] asset HTTP ${res.status} (terminal) — ${url}`);
-      }
-      if (!res.ok) throw new Error(`[graph-fetcher] asset HTTP ${res.status} — ${url}`);
-      await streamResponseToFile(res, destPath, {
-        maxBytes: MAX_NATIVE_BINARY_DOWNLOAD_BYTES,
-        label: 'graph binary download',
-      });
-      return;
-    } catch (err) {
-      lastErr = err;
-      if (String(err?.message || '').includes('(terminal)')) throw err;
-      if (attempt < 3) {
-        process.stderr.write(`[graph-fetcher] download attempt ${attempt + 1} failed (${err?.message}), retrying in ${delays[attempt]}ms…\n`);
-        await new Promise((r) => setTimeout(r, delays[attempt]));
-      }
-    }
-  }
-  throw lastErr;
+function downloadGraphBinary(url, destPath) {
+  return downloadToFileWithRetry(url, destPath, {
+    maxBytes: MAX_NATIVE_BINARY_DOWNLOAD_BYTES,
+    label: 'graph binary download',
+    httpLabel: '[graph-fetcher] asset',
+    onRetry: ({ attempt, delayMs, error }) => {
+      process.stderr.write(`[graph-fetcher] download attempt ${attempt} failed (${error?.message}), retrying in ${delayMs}ms…\n`);
+    },
+  });
 }
 
 // Remove stale binaries + tmp files, keeping the active one.
@@ -168,7 +151,7 @@ export function ensureGraphBinary(dataDir, options = {}) {
       try { if (await sha256File(destPath) === asset.sha256) return destPath; } catch { /* re-download */ }
     }
     const tmpPath = `${destPath}.tmp-${process.pid}-${Date.now()}`;
-    await (options.download || downloadWithRetry)(asset.url, tmpPath);
+    await (options.download || downloadGraphBinary)(asset.url, tmpPath);
     const actual = await sha256File(tmpPath);
     if (actual !== asset.sha256) {
       try { rmSync(tmpPath, { force: true }); } catch { /* best-effort */ }

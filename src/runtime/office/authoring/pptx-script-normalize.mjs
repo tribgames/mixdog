@@ -27,14 +27,30 @@ export function normalizeParagraphProperties(xml) {
   return { xml: output, removed };
 }
 
+// pptxgenjs also writes <c:invertIfNegative> into every series, but the
+// schema allows it only on bar and bubble series; line, area, pie, radar,
+// and scatter series fail validation with it present.
+const CHART_PARTS = /^ppt\/charts\/chart[^/]+\.xml$/;
+const NON_BAR_CHART = /<c:(lineChart|line3DChart|areaChart|area3DChart|pieChart|pie3DChart|doughnutChart|radarChart|scatterChart|ofPieChart)\b[\s\S]*?<\/c:\1>/g;
+const INVERT_IF_NEGATIVE = /<c:invertIfNegative\b[^>]*\/>|<c:invertIfNegative\b[^>]*>[\s\S]*?<\/c:invertIfNegative>/g;
+
+function normalizeChartSeries(xml) {
+  let removed = 0;
+  const output = String(xml || '').replace(NON_BAR_CHART, (chart) => chart.replace(INVERT_IF_NEGATIVE, () => {
+    removed += 1;
+    return '';
+  }));
+  return { xml: output, removed };
+}
+
 export async function normalizeAuthoredPptx(path) {
   const zip = await loadPackage(path);
-  const parts = Object.keys(zip.files).filter((name) => TEXT_PARTS.test(name));
+  const parts = Object.keys(zip.files).filter((name) => TEXT_PARTS.test(name) || CHART_PARTS.test(name));
   let removed = 0;
   let changedParts = 0;
   for (const part of parts) {
     const xml = await zipText(zip, part);
-    const result = normalizeParagraphProperties(xml);
+    const result = CHART_PARTS.test(part) ? normalizeChartSeries(xml) : normalizeParagraphProperties(xml);
     if (!result.removed) continue;
     zip.file(part, result.xml);
     removed += result.removed;

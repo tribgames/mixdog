@@ -473,12 +473,16 @@ async function snapshotPptx(zip, options = {}) {
         const geometry = shape.name === 'p:sp'
           ? (/<a:custGeom\b/i.test(shape.xml) ? 'custGeom' : /<a:prstGeom\b[^>]*\bprst="([^"]+)"/i.exec(shape.xml)?.[1] || '')
           : '';
+        // The shape's own surface color (spPr solidFill), distinct from text colors.
+        const spPr = /<p:spPr\b[^>]*>([\s\S]*?)<\/p:spPr>/i.exec(shape.xml)?.[1] || '';
+        const fill = /<a:solidFill>\s*<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/i.exec(spPr)?.[1]?.toUpperCase() || '';
         return {
           path: shapePath,
           index: shapeIndex + 1,
           type: shape.name,
           ...(shapeName ? { name: shapeName } : {}),
           ...(geometry ? { geometry } : {}),
+          ...(fill ? { fill: { color: fill } } : {}),
           text: paragraphTexts(shape.xml, 'a:t').join(''),
           ...(shape.name === 'p:grpSp' ? { group: true } : {}),
           ...(/<p:ph\b/i.test(shape.xml) ? { placeholder: true } : {}),

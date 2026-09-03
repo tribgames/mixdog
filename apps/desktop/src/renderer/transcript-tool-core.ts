@@ -99,6 +99,7 @@ function localizedToolActivityCategory(category: string): string {
   if (category === "Browser") return t("Browser Use");
   if (category === "Computer") return t("Computer Use");
   if (category === "Office") return t("Document work");
+  if (category === "Media") return t("Media generation");
   return t("External tools");
 }
 
@@ -164,12 +165,23 @@ function namedToolActivityUnit(
   if (category === "MCP") {
     const mcp = parseMcpToolName(String(name || modeledName));
     const server = titleCaseMcpServer(mcp?.server || "");
-    if (server) return { unitKey: `MCP|${mcp.server}`, label: server };
+    // Named units read as "<what> <which>" like every other unit: a bare
+    // server or skill name in the summary line looked like a versioned token.
+    if (server) return { unitKey: `MCP|${mcp.server}`, label: `MCP ${server}` };
   }
   if (category === "Skill") {
     const skills = toolLoadingTargets(modeledName, surface.args);
     const skill = skills.join(", ");
-    if (skill) return { unitKey: `Skill|${skill}`, label: skill };
+    if (skill) return { unitKey: `Skill|${skill}`, label: `${t("Skill")} ${skill}` };
+  }
+  if (category === "Media") {
+    const media = asRecord(surface.args) || {};
+    if (String(media.action || "").toLowerCase() === "generate") {
+      return String(media.kind || "").toLowerCase() === "video"
+        ? { unitKey: "Media|video", label: t("Video generation") }
+        : { unitKey: "Media|image", label: t("Image generation") };
+    }
+    return { unitKey: "Media|lookup", label: t("Media lookup") };
   }
   if (category === "Browser" || category === "Computer" || category === "Office") {
     return { unitKey: category, label: localizedToolActivityCategory(category) };
@@ -228,6 +240,7 @@ export function desktopToolActivityCategory(name: unknown, args: unknown): strin
   if (surface.normalizedName === "browser") return "Browser";
   if (surface.normalizedName === "computer") return "Computer";
   if (surface.normalizedName === "office") return "Office";
+  if (surface.normalizedName === "media") return "Media";
   return String(classifyToolCategory(modeledName, surface.args) || "Other");
 }
 

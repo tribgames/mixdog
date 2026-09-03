@@ -41,9 +41,7 @@ function commitStyleHint(preferences: DesktopGitPreferences | null): string {
       + 'Scope and ! are optional; custom lowercase types and revert are valid. '
       + 'Put an optional body after one blank line.';
   }
-  const instructions = preferences?.commitInstructions?.trim()
-    || preferences?.commitTemplate?.trim()
-    || '';
+  const instructions = preferences?.commitInstructions?.trim() || '';
   if (preferences?.commitPreset === 'custom' && instructions) {
     return `Follow these custom commit-message instructions:\n${instructions}`;
   }

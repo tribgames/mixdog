@@ -167,10 +167,14 @@ function variantPreference(variant) {
     return (variant.fast ? 100 : 0) + (effortRank < 0 ? 50 : effortRank);
 }
 
-function normalizeCursorParameterValue(id, value) {
+function isCursorEffortParameterId(id) {
     const key = String(id || '').trim().toLowerCase();
+    return key === 'effort' || key === 'reasoning' || key.endsWith('_effort') || key.endsWith('-effort');
+}
+
+function normalizeCursorParameterValue(id, value) {
     const text = String(value ?? '').trim().toLowerCase();
-    if (key === 'effort' || key === 'reasoning') {
+    if (isCursorEffortParameterId(id)) {
         return text === 'extra-high' ? 'xhigh' : text;
     }
     return text;
@@ -215,7 +219,7 @@ function cursorModelDescription(entry) {
 
 function parameterizedCursorModel(entry, provider) {
     const definitions = Array.isArray(entry.parameterDefinitions) ? entry.parameterDefinitions : [];
-    const effortDefinition = definitions.find((definition) => ['effort', 'reasoning'].includes(definition.id));
+    const effortDefinition = definitions.find((definition) => isCursorEffortParameterId(definition.id));
     const normalizedVariants = (entry.variants || []).map((variant) => ({
         ...variant,
         routeParameters: Object.fromEntries(Object.entries(variant.parameters || {}).map(([id, value]) => [
@@ -236,7 +240,7 @@ function parameterizedCursorModel(entry, provider) {
         .filter((variant) => variant.routeParameters.fast === 'true')
         .map((variant) => variant.routeParameters.effort || ''))];
     const modelParameterOptions = definitions
-        .filter((definition) => !['effort', 'reasoning', 'fast'].includes(definition.id))
+        .filter((definition) => !isCursorEffortParameterId(definition.id) && definition.id !== 'fast')
         .map((definition) => ({
             id: definition.id,
             label: definition.name || definition.id,
@@ -314,11 +318,13 @@ function normalizeCursorCatalog(entries, provider) {
             rawIds.add(model.id);
             for (const alias of entry.aliases || []) {
                 const variant = (entry.variants || []).find((candidate) => candidate.legacySlug === alias);
-                aliases.set(alias, {
-                    baseId: model.id,
-                    parameters: variant?.parameters || {},
-                    alias: true,
-                });
+                if (!aliases.has(alias)) {
+                    aliases.set(alias, {
+                        baseId: model.id,
+                        parameters: variant?.parameters || {},
+                        alias: true,
+                    });
+                }
                 rawIds.add(alias);
             }
             continue;

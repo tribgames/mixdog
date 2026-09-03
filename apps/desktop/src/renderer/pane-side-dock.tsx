@@ -102,7 +102,7 @@ export function paneDiffShowing(
  *  large diff is one uninterruptible task, so it must not land between two
  *  keystrokes. */
 export const PANE_DOCK_DIFF_RETAIN_MS = 1_500;
-function useRetainedDiff(diff: PaneSideDockDiff | null): PaneSideDockDiff | null {
+export function useRetainedDiff(diff: PaneSideDockDiff | null): PaneSideDockDiff | null {
   const [retained, setRetained] = useState<PaneSideDockDiff | null>(diff);
   useEffect(() => {
     if (diff) {
@@ -294,7 +294,7 @@ export function withPaneDockDiffClosed(
   };
 }
 
-function readStoredWidth(
+export function readStoredWidth(
   key: string,
   min: number,
   max: number,

@@ -196,17 +196,12 @@ import {
   sortedCatalogByMeasuredUsage,
   filterDisallowedTools,
   sortedNamesByMeasuredUsage,
-  defaultDeferredToolNames,
-  compactToolSearchDescription,
   toolRow,
   toolSearchMatches,
   applyDeferredToolSurface,
   selectDeferredTools,
   renderToolSearch,
 } from './tool-catalog.mjs';
-// Re-exported for external consumers (scripts/tool-smoke.mjs) that imported
-// these from this module before the tool-catalog extraction.
-export { defaultDeferredToolNames, compactToolSearchDescription } from './tool-catalog.mjs';
 import {
   TOOL_SEARCH_TOOL,
   CWD_TOOL,
@@ -229,12 +224,6 @@ import { attachSessionHooks } from './session-hooks.mjs';
 import { createQuickModelRows } from './quick-model-rows.mjs';
 import { createWarmupSchedulers } from './warmup-schedulers.mjs';
 import { createPrewarmSchedulers } from './prewarm.mjs';
-import {
-  getTurnReviewDiff as getTurnSnapshotReviewDiff,
-  getSessionReviewDiff as getSessionSnapshotReviewDiff,
-  revertTurnReview as revertTurnSnapshotReview,
-  revertTurnReviewFile as revertTurnSnapshotReviewFile,
-} from '../runtime/shared/turn-snapshot.mjs';
 import { createMcpGlue } from './mcp-glue.mjs';
 import { createCwdPlugins } from './cwd-plugins.mjs';
 import { createSettingsApi } from './settings-api.mjs';
@@ -258,7 +247,9 @@ import { createToolPolicyRefresh } from './tool-policy-refresh.mjs';
 import { readRuntimeTunables } from './runtime-tunables.mjs';
 import { createSessionTurnApi } from './session-turn-api.mjs';
 import { createGoalRuntime } from './goal-runtime.mjs';
-import { markPendingGoalReminder } from './goal-reminder.mjs';
+import { createGoalFacadeApi } from './goal-facade-api.mjs';
+import { createRuntimeReviewApi } from './runtime-review-api.mjs';
+import { createRuntimeFacade } from './runtime-facade.mjs';
 import { providerInitCacheKey } from './provider-init-key.mjs';
 import { createRoutePreparationGate } from './route-preparation.mjs';
 import {
@@ -294,6 +285,10 @@ import {
   initializeOfficeTransactions,
 } from '../runtime/office/index.mjs';
 import { TOOL_DEFS as OFFICE_TOOL_DEFS } from '../runtime/office/tool-defs.mjs';
+// Media Studio tool: a static import of the thin client only; the lane
+// catalog, adapters, and asset store load on the first call.
+import { executeMediaTool } from '../runtime/media/tool.mjs';
+import { TOOL_DEFS as MEDIA_TOOL_DEFS } from '../runtime/media/tool-defs.mjs';
 import { SETUP_TOOL_DEFS } from './setup-tool/tool-defs.mjs';
 import { createSetupToolExecutor } from './setup-tool/executor.mjs';
 import {
@@ -301,16 +296,6 @@ import {
   memoryToolArgsForCaller,
   shouldMirrorCompletionToPendingQueue,
 } from './runtime-tool-routing.mjs';
-export {
-  __renderToolSearchForTest,
-  __saveModelSettingsForTest,
-  dispatchWebSearchRuntimeTool,
-  memoryToolArgsForCaller,
-  shouldMirrorCompletionToPendingQueue,
-} from './runtime-tool-routing.mjs';
-// Re-exported for external consumers (scripts/tool-smoke.mjs) that imported
-// these from this module before the tool-defs extraction.
-export { TOOL_SEARCH_TOOL, SKILL_TOOL };
 const resolveDefaultProvider = makeResolveDefaultProvider(isKnownProvider);
 const resolveRoute = makeResolveRoute(resolveDefaultProvider);
 const webSearchCapableFor = makeWebSearchCapableFor(normalizeWebSearchProviderId, isWebSearchCapableProvider);
@@ -465,6 +450,7 @@ export async function createMixdogSessionRuntime({
   const webSearchEnabled = () => builtinFeatureActive(rt.config, 'webSearch');
   const gitToolsEnabledFn = () => builtinFeatureActive(rt.config, 'git');
   const officeToolsEnabledFn = () => builtinFeatureActive(rt.config, 'office');
+  const mediaToolEnabledFn = () => builtinFeatureActive(rt.config, 'media');
   const channelsEnabled = () => moduleEnabled(rt.config, 'channels', true);
   const featureDisallowedTools = () => featureDisallowedToolsFor(rt.config, {
     browserAvailable: browserBridgeAvailableSync(),
@@ -979,6 +965,7 @@ export async function createMixdogSessionRuntime({
     ...BROWSER_BRIDGE_TOOL_DEFS.filter((tool) => tool?.name === 'browser'),
     ...COMPUTER_BRIDGE_TOOL_DEFS.filter((tool) => tool?.name === 'computer'),
     ...OFFICE_TOOL_DEFS.filter((tool) => tool?.name === 'office'),
+    ...MEDIA_TOOL_DEFS.filter((tool) => tool?.name === 'media'),
     ...SETUP_TOOL_DEFS,
     ...goalRuntime.tools,
     ...agentTool.tools,
@@ -1090,6 +1077,15 @@ export async function createMixdogSessionRuntime({
           requestApproval: callerCtx?.toolApprovalHook,
           sessionId: callerCtx?.sessionId,
           toolCallId: callerCtx?.toolCallId,
+          signal: callerCtx?.signal || rt.session?.controller?.signal || null,
+        });
+      }
+      if (name === 'media') {
+        if (callerCtx?.invocationSource === 'model-tool' && !mediaToolEnabledFn()) {
+          throw new Error('media is disabled in settings; start a new session to refresh the tool list');
+        }
+        return await executeMediaTool(args, {
+          cwd: callerCwd,
           signal: callerCtx?.signal || rt.session?.controller?.signal || null,
         });
       }
@@ -1799,47 +1795,38 @@ export async function createMixdogSessionRuntime({
     endComputerExecution,
     deferComputerSessionRelease,
   });
+  const getFacadeSessionId = () => rt.session?.id || rt.reservedSessionId || null;
+  const runtimeReviewApi = createRuntimeReviewApi({
+    getCwd: () => rt.currentCwd,
+    getSessionId: getFacadeSessionId,
+  });
+  const goalFacadeApi = createGoalFacadeApi({
+    agentStatusState,
+    createCurrentSession,
+    getSession: () => rt.session,
+    getSessionId: getFacadeSessionId,
+    goalRuntime,
+  });
 
-  runtimeFacade = {
-    ...settingsApi,
-    ...channelConfigApi,
-    ...providerAuthApi,
-    ...mediaApi,
-    // Turn-scoped worktree review plus exact child apply_patch attribution.
-    getTurnReviewDiff: (options = {}) => getTurnSnapshotReviewDiff(
-      rt.currentCwd,
-      rt.session?.id,
-      options,
-    ),
-    getSessionReviewDiff: () => getSessionSnapshotReviewDiff(
-      rt.currentCwd,
-      rt.session?.id,
-    ),
-    revertTurnReview: (checkpointId) => revertTurnSnapshotReview(
-      rt.currentCwd,
-      rt.session?.id,
-      checkpointId,
-    ),
-    revertTurnReviewFile: (file, checkpointId) => revertTurnSnapshotReviewFile(
-      rt.currentCwd,
-      rt.session?.id,
-      file,
-      checkpointId,
-    ),
-    get id() {
-      return rt.session?.id || rt.reservedSessionId || null;
+  runtimeFacade = createRuntimeFacade({
+    state: rt,
+    leadingApi: {
+      ...settingsApi,
+      ...channelConfigApi,
+      ...providerAuthApi,
+      ...mediaApi,
+      ...runtimeReviewApi,
     },
-    deliverToolCompletion(sessionId, text, meta = {}) {
-      const target = String(sessionId || '').trim();
-      const current = String(rt.session?.id || rt.reservedSessionId || '').trim();
-      if (!target || target !== current) return false;
-      return notifySessionCompletion(target, text, meta);
+    goalApi: goalFacadeApi,
+    trailingApi: {
+      ...lifecycleApi,
+      ...resourceApi,
+      ...modelRouteApi,
+      ...workflowAgentsApi,
+      ...sessionTurnApi,
     },
-    reserveSessionId(sessionId) {
-      const id = String(sessionId || '').trim();
-      if (!id || !/^[A-Za-z0-9_-]+$/.test(id)) {
-        throw new TypeError('session id is invalid');
-      }
+    deliverToolCompletion: notifySessionCompletion,
+    reserveSessionId: (id) => {
       if (rt.session?.id && rt.session.id !== id) {
         throw new Error(`session ${rt.session.id} is already materialized`);
       }
@@ -1855,96 +1842,10 @@ export async function createMixdogSessionRuntime({
           error: error?.message || String(error),
         });
       });
-      return id;
     },
-    goalStatus() {
-      const sessionId = rt.session?.id || rt.reservedSessionId || null;
-      return sessionId ? goalRuntime.snapshot(sessionId) : null;
-    },
-    async goalControl(args = {}) {
-      let sessionId = rt.session?.id || rt.reservedSessionId || null;
-      if (!sessionId) {
-        await createCurrentSession('goal');
-        sessionId = rt.session?.id || rt.reservedSessionId || null;
-      }
-      if (!sessionId) throw new Error('goal: session could not be created');
-      const result = await goalRuntime.control(sessionId, args);
-      // A user-side objective change is invisible to a model already holding
-      // the old objective: mark one state reminder so the next turn re-aligns
-      // instead of finishing the objective the user just replaced.
-      if (result?.action === 'edit') {
-        try { markPendingGoalReminder(rt.session, 'objective-updated'); }
-        catch { /* best-effort: a reminder must never break Goal control */ }
-      }
-      return result;
-    },
-    markGoalReminder(reason = '') {
-      try { return markPendingGoalReminder(rt.session, reason); }
-      catch { return null; }
-    },
-    goalContinuation() {
-      const sessionId = rt.session?.id || rt.reservedSessionId || null;
-      if (!sessionId) return { run: false, reason: 'missing-session', goal: null };
-      return goalRuntime.continuation(sessionId, { agentStatus: agentStatusState() });
-    },
-    goalTurnStarted() {
-      const sessionId = rt.session?.id || rt.reservedSessionId || null;
-      return sessionId ? goalRuntime.startTurn(sessionId) : null;
-    },
-    goalTurnSettled(detail = {}) {
-      const sessionId = rt.session?.id || rt.reservedSessionId || null;
-      return sessionId ? goalRuntime.settleTurn(sessionId, detail) : null;
-    },
-    archiveCompletedGoalOnUserInput() {
-      const sessionId = rt.session?.id || rt.reservedSessionId || null;
-      return sessionId ? goalRuntime.archiveCompletedOnUserInput(sessionId) : null;
-    },
-    onGoalStatusChange(listener) {
-      return goalRuntime.subscribe(listener);
-    },
-    get provider() {
-      return rt.route.provider;
-    },
-    get model() {
-      return rt.route.model;
-    },
-    get effort() {
-      return rt.route.effectiveEffort || rt.route.effort || rt.route.preset?.effort || null;
-    },
-    get fast() {
-      return rt.route.fast === true;
-    },
-    get fastCapable() {
-      return rt.route.fastCapable === true;
-    },
-    get modelParameters() {
-      return rt.route.modelParameters || {};
-    },
-    get effortOptions() {
-      return rt.route.effortOptions || [];
-    },
-    get contextWindow() {
-      return rt.session?.contextWindow || null;
-    },
-    get contextPercent() {
-      return rt.session?.contextPercent ?? rt.route?.contextPercent ?? null;
-    },
-    get rawContextWindow() {
-      return rt.session?.rawContextWindow || rt.session?.contextWindow || null;
-    },
-    get effectiveContextWindowPercent() {
-      return rt.session?.effectiveContextWindowPercent || null;
-    },
-    get toolMode() {
-      return rt.mode;
-    },
-    get autoClear() {
-      return this.getAutoClear();
-    },
-    get systemShell() {
-      return normalizeSystemShellConfig(rt.config.shell);
-    },
-    get webSearchRoute() {
+    getAutoClear: () => settingsApi.getAutoClear(),
+    getSystemShell: () => normalizeSystemShellConfig(rt.config.shell),
+    getWebSearchRoute: () => {
       rt.webSearchRoute = normalizeWebSearchRouteConfig(rt.config.webSearchRoute)
         || normalizeWebSearchRouteConfig(rt.webSearchRoute)
         || normalizeWebSearchRouteConfig({
@@ -1953,7 +1854,7 @@ export async function createMixdogSessionRuntime({
         });
       return rt.webSearchRoute;
     },
-    get workflow() {
+    getWorkflow: () => {
       const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
       const active = activeWorkflowSummary(rt.config, dataDir);
       if (rt.session?.workflow && typeof rt.session.workflow === 'object') {
@@ -1964,38 +1865,10 @@ export async function createMixdogSessionRuntime({
       }
       return active;
     },
-    get outputStyle() {
-      return getOutputStyleStatusCached().current;
-    },
-    get cwd() {
-      return rt.currentCwd;
-    },
-    get session() {
-      return rt.session;
-    },
-    contextStatus() {
-      // Prefer the in-flight working transcript while a turn is running so the
-      // context gauge reflects LIVE growth (user turn + tool calls/results) as
-      // it accumulates, instead of freezing at the pre-turn committed snapshot.
-      // askSession() sets session.liveTurnMessages for the turn duration and
-      // clears it on commit/cancel/error, after which we fall back to the
-      // authoritative committed transcript.
-      return computeContextStatus();
-    },
-    contextStatusForSession(session) {
-      return computeContextStatusForSession(session);
-    },
-    renameSessionTitle(sessionId, title) {
-      return mgr.updateSessionManualTitle(sessionId, title);
-    },
-    get clientHostPid() {
-      return rt.session?.clientHostPid || process.pid;
-    },
-    ...lifecycleApi,
-    ...resourceApi,
-    ...modelRouteApi,
-    ...workflowAgentsApi,
-    ...sessionTurnApi,
-  };
+    getOutputStyle: () => getOutputStyleStatusCached().current,
+    getContextStatus: computeContextStatus,
+    getContextStatusForSession: computeContextStatusForSession,
+    renameSessionTitle: (sessionId, title) => mgr.updateSessionManualTitle(sessionId, title),
+  });
   return runtimeFacade;
 }

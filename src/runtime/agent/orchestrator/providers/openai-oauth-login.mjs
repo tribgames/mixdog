@@ -9,7 +9,8 @@
  * of its module-level token store state.
  */
 import { createServer } from 'http';
-import { randomBytes, createHash } from 'crypto';
+import { randomBytes } from 'crypto';
+import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
 
 const TOKEN_URL = 'https://auth.openai.com/oauth/token';
 const AUTHORIZE_URL = 'https://auth.openai.com/oauth/authorize';
@@ -21,38 +22,12 @@ const REDIRECT_URI = `http://localhost:${CALLBACK_PORT}${CALLBACK_PATH}`;
 const LOGIN_TIMEOUT_MS = 5 * 60_000;
 const TOKEN_TIMEOUT_MS = 30_000;
 
-function generatePKCE() {
-    const verifier = randomBytes(64).toString('base64url');
-    const challenge = createHash('sha256').update(verifier).digest('base64url');
-    return { verifier, challenge };
-}
-
 function _scrubOAuthLoginBody(text) {
     return String(text || '')
         .replace(/"access_token"\s*:\s*"[^"]+"/g, '"access_token":"[REDACTED]"')
         .replace(/"refresh_token"\s*:\s*"[^"]+"/g, '"refresh_token":"[REDACTED]"')
         .replace(/"id_token"\s*:\s*"[^"]+"/g, '"id_token":"[REDACTED]"')
         .replace(/[A-Za-z0-9_-]{32,}\.[A-Za-z0-9._-]+/g, '[REDACTED]');
-}
-
-function _parseOAuthCodeInput(input) {
-    const value = String(input || '').trim();
-    if (!value) return { code: '', state: '' };
-    try {
-        const url = new URL(value);
-        const code = url.searchParams.get('code') || '';
-        const state = url.searchParams.get('state') || '';
-        if (code || state) return { code, state };
-    } catch { /* not a URL */ }
-    if (value.includes('#')) {
-        const [code, state] = value.split('#', 2);
-        return { code: String(code || '').trim(), state: String(state || '').trim() };
-    }
-    if (value.includes('code=')) {
-        const params = new URLSearchParams(value.startsWith('?') ? value.slice(1) : value);
-        return { code: params.get('code') || '', state: params.get('state') || '' };
-    }
-    return { code: value, state: '' };
 }
 
 /**
@@ -104,7 +79,7 @@ export function createOpenAIOAuthLogin(deps) {
     }
 
     async function beginOAuthLogin() {
-        const pkce = generatePKCE();
+        const pkce = createOAuthPkce(64);
         const state = randomBytes(16).toString('hex');
         const url = new URL(AUTHORIZE_URL);
         url.searchParams.set('response_type', 'code');
@@ -172,7 +147,7 @@ export function createOpenAIOAuthLogin(deps) {
             url: url.toString(),
             waitForCallback,
             completeCode: async (input) => {
-                const parsed = _parseOAuthCodeInput(input);
+                const parsed = parseOAuthCodeInput(input, { allowHashState: true });
                 if (parsed.state && parsed.state !== state) throw new Error('[openai-oauth] OAuth state mismatch');
                 const tokens = await exchangeAuthorizationCode({ pkce, code: parsed.code });
                 finish?.(tokens);
