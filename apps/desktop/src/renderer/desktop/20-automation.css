@@ -503,21 +503,6 @@
    plate come from the shared danger variant. */
 .schedules-dialog footer button.danger { margin-right: auto; }
 .schedules-dialog footer button.danger.confirming { color: var(--mx-grey-50); background: var(--mx-danger); }
-.session-sidebar-panels .schedules-row .session-panel-action.workflows-row-enter {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
-  align-self: center;
-  margin-right: 0;
-  margin-left: auto;
-  padding: 0;
-  border-radius: 0;
-  color: var(--mx-text-faint);
-}
-.session-sidebar-panels .schedules-row:hover .session-panel-action.workflows-row-enter {
-  color: var(--mx-text-soft);
-  background: transparent;
-}
 .workflows-model-row .row-overflow { margin-left: 0; justify-self: end; }
 @media (max-width: 820px) {
   /* The stacked layout moves the route cluster onto a SECOND grid row, so the
@@ -550,7 +535,6 @@
 /* Projects page (sidebar → Projects): Schedules-page grammar replacing the
    popup switcher — rows reuse the schedules list skin. */
 .projects-row-icon { flex: 0 0 auto; display: grid; place-items: center; color: var(--mx-icon-muted); }
-.projects-row-open { padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
 .projects-instructions-edit {
   width: 16px;
   height: 16px;

@@ -144,18 +144,6 @@ export function parseStreamingMarkdownAst(text: string): Promise<MarkdownAstRoot
   }).catch(() => parseMarkdownOnRenderer(value));
 }
 
-let markdownParserPrewarmPromise: Promise<void> | null = null;
-
-export function preloadStreamingMarkdownParser(): Promise<void> {
-  markdownParserPrewarmPromise ||= parseStreamingMarkdownAst(" ")
-    .then(() => undefined)
-    .catch((error) => {
-      markdownParserPrewarmPromise = null;
-      throw error;
-    });
-  return markdownParserPrewarmPromise;
-}
-
 interface QueuedMarkdownAstRequest {
   text: string;
   resolve(root: MarkdownAstRoot, text: string): void;

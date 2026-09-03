@@ -43,10 +43,6 @@ export function desktopAgentStatus(value: unknown): string {
   return statusValues(value)[0] || "";
 }
 
-export function isTerminalDesktopAgentEntry(value: unknown): boolean {
-  return statusValues(value).some((status) => DESKTOP_TERMINAL_AGENT_STATUS.test(status));
-}
-
 export function isActiveDesktopAgentEntry(value: unknown): boolean {
   const statuses = statusValues(value);
   return statuses.length > 0

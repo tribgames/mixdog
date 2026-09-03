@@ -483,7 +483,10 @@ async function snapshotPptx(zip, options = {}) {
           ...(shapeName ? { name: shapeName } : {}),
           ...(geometry ? { geometry } : {}),
           ...(fill ? { fill: { color: fill } } : {}),
-          text: paragraphTexts(shape.xml, 'a:t').join(''),
+          // A table's cells are separate strings a reader never runs together
+          // ("4:3" beside "8.8초" is not "4:38.8초"), so they join on a space;
+          // a text body keeps its paragraphs run together as before.
+          text: paragraphTexts(shape.xml, 'a:t').join(tableRows ? ' ' : ''),
           ...(shape.name === 'p:grpSp' ? { group: true } : {}),
           ...(/<p:ph\b/i.test(shape.xml) ? { placeholder: true } : {}),
           ...(/<c:chart\b/i.test(shape.xml) ? { chart: { path: `${shapePath}/chart` } } : {}),

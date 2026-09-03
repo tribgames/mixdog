@@ -7,7 +7,3 @@ export const WORKBENCH_PANEL_REGISTRY: ReadonlyArray<{
 }> = Object.freeze([
   { id: "problems", label: "Problems", requiresProject: true },
 ]);
-
-export function isWorkbenchPanelId(value: string): value is WorkbenchPanelId {
-  return WORKBENCH_PANEL_REGISTRY.some((entry) => entry.id === value);
-}

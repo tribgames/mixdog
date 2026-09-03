@@ -50,6 +50,18 @@
   animation: mx-dialog-in var(--mx-motion-chrome);
 }
 .mx-dialog { width: min(480px, calc(100vw - 32px)); }
+.sidebar-loading-dialog { --mx-editor-width: 520px; }
+.sidebar-dialog-loading {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 20px 24px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+}
+.sidebar-dialog-loading > svg { animation: spin 1.1s linear infinite; }
 /* The guided-setup card is fixed-size, so it follows the shorter layer too. */
 .onboarding-dialog { height: min(720px, 100%); }
 @keyframes mx-dialog-in {

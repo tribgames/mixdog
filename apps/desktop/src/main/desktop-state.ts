@@ -1,7 +1,6 @@
 import type {
   DesktopSessionClassification,
   DesktopSessionSummary,
-  SessionSnapshot,
 } from '../shared/contract';
 import {
   compactedSessionTitle,
@@ -17,21 +16,6 @@ function normalizedPath(value: string): string {
 
 function isDesktopTaskWorkspace(value: string): boolean {
   return normalizedPath(value).endsWith('/workspace/unclassified');
-}
-
-export function desktopSnapshot(
-  snapshot: SessionSnapshot,
-  currentProject: string | null,
-  recentProjects: readonly string[],
-): SessionSnapshot {
-  const state = snapshot && typeof snapshot === 'object' ? snapshot : {};
-  return {
-    ...state,
-    items: Array.isArray(state.items) ? state.items : [],
-    queued: Array.isArray(state.queued) ? state.queued : [],
-    currentProject,
-    recentProjects: [...recentProjects],
-  };
 }
 
 export function desktopSessionSummaries(

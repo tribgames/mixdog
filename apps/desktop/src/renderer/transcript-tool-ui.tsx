@@ -93,7 +93,7 @@ export function ToolActivityGroup({
   );
   // A single call carries no count: "Skill mixdog-refs" not "Skill mixdog-refs 1".
   const categorySummary = categoryGroups
-    .map((group) => (group.count > 1 ? `${group.label} ×${group.count}` : group.label))
+    .map((group) => (group.count > 1 ? `${group.label} ${group.count}` : group.label))
     .join(" · ");
   const label = categorySummary || t("Tool use");
 

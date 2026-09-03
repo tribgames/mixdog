@@ -183,29 +183,22 @@
 .extensions-row {
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: 10px;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-}
-.extensions-row .extensions-row-open:disabled,
-.extensions-row .extensions-row-enter:disabled {
-  opacity: var(--mx-op-disabled);
-  cursor: default;
-}
-.extensions-row .extensions-row-open {
-  grid-column: 1;
-  min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-rows: auto auto;
   align-items: center;
   column-gap: 10px;
   row-gap: 2px;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
-.extensions-row .extensions-row-icon {
+.extensions-row:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+.extensions-row > .extensions-row-icon {
   grid-column: 1;
   grid-row: 1 / 3;
   display: grid;
@@ -218,8 +211,8 @@
   box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
 }
 .extensions-row[data-enabled="false"] .extensions-row-icon { opacity: var(--mx-op-disabled); }
-.extensions-row .extensions-row-open > .sidebar-resource-title { grid-column: 2; grid-row: 1; min-width: 0; }
-.extensions-row .extensions-row-open > small {
+.extensions-row > .sidebar-resource-title { grid-column: 2; grid-row: 1; min-width: 0; }
+.extensions-row > small {
   grid-column: 2;
   grid-row: 2;
   min-width: 0;
@@ -227,11 +220,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.extensions-row .extensions-row-enter {
-  grid-column: 2;
-  align-self: center;
-  justify-self: center;
-  margin: 0;
+.extensions-row > .utilities-row-chevron {
+  grid-column: 3;
+  grid-row: 1 / 3;
 }
 
 /* Built-in features list as plain extension rows; the install/enable control
@@ -361,15 +352,16 @@
   line-height: var(--mx-line-meta);
 }
 
-/* Detail dialog: the schedules editor card with a facts list where the form
-   would be. The body owns the 20px gutter that card's sticky footer assumes in
-   its negative margin, so the footer plate still reaches both edges. */
+/* Detail dialogs are intentionally narrower than full Markdown editors. */
+.extensions-dialog { --mx-editor-width: 640px; }
+.extensions-plugin-dialog { --mx-editor-width: 520px; }
+/* The body owns the same 20px gutter and 16px rhythm as editor forms. */
 .extensions-dialog-body {
   min-height: 0;
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   overflow-y: auto;
   /* Same opening step as the editors' form body under the shared header. */
   padding: 4px 20px 20px;
@@ -393,8 +385,9 @@
   color: var(--mx-text);
   font-size: var(--mx-font-ui);
 }
-/* An extension entry carries more actions than a two-button editor footer. */
-.extensions-dialog footer { flex-wrap: wrap; }
+/* A detail footer exists only when the entry has real actions; close-only
+   details rely on the header X instead of painting a redundant bottom plate. */
+.extensions-dialog-actions { flex-wrap: wrap; }
 .extensions-dialog .extensions-skill-preview {
   max-height: 320px;
   overflow: auto;
@@ -622,11 +615,11 @@
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   column-gap: 12px;
-  padding: 2px 0 6px;
+  padding: 0 0 4px;
 }
 .extensions-hero-icon {
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
   border-radius: var(--mx-radius-md);
@@ -637,16 +630,6 @@
 .extensions-hero-copy {
   min-width: 0;
   display: grid;
-  gap: 3px;
-}
-.extensions-hero-copy b {
-  overflow: hidden;
-  color: var(--mx-text);
-  font-size: var(--mx-font-emphasis);
-  font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-emphasis);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .extensions-hero-copy small {
   overflow: hidden;

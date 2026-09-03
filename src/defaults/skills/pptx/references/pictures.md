@@ -11,11 +11,16 @@ The `image` skill makes the picture; this file only decides where it goes in a d
 
 ## 1. Placing a picture (contract)
 ```js
-// Fill a frame without distortion; round:true makes a circle.
-function picture(slide, path, x, y, w, h, { round = false, transparency = 0 } = {}) {
-  slide.addImage({ path, ...box(x, y, w, h), sizing: { type: 'cover', w, h }, rounding: round, transparency });
+// Fill a frame without distortion; round:true makes a circle. Async: `await picture(...)`.
+// The crop happens here with sharp: pptxgenjs's sizing:'cover' writes an empty srcRect for a file path, so a
+// picture whose ratio differs from the frame would be stretched, not cropped (review: image_aspect_distorted).
+async function picture(slide, path, x, y, w, h, { round = false, transparency = 0 } = {}) {
+  const pw = Math.max(2, Math.round(w * PX)), ph = Math.max(2, Math.round(h * PX));
+  const buf = await sharp(path).resize(pw, ph, { fit: 'cover', position: 'attention' }).png().toBuffer();
+  slide.addImage({ data: 'image/png;base64,' + buf.toString('base64'), ...box(x, y, w, h), rounding: round, transparency });
 }
 ```
+**Hard rule — a picture is cropped to its frame before it is placed, never stretched**: `picture()` crops; `addImage` with a file path and a frame of another ratio is a defect. → runtime `image_aspect_distorted`
 **Hard rule — text over a picture sits on a scrim**: a `scrim()` or `spotlight()` goes between the picture and any text on it; text straight on a picture fails the readability check at finalize. → runtime `low_visual_contrast` (render); scrim presence → manual
 **Hard rule — one modifier per picture**: a crop and one tone treatment at most; a flat plate is never a tone. → manual
 **Default — presence follows the job (may override when the picture is the evidence)**: a cover or atmosphere picture recedes (`transparency: 55-70` or `wash()`); an evidence picture keeps full presence and gets annotation instead.

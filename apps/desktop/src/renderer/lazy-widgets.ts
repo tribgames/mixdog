@@ -27,7 +27,6 @@ export async function disposeTerminalPane(id: string): Promise<void> {
 // a session always lags the FIRST time). A real session resume warms ONLY that
 // transcript dependency; editor and terminal stay behind their own navigation
 // intent so a chat never retains Monaco/xterm without using them.
-let prefetched = false;
 let diffPrefetch: Promise<unknown> | null = null;
 let terminalPrefetch: Promise<unknown> | null = null;
 let editorPrefetch: Promise<unknown> | null = null;
@@ -119,12 +118,4 @@ export function scheduleEditorPanePrefetch(): void {
       host.requestIdleCallback(start, { timeout: 1_000 });
     } else window.setTimeout(start, 0);
   }, EDITOR_INTENT_QUIET_MS);
-}
-
-export function prefetchLazyWidgets(): void {
-  if (prefetched) return;
-  prefetched = true;
-  // Scheduling belongs to the session resume path. Keep this narrow: imports
-  // are permanent for the renderer lifetime.
-  void prefetchDiffView().catch(() => { prefetched = false; });
 }

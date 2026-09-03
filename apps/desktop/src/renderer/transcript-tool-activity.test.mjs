@@ -117,6 +117,28 @@ test('desktop and mobile tool groups share details and a static task icon', asyn
   }
 });
 
+test('desktop activity shows repeated tool counts as bare trailing numbers', async () => {
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  try {
+    await act(async () => {
+      dom.root.render(React.createElement(ToolActivityGroup, {
+        items: [
+          { kind: 'tool', id: 'read', name: 'read', args: { file_path: 'src/a.ts' }, result: 'ok' },
+          { kind: 'tool', id: 'grep-1', name: 'grep', args: { pattern: 'first' }, result: 'ok' },
+          { kind: 'tool', id: 'grep-2', name: 'grep', args: { pattern: 'second' }, result: 'ok' },
+        ],
+      }));
+    });
+
+    const title = document.querySelector('.tool-activity-title')?.textContent?.trim() || '';
+    assert.equal(title, 'File reading · Content search 2');
+    assert.doesNotMatch(title, /×/);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
 test('formats desktop token counts with compact uppercase units', () => {
   assert.equal(formatTokenCount(999), '999');
   assert.equal(formatTokenCount(78_087), '78.1K');

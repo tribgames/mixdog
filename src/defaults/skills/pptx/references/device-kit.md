@@ -21,6 +21,16 @@ const T = {                                    // palette ladder from the brief 
 };
 const box = (x, y, w, h) => ({ x, y, w, h });
 const PX = 160;                                 // raster density: inches × PX = pixels (≥ 2× placed size)
+// Two spacing steps, not one (design.md §8): `within` binds a thing to what belongs to it (a label to its detail,
+// a numeral to its note); `between` separates peers and blocks. A gap that is neither is a defect.
+const GAP = { within: 0.12, between: 0.45 };
+// Title placement (design.md §8 "the title moves with the slide's role"): the brief's `title:` line sets the deck
+// default; a slide whose carrier owns the page (a hub, a cycle, a gauge, a timeline) may take the other one, and
+// says so in its plan line. 'top' — kicker and title at the head, content below; 'low' — content first, kicker
+// and title in the bottom band. head() sets FLOOR for the slide it draws; every archetype reads FLOOR after head().
+const TITLE_PLACE = 'top';
+const floorOf = (place) => (place === 'low' ? 5.3 : 6.6);   // where content stops; takeaways sit at FLOOR - 0.6
+let FLOOR = floorOf(TITLE_PLACE);
 
 // Type scale (design.md §7): the reading mode sets the body anchor; every role derives from it,
 // so one deck never mixes a document-density body with a presentation-scale title.
@@ -50,19 +60,21 @@ const FAMILY = {
   'brutalist':       { display: 'Arial',       sans: 'Arial',   light: 'Arial',         data: 'Arial',       chrome: ['mark', 'page'] },   // display weight comes from bold 40-54 pt
 };
 // Korean pairing per family (design.md §3 table). `safe` uses faces every Windows PowerPoint has:
-// Malgun Gothic in three weights (Semilight / regular / bold) and Batang for the serif display; the
-// family's Latin data face stays for numerals. `noto` (Noto Sans KR / Noto Serif KR) only after the
-// user confirmed the recipients have it; finalize then needs `allowUnsafeFonts: true`.
+// Malgun Gothic in three weights (Semilight / regular / bold). There is no safe Korean serif display —
+// Batang is a document face and reads cheap at title size — so a serif family falls back to the weight
+// pairing on `safe`; the serif pairing exists only on `noto` (Noto Serif KR), after the user confirmed
+// the recipients have it (finalize then needs `allowUnsafeFonts: true`). Numerals and Latin kickers in a
+// Korean deck use Malgun Gothic too: a Cambria kicker over a Hangul title is two systems on one page.
 const KOREAN = {
   safe: {
-    serif:   { display: 'Batang',        sans: 'Malgun Gothic', light: 'Malgun Gothic Semilight' },   // contrast: serif display over a light sans body
-    weight:  { display: 'Malgun Gothic', sans: 'Malgun Gothic', light: 'Malgun Gothic Semilight' },   // contrast by weight: bold display, semilight body
-    concord: { display: 'Malgun Gothic', sans: 'Malgun Gothic', light: 'Malgun Gothic' },             // one face, one weight step (swiss, brutalist)
+    serif:   { display: 'Malgun Gothic', sans: 'Malgun Gothic', light: 'Malgun Gothic Semilight', data: 'Malgun Gothic' },   // = weight (no safe serif)
+    weight:  { display: 'Malgun Gothic', sans: 'Malgun Gothic', light: 'Malgun Gothic Semilight', data: 'Malgun Gothic' },   // contrast by weight: bold display, semilight body
+    concord: { display: 'Malgun Gothic', sans: 'Malgun Gothic', light: 'Malgun Gothic', data: 'Malgun Gothic' },             // one face, one weight step (swiss, brutalist)
   },
   noto: {
-    serif:   { display: 'Noto Serif KR', sans: 'Noto Sans KR', light: 'Noto Sans KR' },
-    weight:  { display: 'Noto Sans KR',  sans: 'Noto Sans KR', light: 'Noto Sans KR' },
-    concord: { display: 'Noto Sans KR',  sans: 'Noto Sans KR', light: 'Noto Sans KR' },
+    serif:   { display: 'Noto Serif KR', sans: 'Noto Sans KR', light: 'Noto Sans KR', data: 'Noto Sans KR' },
+    weight:  { display: 'Noto Sans KR',  sans: 'Noto Sans KR', light: 'Noto Sans KR', data: 'Noto Sans KR' },
+    concord: { display: 'Noto Sans KR',  sans: 'Noto Sans KR', light: 'Noto Sans KR', data: 'Noto Sans KR' },
   },
 };
 const KOREAN_PAIRING = { 'swiss-minimal': 'concord', 'editorial': 'serif', 'photo-editorial': 'weight', 'data-journalism': 'weight',
@@ -71,7 +83,7 @@ const KOREAN_PAIRING = { 'swiss-minimal': 'concord', 'editorial': 'serif', 'phot
 function family(name, { korean = false } = {}) {
   const f = FAMILY[name];
   const k = korean ? KOREAN[korean === true ? 'safe' : korean][KOREAN_PAIRING[name]] : null;
-  Object.assign(T, { display: k ? k.display : f.display, sans: k ? k.sans : f.sans, light: k ? k.light : f.light, data: f.data });
+  Object.assign(T, { display: k ? k.display : f.display, sans: k ? k.sans : f.sans, light: k ? k.light : f.light, data: k ? k.data : f.data });
   return f;
 }
 const F = family('editorial', { korean: false });
@@ -129,6 +141,9 @@ async function glow(slide, cx, cy, r, color = T.accent, alpha = 0.35) {
 // fitH: the height a box of width w needs for text at size; fitSize: the largest size ≤ size that fits w × h.
 // lh is the box's lineSpacingMultiple (1 = single): pass the same value the addText call carries, nothing else.
 const fitH = (text, w, size, font = T.sans, { bold = false, lh = 1 } = {}) => MEASURE(text, { font, size, bold, width: w, lineHeight: lh }).height + 0.06;
+// lineH: the height one line takes in inches — the face's own line height (Malgun Gothic 1.33 em, Latin faces 1.2)
+// times the box's lineSpacingMultiple. Every fixed-height single-line box (numeral, ghost, label) is sized with it.
+const lineH = (size, font = T.sans, lh = 1) => size / 72 * (/malgun|noto|batang|gulim|dotum/i.test(font) ? 1.33 : 1.2) * lh;
 function fitSize(text, w, h, size, font = T.sans, { bold = false, lh = 1, min = 12 } = {}) {
   let s = size;
   while (s > min && fitH(text, w, s, font, { bold, lh }) > h) s -= 1;
@@ -176,9 +191,9 @@ function takeaway(slide, text, y, { x = M, w = W - 2 * M, h = 0.7 } = {}) {
 function hero(slide, x, y, w, value, label, { color = T.accent, size = TYPE.hero, unit = '', labelColor = T.muted } = {}) {
   const runs = [{ text: value, options: { fontSize: size } }];
   if (unit) runs.push({ text: unit, options: { fontSize: Math.round(size * 0.4) } });
-  const h = Math.max(1.12, size / 72 * 1.2);    // numeral box grows with the size; the label sits 0.05 in under it
+  const h = Math.max(1.12, lineH(size, T.data) + 0.04);   // numeral box grows with the size and the face; the label sits 0.05 in under it
   slide.addText(runs, { ...box(x, y, w, h), fontFace: T.data, bold: true, color, margin: 0, valign: 'bottom' });
-  const lh = Math.max(0.45, fitH(label, w, TYPE.caption));
+  const lh = fitH(label, w, TYPE.caption);   // measured, no slack: what follows the label registers to its real bottom
   slide.addText(label, { ...box(x, y + h + 0.05, w, lh), fontFace: T.sans, fontSize: TYPE.caption, color: labelColor, margin: 0, valign: 'top' });
   return y + h + 0.05 + lh;
 }
@@ -215,7 +230,46 @@ function specimen(slide, x, y, w, rows, { labelW = 1.6, gap = 0.35, labelColor =
 }
 // Ghost numeral: chapter mark behind content. Keep the box inside the canvas (w ≤ W - x).
 function ghost(slide, text, x, y, size = 240, w = 5.5) {
-  slide.addText(text, { ...box(x, y, w, size / 60), fontFace: T.data, fontSize: size, bold: true, color: 'FFFFFF', transparency: 88, margin: 0, valign: 'top' });
+  slide.addText(text, { ...box(x, y, w, lineH(size, T.data) + 0.05), fontFace: T.data, fontSize: size, bold: true, color: 'FFFFFF', transparency: 88, margin: 0, valign: 'top' });
+}
+```
+
+## 3b. Layout by weight (design.md §4.1 "counts never imply form", §8 "peers are sized by weight")
+```js
+// Content weight of a peer: an explicit `weight`, else the length of what it says; lead/active peers count more.
+const weightOf = (item, { active = false } = {}) => (Number(item?.weight)
+  || Math.max(1, [item?.value, item?.label, item?.detail, item?.context, item?.text].filter(Boolean).join(' ').length)) * (active ? 1.35 : 1);
+// spans: widths for a row of peers from their weights. Equal weights give equal spans; unequal weights give unequal
+// spans, clamped so the lightest peer stays readable (minRatio × mean) and the heaviest does not swallow the row.
+function spans(x, w, weights, { gap = 0.3, minRatio = 0.7, maxRatio = 1.6 } = {}) {
+  const n = weights.length, mean = weights.reduce((a, b) => a + b, 0) / n || 1;
+  const norm = weights.map((v) => Math.min(maxRatio, Math.max(minRatio, (v || mean) / mean)));
+  const total = norm.reduce((a, b) => a + b, 0), free = w - gap * (n - 1);
+  let cx = x;
+  return norm.map((v) => { const cw = free * v / total; const out = { x: cx, w: cw }; cx += cw + gap; return out; });
+}
+// splitAt: the seam of a two-plane slide from each side's weight; never the middle unless the weights are equal.
+function splitAt(x, w, leftWeight, rightWeight, { gap = 0.3, min = 0.38, max = 0.62 } = {}) {
+  const share = Math.min(max, Math.max(min, leftWeight / ((leftWeight + rightWeight) || 1)));
+  const lw = (w - gap) * share;
+  return { left: { x, w: lw }, right: { x: x + lw + gap, w: w - gap - lw } };
+}
+// flow: measured blocks stacked top-down inside one region (a column, a plane, the space beside a picture); returns the
+// bottom. A block is { text, size?, font?, bold?, color?, lh?, h?, after? } or a function (y) => bottom for a kit call.
+// A block that would cross the region's bottom is an error, never a silent drop (QA hard 7 cannot see a block that
+// was never drawn): widen the zone, shorten the copy, or cut a block in the script (design.md §4.0).
+function flow(slide, x, y, w, blocks, { gap = 0.18, bottom = H - M } = {}) {
+  let cy = y;
+  blocks.forEach((b, i) => {
+    if (!b) return;
+    if (typeof b === 'function') { cy = b(cy) + gap; return; }
+    const size = b.size || TYPE.body, font = b.font || (b.bold ? T.sans : T.light), lh = b.lh ?? (b.h ? 1 : TYPE.lh.dense);
+    const h = b.h ?? fitH(b.text, w, size, font, { bold: !!b.bold, lh });
+    if (cy + h > bottom + 0.01) throw new Error(`flow: block ${i + 1} of ${blocks.length} ("${String(b.text).slice(0, 24)}…") needs ${(cy + h - bottom).toFixed(2)} in past the region bottom ${bottom}`);
+    slide.addText(b.text, { ...box(x, cy, w, h), fontFace: font, fontSize: size, bold: !!b.bold, color: b.color || T.body, margin: 0, valign: 'top', lineSpacingMultiple: lh });
+    cy += h + (b.after ?? gap);
+  });
+  return cy;
 }
 ```
 
@@ -231,13 +285,18 @@ function connector(slide, x1, y1, x2, y2, { color = T.muted, width = 1.5, arrow 
   slide.addShape(S.line, { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1),
     flipH: x2 < x1, flipV: y2 < y1, line: { color, width, endArrowType: arrow, dashType: dash } });
 }
-// Chevron run: each tip enters the next notch (overlap = notch depth).
-function chevrons(slide, x, y, w, h, labels, { active = -1 } = {}) {
-  const n = labels.length, notch = h * 0.25, cw = (w + notch * (n - 1)) / n;
+// Chevron run: each tip enters the next notch (overlap = notch depth). widths: per-stage spans from spans() (weights),
+// else equal — equal only when the stages carry equal weight (design.md §4.1).
+// widths come from spans(x, w - h * 0.25, ...) with gap 0 so the row still ends at x + w.
+function chevrons(slide, x, y, w, h, labels, { active = -1, widths = null } = {}) {
+  const n = labels.length, notch = h * 0.25;
+  const ws = widths ? widths.map((c) => c.w) : labels.map(() => (w - notch) / n);
+  let cx = x;
   labels.forEach((label, i) => {
-    const cx = x + i * (cw - notch), on = i === active;
+    const cw = ws[i] + notch, on = i === active;
     slide.addShape(S.chevron, { ...box(cx, y, cw, h), fill: { color: on ? T.accent : T.paperAlt }, line: { color: T.paper, width: 1.5 } });
     slide.addText(label, { ...box(cx + notch, y, cw - notch * 2, h), fontFace: T.sans, fontSize: 13, bold: on, color: on ? 'FFFFFF' : T.body, align: 'center', valign: 'middle', margin: 0 });
+    cx += ws[i];
   });
 }
 function node(slide, cx, cy, d, n, { fill = T.accent } = {}) {

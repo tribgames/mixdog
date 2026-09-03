@@ -77,6 +77,26 @@ const SKELETONS = `
 await pres.writeFile({ fileName: OUTPUT });
 `;
 
+test('kit layout by weight: equal weights divide equally, unequal weights do not, and the seam never sits in the middle by default', async () => {
+  const kit = await kitBlocks('device-kit.md');
+  const source = ['weightOf', 'spans', 'splitAt'].map((name) => {
+    const match = new RegExp(`(?:const ${name} = [\\s\\S]*?;\\n|function ${name}\\([\\s\\S]*?\\n\\}\\n)`).exec(kit);
+    assert.ok(match, `${name} is in the kit`);
+    return match[0];
+  }).join('\n');
+  const { spans, splitAt, weightOf } = new Function(`${source}\nreturn { spans, splitAt, weightOf };`)();
+  const equal = spans(0.5, 12, [10, 10, 10]);
+  assert.ok(equal.every((c) => Math.abs(c.w - equal[0].w) < 1e-9), 'equal weights → equal widths');
+  assert.ok(Math.abs(equal[2].x + equal[2].w - 12.5) < 1e-9, 'the row ends at x + w');
+  const unequal = spans(0.5, 12, [10, 30, 10]);
+  assert.ok(unequal[1].w > unequal[0].w * 1.3, 'the heavy peer is visibly wider');
+  assert.ok(unequal[0].w > 0.6 * (12 / 3), 'the light peer stays readable (clamped)');
+  const seam = splitAt(0.5, 12, 40, 80);
+  assert.ok(seam.left.w < seam.right.w && seam.left.w / 11.7 >= 0.38, 'the seam follows weight within the 0.38–0.62 band');
+  assert.equal(splitAt(0, 10, 1, 1).left.w, splitAt(0, 10, 1, 1).right.w, 'equal weights → the middle');
+  assert.ok(weightOf({ label: 'a', detail: 'long detail text' }, { active: true }) > weightOf({ label: 'a', detail: 'long detail text' }), 'active counts more');
+});
+
 test('every hard rule in the skill names a runtime code that exists, or is marked manual', async () => {
   const files = ['design.md', 'layouts.md', 'archetypes.md', 'device-kit.md', 'pictures.md'].map((file) => join(SKILL, file));
   files.push(join(SKILL, '..', 'SKILL.md'));

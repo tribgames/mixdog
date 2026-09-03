@@ -1571,9 +1571,10 @@ test('portable slides report shapes that crowd each other', async (t) => {
     mode: 'portable',
     operations: [
       { op: 'add_slide' },
-      { op: 'add_textbox', slide: 1, text: 'Left block', properties: { left: 60, top: 100, width: 200, height: 80, fontSize: 14 } },
-      { op: 'add_textbox', slide: 1, text: 'Right block', properties: { left: 268, top: 100, width: 200, height: 80, fontSize: 14 } },
-      { op: 'add_textbox', slide: 1, text: 'Far block', properties: { left: 600, top: 100, width: 200, height: 80, fontSize: 14 } },
+      // Blocks of copy, not labels: a short label (≤ 16 chars) sits beside its neighbour by design and is exempt.
+      { op: 'add_textbox', slide: 1, text: 'The left block carries a full sentence of copy.', properties: { left: 60, top: 100, width: 200, height: 80, fontSize: 14 } },
+      { op: 'add_textbox', slide: 1, text: 'The right block carries another sentence of copy.', properties: { left: 268, top: 100, width: 200, height: 80, fontSize: 14 } },
+      { op: 'add_textbox', slide: 1, text: 'The far block sits well apart from the others.', properties: { left: 600, top: 100, width: 200, height: 80, fontSize: 14 } },
     ],
   }, { cwd }));
   assert.equal(created.batch.results.length, 4);

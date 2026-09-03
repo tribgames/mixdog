@@ -242,20 +242,6 @@ export function modelOptionDescription(model: DesktopModelOption): string {
     .filter(Boolean).join(" · ");
 }
 
-export function modelDetailTooltip(model: DesktopModelOption): string {
-  const effort = Array.isArray(model.effortOptions)
-    ? model.effortOptions.map((option) => option.label || option.value).filter(Boolean)
-    : [];
-  return [
-    providerDisplayName(model.provider),
-    model.model,
-    effort.length > 0 ? t("Reasoning {{levels}}", { levels: effort.join("/") }) : "",
-    model.fastCapable ? t("Fast available") : "",
-    model.latest ? t("Latest") : "",
-    model.releaseDate ? t("Released {{date}}", { date: model.releaseDate }) : "",
-  ].filter(Boolean).join(" · ");
-}
-
 // A hint is curated when it is not merely the id re-spaced/re-cased; curated
 // hints (user aliases, catalog names with extra meaning) win over the rule.
 function displayKey(text: string) {
@@ -295,18 +281,6 @@ export function modelRouteDisplayParts(
     effort: compactEffort,
     fast: fast ? "Fast" : "",
   };
-}
-
-export function modelRouteDisplayName(
-  model: string | null | undefined,
-  effort: string | null | undefined = "",
-  fast = false,
-  effortLabel = "",
-) {
-  const parts = modelRouteDisplayParts(model, effort, fast, effortLabel);
-  return [parts.model, parts.effort, parts.fast]
-    .filter(Boolean)
-    .join(" ");
 }
 
 export function ModelRouteLabel({

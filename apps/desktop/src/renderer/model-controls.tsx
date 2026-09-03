@@ -58,10 +58,6 @@ type WorkflowOption = { value: string; label: string; active: boolean };
 export let workflowOptionsCache: { at: number; options: WorkflowOption[] } | null = null;
 // Workflow pack edits (and tests) must not serve a stale option list for the
 // remaining TTL window.
-export function invalidateWorkflowOptionsCache() {
-  workflowOptionsCache = null;
-}
-
 // Model-style trigger for changing the active session workflow.
 export const WorkflowSelect = memo(function WorkflowSelect({
   workflow, disabled, invokeResult, applySnapshot, onDraftChange,

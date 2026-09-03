@@ -1,23 +1,13 @@
-import {
-  Ban,
-  Copy,
-  FolderOpen,
-  Image as ImageIcon,
-  PanelLeft,
-  Play,
-  Plus,
-  RotateCcw,
-  Sparkles,
-  Trash2,
-  X,
-} from 'lucide-react';
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { PanelLeft } from 'lucide-react';
+import { type UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { ProgressSpinner } from './ProgressSpinner';
 import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
-import { StudioRouteMenu, type StudioModelEntry } from './StudioRouteMenu';
-import { BrandTile } from './WorkspaceEmptyState';
+import {
+  type StudioModelEntry,
+  type StudioOptionRow,
+  type StudioSliderRow,
+} from './StudioRouteMenu';
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
 import { useForegroundMedia } from './media-lifecycle';
 import { InlineErrors } from './notifications';
@@ -30,28 +20,20 @@ import {
   readStudioDraftMetadata,
   readStudioDraftReferences,
   removeStudioAssetReferences,
-  writeStudioAssetReferences,
   writeStudioDraftMetadata,
   writeStudioDraftReferences,
   type StudioReferenceStore,
 } from './studio-draft-cache';
 import {
-  assetLabel,
   callCapability,
   DEFAULT_STUDIO_OPTIONS,
   errorText,
-  formatBytes,
-  type JustifiedTile,
   justifiedRows,
   laneSpec,
   MEDIA_KINDS,
   mediaFrameRatio,
-  mediaTransportIsLocal,
-  mediaUrl,
-  mediaVariantKey,
   modelControls,
   posterFromVideo,
-  probeMediaLane,
   requestOptions,
   resolveStudioModel,
   shouldKeepMediaJobSlot,
@@ -67,18 +49,23 @@ import {
   type StudioApi,
   type StudioOptions
 } from './studio-support';
+import { StudioComposer } from './studio-composer';
+import { StudioGallery } from './studio-gallery';
+import { StudioDetailViewer } from './studio-media-components';
+import {
+  useStudioAssetGallery,
+  useStudioMediaJobs,
+  useStudioMediaUrls,
+  type QueuedMediaRequest,
+  type StudioMediaJob,
+  type StudioReference,
+} from './studio-media-state';
 import { shouldFocusSurfaceInput } from './surface-input-focus';
 
-const POLL_INTERVAL_MS = 1_500;
-const ASSET_PAGE_SIZE = 60;
 // Thumbnails are round-trip bound, not byte bound: a strictly sequential loop
 // paid one full relay round trip per tile.
 const THUMB_CONCURRENCY = 4;
 const EAGER_THUMB_COUNT = 12;
-// onStall is wired only for local Electron tiles. Give a cached protocol
-// response one frame to win, then start the bounded Chromium fallback instead
-// of leaving a cold cache miss behind native/custom-protocol scheduling.
-const THUMB_STALL_MS = 120;
 const STUDIO_NARROW_PANE = 760;
 // Gallery density steps: columns per row. The slider presents these in reverse
 // so moving right follows the familiar smaller → larger thumbnail direction.
@@ -86,46 +73,6 @@ const TILE_SIZES = [3, 4, 5, 6] as const;
 const TILE_SIZE_KEY = 'mixdog.studio-tile-size';
 const RATIO_CACHE_KEY = 'mixdog.studio-tile-ratios';
 let videoPosterFallbackTail: Promise<void> = Promise.resolve();
-
-interface MediaAssetPage {
-  assets: MediaAsset[];
-  total: number;
-}
-
-interface MediaAssetPaging {
-  initialized: boolean;
-  loadingMore: boolean;
-  nextOffset: number;
-  total: number;
-}
-
-interface QueuedMediaRequest {
-  lane: string;
-  kind: MediaKind;
-  model: string;
-  prompt: string;
-  options: Record<string, unknown>;
-  references: Array<{ base64: string; mime: string; url: string }>;
-}
-
-type StudioMediaJob = MediaJob & {
-  /** Immutable composer state captured when this queue slot was submitted. */
-  request?: QueuedMediaRequest;
-};
-
-function initialMediaAssetPaging(): Record<MediaKind, MediaAssetPaging> {
-  return {
-    image: { initialized: false, loadingMore: false, nextOffset: 0, total: 0 },
-    video: { initialized: false, loadingMore: false, nextOffset: 0, total: 0 },
-  };
-}
-
-function mergeMediaAssets(current: MediaAsset[], incoming: MediaAsset[]): MediaAsset[] {
-  const byId = new Map(current.map((asset) => [asset.id, asset]));
-  for (const asset of incoming) byId.set(asset.id, asset);
-  return Array.from(byId.values()).sort((left, right) =>
-    Number(right.createdAt || 0) - Number(left.createdAt || 0));
-}
 
 function scheduleVideoPosterFallback<T>(task: () => Promise<T>): Promise<T> {
   const result = videoPosterFallbackTail.then(task, task);
@@ -136,70 +83,6 @@ function scheduleVideoPosterFallback<T>(task: () => Promise<T>): Promise<T> {
 function thumbnailPayload(dataUrl: string): { mime: string; base64: string } | null {
   const match = /^data:([^;,]+);base64,(.+)$/.exec(dataUrl);
   return match ? { mime: match[1], base64: match[2] } : null;
-}
-
-function StudioThumbnail({
-  src,
-  kind,
-  eager,
-  pending = false,
-  onLoad,
-  onError,
-  onStall,
-}: {
-  src: string;
-  kind: MediaKind;
-  eager: boolean;
-  pending?: boolean;
-  onLoad: () => void;
-  onError?: () => void;
-  onStall?: () => void;
-}) {
-  const [loadedSource, setLoadedSource] = useState('');
-  const [failedSource, setFailedSource] = useState('');
-  const settledRef = useRef(false);
-  const onStallRef = useRef(onStall);
-  onStallRef.current = onStall;
-  useEffect(() => {
-    settledRef.current = false;
-    if (!src || !onStallRef.current) return undefined;
-    const timer = window.setTimeout(() => {
-      if (!settledRef.current) onStallRef.current?.();
-    }, THUMB_STALL_MS);
-    return () => window.clearTimeout(timer);
-  }, [src]);
-  const ready = Boolean(src && loadedSource === src);
-  const failed = Boolean(src && failedSource === src);
-  if (!src && pending) {
-    return <span className="studio-thumbnail-loading" aria-hidden="true">
-      <ProgressSpinner size={18} className="studio-spinner" />
-    </span>;
-  }
-  if (!src || failed) {
-    return <span className="studio-tile-glyph">
-      {kind === 'video' ? <Play size={24} aria-hidden="true" /> : <ImageIcon size={24} aria-hidden="true" />}
-    </span>;
-  }
-  return <>
-    {!ready && <span className="studio-thumbnail-loading" aria-hidden="true">
-      <ProgressSpinner size={18} className="studio-spinner" />
-    </span>}
-    <img src={src} alt="" className="studio-thumbnail-image"
-      data-ready={ready ? 'true' : 'false'}
-      loading={eager ? 'eager' : 'lazy'}
-      fetchPriority={eager ? 'high' : 'auto'}
-      onError={() => {
-        settledRef.current = true;
-        setFailedSource(src);
-        onError?.();
-      }}
-      onLoad={() => {
-        settledRef.current = true;
-        setFailedSource((current) => current === src ? '' : current);
-        setLoadedSource(src);
-        onLoad();
-      }} />
-  </>;
 }
 
 /** Display casing for lane vocabulary: auto → Auto, 1k → 1K, 480p → 480p. */
@@ -246,14 +129,13 @@ export function StudioPane({
     ...(restoredDraft?.options || {}),
   }));
   const [prompt, setPrompt] = useState(restoredDraft?.prompt || '');
-  // Generation is a QUEUE (user): starting a run never blocks the composer, so
-  // several jobs can be in flight and each keeps its own tile.
-  const [jobs, setJobs] = useState<StudioMediaJob[]>([]);
-  const [assets, setAssets] = useState<MediaAsset[]>([]);
-  const visibleAssets = useMemo(
-    () => assets.filter((asset) => asset.kind === kind),
-    [assets, kind],
-  );
+  const {
+    assets,
+    loadMoreAssets,
+    removeAsset,
+    refreshAssetKind,
+    visibleAssets,
+  } = useStudioAssetGallery(api, kind);
   const [selected, setSelected] = useState<MediaAsset | null>(null);
   // ABB: the media detail viewer closes on hardware back.
   useMobileBack(Boolean(selected), () => setSelected(null));
@@ -318,19 +200,20 @@ export function StudioPane({
     return TILE_SIZES.includes(stored as typeof TILE_SIZES[number]) ? stored : TILE_SIZES[1];
   });
   // Reference images for the next generation (edit / image-to-video).
-  const [refs, setRefs] = useState<Array<{ base64: string; mime: string; url: string }>>([]);
+  const [refs, setRefs] = useState<StudioReference[]>([]);
   const [refsHydrated, setRefsHydrated] = useState(false);
-  const draggedRefIndex = useRef<number | null>(null);
-  const refDragJustEnded = useRef(false);
-  const [refDrop, setRefDrop] = useState<{
-    source: number;
-    target: number;
-    position: 'before' | 'after';
-  } | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [gallerySettled, setGallerySettled] = useState(false);
   const [catalogSettled, setCatalogSettled] = useState(false);
+  const { jobs, runningKey, setJobs } = useStudioMediaJobs({
+    active,
+    api,
+    assets,
+    referenceStore,
+    refreshAssetKind,
+    setError,
+  });
   const previewToken = useRef(0);
   useEffect(() => {
     if (!active) return;
@@ -355,50 +238,8 @@ export function StudioPane({
   // Media bytes ride local IPC on the desktop and the LAN bridge / relay in
   // the web app. Only a local host may fall back to shrinking a full-size
   // asset here; remotely that transfer is exactly the cost being removed.
-  const localTransport = useMemo(() => mediaTransportIsLocal(), []);
-  // Does this host serve the byte lane? One probe answers it for the whole
-  // gallery (null while it is in flight), so a host without the lane never
-  // pays a doomed request per tile.
-  const [laneReady, setLaneReady] = useState<boolean | null>(localTransport ? true : null);
-  // Byte-lane failures are variant-scoped. A missing thumb must never disable
-  // the same video's working range-able original stream.
-  const [urlBroken, setUrlBroken] = useState<Record<string, boolean>>({});
-  const urlBrokenRef = useRef<Record<string, boolean>>({});
-  const failCounts = useRef<Record<string, number>>({});
-  const probing = useRef(false);
+  const { assetUrl, laneReady, localTransport, markUrlBroken } = useStudioMediaUrls(api, active);
   const mediaForeground = useForegroundMedia(active);
-  const assetUrl = useCallback((assetId: string, variant: string): string => (
-    laneReady === true && !urlBroken[mediaVariantKey(assetId, variant)]
-      ? mediaUrl(api, assetId, variant) : ''
-  ), [api, laneReady, urlBroken]);
-  const markUrlBroken = useCallback((assetId: string, variant: string): void => {
-    const key = mediaVariantKey(assetId, variant);
-    failCounts.current[key] = (failCounts.current[key] || 0) + 1;
-    if (!urlBrokenRef.current[key]) {
-      urlBrokenRef.current = { ...urlBrokenRef.current, [key]: true };
-      setUrlBroken(urlBrokenRef.current);
-    }
-    // One failure usually means the HOST hiccuped (desktop mid-reconnect),
-    // not that the lane is missing: re-probe once. A lane that is really
-    // gone switches every tile over at once; a lane that answers hands each
-    // asset exactly one retry before the fallback sticks.
-    if (localTransport || probing.current) return;
-    probing.current = true;
-    void probeMediaLane(api).then((ok) => {
-      probing.current = false;
-      if (!ok) {
-        setLaneReady(false);
-        return;
-      }
-      const retry = Object.keys(urlBrokenRef.current)
-        .filter((failedKey) => (failCounts.current[failedKey] || 0) < 2);
-      if (!retry.length) return;
-      const next = { ...urlBrokenRef.current };
-      for (const failedKey of retry) delete next[failedKey];
-      urlBrokenRef.current = next;
-      setUrlBroken(next);
-    });
-  }, [api, localTransport]);
   const gridRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const studioRootRef = useRef<HTMLDivElement>(null);
@@ -409,109 +250,10 @@ export function StudioPane({
   useEffect(() => () => {
     if (gridMotionFrame.current !== null) window.cancelAnimationFrame(gridMotionFrame.current);
   }, []);
-  // Latest queue, readable from the re-entry reset without making that effect
-  // depend on (and re-run for) every poll snapshot.
-  const jobsRef = useRef<StudioMediaJob[]>([]);
-  jobsRef.current = jobs;
   // Mirror of the thumbnail cache: the hydration loop reads it without taking
   // a state dependency, so a landed thumbnail never restarts the loop.
   const thumbsRef = useRef<Record<string, string>>({});
   const loadedThumbsRef = useRef<Record<string, boolean>>({});
-  const fileInput = useRef<HTMLInputElement>(null);
-  const assetPagingRef = useRef<Record<MediaKind, MediaAssetPaging>>(initialMediaAssetPaging());
-  const assetPageRequests = useRef<Map<string, Promise<MediaAssetPage>>>(new Map());
-
-  const requestAssetPage = useCallback((
-    assetKind: MediaKind,
-    offset: number,
-  ): Promise<MediaAssetPage> => {
-    const key = `${assetKind}:${offset}`;
-    const existing = assetPageRequests.current.get(key);
-    if (existing) return existing;
-    const request = (async () => {
-      const result = await callCapability(api, 'listMediaAssets', [{
-        kind: assetKind,
-        limit: ASSET_PAGE_SIZE,
-        offset,
-      }]) as { assets?: MediaAsset[]; total?: number } | undefined;
-      const rows = Array.isArray(result?.assets) ? result.assets : [];
-      const reportedTotal = Number(result?.total);
-      return {
-        assets: rows,
-        total: Number.isFinite(reportedTotal) && reportedTotal >= 0
-          ? Math.max(offset + rows.length, Math.trunc(reportedTotal))
-          : offset + rows.length,
-      };
-    })();
-    assetPageRequests.current.set(key, request);
-    const cleanup = () => {
-      if (assetPageRequests.current.get(key) === request) {
-        assetPageRequests.current.delete(key);
-      }
-    };
-    void request.then(cleanup, cleanup);
-    return request;
-  }, [api]);
-
-  const refreshAssetKind = useCallback(async (assetKind: MediaKind): Promise<MediaAsset[]> => {
-    const page = await requestAssetPage(assetKind, 0);
-    const paging = assetPagingRef.current[assetKind];
-    setAssets((current) => mergeMediaAssets(
-      !paging.initialized || page.total === 0
-        ? current.filter((asset) => asset.kind !== assetKind)
-        : current,
-      page.assets,
-    ));
-    const nextOffset = paging.initialized
-      ? Math.min(page.total, Math.max(paging.nextOffset, page.assets.length))
-      : Math.min(page.total, page.assets.length);
-    assetPagingRef.current = {
-      ...assetPagingRef.current,
-      [assetKind]: {
-        initialized: true,
-        loadingMore: false,
-        nextOffset,
-        total: page.total,
-      },
-    };
-    return page.assets;
-  }, [requestAssetPage]);
-
-  const loadMoreAssets = useCallback(async (assetKind: MediaKind): Promise<MediaAsset[]> => {
-    const paging = assetPagingRef.current[assetKind];
-    if (!paging.initialized) return refreshAssetKind(assetKind);
-    if (paging.loadingMore || paging.nextOffset >= paging.total) return [];
-    const offset = paging.nextOffset;
-    assetPagingRef.current = {
-      ...assetPagingRef.current,
-      [assetKind]: { ...paging, loadingMore: true },
-    };
-    try {
-      const page = await requestAssetPage(assetKind, offset);
-      setAssets((current) => mergeMediaAssets(current, page.assets));
-      const latest = assetPagingRef.current[assetKind];
-      const consumedOffset = page.assets.length ? offset + page.assets.length : page.total;
-      assetPagingRef.current = {
-        ...assetPagingRef.current,
-        [assetKind]: {
-          initialized: true,
-          loadingMore: false,
-          nextOffset: Math.min(page.total, Math.max(latest.nextOffset, consumedOffset)),
-          total: page.total,
-        },
-      };
-      return page.assets;
-    } catch (reason) {
-      assetPagingRef.current = {
-        ...assetPagingRef.current,
-        [assetKind]: {
-          ...assetPagingRef.current[assetKind],
-          loadingMore: false,
-        },
-      };
-      throw reason;
-    }
-  }, [refreshAssetKind, requestAssetPage]);
 
   const load = useCallback(async (metricToken?: number) => {
     // The gallery must not wait on the lane catalog: provider auth checks are
@@ -568,26 +310,6 @@ export function StudioPane({
       void load(metricToken);
     }
   }, [active, load]);
-
-  // Re-entering the pane re-probes: a host that came back online serves the
-  // byte lane again instead of staying downgraded for the session.
-  useEffect(() => {
-    if (!active || localTransport) return undefined;
-    let stopped = false;
-    void probeMediaLane(api)
-      .then((ok) => {
-        if (stopped) return;
-        setLaneReady(ok);
-        if (!ok || !Object.keys(urlBrokenRef.current).length) return;
-        failCounts.current = {};
-        urlBrokenRef.current = {};
-        setUrlBroken({});
-      })
-      .catch(() => {
-        if (!stopped) setLaneReady(false);
-      });
-    return () => { stopped = true; };
-  }, [active, api, localTransport]);
 
   // A Studio tab is a persistent workspace surface: switching tabs must keep
   // its prompt, mode, references, selected asset, queue, and scroll position.
@@ -651,95 +373,6 @@ export function StudioPane({
       return Object.keys(patch).length ? { ...current, ...patch } : current;
     });
   }, [activeModel, spec]);
-
-  // Poll every running job until it reaches a terminal state. The key is the
-  // id list, so a progress snapshot never restarts the timer.
-  const runningKey = jobs.filter((entry) => entry.status === 'running').map((entry) => entry.id).join(',');
-  useEffect(() => {
-    if (!active || !runningKey) return undefined;
-    const ids = runningKey.split(',');
-    let stopped = false;
-    // Consecutive polls that found NO snapshot for an id. The runtime keeps
-    // its jobs in memory, so a restart erases them mid-run; one miss can also
-    // be a reconnect, which is why a slot is only retired on the second.
-    const misses = new Map<string, number>();
-    const poll = () => {
-      void (async () => {
-        try {
-          const polled = await Promise.all(ids.map((id) =>
-            callCapability(api, 'getMediaJob', [id]) as Promise<MediaJob | null>));
-          if (stopped) return;
-          const landed = polled.filter(Boolean) as MediaJob[];
-          for (const entry of landed) misses.delete(entry.id);
-          // Without this the tile spun forever and reported nothing at all
-          // (user: 오류도 안 뜬다).
-          const lost = ids.filter((id, index) => {
-            if (polled[index]) return false;
-            const count = (misses.get(id) || 0) + 1;
-            misses.set(id, count);
-            return count >= 2;
-          });
-          if (!landed.length && !lost.length) return;
-          if (landed.some((entry) => entry.status === 'done')) {
-            // Fetch first, then commit both snapshots together. The pending
-            // frame stays mounted until its indexed asset can replace it with
-            // the same requested ratio (image and video).
-            const completed = landed.filter((entry) => entry.status === 'done');
-            const landedKinds = Array.from(new Set(completed.map((entry) => entry.kind)));
-            const referenceWrites = completed.map((entry) => {
-              const queued = jobsRef.current.find((candidate) => candidate.id === entry.id);
-              return entry.assetId
-                ? writeStudioAssetReferences(
-                  entry.assetId,
-                  queued?.request?.references || [],
-                  referenceStore,
-                )
-                : Promise.resolve();
-            });
-            await Promise.all([
-              ...landedKinds.map((assetKind) => refreshAssetKind(assetKind)),
-              ...referenceWrites,
-            ]);
-            if (stopped) return;
-          }
-          setJobs((current) => current.map((entry) => {
-            const next = landed.find((candidate) => candidate.id === entry.id);
-            // Runtime snapshots do not echo reference bytes or their local
-            // preview URLs. Merge them into the queue slot instead of replacing
-            // its captured request with the latest polled snapshot.
-            if (next) return { ...entry, ...next };
-            if (entry.status !== 'running' || !lost.includes(entry.id)) return entry;
-            return {
-              ...entry,
-              status: 'failed' as const,
-              error: t('Lost track of this run — the runtime restarted.'),
-            };
-          }));
-        } catch (reason) {
-          if (!stopped) setError(errorText(reason));
-        }
-      })();
-    };
-    poll();
-    const timer = setInterval(poll, POLL_INTERVAL_MS);
-    return () => {
-      stopped = true;
-      clearInterval(timer);
-    };
-  }, [active, api, referenceStore, refreshAssetKind, runningKey]);
-
-  // A finished run owns its slot only until the indexed asset can take the
-  // place over. Keeping the job past that point made the slot re-openable:
-  // deleting the asset satisfied "asset not in the gallery" again, so a done
-  // job came back as a phantom "generating" tile in the same spot and the
-  // delete looked like it had been ignored (user: 두 번 눌러야 삭제된다).
-  useEffect(() => {
-    setJobs((current) => {
-      const next = current.filter((entry) => entry.status !== 'done'
-        || Boolean(entry.assetId && !assets.some((asset) => asset.id === entry.assetId)));
-      return next.length === current.length ? current : next;
-    });
-  }, [assets]);
 
   // Selected asset preview. With a byte-lane URL the DOM loads it directly;
   // this RPC payload is only the fallback for a host without that lane.
@@ -897,22 +530,15 @@ export function StudioPane({
   }, [lane, maxRefs]);
 
   const openReference = async (
-    reference: { base64: string; mime: string; url: string },
+    reference: StudioReference,
     index: number,
   ) => {
-    if (refDragJustEnded.current) return;
     const extension = reference.mime.split('/')[1]?.replace(/[^a-z0-9.+-]/gi, '') || 'png';
     try {
       await api?.openAttachmentImage?.(reference.url, `reference-${index + 1}.${extension}`);
     } catch (reason) {
       setError(errorText(reason));
     }
-  };
-
-  const finishReferenceDrag = () => {
-    draggedRefIndex.current = null;
-    setRefDrop(null);
-    window.setTimeout(() => { refDragJustEnded.current = false; }, 0);
   };
 
   const addFiles = async (files: FileList | File[]) => {
@@ -1004,19 +630,10 @@ export function StudioPane({
       await callCapability(api, 'deleteMediaAsset', [asset.id]);
       await removeStudioAssetReferences(asset.id, referenceStore);
       if (selected?.id === asset.id) setSelected(null);
-      setAssets((current) => current.filter((entry) => entry.id !== asset.id));
+      removeAsset(asset);
       // The run that produced this asset goes with it. A job left behind would
       // re-open its queue slot the moment the asset left the gallery.
       setJobs((current) => current.filter((entry) => entry.assetId !== asset.id));
-      const paging = assetPagingRef.current[asset.kind];
-      assetPagingRef.current = {
-        ...assetPagingRef.current,
-        [asset.kind]: {
-          ...paging,
-          nextOffset: Math.max(0, paging.nextOffset - 1),
-          total: Math.max(0, paging.total - 1),
-        },
-      };
     } catch (reason) {
       setError(errorText(reason));
     }
@@ -1094,41 +711,6 @@ export function StudioPane({
     setPromptOpen(false);
     setSelected(asset);
   };
-
-  // Metadata + actions for one asset in the detail overlay card.
-  const detailSections = (asset: MediaAsset) => <>
-    <section className="studio-detail-block studio-detail-block--prompt">
-      <div className="studio-detail-block-head">
-        <span>{t('PROMPT')}</span>
-        <button type="button" onClick={() => void copyPrompt(asset)}>
-          <Copy size={12} aria-hidden="true" />{copied ? t('Copied') : t('Copy')}
-        </button>
-      </div>
-      <p className="studio-detail-prompt" data-open={promptOpen ? 'true' : undefined}
-        onClick={() => setPromptOpen((current) => !current)}>{asset.prompt}</p>
-    </section>
-    <section className="studio-detail-block studio-detail-block--metadata">
-      <div className="studio-detail-block-head"><span>{t('DETAILS')}</span></div>
-      <dl>
-        <div><dt>{t('Provider')}</dt><dd>{asset.lane}</dd></div>
-        <div><dt>{t('Model')}</dt><dd>{asset.model}</dd></div>
-        <div><dt>{t('Size')}</dt><dd>{formatBytes(asset.bytes)}</dd></div>
-        {asset.durationSeconds ? <div><dt>{t('Duration')}</dt><dd>{asset.durationSeconds}s</dd></div> : null}
-        <div><dt>{t('Created')}</dt><dd>{new Date(asset.createdAt).toLocaleString()}</dd></div>
-      </dl>
-    </section>
-    <div className="studio-detail-actions">
-      <button type="button" className="studio-detail-primary" onClick={() => void regenerate(asset)}>
-        <RotateCcw size={14} aria-hidden="true" />{t('Regenerate')}
-      </button>
-      <button type="button" onClick={() => void openAssetFolder(asset)}>
-        <FolderOpen size={14} aria-hidden="true" />{t('Open Folder')}
-      </button>
-      <button type="button" className="studio-detail-danger" onClick={() => void remove(asset)}>
-        <Trash2 size={14} aria-hidden="true" />{t('Delete')}
-      </button>
-    </div>
-  </>;
 
   // Controls belong to the MODEL: Veo takes 4/6/8s, Grok takes a 1-15s range,
   // Omni takes none — a lane-wide guess would offer rejected values.
@@ -1208,7 +790,7 @@ export function StudioPane({
       label: option.label,
     }));
   }), [available, kind]);
-  const handleResultsScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+  const handleResultsScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
     const element = event.currentTarget;
     const remaining = element.scrollHeight - element.scrollTop - element.clientHeight;
     if (remaining > Math.max(240, element.clientHeight * 0.5)) return;
@@ -1248,64 +830,6 @@ export function StudioPane({
       STUDIO_GRID_MAX_WIDTH,
     );
   }, [pendingJobs, visibleAssets, frameRatios, gridWidth, rowHeight]);
-  const layout = useMemo(
-    () => new Map(layoutRows.flat().map((tile) => [tile.asset.id, tile])),
-    [layoutRows],
-  );
-  // Ratio-proportional tile style: within a row wrapper, flex-grow shares the
-  // LIVE row width in the solved proportions and CSS aspect-ratio derives the
-  // height, so the browser rescales every thumbnail in the same frame as a
-  // moving pane divider — the solved pixel widths never lag a commit behind
-  // the frame (user: 섬네일이 넓이 조정될 때 튄다). The trailing row must not
-  // stretch to the full line, so it keeps proportional percentage widths.
-  const tileStyle = (tile: JustifiedTile, lastRow: boolean): React.CSSProperties => {
-    const ratio = Number((tile.height > 0 ? tile.width / tile.height : 1).toFixed(4));
-    return lastRow
-      ? {
-          width: `${Number(((tile.width / Math.max(1, gridWidth)) * 100).toFixed(3))}%`,
-          aspectRatio: String(ratio),
-        }
-      : { flexGrow: ratio, flexBasis: 0, aspectRatio: String(ratio) };
-  };
-  // A pending tile is solved like any other, so it can end up ~70px wide at the
-  // densest step. Its overlays (spinner, Cancel) share one header row and shed
-  // labels as the slot narrows (user: 제너레이트와 캔슬이 겹침).
-  const pendingBox = (entry: StudioMediaJob) => {
-    const width = Math.floor(layout.get(entry.id)?.width || rowHeight * mediaFrameRatio(entry));
-    return {
-      width,
-      height: Math.floor(layout.get(entry.id)?.height || rowHeight),
-      size: width < 130 ? 'tiny' : width < 210 ? 'compact' : 'wide',
-    };
-  };
-  const pendingById = useMemo(
-    () => new Map(pendingJobs.map((entry) => [entry.id, entry])),
-    [pendingJobs],
-  );
-  const assetIndexById = useMemo(
-    () => new Map(visibleAssets.map((asset, index) => [asset.id, index])),
-    [visibleAssets],
-  );
-
-  /**
-   * Rail position for the running job.
-   *
-   * Lanes report progress unevenly (xAI percentages, Veo a single 50%
-   * heartbeat, the image lanes nothing). An elapsed-time curve used to fill
-   * the gap, but an invented number is worse than none: it climbed to 90%
-   * while the run was barely started (user: 퍼센테이지가 안 맞는다). Only a
-   * lane-reported value is shown now; everything else runs indeterminate.
-   */
-  const jobProgress = (entry: StudioMediaJob): number => (entry.status === 'running'
-    ? Math.max(0, Math.min(100, Number(entry.progress) || 0))
-    : 0);
-  // Elapsed clock per tile. The heartbeat above already re-renders twice a
-  // second, so this needs no timer of its own.
-  const jobElapsed = (entry: StudioMediaJob): string => {
-    const seconds = Math.floor(Math.max(0, entry.startedAt ? Date.now() - entry.startedAt : 0) / 1_000);
-    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-  };
-
   // Raw lane vocabulary ("auto", "1k") reads as noise next to the model
   // name, so rows show a cased label while the value stays native.
   const optionRow = (
@@ -1314,7 +838,7 @@ export function StudioPane({
     values: readonly string[],
     current: string,
     onPick: (value: string) => void,
-  ) => ({
+  ): StudioOptionRow => ({
     id,
     label,
     options: values.map((value) => ({ value, label: pillLabel(value) })),
@@ -1323,6 +847,74 @@ export function StudioPane({
     disabled,
     onPick,
   });
+  const routeRows: StudioOptionRow[] = [
+    ...(controls.aspectRatio?.length
+      ? [optionRow('aspectRatio', t('Aspect'), controls.aspectRatio, options.aspectRatio,
+        (value) => setOptions((current) => ({ ...current, aspectRatio: value })))]
+      : []),
+    ...(controls.resolution?.length
+      ? [optionRow('resolution', t('Resolution'), controls.resolution,
+        options.resolution || controls.resolution[0],
+        (value) => setOptions((current) => ({ ...current, resolution: value })))]
+      : []),
+    ...(controls.size?.length
+      ? [optionRow('size', t('Size'), controls.size, options.size,
+        (value) => setOptions((current) => ({ ...current, size: value })))]
+      : []),
+    ...(controls.quality?.length
+      ? [optionRow('quality', t('Quality'), controls.quality, options.quality,
+        (value) => setOptions((current) => ({ ...current, quality: value })))]
+      : []),
+    ...(kind === 'video' && controls.durations?.length
+      ? [optionRow('duration', t('Duration'),
+        controls.durations.map((value) => `${value}s`), `${options.duration}s`,
+        (value) => setOptions((current) => ({
+          ...current,
+          duration: Number.parseInt(value, 10) || current.duration,
+        })))]
+      : []),
+  ];
+  const durationSlider: StudioSliderRow | null = kind === 'video'
+    && !controls.durations?.length && controls.durationRange
+    ? {
+        label: t('Duration'),
+        min: controls.durationRange[0] ?? 1,
+        max: controls.durationRange[1] ?? 15,
+        value: options.duration,
+        disabled,
+        onChange: (next) => setOptions((current) => ({ ...current, duration: next })),
+      }
+    : null;
+  const retryJob = (entry: StudioMediaJob) => {
+    dismissJob(entry.id);
+    void (entry.request ? startQueuedRequest(entry.request) : generate());
+  };
+  const rememberThumbnailRatio = (asset: MediaAsset) => {
+    loadedThumbsRef.current[asset.id] = true;
+    setRatios((current) => {
+      if (current[asset.id]) return current;
+      const next = { ...current, [asset.id]: mediaFrameRatio(asset) };
+      try {
+        window.localStorage.setItem(RATIO_CACHE_KEY, JSON.stringify(next));
+      } catch {
+        // Ratio cache is a convenience.
+      }
+      return next;
+    });
+  };
+  const startThumbnailFallback = (assetId: string) => {
+    setThumbFallbacks((current) => current[assetId]
+      ? current
+      : { ...current, [assetId]: true });
+  };
+  const updateTileSize = (next: number) => {
+    setTileSize(next);
+    try {
+      window.localStorage.setItem(TILE_SIZE_KEY, String(next));
+    } catch {
+      // Density is a convenience.
+    }
+  };
 
   return <div className="studio-root stable-surface-preserved" ref={studioRootRef}
     data-surface-active={active ? 'true' : 'false'}
@@ -1372,409 +964,91 @@ export function StudioPane({
         </div>
       </header>
       <div className="studio-stage-host">
-      {/* Mode stays visually centered while thumbnail scale owns the gallery's
-          top-right corner and contracts with narrow split layouts. */}
-      <div className="studio-topbar">
-        {/* Only offer what the signed-in providers can produce: one kind hides
-            the toggle, none hides it entirely. */}
-        <div className="studio-kind"
-          data-empty={kindsOffered.length > 1 ? undefined : 'true'}
-          role="group" aria-label={t('Media kind')}
-          aria-hidden={kindsOffered.length > 1 ? undefined : true}>
-          {(['image', 'video'] as const)
-            .map((value) =>
-              <button key={value} type="button" className={kind === value ? 'active' : ''}
-                disabled={!kindsOffered.includes(value)}
-                aria-pressed={kind === value} onClick={() => setKind(value)}>
-                {t(value)}
-              </button>)}
-        </div>
-        <label className="studio-density" aria-label={t('Thumbnail size')}>
-          <input type="range" min={0} max={TILE_SIZES.length - 1} step={1}
-            value={TILE_SIZES.length - 1
-              - Math.max(0, TILE_SIZES.indexOf(tileSize as typeof TILE_SIZES[number]))}
-            onChange={(event) => {
-              const scaleIndex = Math.max(0, Math.min(
-                TILE_SIZES.length - 1,
-                Number(event.currentTarget.value),
-              ));
-              const next = TILE_SIZES[TILE_SIZES.length - 1 - scaleIndex] ?? TILE_SIZES[1];
-              setTileSize(next);
-              try { window.localStorage.setItem(TILE_SIZE_KEY, String(next)); } catch { /* density is a convenience */ }
-            }} />
-        </label>
-      </div>
-      <div className="studio-results" aria-label={t('Generated media')} ref={resultsRef}
-        onScroll={handleResultsScroll}>
-        {visibleAssets.length === 0 && pendingJobs.length === 0 && !loading
-          && <div className="studio-blank">
-          {/* Quiet brand watermark: empty secondary
-              surfaces carry only the centered letterpress). The provider gap
-              stays visible because it is a blocker, not canvas guidance. */}
-          <span className="welcome-logo" aria-hidden="true"><BrandTile crop /></span>
-          {available.length === 0 && <p>
-            {t('No provider supports this mode yet — sign in to Grok/ChatGPT or add a Gemini key in Settings → Providers.')}
-          </p>}
-        </div>}
-        <div className="studio-grid" ref={gridRef}
-          data-motion-ready={gridMotionReady ? 'true' : undefined}>
-          {/* Solved rows render inside row wrappers (tileStyle above): queued
-              runs live in the grid (reference grammar) ahead of the gallery
-              and are solved with the other tiles, so each finished asset lands
-              in place at the same size instead of resizing the row. */}
-          {layoutRows.map((row, rowIndex) => <div className="studio-grid-row"
-            key={row[0]?.asset.id || rowIndex}>
-          {row.map((tile) => {
-            const style = tileStyle(tile, rowIndex === layoutRows.length - 1);
-            const pending = pendingById.get(tile.asset.id);
-            if (!pending) return null;
-            const box = pendingBox(pending);
-            const progress = jobProgress(pending);
-            // Only a lane-reported number is printed; the rest run indeterminate.
-            const determinate = progress > 0;
-            const elapsed = jobElapsed(pending);
-            const queuedReference = pending.request?.references[0];
-            const queuedPrompt = pending.request?.prompt || '';
-            return <figure key={pending.id} aria-live="polite"
-              className={`studio-tile studio-tile--pending${pending.status === 'failed' ? ' studio-tile--failed' : ''}`}
-              data-studio-asset-id={pending.id}
-              data-studio-prompt={queuedPrompt || undefined}
-              data-size={box.size}
-              style={style}>
-              {pending.status === 'failed'
-                // A failed run keeps its slot (user): the tile carries the reason
-                // and the retry, instead of vanishing without a trace.
-                ? <div className="studio-tile-open">
-                  <div className="studio-failed-body">
-                    <Ban size={16} aria-hidden="true" />
-                    <p>{pending.error || t('Generation failed')}</p>
-                    <div className="studio-failed-actions">
-                      {/* Retry replaces this slot with a fresh queued run. */}
-                      <button type="button" onClick={() => {
-                        dismissJob(pending.id);
-                        void (pending.request ? startQueuedRequest(pending.request) : generate());
-                      }}>
-                        <RotateCcw size={12} aria-hidden="true" />{t('Retry')}
-                      </button>
-                      <button type="button" onClick={() => dismissJob(pending.id)}>{t('Dismiss')}</button>
-                    </div>
-                  </div>
-                </div>
-                : <>
-                  <div className="studio-tile-open" role="img"
-                    aria-label={queuedPrompt ? `${t('Generating')}: ${queuedPrompt}` : t('Generating')}>
-                    {queuedReference
-                      ? <img className="studio-pending-reference" src={queuedReference.url} alt="" />
-                      : null}
-                    {queuedPrompt ? <p className="studio-pending-prompt">{queuedPrompt}</p> : null}
-                    {/* Status reads from the bottom of the tile: the elapsed clock
-                        always, the percentage and a determinate rail only for a
-                        lane that reports one. Everything else runs indeterminate
-                        rather than printing a guess. */}
-                    <div className="studio-pending-foot">
-                      <span className="studio-pending-meta">
-                        <span>{elapsed}</span>
-                        {determinate ? <span>{progress}%</span> : null}
-                      </span>
-                      <span className={`studio-pending-bar${determinate ? '' : ' studio-pending-bar--idle'}`}
-                        role="progressbar" aria-valuenow={determinate ? progress : undefined}
-                        aria-valuemin={0} aria-valuemax={100}>
-                        <span style={determinate ? { width: `${progress}%` } : undefined} />
-                      </span>
-                    </div>
-                  </div>
-                  {/* Cancel rides on its own tile, so the composer keeps a live
-                      Generate action for the next run in the queue. */}
-                  <div className="studio-pending-head">
-                    {/* Icon only (user): the word carried no information the rail
-                        and the clock below do not already show. */}
-                    <span className="studio-pending-chip" role="img"
-                      aria-label={determinate
-                        ? t('Generating, {{progress}}%, {{elapsed}} elapsed', { progress, elapsed })
-                        : t('Generating, {{elapsed}} elapsed', { elapsed })}>
-                      <ProgressSpinner size={14} className="studio-spinner" aria-hidden="true" />
-                    </span>
-                    <button type="button" className="studio-pending-cancel" aria-label={t('Cancel generation')}
-                      onClick={() => void cancel(pending.id)}>
-                      <Ban size={12} aria-hidden="true" /><span>{t('Cancel')}</span>
-                    </button>
-                  </div>
-                </>}
-            </figure>;
-          })}
-          {row.map((tile) => {
-            if (pendingById.has(tile.asset.id)) return null;
-            const asset = tile.asset;
-            const assetIndex = assetIndexById.get(asset.id) ?? 0;
-            return <figure key={asset.id}
-            className={`studio-tile ${selected?.id === asset.id ? 'selected' : ''}`}
-            data-studio-asset-id={asset.id}
-            style={tileStyle(tile, rowIndex === layoutRows.length - 1)}>
-            <button type="button" className="studio-tile-open" onClick={() => openDetail(asset)}
-              aria-label={`Open ${asset.kind}: ${asset.prompt}`}
-              // Hover preview mounts ONE video at a time; a grid of live
-              // decoders is what crashed the window earlier.
-              //
-              // LOCAL ONLY. On a relay surface the same gesture streamed the
-              // ORIGINAL clip — autoplaying and looping — for every tile the
-              // pointer crossed, which turned a glance across the gallery into
-              // gigabytes. A phone has no hover at all, and a remote browser
-              // keeps the poster, so nothing is lost where it cannot be paid
-              // for.
-              onMouseEnter={!narrowPane && asset.kind === 'video' && localTransport
-                ? () => void hoverPreview(asset) : undefined}
-              onMouseLeave={!narrowPane && asset.kind === 'video' && localTransport
-                ? () => setHoverId('') : undefined}>
-              {mediaForeground && !narrowPane && localTransport && asset.kind === 'video'
-                && hoverId === asset.id
-                && (assetUrl(asset.id, 'original') || fullUrls[asset.id])
-                ? <video src={assetUrl(asset.id, 'original') || fullUrls[asset.id]}
-                  muted loop autoPlay playsInline preload="metadata" />
-                : null}
-              <StudioThumbnail
-                src={thumbs[asset.id] || (
-                  localTransport && asset.kind === 'image' && assetIndex < EAGER_THUMB_COUNT
-                    ? ''
-                    : assetUrl(asset.id, 'thumb')
-                )}
-                kind={asset.kind}
-                eager={assetIndex < EAGER_THUMB_COUNT}
-                pending={localTransport && asset.kind === 'image'
-                  && assetIndex < EAGER_THUMB_COUNT && !thumbs[asset.id]}
-                // A host without the media route answers 404 here; that tile
-                // (and only that tile) falls back to the RPC payload.
-                onError={thumbs[asset.id] ? undefined : () => markUrlBroken(asset.id, 'thumb')}
-                // A custom-protocol request can stay pending while a cold
-                // rendition is being encoded. Keep that request mounted while
-                // the eager viewport starts a local fallback in parallel.
-                onStall={localTransport && asset.kind === 'video'
-                  && assetIndex < EAGER_THUMB_COUNT
-                  && !thumbs[asset.id] && assetUrl(asset.id, 'thumb')
-                  ? () => setThumbFallbacks((current) => current[asset.id]
-                    ? current : { ...current, [asset.id]: true })
-                  : undefined}
-                onLoad={() => {
-                  loadedThumbsRef.current[asset.id] = true;
-                  setRatios((current) => {
-                    if (current[asset.id]) return current;
-                    const next = { ...current, [asset.id]: mediaFrameRatio(asset) };
-                    // Keep the cache bounded to the gallery window.
-                    try {
-                      window.localStorage.setItem(RATIO_CACHE_KEY, JSON.stringify(next));
-                    } catch { /* ratio cache is a convenience */ }
-                    return next;
-                  });
-                }} />
-              {/* Kind badge dropped: the mode toggle already scopes the grid,
-                  so only a clip length is worth printing. */}
-              {(asset.durationSeconds || durations[asset.id])
-                ? <span className="studio-tile-badge">{asset.durationSeconds || durations[asset.id]}s</span>
-                : null}
-            </button>
-            {/* Delete stays on every tile, including split/narrow panes. Video
-                hover preview still follows narrowPane for decoder cost. */}
-            <div className="studio-tile-actions">
-              <button type="button" className="studio-tile-remove" aria-label={t('Delete asset')}
-                title={assetLabel(asset)}
-                onClick={() => void remove(asset)}><Trash2 size={16} aria-hidden="true" /></button>
-            </div>
-          </figure>;
-          })}
-          </div>)}
-        </div>
-      </div>
+        <StudioGallery
+          assetUrl={assetUrl}
+          durations={durations}
+          eagerThumbnailCount={EAGER_THUMB_COUNT}
+          fullUrls={fullUrls}
+          gridMotionReady={gridMotionReady}
+          gridRef={gridRef}
+          gridWidth={gridWidth}
+          hasAvailableLane={available.length > 0}
+          hoverId={hoverId}
+          kind={kind}
+          kindsOffered={kindsOffered}
+          layoutRows={layoutRows}
+          loading={loading}
+          localTransport={localTransport}
+          mediaForeground={mediaForeground}
+          narrowPane={narrowPane}
+          pendingJobs={pendingJobs}
+          resultsRef={resultsRef}
+          rowHeight={rowHeight}
+          selectedId={selected?.id || ''}
+          thumbs={thumbs}
+          tileSize={tileSize}
+          tileSizes={TILE_SIZES}
+          visibleAssets={visibleAssets}
+          onCancel={(id) => void cancel(id)}
+          onDelete={(asset) => void remove(asset)}
+          onDismiss={dismissJob}
+          onHoverEnd={() => setHoverId('')}
+          onHoverStart={(asset) => void hoverPreview(asset)}
+          onKindChange={setKind}
+          onOpen={openDetail}
+          onResultsScroll={handleResultsScroll}
+          onRetry={retryJob}
+          onThumbnailError={(assetId) => markUrlBroken(assetId, 'thumb')}
+          onThumbnailLoad={rememberThumbnailRatio}
+          onThumbnailStall={startThumbnailFallback}
+          onTileSizeChange={updateTileSize}
+        />
       </div>
       <div className="studio-dock" ref={dockRef}>
         {/* Progress AND job failures live on the pending tile; the banner is
             only for pane-level errors. */}
         <InlineErrors messages={[error].filter(Boolean)} />
-        <div className="studio-composer" data-dropping={dropping ? 'true' : undefined}>
-          {refs.length > 0 && <div className="studio-refs" aria-label={t('Reference images')}>
-            {refs.map((ref, index) => <span key={`${ref.url}-${index}`} className="studio-ref"
-              draggable
-              data-dragging={refDrop?.source === index ? 'true' : undefined}
-              data-drop-position={refDrop?.target === index && refDrop.source !== index
-                ? refDrop.position : undefined}
-              onDragStart={(event) => {
-                if ((event.target as HTMLElement).closest('.studio-ref-remove')) {
-                  event.preventDefault();
-                  return;
-                }
-                draggedRefIndex.current = index;
-                refDragJustEnded.current = false;
-                setRefDrop({ source: index, target: index, position: 'before' });
-                event.dataTransfer.effectAllowed = 'move';
-                event.dataTransfer.setData('text/plain', String(index));
-              }}
-              onDragOver={(event) => {
-                const source = draggedRefIndex.current;
-                if (source === null || source === index) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = 'move';
-                const bounds = event.currentTarget.getBoundingClientRect();
-                const position = event.clientX < bounds.left + bounds.width / 2
-                  ? 'before' : 'after';
-                setRefDrop({ source, target: index, position });
-              }}
-              onDrop={(event) => {
-                event.preventDefault();
-                const source = draggedRefIndex.current
-                  ?? Number(event.dataTransfer.getData('text/plain'));
-                const bounds = event.currentTarget.getBoundingClientRect();
-                const position = event.clientX < bounds.left + bounds.width / 2
-                  ? 'before' : 'after';
-                if (Number.isInteger(source) && source >= 0 && source < refs.length && source !== index) {
-                  setRefs((current) => {
-                    if (source >= current.length || index >= current.length) return current;
-                    const next = [...current];
-                    const [moved] = next.splice(source, 1);
-                    const target = index - (source < index ? 1 : 0);
-                    next.splice(target + (position === 'after' ? 1 : 0), 0, moved);
-                    return next;
-                  });
-                }
-                refDragJustEnded.current = true;
-                finishReferenceDrag();
-              }}
-              onDragEnd={() => {
-                refDragJustEnded.current = true;
-                finishReferenceDrag();
-              }}>
-              <button type="button" className="studio-ref-open"
-                aria-label={`${t('Open image')} ${index + 1}`}
-                onClick={() => void openReference(ref, index)}>
-                <img src={ref.url} alt="" draggable={false} />
-              </button>
-              <button type="button" className="studio-ref-remove" aria-label={t('Remove reference')}
-                onClick={() => setRefs((current) => current.filter((_, at) => at !== index))}>
-                <X size={12} aria-hidden="true" />
-              </button>
-            </span>)}
-          </div>}
-          <textarea value={prompt} rows={1} ref={promptRef}
-            aria-label={t('Generation prompt')}
-            placeholder={kind === 'video'
-              ? t('Describe the video…')
-              : t('Describe the image you want…')}
-            onChange={(event) => setPrompt(event.currentTarget.value)}
-            onPaste={(event) => {
-              const files = [...event.clipboardData.files].filter((file) => file.type.startsWith('image/'));
-              if (files.length) void addFiles(files);
-            }}
-            onKeyDown={(event) => {
-              // Enter sends, Shift+Enter breaks the line — same grammar as the
-              // session composer.
-              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
-              event.preventDefault();
-              void generate();
-            }} />
-          {/* Keep the controls mounted across kind switches. The model above is
-              already valid for this render, so remounting would only force
-              another Chromium text raster pass. */}
-          <div className="studio-composer-bar">
-            <button type="button" className="studio-attach" aria-label={t('Attach reference image')}
-              disabled={refs.length >= maxRefs}
-              data-tooltip={t('Attach reference')}
-              onClick={() => fileInput.current?.click()}><Plus size={16} aria-hidden="true" /></button>
-            <input ref={fileInput} type="file" accept="image/*" multiple hidden
-              onChange={(event) => {
-                if (event.currentTarget.files) void addFiles(event.currentTarget.files);
-                event.currentTarget.value = '';
-              }} />
-            {/* One strip for the generation controls. It stays a SINGLE line
-                (wrapping reflowed the dock on every mode switch) and scrolls
-                sideways on a phone, so the model picker is never clipped —
-                the chat composer keeps its route strip the same way. */}
-            <div className="studio-composer-controls">
-              {/* Unified menu: the model
-                  AND every lane option live inside one expanding pill. */}
-              <StudioRouteMenu entries={modelEntries} lane={lane?.id || ''} model={activeModel}
-                rows={[
-                  ...(controls.aspectRatio?.length
-                    ? [optionRow('aspectRatio', t('Aspect'), controls.aspectRatio, options.aspectRatio,
-                      (value) => setOptions((current) => ({ ...current, aspectRatio: value })))]
-                    : []),
-                  ...(controls.resolution?.length
-                    ? [optionRow('resolution', t('Resolution'), controls.resolution,
-                      options.resolution || controls.resolution[0],
-                      (value) => setOptions((current) => ({ ...current, resolution: value })))]
-                    : []),
-                  ...(controls.size?.length
-                    ? [optionRow('size', t('Size'), controls.size, options.size,
-                      (value) => setOptions((current) => ({ ...current, size: value })))]
-                    : []),
-                  ...(controls.quality?.length
-                    ? [optionRow('quality', t('Quality'), controls.quality, options.quality,
-                      (value) => setOptions((current) => ({ ...current, quality: value })))]
-                    : []),
-                  ...(kind === 'video' && controls.durations?.length
-                    ? [optionRow('duration', t('Duration'),
-                      controls.durations.map((value) => `${value}s`), `${options.duration}s`,
-                      (value) => setOptions((current) => ({
-                        ...current,
-                        duration: Number.parseInt(value, 10) || current.duration,
-                      })))]
-                    : []),
-                ]}
-                slider={kind === 'video' && !controls.durations?.length && controls.durationRange
-                  ? {
-                    label: t('Duration'),
-                    min: controls.durationRange[0] ?? 1,
-                    max: controls.durationRange[1] ?? 15,
-                    value: options.duration,
-                    disabled,
-                    onChange: (next) => setOptions((current) => ({ ...current, duration: next })),
-                  }
-                  : null}
-                onSelect={(entry) => {
-                  setLaneId(entry.lane);
-                  setModel(entry.model);
-                }} />
-            </div>
-            <span className="studio-composer-spacer" />
-            {/* Never flips to a disabled spinner: each press queues another run
-                and the in-flight ones report on their own tiles. */}
-            <button type="button" className="studio-generate" aria-label={t('Generate')}
-              data-tooltip={t('Generate')} disabled={!lane || !prompt.trim()} onClick={() => void generate()}>
-              <Sparkles size={16} aria-hidden="true" />
-            </button>
-          </div>
-        </div>
+        <StudioComposer
+          dropping={dropping}
+          kind={kind}
+          lane={lane?.id || ''}
+          maxReferences={maxRefs}
+          model={activeModel}
+          modelEntries={modelEntries}
+          prompt={prompt}
+          promptRef={promptRef}
+          references={refs}
+          routeRows={routeRows}
+          slider={durationSlider}
+          onFiles={addFiles}
+          onGenerate={() => void generate()}
+          onOpenReference={openReference}
+          onPromptChange={setPrompt}
+          onReferencesChange={setRefs}
+          onSelectModel={(entry) => {
+            setLaneId(entry.lane);
+            setModel(entry.model);
+          }}
+        />
       </div>
-      {selected && <div className="studio-detail" role="dialog" aria-label={t('Generated media detail')}
-        onClick={() => setSelected(null)}>
-        <div className="studio-detail-card" onClick={(event) => event.stopPropagation()}>
-        <div className="studio-detail-stage">
-          {selected.kind === 'video'
-            // Opening the detail view autoplays only where the bytes are free.
-            // Over the relay the clip arrives from the desktop and goes out
-            // again, so it starts on the poster and downloads when the viewer
-            // actually presses play.
-            ? <video key={mediaForeground ? 'foreground' : 'suspended'}
-              src={mediaForeground ? assetUrl(selected.id, 'original') || previewUrl : undefined}
-              poster={assetUrl(selected.id, 'thumb') || thumbs[selected.id] || undefined}
-              controls={mediaForeground}
-              autoPlay={mediaForeground && localTransport} playsInline
-              preload={mediaForeground && localTransport ? 'metadata' : 'none'}
-              onError={() => markUrlBroken(selected.id, 'original')} />
-            : <button type="button" className="studio-detail-media-open" title={t('Open image')}
-              aria-label={t('Open image')} onClick={() => void openAsset(selected)}>
-              <img src={assetUrl(selected.id, 'display') || previewUrl || thumbs[selected.id] || ''}
-                alt={selected.prompt} onError={() => markUrlBroken(selected.id, 'display')} />
-            </button>}
-          <button type="button" className="studio-detail-stage-close" aria-label={t('Close preview')}
-            onClick={() => setSelected(null)}><X size={16} aria-hidden="true" /></button>
-        </div>
-        <aside className="studio-detail-side">
-          <header>
-            <b>{selected.kind === 'video' ? t('Video') : t('Image')}</b>
-            <button type="button" className="studio-detail-close" aria-label={t('Close preview')}
-              onClick={() => setSelected(null)}><X size={16} aria-hidden="true" /></button>
-          </header>
-          {detailSections(selected)}
-        </aside>
-        </div>
-      </div>}
+      {selected && <StudioDetailViewer
+        asset={selected}
+        assetUrl={assetUrl}
+        copied={copied}
+        localTransport={localTransport}
+        mediaForeground={mediaForeground}
+        previewUrl={previewUrl}
+        promptOpen={promptOpen}
+        thumbUrl={thumbs[selected.id] || ''}
+        onClose={() => setSelected(null)}
+        onCopyPrompt={(asset) => void copyPrompt(asset)}
+        onOpenAsset={(asset) => void openAsset(asset)}
+        onOpenFolder={(asset) => void openAssetFolder(asset)}
+        onRegenerate={(asset) => void regenerate(asset)}
+        onRemove={(asset) => void remove(asset)}
+        onTogglePrompt={() => setPromptOpen((current) => !current)}
+        onUrlBroken={markUrlBroken}
+      />}
     </div>
     </div>
   </div>;

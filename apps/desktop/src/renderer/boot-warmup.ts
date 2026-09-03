@@ -161,10 +161,6 @@ export function armBootWarmup(delayMs = 0): void {
   pump();
 }
 
-export function bootWarmupArmed(): boolean {
-  return armed;
-}
-
 export function _bootWarmupPendingForTest(): readonly string[] {
   return pending.map((task) => task.id);
 }

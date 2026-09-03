@@ -4,8 +4,7 @@ import {
   Plus,
   X,
 } from 'lucide-react';
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { type FormEvent, useMemo, useRef, useState } from 'react';
 
 import type {
   DesktopApi,
@@ -14,7 +13,6 @@ import type {
   DesktopModelSelection,
 } from '../shared/contract';
 import { t } from './i18n';
-import { useMobileBack } from './mobile-back';
 import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
 import { preferredModelEffort, routeOption } from './model-route-utils';
@@ -25,12 +23,12 @@ import {
   normalizeModelOptions,
 } from './provider-display';
 import { record } from './record-utils';
+import { SidebarDialogLayer, SidebarLoadingDialog } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import {
   useSidebarReferences,
   type SidebarReferenceKey,
 } from './sidebar-reference-cache';
-import { acquireTitleBarDim } from './titlebar-dim';
 import { usePersistedListOrder } from './use-persisted-list-order';
 import { CompactSwitch } from './settings/capability-controls';
 
@@ -151,23 +149,7 @@ function WorkflowEditorDialog({ pack, deletable, busy, error = '', onCancel, onS
   const [delegates, setDelegates] = useState(() => !editing || pack?.delegatesAgents !== false);
   const [formError, setFormError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
-  // ABB: the dialog is only mounted while it is open, so it owns back for its
-  // whole life.
-  useMobileBack(true, onCancel);
-  // The scrim cannot dim the NATIVE caption band — hold the titlebar claim
-  // while this dialog is mounted (user: - ㅁ x 딤드 안 먹음).
-  useEffect(() => acquireTitleBarDim(), []);
-  // Portaled editor: the list lives in the session panel, so the dialog must
-  // escape the sidebar's clipped/transformed box.
-  return createPortal(<div className="schedules-dialog-layer"
-    onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
-    onKeyDown={(event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        onCancel();
-      }
-    }}>
+  return <SidebarDialogLayer onClose={onCancel}>
     <section className="schedules-dialog workflows-dialog" role="dialog" aria-modal="true" aria-labelledby="workflows-dialog-title">
       <header>
         <h2 id="workflows-dialog-title">{editing ? t('Edit workflow') : t('Create workflow')}</h2>
@@ -228,12 +210,12 @@ function WorkflowEditorDialog({ pack, deletable, busy, error = '', onCancel, onS
               }
               onDelete();
             }}>{confirmDelete ? t('Confirm delete') : t('Delete')}</button>}
-          <button type="button" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
+          <button type="button" className="secondary" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
           <button type="submit" disabled={busy}>{t('Save')}</button>
         </footer>
       </form>
     </section>
-  </div>, document.body);
+  </SidebarDialogLayer>;
 }
 
 // Agent editor dialog: custom agents are created from name, model, and
@@ -252,21 +234,9 @@ function AgentEditorDialog({ agent, deletable, models, busy, error = '', onCance
   const editing = Boolean(agent);
   const [route, setRoute] = useState<RecordValue>(() => record(agent?.route));
   const [enabled, setEnabled] = useState(() => record(agent).disabled !== true);
-  // ABB: the dialog is only mounted while it is open, so it owns back for its
-  // whole life.
-  useMobileBack(true, onCancel);
   const [formError, setFormError] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
-  useEffect(() => acquireTitleBarDim(), []);
-  return createPortal(<div className="schedules-dialog-layer"
-    onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
-    onKeyDown={(event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        onCancel();
-      }
-    }}>
+  return <SidebarDialogLayer onClose={onCancel}>
     <section className="schedules-dialog workflows-dialog" role="dialog" aria-modal="true" aria-labelledby="agent-dialog-title">
       <header>
         <h2 id="agent-dialog-title">{editing ? t('Edit agent') : t('Create agent')}</h2>
@@ -333,12 +303,12 @@ function AgentEditorDialog({ agent, deletable, models, busy, error = '', onCance
               }
               onDelete();
             }}>{confirmDelete ? t('Confirm delete') : t('Delete')}</button>}
-          <button type="button" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
+          <button type="button" className="secondary" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
           <button type="submit" disabled={busy}>{t('Save')}</button>
         </footer>
       </form>
     </section>
-  </div>, document.body);
+  </SidebarDialogLayer>;
 }
 
 function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave, onToggle }: {
@@ -352,20 +322,8 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave,
 }) {
   const [route, setRoute] = useState<RecordValue>(() => target.route);
   const [enabled, setEnabled] = useState(() => target.disabled !== true);
-  // ABB: the dialog is only mounted while it is open, so it owns back for its
-  // whole life.
-  useMobileBack(true, onCancel);
   const usageEditable = target.modelKind === 'agent';
-  useEffect(() => acquireTitleBarDim(), []);
-  return createPortal(<div className="schedules-dialog-layer"
-    onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
-    onKeyDown={(event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        onCancel();
-      }
-    }}>
+  return <SidebarDialogLayer onClose={onCancel}>
     <section className="schedules-dialog workflows-dialog workflows-route-dialog" role="dialog" aria-modal="true"
       aria-labelledby="route-dialog-title">
       <header>
@@ -405,12 +363,12 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave,
         </div>}
         <footer>
           {error && <p className="schedules-form-error" role="alert">{error}</p>}
-          <button type="button" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
+          <button type="button" className="secondary" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
           <button type="submit" disabled={busy}>{t('Save')}</button>
         </footer>
       </form>
     </section>
-  </div>, document.body);
+  </SidebarDialogLayer>;
 }
 
 // listWorkflows/listAgents/quickProviderModels are the same shared snapshots
@@ -454,15 +412,20 @@ export function WorkflowsPane({
   const [agentEditor, setAgentEditor] =
     useState<{ agent: RecordValue | null; deletable: boolean } | null>(null);
   const [routeEditor, setRouteEditor] = useState<RouteEditorTarget | null>(null);
+  const [loadingEditor, setLoadingEditor] =
+    useState<{ kind: 'workflow' | 'agent'; title: string } | null>(null);
+  const detailRequestRef = useRef(0);
   // Both editors portal to document.body, outside the sidebar's inert box:
   // deactivating the panel closes them and disarms pending deletions, while
   // the workflow/agent lists keep their state.
   useSidebarPanelDismiss(active, () => {
+    detailRequestRef.current += 1;
+    setLoadingEditor(null);
     setEditor(null);
     setAgentEditor(null);
     setRouteEditor(null);
   });
-  const busy = Boolean(pending) || loading;
+  const busy = Boolean(pending) || loading || loadingEditor !== null;
   const run = async (
     capability: DesktopCapability,
     args: unknown[] = [],
@@ -487,14 +450,20 @@ export function WorkflowsPane({
     }
   };
 
-  const openEditor = async (id: string, deletable: boolean) => {
+  const openEditor = async (id: string, title: string, deletable: boolean) => {
     if (!api?.invokeCapability) return;
+    const requestId = ++detailRequestRef.current;
+    setLoadingEditor({ kind: 'workflow', title });
     try {
       const result = await api.invokeCapability<RecordValue>({ capability: 'getWorkflowPack', args: [id] });
+      if (detailRequestRef.current !== requestId) return;
       setError('');
       setEditor({ pack: record(result?.value), deletable });
     } catch (reason) {
+      if (detailRequestRef.current !== requestId) return;
       showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
+    } finally {
+      if (detailRequestRef.current === requestId) setLoadingEditor(null);
     }
   };
   const saveWorkflow = async (payload: RecordValue) => {
@@ -548,14 +517,20 @@ export function WorkflowsPane({
   const orderedEditableAgents = agentOrder.orderedIds
     .map((id) => editableAgents.find((agent) => agent.id === id))
     .filter((agent): agent is AgentSummary => Boolean(agent));
-  const openAgentEditor = async (id: string, deletable: boolean) => {
+  const openAgentEditor = async (id: string, title: string, deletable: boolean) => {
     if (!api?.invokeCapability) return;
+    const requestId = ++detailRequestRef.current;
+    setLoadingEditor({ kind: 'agent', title });
     try {
       const result = await api.invokeCapability<RecordValue>({ capability: 'getAgentDefinition', args: [id] });
+      if (detailRequestRef.current !== requestId) return;
       setError('');
       setAgentEditor({ agent: record(result?.value), deletable });
     } catch (reason) {
+      if (detailRequestRef.current !== requestId) return;
       showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
+    } finally {
+      if (detailRequestRef.current === requestId) setLoadingEditor(null);
     }
   };
   const saveAgent = async (payload: RecordValue) => {
@@ -589,26 +564,30 @@ export function WorkflowsPane({
   const renderAgentRow = (agent: AgentSummary) => {
     const row = agents.find((entry) => String(entry.id) === agent.id);
     const route = record(row?.route);
-    return <div key={agent.id} className="schedules-row utilities-row workflows-agent-summary-row"
+    return <button type="button" key={agent.id}
+      className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row"
+      title={agent.description || agent.label} disabled={busy}
+      aria-label={t('Edit {{name}}', { name: agent.label })}
+      onClick={() => void openAgentEditor(agent.id, agent.label, agent.custom)}
       {...agentOrder.getReorderProps(agent.id)}>
-      <button type="button" className="schedules-row-copy utilities-row-copy projects-row-open"
-        title={agent.description || agent.label}
-        onClick={() => void openAgentEditor(agent.id, agent.custom)}>
+      <span className="schedules-row-copy utilities-row-copy">
         <SidebarResourceTitle label={agent.label} />
         <AgentRouteSummaryView summary={agentRouteSummary(route, models)} />
-      </button>
-      <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
-        aria-label={t('Edit {{name}}', { name: agent.label })}
-        onClick={() => void openAgentEditor(agent.id, agent.custom)}>
-        <ChevronRight size={16} aria-hidden="true" />
-      </button>
-    </div>;
+      </span>
+      <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+    </button>;
   };
 
   return <div className="schedules-pane workflows-pane stable-surface-preserved stable-takeover-surface"
     data-surface-active={active ? 'true' : 'false'}
     inert={active ? undefined : true} aria-hidden={active ? undefined : true}>
     <div className="schedules-page workflows-settings-page">
+      {active && loadingEditor && <SidebarLoadingDialog title={loadingEditor.title}
+        dataAttributes={{ 'data-sidebar-loading': loadingEditor.kind }}
+        onClose={() => {
+          detailRequestRef.current += 1;
+          setLoadingEditor(null);
+        }} />}
       {active && editor && <WorkflowEditorDialog key={String(record(editor.pack).id || '(new)')}
         pack={editor.pack} deletable={editor.deletable} busy={busy} error={error}
         onCancel={() => {
@@ -653,20 +632,17 @@ export function WorkflowsPane({
           const id = String(workflow.id || '');
           const name = String(workflow.name || id);
           const custom = String(workflow.source || '') === 'user';
-          return <div key={id} className="schedules-row utilities-row" {...workflowOrder.getReorderProps(id)}>
-            <button type="button" className="schedules-row-copy utilities-row-copy projects-row-open"
-              aria-label={t("Edit workflow {{name}}", { name })}
-              onClick={() => void openEditor(id, custom)}>
+          return <button type="button" key={id}
+            className="schedules-row utilities-row sidebar-resource-row"
+            disabled={busy} aria-label={t("Edit workflow {{name}}", { name })}
+            onClick={() => void openEditor(id, name, custom)} {...workflowOrder.getReorderProps(id)}>
+            <span className="schedules-row-copy utilities-row-copy">
               <b>{name}</b>
               <small>{[workflow.description ? t(String(workflow.description)) : '', custom ? t('Custom') : '']
                 .filter(Boolean).join(' · ')}</small>
-            </button>
-            <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
-              aria-label={t("Edit workflow {{name}}", { name })}
-              onClick={() => void openEditor(id, custom)}>
-              <ChevronRight size={16} aria-hidden="true" />
-            </button>
-          </div>;
+            </span>
+            <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+          </button>;
         })}</div>
         : <div className="schedules-empty">
           <Layers3 size={40} strokeWidth={1.5} aria-hidden="true" />
@@ -677,12 +653,12 @@ export function WorkflowsPane({
         <h2>{t('Default agents')}</h2>
         <p>{t('Shared models without editable agent definitions.')}</p>
         <div className="schedules-list">
-          <div className="schedules-row utilities-row workflows-agent-summary-row workflows-default-agent-summary-row"
+          <button type="button"
+            className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
             style={{ order: defaultAgentOrder.orderedIds.indexOf('web-search') }}
-            {...defaultAgentOrder.getReorderProps('web-search')}>
-            <button type="button" className="schedules-row-copy utilities-row-copy projects-row-open"
-              title={t('Use when Mixdog runs the web_search tool.')}
-              onClick={() => setRouteEditor({
+            title={t('Use when Mixdog runs the web_search tool.')} disabled={busy}
+            aria-label={t('Edit Web Search')}
+            onClick={() => setRouteEditor({
                 id: 'web-search',
                 label: 'Web Search',
                 route: webSearchRoute,
@@ -690,30 +666,20 @@ export function WorkflowsPane({
                 modelKind: 'webSearch',
                 description: t('Use when Mixdog runs the web_search tool.'),
                 readOnlyDefinition: true,
-              })}>
+              })}
+            {...defaultAgentOrder.getReorderProps('web-search')}>
+            <span className="schedules-row-copy utilities-row-copy">
               <b>{t('Web Search')}</b>
               <AgentRouteSummaryView summary={agentRouteSummary(webSearchRoute, webSearchModels)} />
-            </button>
-            <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
-              aria-label={t('Edit Web Search')}
-              onClick={() => setRouteEditor({
-                id: 'web-search',
-                label: 'Web Search',
-                route: webSearchRoute,
-                capability: 'setWebSearchRoute',
-                modelKind: 'webSearch',
-                description: t('Use when Mixdog runs the web_search tool.'),
-                readOnlyDefinition: true,
-              })}>
-              <ChevronRight size={16} aria-hidden="true" />
-            </button>
-          </div>
-          {exploreAgent && <div className="schedules-row utilities-row workflows-agent-summary-row workflows-default-agent-summary-row"
+            </span>
+            <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+          </button>
+          {exploreAgent && <button type="button"
+            className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
             style={{ order: defaultAgentOrder.orderedIds.indexOf(exploreAgent.id) }}
-            {...defaultAgentOrder.getReorderProps(exploreAgent.id)}>
-            <button type="button" className="schedules-row-copy utilities-row-copy projects-row-open"
-              title={exploreAgent.description || exploreAgent.label}
-              onClick={() => setRouteEditor({
+            title={exploreAgent.description || exploreAgent.label} disabled={busy}
+            aria-label={t('Edit {{name}}', { name: exploreAgent.label })}
+            onClick={() => setRouteEditor({
                 id: exploreAgent.id,
                 label: exploreAgent.label,
                 route: record(exploreRow?.route),
@@ -722,31 +688,20 @@ export function WorkflowsPane({
                 modelKind: 'agent',
                 description: exploreAgent.description,
                 readOnlyDefinition: true,
-              })}>
+              })}
+            {...defaultAgentOrder.getReorderProps(exploreAgent.id)}>
+            <span className="schedules-row-copy utilities-row-copy">
               <SidebarResourceTitle label={exploreAgent.label} />
               <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models)} />
-            </button>
-            <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
-              aria-label={t('Edit {{name}}', { name: exploreAgent.label })}
-              onClick={() => setRouteEditor({
-                id: exploreAgent.id,
-                label: exploreAgent.label,
-                route: record(exploreRow?.route),
-                disabled: exploreRow?.disabled === true,
-                capability: 'setAgentRoute',
-                modelKind: 'agent',
-                description: exploreAgent.description,
-                readOnlyDefinition: true,
-              })}>
-              <ChevronRight size={16} aria-hidden="true" />
-            </button>
-          </div>}
-          {maintainerAgent && <div className="schedules-row utilities-row workflows-agent-summary-row workflows-default-agent-summary-row"
+            </span>
+            <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+          </button>}
+          {maintainerAgent && <button type="button"
+            className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
             style={{ order: defaultAgentOrder.orderedIds.indexOf(maintainerAgent.id) }}
-            {...defaultAgentOrder.getReorderProps(maintainerAgent.id)}>
-            <button type="button" className="schedules-row-copy utilities-row-copy projects-row-open"
-              title={maintainerAgent.description || maintainerAgent.label}
-              onClick={() => setRouteEditor({
+            title={maintainerAgent.description || maintainerAgent.label} disabled={busy}
+            aria-label={t('Edit {{name}}', { name: maintainerAgent.label })}
+            onClick={() => setRouteEditor({
                 id: maintainerAgent.id,
                 label: maintainerAgent.label,
                 route: record(maintainerRow?.route),
@@ -755,25 +710,14 @@ export function WorkflowsPane({
                 modelKind: 'agent',
                 description: maintainerAgent.description,
                 readOnlyDefinition: true,
-              })}>
+              })}
+            {...defaultAgentOrder.getReorderProps(maintainerAgent.id)}>
+            <span className="schedules-row-copy utilities-row-copy">
               <SidebarResourceTitle label={maintainerAgent.label} />
               <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models)} />
-            </button>
-            <button type="button" className="session-panel-action workflows-row-enter" disabled={busy}
-              aria-label={t('Edit {{name}}', { name: maintainerAgent.label })}
-              onClick={() => setRouteEditor({
-                id: maintainerAgent.id,
-                label: maintainerAgent.label,
-                route: record(maintainerRow?.route),
-                disabled: maintainerRow?.disabled === true,
-                capability: 'setAgentRoute',
-                modelKind: 'agent',
-                description: maintainerAgent.description,
-                readOnlyDefinition: true,
-              })}>
-              <ChevronRight size={16} aria-hidden="true" />
-            </button>
-          </div>}
+            </span>
+            <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+          </button>}
         </div>
       </section>
       <section className="workflows-models" aria-label={t("Agents")}>

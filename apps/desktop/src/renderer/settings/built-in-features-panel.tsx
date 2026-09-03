@@ -147,7 +147,7 @@ function FeatureDetailDialog({ state, disabledSkills, onInstall, onToggle, onSki
   return <ExtensionDetailDialog title={title} onClose={onClose}
     dataAttributes={{ 'data-feature-id': feature.id }}
     headerControl={<FeatureControl state={state} onInstall={onInstall} onToggle={onToggle} />}>
-    <ExtensionHero icon={<Icon size={22} aria-hidden="true" />} title={title}
+    <ExtensionHero icon={<Icon size={22} aria-hidden="true" />}
       tagline={t(feature.description)} />
     {action?.status === 'failed' && action.message
       ? <div className="built-in-feature-error" role="alert">{action.message}</div>

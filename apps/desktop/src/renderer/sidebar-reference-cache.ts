@@ -272,10 +272,6 @@ export function isSidebarReferenceHost(api: SidebarReferenceApi | undefined): bo
   return !hostBound || boundApi === api;
 }
 
-export function sidebarReferenceUpdatedAt(key: SidebarReferenceKey): number {
-  return entries.get(key)?.updatedAt ?? 0;
-}
-
 export function isSidebarReferenceStale(key: SidebarReferenceKey): boolean {
   const entry = entries.get(key);
   if (!entry) return true;
@@ -410,14 +406,6 @@ export async function loadSidebarReferences(
 }
 
 /** Boot prewarm: fill every sidebar reference key once, best effort. */
-export async function prewarmSidebarReferences(api: SidebarReferenceApi | undefined): Promise<void> {
-  try {
-    await loadSidebarReferences(api, SIDEBAR_REFERENCE_KEYS);
-  } catch {
-    // Prewarm is an optimization; panels still load on demand.
-  }
-}
-
 export function subscribeSidebarReferences(
   keys: readonly SidebarReferenceKey[],
   listener: () => void,

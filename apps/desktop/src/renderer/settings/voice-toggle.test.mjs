@@ -87,7 +87,7 @@ function context({ run, snapshot = null, voice = {}, api = {}, toolModules = {} 
 // Built-in rows carry no control; the install pill / progress / switch live
 // in the feature's detail dialog, which the row opens.
 const openFeature = (id) => act(async () => {
-  document.querySelector(`[data-built-in-feature="${id}"] .extensions-row-open`).click();
+  document.querySelector(`button[data-built-in-feature="${id}"]`).click();
 });
 
 test('voice installs inline with live progress and enables on completion', async () => {

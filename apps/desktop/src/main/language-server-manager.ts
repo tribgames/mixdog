@@ -101,10 +101,6 @@ const SERVER_BY_LANGUAGE: Readonly<Record<string, LanguageServerSpec>> = {
   ruby: { id: 'ruby-lsp', name: 'Ruby LSP', command: 'ruby-lsp', args: [] },
 };
 
-export function languageServerSpecFor(languageId: string): Readonly<LanguageServerSpec> | null {
-  return SERVER_BY_LANGUAGE[String(languageId || '').toLowerCase()] ?? null;
-}
-
 function requiredConfigString(value: unknown, name: string, maximum = 4_096): string {
   if (typeof value !== 'string' || !value.trim() || value.length > maximum || value.includes('\0')) {
     throw new TypeError(`${name} is invalid.`);

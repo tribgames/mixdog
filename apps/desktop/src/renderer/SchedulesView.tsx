@@ -1,10 +1,8 @@
 import { AlarmClock, ChevronRight, Plus, Search, X } from 'lucide-react';
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { createPortal } from 'react-dom';
+import { useMemo, useState, type FormEvent } from 'react';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
-import { useMobileBack } from './mobile-back';
 import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
 import {
@@ -29,8 +27,8 @@ import {
   normalizeModelOptions,
 } from './provider-display';
 import { SidebarPanelAction } from './session-sidebar';
+import { SidebarDialogLayer } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
-import { acquireTitleBarDim } from './titlebar-dim';
 import {
   useSidebarReferences,
   type SidebarReferenceKey,
@@ -244,23 +242,7 @@ function ScheduleEditor({
   if (cwd && !projectOptions.some((option) => option.value === cwd)) {
     projectOptions.push({ value: cwd, label: cwd });
   }
-  // The scrim cannot dim the NATIVE caption band — hold the titlebar claim
-  // while this dialog is mounted (user: - ㅁ x 딤드 안 먹음).
-  useEffect(() => acquireTitleBarDim(), []);
-  // ABB: the editor is only mounted while it is open, so it owns back for its
-  // whole life.
-  useMobileBack(true, onCancel);
-  // The editor portals to document.body: the list lives in the session
-  // panel, so the dialog must escape the sidebar's clipped/transformed box.
-  return createPortal(<div className="schedules-dialog-layer"
-    onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
-    onKeyDown={(event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        onCancel();
-      }
-    }}>
+  return <SidebarDialogLayer onClose={onCancel}>
     <section className="schedules-dialog" role="dialog" aria-modal="true" aria-labelledby="schedules-dialog-title">
       <header>
         <h2 id="schedules-dialog-title">{editing ? t('Edit scheduled task') : t('Create scheduled task')}</h2>
@@ -385,8 +367,6 @@ function ScheduleEditor({
         </div>
         <footer>
           {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
-          {editing && onRun && <button type="button" disabled={busy || running}
-            onClick={onRun}>{running ? t('Running…') : t('Run now')}</button>}
           {editing && onDelete && <button type="button"
             className={`danger${confirmDelete ? ' confirming' : ''}`} disabled={busy}
             onClick={() => {
@@ -396,12 +376,14 @@ function ScheduleEditor({
               }
               onDelete();
             }}>{confirmDelete ? t('Confirm delete') : t('Delete')}</button>}
-          <button type="button" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
+          {editing && onRun && <button type="button" disabled={busy || running}
+            onClick={onRun}>{running ? t('Running…') : t('Run now')}</button>}
+          <button type="button" className="secondary" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
           <button type="submit" disabled={busy}>{t('Save')}</button>
         </footer>
       </form>
     </section>
-  </div>, document.body);
+  </SidebarDialogLayer>;
 }
 
 // Shared, process-wide reference keys. channelSetup is first: it carries the

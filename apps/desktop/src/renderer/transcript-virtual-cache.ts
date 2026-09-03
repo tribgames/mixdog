@@ -88,8 +88,3 @@ export function rememberTranscriptVirtualMeasurements(
     measurements: measured ? measurements : current?.measurements,
   });
 }
-
-export function clearTranscriptVirtualSnapshots(): void {
-  snapshots.clear();
-  namespaces.clear();
-}

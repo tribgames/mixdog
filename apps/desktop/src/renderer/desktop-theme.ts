@@ -183,10 +183,6 @@ export function setDesktopThemePreference(preference: DesktopThemePreference): s
   return applyDesktopThemePreference(preference);
 }
 
-export function clearDesktopThemePreference(): void {
-  desktopThemeStorage()?.removeItem(DESKTOP_THEME_PREFERENCE_KEY);
-}
-
 export function applyDesktopTheme(value: unknown): string {
   const requested = themeId(value);
   const resolved = registry[requested]

@@ -1,14 +1,12 @@
 import { ChevronRight, X } from 'lucide-react';
-import { useEffect, useMemo, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
+import { useMemo, type ReactNode } from 'react';
 
 import type { DesktopProjectSummary } from '../../shared/contract';
 import { t } from '../i18n';
-import { useMobileBack } from '../mobile-back';
 import { OpenSelect } from '../OpenSelect';
 import { record } from '../record-utils';
+import { SidebarDialogLayer } from '../sidebar-dialog';
 import { useSidebarReferences } from '../sidebar-reference-cache';
-import { acquireTitleBarDim } from '../titlebar-dim';
 import { CompactSwitch } from './capability-controls';
 import type { CapabilityApi, PanelContext, RecordValue } from './capability-data';
 
@@ -28,23 +26,18 @@ export function ExtensionRow({ icon, title, description, badge, enabled, busy, o
   onOpen(): void;
   dataAttributes?: Record<`data-${string}`, string>;
 }) {
-  return <div className="schedules-row utilities-row extensions-row" data-extension-row={title}
-    data-enabled={enabled ? 'true' : 'false'} {...dataAttributes}>
-    <button type="button"
-      className="schedules-row-copy utilities-row-copy projects-row-open extensions-row-open"
-      aria-label={title} disabled={busy} onClick={onOpen}>
-      <span className="extensions-row-icon" aria-hidden="true">{icon}</span>
-      <span className="sidebar-resource-title">
-        <b>{title}</b>
-        {badge ? <span className="extensions-row-badge">{badge}</span> : null}
-      </span>
-      <small>{description}</small>
-    </button>
-    <button type="button" className="session-panel-action workflows-row-enter extensions-row-enter"
-      aria-label={t('Edit {{name}}', { name: title })} disabled={busy} onClick={onOpen}>
-      <ChevronRight size={16} aria-hidden="true" />
-    </button>
-  </div>;
+  return <button type="button"
+    className="schedules-row utilities-row extensions-row extensions-row-open"
+    data-extension-row={title} data-enabled={enabled ? 'true' : 'false'}
+    aria-label={title} disabled={busy} onClick={onOpen} {...dataAttributes}>
+    <span className="extensions-row-icon" aria-hidden="true">{icon}</span>
+    <span className="sidebar-resource-title">
+      <b>{title}</b>
+      {badge ? <span className="extensions-row-badge">{badge}</span> : null}
+    </span>
+    <small>{description}</small>
+    <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
+  </button>;
 }
 
 /** The detail card every section shares: facts, optional content, then the
@@ -66,17 +59,7 @@ export function ExtensionDetailDialog({ title, children, actions, enabled, busy,
   onClose(): void;
   dataAttributes?: Record<`data-${string}`, string>;
 }) {
-  useMobileBack(true, onClose);
-  useEffect(() => acquireTitleBarDim(), []);
-  return createPortal(<div className="schedules-dialog-layer"
-    onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
-    onKeyDown={(event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        onClose();
-      }
-    }}>
+  return <SidebarDialogLayer onClose={onClose}>
     <section className="schedules-dialog extensions-dialog" role="dialog" aria-modal="true"
       aria-labelledby="extensions-dialog-title" {...dataAttributes}>
       <header>
@@ -93,13 +76,13 @@ export function ExtensionDetailDialog({ title, children, actions, enabled, busy,
       </header>
       <div className="extensions-dialog-body">
         {children}
-        <footer>
+        {actions && <footer className="extensions-dialog-actions">
           {actions}
           <button type="button" className="secondary" onClick={onClose}>{t('Close')}</button>
-        </footer>
+        </footer>}
       </div>
     </section>
-  </div>, document.body);
+  </SidebarDialogLayer>;
 }
 
 /** Extension detail building blocks shared by the Plugin, Skill, and MCP
@@ -111,16 +94,14 @@ export type ExtensionScopeKind = 'skills' | 'mcp' | 'plugins';
 
 const PROJECT_KEYS = ['projects'] as const;
 
-/** Icon tile + name + one-line summary under the dialog header. */
-export function ExtensionHero({ icon, title, tagline }: {
+/** Compact identity cue under the dialog title, without repeating that title. */
+export function ExtensionHero({ icon, tagline }: {
   icon: ReactNode;
-  title: string;
   tagline?: string;
 }) {
   return <div className="extensions-hero">
     <span className="extensions-hero-icon" aria-hidden="true">{icon}</span>
     <div className="extensions-hero-copy">
-      <b>{title}</b>
       {tagline ? <small>{tagline}</small> : null}
     </div>
   </div>;

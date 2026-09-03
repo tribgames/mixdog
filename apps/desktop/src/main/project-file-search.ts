@@ -153,11 +153,6 @@ async function collectProjectFiles(
 }
 
 /** Drop one root's cached index (or every index). */
-export function invalidateProjectFileIndex(root?: string): void {
-  if (root === undefined) projectFileIndexes.clear();
-  else projectFileIndexes.delete(root);
-}
-
 async function projectFilesFor(root: string): Promise<string[]> {
   const now = Date.now();
   const cached = projectFileIndexes.get(root);

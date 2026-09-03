@@ -30,6 +30,12 @@ window.mixdogDesktop = {
 };
 
 const { extensionSectionForSettings } = await import('../extension-sections.ts');
+const { WorkflowsPane } = await import('../WorkflowsView.tsx');
+const {
+  adoptSidebarReferenceHost,
+  resetSidebarReferenceCache,
+  updateSidebarReference,
+} = await import('../sidebar-reference-cache.ts');
 const { CategoryPanel } = await import('./capability-panels.tsx');
 
 function panelContext(overrides = {}) {
@@ -144,7 +150,15 @@ test('Plugin combines built-in features and installed plugins', async () => {
     assert.equal(document.querySelector('[data-extension-row="Example plugin"] input'), null);
     assert.ok(document.querySelector('[data-extension-row="Example plugin"] .extensions-row-icon'));
     await act(async () => {
-      document.querySelector('[data-extension-row="Example plugin"] .extensions-row-open').click();
+      document.querySelector('[data-built-in-feature="memory"]').click();
+    });
+    const memoryDialog = document.querySelector('[data-feature-id="memory"]');
+    assert.ok(memoryDialog);
+    assert.equal((memoryDialog.textContent.match(/Memory/g) || []).length, 1);
+    assert.equal(memoryDialog.querySelector('footer'), null);
+    await act(async () => {
+      memoryDialog.querySelector('header button[aria-label="Close"]').click();
+      document.querySelector('[data-extension-row="Example plugin"]').click();
     });
     await act(async () => {
       document.querySelector('.extensions-dialog header input').click();
@@ -200,7 +214,7 @@ test('Browser Use and Computer Use mount at their real state without replaying a
   const first = await renderPanel('plugins', { api });
   try {
     await act(async () => {
-      document.querySelector('[data-built-in-feature="browser"] .extensions-row-open').click();
+      document.querySelector('[data-built-in-feature="browser"]').click();
     });
     assert.equal(document.querySelector('[data-feature-id="browser"] input'), null);
     await act(async () => {
@@ -222,7 +236,7 @@ test('Browser Use and Computer Use mount at their real state without replaying a
   const second = await renderPanel('plugins', { api });
   try {
     await act(async () => {
-      document.querySelector('[data-built-in-feature="computer"] .extensions-row-open').click();
+      document.querySelector('[data-built-in-feature="computer"]').click();
     });
     assert.equal(document.querySelector('[data-feature-id="computer"] input').checked, true);
   } finally {
@@ -271,7 +285,7 @@ test('project scope shows as a row badge and saves from the plugin detail', asyn
     assert.equal(document.querySelector('[data-extension-row="Open plugin"] .extensions-row-badge'), null);
 
     await act(async () => {
-      document.querySelector('[data-extension-row="Open plugin"] .extensions-row-open').click();
+      document.querySelector('[data-extension-row="Open plugin"]').click();
     });
     const scopeField = document.querySelector('[data-extension-scope="plugins"]');
     assert.ok(scopeField);
@@ -322,7 +336,7 @@ test('plugin detail toggles each bundled skill and MCP server on its own', async
   });
   try {
     await act(async () => {
-      document.querySelector('[data-extension-row="Bundle"] .extensions-row-open').click();
+      document.querySelector('[data-extension-row="Bundle"]').click();
     });
     await act(async () => {
       document.querySelector('[data-extension-item="bundled-skill"] input').click();
@@ -369,5 +383,93 @@ test('Skill combines skills and MCP and lets the add action choose either kind',
     assert.equal(closed, 0);
   } finally {
     await rendered.cleanup();
+  }
+});
+
+test('Skill and MCP rows acknowledge the card click before their detail payload resolves', async () => {
+  const skillContent = deferred();
+  const mcpConfig = deferred();
+  const rendered = await renderPanel('skills', {
+    async run(capability) {
+      if (capability === 'skillContent') return skillContent.promise;
+      if (capability === 'getMcpServerConfig') return mcpConfig.promise;
+    },
+  });
+  try {
+    await act(async () => {
+      document.querySelector('[data-extension-row="example-skill"]').click();
+    });
+    assert.match(document.querySelector('[data-extension-loading="skill"]').textContent, /Loading/);
+
+    await act(async () => {
+      skillContent.resolve({ content: '# Example' });
+      await skillContent.promise;
+    });
+    assert.ok(document.querySelector('#extensions-skill-dialog-title'));
+    await act(async () => {
+      document.querySelector('.extensions-skill-dialog header button[aria-label="Close"]').click();
+      document.querySelector('[data-extension-row="example-mcp"]').click();
+    });
+    assert.match(document.querySelector('[data-extension-loading="mcp"]').textContent, /Loading/);
+
+    await act(async () => {
+      mcpConfig.resolve({ name: 'example-mcp', config: { type: 'stdio', command: 'example' } });
+      await mcpConfig.promise;
+    });
+    assert.ok(document.querySelector('#extensions-mcp-dialog-title'));
+  } finally {
+    skillContent.resolve({ content: '# Example' });
+    mcpConfig.resolve({ name: 'example-mcp', config: { type: 'stdio', command: 'example' } });
+    await rendered.cleanup();
+  }
+});
+
+test('Workflow card surface opens an immediate loading popup before editor data resolves', async () => {
+  const workflowPack = deferred();
+  const api = {
+    async invokeCapability({ capability }) {
+      if (capability === 'getWorkflowPack') return workflowPack.promise;
+      return { value: undefined };
+    },
+    async listProviderModels() { return []; },
+  };
+  resetSidebarReferenceCache();
+  adoptSidebarReferenceHost(api);
+  updateSidebarReference('workflows', [{
+    id: 'alpha',
+    name: 'Alpha',
+    description: 'Example workflow',
+    source: 'user',
+  }]);
+  updateSidebarReference('agents', []);
+  updateSidebarReference('webSearchRoute', {});
+  updateSidebarReference('webSearchModels', []);
+  updateSidebarReference('providerSetup', {});
+  updateSidebarReference('quickProviderModels', []);
+
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => {
+      root.render(React.createElement(WorkflowsPane, { api, active: true }));
+    });
+    const row = host.querySelector('.workflows-packs .schedules-row');
+    assert.ok(row);
+    await act(async () => {
+      row.click();
+    });
+    assert.match(document.querySelector('[data-sidebar-loading="workflow"]').textContent, /Loading/);
+
+    await act(async () => {
+      workflowPack.resolve({ value: { id: 'alpha', name: 'Alpha', body: '# Alpha' } });
+      await workflowPack.promise;
+    });
+    assert.ok(document.querySelector('#workflows-dialog-title'));
+  } finally {
+    workflowPack.resolve({ value: { id: 'alpha', name: 'Alpha', body: '# Alpha' } });
+    await act(async () => root.unmount());
+    host.remove();
+    resetSidebarReferenceCache();
   }
 });

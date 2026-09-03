@@ -1,5 +1,3 @@
-import { explicitEditorLanguageIdForPath } from "./editor-languages";
-
 const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
   png: "image/png",
   jpg: "image/jpeg",
@@ -47,17 +45,6 @@ const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
 /** Files whose primary useful representation in Mixdog is editable text.
  *  Binary documents/media stay with the OS even when Monaco could decode
  *  arbitrary bytes into replacement characters. */
-export function isLocalTextFilePath(path: string): boolean {
-  const name = String(path || "").split(/[\\/]/).at(-1)?.toLocaleLowerCase() || "";
-  if (!name) return false;
-  // The generated editor registry is the authority for every language,
-  // filename and glob Monaco understands. Plain .txt and conventional
-  // extensionless project docs intentionally fall back to plaintext.
-  return explicitEditorLanguageIdForPath(path) !== undefined
-    || name.endsWith(".txt")
-    || /^(?:readme|license|notice|changelog)(?:[-_.].*)?$/.test(name);
-}
-
 export function localFileMimeTypeForPath(path: string): string {
   const name = String(path || "").split(/[\\/]/).at(-1) || "";
   const dot = name.lastIndexOf(".");

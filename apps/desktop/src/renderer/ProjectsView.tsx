@@ -1,14 +1,12 @@
 import { ChevronRight, Folder, Plus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 
 import type { DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
-import { useMobileBack } from './mobile-back';
 import { projectIdentity, SidebarPanelAction } from './session-sidebar';
+import { SidebarDialogLayer } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
 import { publishSidebarProjects } from './sidebar-reference-cache';
-import { acquireTitleBarDim } from './titlebar-dim';
 import { usePersistedListOrder } from './use-persisted-list-order';
 
 function displayProjectFolder(path: string): string {
@@ -69,16 +67,6 @@ export function ProjectsPane({
   const [addingMemory, setAddingMemory] = useState(false);
   const [addMemoryDraft, setAddMemoryDraft] = useState('');
   const [confirmDeleteMemory, setConfirmDeleteMemory] = useState<number | null>(null);
-  // The dialog scrims cannot dim the NATIVE caption band — hold the titlebar
-  // claim while either portal is open (user: - ㅁ x 딤드 안 먹음).
-  useEffect(() => {
-    if (!(active && addOpen)) return;
-    return acquireTitleBarDim();
-  }, [active, addOpen]);
-  useEffect(() => {
-    if (!(active && editTarget)) return;
-    return acquireTitleBarDim();
-  }, [active, editTarget]);
   const canEditInstructions = instructionsSupported && !!onReadInstructions && !!onSaveInstructions;
   // The app shell owns project add/rename/remove and refetches its catalog
   // once a mutation actually succeeded. Mirroring THAT list into the shared
@@ -181,10 +169,6 @@ export function ProjectsPane({
     setAddName('');
     setAddError('');
   };
-  // ABB: each open project dialog owns one hardware-back step. A busy editor
-  // refuses to close, exactly as its own Cancel does.
-  useMobileBack(Boolean(active && addOpen), closeAdd);
-  useMobileBack(Boolean(active && editTarget), closeEdit);
   // Hidden panel, no body portal: collapsing the sidebar or presenting another
   // destination closes the dialogs (and disarms a pending removal) while the
   // list itself keeps its state.
@@ -213,15 +197,7 @@ export function ProjectsPane({
       {/* Plain + like every other rail panel action (user: 프로젝트도 + 통일). */}
       <SidebarPanelAction active={active} label={t('Add project')} icon={Plus}
         className="projects-add" onClick={() => setAddOpen(true)} />
-      {active && addOpen && createPortal(<div className="schedules-dialog-layer"
-        onMouseDown={(event) => { if (event.target === event.currentTarget) closeAdd(); }}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            event.stopPropagation();
-            closeAdd();
-          }
-        }}>
+      {active && addOpen && <SidebarDialogLayer onClose={closeAdd}>
         <section className="schedules-dialog projects-add-dialog" role="dialog" aria-modal="true"
           aria-labelledby="projects-add-title">
           <header>
@@ -263,21 +239,13 @@ export function ProjectsPane({
             </div>
             <footer>
               {addError && <p className="schedules-form-error" role="alert">{addError}</p>}
-              <button type="button" disabled={addBusy} onClick={closeAdd}>{t('Cancel')}</button>
+              <button type="button" className="secondary" disabled={addBusy} onClick={closeAdd}>{t('Cancel')}</button>
               <button type="submit" disabled={addBusy || !addPath}>{t('Add')}</button>
             </footer>
           </form>
         </section>
-      </div>, document.body)}
-      {active && editTarget && createPortal(<div className="schedules-dialog-layer"
-        onMouseDown={(event) => { if (event.target === event.currentTarget) closeEdit(); }}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            event.stopPropagation();
-            closeEdit();
-          }
-        }}>
+      </SidebarDialogLayer>}
+      {active && editTarget && <SidebarDialogLayer onClose={closeEdit}>
         <section className="schedules-dialog projects-edit-dialog" role="dialog" aria-modal="true"
           aria-labelledby="projects-edit-title">
           <header>
@@ -436,12 +404,13 @@ export function ProjectsPane({
                   resetEdit();
                   onRemove(path);
                 }}>{editConfirmRemove ? t('Confirm remove') : t('Remove')}</button>}
-              <button type="button" disabled={editBusy || memoryBusy} onClick={closeEdit}>{t('Cancel')}</button>
+              <button type="button" className="secondary" disabled={editBusy || memoryBusy}
+                onClick={closeEdit}>{t('Cancel')}</button>
               <button type="submit" disabled={editBusy || editInsLoading || memoryBusy || addingMemory}>{t('Save')}</button>
             </footer>
           </form>
         </section>
-      </div>, document.body)}
+      </SidebarDialogLayer>}
       {canEditInstructions && <div className="schedules-list projects-list projects-common-instructions">
         <button type="button" className="schedules-row utilities-row projects-row"
           onClick={() => openEdit(null, 'Common Instructions')}>

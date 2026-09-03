@@ -33,6 +33,7 @@ This file owns the process, the brief contract, and the QA gate. Every design de
 // reading mode: presentation | balanced | text · argument mode: pyramid | narrative | instructional | showcase | briefing
 // family: <one of design.md §3> · why this family for this subject: <one clause> · palette from: <subject/temperature> · accent: <hex>
 // type: MODE <reading mode> → body <pt> · korean: safe | noto | none · pairing: <serif | weight | concord> · delivery: Windows PowerPoint
+// title: top | low (TITLE_PLACE — the content slides' title placement; a slide that takes the other says why in its plan line)
 // ladder: ink/body/muted/paper/paperAlt/line/tint · dark/darkAlt/onDark
 // motif: <from the family preset> · signature (MARK on content slides): <section numeral | module tag | deck word> · chrome: <from the family preset, on the master>
 // rhythm: anchor, dense, breathing, dense, ... , anchor
