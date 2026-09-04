@@ -343,6 +343,35 @@ function flow(slide, x, y, w, blocks, { gap = GAP.within, bottom = H - M } = {})
   });
   return cy;
 }
+// stack: a vertical flex for one region (composition.md §6, "fill the frame"). Blocks are flow blocks, plus
+// { flex: (y, h) => void } for the one element that takes whatever height the measured blocks leave (a chart,
+// a picture, a diagram), { spacer: true } for a flexible gap that hangs everything after it on the region's
+// bottom, and { h, draw: (y, h) => void } for a fixed-height device. justify 'fill' (default) gives
+// the leftover to the flex block; 'between' spreads it into the gaps when there is no flex block. The bottom is
+// the zone's, so the column reaches the foot instead of stopping where the measure ran out. Returns the bottom.
+function stack(slide, x, y, w, blocks, { bottom = Z.body.bottom, gap = GAP.within, justify = 'fill' } = {}) {
+  const items = blocks.filter(Boolean).map((b) => {
+    if (b.spacer) return { ...b, kind: 'flex', flex: () => {}, h: 0 };
+    if (b.flex) return { ...b, kind: 'flex', h: 0 };
+    const r = b.role ? role(b.role) : null;
+    const size = b.size || r?.size || TYPE.body, bold = b.bold ?? r?.bold ?? false, font = b.font || r?.font || (bold ? T.sans : T.light), lh = b.lh ?? (b.h ? 1 : r?.lh ?? 1.35);
+    const h = b.h ?? fitH(b.text, w, size, font, { bold, lh });
+    return { ...b, kind: b.draw ? 'draw' : 'text', h, size, bold, font, lh, color: b.color || r?.color || T.body };
+  });
+  const fixed = items.reduce((a, b) => a + b.h, 0), between = items.slice(0, -1).reduce((a, b) => a + (b.after ?? gap), 0);
+  const free = bottom - y - fixed - between, flexCount = items.filter((b) => b.kind === 'flex').length;
+  if (free < -0.01) throw new Error(`stack: content needs ${(-free).toFixed(2)} in more than the region ${y.toFixed(2)}..${bottom.toFixed(2)} — cut a block or widen the zone`);
+  const spread = justify === 'between' && !flexCount && items.length > 1 ? free / (items.length - 1) : 0;
+  let cy = y;
+  items.forEach((b, i) => {
+    const h = b.kind === 'flex' ? free / flexCount : b.h;
+    if (b.kind === 'flex') b.flex(cy, h);
+    else if (b.kind === 'draw') b.draw(cy, h);
+    else slide.addText(b.text, { ...box(x, cy, w, h), fontFace: b.font, fontSize: b.size, bold: b.bold, color: b.color, margin: 0, valign: 'top', lineSpacingMultiple: b.lh });
+    cy += h + (i < items.length - 1 ? (b.after ?? gap) + spread : 0);
+  });
+  return cy;
+}
 ```
 
 ## 5. Shapes (native, editable in PowerPoint)
@@ -447,7 +476,9 @@ function chart(slide, x, y, w, h, { type = 'col', labels, series, accent = -1, o
     const values = series[0].values, n = values.length, i = Math.max(0, Math.min(n - 1, note.at));
     const cx = x + PLOT.x * w + (i + 0.5) * (PLOT.w * w) / n;
     const barTop = y + PLOT.y * h + PLOT.h * h * (1 - (values[i] - min) / ((top - min) || 1));
-    const ly = y + 0.02, lh = 0.32;
+    // The label sits one between step above the bar's value label (a short leader), not at the frame top — a zero
+    // bar would otherwise hang a leader the full height of the plot. Clamped to the frame.
+    const lh = 0.32, ly = Math.max(y + 0.02, barTop - 0.34 - GAP.between - lh);
     connector(slide, cx, barTop - 0.34, cx, ly + lh + 0.04, { arrow: 'none', color: T.accent, width: 1.25 });
     // The label sits on whichever side of the leader has room for its measured width, never wrapped.
     const tw = textW(note.text, DIAG.label, T.sans, true) + 0.12;

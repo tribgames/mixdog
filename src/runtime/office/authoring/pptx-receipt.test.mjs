@@ -99,6 +99,25 @@ test('a slide receipt reads the spacing vocabulary, ragged right edges, the type
   assert.deepEqual(deck.deck.rhythm.rightStray, [2, 2]);
 });
 
+test('a tinted plane that holds two lines reads as an empty plane, where footprint air cannot', () => {
+  const shapes = [
+    { text: 'Title', font: { size: 36 }, left: 43, top: 72, width: 400, height: 60 },
+    { geometry: 'rect', fill: { color: 'E7EBEE' }, left: 480, top: 160, width: 480, height: 380 },   // the plane, bottom-right
+    { text: 'two lines on the plane', font: { size: 14 }, left: 510, top: 180, width: 400, height: 50 },
+    { chart: { path: '/slide[11]/shape[4]/chart' }, left: 43, top: 160, width: 400, height: 360 },
+  ];
+  const hollow = slideReceipt({ index: 11, background: { color: 'F7F9FB' }, shapes }).observe;
+  assert.equal(hollow.quadrantAir[3], 0, 'the plane covers the bottom-right quadrant');
+  assert.ok(hollow.contentAir[3] > 0.9, `while nothing is in it: ${hollow.contentAir[3]}`);
+  assert.ok(hollow.fieldFill[0] < 0.2, `and the plane carries almost none of itself: ${hollow.fieldFill}`);
+  const filled = slideReceipt({ index: 12, background: { color: 'F7F9FB' }, shapes: [...shapes,
+    { text: 'the rest of the column', font: { size: 14 }, left: 510, top: 260, width: 400, height: 260 }] }).observe;
+  assert.ok(filled.fieldFill[0] > 0.6, `content that owns the plane reads high: ${filled.fieldFill}`);
+  assert.ok(filled.contentAir[3] < 0.5, `and the quadrant carries content: ${filled.contentAir[3]}`);
+  const deck = compositionReceipt({ slides: [{ index: 11, shapes }] });
+  assert.deepEqual(deck.deck.rhythm.fieldFills, [hollow.fieldFill[0]], 'the deck rhythm lists the emptiest plane per slide');
+});
+
 test('the deck receipt totals the families, lists the absent ones, and marks contradicted plan lines', () => {
   const brief = parseAuthoringBrief(`
 // BRIEF

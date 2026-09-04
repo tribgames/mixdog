@@ -6,7 +6,8 @@ import { renderedPageImages } from './assurance-rendered.mjs';
 // empty). A region with no local pixel variation is air whether the surface is paper, a dark field,
 // or the flat sky inside a picture — which is exactly what the shape footprint cannot see.
 // The downsample stands in for the smoothing pass: a texture finer than one cell averages out.
-// Returns a share in [0, 1] or null when the image cannot be read. A number, never a verdict.
+// Returns { air, balance } — air a share in [0, 1], balance the visual-weight read below — or null when
+// the image cannot be read. Numbers, never a verdict.
 export async function renderedAir(base64, { width = 320, window = 0.05, threshold = 0.05, border = 0.04 } = {}) {
   let loaded;
   try {
@@ -63,17 +64,51 @@ export async function renderedAir(base64, { width = 320, window = 0.05, threshol
       if (!peak || variance[y * w + x] / peak < threshold) air += 1;
     }
   }
-  return cells ? Number((air / cells).toFixed(2)) : null;
+  return {
+    air: cells ? Number((air / cells).toFixed(2)) : null,
+    balance: weightBalance(gray, sum, stride, w, h, r),
+  };
 }
 
-// Every rendered page of a deck (contact sheets unfolded to their pages) → Map page → air.
+// Visual-weight balance, as DeepSlides (arXiv 2605.26451 §C.2) defines it: a weight map mixing each
+// pixel's deviation from the page's median tone with its local contrast; from it the weight center of
+// mass (centered = 1 at dead center, 0 at a corner) and the left/right and top/bottom weight shares
+// (1 = even, 0 = all on one side). A page whose title band is empty and whose content sits low reads
+// as topBottom well under 1 — the number for "the top is empty". Numbers, never a verdict.
+function weightBalance(gray, sum, stride, w, h, r, lambda = 0.5) {
+  const sorted = Float64Array.from(gray).sort();
+  const median = sorted[Math.floor(sorted.length / 2)];
+  let total = 0, sx = 0, sy = 0, left = 0, top = 0;
+  for (let y = 0; y < h; y += 1) {
+    const y0 = Math.max(0, y - r), y1 = Math.min(h, y + r + 1);
+    for (let x = 0; x < w; x += 1) {
+      const x0 = Math.max(0, x - r), x1 = Math.min(w, x + r + 1);
+      const n = (y1 - y0) * (x1 - x0);
+      const local = (sum[y1 * stride + x1] - sum[y0 * stride + x1] - sum[y1 * stride + x0] + sum[y0 * stride + x0]) / n;
+      const v = gray[y * w + x];
+      const weight = (1 - lambda) * Math.abs(v - median) + lambda * Math.abs(v - local);
+      total += weight; sx += weight * (x + 0.5); sy += weight * (y + 0.5);
+      if (x + 0.5 < w / 2) left += weight;
+      if (y + 0.5 < h / 2) top += weight;
+    }
+  }
+  if (!total) return null;
+  const cx = sx / total, cy = sy / total;
+  const centered = 1 - Math.sqrt(((cx - w / 2) / (w / 2)) ** 2 + ((cy - h / 2) / (h / 2)) ** 2) / Math.SQRT2;
+  const leftRight = 1 - Math.abs(2 * left - total) / total;
+  const topBottom = 1 - Math.abs(2 * top - total) / total;
+  const clamp = (v) => Number(Math.min(1, Math.max(0, v)).toFixed(2));
+  return { centered: clamp(centered), leftRight: clamp(leftRight), topBottom: clamp(topBottom), score: clamp((centered + leftRight + topBottom) / 3) };
+}
+
+// Every rendered page of a deck (contact sheets unfolded to their pages) → Map page → { air, balance }.
 export async function renderedAirByPage(images = []) {
   const byPage = new Map();
   for (const image of renderedPageImages(images)) {
     const pages = Array.isArray(image?.pages) ? image.pages : [image?.page];
     if (pages.length !== 1 || !image?.data) continue;
-    const air = await renderedAir(image.data);
-    if (typeof air === 'number') byPage.set(Number(pages[0]), air);
+    const read = await renderedAir(image.data);
+    if (read && typeof read.air === 'number') byPage.set(Number(pages[0]), read);
   }
   return byPage;
 }
