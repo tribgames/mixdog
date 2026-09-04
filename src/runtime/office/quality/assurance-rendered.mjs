@@ -6,6 +6,20 @@ function imagePages(image) {
   return Array.isArray(image?.pages) && image.pages.length ? image.pages.map(Number) : [Number(image?.page) || 0];
 }
 
+// A contact sheet (a deck past twelve pages) carries the page images it was
+// composed from; the review reads those pages and never the sheet itself.
+export function renderedPageImages(images = []) {
+  const output = [];
+  for (const image of images || []) {
+    if (Array.isArray(image?.pageImages) && image.pageImages.length) {
+      output.push(...image.pageImages.map((page) => ({ ...page, pages: [Number(page.page)] })));
+    } else {
+      output.push(image);
+    }
+  }
+  return output;
+}
+
 async function renderedPageMetric(image) {
   if (imagePages(image).length !== 1 || !image?.data) return null;
   const loaded = await loadImage(Buffer.from(image.data, 'base64'));
@@ -76,9 +90,10 @@ export async function reviewRenderedOfficePages(images = [], {
   pageRoles = {},
 } = {}) {
   const normalized = String(format || '').toLowerCase();
+  const pageImages = renderedPageImages(images);
   const pages = [];
   const issues = [];
-  for (const image of images || []) {
+  for (const image of pageImages) {
     const metric = await renderedPageMetric(image);
     if (!metric) continue;
     pages.push(metric);
@@ -137,7 +152,7 @@ export async function reviewRenderedOfficePages(images = [], {
       ));
     }
   }
-  const aesthetics = await reviewRenderedOfficeAesthetics(images, {
+  const aesthetics = await reviewRenderedOfficeAesthetics(pageImages, {
     format: normalized,
     pageRoles,
   });

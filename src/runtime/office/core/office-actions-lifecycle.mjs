@@ -3,7 +3,7 @@ import { recalculateLibreOfficeWorkbook } from '../portable/portable-ooxml.mjs';
 import { summarizeOfficeCompositions } from '../design/composition-system.mjs';
 import { recordOfficeCompositionHistory } from '../design/library/design-library.mjs';
 import { documentSessionKey, documentSessions, isMicrosoftOfficeSession, sessions } from './office-core.mjs';
-import { pptxVisualReviewAcknowledged, reviewPptxVisualCritique } from '../quality/design-review.mjs';
+import { pptxVisualReviewAcknowledged, reviewPptxVisualCritique } from '../quality/design-review-critique.mjs';
 import { validate } from './office-actions-inspect.mjs';
 import { qa } from './office-actions-render.mjs';
 

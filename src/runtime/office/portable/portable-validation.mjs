@@ -10,6 +10,8 @@ import {
   workbookSheets,
 } from './portable-cells.mjs';
 import { imagePixelSize, loadPackage, partRelationshipPath, relationshipMap, relationshipOwner, relationshipTarget, removeContentTypeOverride, zipText } from './portable-opc.mjs';
+import { chartFaultIssues } from './portable-chart-faults.mjs';
+import { reviewDeadVectorChart, reviewTextFragmentation } from './review-editability.mjs';
 import { docxTables } from './portable-docx-xml.mjs';
 import { inspectPptxTextBoxes } from './portable-pptx.mjs';
 import { slidePath } from './portable-pptx-package.mjs';
@@ -650,6 +652,13 @@ export async function issuesPortableOoxml(path, format, options = {}) {
       issues.push({ severity: 'warning', source: 'text-metrics', ...detached });
     }
     for (const overflow of await tableCellOverflowIssues(zip)) issues.push(overflow);
+    for (const fault of await chartFaultIssues(zip)) issues.push(fault);
+    for (const fragment of reviewTextFragmentation(inspected.boxes)) {
+      issues.push({ severity: 'warning', source: 'editability', ...fragment });
+    }
+    for (const dead of reviewDeadVectorChart(inspected.content, inspected.boxes)) {
+      issues.push({ severity: 'warning', source: 'editability', ...dead });
+    }
   }
   for (const part of validation.baseline.lostProtectedParts || []) {
     issues.push({ severity: 'error', code: 'lost_protected_part', path: `/${part}`, message: 'A macro, master, layout, or theme part from the source package was removed.' });

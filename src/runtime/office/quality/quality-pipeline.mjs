@@ -1,25 +1,68 @@
 import { extname } from 'node:path';
 
+// Measurable integrity faults: the file is broken, unreadable, or lies about
+// its own fit. Only these block a submission.
 const CRITICAL_CODES = new Set([
   'accent_hue_overuse',
   'blank_page',
   'broken_chart',
+  'chart_axis_undeclared',
+  'chart_stacked_label_position',
   'empty_chart',
-  'emphasis_mismatch',
-  'flat_visual_rhythm',
   'font_family_overuse',
   'formula_error',
   'formula_error_truncated',
   'missing_relationship',
   'package_corrupt',
-  'recent_composition_repeat',
-  'repeated_layout_grammar',
-  'repeated_render_composition',
   'render_failed',
-  'repetitive_composition',
   'text_outside_slide',
   'unsafe_font_family',
 ]);
+
+// Taste and layout judgements. The author (the model) owns composition; the
+// runtime reports these as information and never grades a layout choice,
+// blocks on them, or lists them as polish targets. They stay in the issue list
+// so a reviewer can read them, and a caller may still fail on them explicitly.
+export const ADVISORY_CODES = new Set([
+  'adaptive_layout_rhythm_flat',
+  'adaptive_layout_selection_missing',
+  'art_direction_candidates_missing',
+  'card_grid_overuse',
+  'creative_direction_missing',
+  'default_chart_treatment',
+  'emphasis_mismatch',
+  'excessive_slide_text',
+  'flat_visual_rhythm',
+  'frontier_aesthetic_score_low',
+  'generic_motif_selected',
+  'generic_visual_treatment',
+  'layout_visual_imbalance',
+  'layout_whitespace_mismatch',
+  'meaningful_visual_missing',
+  'narrative_arc_weak',
+  'native_evidence_too_weak',
+  'opening_closing_grammar_repeat',
+  'plan_count_mismatch',
+  'plan_promise_missing',
+  'raw_table_slide',
+  'recent_composition_repeat',
+  'reference_genome_missing',
+  'repeated_layout_grammar',
+  'repeated_render_composition',
+  'repetitive_composition',
+  'semantic_visual_plan_missing',
+  'slide_visual_density_low',
+  'theme_body_backgrounds',
+  'under_composed_slide',
+  'under_composed_structure',
+  'vertical_imbalance',
+  'visual_reference_selection_missing',
+  'visual_role_variety_low',
+]);
+
+export function isAdvisoryOfficeIssue(issue) {
+  return ADVISORY_CODES.has(String(issue?.code || '')) || String(issue?.severity || '') === 'info';
+}
 
 const POLISH_GUIDANCE = Object.freeze({
   blank_page: 'Remove the accidental page or rebalance preceding content so the page has a clear purpose.',
@@ -66,9 +109,58 @@ const POLISH_GUIDANCE = Object.freeze({
   number_without_source: 'Add a source note that identifies the workbook cell, range, or external document.',
   number_without_fact: 'Add the figure to the brief facts line with its source (F<n> <value> — <source>), or remove it from the slide.',
   facts_missing: 'Write the brief facts line: every figure the deck shows, each with a source, before authoring again.',
-  plan_promise_missing: 'Draw the slide with the skeleton its plan line names (the archetype), or change the plan line to the skeleton actually used.',
-  plan_count_mismatch: 'Make the slide plan and the deck agree on the slide count; the plan is the contract the review reads.',
-  generic_takeaway: 'Rewrite the title as a specific conclusion or decision, not a topic label.',
+  plan_promise_missing: 'Advisory: the slide does not seem to carry what its plan line names; keep it if the composition is deliberate, else update the plan line or the slide.',
+  plan_count_mismatch: 'Advisory: the slide plan and the deck disagree on the slide count; update whichever is stale.',
+  // Package faults PowerPoint refuses (script-authored charts).
+  chart_stacked_label_position: 'Set dataLabelPosition to ctr, inEnd, or inBase on the stacked chart; outEnd makes PowerPoint refuse the file.',
+  chart_axis_undeclared: 'Give the combo chart valAxes and catAxes with two entries each, or drop secondaryValAxis / secondaryCatAxis from the series; PowerPoint discards the chart otherwise.',
+  // Editability (a slide, not a picture of one).
+  text_fragmentation: 'Merge the stacked single-line text boxes into one text box with paragraphs (breakLine between items) so the copy reflows and edits as a unit.',
+  dead_vector_chart: 'Replace the rectangles with a native chart (addChart / the kit chart()) so the values stay editable and re-sortable.',
+  // Text fit and placement (portable review).
+  text_clipped: 'Enlarge the box or shorten the copy; text cut at a box edge is always visible to the reader.',
+  text_box_too_narrow: 'Widen the text box so lines wrap at a readable measure instead of one or two words per line.',
+  shape_out_of_bounds: 'Move or resize the shape inside the 13.33 × 7.5 canvas; nothing past the edge is shown.',
+  shapes_too_close: 'Open the gap between the shapes to at least 0.3 in, or merge them into one block.',
+  vertical_imbalance: 'Move the content down into the field or enlarge the containers so the canvas is filled with intent, not a hollow bottom.',
+  stat_label_detached: 'Bring the label to within 36 pt of its numeral so the pair reads as one unit.',
+  low_contrast: 'Raise the text or background to 4.5:1 (3:1 at 18 pt or bold 14 pt); a scrim under text on a picture, a darker ink, or a lighter field.',
+  font_unavailable: 'Use a face from the safe list so the fit review and the recipient render the same widths.',
+  placeholder_text: 'Replace or delete the leftover template wording; placeholder copy never ships.',
+  unfilled_token: 'Fill or remove the unresolved template token before finalize.',
+  image_aspect_distorted: 'Crop the picture to the frame ratio (the kit picture() does) instead of stretching it.',
+  // Structure and render review (pptx).
+  content_touches_page_edge: 'Pull the content inside the safe margin; nothing sits against the canvas edge unless it bleeds on purpose (a picture, a band).',
+  edge_margin: 'Keep at least 0.5 in between content and the canvas edge, or make the element a deliberate bleed.',
+  text_spacing_tight: 'Raise the line spacing to at least 1.05× the size (the kit leading: dense 1.4, body 1.5).',
+  dense_paragraph: 'Split the paragraph, cut the copy, or give it a slide of its own as prose; a wall of text is not evidence.',
+  heading_hierarchy_jump: 'Restore the skipped heading level so the outline reads in order.',
+  worksheet_hierarchy_missing: 'Give the sheet a title row, labelled headers, and one reading order before the data.',
+  theme_background_drift: 'Use only the ladder backgrounds (paper, paperAlt, dark, darkAlt); recolor the drifting slide.',
+  theme_body_backgrounds: 'Keep body slides on the paper ladder; a dark field is a beat (cover, section, statement), not a body page.',
+  excessive_slide_text: 'Cut the copy to the reading mode\'s budget (composition.md §4) or split the slide.',
+  decorative_stripe: 'Remove the ornamental bar; a stripe that encodes nothing is decoration (composition.md §10).',
+  // Visual critique contract (finalize).
+  visual_critique_incomplete: 'Give every slide five 1-5 scores, a slide-specific note of 40+ characters, and three checks derived from its plan line.',
+  visual_critique_missing_slide: 'Add the critique entry for the slide the finalize call left out.',
+  visual_critique_invalid_slide: 'Point each critique entry at an existing slide index, once.',
+  visual_critique_needs_polish: 'Apply the listed fixes and failed checks in the script, author again, and critique the slide again.',
+  visual_critique_repeated_note: 'Write each note from that slide\'s own content; a copied note is not a review.',
+  // Composer-plan review (frontier).
+  adaptive_layout_selection_missing: 'Decide each slide\'s composition move from its relationship and job (composition.md §0-§2) and name it in the plan.',
+  layout_capacity_overflow: 'Cut or split the content that exceeds the structure\'s capacity; never shrink the type to fit.',
+  layout_whitespace_mismatch: 'Match the air to the role: beats breathe, evidence slides fill the field.',
+  layout_visual_imbalance: 'Rebalance the slide so the focal element and its support share the canvas by weight.',
+  generic_motif_selected: 'Replace the generic motif with the style\'s own device, tied to the subject.',
+  reference_genome_missing: 'Select and record the visual style the deck follows (direction.md §3-§4) before composing.',
+  visual_reference_selection_missing: 'Select and record the visual style the deck follows (direction.md §3-§4) before composing.',
+  source_specific_asset_missing: 'Add the subject-specific asset (picture, diagram, chart from the source) where the plan promised one.',
+  freeform_compile_missing: 'Author the slide as a script scene on the kit primitives with its layer contract instead of a placeholder plan.',
+  freeform_layer_contract_missing: 'Author the slide as a script scene on the kit primitives with its layer contract instead of a placeholder plan.',
+  authored_scene_missing: 'Author the slide as a script scene on the kit primitives with its layer contract instead of a placeholder plan.',
+  adaptive_layout_rhythm_flat: 'Alternate composition moves and densities across adjacent slides so the deck has rhythm.',
+  post_save_reopen_missing: 'Reopen the saved file and verify the review evidence after saving.',
+  visual_coverage_incomplete: 'Render and inspect every page before finalize; the visual coverage must be complete.',
 });
 
 export function resolveOfficeRenderOutput(path) {
@@ -82,11 +174,14 @@ export function normalizeOfficeReviewIssues(entries = []) {
   const output = [];
   for (const raw of entries || []) {
     if (!raw || typeof raw !== 'object') continue;
+    const code = String(raw.code || '');
     const issue = {
       ...raw,
-      severity: CRITICAL_CODES.has(String(raw.code || ''))
+      severity: CRITICAL_CODES.has(code)
         ? 'error'
-        : String(raw.severity || 'warning'),
+        : ADVISORY_CODES.has(code)
+          ? 'info'
+          : String(raw.severity || 'warning'),
     };
     const key = `${issue.severity}\0${issue.code}\0${issue.path}\0${issue.message}`;
     if (seen.has(key)) continue;
@@ -103,6 +198,7 @@ export function buildOfficePolishPlan({
   const normalized = normalizeOfficeReviewIssues(issues);
   const targets = new Map();
   for (const issue of normalized) {
+    if (issue.severity === 'info') continue;   // advisory: the author's call, not a polish target
     const path = String(issue.path || '/');
     const current = targets.get(path) || {
       path,

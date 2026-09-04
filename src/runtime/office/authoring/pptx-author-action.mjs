@@ -2,9 +2,23 @@ import { access } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { closeSession, render } from '../core/office-actions.mjs';
 import { documentFormat, documentSessionKey, documentSessions, sessions } from '../core/office-core.mjs';
-import { createAuthoredSession, fullPath } from '../core/office-sessions.mjs';
+import { createAuthoredSession, fullPath, snapshot } from '../core/office-sessions.mjs';
 import { runPptxAuthoringScript } from './pptx-script-runner.mjs';
 import { parseAuthoringBrief } from './pptx-brief.mjs';
+import { compositionReceipt } from './pptx-receipt.mjs';
+import { writeContactSheet } from './pptx-contact-sheet.mjs';
+
+// What the saved deck carries, slide by slide, for the author to weigh
+// against the plan. A receipt that cannot be read (an exotic package the
+// snapshot refuses) is omitted rather than failing the authoring call.
+async function readCompositionReceipt(session, brief) {
+  try {
+    const current = await snapshot(session, { includeStyles: true, limit: 100, maxChars: 100_000 }, { full: true });
+    return compositionReceipt(current?.document, brief);
+  } catch {
+    return null;
+  }
+}
 
 /** The design guide lives in the built-in `pptx` skill; the tool never
  *  serves it so one copy stays authoritative and user-overridable. */
@@ -71,6 +85,8 @@ export async function authorPptx(args, { cwd, dataDir, signal = null }) {
     ...(run.normalizedParagraphs ? { normalizedParagraphs: run.normalizedParagraphs } : {}),
     ...(replacedSession ? { replacedSession } : {}),
   };
+  const receipt = await readCompositionReceipt(session, session.authoredBrief);
+  if (receipt) result.receipt = receipt;
   if (args.render === false) {
     result.nextAction = 'Render the deck and inspect every slide before finalizing.';
     return result;
@@ -86,7 +102,14 @@ export async function authorPptx(args, { cwd, dataDir, signal = null }) {
       reviewToken: rendered.reviewToken,
     };
     result._images = Array.isArray(rendered._images) ? rendered._images : [];
-    result.nextAction = 'Inspect every rendered slide. Fix defects in the script and author again with overwrite:true, or finalize with design: { reviewed: true, reviewToken, critique: [one entry per slide] }.';
+    // The whole deck on one sheet, after the per-page renders, so the sequence can be read at once.
+    const sheet = await writeContactSheet(result._images, target).catch(() => null);
+    if (sheet) {
+      const { data, ...meta } = sheet;
+      result.render.contactSheet = meta;
+      result._images.push({ page: 0, path: sheet.path, width: sheet.width, height: sheet.height, mimeType: sheet.mimeType, data });
+    }
+    result.nextAction = 'Inspect every rendered slide, then the contact sheet as a sequence (density rhythm, repeated moves, title positions), and read the receipt against the plan (a deck-wide absence or a contradicted carrier gets a reason or a fix). Fix defects in the script and author again with overwrite:true, or finalize with design: { reviewed: true, reviewToken, critique: [one entry per slide] }.';
   } finally {
     delete session.activeSignal;
   }

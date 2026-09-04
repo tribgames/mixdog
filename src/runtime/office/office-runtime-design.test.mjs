@@ -25,6 +25,8 @@ import {
 } from './design/library/design-library.mjs';
 import {
   inferPptxSlideRoles,
+  isPptxDiagramSlide,
+  isPptxPictureSlide,
   isPptxStatementSlide,
   pptxVisualReviewAcknowledged,
   reviewOfficeDesign,
@@ -50,6 +52,57 @@ test('authored statement slides are read from their shapes so breathing beats ar
   assert.equal(isPptxStatementSlide(statement), true);
   assert.equal(isPptxStatementSlide(dense), false);
   assert.deepEqual(inferPptxSlideRoles({ slides: [{ index: 1, shapes: [] }, statement, dense] }), { 2: { slideRole: 'statement' } });
+});
+
+test('authored diagram slides are read from their native shapes so shape-filled fields are not judged empty', () => {
+  // A cycle: four block arcs spanning the content field, labels inside, one connector.
+  const diagram = {
+    index: 4,
+    shapes: [
+      { index: 1, type: 'p:sp', geometry: 'rect', text: 'Cycle', font: { size: 32 }, left: 43, top: 72, width: 870, height: 60 },
+      ...[0, 1, 2, 3].map((i) => ({ index: 2 + i, type: 'p:sp', geometry: 'blockArc', text: `Step ${i + 1}`, font: { size: 14 }, left: 200 + (i % 2) * 300, top: 150 + Math.floor(i / 2) * 170, width: 280, height: 160 })),
+      { index: 6, type: 'p:cxnSp', text: '', left: 480, top: 300, width: 120, height: 0.5 },
+    ],
+  };
+  // Text boxes only: the same count of shapes, none drawn.
+  const text = {
+    index: 5,
+    shapes: Array.from({ length: 6 }, (_, i) => ({ index: i + 1, type: 'p:sp', geometry: 'rect', text: `Line ${i + 1}`, font: { size: 14 }, left: 43, top: 160 + i * 40, width: 870, height: 32 })),
+  };
+  // Shapes drawn, but in one small corner: a badge, not a diagram.
+  const corner = {
+    index: 6,
+    shapes: [
+      { index: 1, type: 'p:sp', geometry: 'rect', text: 'Title', font: { size: 20 }, left: 43, top: 72, width: 870, height: 60 },
+      ...[0, 1, 2].map((i) => ({ index: 2 + i, type: 'p:sp', geometry: 'ellipse', text: '', left: 700 + i * 30, top: 400, width: 24, height: 24 })),
+    ],
+  };
+  // A side picture with a short claim: few words, but the frame owns the slide.
+  const pictureSide = {
+    index: 7,
+    shapes: [
+      { index: 1, type: 'p:pic', text: '', left: 0, top: 0, width: 446, height: 540 },
+      { index: 2, type: 'p:sp', geometry: 'rect', text: 'Night volume passed daytime', font: { size: 32 }, left: 490, top: 72, width: 420, height: 60 },
+      { index: 3, type: 'p:sp', geometry: 'rect', text: 'Two more shuttles.', font: { size: 18 }, left: 490, top: 160, width: 420, height: 40 },
+    ],
+  };
+  // A statement with a small inset picture stays a statement.
+  const inset = {
+    index: 8,
+    shapes: [
+      { index: 1, type: 'p:pic', text: '', left: 700, top: 380, width: 160, height: 100 },
+      { index: 2, type: 'p:sp', geometry: 'rect', text: 'One claim in air', font: { size: 40 }, left: 43, top: 120, width: 600, height: 80 },
+    ],
+  };
+  assert.equal(isPptxDiagramSlide(diagram), true);
+  assert.equal(isPptxDiagramSlide(text), false);
+  assert.equal(isPptxDiagramSlide(corner), false);
+  assert.equal(isPptxPictureSlide(pictureSide), true);
+  assert.equal(isPptxPictureSlide(inset), false);
+  assert.deepEqual(
+    inferPptxSlideRoles({ slideWidth: 960, slideHeight: 540, slides: [{ index: 1, shapes: [] }, diagram, text, corner, pictureSide, inset] }),
+    { 4: { visualType: 'diagram' }, 7: { visualType: 'picture' }, 8: { slideRole: 'statement' } },
+  );
 });
 
 test('Office design profiles expose semantic composition without decorative defaults', () => {

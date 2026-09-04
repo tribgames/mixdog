@@ -244,6 +244,8 @@ test('OCR TSV parsing and on-demand OOXML validator manifest stay deterministic'
 test('PDF text edits embed an explicit Unicode font for non-Latin text', async (t) => {
   const fontPath = await unicodeFontPath();
   if (!fontPath) return t.skip('No Unicode TrueType font is installed');
+  const text = /DejaVuSans/i.test(fontPath) ? 'Ελληνικά-Русский' : '한글-日本語-中文';
+  const expected = text.split('-')[0];
   const cwd = await workspace(t);
   const source = join(cwd, 'unicode-source.pdf');
   const output = join(cwd, 'unicode-edited.pdf');
@@ -259,7 +261,7 @@ test('PDF text edits embed an explicit Unicode font for non-Latin text', async (
   const edited = value(await executeOfficeTool({
     action: 'batch',
     session: opened.session,
-    operations: [{ op: 'add_text', page: 1, text: '한글-日本語-中文', x: 30, y: 60, size: 16, fontPath }],
+    operations: [{ op: 'add_text', page: 1, text, x: 30, y: 60, size: 16, fontPath }],
   }, { cwd }));
   assert.equal(edited.results[0].fontEmbedded, true);
   const snapshot = value(await executeOfficeTool({
@@ -267,7 +269,7 @@ test('PDF text edits embed an explicit Unicode font for non-Latin text', async (
     session: opened.session,
     pages: [1],
   }, { cwd }));
-  assert.match(JSON.stringify(snapshot.document.pages), /한글/);
+  assert.ok(JSON.stringify(snapshot.document.pages).includes(expected));
 });
 
 test('PDF create lints forms, reports OCR handoff, and preserves attachments', async (t) => {

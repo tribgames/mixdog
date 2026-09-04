@@ -5,6 +5,7 @@ import { dirname } from 'node:path';
 import { PPTX_SCRIPT_CONTRACT } from './pptx-script-contract.mjs';
 import { normalizeAuthoredPptx } from './pptx-script-normalize.mjs';
 import { measureTextBlock } from '../portable/text-metrics.mjs';
+import { iconGlobal } from './pptx-icons.mjs';
 
 // Text measurement for the script, in inches, with the metrics the review
 // reads the saved file with; a box sized here does not overflow there.
@@ -85,7 +86,7 @@ export async function runPptxAuthoringScript(script, output, { timeoutMs = PPTX_
   const startedAt = performance.now();
   let body;
   try {
-    body = new AsyncFunction('require', 'module', 'exports', 'OUTPUT', 'console', 'process', 'MEASURE', `"use strict";\n${source}\n`);
+    body = new AsyncFunction('require', 'module', 'exports', 'OUTPUT', 'console', 'process', 'MEASURE', 'ICON', `"use strict";\n${source}\n`);
   } catch (error) {
     return { ok: false, error: scriptError(error, source), logs, elapsedMs: 0 };
   }
@@ -96,7 +97,7 @@ export async function runPptxAuthoringScript(script, output, { timeoutMs = PPTX_
   });
   try {
     await Promise.race([
-      body(scriptRequire, module, module.exports, output, captureConsole(logs), scopedProcess, measureForScript),
+      body(scriptRequire, module, module.exports, output, captureConsole(logs), scopedProcess, measureForScript, iconGlobal()),
       timeout,
     ]);
     if (!await pathExists(output)) {

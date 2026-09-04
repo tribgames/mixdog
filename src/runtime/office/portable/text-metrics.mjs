@@ -1,7 +1,16 @@
 import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
+import { warmupInstalledOfficeFonts } from './font-provisioner.mjs';
 
 const LINE_HEIGHT_RATIO = 1.2;
 const CJK = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/;
+// Families that carry their own Hangul / CJK glyphs. Any other face (Arial, Calibri, Noto Sans) hands
+// CJK runs to PowerPoint's East Asian theme font, so those runs are measured in that fallback rather
+// than in the canvas's own (half-width) substitute. Probe 2026-09-04: Arial 18 pt wrapped the same
+// Korean sentence to 3 lines in PowerPoint and 2 lines in the canvas before this.
+const CJK_FAMILY = /noto (sans|serif) (kr|sc|tc|jp|cjk)|malgun|batang|gulim|dotum|yahei|jhenghei|yu gothic|meiryo|ms (gothic|mincho)|simsun|simhei|pingfang|hiragino|apple sd|nanum/i;
+// Line-break prohibitions (kinsoku): a closing mark never starts a line, an opening mark never ends one.
+const NO_LINE_START = /^[,.、。，．:;!?%)\]}」』〉》】〕’”…·]$/;
+const NO_LINE_END = /^[(\[{「『〈《【〔‘“]$/;
 
 let measureContext = null;
 
@@ -19,6 +28,12 @@ const FONT_ALIASES = Object.freeze({
   '바탕': 'Batang',
   '돋움': 'Dotum',
   '굴림': 'Gulim',
+  '본고딕': 'Noto Sans KR',
+  '본명조': 'Noto Serif KR',
+  '微软雅黑': 'Microsoft YaHei',
+  '微軟正黑體': 'Microsoft JhengHei',
+  '游ゴシック': 'Yu Gothic',
+  'メイリオ': 'Meiryo',
 });
 const WEIGHT_SUFFIX = /\s+(semilight|light|semibold|medium|black|thin|extrabold)$/iu;
 // Semilight faces register at weight 300 (Windows enumerates Malgun Gothic
@@ -49,6 +64,7 @@ let installedFonts = null;
 function installedFamilies() {
   if (!installedFonts) {
     try {
+      warmupInstalledOfficeFonts();
       installedFonts = new Set((GlobalFonts.families || [])
         .map((entry) => String(entry?.family || '').toLowerCase())
         .filter(Boolean));
@@ -72,12 +88,50 @@ export function fontAvailable(name) {
   return base !== family && installedFonts.has(base);
 }
 
+// PowerPoint's East Asian fallback for a Latin face: Malgun Gothic where Windows provides it, else
+// the provisioned Noto Sans KR. Resolved once, from the families the canvas actually registered.
+let cjkFallback = null;
+function cjkFallbackFamily() {
+  if (cjkFallback) return cjkFallback;
+  const families = installedFamilies();
+  cjkFallback = families.has('malgun gothic') ? 'Malgun Gothic' : families.has('noto sans kr') ? 'Noto Sans KR' : 'Malgun Gothic';
+  return cjkFallback;
+}
+
+// Measured against PowerPoint's own line widths (probe 2026-09-04, 18/36 pt, 400 pt box): the canvas
+// reads these faces 1.5-2.5 % narrower than PowerPoint lays them out, so a line the canvas fits would
+// wrap one character later on the slide. Malgun Gothic, Arial, and Calibri measured within 0.5 %.
+const WIDTH_CALIBRATION = Object.freeze({ 'noto sans kr': 1.015, 'noto serif kr': 1.025 });
+
+function rawWidth(text, font) {
+  const ctx = context();
+  ctx.font = fontSpec(font);
+  const scale = WIDTH_CALIBRATION[String(resolveFont(font.fontName).family).toLowerCase()] || 1;
+  return ctx.measureText(text).width * scale;
+}
+
 export function measureTextWidth(text, font = {}) {
   const value = String(text ?? '');
   if (!value) return 0;
-  const ctx = context();
-  ctx.font = fontSpec(font);
-  return ctx.measureText(value).width;
+  const { family } = resolveFont(font.fontName);
+  if (!CJK.test(value) || CJK_FAMILY.test(family)) return rawWidth(value, font);
+  // Mixed script in a Latin face: CJK runs go to the fallback family, the rest stays in the face.
+  let width = 0;
+  let run = '';
+  let runIsCjk = false;
+  const flush = () => {
+    if (!run) return;
+    width += rawWidth(run, runIsCjk ? { ...font, fontName: cjkFallbackFamily() } : font);
+    run = '';
+  };
+  for (const character of value) {
+    const isCjk = CJK.test(character);
+    if (run && isCjk !== runIsCjk) flush();
+    runIsCjk = isCjk;
+    run += character;
+  }
+  flush();
+  return width;
 }
 
 function segments(text) {
@@ -99,7 +153,22 @@ function segments(text) {
     buffer += character;
   }
   if (buffer) parts.push(buffer);
-  return parts;
+  return kinsoku(parts);
+}
+
+// Bind a closing mark to the segment before it and an opening mark to the segment after it, so a
+// break never leaves "." or "," at the head of a line, the way PowerPoint wraps Korean.
+function kinsoku(parts) {
+  const bound = [];
+  for (const part of parts) {
+    const last = bound[bound.length - 1];
+    if (last !== undefined && last !== ' ' && (NO_LINE_START.test(part) || NO_LINE_END.test(last))) {
+      bound[bound.length - 1] = last + part;
+      continue;
+    }
+    bound.push(part);
+  }
+  return bound;
 }
 
 export function wrapParagraph(text, width, font = {}) {
@@ -121,26 +190,14 @@ export function wrapParagraph(text, width, font = {}) {
   return lines.length ? lines : [''];
 }
 
-// PowerPoint's single line spacing is the face's own line height (ascent +
-// descent), not 1 em: Calibri and Arial sit near 1.2, Malgun Gothic at 1.33. A
-// percentage line spacing multiplies that, so a Hangul paragraph at 150% runs
-// 2.0 em per line. Measure with the face's ratio, floored at the Latin default.
-const naturalRatios = new Map();
-function naturalLineRatio(fontName) {
-  const { family } = resolveFont(fontName);
-  if (naturalRatios.has(family)) return naturalRatios.get(family);
-  let ratio = LINE_HEIGHT_RATIO;
-  try {
-    const ctx = context();
-    ctx.font = `100px "${family}"`;
-    const metrics = ctx.measureText('가Ag');
-    const measured = ((Number(metrics.fontBoundingBoxAscent) || 0) + (Number(metrics.fontBoundingBoxDescent) || 0)) / 100;
-    if (measured > 0) ratio = Math.max(LINE_HEIGHT_RATIO, measured);
-  } catch {
-    ratio = LINE_HEIGHT_RATIO;
-  }
-  naturalRatios.set(family, ratio);
-  return ratio;
+// PowerPoint's single line spacing is 1.2 em for every face — probe 2026-09-04
+// read BoundHeight / lines / size = 1.200 for Noto Sans KR, Noto Serif KR,
+// Malgun Gothic, Noto Sans, Arial, and Calibri at 18 and 36 pt. The canvas's
+// font bounding box (1.33 for Malgun, 1.44 for Noto Serif KR) is the face's own
+// metric, not the pitch PowerPoint lays out, so it is not used. A percentage
+// line spacing multiplies the 1.2.
+function naturalLineRatio() {
+  return LINE_HEIGHT_RATIO;
 }
 
 // lineSpacing: the PowerPoint multiple (1.0 = single); a paragraph's own

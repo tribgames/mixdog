@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { delimiter } from 'node:path';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve, win32 } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { plainObject, sha256, stableValue } from '../../shared/values.mjs';
@@ -210,18 +210,17 @@ export function defaultOfficeTemplateDirectories({
   environment = process.env,
   home = homedir(),
 } = {}) {
-  const directories = [BUNDLED_TEMPLATE_DIRECTORY];
+  const directories = [resolve(BUNDLED_TEMPLATE_DIRECTORY)];
   if (platform === 'win32') {
     const programFiles = String(environment.ProgramFiles || environment.PROGRAMFILES || '').trim();
     const programFilesX86 = String(environment['ProgramFiles(x86)'] || environment.PROGRAMFILES_X86 || '').trim();
     const appData = String(environment.APPDATA || '').trim();
     for (const root of [programFiles, programFilesX86].filter(Boolean)) {
-      directories.push(join(root, 'Microsoft Office', 'root', 'Templates'));
+      directories.push(win32.resolve(win32.join(root, 'Microsoft Office', 'root', 'Templates')));
     }
-    if (appData) directories.push(join(appData, 'Microsoft', 'Templates'));
-    if (home) directories.push(join(home, 'Documents', 'Custom Office Templates'));
+    if (appData) directories.push(win32.resolve(win32.join(appData, 'Microsoft', 'Templates')));
+    if (home) directories.push(win32.resolve(win32.join(home, 'Documents', 'Custom Office Templates')));
   }
   return directories
-    .map((entry) => resolve(entry))
     .filter((entry, index, values) => values.indexOf(entry) === index);
 }

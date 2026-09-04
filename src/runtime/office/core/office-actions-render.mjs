@@ -17,8 +17,13 @@ import { inferPptxSlideRoles, reviewOfficeDesign } from '../quality/design-revie
 import { applyBatch } from './office-actions-batch.mjs';
 import { issues } from './office-actions-inspect.mjs';
 
+// The fit repairs (fit_table, autofit_range, fit_text) exist on both the
+// Microsoft Office and the portable OOXML backends; tabular and PDF sessions
+// have no such operations.
+const FIXABLE_BACKENDS = new Set(['microsoft-office-com', 'mixdog-ooxml']);
+
 function qaFixOperations(session, issueList) {
-  if (session.backend !== 'microsoft-office-com') return [];
+  if (!FIXABLE_BACKENDS.has(session.backend)) return [];
   const operations = [];
   const seen = new Set();
   for (const issue of issueList || []) {
@@ -121,12 +126,15 @@ export async function qa(session, args, cwd) {
   let currentSnapshot = null;
   let reviewSlidePlans = [];
   try {
+    // The review reads the whole document: a bounded (model-facing) snapshot
+    // shrinks its page limit to fit maxChars, which left every slide past the
+    // first dozen of a long deck without a role or a design review.
     currentSnapshot = await snapshot(session, {
       ...args,
       includeStyles: true,
       limit: Math.min(100, Number(args.limit) || 100),
       maxChars: 100_000,
-    });
+    }, { full: true });
     const stateSlidePlans = Array.isArray(session.designState?.slidePlans)
       ? session.designState.slidePlans
       : [];
@@ -223,7 +231,9 @@ export async function qa(session, args, cwd) {
     format: session.format,
     aesthetics: renderReview.aesthetics,
     issues: combinedIssuesAfter,
-    renderedPages: preview._images?.length || 0,
+    // Pages reviewed, not images: past twelve pages the render is contact sheets
+    // that each carry several pages, and the coverage must count those pages.
+    renderedPages: Number(preview.visualCoverage?.reviewed) || preview._images?.length || 0,
     expectedPages: preview.pageCount,
     structuralAvailable: Boolean(currentSnapshot),
     planCoverage: session.format === 'pptx' && preview.pageCount
@@ -296,7 +306,7 @@ export async function render(session, args, cwd) {
       format: 'pdf',
       pageCount: rendered.pageCount,
       visualCoverage: rendered.visualCoverage,
-      images: rendered.images.map(({ data, ...image }) => image),
+      images: rendered.images.map(({ data, pageImages, ...image }) => image),
       _images: rendered.images,
     };
     session.designState ||= { renderedVersion: null, semanticCount: 0, requiresVisualReview: false };
@@ -328,7 +338,7 @@ export async function render(session, args, cwd) {
     format: 'pdf',
     pageCount: rendered.pageCount,
     visualCoverage: rendered.visualCoverage,
-    images: rendered.images.map(({ data, ...image }) => image),
+    images: rendered.images.map(({ data, pageImages, ...image }) => image),
     _images: rendered.images,
   };
   session.designState ||= { renderedVersion: null, semanticCount: 0, requiresVisualReview: false };

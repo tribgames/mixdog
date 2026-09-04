@@ -458,6 +458,8 @@ async function snapshotPptx(zip, options = {}) {
         const fontSizes = [...shape.xml.matchAll(/<a:rPr\b[^>]*\bsz="(\d+)"/gi)]
           .map((match) => Number(match[1]) / 100)
           .filter((size) => size > 0);
+        // Weight is a type-scale step of its own: a specimen ladder sets one size in light / regular / bold.
+        const bold = /<a:rPr\b[^>]*\bb="1"/i.test(shape.xml);
         const tableRows = [...shape.xml.matchAll(/<a:tr\b/gi)].length;
         const tableColumns = [...shape.xml.matchAll(/<a:gridCol\b/gi)].length;
         // Typeface and color inventories feed the deck discipline review; a
@@ -491,7 +493,7 @@ async function snapshotPptx(zip, options = {}) {
           ...(/<p:ph\b/i.test(shape.xml) ? { placeholder: true } : {}),
           ...(/<c:chart\b/i.test(shape.xml) ? { chart: { path: `${shapePath}/chart` } } : {}),
           ...(tableRows ? { table: { rows: tableRows, columns: tableColumns } } : {}),
-          ...(fontSizes.length ? { font: { size: Math.max(...fontSizes), ...(fonts.length ? { name: fonts[0] } : {}) } } : {}),
+          ...(fontSizes.length ? { font: { size: Math.max(...fontSizes), ...(bold ? { bold: true } : {}), ...(fonts.length ? { name: fonts[0] } : {}) } } : {}),
           ...(fonts.length ? { fonts } : {}),
           ...(colors.length ? { colors } : {}),
           ...(offset && extent ? {

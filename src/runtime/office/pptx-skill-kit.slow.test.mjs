@@ -1,15 +1,17 @@
-// The pptx skill's device kit and skeleton catalog must author cleanly through
-// the runtime: every helper compiles, the package validates, and the design
-// review raises no warning against a deck built the way the skill teaches.
-// Each round of skill work so far surfaced kit↔review misalignments only when
-// a real deck was authored; this test authors one deck per skeleton family.
+// The pptx skill's kit must author cleanly through the runtime: every helper
+// compiles, the package validates, and the measured review raises nothing
+// against a deck composed the way the skill teaches — from the primitives,
+// with no whole-slide function. Advisory readings (monotony, plan read-back)
+// are information, not failures, so the tests filter them out.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import sharp from 'sharp';
 import { executeOfficeTool } from './index.mjs';
+import { isAdvisoryOfficeIssue } from './quality/quality-pipeline.mjs';
 
 const SKILL = fileURLToPath(new URL('../../defaults/skills/pptx/references/', import.meta.url));
 
@@ -19,66 +21,48 @@ async function kitBlocks(file) {
 }
 
 const value = (result) => JSON.parse(result.content[0].text);
+const measured = (qa) => (qa.issuesAfter || qa.issues || []).filter((issue) => !isAdvisoryOfficeIssue(issue)).map((issue) => `${issue.code} ${issue.path}: ${issue.message}`);
 
-// One content slide per skeleton id, each through its archetype with content only.
-const ARCHETYPES = `
-cover({ kicker: 'Kit regression', title: 'Every archetype\\nthrough the runtime', subtitle: 'Content in, measured geometry out', meta: 'Mixdog · regression', ghost: '01' });
-S1({ kicker: 'S1', claim: [[['A single claim with ', {}], ['one emphasised figure', { bold: true, color: T.accent }], [' and enough air around it to read as a statement.', {}]]], attribution: '— attribution line' });
-S2({ kicker: 'S2', value: '42', unit: '%', label: 'percent of decks reviewed', explanation: 'The explanation sits beside the number at sixteen points and stays under four lines of measured text.' });
-S3({ quote: 'A pull quote crossing the column at thirty points, measured so it never overflows.', attribution: 'Attribution, fourteen points' });
-S5({ number: '02', kicker: 'S5', claim: 'Chapter mark behind the claim' });
-E1({ kicker: 'E1', title: 'Chart as spine', chart: { labels: ['Q1', 'Q2', 'Q3', 'Q4'], series: [{ name: 'Revenue', values: [12, 18, 24, 31] }], accent: 3 }, hero: { value: '31', label: 'Q4 revenue, mm' }, note: 'The note under the hero explains what moved.', takeaway: 'The takeaway closes the page under the chart.' });
-E2({ kicker: 'E2', title: 'Chart with side rail', chart: { type: 'line', labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May'], series: [{ name: 'Active', values: [3, 5, 4, 8, 9] }, { name: 'Churned', values: [1, 1, 2, 1, 1] }] }, rail: { lead: 'Lead sentence in bold', bullets: ['First supporting point for the chart', 'Second supporting point', 'Third point'] } });
-E3({ kicker: 'E3', title: 'Small multiples', panels: [{ title: 'North', labels: ['a', 'b', 'c'], series: [{ name: 'n', values: [4, 6, 9] }] }, { title: 'South', labels: ['a', 'b', 'c'], series: [{ name: 's', values: [3, 3, 4] }] }, { title: 'West', labels: ['a', 'b', 'c'], series: [{ name: 'w', values: [8, 7, 9] }], accent: 2 }], comparison: 'Same shape, different size: West leads on every step.' });
-E4({ kicker: 'E4', title: 'Stat band', stats: [{ value: '12', label: 'label one', context: 'Context under the first number.' }, { value: '48', label: 'label two', context: 'Context under the second.' }, { value: '3.5', label: 'label three', context: 'Context under the third.' }, { value: '97', unit: '%', label: 'label four', context: 'Context under the fourth.' }], takeaway: 'Four numbers, one cause.' });
-E5({ kicker: 'E5', title: 'Table with verdict', columns: ['Option', 'Cost', 'Verdict'], rows: [['Build', 'High', 'Defer'], ['Buy', 'Medium', 'Go'], ['Partner', 'Low', 'Pilot']], highlight: 'Go', source: 'Source: internal estimate' });
-E7({ kicker: 'E7', title: 'Gauge', share: 0.72, value: '72%', label: 'share', meaning: [[['Nearly ', {}], ['three in four', { bold: true, color: T.accent }], [' decks pass the gate on the first render.', {}]]] });
-E8({ title: 'Specimen: the subject drawn', rows: [{ text: 'Weight ladder light', font: T.light, size: 28, label: 'light' }, { text: 'Weight ladder regular', font: T.sans, size: 28, label: 'regular' }, { text: 'Weight ladder bold', font: T.sans, size: 28, bold: true, label: 'bold' }, { text: 'Fifteen point body line', size: 15, label: '15 pt' }, { text: 'Twenty-four point body line', size: 24, label: '24 pt' }], claim: 'The specimen is the content; the claim beside it says what to see, not what the specimen is.' });
-R1({ kicker: 'R1', title: 'Chevron run', stages: [{ label: 'Brief', detail: 'Write the plan with the relationship atom named.' }, { label: 'Script', detail: 'One script built on the kit.' }, { label: 'Render', detail: 'Every slide rendered.' }, { label: 'Review', detail: 'Fix in the script, never the file.' }, { label: 'Finalize', detail: 'Validate the package.' }], active: 3, takeaway: 'The active stage is the one this deck is about.' });
-R2({ kicker: 'R2', title: 'Timeline', events: [{ x: 1.5, label: 'Kickoff', detail: 'Detail for this milestone.' }, { x: 4.2, label: 'Alpha', detail: 'What changed here.' }, { x: 8.9, label: 'Beta', detail: 'What changed here.' }, { x: 11.8, label: 'Launch', detail: 'The present.' }], note: 'Milestones sit at their real dates; the present is the accent node.' });
-R3({ kicker: 'R3', title: 'Stepped process', lead: 'Four steps rising to the accent.', items: [['Collect', 'inputs'], ['Shape', 'the brief'], ['Author', 'the script'], ['Review', 'renders']] });
-R5({ kicker: 'R5', title: 'Cycle', labels: ['Plan', 'Do', 'Check', 'Act'], active: 2, center: { lead: 'Check', note: 'closes the loop' } });
-R6({ kicker: 'R6', title: 'Hub and spokes', hub: { label: 'Hub', note: 'entry' }, spokes: [{ label: 'A', deg: -150, note: 'first spoke' }, { label: 'B', deg: -30, note: 'second spoke' }, { label: 'C', deg: 30, note: 'third spoke' }, { label: 'D', deg: 150, note: 'fourth spoke' }, { label: 'rt', deg: 90, note: 'runtime, dashed', dashed: true }], note: 'Dashed satellite is not a document.' });
-R7({ kicker: 'R7', title: 'Merge', sources: ['Source 1', 'Source 2', 'Source 3'], target: 'Target' });
-R11({ kicker: 'R11', title: 'Brace groups', groups: [{ name: 'craft', file: 'design.md', items: ['Judgement rules', 'Palette and type'] }, { name: 'contract', file: 'SKILL.md', items: ['Brief format', 'QA gate'] }, { name: 'tool doc', items: ['Skeleton geometry', 'Helper code', 'Picture modifiers'] }], aside: { value: '3', label: 'kinds of document', note: 'One rule, one home; a rule in two files is the failure.' } });
-R12({ kicker: 'R12', title: 'Two planes', left: { label: 'Before', bullets: ['Manual review of every render', 'Fixes in the file'] }, right: { label: 'After', bullets: ['Runtime review with role inference', 'Fixes in the script'] }, takeaway: 'One difference marker only, on the side that changed.' });
-R13({ kicker: 'R13', title: '2×2 field', axes: { x: 'effort', y: 'impact' }, items: [{ label: 'Quick win', x: M + 0.4, y: 2.4 }, { label: 'Strategic', x: M + 5.0, y: 2.4 }, { label: 'Fill-in', x: M + 0.4, y: 5.0 }, { label: 'Avoid', x: M + 5.0, y: 5.0 }] });
-R14({ kicker: 'R14', title: 'Tiered stack', tiers: ['Vision', 'Strategy', 'Programs', 'Tasks'], aside: { lead: 'Upper tiers decide before lower tiers act.', bullets: ['Vision names the end state', 'Strategy chooses the path', 'Programs and tasks execute'] } });
-R15({ kicker: 'R15', title: 'Overlapping sets', labels: ['Design', 'Runtime'], shared: 'review', note: 'The shared region is where both own the rule.' });
-closing({ title: 'The ask, in one line', ask: 'Approve the next round.', meta: 'Mixdog · regression', ghost: '02' });
-await pres.writeFile({ fileName: OUTPUT });
-`;
-
-// Free-form kit calls that no archetype covers (kept as the kit's own smoke).
-const SKELETONS = `
-{ const s = anchor(); ghost(s, '01', 7.6, 1.0, 240, 5.2); kicker(s, 'Kit regression', M, 2.15, T.onDarkAccent); title(s, 'Every skeleton\\nthrough the runtime', { y: 2.55, w: 8.2, size: 44, color: 'FFFFFF' }); }
-{ const s = content(); kicker(s, 'S1'); emphasis(s, [[['A single claim with ', {}], ['one emphasised figure', { bold: true, color: T.accent }], [' and enough air around it to read as a statement.', {}]]], M, 2.4, 10, 2.2, 28, T.ink); s.addText('— attribution line', { ...box(M, 5.0, 6, 0.4), fontFace: T.sans, fontSize: 13, color: T.muted, margin: 0 }); }
-{ const s = content(); kicker(s, 'S2'); hero(s, M, 2.2, 5, '42', 'percent of decks reviewed', { size: 96, unit: '%' }); prose(s, 'The explanation sits beside the number at eighteen points and stays under three lines.', 7.2, 2.6, 5.5, 1.6, 18); }
-{ const s = breathing(); s.addText('“', { ...box(M - 0.1, 1.0, 1.6, 2.1), fontFace: T.data, fontSize: 120, bold: true, color: T.onDarkAccent, margin: 0 }); s.addText('A pull quote crossing the column at thirty points.', { ...box(M + 0.9, 2.6, 10.6, 1.6), fontFace: T.display, fontSize: 30, bold: true, color: 'FFFFFF', margin: 0 }); s.addText('Attribution, thirteen points', { ...box(M + 0.9, 4.4, 8, 0.4), fontFace: T.sans, fontSize: 13, color: T.onDarkMuted, margin: 0 }); }
-{ const s = anchor(); ghost(s, '02', 7.5, 1.2); kicker(s, 'S5', M, 2.15, T.onDarkAccent); title(s, 'Chapter mark behind the claim', { y: 2.6, w: 7, size: 28, color: 'FFFFFF' }); }
-{ const s = content(); kicker(s, 'E1'); title(s, 'Chart as spine'); chart(s, M, 1.8, 8.2, 4.4, { labels: ['Q1', 'Q2', 'Q3', 'Q4'], series: [{ name: 'Revenue', values: [12, 18, 24, 31] }], accent: 3 }); hero(s, 9.4, 2.4, 3.3, '31', 'Q4 revenue, mm'); takeaway(s, 'The takeaway closes the page under the chart.', 6.2); }
-{ const s = content(); kicker(s, 'E2'); title(s, 'Chart with side rail'); chart(s, M, 1.8, 7.6, 4.8, { type: 'line', labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May'], series: [{ name: 'Active', values: [3, 5, 4, 8, 9] }, { name: 'Churned', values: [1, 1, 2, 1, 1] }] }); field(s, 8.6, 1.8, 4.1, 4.8); s.addText('Lead sentence in bold', { ...box(8.9, 2.1, 3.5, 0.5), fontFace: T.sans, fontSize: 16, bold: true, color: T.ink, margin: 0 }); body(s, 8.9, 2.8, 3.5, 3.4, ['First supporting point for the chart', 'Second supporting point', 'Third point']); }
-{ const s = content(); kicker(s, 'E3'); title(s, 'Small multiples'); smallMultiples(s, M, 2.4, W - 2 * M, 3.8, [{ title: 'North', labels: ['a', 'b', 'c'], series: [{ name: 'n', values: [4, 6, 9] }] }, { title: 'South', labels: ['a', 'b', 'c'], series: [{ name: 's', values: [3, 3, 4] }] }, { title: 'West', labels: ['a', 'b', 'c'], series: [{ name: 'w', values: [8, 7, 9] }], accent: 2 }]); s.addText('Same shape, different size: West leads on every step.', { ...box(M, 6.4, 10, 0.4), fontFace: T.sans, fontSize: 14, color: T.body, margin: 0 }); }
-{ const s = content(); kicker(s, 'E4'); title(s, 'Stat band'); const step = (W - 2 * M) / 4; ['12', '48', '3.5', '97%'].forEach((v, i) => hero(s, M + i * step, 2.4, step - 0.3, v, 'label ' + (i + 1))); hairline(s, M, 4.25, W - 2 * M); ['Context under the first number.', 'Context under the second.', 'Context under the third.', 'Context under the fourth.'].forEach((t, i) => s.addText(t, { ...box(M + i * step, 4.5, step - 0.35, 1.2), fontFace: T.sans, fontSize: 13, color: T.body, margin: 0, valign: 'top' })); }
-{ const s = content(); kicker(s, 'E5'); title(s, 'Table with verdict'); const head = (t) => ({ text: t, options: { bold: true, color: 'FFFFFF', fill: { color: T.accent }, fontFace: T.sans, fontSize: 13 } }); const cell = (t, i, o = {}) => ({ text: t, options: { fontFace: T.sans, fontSize: 13, color: T.body, fill: { color: i % 2 ? T.paperAlt : T.paper }, ...o } }); s.addTable([[head('Option'), head('Cost'), head('Verdict')], ...[['Build', 'High', 'Defer'], ['Buy', 'Medium', 'Go'], ['Partner', 'Low', 'Pilot']].map((r, i) => [cell(r[0], i, { bold: true, color: T.ink }), cell(r[1], i), cell(r[2], i, { bold: true, fill: { color: T.tint } })])], { x: M, y: 1.9, w: W - 2 * M, colW: [4, 4, 4.13], rowH: 0.6, border: { type: 'solid', color: T.line, pt: 0.75 }, margin: [0.06, 0.12, 0.06, 0.12], valign: 'middle' }); s.addText('Source: internal estimate', { ...box(M, 6.5, 6, 0.3), fontFace: T.sans, fontSize: 11, color: T.muted, margin: 0 }); }
-{ const s = content(); kicker(s, 'E7'); title(s, 'Gauge'); gauge(s, 3.4, 4.3, 1.6, 0.72, '72%', 'share'); emphasis(s, [[['Nearly ', {}], ['three in four', { bold: true, color: T.accent }], [' decks pass the gate on the first render.', {}]]], 6.6, 3.4, 6, 1.8, 18); }
-{ const s = content(); kicker(s, 'R1'); title(s, 'Chevron run'); chevrons(s, M, 2.0, W - 2 * M, 1.15, ['Brief', 'Script', 'Render', 'Review', 'Finalize'], { active: 3 }); const cw = (W - 2 * M) / 5; ['Write the plan', 'One script', 'Every slide', 'Fix in script', 'Validate'].forEach((t, i) => { s.addText(String(i + 1), { ...box(M + i * cw + 0.15, 3.4, cw - 0.45, 0.6), fontFace: T.data, fontSize: 28, bold: true, color: T.accent, margin: 0 }); s.addText(t + ' — the detail line under each stage explains what happens there and who owns it.', { ...box(M + i * cw + 0.15, 4.1, cw - 0.45, 1.8), fontFace: T.sans, fontSize: 12.5, color: T.body, margin: 0, valign: 'top' }); }); takeaway(s, 'The active stage is the one this deck is about.', 6.0); }
-{ const s = content(); kicker(s, 'R2'); title(s, 'Timeline'); hairline(s, M, 3.9, W - 2 * M); [[1.5, 'Kickoff'], [4.2, 'Alpha'], [8.9, 'Beta'], [11.8, 'Launch']].forEach(([x, t], i) => { node(s, x, 3.9, 0.55, i + 1, { fill: i === 3 ? T.accent : T.muted }); s.addText(t, { ...box(x - 1, 4.4, 2, 0.4), fontFace: T.sans, fontSize: 15, bold: true, color: T.ink, align: 'center', margin: 0 }); s.addText('Detail for this milestone and what changed.', { ...box(x - 1, 4.85, 2, 1.0), fontFace: T.sans, fontSize: 12, color: T.muted, align: 'center', margin: 0, valign: 'top' }); }); s.addText('Milestones sit at their real dates; the present is the accent node.', { ...box(M, 6.2, 10, 0.4), fontFace: T.sans, fontSize: 14, color: T.body, margin: 0 }); }
-{ const s = content(); kicker(s, 'R3'); title(s, 'Stepped process'); steps(s, [['Collect', 'inputs'], ['Shape', 'the brief'], ['Author', 'the script'], ['Review', 'renders']]); }
-{ const s = content(); kicker(s, 'R5'); title(s, 'Cycle'); cycle(s, W / 2, 4.25, 1.9, ['Plan', 'Do', 'Check', 'Act'], { active: 2 }); }
-{ const s = content(); kicker(s, 'R6'); title(s, 'Hub and spokes'); const hx = W / 2 + 0.2, hy = 4.2, hd = 1.9, sd = 1.2, r = 2.1; [['A', -150], ['B', -30], ['C', 30], ['D', 150]].forEach(([n, deg]) => { const a = deg * Math.PI / 180, cx = hx + r * Math.cos(a), cy = hy + r * Math.sin(a); connector(s, cx - Math.cos(a) * sd / 2, cy - Math.sin(a) * sd / 2, hx + Math.cos(a) * hd / 2, hy + Math.sin(a) * hd / 2, { color: T.line, arrow: 'none' }); s.addShape(S.ellipse, { ...box(cx - sd / 2, cy - sd / 2, sd, sd), fill: { color: T.paper }, line: { color: T.accent, width: 1.5 } }); s.addText(n, { ...box(cx - sd / 2, cy - sd / 2, sd, sd), fontFace: T.data, fontSize: 14, bold: true, color: T.ink, align: 'center', valign: 'middle', margin: 0 }); }); s.addShape(S.ellipse, { ...box(hx - hd / 2, hy - hd / 2, hd, hd), fill: { color: T.accent }, line: { color: T.accent } }); s.addText('Hub', { ...box(hx - hd / 2, hy - hd / 2, hd, hd), fontFace: T.data, fontSize: 16, bold: true, color: 'FFFFFF', align: 'center', valign: 'middle', margin: 0 }); }
-{ const s = content(); kicker(s, 'R7'); title(s, 'Merge'); [0, 1, 2].forEach((i) => { const y = 2.2 + i * 1.2; s.addShape(S.roundRect, { ...box(M, y, 2.8, 0.9), rectRadius: 0.08, fill: { color: T.paperAlt }, line: { color: T.paperAlt } }); s.addText('Source ' + (i + 1), { ...box(M + 0.2, y, 2.4, 0.9), fontFace: T.sans, fontSize: 14, color: T.ink, valign: 'middle', margin: 0 }); connector(s, M + 2.8, y + 0.45, 8.5, 3.85, { color: T.muted }); }); s.addShape(S.roundRect, { ...box(8.5, 3.4, 3, 0.9), rectRadius: 0.08, fill: { color: T.accent }, line: { color: T.accent } }); s.addText('Target', { ...box(8.7, 3.4, 2.6, 0.9), fontFace: T.sans, fontSize: 15, bold: true, color: 'FFFFFF', valign: 'middle', margin: 0 }); }
-{ const s = content(); kicker(s, 'R11'); title(s, 'Brace groups'); let y = 1.95; [['craft', ['Judgement rules', 'Palette and type']], ['contract', ['Brief format', 'QA gate']], ['tool doc', ['Skeleton geometry', 'Helper code', 'Picture modifiers']]].forEach(([name, items]) => { const h = items.length * 0.45 + 0.1; s.addText(name, { ...box(M, y, 1.7, 0.4), fontFace: T.data, fontSize: 16, bold: true, color: T.accent, align: 'right', margin: 0 }); brace(s, M + 1.85, y, h); s.addText(items.map((t, i) => ({ text: t, options: { breakLine: i < items.length - 1 } })), { ...box(M + 2.3, y, 5, h), fontFace: T.sans, fontSize: 14, color: T.body, valign: 'top', margin: 0, lineSpacingMultiple: 1.6 }); y += h + 0.5; }); }
-{ const s = content(); kicker(s, 'R12'); title(s, 'Two planes'); const pw = W / 2 - M - 0.15; field(s, M, 1.9, pw, 3.5); lift(s, W / 2 + 0.15, 1.9, pw, 3.5, 'FFFFFF'); s.addText('Before', { ...box(M + 0.35, 2.1, pw - 0.7, 0.4), fontFace: T.data, fontSize: 12, bold: true, color: T.body, margin: 0 }); s.addText('After', { ...box(W / 2 + 0.5, 2.1, pw - 0.7, 0.4), fontFace: T.data, fontSize: 12, bold: true, color: T.accent, margin: 0 }); body(s, M + 0.35, 2.75, pw - 0.7, 2.4, ['Manual review of every render', 'Fixes in the file']); body(s, W / 2 + 0.5, 2.75, pw - 0.7, 2.4, ['Runtime review with role inference', 'Fixes in the script'], 14, T.ink); takeaway(s, 'One difference marker only, on the side that changed.', 5.85); }
-{ const s = content(); kicker(s, 'R13'); title(s, '2×2 field'); field(s, M, 1.8, W - 2 * M, 4.8); hairline(s, M + 4.5, 1.8, 0, T.line); s.addShape(S.line, { ...box(M + 4.5, 1.8, 0, 4.8), line: { color: T.line, width: 1 } }); hairline(s, M, 4.6, W - 2 * M); [['Quick win', M + 0.4, 2.2], ['Strategic', M + 5.0, 2.2], ['Fill-in', M + 0.4, 5.0], ['Avoid', M + 5.0, 5.0]].forEach(([t, x, y]) => s.addText(t, { ...box(x, y, 3, 0.5), fontFace: T.sans, fontSize: 16, bold: true, color: T.ink, margin: 0 })); s.addText('effort →', { ...box(W - M - 2, 6.2, 1.8, 0.3), fontFace: T.sans, fontSize: 12, color: T.muted, align: 'right', margin: 0 }); }
-{ const s = content(); kicker(s, 'R14'); title(s, 'Tiered stack'); tiers(s, W / 2, 2.2, ['Vision', 'Strategy', 'Programs', 'Tasks']); }
-{ const s = content(); kicker(s, 'R15'); title(s, 'Overlapping sets'); sets(s, W / 2, 4.2, 3.0, ['Design', 'Runtime'], { shared: 'review' }); }
-{ const s = anchor(); ghost(s, '02', 9.4, 2.4, 180, 3.4); kicker(s, 'Closing', M, 2.15, T.onDarkAccent); title(s, 'The ask, in one line', { y: 2.55, w: 9, size: 36, color: 'FFFFFF' }); s.addText('Approve the next round.', { ...box(M, 4.6, 8, 0.5), fontFace: T.sans, fontSize: 18, bold: true, color: T.onDarkAccent, margin: 0 }); }
+// A twelve-slide deck composed slide by slide from the kit primitives: a cover on a gradient field, a
+// statement hanging from a rule, a chart as spine, a stat band by weight, a chevron run with measured
+// details, two planes seamed by weight, brace groups, a cycle from arcs, a table with a verdict, a
+// section, a gauge, a closing.
+const DECK = `
+// BRIEF
+// subject/audience/action: 운영팀 · 도크 4 증설 예산 승인
+// reading mode: balanced · argument mode: pyramid
+// directions: A editorial · hue 205 · serif · 세로 룰 — 근거 표와 차트가 많은 문서형 · B swiss-minimal · hue 225 · concord · 오버사이즈 평면 — 숫자 중심 · C dark-tech · hue 215 · weight · 글로우 — 발표형 · selected: A · why: 표와 차트가 논거다
+// style: editorial · palette: hue 205 · accent: 1F6F8B · type: MODE balanced → body 18 · script: ko · pairing: serif · fonts: noto
+// facts: F1 1.6배 — 운영 로그 · F2 0.3% — 품질 시트 B4 · F3 4건 — 안전 보고 · F4 4,200건 — 분류기 로그 · F5 31건 — 안전 보고 · F6 12 18 24 31 — 재무 시트 B2:E2 · F7 22시 — 운행표 · F8 60% — 운영 로그
+// slide plan: 1 job: cover · move: 결정할 것이 무엇인지 안다 · composition: 어두운 그라데이션 필드, 고스트 숫자 · carriers: statement
+//   · 2 job: claim · relationship: none · move: 결론을 먼저 받는다 · composition: 세로 룰에 걸린 한 문장 · carriers: statement · rhythm: breathing
+//   · 3 job: evidence · relationship: evidence · move: 추세를 믿는다 · composition: 차트가 척추, 오른쪽에 히어로 · carriers: chart, hero · rhythm: dense
+//   · 4 job: evidence · relationship: contrast · move: 한 원인을 본다 · composition: 무게로 나눈 스탯 밴드 · carriers: hero · rhythm: dense
+//   · 5 job: process · relationship: order · move: 병목 위치를 본다 · composition: 무게로 나눈 쉐브론과 측정된 설명 · carriers: diagram · rhythm: dense
+//   · 6 job: comparison · relationship: contrast · move: 바뀐 쪽을 본다 · composition: 무게로 나눈 두 평면, 한쪽만 들어올림 · carriers: list · rhythm: dense
+//   · 7 job: structure · relationship: parent · move: 세 갈래를 본다 · composition: 브레이스 그룹과 세로 룰 · carriers: diagram · rhythm: dense
+//   · 8 job: process · relationship: order · move: 고리를 본다 · composition: 아크로 만든 순환과 옆 설명 · carriers: diagram · rhythm: dense
+//   · 9 job: comparison · relationship: contrast · move: 채택안을 본다 · composition: 판정 열이 있는 표 · carriers: table · rhythm: dense
+//   · 10 job: section · move: 요청으로 넘어간다 · composition: 고스트 숫자 · carriers: statement · rhythm: anchor
+//   · 11 job: evidence · relationship: evidence · move: 비중을 본다 · composition: 게이지와 강조 문장 · carriers: gauge · rhythm: breathing
+//   · 12 job: closing · move: 승인한다 · composition: 커버의 필드를 반향 · carriers: statement · rhythm: anchor
+{ const s = quiet(); await gradientField(s, 0, 0, W, H, [[0, T.dark], [100, T.darkAlt]], 35); ghost(s, '04', 7.6, 1.0, 240, 5.2); kicker(s, '운영팀 · 3분기', M, 2.15, T.onDarkAccent); const b = title(s, '도크 4 증설,\\n예산 승인 요청', { y: 2.55, w: 8.2, size: TYPE.cover, color: 'FFFFFF' }); text(s, '야간 처리량이 주간을 넘어선 지금, 다음 도크는 야간 전용으로 설계한다', M, b + 0.25, 8.5, TYPE.lead, { color: T.onDark }); text(s, '2026년 9월 · 운영팀', M, H - 1.0, 8, TYPE.caption, { color: T.onDarkMuted, font: T.data }); }
+{ const s = light(); rule(s, M, 1.6, 3.6, T.accent, 2); emphasis(s, [[['증설 석 달 만에 ', {}], ['처리량은 1.6배', { bold: true, color: T.accent }], [', 오류율은 0.3%가 됐다. 다음 병목은 도크가 아니라 야간 셔틀이다.', {}]]], M + 0.4, 1.6, 9.6, 2.6, 28, T.ink, { lh: 1.3 }); text(s, '— 운영 로그와 품질 시트, 2026년 6~8월', M + 0.4, 4.5, 8, TYPE.caption, { color: T.muted }); }
+{ const s = light(); kicker(s, '처리량'); const top = title(s, '분기마다 처리량이 늘었고, 4분기가 가장 컸다') + GAP.between; const ty = H - M - 0.75; chart(s, M, top, 8.2, ty - top - GAP.between, { labels: ['1분기', '2분기', '3분기', '4분기'], series: [{ name: '처리량', values: [12, 18, 24, 31] }], accent: 3 }); const hb = hero(s, 9.4, top + 0.4, 3.3, '31', '4분기 처리량, 천 건'); const py = hb + GAP.within, room = ty - GAP.between - py; if (room >= 0.6) prose(s, '분류기 도입과 야간 셔틀 추가가 겹친 분기다.', 9.4, py, 3.3, room, TYPE.caption + 1, T.body); takeaway(s, '증설 효과는 4분기에 집중됐다.', ty); }
+{ const s = light(); kicker(s, '규모'); const top = title(s, '네 숫자가 한 원인을 가리킨다') + GAP.between; const stats = [['1.6배', '처리량 증가', '야간 셔틀 두 대 추가'], ['0.3%', '오류율', '라벨 손상만 남았다'], ['4건', '근접 경보/주', '일방향 동선의 효과'], ['4,200', '건/시간 분류', '분류기 도입']]; const cols = spans(M, W - 2 * M, stats.map((v) => weightOf({ value: v[0], label: v[1], text: v[2] }))); let bottom = top; stats.forEach((v, i) => { const b = hero(s, cols[i].x, top, cols[i].w, v[0], v[1], { size: 48 }); bottom = Math.max(bottom, text(s, v[2], cols[i].x, b + GAP.within, cols[i].w, TYPE.caption + 1, { color: T.body })); }); hairline(s, M, bottom + GAP.between, W - 2 * M); takeaway(s, '증설이 아니라 야간 운영이 원인이다.'); }
+{ const s = light(); kicker(s, '흐름'); const top = title(s, '입고에서 출고까지, 병목은 셔틀에 있다') + GAP.between; const stages = [{ label: '입고', detail: '두 도크가 새벽 입고를 나눠 받는다.' }, { label: '분류', detail: '분류기가 시간당 4,200건을 처리한다.' }, { label: '적재', detail: '야간 셔틀 두 대가 22시와 01시에 출발한다.', active: true }, { label: '출고', detail: '출고 오류는 라벨 손상뿐이다.' }]; const cols = spans(M, W - 2 * M - 1.15 * 0.25, stages.map((st) => weightOf({ label: st.label, detail: st.detail }, { active: st.active })), { gap: 0 }); chevrons(s, M, top, W - 2 * M, 1.15, stages.map((st) => st.label), { active: 2, widths: cols }); stages.forEach((st, i) => flow(s, cols[i].x + 0.2, top + 1.15 + GAP.between, cols[i].w - 0.4, [{ text: st.detail, size: TYPE.caption + 1, lh: 1.4 }], { bottom: H - M - 1.2 })); takeaway(s, '셔틀이 늘지 않으면 도크 4는 야간에 놀게 된다.'); }
+{ const s = light(); kicker(s, '비교'); const top = title(s, '전과 후: 달라진 쪽이 더 넓다') + GAP.between; const seam = splitAt(M, W - 2 * M, 40, 70); const ph = H - M - 1.2 - top; field(s, seam.left.x, top, seam.left.w, ph); lift(s, seam.right.x, top, seam.right.w, ph, 'FFFFFF'); badge(s, seam.left.x + 0.3, top + 0.3, 1.2, 0.32, '전'); badge(s, seam.right.x + 0.3, top + 0.3, 1.2, 0.32, '후', { fill: T.accent, color: 'FFFFFF' }); bullets(s, seam.left.x + 0.3, top + 0.85, seam.left.w - 0.6, ph - 1.1, ['교차 동선, 근접 경보 주 31건', '수작업 분류', '주간 중심 출고']); bullets(s, seam.right.x + 0.3, top + 0.85, seam.right.w - 0.6, ph - 1.1, ['일방향 동선, 근접 경보 주 4건', '분류기 시간당 4,200건', '야간 출고가 기본'], TYPE.body, T.ink, { font: T.sans }); takeaway(s, '차이 표시는 바뀐 쪽 하나에만 둔다.'); }
+{ const s = light(); kicker(s, '구조'); const top = title(s, '증설이 만든 변화는 세 갈래다') + GAP.between; let y = top; [['처리량', ['야간 셔틀 두 대 추가', '피크 시간대가 22시로 이동']], ['품질', ['분류기 도입', '라벨 손상만 남았다']], ['안전', ['일방향 동선', '근접 경보 주 4건']]].forEach(([name, items]) => { const h = fitH(items.join('\\n'), 6, TYPE.body - 2, T.light, { lh: 1.5 }); text(s, name, M, y, 1.7, TYPE.body, { color: T.accent, bold: true, align: 'right' }); brace(s, M + 1.85, y, h); s.addText(items.map((t, i) => ({ text: t, options: { breakLine: i < items.length - 1 } })), { ...box(M + 2.3, y, 6, h), fontFace: T.light, fontSize: TYPE.body - 2, color: T.body, valign: 'top', margin: 0, lineSpacingMultiple: 1.5 }); y += h + GAP.between; }); const rx = 9.4; rule(s, rx - 0.3, top, y - top - GAP.between, T.line); prose(s, '세 갈래 모두 야간 운영에서 나왔다. 도크 4를 야간 전용으로 설계하면 세 효과가 그대로 이어진다.', rx, top, W - M - rx, 2.4, TYPE.body, T.body); }
+{ const s = light(); kicker(s, '순환'); const top = title(s, '점검 주기는 닫힌 고리로 돈다') + GAP.between; const cx = 4.2, cy = top + (H - M - top) / 2, r = 1.4, labels = ['계획', '실행', '점검', '조정']; labels.forEach((l, i) => { const span = 360 / labels.length, on = i === 2; arc(s, cx, cy, r, 270 + i * span + 3, 270 + (i + 1) * span - 3, { color: on ? T.accent : T.paperAlt }); const mid = (270 + (i + 0.5) * span) * Math.PI / 180; text(s, l, cx + (r + 0.7) * Math.cos(mid) - 1.0, cy + (r + 0.7) * Math.sin(mid) - 0.25, 2.0, DIAG.label, { color: on ? T.accent : T.ink, bold: on, align: 'center', h: 0.5, valign: 'middle' }); }); const inner = r * 0.72 * 2 - 0.12; s.addShape(S.ellipse, { ...box(cx - inner / 2, cy - inner / 2, inner, inner), fill: { color: T.paper }, line: { color: T.paper } }); text(s, '점검', cx - 0.8, cy - 0.3, 1.6, TYPE.lead, { color: T.ink, bold: true, align: 'center', h: 0.6, valign: 'middle' }); prose(s, '점검 단계가 고리를 닫는다. 주간 점검에서 나온 근접 경보가 다음 계획의 입력이 된다.', 8.4, top + 0.6, W - M - 8.4, 2.6, TYPE.body); }
+{ const s = light(); kicker(s, '선택지'); const top = title(s, '세 안 중 야간 전용이 유일하게 조건을 모두 만족한다') + GAP.between; const b = table(s, M, top, W - 2 * M, ['안', '비용', '야간 대응', '판정'], [['주간 전용', '낮음', '불가', '보류'], ['혼합', '중간', '부분', '보류'], ['야간 전용', '중간', '가능', '채택']], { colW: [3.2, 2.6, 3.3, 3.03], verdict: 3 }); caption(s, '출처: 운영팀 비용 추정, 2026년 9월', M, b + GAP.between, 8); }
+{ const s = quiet(); ghost(s, '02', 7.5, 1.2); text(s, '02', M, 2.0, 3, 72, { color: T.onDarkAccent, font: T.data, bold: true, h: 1.3 }); title(s, '요청 사항', { y: 3.5, w: 8, size: TYPE.title, color: 'FFFFFF' }); }
+{ const s = light(); kicker(s, '비율'); const top = title(s, '야간이 전체 처리량의 열 중 여섯을 차지한다') + GAP.between; const avail = H - M - top, r = Math.min(1.6, avail / 2 - 0.3); gauge(s, 3.4, top + avail / 2, r, 0.6, '60%', '야간 비중'); emphasis(s, [[['야간 처리량이 ', {}], ['60%', { bold: true, color: T.accent }], ['를 넘었다. 도크 4를 야간 전용으로 설계할 근거다.', {}]]], 6.6, top + 0.6, 6, avail - 0.8, TYPE.lead); }
+{ const s = quiet(); await gradientField(s, 0, 0, W, H, [[0, T.darkAlt], [100, T.dark]], 215); ghost(s, '04', 9.4, 2.4, 180, 3.4); kicker(s, '요청', M, 2.15, T.onDarkAccent); const b = title(s, '도크 4 증설 예산을 승인해 주십시오', { y: 2.55, w: 9, size: TYPE.title, color: 'FFFFFF' }); text(s, '야간 전용 설계안은 10월 운영 회의에 올린다.', M, Math.max(b + 0.4, 4.6), 8, TYPE.lead, { color: T.onDarkAccent, bold: true, font: T.sans }); text(s, '운영팀 · 2026년 9월', M, H - 1.0, 8, TYPE.caption, { color: T.onDarkMuted, font: T.data }); }
 await pres.writeFile({ fileName: OUTPUT });
 `;
 
 test('kit layout by weight: equal weights divide equally, unequal weights do not, and the seam never sits in the middle by default', async () => {
-  const kit = await kitBlocks('device-kit.md');
+  const kit = await kitBlocks('kit.md');
   const source = ['weightOf', 'spans', 'splitAt'].map((name) => {
     const match = new RegExp(`(?:const ${name} = [\\s\\S]*?;\\n|function ${name}\\([\\s\\S]*?\\n\\}\\n)`).exec(kit);
     assert.ok(match, `${name} is in the kit`);
@@ -97,12 +81,38 @@ test('kit layout by weight: equal weights divide equally, unequal weights do not
   assert.ok(weightOf({ label: 'a', detail: 'long detail text' }, { active: true }) > weightOf({ label: 'a', detail: 'long detail text' }), 'active counts more');
 });
 
+test('kit palette derives a contrast-safe ladder from one seed hue', async () => {
+  const kit = await kitBlocks('kit.md');
+  const source = ['hsl', 'contrast', 'darkenUntil', 'palette'].map((name) => {
+    const match = new RegExp(`function ${name}\\([\\s\\S]*?\\n\\}\\n`).exec(kit);
+    assert.ok(match, `${name} is in the kit`);
+    return match[0];
+  }).join('\n');
+  const { palette } = new Function(`${source}\nreturn { palette };`)();
+  const luminance = (hex) => {
+    const c = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
+  for (const hue of [8, 60, 125, 185, 205, 260, 335]) {
+    const T = palette({ hue });
+    assert.match(T.accent, /^[0-9A-F]{6}$/);
+    assert.ok(contrast(T.body, T.paperAlt) >= 4.5, `${hue}: body on paperAlt`);
+    assert.ok(contrast(T.muted, T.paperAlt) >= 4.5, `${hue}: muted on paperAlt`);
+    assert.ok(contrast(T.onDark, T.dark) >= 4.5, `${hue}: onDark on dark`);
+    assert.ok(contrast(T.onDarkMuted, T.dark) >= 4.5, `${hue}: onDarkMuted on dark`);
+    assert.ok(contrast(T.onDarkAccent, T.dark) >= 4.5, `${hue}: onDarkAccent on dark`);
+    assert.ok(contrast('FFFFFF', T.accent) >= 4.5, `${hue}: white on accent`);
+    assert.ok(contrast(T.accent, T.paper) >= 4.5, `${hue}: accent on paper`);
+    assert.ok(contrast(T.ink, T.tint) >= 4.5, `${hue}: ink on tint`);
+  }
+});
+
 test('every hard rule in the skill names a runtime code that exists, or is marked manual', async () => {
-  const files = ['design.md', 'layouts.md', 'archetypes.md', 'device-kit.md', 'pictures.md'].map((file) => join(SKILL, file));
+  const files = ['direction.md', 'composition.md', 'kit.md', 'pictures.md'].map((file) => join(SKILL, file));
   files.push(join(SKILL, '..', 'SKILL.md'));
   const runtime = await Promise.all(['quality', 'authoring', 'portable', 'core'].map(async (dir) => {
     const base = fileURLToPath(new URL(`./${dir}/`, import.meta.url));
-    const { readdir } = await import('node:fs/promises');
     const names = (await readdir(base)).filter((name) => name.endsWith('.mjs') && !name.includes('.test.'));
     return Promise.all(names.map((name) => readFile(join(base, name), 'utf8')));
   }));
@@ -116,7 +126,7 @@ test('every hard rule in the skill names a runtime code that exists, or is marke
       const codes = [...line.matchAll(/`([a-z_]+)`/g)].map((match) => match[1]).filter((code) => /_/.test(code));
       const runtimeMarked = /→ runtime/.test(line);
       const manual = /→ manual/.test(line);
-      if (!runtimeMarked && !manual && !/design\.md|SKILL\.md/.test(line)) unchecked.push(line.slice(0, 80));
+      if (!runtimeMarked && !manual) unchecked.push(line.slice(0, 80));
       if (runtimeMarked) for (const code of codes) if (!source.includes(`'${code}'`)) unknown.push(code);
     }
   }
@@ -124,54 +134,95 @@ test('every hard rule in the skill names a runtime code that exists, or is marke
   assert.deepEqual(unchecked, [], 'hard rules without a runtime code or a manual mark');
 });
 
-test('pptx skill archetypes author every skeleton from content alone without review warnings', { timeout: 180_000 }, async (t) => {
-  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-pptx-archetypes-'));
-  t.after(() => rm(cwd, { recursive: true, force: true }));
-  const script = `${await kitBlocks('device-kit.md')}\n${await kitBlocks('archetypes.md')}\n${ARCHETYPES}`;
-  const path = join(cwd, 'archetypes.pptx');
-  const authored = value(await executeOfficeTool({ action: 'author', path, script, mode: 'portable', overwrite: true, render: true }, { cwd }));
-  assert.equal(authored.ok, true, `${authored.error?.message}\n${authored.error?.excerpt || ''}`);
-  assert.equal(authored.render?.pageCount, 24);
-  const validation = value(await executeOfficeTool({ action: 'validate', session: authored.session }, { cwd }));
-  assert.equal(validation.schema?.ok, true, JSON.stringify(validation.schema?.errors?.slice(0, 3)));
-  const qa = value(await executeOfficeTool({ action: 'qa', session: authored.session }, { cwd }));
-  const issues = (qa.issuesAfter || qa.issues || []).map((issue) => `${issue.code} ${issue.path}: ${issue.message}`);
-  assert.deepEqual(issues, []);
+test('the skill never ships a whole-slide function: no reference defines an archetype', async () => {
+  for (const file of ['direction.md', 'composition.md', 'kit.md', 'pictures.md']) {
+    const kit = await kitBlocks(file);
+    assert.doesNotMatch(kit, /function (?:S|E|R|P)\d+\(/, `${file} defines a skeleton function`);
+    assert.doesNotMatch(kit, /function (?:cover|section|closing|archNode|phaseRoadmap|benchmarkBarChart|statWell|pairRow)\(/, `${file} defines a whole-slide or card-grid generator`);
+  }
 });
 
-// The same archetypes at the presentation scale, in the Korean safe pairing, with the signature
-// mark on every content slide: the type scale must not overflow at its largest anchor and the
-// Korean faces (Malgun Gothic Semilight, Batang) must pass the font review as safe.
-test('pptx skill archetypes hold at presentation scale with the Korean safe pairing', { timeout: 180_000 }, async (t) => {
-  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-pptx-korean-'));
-  t.after(() => rm(cwd, { recursive: true, force: true }));
-  const kit = (await kitBlocks('device-kit.md'))
-    .replace("const MODE = 'balanced';", "const MODE = 'presentation';")
-    .replace("family('editorial', { korean: false })", "family('editorial', { korean: 'safe' })");
-  const archetypes = (await kitBlocks('archetypes.md')).replace("let MARK = '';", "let MARK = '02 · 진단';");
-  assert.match(kit, /presentation/);
-  assert.match(archetypes, /진단/);
-  const script = `${kit}\n${archetypes}\n${ARCHETYPES}`;
-  const path = join(cwd, 'korean.pptx');
-  const authored = value(await executeOfficeTool({ action: 'author', path, script, mode: 'portable', overwrite: true, render: true }, { cwd }));
-  assert.equal(authored.ok, true, `${authored.error?.message}\n${authored.error?.excerpt || ''}`);
-  assert.equal(authored.render?.pageCount, 24);
-  const qa = value(await executeOfficeTool({ action: 'qa', session: authored.session }, { cwd }));
-  const issues = (qa.issuesAfter || qa.issues || []).map((issue) => `${issue.code} ${issue.path}: ${issue.message}`);
-  assert.deepEqual(issues, []);
-});
-
-test('pptx skill kit authors every skeleton without review warnings', { timeout: 180_000 }, async (t) => {
+test('a deck composed from the kit primitives authors, validates, and passes the measured review', { timeout: 180_000 }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-pptx-kit-'));
   t.after(() => rm(cwd, { recursive: true, force: true }));
-  const script = `${await kitBlocks('device-kit.md')}\n${SKELETONS}`;
-  const path = join(cwd, 'skeletons.pptx');
+  const script = `${await kitBlocks('kit.md')}\n${DECK}`;
+  const path = join(cwd, 'kit.pptx');
   const authored = value(await executeOfficeTool({ action: 'author', path, script, mode: 'portable', overwrite: true, render: true }, { cwd }));
-  assert.equal(authored.ok, true, authored.error?.message);
-  assert.equal(authored.render?.pageCount, 23);
+  assert.equal(authored.ok, true, `${authored.error?.message}\n${authored.error?.excerpt || ''}`);
+  assert.equal(authored.render?.pageCount, 12);
+  assert.equal(authored.receipt?.slides?.length, 12, 'the author result carries a composition receipt per slide');
+  assert.ok(authored.receipt.slides[2].charts >= 1, 'the receipt sees the native chart on slide 3');
+  assert.ok(authored.receipt.deck.charts >= 1 && authored.receipt.deck.presets >= 1, 'the deck totals count charts and preset contours');
   const validation = value(await executeOfficeTool({ action: 'validate', session: authored.session }, { cwd }));
   assert.equal(validation.schema?.ok, true, JSON.stringify(validation.schema?.errors?.slice(0, 3)));
   const qa = value(await executeOfficeTool({ action: 'qa', session: authored.session }, { cwd }));
-  const issues = (qa.issuesAfter || qa.issues || []).map((issue) => `${issue.code} ${issue.path}: ${issue.message}`);
-  assert.deepEqual(issues, []);
+  assert.deepEqual(measured(qa), []);
+});
+
+// The same deck at the presentation scale in the safe (system) pairing: the largest type must not
+// overflow the measured boxes and Malgun Gothic must pass the font review as safe.
+test('the kit deck holds at presentation scale with the safe Korean pairing', { timeout: 180_000 }, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-pptx-presentation-'));
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  const kit = (await kitBlocks('kit.md'))
+    .replace("const MODE = 'balanced';", "const MODE = 'presentation';")
+    .replace("typography({ script: 'ko', pairing: 'weight', fonts: 'noto' });", "typography({ script: 'ko', pairing: 'serif', fonts: 'safe' });");
+  assert.match(kit, /MODE = 'presentation'/);
+  assert.match(kit, /fonts: 'safe' \}\);/);
+  const path = join(cwd, 'presentation.pptx');
+  const authored = value(await executeOfficeTool({ action: 'author', path, script: `${kit}\n${DECK}`, mode: 'portable', overwrite: true, render: true }, { cwd }));
+  assert.equal(authored.ok, true, `${authored.error?.message}\n${authored.error?.excerpt || ''}`);
+  assert.equal(authored.render?.pageCount, 12);
+  const qa = value(await executeOfficeTool({ action: 'qa', session: authored.session }, { cwd }));
+  assert.deepEqual(measured(qa), []);
+});
+
+// Pictures through the picture kit over locally generated samples in three ratios: a full-bleed
+// cover under a scrim, a side picture, a triptych by weight, an annotated picture, a receded closing.
+const SAMPLE_PICTURES = {
+  wide: [1920, 1080, '1f3b4d', '6aa2b8', '<circle cx="1400" cy="400" r="260" fill="#f2c94c" opacity="0.8"/>'],
+  tall: [1080, 1920, '3a2a5d', 'c98bb9', '<circle cx="540" cy="700" r="300" fill="#ffffff" opacity="0.35"/>'],
+  square: [1200, 1200, '2d5f2d', '97bc62', '<rect x="250" y="250" width="700" height="700" rx="80" fill="#ffffff" opacity="0.3"/>'],
+};
+async function writeSamplePictures(cwd) {
+  const paths = {};
+  for (const [name, [w, h, a, b, shapes]] of Object.entries(SAMPLE_PICTURES)) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#${a}"/><stop offset="1" stop-color="#${b}"/></linearGradient></defs><rect width="${w}" height="${h}" fill="url(#g)"/>${shapes}</svg>`;
+    paths[name] = join(cwd, `${name}.png`);
+    await sharp(Buffer.from(svg)).png().toFile(paths[name]);
+  }
+  return paths;
+}
+const pictureDeck = (P) => `
+// BRIEF
+// subject/audience/action: 운영팀 · 현장 보고
+// reading mode: balanced · argument mode: briefing
+// style: photo-editorial · palette: hue 205 · accent: 1F6F8B · type: MODE balanced → body 18 · script: ko · pairing: weight · fonts: noto
+// facts: F1 1.6배 — 운영 로그 · F2 0.3% — 품질 시트 B4 · F3 22시 — 운행표
+// slide plan: 1 job: cover · move: 현장을 본다 · composition: 전면 사진, 왼쪽 스크림 · carriers: picture, statement
+//   · 2 job: picture · move: 야간이 기본이 됐음을 본다 · composition: 오른쪽 세로 사진, 왼쪽 목록 · carriers: picture, list
+//   · 3 job: picture · relationship: contrast · move: 병목이 다름을 본다 · composition: 무게로 나눈 세 폭 · carriers: picture
+//   · 4 job: picture · relationship: link · move: 병목 지점을 짚는다 · composition: 주석 사진, 오른쪽 레이블 열 · carriers: picture, diagram
+//   · 5 job: closing · move: 요청을 받는다 · composition: 물러난 사진 위 한 줄 · carriers: picture, statement
+{ const s = quiet(); await picture(s, ${P.wide}, 0, 0, W, H); await scrim(s, 0, 0, W, H, 'left'); kicker(s, '현장 보고', M, 2.15, T.onDarkAccent); const b = title(s, '물류 허브 증설,\\n첫 분기 결과', { y: 2.55, w: W / 2 - M - 0.3, size: TYPE.cover, color: 'FFFFFF' }); text(s, '처리량은 늘고 오류는 줄었다', M, b + 0.25, 6, TYPE.lead, { color: T.onDark }); }
+{ const s = light(); await picture(s, ${P.tall}, W - 6.2, 0, 6.2, H); const cw = W - 6.2 - 0.6 - M; kicker(s, '현장'); const top = title(s, '야간 처리량이 주간을 넘어섰다', { w: cw }) + GAP.between; bullets(s, M, top, cw, 3.4, ['야간 셔틀 두 대 추가로 처리량 1.6배', '피크 시간대가 22시로 이동', '오류율 0.3%']); caption(s, '사진: 2026년 8월, 3번 도크', M, H - M - 0.4, cw); }
+{ const s = light(); kicker(s, '비교'); const top = title(s, '같은 도크, 다른 시간대') + GAP.between; const pics = [[${P.wide}, '아침, 입고 피크', 3], [${P.square}, '오후, 분류', 2], [${P.tall}, '22시, 출고', 2]]; const cols = spans(M, W - 2 * M, pics.map((p) => p[2])); const ph = H - M - 1.5 - top; for (let i = 0; i < 3; i += 1) { await picture(s, pics[i][0], cols[i].x, top, cols[i].w, ph); caption(s, pics[i][1], cols[i].x, top + ph + GAP.within, cols[i].w); } text(s, '세 시간대의 병목은 각각 다르다: 입고는 도크, 분류는 라벨, 출고는 셔틀.', M, H - M - 0.45, W - 2 * M, TYPE.body, { h: 0.45 }); }
+{ const s = light(); kicker(s, '주석'); const top = title(s, '도크 3의 병목 지점') + GAP.between; const pw = 8.6, ph = H - M - top, lx = M + pw + 0.5, lw = W - M - lx; await picture(s, ${P.wide}, M, top, pw, ph); [['입고 대기열이 도크 앞을 막는다', 0.2, 0.3], ['분류기 투입구, 라벨 손상 발생', 0.55, 0.5], ['셔틀 적재 지점', 0.8, 0.75]].forEach(([label, fx, fy], i) => { const nx = M + fx * pw, ny = top + fy * ph, rowH = Math.min(0.9, ph / 3), ly = top + i * rowH + rowH / 2; connector(s, nx + 0.25, ny, lx - 0.15, ly, { color: T.muted, width: 1, arrow: 'none' }); node(s, nx, ny, 0.5, i + 1); text(s, label, lx, ly - 0.2, lw, TYPE.caption + 1, { color: T.ink }); }); }
+{ const s = quiet(); await picture(s, ${P.square}, 0, 0, W, H, { transparency: 60 }); await scrim(s, 0, 0, W, H, 'left'); title(s, '도크 4 증설 예산 승인', { y: 2.6, w: 9, size: TYPE.title, color: 'FFFFFF' }); text(s, '운영팀 · 2026년 9월', M, H - 1.0, 8, TYPE.caption, { color: T.onDarkMuted, font: T.data }); }
+await pres.writeFile({ fileName: OUTPUT });
+`;
+
+test('pictures composed through the picture kit author without measured review warnings', { timeout: 240_000 }, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-pptx-pictures-'));
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  const paths = await writeSamplePictures(cwd);
+  const P = Object.fromEntries(Object.entries(paths).map(([name, path]) => [name, JSON.stringify(path)]));
+  const script = `${await kitBlocks('kit.md')}\n${await kitBlocks('pictures.md')}\n${pictureDeck(P)}`;
+  const path = join(cwd, 'pictures.pptx');
+  const authored = value(await executeOfficeTool({ action: 'author', path, script, mode: 'portable', overwrite: true, render: true }, { cwd }));
+  assert.equal(authored.ok, true, `${authored.error?.message}\n${authored.error?.excerpt || ''}`);
+  assert.equal(authored.render?.pageCount, 5);
+  assert.ok(authored.receipt?.slides?.every((slide) => slide.pictures >= 1), 'every slide of the picture deck carries a picture in the receipt');
+  const qa = value(await executeOfficeTool({ action: 'qa', session: authored.session }, { cwd }));
+  assert.deepEqual(measured(qa), []);
 });

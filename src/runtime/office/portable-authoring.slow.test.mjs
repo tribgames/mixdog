@@ -155,7 +155,16 @@ test('portable presentation authoring manages slides, shapes, tables, and notes'
   const order = [...presentation.matchAll(/<p:sldId\b[^>]*r:id="(rId\d+)"/g)].map((match) => match[1]);
   const rels = await reordered.text('ppt/_rels/presentation.xml.rels');
   const targets = order.map((id) => new RegExp(`Id="${id}"[^>]*Target="([^"]+)"`).exec(rels)?.[1]);
-  assert.deepEqual(targets, ['slides/slide2.xml', 'slides/slide1.xml']);
+  // Parts are renumbered to their positions after a structural edit: the table
+  // slide that moved to the front is now slide1.xml, and the notes it carries
+  // still point back at it.
+  assert.deepEqual(targets, ['slides/slide1.xml', 'slides/slide2.xml']);
+  assert.match(await reordered.text('ppt/slides/slide1.xml'), /<a:tbl\b/);
+  assert.doesNotMatch(await reordered.text('ppt/slides/slide2.xml'), /<a:tbl\b/);
+  const movedRels = await reordered.text('ppt/slides/_rels/slide1.xml.rels');
+  const movedNotes = /Target="\.\.\/notesSlides\/(notesSlide\d+\.xml)"/.exec(movedRels)?.[1];
+  assert.ok(movedNotes, movedRels);
+  assert.match(await reordered.text(`ppt/notesSlides/_rels/${movedNotes}.rels`), /Target="\.\.\/slides\/slide1\.xml"/);
 });
 
 test('portable composition stays inside the portable operation catalog', () => {
@@ -588,6 +597,52 @@ test('portable slides link shapes, cite sources, and prune to a keep list', asyn
   assert.equal(packaged.has('ppt/notesSlides/notesSlide1.xml'), true);
   const notes = await packaged.text('ppt/notesSlides/notesSlide1.xml');
   assert.match(notes, /internal model#Q3/);
+});
+
+// Structural edits rename the slide parts to their positions: after a prune and a
+// move, slide1.xml is the first slide the presentation lists, every relationship
+// (the slide list, a notes slide's back-reference) follows, and the dropped part
+// is gone, so "/slide[n]" in a snapshot or issue names the slide "slide: n" edits.
+test('portable structural edits renumber slide parts to presentation order', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'renumber.pptx');
+  const created = value(await executeOfficeTool({
+    action: 'create',
+    path: target,
+    mode: 'portable',
+    operations: [
+      { op: 'add_slide' },
+      { op: 'add_slide' },
+      { op: 'add_slide' },
+      { op: 'add_textbox', slide: 1, text: 'One', properties: { left: 60, top: 60, width: 300, height: 60 } },
+      { op: 'add_textbox', slide: 2, text: 'Two', properties: { left: 60, top: 60, width: 300, height: 60 } },
+      { op: 'add_textbox', slide: 3, text: 'Three', properties: { left: 60, top: 60, width: 300, height: 60 } },
+      { op: 'add_provenance', slide: 3, shape: 1, source: 'field survey' },
+      { op: 'keep_slides', slides: [2, 3] },
+      { op: 'move_slide', slide: 2, index: 1 },
+    ],
+  }, { cwd }));
+  assert.equal(created.batch.ok, true, JSON.stringify(created.batch).slice(0, 400));
+  const packaged = await parts(target);
+  assert.match(await packaged.text('ppt/slides/slide1.xml'), /Three/);
+  assert.match(await packaged.text('ppt/slides/slide2.xml'), /Two/);
+  assert.equal(packaged.has('ppt/slides/slide3.xml'), false);
+  const presentationRels = await packaged.text('ppt/_rels/presentation.xml.rels');
+  assert.equal((presentationRels.match(/Target="slides\/slide[12]\.xml"/g) || []).length, 2);
+  assert.doesNotMatch(presentationRels, /slide3\.xml/);
+  const contentTypes = await packaged.text('[Content_Types].xml');
+  assert.equal((contentTypes.match(/PartName="\/ppt\/slides\/slide\d+\.xml"/g) || []).length, 2);
+  const slideRels = await packaged.text('ppt/slides/_rels/slide1.xml.rels');
+  const notesTarget = /Type="[^"]*\/notesSlide"[^>]*Target="\.\.\/notesSlides\/(notesSlide\d+\.xml)"/.exec(slideRels)?.[1];
+  assert.ok(notesTarget, slideRels);
+  const notesRels = await packaged.text(`ppt/notesSlides/_rels/${notesTarget}.rels`);
+  assert.match(notesRels, /Target="\.\.\/slides\/slide1\.xml"/);
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  assert.deepEqual(snapshot.document.slides.map((slide) => slide.index), [1, 2]);
+  assert.match(snapshot.document.slides[0].text.join(' '), /Three/);
+  const edited = value(await executeOfficeTool({ action: 'batch', session: created.session, operations: [{ op: 'set_text', slide: 1, shape: 1, text: 'Three, edited' }] }, { cwd }));
+  assert.notEqual(edited.ok, false, JSON.stringify(edited).slice(0, 400));
+  assert.match(await (await parts(target)).text('ppt/slides/slide1.xml'), /Three, edited/);
 });
 
 test('portable workbook copies sheets and adds images, links, validation, and protection', async (t) => {

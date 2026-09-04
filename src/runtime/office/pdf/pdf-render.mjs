@@ -229,6 +229,7 @@ async function renderPdfPagesDirect(path, {
           thumbnails.push({
             page: pageNumber,
             image: await loadImage(rendered.data),
+            data: rendered.data,
           });
         }
         const cellHeight = Math.max(...thumbnails.map(({ image }) => image.height));
@@ -268,6 +269,16 @@ async function renderPdfPagesDirect(path, {
           height: sheet.height,
           mimeType: 'image/png',
           data: data.toString('base64'),
+          // The pages the sheet was composed from: the render review reads these,
+          // never the sheet (its grey field, labels, and borders are not the deck).
+          // Stripped from the model-facing result by the render action.
+          pageImages: thumbnails.map(({ page: pageNumber, image, data: pageData }) => ({
+            page: pageNumber,
+            width: image.width,
+            height: image.height,
+            mimeType: 'image/png',
+            data: pageData.toString('base64'),
+          })),
         });
       }
     }

@@ -173,6 +173,66 @@ export async function deletePresentationSlide(zip, slides, number) {
 
 
 
+async function movePackagePart(zip, from, to) {
+  if (from === to) return;
+  zip.file(to, await zipText(zip, from));
+  zip.remove(from);
+  const fromRels = partRelationshipPath(from);
+  if (zip.file(fromRels)) {
+    zip.file(partRelationshipPath(to), await zipText(zip, fromRels));
+    zip.remove(fromRels);
+  }
+}
+
+
+// After a structural edit (delete, keep, move, duplicate, import) the slide part
+// names no longer follow the presentation order: slide9.xml can be the fourth
+// slide. Operations address slides by position while the snapshot, validation,
+// and review paths read the part number, so every "/slide[n]" would name a
+// different slide than "slide: n". Renaming the parts to their positions keeps
+// the two in step. Returns true when any part moved.
+export async function renumberPresentationSlides(zip) {
+  const slides = await presentationSlides(zip);
+  const moves = slides
+    .map((slide, index) => ({ from: slide.path, to: `ppt/slides/slide${index + 1}.xml` }))
+    .filter((move) => move.from !== move.to);
+  if (!moves.length) return false;
+  // Two phases so a swap never overwrites a part that is still to be read.
+  const staged = [];
+  for (const [index, move] of moves.entries()) {
+    const temporary = `ppt/slides/renumber-${index}.xml`;
+    await movePackagePart(zip, move.from, temporary);
+    staged.push({ from: temporary, to: move.to });
+  }
+  for (const move of staged) await movePackagePart(zip, move.from, move.to);
+  const renamed = new Map(moves.map((move) => [move.from, move.to]));
+  // Every relationship that resolved to an old part name (the presentation's
+  // slide list, a notes slide's back-reference, a hyperlink to a slide) now
+  // points at the new one; content types follow.
+  for (const name of Object.keys(zip.files).filter((entry) => /\.rels$/i.test(entry))) {
+    const xml = await zipText(zip, name);
+    if (!xml) continue;
+    const owner = name.replace(/(^|\/)_rels\/([^/]+)\.rels$/, '$1$2');
+    const directory = owner === name ? '' : posix.dirname(owner);
+    let changed = false;
+    const next = xml.replace(/(<Relationship\b[^>]*\bTarget=")([^"]+)(")/g, (match, lead, target, tail) => {
+      const resolved = target.startsWith('/') ? target.slice(1) : posix.normalize(posix.join(directory, target));
+      const to = renamed.get(resolved);
+      if (!to) return match;
+      changed = true;
+      return `${lead}${target.startsWith('/') ? `/${to}` : posix.relative(directory || '.', to)}${tail}`;
+    });
+    if (changed) zip.file(name, next);
+  }
+  const contentTypes = await zipText(zip, '[Content_Types].xml');
+  zip.file('[Content_Types].xml', contentTypes.replace(
+    /PartName="\/(ppt\/slides\/slide\d+\.xml)"/g,
+    (match, part) => (renamed.has(part) ? `PartName="/${renamed.get(part)}"` : match),
+  ));
+  return true;
+}
+
+
 export async function movePresentationSlide(zip, slides, number, index) {
   const slide = slides[Number(number) - 1];
   if (!slide) throw new Error(`PPTX slide ${number} not found`);

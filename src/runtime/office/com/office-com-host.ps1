@@ -944,11 +944,25 @@ function Snapshot-PowerPoint($presentation, $payload) {
           }
         }
       } catch {}
+      # Preset geometry in the OOXML vocabulary the portable snapshot reports, so the
+      # composition receipt reads a chevron, a brace, or a rule the same way on both backends.
+      $geometry = ''
+      try {
+        $shapeType = [int]$shape.Type
+        if ($shapeType -eq 9) { $geometry = 'line' }
+        elseif ($shapeType -eq 5) { $geometry = 'custGeom' }
+        elseif ($shapeType -eq 1 -or $shapeType -eq 14) {
+          $auto = [int]$shape.AutoShapeType
+          $presetNames = @{ 1 = 'rect'; 2 = 'parallelogram'; 3 = 'trapezoid'; 4 = 'diamond'; 5 = 'roundRect'; 6 = 'octagon'; 7 = 'triangle'; 8 = 'rtTriangle'; 9 = 'ellipse'; 10 = 'hexagon'; 11 = 'plus'; 12 = 'pentagon'; 13 = 'can'; 14 = 'cube'; 15 = 'bevel'; 16 = 'foldedCorner'; 18 = 'donut'; 20 = 'blockArc'; 25 = 'arc'; 26 = 'bracketPair'; 27 = 'bracePair'; 29 = 'leftBracket'; 30 = 'rightBracket'; 31 = 'leftBrace'; 32 = 'rightBrace'; 33 = 'rightArrow'; 34 = 'leftArrow'; 35 = 'upArrow'; 36 = 'downArrow'; 37 = 'leftRightArrow'; 38 = 'upDownArrow'; 51 = 'homePlate'; 52 = 'chevron'; 105 = 'wedgeRectCallout'; 106 = 'wedgeRoundRectCallout'; 107 = 'wedgeEllipseCallout' }
+          if ($auto -gt 0) { $geometry = $(if ($presetNames.ContainsKey($auto)) { [string]$presetNames[$auto] } else { "auto$auto" }) }
+        }
+      } catch {}
       $shapes += [ordered]@{
         path = "/slide[$([int]$slide.SlideIndex)]/shape[$shapeIndex]"
         index = $shapeIndex
         name = [string]$shape.Name
         type = [int]$shape.Type
+        geometry = $geometry
         text = $text
         placeholder = $placeholder
         group = $group
@@ -960,6 +974,7 @@ function Snapshot-PowerPoint($presentation, $payload) {
         height = [double]$shape.Height
         rotation = [double]$shape.Rotation
         fillColor = $(try { [double]$shape.Fill.ForeColor.RGB } catch { $null })
+        fillVisible = $(try { [int]$shape.Fill.Visible -ne 0 } catch { $null })
         fillTransparency = $(try { [double]$shape.Fill.Transparency } catch { $null })
         lineColor = $(try { [double]$shape.Line.ForeColor.RGB } catch { $null })
         lineTransparency = $(try { [double]$shape.Line.Transparency } catch { $null })

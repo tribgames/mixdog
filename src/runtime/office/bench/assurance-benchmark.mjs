@@ -12,6 +12,7 @@ import { expandOfficeDesignOperations } from '../design/design-system.mjs';
 import {
   buildOfficePolishPlan,
   evaluateOfficeSubmissionGate,
+  normalizeOfficeReviewIssues,
 } from '../quality/quality-pipeline.mjs';
 
 function renderedImage(page, draw) {
@@ -393,10 +394,11 @@ async function contentAwareCompositionGate() {
   });
   return {
     category: 'content-aware-composition-gate',
+    // A repeated composition is the author's call: the reading is advisory (info), never a blocker.
     passed: firstId !== second.semantic[0].composition.id
       && second.semantic[0].composition.historyPenalty === 0
-      && !gate.ok
-      && gate.blocking[0].severity === 'error',
+      && gate.ok
+      && normalizeOfficeReviewIssues([{ severity: 'warning', code: 'recent_composition_repeat', path: '/', message: 'same sequence' }])[0].severity === 'info',
     evidence: {
       first: firstId,
       second: second.semantic[0].composition.id,

@@ -1,94 +1,15 @@
-import sharp from 'sharp';
+// Aesthetic review of rendered pages: page roles, per-role density targets,
+// the issues the render can raise (contrast, density, rhythm, repetition) and
+// the v2 score. Sampling lives in design-aesthetics-metrics.mjs.
 import { clamp } from '../shared/values.mjs';
-
-const SAMPLE_WIDTH = 160;
-const SAMPLE_HEIGHT = 90;
-const STRUCTURE_COLUMNS = 16;
-const STRUCTURE_ROWS = 9;
-
-function rounded(value, digits = 4) {
-  return Number((Number(value) || 0).toFixed(digits));
-}
-
-function pageNumber(image, index) {
-  if (Array.isArray(image?.pages) && image.pages.length === 1) return Number(image.pages[0]) || index + 1;
-  return Number(image?.page) || index + 1;
-}
-
-function mean(values) {
-  return values.length ? values.reduce((total, value) => total + value, 0) / values.length : 0;
-}
-
-function deviation(values) {
-  if (!values.length) return 0;
-  const center = mean(values);
-  return Math.sqrt(mean(values.map((value) => (value - center) ** 2)));
-}
-
-function quantile(sorted, ratio) {
-  if (!sorted.length) return 0;
-  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.round((sorted.length - 1) * ratio)))];
-}
-
-function normalizedEntropy(histogram) {
-  const total = histogram.reduce((sum, count) => sum + count, 0);
-  if (!total) return 0;
-  const raw = histogram.reduce((sum, count) => {
-    if (!count) return sum;
-    const probability = count / total;
-    return sum - (probability * Math.log2(probability));
-  }, 0);
-  return raw / Math.log2(histogram.length);
-}
-
-function colorfulness(redValues, greenValues, blueValues) {
-  const redGreen = redValues.map((red, index) => red - greenValues[index]);
-  const yellowBlue = redValues.map((red, index) => ((red + greenValues[index]) / 2) - blueValues[index]);
-  return Math.sqrt((deviation(redGreen) ** 2) + (deviation(yellowBlue) ** 2))
-    + (0.3 * Math.sqrt((mean(redGreen) ** 2) + (mean(yellowBlue) ** 2)));
-}
-
-function structureSimilarity(left, right) {
-  if (!left.length || left.length !== right.length) return 0;
-  const distance = mean(left.map((value, index) => Math.abs(value - right[index])));
-  return clamp(1 - distance);
-}
-
-function structureStats(structure) {
-  if (!structure.length) return { spatialCoverage: 0, spatialBalance: 0, occupiedQuadrants: 0 };
-  const active = structure.map((value) => value >= 0.08 ? 1 : 0);
-  const spatialCoverage = mean(active);
-  let total = 0;
-  let weightedX = 0;
-  let weightedY = 0;
-  const quadrants = [0, 0, 0, 0];
-  structure.forEach((value, index) => {
-    const x = index % STRUCTURE_COLUMNS;
-    const y = Math.floor(index / STRUCTURE_COLUMNS);
-    total += value;
-    weightedX += value * ((x + 0.5) / STRUCTURE_COLUMNS);
-    weightedY += value * ((y + 0.5) / STRUCTURE_ROWS);
-    quadrants[(y >= STRUCTURE_ROWS / 2 ? 2 : 0) + (x >= STRUCTURE_COLUMNS / 2 ? 1 : 0)] += value;
-  });
-  const centerX = total ? weightedX / total : 0.5;
-  const centerY = total ? weightedY / total : 0.5;
-  const spatialBalance = clamp(1 - ((Math.abs(centerX - 0.5) + Math.abs(centerY - 0.5)) * 1.25));
-  const occupiedQuadrants = quadrants.filter((value) => value >= total * 0.08).length;
-  return { spatialCoverage, spatialBalance, occupiedQuadrants };
-}
-
-function hueBin(red, green, blue) {
-  const maximum = Math.max(red, green, blue);
-  const minimum = Math.min(red, green, blue);
-  const range = maximum - minimum;
-  if (!range) return 0;
-  let hue;
-  if (maximum === red) hue = ((green - blue) / range) % 6;
-  else if (maximum === green) hue = ((blue - red) / range) + 2;
-  else hue = ((red - green) / range) + 4;
-  const degrees = (hue * 60 + 360) % 360;
-  return Math.min(11, Math.floor(degrees / 30));
-}
+import {
+  deviation,
+  mean,
+  metricDistance,
+  renderedAestheticMetric,
+  rounded,
+  structureSimilarity,
+} from './design-aesthetics-metrics.mjs';
 
 function normalizedPageRole(page, pageCount, pageRoles = {}) {
   const explicit = pageRoles?.[page] || pageRoles?.[String(page)] || '';
@@ -102,6 +23,8 @@ function normalizedPageRole(page, pageCount, pageRoles = {}) {
   if (/cover|opening/.test(normalized) || page === 1) return 'opening';
   if (/closing|decision-close/.test(normalized) || page === pageCount) return 'closing';
   if (/section|statement/.test(slideRole) || /section|statement/.test(normalized)) return 'section';
+  if (/diagram/.test(normalized)) return 'diagram';
+  if (/picture|photo|image/.test(normalized)) return 'picture';
   if (/chart/.test(normalized)) return 'chart';
   if (/timeline|process|roadmap/.test(normalized)) return 'timeline';
   if (/allocation|comparison|matrix/.test(normalized)) return 'allocation';
@@ -114,6 +37,12 @@ const ROLE_TARGETS = Object.freeze({
   closing: Object.freeze({ foreground: [0.03, 0.22], spatial: [0.16, 0.5], quadrants: 2 }),
   // Section and statement beats carry one thesis and air, like a cover.
   section: Object.freeze({ foreground: [0.03, 0.24], spatial: [0.16, 0.5], quadrants: 2 }),
+  // A diagram's evidence is native shapes on tinted fields and hairlines; the
+  // sampler reads a fraction of it as foreground, so the floor sits low.
+  diagram: Object.freeze({ foreground: [0.015, 0.44], spatial: [0.08, 0.74], quadrants: 3 }),
+  // A picture slide is mostly picture: the sampler reads the whole frame as
+  // foreground, so the ceiling is open and the floor is the frame itself.
+  picture: Object.freeze({ foreground: [0.12, 1], spatial: [0.3, 1], quadrants: 3 }),
   chart: Object.freeze({ foreground: [0.1, 0.42], spatial: [0.42, 0.78], quadrants: 3 }),
   timeline: Object.freeze({ foreground: [0.08, 0.46], spatial: [0.38, 0.78], quadrants: 3 }),
   allocation: Object.freeze({ foreground: [0.07, 0.42], spatial: [0.34, 0.75], quadrants: 3 }),
@@ -160,158 +89,6 @@ function roleAwareComposition(metric, role) {
   };
 }
 
-function metricDistance(left, right) {
-  return mean([
-    Math.abs(left.backgroundLuminance - right.backgroundLuminance),
-    Math.abs(left.colorfulnessScore - right.colorfulnessScore),
-    Math.abs(left.entropy - right.entropy),
-    Math.abs(left.edgeDensity - right.edgeDensity),
-    Math.abs(left.foregroundCoverage - right.foregroundCoverage),
-  ]);
-}
-
-const INK_WIDTH = 640;
-const INK_HEIGHT = 360;
-const INK_FOREGROUND = 28 / 255;
-
-// Legibility of the marks themselves. The 160-sample grid blends type strokes
-// into the background, so the strongest decile of foreground luminance deltas
-// is read at a resolution where strokes survive.
-async function measureInkContrast(image, backgroundLuminance) {
-  const grey = await sharp(Buffer.from(image.data, 'base64'))
-    .flatten({ background: '#ffffff' })
-    .resize(INK_WIDTH, INK_HEIGHT, { fit: 'fill' })
-    .greyscale()
-    .raw()
-    .toBuffer();
-  const deltas = [];
-  for (let index = 0; index < grey.length; index += 1) {
-    const delta = Math.abs((grey[index] / 255) - backgroundLuminance);
-    if (delta >= INK_FOREGROUND) deltas.push(delta);
-  }
-  deltas.sort((left, right) => left - right);
-  return quantile(deltas, 0.9);
-}
-
-async function renderedAestheticMetric(image, index) {
-  if (!image?.data) return null;
-  const decoded = await sharp(Buffer.from(image.data, 'base64'))
-    .flatten({ background: '#ffffff' })
-    .resize(SAMPLE_WIDTH, SAMPLE_HEIGHT, { fit: 'fill' })
-    .removeAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const pixels = decoded.data;
-  const channels = decoded.info.channels;
-  const reds = [];
-  const greens = [];
-  const blues = [];
-  const luminance = [];
-  const histogram = Array.from({ length: 16 }, () => 0);
-  const border = [];
-  for (let y = 0; y < SAMPLE_HEIGHT; y += 1) {
-    for (let x = 0; x < SAMPLE_WIDTH; x += 1) {
-      const offset = ((y * SAMPLE_WIDTH) + x) * channels;
-      const red = pixels[offset];
-      const green = pixels[offset + 1];
-      const blue = pixels[offset + 2];
-      const light = ((0.2126 * red) + (0.7152 * green) + (0.0722 * blue)) / 255;
-      reds.push(red);
-      greens.push(green);
-      blues.push(blue);
-      luminance.push(light);
-      histogram[Math.min(15, Math.floor(light * 16))] += 1;
-      if (x < 3 || y < 3 || x >= SAMPLE_WIDTH - 3 || y >= SAMPLE_HEIGHT - 3) {
-        border.push([red, green, blue]);
-      }
-    }
-  }
-  const background = [
-    mean(border.map((entry) => entry[0])),
-    mean(border.map((entry) => entry[1])),
-    mean(border.map((entry) => entry[2])),
-  ];
-  const backgroundLuminance = ((0.2126 * background[0]) + (0.7152 * background[1]) + (0.0722 * background[2])) / 255;
-  const occupancy = Array.from({ length: STRUCTURE_COLUMNS * STRUCTURE_ROWS }, () => 0);
-  const occupancySamples = Array.from({ length: occupancy.length }, () => 0);
-  let foreground = 0;
-  let foregroundLuminanceDelta = 0;
-  const inkContrast = await measureInkContrast(image, backgroundLuminance);
-  let colorfulForeground = 0;
-  const hueHistogram = Array.from({ length: 12 }, () => 0);
-  let edges = 0;
-  let edgeSamples = 0;
-  for (let y = 0; y < SAMPLE_HEIGHT; y += 1) {
-    for (let x = 0; x < SAMPLE_WIDTH; x += 1) {
-      const pixelIndex = (y * SAMPLE_WIDTH) + x;
-      const red = reds[pixelIndex];
-      const green = greens[pixelIndex];
-      const blue = blues[pixelIndex];
-      const distance = Math.max(
-        Math.abs(red - background[0]),
-        Math.abs(green - background[1]),
-        Math.abs(blue - background[2]),
-      );
-      const occupied = distance >= 28 ? 1 : 0;
-      foreground += occupied;
-      if (occupied) foregroundLuminanceDelta += Math.abs(luminance[pixelIndex] - backgroundLuminance);
-      if (occupied) {
-        const channelMaximum = Math.max(red, green, blue);
-        const channelMinimum = Math.min(red, green, blue);
-        const saturation = channelMaximum ? (channelMaximum - channelMinimum) / channelMaximum : 0;
-        if (saturation >= 0.22) {
-          colorfulForeground += 1;
-          hueHistogram[hueBin(red, green, blue)] += 1;
-        }
-      }
-      const cellX = Math.min(STRUCTURE_COLUMNS - 1, Math.floor((x / SAMPLE_WIDTH) * STRUCTURE_COLUMNS));
-      const cellY = Math.min(STRUCTURE_ROWS - 1, Math.floor((y / SAMPLE_HEIGHT) * STRUCTURE_ROWS));
-      const cell = (cellY * STRUCTURE_COLUMNS) + cellX;
-      occupancy[cell] += occupied;
-      occupancySamples[cell] += 1;
-      if (x > 0) {
-        edges += Math.abs(luminance[pixelIndex] - luminance[pixelIndex - 1]) >= 0.12 ? 1 : 0;
-        edgeSamples += 1;
-      }
-      if (y > 0) {
-        edges += Math.abs(luminance[pixelIndex] - luminance[pixelIndex - SAMPLE_WIDTH]) >= 0.12 ? 1 : 0;
-        edgeSamples += 1;
-      }
-    }
-  }
-  const sortedLuminance = [...luminance].sort((left, right) => left - right);
-  const rawColorfulness = colorfulness(reds, greens, blues);
-  const structure = occupancy.map((value, cell) => occupancySamples[cell] ? value / occupancySamples[cell] : 0);
-  const spatial = structureStats(structure);
-  const paletteThreshold = Math.max(3, colorfulForeground * 0.05);
-  const paletteHueCount = hueHistogram.filter((count) => count >= paletteThreshold).length;
-  const paletteDominance = colorfulForeground ? Math.max(...hueHistogram) / colorfulForeground : 0;
-  return {
-    page: pageNumber(image, index),
-    width: Number(image.width) || decoded.info.width,
-    height: Number(image.height) || decoded.info.height,
-    backgroundLuminance: rounded(backgroundLuminance),
-    luminanceMean: rounded(mean(luminance)),
-    contrastSpan: rounded(quantile(sortedLuminance, 0.9) - quantile(sortedLuminance, 0.1)),
-    foregroundContrast: rounded(foreground ? foregroundLuminanceDelta / foreground : 0),
-    // The marks themselves: anti-aliased type and tinted fields pull the mean
-    // toward the background, so legibility is read from the strongest decile.
-    inkContrast: rounded(inkContrast),
-    colorfulness: rounded(rawColorfulness, 2),
-    colorfulnessScore: rounded(clamp(rawColorfulness / 45)),
-    accentCoverage: rounded(foreground ? colorfulForeground / foreground : 0),
-    paletteHueCount,
-    paletteDominance: rounded(paletteDominance),
-    entropy: rounded(normalizedEntropy(histogram)),
-    edgeDensity: rounded(edgeSamples ? edges / edgeSamples : 0),
-    foregroundCoverage: rounded(foreground / luminance.length),
-    spatialCoverage: rounded(spatial.spatialCoverage),
-    spatialBalance: rounded(spatial.spatialBalance),
-    occupiedQuadrants: spatial.occupiedQuadrants,
-    _structure: structure,
-  };
-}
-
 function aestheticIssue(code, path, message) {
   return {
     severity: 'warning',
@@ -336,10 +113,19 @@ export async function reviewRenderedOfficeAesthetics(images = [], {
   for (const metric of measured) {
     // Beat pages (section/statement) are sparse on purpose; density gates
     // apply to inner pages that carry evidence.
-    const beatPage = normalizedPageRole(metric.page, measured.length, pageRoles) === 'section';
+    const role = normalizedPageRole(metric.page, measured.length, pageRoles);
+    const beatPage = role === 'section';
+    // A diagram role is granted from the saved shapes (they cover a quarter of
+    // the canvas with the text registered to them), so the canvas is not empty
+    // however little of its tinted fields and hairlines the sampler sees at the
+    // document scale; its density still weighs on the composition score.
+    const densityGated = !beatPage && role !== 'diagram';
+    // The mean foreground delta drops when tinted fields (planes, lanes, cards)
+    // make up most of the foreground; the marks are judged by the ink decile.
     if (
       metric.foregroundCoverage >= 0.008
       && metric.foregroundContrast < 0.15
+      && (metric.inkContrast || 0) < 0.35
     ) {
       issues.push(aestheticIssue(
         'low_visual_contrast',
@@ -349,7 +135,7 @@ export async function reviewRenderedOfficeAesthetics(images = [], {
     }
     if (
       normalized === 'pptx'
-      && !beatPage
+      && densityGated
       && metric.page > 1
       && metric.page < measured.length
       && metric.foregroundCoverage < 0.018
@@ -366,6 +152,7 @@ export async function reviewRenderedOfficeAesthetics(images = [], {
       && !beatPage
       && metric.page > 1
       && metric.page < measured.length
+      && densityGated
       && metric.foregroundCoverage < 0.06
       && metric.spatialCoverage < 0.3
     ) {

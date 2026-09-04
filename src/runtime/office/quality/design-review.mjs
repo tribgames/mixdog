@@ -2,8 +2,7 @@ import { reviewOfficeStructure } from './assurance.mjs';
 import { reviewOfficeCompositionSequence } from '../design/composition-system.mjs';
 import { reviewPptxDeckDiversity } from './design-deck-diversity.mjs';
 import { reviewPptxFrontierQuality } from './design-frontier-review.mjs';
-import { PPTX_CRITIQUE_AXES } from '../design/pptx/design-pptx.mjs';
-import { resolveOfficeDesign, strings } from '../design/design-tokens.mjs';
+import { resolveOfficeDesign } from '../design/design-tokens.mjs';
 import {
   MAX_ACCENT_HUE_FAMILIES,
   MAX_FONT_FAMILIES_PER_SLIDE,
@@ -12,7 +11,6 @@ import {
   isSafeFontFamily,
   saturatedHueFamilies,
 } from '../design/design-discipline.mjs';
-import { plainObject } from '../shared/values.mjs';
 import {
   authoredBackgroundLadder,
   isCardGridSlide,
@@ -20,6 +18,20 @@ import {
   slideSize,
 } from './design-review-authored.mjs';
 import { reviewBriefPromises, reviewFactCoverage } from '../authoring/pptx-brief.mjs';
+import { isAdvisoryOfficeIssue } from './quality-pipeline.mjs';
+import { isPptxSpecimenSlide, isPptxStatementSlide } from './pptx-slide-roles.mjs';
+
+// Slide-role inference lives in pptx-slide-roles.mjs; the review re-exports it
+// so callers (render QA, tests) keep one entry point.
+export {
+  inferPptxSlideRoles,
+  isPptxDiagramShape,
+  isPptxDiagramSlide,
+  isPptxPictureSlide,
+  isPptxStatementSlide,
+  pptxDiagramCoverage,
+  pptxPictureShare,
+} from './pptx-slide-roles.mjs';
 
 function designIssue(code, path, message, severity = 'warning') {
   return { severity, code, path, message, source: 'design-review' };
@@ -208,43 +220,6 @@ function normalizedShapeSignature(slide) {
 }
 
 
-// A statement slide carries one thesis, quote, or number and air. Composer
-// plans say so through slideRole; an authored deck has no plan, so the same
-// criterion is read from the saved shapes and shared with the render review.
-export function isPptxStatementSlide(slide) {
-  const textShapes = (Array.isArray(slide?.shapes) ? slide.shapes : [])
-    .filter((shape) => String(shape.text || '').trim() && !isMotifShape(shape) && !shape.placeholder);
-  if (!textShapes.length || textShapes.length > 5) return false;
-  const sizes = textShapes.map((shape) => Number(shape.font?.size) || 0);
-  const largest = Math.max(...sizes);
-  const totalText = textShapes.reduce((total, shape) => total + String(shape.text || '').length, 0);
-  return largest >= 42
-    || sizes.filter((size) => size >= 34).length >= 2
-    || (largest >= 24 && totalText <= 280);
-}
-
-
-// A specimen draws its subject: three or more text blocks sharing one left edge,
-// each a different size/weight step, with the largest at 24 pt or more.
-function isPptxSpecimenSlide(textShapes) {
-  const columns = new Map();
-  for (const shape of textShapes) {
-    const key = Math.round((Number(shape.left) || 0) / 12);
-    const step = `${Number(shape.font?.size) || 0}|${shape.font?.bold === true ? 1 : 0}|${String(shape.font?.name || '')}`;
-    if (!columns.has(key)) columns.set(key, { steps: new Set(), largest: 0 });
-    const column = columns.get(key);
-    column.steps.add(step);
-    column.largest = Math.max(column.largest, Number(shape.font?.size) || 0);
-  }
-  return [...columns.values()].some((column) => column.steps.size >= 3 && column.largest >= 24);
-}
-
-export function inferPptxSlideRoles(document) {
-  const slides = Array.isArray(document?.slides) ? document.slides : [];
-  return Object.fromEntries(slides
-    .filter((slide) => Number(slide?.index) > 0 && isPptxStatementSlide(slide))
-    .map((slide) => [Number(slide.index), { slideRole: 'statement' }]));
-}
 
 
 function reviewPptx(document, design) {
@@ -268,14 +243,15 @@ function reviewPptx(document, design) {
     const pictures = shapes.filter(isPictureShape);
     const richVisuals = shapes.filter((shape) => shape.chart || shape.table || shape.group);
     const nonTextShapes = shapes.filter((shape) => !String(shape.text || '').trim() && !shape.placeholder);
-    // One statement, a band of hero numerals (E4), or a drawn specimen (E8: the
-    // subject itself set in three or more size/weight steps down one column) is
-    // a typographic visual; an authored brief that names S1/S3/E8 says so directly.
-    const plannedSkeleton = String((design.brief?.plan || []).find((entry) => Number(entry.slide) === Number(slide.index))?.skeleton || '');
+    // One statement, a band of hero numerals, or a drawn specimen (the subject
+    // itself set in three or more size/weight steps down one column) is a
+    // typographic visual; an authored brief whose plan line names a statement,
+    // quote, hero, or specimen carrier says so directly.
+    const plannedCarriers = (design.brief?.plan || []).find((entry) => Number(entry.slide) === Number(slide.index))?.carriers || [];
     const typographicVisual = isPptxStatementSlide(slide)
       || textShapes.filter((shape) => (Number(shape.font?.size) || 0) >= 40).length >= 3
       || isPptxSpecimenSlide(textShapes)
-      || ['S1', 'S3', 'E8'].includes(plannedSkeleton);
+      || plannedCarriers.some((carrier) => ['statement', 'quote', 'hero', 'specimen'].includes(carrier));
     const semanticVisual = String(plansBySlide.get(Number(slide.index))?.visualType || '');
     const inferredDiagram = nonTextShapes.length >= 2
       && nonTextShapes.length <= 8
@@ -367,112 +343,9 @@ function reviewPptx(document, design) {
 }
 
 
-// Instance-specific checks: binary questions derived from the slide's own
-// plan line ("the chart's accent bar is the category the title names"),
-// answered against the render. A judged deck needs at least three per slide.
-const MIN_CHECKS = 3;
-
-function parseChecks(raw) {
-  return (Array.isArray(raw) ? raw : []).filter(plainObject).map((check) => ({
-    item: String(check.item || check.question || '').trim(),
-    pass: check.pass === true || String(check.answer || '').toLowerCase() === 'yes',
-  })).filter((check) => check.item);
-}
-
-export function reviewPptxVisualCritique({ critique = [], pageCount = 0, requireChecks = false } = {}) {
-  const total = Math.max(0, Number(pageCount) || 0);
-  const issues = [];
-  const entries = [];
-  const bySlide = new Map();
-  for (const raw of Array.isArray(critique) ? critique : []) {
-    if (!plainObject(raw)) continue;
-    const slide = Number(raw.slide);
-    if (!Number.isInteger(slide) || slide < 1 || slide > total || bySlide.has(slide)) {
-      issues.push({
-        severity: 'warning',
-        code: 'visual_critique_invalid_slide',
-        path: '/',
-        message: `Visual critique has an invalid or duplicate slide index: ${raw.slide}`,
-        source: 'visual-critique',
-      });
-      continue;
-    }
-    const scores = Object.fromEntries(PPTX_CRITIQUE_AXES.map((axis) => [axis, Number(raw[axis])]));
-    const note = String(raw.note || '').trim();
-    const fixes = strings(raw.fixes);
-    const verdict = String(raw.verdict || '').toLowerCase();
-    const validScores = PPTX_CRITIQUE_AXES.every((axis) => Number.isInteger(scores[axis]) && scores[axis] >= 1 && scores[axis] <= 5);
-    const checks = parseChecks(raw.checks);
-    const entry = { slide, verdict, ...scores, note, fixes, ...(checks.length ? { checks } : {}) };
-    entries.push(entry);
-    bySlide.set(slide, entry);
-    if (!validScores || note.length < 40 || (requireChecks && checks.length < MIN_CHECKS)) {
-      issues.push({
-        severity: 'warning',
-        code: 'visual_critique_incomplete',
-        path: `/slide[${slide}]`,
-        message: requireChecks
-          ? `Visual critique requires five integer scores from 1-5, a slide-specific note of at least 40 characters, and at least ${MIN_CHECKS} checks ({ item, pass }) derived from the slide's plan line.`
-          : 'Visual critique requires five integer scores from 1-5 and a slide-specific note of at least 40 characters.',
-        source: 'visual-critique',
-      });
-    } else if (verdict !== 'pass' || fixes.length || PPTX_CRITIQUE_AXES.some((axis) => scores[axis] < 4) || checks.some((check) => !check.pass)) {
-      issues.push({
-        severity: 'warning',
-        code: 'visual_critique_needs_polish',
-        path: `/slide[${slide}]`,
-        message: `Slide ${slide} still needs polish before finalization.`,
-        source: 'visual-critique',
-      });
-    }
-  }
-  for (let slide = 1; slide <= total; slide += 1) {
-    if (!bySlide.has(slide)) {
-      issues.push({
-        severity: 'warning',
-        code: 'visual_critique_missing_slide',
-        path: `/slide[${slide}]`,
-        message: `Slide ${slide} has no visual critique.`,
-        source: 'visual-critique',
-      });
-    }
-  }
-  const notes = entries.map((entry) => entry.note.toLowerCase()).filter(Boolean);
-  if (total > 1 && notes.length === total && new Set(notes).size !== total) {
-    issues.push({
-      severity: 'warning',
-      code: 'visual_critique_repeated_note',
-      path: '/',
-      message: 'Each slide needs a distinct visual critique note.',
-      source: 'visual-critique',
-    });
-  }
-  return {
-    ok: total > 0 && issues.length === 0,
-    status: total > 0 && issues.length === 0 ? 'pass' : 'needs-polish',
-    axes: [...PPTX_CRITIQUE_AXES],
-    pageCount: total,
-    entries,
-    issues,
-  };
-}
-
-
-export function pptxVisualReviewAcknowledged({
-  reviewed = false,
-  providedToken = '',
-  expectedToken = '',
-  renderedVersion = null,
-  snapshotVersion = 0,
-  critiqueOk = false,
-} = {}) {
-  return reviewed === true
-    && Boolean(expectedToken)
-    && String(providedToken || '') === String(expectedToken)
-    && Number(renderedVersion) === Number(snapshotVersion || 0)
-    && critiqueOk === true;
-}
-
+// The visual critique contract lives in design-review-critique.mjs; re-exported
+// so the review stays the one entry point for its callers.
+export { pptxVisualReviewAcknowledged, reviewPptxVisualCritique } from './design-review-critique.mjs';
 
 export function reviewOfficeDesign({
   format,
@@ -524,9 +397,12 @@ export function reviewOfficeDesign({
       'The complete composition sequence matches a recent deliverable; recompose the structure while preserving brand constraints.',
     ));
   }
+  // Advisory readings (layout taste, plan read-back) are reported, never graded:
+  // the review passes when nothing measurable is wrong.
+  const actionable = issues.filter((entry) => !isAdvisoryOfficeIssue(entry));
   return {
-    ok: issues.length === 0,
-    status: issues.length ? 'needs-polish' : 'pass',
+    ok: actionable.length === 0,
+    status: actionable.length ? 'needs-polish' : 'pass',
     profile: design.profile,
     issues,
     composition: compositionReview.summary,

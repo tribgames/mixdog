@@ -216,6 +216,60 @@ test('a statement beat is judged as a section, not as an under-composed content 
   assert.equal(asBeat.aesthetics.pages[1].role, 'section');
 });
 
+test('a diagram slide is held to a lower under-composed floor than a text slide', async () => {
+  // Light tinted fields and one hairline: what a brace-group or 2×2 slide leaves for the sampler.
+  const diagram = (page) => renderedImage(page, (context) => {
+    context.fillStyle = '#F7F9FC';
+    context.fillRect(0, 0, 320, 180);
+    context.fillStyle = '#18242F';
+    context.fillRect(24, 20, 150, 12);
+    context.fillStyle = '#EEF2F6';
+    context.fillRect(24, 50, 130, 110);
+    context.fillRect(166, 50, 130, 110);
+    context.fillStyle = '#178D75';
+    context.fillRect(60, 100, 60, 8);
+  });
+  const images = [1, 2, 3, 4, 5].map(diagram);
+  const asContent = await reviewRenderedOfficePages(images, { format: 'pptx' });
+  const asDiagram = await reviewRenderedOfficePages(images, {
+    format: 'pptx',
+    pageRoles: { 3: { visualType: 'diagram' } },
+  });
+  const underComposed = (review) => review.issues
+    .filter((issue) => issue.code === 'under_composed_slide')
+    .map((issue) => issue.path);
+  assert.ok(underComposed(asContent).includes('/slide[3]'));
+  assert.equal(underComposed(asDiagram).includes('/slide[3]'), false);
+  assert.equal(asDiagram.aesthetics.pages[2].role, 'diagram');
+  assert.ok(asDiagram.aesthetics.pages[2].densityFit > asContent.aesthetics.pages[2].densityFit);
+});
+
+// Past twelve pages the render groups pages into contact sheets; the review
+// must read the pages the sheet carries, never the sheet's grey field.
+test('the render review reads the pages behind a contact sheet, not the sheet', async () => {
+  const page = (number, dark) => renderedImage(number, (context, width, height) => {
+    context.fillStyle = dark ? '#0B1F33' : '#F7F9FC';
+    context.fillRect(0, 0, width, height);
+    context.fillStyle = dark ? '#F7FAFC' : '#18242F';
+    context.fillRect(24, 20, 150, 12);
+    context.fillStyle = '#178D75';
+    context.fillRect(24, 50, 120, 90);
+  });
+  const sheet = (first, numbers) => ({
+    ...renderedImage(first, (context, width, height) => {
+      context.fillStyle = '#EEF0F4';
+      context.fillRect(0, 0, width, height);
+    }),
+    pages: numbers,
+    pageImages: numbers.map((number) => page(number, number === 1 || number === 6)),
+  });
+  const review = await reviewRenderedOfficePages([sheet(1, [1, 2, 3]), sheet(4, [4, 5, 6])], { format: 'pptx' });
+  assert.deepEqual(review.aesthetics.pages.map((entry) => entry.page), [1, 2, 3, 4, 5, 6]);
+  assert.equal(review.aesthetics.pages[0].role, 'opening');
+  assert.equal(review.aesthetics.pages[5].role, 'closing');
+  assert.ok(review.aesthetics.pages.every((entry) => entry.backgroundLuminance < 0.2 || entry.backgroundLuminance > 0.9), 'every measured page is a deck page, not the grey sheet');
+});
+
 test('release quality score combines render evidence, structural penalties, and confidence', () => {
   const clean = scoreOfficeReleaseQuality({
     format: 'pptx',

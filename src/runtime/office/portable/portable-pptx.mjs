@@ -1,4 +1,4 @@
-import { presentationSlides } from './portable-pptx-package.mjs';
+import { presentationSlides, renumberPresentationSlides } from './portable-pptx-package.mjs';
 import { handleAddChart, handleSetChartAxis, handleSetChartData, handleSetChartDataLabels, handleSetChartSeries, handleSetChartTrendlineOrSetChartErrorBars } from './portable-pptx-charts.mjs';
 import { handleAddCommentOrDeleteComment, handleAddProvenance, handleAddSlide, handleApplyTheme, handleDeleteSlide, handleDuplicateSlide, handleFillTemplate, handleImportSlides, handleKeepSlides, handleMoveSlide, handleReplaceText, handleSetFooterOrSetSlideNumber, handleSetLayout, handleSetNotes, handleSetSlideBackground, handleSetTransition } from './portable-pptx-deck.mjs';
 import { handleAddAnimation, handleAddImage, handleAddMedia, handleAddTable, handleAddTextboxOrAddShape, handleAlignShapesOrDistributeShapes, handleCropImage, handleDeleteShape, handleFitText, handleGroupShapesOrUngroupShape, handleSetHyperlink, handleSetShape, handleSetTableDataOrReplaceImage, handleSetText, handleZOrder } from './portable-pptx-shapes.mjs';
@@ -53,14 +53,21 @@ const PPTX_OPERATIONS = Object.freeze({
 
 
 
+// Operations that change which slide sits at which position; after them the
+// slide parts are renamed to their positions (see renumberPresentationSlides).
+const STRUCTURAL_OPERATIONS = new Set(['add_slide', 'delete_slide', 'move_slide', 'keep_slides', 'duplicate_slide', 'import_slides']);
+
 export async function applyPptx(zip, operations) {
   const context = { zip, slides: await presentationSlides(zip) };
   const results = [];
+  let structural = false;
   for (const op of operations) {
     const handler = PPTX_OPERATIONS[op.op];
     if (!handler) throw new Error(`Portable PPTX backend does not support operation: ${op.op}`);
     const result = await handler(context, op);
     if (result) results.push(result);
+    if (STRUCTURAL_OPERATIONS.has(op.op)) structural = true;
   }
+  if (structural && await renumberPresentationSlides(zip)) context.slides = await presentationSlides(zip);
   return results;
 }

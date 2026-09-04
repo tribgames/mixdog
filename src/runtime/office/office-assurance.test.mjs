@@ -22,6 +22,7 @@ import { evaluateXlsxAssertions } from './portable/xlsx-assertions.mjs';
 import {
   buildOfficePolishPlan,
   evaluateOfficeSubmissionGate,
+  normalizeOfficeReviewIssues,
   resolveOfficeRenderOutput,
 } from './quality/quality-pipeline.mjs';
 
@@ -97,6 +98,54 @@ test('render review rejects a wide worksheet stranded at the top of a portrait p
     data: canvas.toBuffer('image/png').toString('base64'),
   }], { format: 'xlsx' });
   assert.ok(reviewed.issues.some((issue) => issue.code === 'worksheet_print_too_small'));
+});
+
+// A document past twelve pages renders as contact sheets; the review must read the
+// pages the sheet was composed from (blank_page on the right page, a small
+// worksheet print), never the grey sheet itself.
+test('render review reads the page images behind a long document contact sheet', async () => {
+  const page = (number, paint) => {
+    const canvas = createCanvas(240, 320);
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    paint?.(context);
+    return { page: number, width: canvas.width, height: canvas.height, data: canvas.toBuffer('image/png').toString('base64') };
+  };
+  const filled = (context) => {
+    context.fillStyle = '#111111';
+    for (let y = 30; y < 290; y += 14) context.fillRect(24, y, 190, 5);
+  };
+  const sheetOf = (numbers, painters) => {
+    const sheet = createCanvas(1400, 700);
+    const context = sheet.getContext('2d');
+    context.fillStyle = 'rgb(238,240,244)';
+    context.fillRect(0, 0, sheet.width, sheet.height);
+    return {
+      page: numbers[0],
+      pages: numbers,
+      width: sheet.width,
+      height: sheet.height,
+      data: sheet.toBuffer('image/png').toString('base64'),
+      pageImages: numbers.map((number, index) => page(number, painters[index])),
+    };
+  };
+  const docx = await reviewRenderedOfficePages([
+    sheetOf([1, 2, 3], [filled, filled, filled]),
+    sheetOf([4, 5, 6], [filled, null, filled]),
+  ], { format: 'docx' });
+  assert.deepEqual(docx.pages.map((entry) => entry.page), [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(docx.issues.filter((issue) => issue.code === 'blank_page').map((issue) => issue.path), ['/page[5]']);
+  const smallGrid = (context) => {
+    context.fillStyle = '#183028';
+    context.fillRect(14, 30, 150, 3);
+    context.fillRect(14, 95, 150, 3);
+    context.fillRect(14, 30, 3, 68);
+    context.fillRect(161, 30, 3, 68);
+    context.fillRect(14, 54, 150, 2);
+  };
+  const xlsx = await reviewRenderedOfficePages([sheetOf([13, 14], [filled, smallGrid])], { format: 'xlsx' });
+  assert.deepEqual(xlsx.issues.filter((issue) => issue.code === 'worksheet_print_too_small').map((issue) => issue.path), ['/page[14]']);
 });
 
 test('PowerPoint render review rejects clustered chart category labels', () => {
@@ -336,10 +385,12 @@ test('quality pipeline upgrades critical issues and returns target-specific poli
       { severity: 'warning', code: 'recent_composition_repeat', path: '/', message: 'same sequence' },
     ],
   });
-  assert.equal(plan.criticalCount, 2);
+  assert.equal(plan.criticalCount, 1);
   assert.equal(plan.targets[0].severity, 'error');
   assert.ok(plan.targets.some((target) => target.actions.some((action) => /embedded workbook/i.test(action))));
-  assert.ok(plan.targets.some((target) => target.actions.some((action) => /Brand kit/i.test(action))));
+  // A composition-taste reading is advisory: reported, never a polish target.
+  assert.equal(plan.targets.some((target) => target.codes.includes('recent_composition_repeat')), false);
+  assert.equal(normalizeOfficeReviewIssues([{ severity: 'warning', code: 'recent_composition_repeat', path: '/', message: 'same' }])[0].severity, 'info');
   const gate = evaluateOfficeSubmissionGate({
     persisted: true,
     issues: [{ severity: 'warning', code: 'empty_chart', path: '/slide[3]' }],
@@ -586,4 +637,29 @@ test('Office assurance benchmark covers spreadsheet, slide, document, cross-app,
   assert.equal(report.categories, 11);
   assert.equal(report.failed, 0, JSON.stringify(report, null, 2));
   assert.equal(report.passRate, 1);
+});
+
+// The polish plan turns every design, render, brief, and editability code into
+// a repair instruction; a code that falls back to the generic "Correct <code>"
+// line is a review the author cannot act on.
+test('every review code the pptx quality modules raise has repair guidance in the polish plan', async () => {
+  const { readFile, readdir } = await import('node:fs/promises');
+  const { fileURLToPath } = await import('node:url');
+  const sources = [];
+  for (const dir of ['quality', 'authoring']) {
+    const base = fileURLToPath(new URL(`./${dir}/`, import.meta.url));
+    for (const name of await readdir(base)) {
+      if (name.endsWith('.mjs') && !name.includes('.test.') && /design-|assurance-|pptx-brief|critique/.test(name)) sources.push(join(base, name));
+    }
+  }
+  for (const name of ['review-editability.mjs', 'portable-chart-faults.mjs']) sources.push(fileURLToPath(new URL(`./portable/${name}`, import.meta.url)));
+  const codes = new Set();
+  for (const file of sources) {
+    const text = await readFile(file, 'utf8');
+    for (const match of text.matchAll(/(?:code:\s*|Issue\(\s*|issue\(\s*)'([a-z][a-z0-9_]+)'/g)) codes.add(match[1]);
+  }
+  assert.ok(codes.size >= 40, `expected the scan to find the review codes, found ${codes.size}`);
+  const plan = buildOfficePolishPlan({ format: 'pptx', issues: [...codes].map((code) => ({ severity: 'warning', code, path: `/${code}`, message: code })) });
+  const unguided = plan.targets.filter((target) => target.actions.some((action) => action.startsWith('Correct '))).map((target) => target.codes[0]);
+  assert.deepEqual(unguided, []);
 });

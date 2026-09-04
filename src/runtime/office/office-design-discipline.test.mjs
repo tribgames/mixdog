@@ -63,6 +63,9 @@ test('design tokens replace unsafe typefaces and keep palettes readable', () => 
   assert.deepEqual(typography.replaced.map((entry) => entry.requested), ['Aptos Display', 'Segoe UI']);
   assert.equal(isSafeFontFamily('Consolas'), false);
   assert.equal(isSafeFontFamily('맑은 고딕'), true);
+  assert.equal(isSafeFontFamily('Noto Sans KR'), true);
+  assert.equal(isSafeFontFamily('Noto Sans'), true);
+  assert.equal(isSafeFontFamily('본고딕'), true);
 
   const palette = normalizePaletteTokens({
     canvas: 'FFFFFF',
@@ -244,7 +247,7 @@ test('emphasis mismatch blocks when body copy outweighs the evidence the brief n
   const heavyBody = scene([
     { ...title, w: 50, h: 14 },
     { ...chart, x: 60, y: 60, w: 30, h: 26 },
-    { id: 'wall', type: 'text', role: 'body', x: 6, y: 24, w: 50, h: 62, text: 'A long explanation that dominates the page and keeps going. '.repeat(12), style: { fontRole: 'body', fontSize: 20, colorRole: 'ink' } },
+    { id: 'wall', type: 'text', role: 'body', x: 6, y: 24, w: 50, h: 68, text: 'A long explanation that dominates the page and keeps going. '.repeat(12), style: { fontRole: 'body', fontSize: 20, colorRole: 'ink' } },
   ]);
   heavyBody.creativeBrief = { focalPoint: 'evidence' };
   const expanded = expand([heavyBody]);
