@@ -128,6 +128,33 @@ async function mergeEmbeddedWorkbook(zip, chartPart, values) {
   return true;
 }
 
+// pptxgenjs writes only <a:latin> for a chart's axis, label, and legend runs, so
+// a Korean category label falls to the theme's East Asian face (맑은 고딕) while
+// the slide text is Noto — the "chart looks like another deck" drift. Every
+// chart run gets <a:ea>/<a:cs> matching its latin face, and a chart without a
+// chart-level <c:txPr> gets one in the deck face so PowerPoint's own defaults
+// (value axes, data tables, titles the author adds later) follow the same face.
+const CHART_LATIN = /<a:latin typeface="([^"]+)"([^>]*)\/>(?!<a:ea)/g;
+export function normalizeChartFonts(xml) {
+  let changed = 0;
+  const faces = [];
+  let output = String(xml || '').replace(CHART_LATIN, (tag, typeface, attrs) => {
+    faces.push(typeface);
+    changed += 1;
+    return `${tag}<a:ea typeface="${typeface}"${attrs}/><a:cs typeface="${typeface}"${attrs}/>`;
+  });
+  // The chart default prefers the face that carries CJK glyphs (the kit's sans over its Latin data face).
+  const face = faces.find((name) => /\b(kr|sc|tc|jp|cjk)\b|malgun|yahei|jhenghei|yu gothic|meiryo/i.test(name)) || faces[0] || '';
+  if (face && !/<c:txPr>[\s\S]*<\/c:txPr>\s*(<c:externalData|<c:printSettings|<c:userShapes|<\/c:chartSpace>)/.test(output) && !/<\/c:chart>\s*<c:txPr>/.test(output)) {
+    const txPr = `<c:txPr><a:bodyPr/><a:lstStyle/><a:p><a:pPr><a:defRPr><a:latin typeface="${face}"/><a:ea typeface="${face}"/><a:cs typeface="${face}"/></a:defRPr></a:pPr><a:endParaRPr lang="en-US"/></a:p></c:txPr>`;
+    // Schema order after </c:chart>: c:spPr?, c:txPr?, c:externalData?, …
+    if (/<\/c:chart>\s*<c:spPr>[\s\S]*?<\/c:spPr>/.test(output)) output = output.replace(/(<\/c:chart>\s*<c:spPr>[\s\S]*?<\/c:spPr>)/, `$1${txPr}`);
+    else output = output.replace('</c:chart>', `</c:chart>${txPr}`);
+    changed += 1;
+  }
+  return { xml: output, changed, face };
+}
+
 export async function normalizeAuthoredPptx(path) {
   const zip = await loadPackage(path);
   const parts = Object.keys(zip.files).filter((name) => TEXT_PARTS.test(name) || CHART_PARTS.test(name));
@@ -144,6 +171,8 @@ export async function normalizeAuthoredPptx(path) {
         mergedCharts += 1;
         await mergeEmbeddedWorkbook(zip, part, merged.values);
       }
+      const fonts = normalizeChartFonts(result.xml);
+      if (fonts.changed) result = { ...result, xml: fonts.xml, changed: true };
     }
     if (!result.removed && !result.changed) continue;
     zip.file(part, result.xml);

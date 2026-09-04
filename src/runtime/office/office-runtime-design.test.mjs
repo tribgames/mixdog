@@ -292,6 +292,16 @@ test('PPTX visual critique requires distinct per-slide evidence across five axes
     })],
   });
   assert.ok(failed.issues.some((issue) => issue.code === 'visual_critique_needs_polish'));
+  const anchor = reviewPptxVisualCritique({
+    pageCount: 1,
+    critique: [entry(1, 'A section anchor: one statement on a receded picture, no evidence by design.', { role: 'section', evidence: 2 })],
+  });
+  assert.equal(anchor.status, 'pass', 'an anchor is not gated on evidence');
+  const anchorWeak = reviewPptxVisualCritique({
+    pageCount: 1,
+    critique: [entry(1, 'A section anchor whose statement does not read at thumbnail size on the picture.', { role: 'section', legibility: 2 })],
+  });
+  assert.ok(anchorWeak.issues.some((issue) => issue.code === 'visual_critique_needs_polish'), 'the other axes still gate an anchor');
   assert.equal(pptxVisualReviewAcknowledged({
     reviewed: true,
     providedToken: 'office_1:2',

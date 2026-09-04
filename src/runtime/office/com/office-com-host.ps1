@@ -4165,7 +4165,13 @@ function Issues-PowerPoint($presentation, $payload) {
           $textShapeCount++
           $boundWidth = [single]$shape.TextFrame2.TextRange.BoundWidth
           $boundHeight = [single]$shape.TextFrame2.TextRange.BoundHeight
-          if ($boundWidth -gt ([single]$shape.Width + 1) -or $boundHeight -gt ([single]$shape.Height + 1)) {
+          # A word-wrapped box cannot overflow sideways — PowerPoint folds at the box
+          # width — yet BoundWidth reports a wrapped Korean line up to ~1.1 pt wider than
+          # the box (probe 2026-09-04: 100.62 in a 99.6 pt box, 2 lines, no clipping).
+          # Width is a defect only when wrap is off, or the excess is well past slop.
+          $wordWrap = $(try { [int]$shape.TextFrame.WordWrap -ne 0 } catch { $true })
+          $widthSlop = $(if ($wordWrap) { 6 } else { 1 })
+          if ($boundWidth -gt ([single]$shape.Width + $widthSlop) -or $boundHeight -gt ([single]$shape.Height + 1)) {
             $issues += Office-Issue 'warning' 'text_overflow' $path 'Text bounds exceed the containing shape.'
           }
           $fontIssue = Missing-FontIssue $fonts ([string]$shape.TextFrame.TextRange.Font.Name) $path

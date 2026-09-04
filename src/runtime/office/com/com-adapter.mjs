@@ -110,7 +110,23 @@ function stopSessionClient(client, error = '') {
   }
 }
 
+// The session host is unref'd so an idle session never pins the process; the
+// price is that a process leaving without `close` (a crashed run, a script that
+// exits after a failed finalize) would orphan the host and the background
+// PowerPoint it owns, which then holds the file open (EBUSY on the next author).
+// One synchronous exit hook stops every live client — an attached (user-owned)
+// application is never killed, only its host.
+let exitHookInstalled = false;
+function installExitHook() {
+  if (exitHookInstalled) return;
+  exitHookInstalled = true;
+  process.once('exit', () => {
+    for (const client of [...sessionClients.values()]) stopSessionClient(client, 'process exit');
+  });
+}
+
 function createSessionClient(sessionId) {
+  installExitHook();
   const child = spawnPowerShell(SESSION_HOST_SCRIPT);
   child.unref();
   child.stdin.unref?.();

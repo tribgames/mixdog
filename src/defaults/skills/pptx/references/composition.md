@@ -137,7 +137,7 @@ More peers than a structure holds is two slides or a different atom — six opti
 |---|---|---|
 | change along a continuous order (time, stages) | line | `chart({ type: 'line' })` |
 | magnitude across that order, or layered composition over it | area | `chart({ type: 'area' })` |
-| category values from one baseline; one category the title names | column or bar; the accent on that one | `chart({ type: 'col' \| 'bar', accent })` |
+| category values from one baseline; one category the title names | column or bar; the accent on that one; a leader to a short note when the reason belongs on the chart | `chart({ type: 'col' \| 'bar', accent, note: { at, text } })` |
 | several series over shared categories | grouped bars | `chart()` with 2-3 series |
 | totals split into parts | stacked bars, labels inside | `addChart` with `barGrouping: 'stacked'` |
 | the same shape across groups | small multiples on one axis | `smallMultiples()` |
@@ -155,6 +155,7 @@ More peers than a structure holds is two slides or a different atom — six opti
 | capabilities × offerings as supported / partial / no | feature matrix | `table()` with ✓ ◐ – glyphs and a legend |
 | grouped rows with subtotals | hierarchical table | `table()`, first column indented per level, subtotal rows bold on the tint |
 
+**Hard rule — a rule is not a title underline**: a spanner or hairline directly under a title is the title-rule tell; in data-journalism the spanner drops *into* a stat band or a chart (above the band, below the numbers), and on anchors it frames the page at full width. → runtime `decorative_stripe`
 **Hard rule — depth through restraint**: at most 2-3 floating objects per slide; resting shadow opacity 0.06-0.10; one weight tool per container (shadow, hairline, tint, or fill, never stacked); text glow and outline on one display element per deck, never body copy. → runtime `decorative_stripe` for stripes and title rules; shadows and stacking → manual
 
 ## 10. Machine tells — forbidden

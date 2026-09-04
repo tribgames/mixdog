@@ -42,7 +42,12 @@ export function reviewPptxVisualCritique({ critique = [], pageCount = 0, require
     const verdict = String(raw.verdict || '').toLowerCase();
     const validScores = PPTX_CRITIQUE_AXES.every((axis) => Number.isInteger(scores[axis]) && scores[axis] >= 1 && scores[axis] <= 5);
     const checks = parseChecks(raw.checks);
-    const entry = { slide, verdict, ...scores, note, fixes, ...(checks.length ? { checks } : {}) };
+    // An anchor (cover, section, closing) carries a statement or a picture, not
+    // evidence; its evidence score is recorded but never gates finalize.
+    const role = String(raw.role || '').trim().toLowerCase();
+    const anchor = ['anchor', 'cover', 'section', 'closing'].includes(role);
+    const gatedAxes = anchor ? PPTX_CRITIQUE_AXES.filter((axis) => axis !== 'evidence') : PPTX_CRITIQUE_AXES;
+    const entry = { slide, verdict, ...scores, note, fixes, ...(role ? { role } : {}), ...(checks.length ? { checks } : {}) };
     entries.push(entry);
     bySlide.set(slide, entry);
     if (!validScores || note.length < 40 || (requireChecks && checks.length < MIN_CHECKS)) {
@@ -55,7 +60,7 @@ export function reviewPptxVisualCritique({ critique = [], pageCount = 0, require
           : 'Visual critique requires five integer scores from 1-5 and a slide-specific note of at least 40 characters.',
         source: 'visual-critique',
       });
-    } else if (verdict !== 'pass' || fixes.length || PPTX_CRITIQUE_AXES.some((axis) => scores[axis] < 4) || checks.some((check) => !check.pass)) {
+    } else if (verdict !== 'pass' || fixes.length || gatedAxes.some((axis) => scores[axis] < 4) || checks.some((check) => !check.pass)) {
       issues.push({
         severity: 'warning',
         code: 'visual_critique_needs_polish',

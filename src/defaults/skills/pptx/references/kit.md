@@ -359,14 +359,32 @@ Other presets: `S.round1Rect`, `S.snip1Rect`, `S.snipRoundRect`, `S.trapezoid`, 
 // then { name, values[, sizes] } per set; labels unused. accent: index of the one category to color (single series bars only) —
 // drawn as two stacked series here, merged by the runtime into one series with a per-point fill, so "Edit data" shows one column.
 // overlap: true draws a bullet — series[0] the track or target (muted), series[1] the actual (accent), bars laid over each other.
+// note: { at, text } annotates one column (single-series 'col' only): the plot area is pinned (PLOT) so the bar's
+// position is known, a leader rises from above its value label to a short label at the top of the frame.
 // Stacked-bar labels must sit inside ('inEnd' | 'ctr' | 'inBase'); zero segments are hidden by the format code.
-function chart(slide, x, y, w, h, { type = 'col', labels, series, accent = -1, overlap = false, max, min = 0, format = '#,##0', size = TYPE.caption - 2 } = {}) {
+const PLOT = { x: 0.03, y: 0.14, w: 0.94, h: 0.72 };   // plot area as fractions of the chart frame when a note pins it
+function chart(slide, x, y, w, h, { type = 'col', labels, series, accent = -1, overlap = false, max, min = 0, format = '#,##0', size = TYPE.caption - 2, note = null } = {}) {
   const bar = type === 'col' || type === 'bar';
+  const pinned = Boolean(note) && type === 'col' && series.length === 1;
+  const top = max ?? (pinned ? Math.ceil(Math.max(...series[0].values) * 1.15) : undefined);
   const base = { ...box(x, y, w, h), fontFace: T.sans, showLegend: false,
     catAxisLabelColor: T.muted, catAxisLabelFontSize: size, catAxisLabelFontFace: T.sans, catAxisLineShow: false,
     valAxisHidden: true, valAxisLineShow: false, valGridLine: { style: 'none' }, catGridLine: { style: 'none' },
-    ...(max != null ? { valAxisMaxVal: max, valAxisMinVal: min } : {}),
+    ...(top != null ? { valAxisMaxVal: top, valAxisMinVal: min } : {}),
+    ...(pinned ? { layout: PLOT } : {}),
     showValue: true, dataLabelColor: T.body, dataLabelFontSize: size, dataLabelFontFace: T.data, dataLabelFormatCode: format + ';;' };
+  const annotate = () => {
+    if (!pinned) return;
+    const values = series[0].values, n = values.length, i = Math.max(0, Math.min(n - 1, note.at));
+    const cx = x + PLOT.x * w + (i + 0.5) * (PLOT.w * w) / n;
+    const barTop = y + PLOT.y * h + PLOT.h * h * (1 - (values[i] - min) / ((top - min) || 1));
+    const ly = y + 0.02, lh = 0.32;
+    connector(slide, cx, barTop - 0.34, cx, ly + lh + 0.04, { arrow: 'none', color: T.accent, width: 1.25 });
+    // The label sits on whichever side of the leader has room for its measured width, never wrapped.
+    const tw = textW(note.text, DIAG.label, T.sans, true) + 0.12;
+    const leftSide = x + w - cx - 0.12 < tw;
+    text(slide, note.text, leftSide ? cx - 0.12 - tw : cx + 0.12, ly, tw, DIAG.label, { color: T.accent, font: T.sans, bold: true, lh: 1.15, h: lh, valign: 'middle', align: leftSide ? 'right' : 'left' });
+  };
   if (bar && overlap && series.length === 2) {
     slide.addChart(pres.ChartType.bar, series.map((s) => ({ ...s, labels })), { ...base, barDir: type === 'bar' ? 'bar' : 'col',
       barOverlapPct: 100, barGapWidthPct: 45, chartColors: [T.paperAlt, T.accent], showValue: false });
@@ -395,12 +413,14 @@ function chart(slide, x, y, w, h, { type = 'col', labels, series, accent = -1, o
       { name: series[0].name + ' ·', labels, values: values.map((v, i) => (i === accent ? v : 0)) },
     ], { ...base, barDir: type === 'bar' ? 'bar' : 'col', barGrouping: 'stacked', barGapWidthPct: 60,
       chartColors: [T.paperAlt, T.accent], dataLabelPosition: 'inEnd', dataLabelColor: T.ink });
+    annotate();
     return;
   }
   if (bar) {
     // One series is one color (PowerPoint would otherwise cycle a color per bar); the accent is reserved for `accent`.
     slide.addChart(pres.ChartType.bar, series.map((s) => ({ ...s, labels })), { ...base, barDir: type === 'bar' ? 'bar' : 'col',
       barGapWidthPct: 60, chartColors: series.length === 1 ? [T.muted] : [T.accent, T.muted, T.line], dataLabelPosition: 'outEnd', ...(series.length > 1 ? { showLegend: true, legendPos: 't', legendColor: T.body, legendFontSize: size, legendFontFace: T.sans } : {}) });
+    annotate();
     return;
   }
   slide.addChart(type === 'area' ? pres.ChartType.area : pres.ChartType.line, series.map((s) => ({ ...s, labels })), { ...base, lineSize: 2.5, lineDataSymbol: 'none',
