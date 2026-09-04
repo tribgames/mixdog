@@ -354,16 +354,40 @@ Other presets: `S.round1Rect`, `S.snip1Rect`, `S.snipRoundRect`, `S.trapezoid`, 
 ## 6. Native charts and tables — editable data
 ```js
 // Quiet chart: no gridlines, no legend, category labels only, values on the bars/points.
-// series: [{ name, values }], labels: categories. accent: index of the one category to color (single series bars only) —
+// type: col | bar | line | area | doughnut | radar | scatter | bubble (composition.md §9 maps the relationship to the form).
+// series: [{ name, values }], labels: categories. scatter/bubble take pptxgenjs' own shape: series[0] = { name: 'X', values },
+// then { name, values[, sizes] } per set; labels unused. accent: index of the one category to color (single series bars only) —
 // drawn as two stacked series here, merged by the runtime into one series with a per-point fill, so "Edit data" shows one column.
+// overlap: true draws a bullet — series[0] the track or target (muted), series[1] the actual (accent), bars laid over each other.
 // Stacked-bar labels must sit inside ('inEnd' | 'ctr' | 'inBase'); zero segments are hidden by the format code.
-function chart(slide, x, y, w, h, { type = 'col', labels, series, accent = -1, max, min = 0, format = '#,##0', size = TYPE.caption - 2 } = {}) {
-  const bar = type !== 'line';
+function chart(slide, x, y, w, h, { type = 'col', labels, series, accent = -1, overlap = false, max, min = 0, format = '#,##0', size = TYPE.caption - 2 } = {}) {
+  const bar = type === 'col' || type === 'bar';
   const base = { ...box(x, y, w, h), fontFace: T.sans, showLegend: false,
     catAxisLabelColor: T.muted, catAxisLabelFontSize: size, catAxisLabelFontFace: T.sans, catAxisLineShow: false,
     valAxisHidden: true, valAxisLineShow: false, valGridLine: { style: 'none' }, catGridLine: { style: 'none' },
     ...(max != null ? { valAxisMaxVal: max, valAxisMinVal: min } : {}),
     showValue: true, dataLabelColor: T.body, dataLabelFontSize: size, dataLabelFontFace: T.data, dataLabelFormatCode: format + ';;' };
+  if (bar && overlap && series.length === 2) {
+    slide.addChart(pres.ChartType.bar, series.map((s) => ({ ...s, labels })), { ...base, barDir: type === 'bar' ? 'bar' : 'col',
+      barOverlapPct: 100, barGapWidthPct: 45, chartColors: [T.paperAlt, T.accent], showValue: false });
+    return;
+  }
+  if (type === 'doughnut') {
+    slide.addChart(pres.ChartType.doughnut, [{ name: series[0].name, labels, values: series[0].values }], { ...base, holeSize: 62,
+      chartColors: [T.accent, T.muted, T.line, T.paperAlt, T.tint], dataLabelPosition: 'bestFit', dataLabelColor: T.ink, showLabel: false, showPercent: false });
+    return;
+  }
+  if (type === 'radar') {
+    slide.addChart(pres.ChartType.radar, series.map((s) => ({ ...s, labels })), { ...base, radarStyle: 'marker', lineSize: 2,
+      chartColors: [T.accent, T.muted], showValue: false, ...(series.length > 1 ? { showLegend: true, legendPos: 'b', legendColor: T.body, legendFontSize: size, legendFontFace: T.sans } : {}) });
+    return;
+  }
+  if (type === 'scatter' || type === 'bubble') {
+    slide.addChart(type === 'bubble' ? pres.ChartType.bubble : pres.ChartType.scatter, series, { ...base, valAxisHidden: false, catAxisHidden: false,
+      valAxisLineShow: true, catAxisLineShow: true, valAxisLineColor: T.line, catAxisLineColor: T.line, valAxisLabelColor: T.muted, valAxisLabelFontSize: size,
+      lineSize: 0, lineDataSymbol: 'circle', lineDataSymbolSize: type === 'bubble' ? 12 : 9, chartColors: [T.accent, T.muted, T.line], showValue: false });
+    return;
+  }
   if (bar && accent >= 0 && series.length === 1) {
     const values = series[0].values;
     slide.addChart(pres.ChartType.bar, [
@@ -379,8 +403,44 @@ function chart(slide, x, y, w, h, { type = 'col', labels, series, accent = -1, m
       barGapWidthPct: 60, chartColors: series.length === 1 ? [T.muted] : [T.accent, T.muted, T.line], dataLabelPosition: 'outEnd', ...(series.length > 1 ? { showLegend: true, legendPos: 't', legendColor: T.body, legendFontSize: size, legendFontFace: T.sans } : {}) });
     return;
   }
-  slide.addChart(pres.ChartType.line, series.map((s) => ({ ...s, labels })), { ...base, lineSize: 2.5, lineDataSymbol: 'none',
-    chartColors: [T.accent, T.muted, T.line], dataLabelPosition: 't' });
+  slide.addChart(type === 'area' ? pres.ChartType.area : pres.ChartType.line, series.map((s) => ({ ...s, labels })), { ...base, lineSize: 2.5, lineDataSymbol: 'none',
+    chartColors: [T.accent, T.muted, T.line], dataLabelPosition: 't', ...(type === 'area' ? { chartColorsOpacity: 35 } : {}) });
+}
+// Waterfall: native stacked columns — an invisible base (the surface color) carries each bar to its running start.
+// steps: [{ label, value }] with a negative value for a drop, and { label, total: true } for a closing bar at the running total.
+// Values stay editable; the closing figure is labeled by the author (a hero or a takeaway), not by the chart.
+function waterfall(slide, x, y, w, h, steps, { size = TYPE.caption - 2, surface = T.paper } = {}) {
+  let run = 0; const labels = [], base = [], rise = [], drop = [];
+  for (const s of steps) {
+    labels.push(s.label);
+    if (s.total) { base.push(0); rise.push(run); drop.push(0); continue; }
+    if (s.value >= 0) { base.push(run); rise.push(s.value); drop.push(0); run += s.value; }
+    else { run += s.value; base.push(run); rise.push(0); drop.push(-s.value); }
+  }
+  slide.addChart(pres.ChartType.bar, [
+    { name: 'base', labels, values: base }, { name: 'up', labels, values: rise }, { name: 'down', labels, values: drop },
+  ], { ...box(x, y, w, h), barDir: 'col', barGrouping: 'stacked', barGapWidthPct: 40, chartColors: [surface, T.accent, T.muted],
+    fontFace: T.sans, showLegend: false, showValue: false, catAxisLabelColor: T.muted, catAxisLabelFontSize: size, catAxisLabelFontFace: T.sans,
+    catAxisLineShow: false, valAxisHidden: true, valAxisLineShow: false, valGridLine: { style: 'none' }, catGridLine: { style: 'none' } });
+}
+// Dumbbell: two values per item joined by a rule — before/after, plan/actual, min/max. rows: [{ label, a, b }]; a muted, b accent.
+// Drawn with rules and dots (not bars), so it is a diagram of two points, never a picture of a bar chart.
+function dumbbell(slide, x, y, w, rows, { min, max, labelW = 2.2, rowH = 0.6, format = (v) => String(v), size = TYPE.caption } = {}) {
+  const values = rows.flatMap((r) => [r.a, r.b]);
+  const lo = min ?? Math.min(...values), hi = max ?? Math.max(...values);
+  const x0 = x + labelW + 1.0, span = w - labelW - 2.0, d = 0.18;
+  const at = (v) => x0 + ((v - lo) / ((hi - lo) || 1)) * span;
+  rows.forEach((r, i) => {
+    const cy = y + i * rowH + rowH / 2;
+    slide.addText(r.label, { ...box(x, cy - 0.15, labelW, 0.3), fontFace: T.sans, fontSize: size, color: T.ink, margin: 0, valign: 'middle' });
+    const xa = at(r.a), xb = at(r.b), lead = xb >= xa;
+    slide.addShape(pres.ShapeType.line, { x: Math.min(xa, xb), y: cy, w: Math.abs(xb - xa), h: 0, line: { color: T.line, width: 2 } });
+    slide.addShape(pres.ShapeType.ellipse, { x: xa - d / 2, y: cy - d / 2, w: d, h: d, fill: { color: T.muted }, line: { color: T.muted, width: 0 } });
+    slide.addShape(pres.ShapeType.ellipse, { x: xb - d / 2, y: cy - d / 2, w: d, h: d, fill: { color: T.accent }, line: { color: T.accent, width: 0 } });
+    slide.addText(format(r.a), { ...box(lead ? xa - 0.95 : xa + 0.15, cy - 0.15, 0.8, 0.3), fontFace: T.data, fontSize: size - 2, color: T.muted, align: lead ? 'right' : 'left', margin: 0, valign: 'middle' });
+    slide.addText(format(r.b), { ...box(lead ? xb + 0.15 : xb - 0.95, cy - 0.15, 0.8, 0.3), fontFace: T.data, fontSize: size - 2, color: T.ink, bold: true, align: lead ? 'left' : 'right', margin: 0, valign: 'middle' });
+  });
+  return y + rows.length * rowH;
 }
 // Small multiples: n identical charts on one row, one label above each, shared axis range.
 function smallMultiples(slide, x, y, w, h, panels, { type = 'col', max, gap = 0.3, format = '#,##0' } = {}) {

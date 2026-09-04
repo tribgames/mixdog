@@ -99,7 +99,7 @@ More peers than a structure holds is two slides or a different atom — six opti
 
 ## 7. Rhythm across the deck
 **Default — roles alternate**: anchor (cover, section, closing: one statement, air, the motif at full size), dense (evidence, diagrams, comparisons), breathing (one hero number or quote, 40-60% empty). Alternate dense and breathing; open and close with anchors; usually at least one content slide changes the background field (a dark breathing slide in a light deck, or the reverse).
-**Reference — reading the receipt's `observe`**: `air` in sequence is the density line (a healthy deck saws between dense ≈ 0.3-0.5 and breathing ≈ 0.6-0.8, and never flatlines); `quadrantAir` shows where the air sits (air beside the focal element is design, a lone empty corner is leftover); `largestShare` says whether the page has a dominant object; `textColumns.stray` counts boxes that share no left edge; `fills` shows the accent's real area against the 60/30/10 intent; `largestTextTop` across the deck shows whether the biggest type (title or hero) ever leaves the head. Each is a number to weigh against the plan line, never a target.
+**Reference — reading the receipt's `observe`**: `air` in sequence is the density line (a healthy deck saws between dense ≈ 0.3-0.5 and breathing ≈ 0.6-0.8, and never flatlines); `quadrantAir` shows where the air sits (air beside the focal element is design, a lone empty corner is leftover); `largestShare` says whether the page has a dominant object; `textColumns.stray` counts boxes that share no left edge; `fills` shows the accent's real area against the 60/30/10 intent; `largestTextTop` across the deck shows whether the biggest type (title or hero) ever leaves the head; `centroid` is where the page's visual weight sits ([0.5, 0.5] is dead center) and `centroidOffset` how far it is from center against a tolerance that forgives vertical drift three times more than sideways drift (about 1 is at the edge of what reads as balanced; a focal element placed off center on purpose reads higher, and the plan line says why); `renderAir` (after a render) reads the pixels rather than the shape boxes, so a picture with an empty sky or a soft gradient field shows its real air — a slide with low `air` and high `renderAir` is carrying more emptiness than its shapes admit. Each is a number to weigh against the plan line, never a target.
 **Default — variety, bounded**: the same composition move appears at most twice per deck and rarely on adjacent slides; variety comes from the topology axis and the carrier inside a repeated move, not from a new visual language on every slide. A closing device (takeaway band, callout, source line) repeats only where the slide has a claim to close. The runtime reports monotony readings as information (`repeated_layout_grammar`, `repeated_render_composition`, `flat_visual_rhythm`, `visual_role_variety_low`, `card_grid_overuse`, `under_composed_slide`, `slide_visual_density_low`); a deliberate composition overrides all of them.
 
 ## 8. Text on the page
@@ -131,6 +131,29 @@ More peers than a structure holds is two slides or a different atom — six opti
 | Elevated primary object | the one object above the page; peers stay flat (`lift`) |
 | Gauge or share | one proportion (`gauge`, `arc`) |
 | Custom silhouette | diagonal cut, wave edge, organic blob (`polygon`) |
+
+**Chart and table forms (Reference — each row names the relationship the form encodes, nothing more; not a ranking, and a deck with zero charts is valid when nothing on it is a quantity)**
+| Encoded relationship | Form | Kit |
+|---|---|---|
+| change along a continuous order (time, stages) | line | `chart({ type: 'line' })` |
+| magnitude across that order, or layered composition over it | area | `chart({ type: 'area' })` |
+| category values from one baseline; one category the title names | column or bar; the accent on that one | `chart({ type: 'col' \| 'bar', accent })` |
+| several series over shared categories | grouped bars | `chart()` with 2-3 series |
+| totals split into parts | stacked bars, labels inside | `addChart` with `barGrouping: 'stacked'` |
+| the same shape across groups | small multiples on one axis | `smallMultiples()` |
+| a start walked to an end by contributions | waterfall | `waterfall()` |
+| two values per item and the gap between them | dumbbell | `dumbbell()` |
+| an actual against its target or track on one scale | bullet | `chart({ overlap: true })` |
+| parts of one whole (up to five) | doughnut | `chart({ type: 'doughnut' })` |
+| several measures of one or two entities | radar | `chart({ type: 'radar' })` |
+| two numeric variables per item | scatter | `chart({ type: 'scatter' })` |
+| two variables and a third by size | bubble | `chart({ type: 'bubble' })` |
+| one bounded proportion | gauge or share arc | `gauge()`, `arc()` |
+| flat records, one stable field per column | record table | `table()` |
+| entities × metrics, with a value, change, or status per cell | metric table | `table()`, status as a `badge()` word never color alone |
+| criteria × alternatives with a decision | comparison matrix | `table({ verdict })` |
+| capabilities × offerings as supported / partial / no | feature matrix | `table()` with ✓ ◐ – glyphs and a legend |
+| grouped rows with subtotals | hierarchical table | `table()`, first column indented per level, subtotal rows bold on the tint |
 
 **Hard rule — depth through restraint**: at most 2-3 floating objects per slide; resting shadow opacity 0.06-0.10; one weight tool per container (shadow, hairline, tint, or fill, never stacked); text glow and outline on one display element per deck, never body copy. → runtime `decorative_stripe` for stripes and title rules; shadows and stacking → manual
 

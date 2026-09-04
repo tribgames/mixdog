@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compositionReceipt, slideReceipt } from './pptx-receipt.mjs';
+import { attachRenderedAir, compositionReceipt, slideReceipt } from './pptx-receipt.mjs';
 import { parseAuthoringBrief } from './pptx-brief.mjs';
 
 const DOCUMENT = { slides: [
@@ -61,6 +61,14 @@ test('a slide receipt observes air, quadrants, the largest object, text columns,
   assert.deepEqual(o.textColumns, { columns: 2, stray: 1 });
   assert.deepEqual(o.fills, [{ color: '0E7C86', share: 0.5 }]);
   assert.equal(o.largestTextTop, 1);
+  assert.ok(o.centroid[0] < 0.5, `the dark left field pulls the centroid left: ${o.centroid}`);
+  assert.ok(o.centroidOffset > 1, `and past the horizontal tolerance: ${o.centroidOffset}`);
+  const centered = slideReceipt({ index: 7, background: { color: 'F7F9FB' }, shapes: [
+    { geometry: 'rect', fill: { color: 'F7F9FB' }, left: 0, top: 0, width: 960, height: 540 },   // a canvas-wide surface does not count
+    { text: 'claim', font: { size: 40 }, left: 280, top: 220, width: 400, height: 100 },
+  ] });
+  assert.deepEqual(centered.observe.centroid, [0.5, 0.5]);
+  assert.equal(centered.observe.centroidOffset, 0);
   const com = slideReceipt({ index: 6, background: { color: '0F1B26' }, shapes: [
     { text: 'no fill textbox', font: { size: 18 }, left: 40, top: 40, width: 300, height: 60, fillColor: 16777215, fillVisible: false },
     { geometry: 'rect', left: 480, top: 0, width: 480, height: 540, fillColor: 8813582, fillVisible: true },   // BGR long 0x860E7C... = 14 + 124·256 + 134·65536 → 0E7C86
@@ -85,6 +93,18 @@ test('the deck receipt totals the families, lists the absent ones, and marks con
   assert.equal(receipt.slides[1].missing, undefined);
   assert.deepEqual(receipt.slides[3].missing, ['chart', 'table']);
   assert.match(receipt.note, /reason or a fix/);
+});
+
+test('rendered air joins the receipt per slide and in the deck rhythm', () => {
+  const receipt = compositionReceipt({ slides: [
+    { index: 1, shapes: [{ text: 'a', font: { size: 30 }, left: 40, top: 40, width: 300, height: 60 }] },
+    { index: 2, shapes: [{ text: 'b', font: { size: 30 }, left: 40, top: 40, width: 300, height: 60 }] },
+  ] });
+  attachRenderedAir(receipt, new Map([[1, 0.71]]));
+  assert.equal(receipt.slides[0].observe.renderAir, 0.71);
+  assert.equal(receipt.slides[1].observe.renderAir, undefined);
+  assert.deepEqual(receipt.deck.rhythm.renderAir, [0.71, null]);
+  assert.deepEqual(receipt.deck.rhythm.centroidX.length, 2);
 });
 
 test('a receipt without a brief still reports the deck and never throws on an empty document', () => {

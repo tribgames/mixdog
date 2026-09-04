@@ -87,10 +87,30 @@ function leftEdges(textBoxes) {
   return { columns: clusters.length, stray: clusters.filter((cluster) => cluster.length === 1).length };
 }
 
+// Visual centroid: the area-weighted center of every shape that is not a canvas-wide surface,
+// in canvas units [0, 1]; offset is its ellipse-normalized distance from the canvas center with
+// a horizontal tolerance of 0.05 and a vertical one of 0.15 (a sideways drift reads first, as in
+// AeSlides' imbalance metric). Both are numbers the author weighs; a breathing slide may sit off center on purpose.
+function centroidOf(boxes) {
+  let area = 0, sx = 0, sy = 0;
+  for (const box of boxes) {
+    const a = box.width * box.height;
+    if (a >= CANVAS_W * CANVAS_H * 0.9) continue;
+    area += a;
+    sx += a * (box.left + box.width / 2);
+    sy += a * (box.top + box.height / 2);
+  }
+  if (!area) return null;
+  const x = sx / area / CANVAS_W, y = sy / area / CANVAS_H;
+  const offset = Math.sqrt(((x - 0.5) / 0.05) ** 2 + ((y - 0.5) / 0.15) ** 2);
+  return { centroid: [Number(x.toFixed(2)), Number(y.toFixed(2))], centroidOffset: Number(offset.toFixed(1)) };
+}
+
 function observe(shapes, { textBoxes, visuals, fills, titleBox }) {
   const boxes = shapes.map(footprint).filter(Boolean);
   if (!boxes.length) return null;
   const all = raster(boxes);
+  const centroid = centroidOf(boxes);
   const midX = Math.floor(all.cols / 2), midY = Math.floor(all.rows / 2);
   const canvas = CANVAS_W * CANVAS_H;
   const fillShares = [...fills.entries()].map(([color, area]) => ({ color, share: Number((area / canvas).toFixed(2)) }))
@@ -103,6 +123,7 @@ function observe(shapes, { textBoxes, visuals, fills, titleBox }) {
     textColumns: leftEdges(textBoxes),
     fills: fillShares,
     largestTextTop: titleBox ? Number((titleBox.top / 72).toFixed(2)) : null,
+    ...(centroid || {}),
   };
 }
 
@@ -178,7 +199,11 @@ export function compositionReceipt(document, brief = null) {
   // The deck read as a sequence: air per slide is the density rhythm, title tops the composition variety.
   const observed = slides.filter((s) => s.observe);
   if (observed.length) {
-    deck.rhythm = { air: observed.map((s) => s.observe.air), largestTextTops: observed.map((s) => s.observe.largestTextTop) };
+    deck.rhythm = {
+      air: observed.map((s) => s.observe.air),
+      largestTextTops: observed.map((s) => s.observe.largestTextTop),
+      centroidX: observed.map((s) => s.observe.centroid?.[0] ?? null),
+    };
   }
   const gaps = brief ? plannedCarrierGaps(document, brief) : [];
   for (const gap of gaps) {
@@ -192,6 +217,22 @@ export function compositionReceipt(document, brief = null) {
     note: (absent.length || gaps.length
       ? 'Information, not a verdict: a family the whole deck never uses, or a plan line whose carrier the saved slide does not show, gets one line of reason or a fix in the script.'
       : 'Every plan line\'s carriers are visible on its slide.')
-      + ' observe: air = canvas share with no shape footprint; quadrantAir = [top-left, top-right, bottom-left, bottom-right]; largestShare = the biggest object; visualShare = non-text footprint; textColumns = distinct text left edges and stray boxes; fills = surface colors by area; largestTextTop = inches from the top to the biggest type (the title, or a hero numeral). deck.rhythm reads them in sequence.',
+      + ' observe: air = canvas share with no shape footprint; quadrantAir = [top-left, top-right, bottom-left, bottom-right]; largestShare = the biggest object; visualShare = non-text footprint; textColumns = distinct text left edges and stray boxes; fills = surface colors by area; largestTextTop = inches from the top to the biggest type (the title, or a hero numeral); centroid = [x, y] of the area-weighted visual center in canvas units (0.5, 0.5 is dead center), centroidOffset = its distance from center with a 0.05 horizontal / 0.15 vertical tolerance (1 = at the tolerance edge); renderAir (after a render) = share of the rendered page with no local pixel variation, which counts the flat part of a picture or a field as air where the shape footprint cannot. deck.rhythm reads them in sequence.',
   };
+}
+
+// The rendered page, read after the fact: renderAir per slide joins the shape-based observation so
+// the two readings can be compared (a picture-heavy slide shows a low shape air and a high render air).
+export function attachRenderedAir(receipt, airByPage) {
+  if (!receipt?.slides?.length || !airByPage?.size) return receipt;
+  const sequence = [];
+  for (const slide of receipt.slides) {
+    const air = airByPage.get(slide.slide);
+    if (typeof air === 'number') {
+      slide.observe = { ...(slide.observe || {}), renderAir: air };
+      sequence.push(air);
+    } else sequence.push(null);
+  }
+  if (receipt.deck) receipt.deck.rhythm = { ...(receipt.deck.rhythm || {}), renderAir: sequence };
+  return receipt;
 }

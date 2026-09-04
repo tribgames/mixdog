@@ -5,8 +5,9 @@ import { documentFormat, documentSessionKey, documentSessions, sessions } from '
 import { createAuthoredSession, fullPath, snapshot } from '../core/office-sessions.mjs';
 import { runPptxAuthoringScript } from './pptx-script-runner.mjs';
 import { parseAuthoringBrief } from './pptx-brief.mjs';
-import { compositionReceipt } from './pptx-receipt.mjs';
+import { attachRenderedAir, compositionReceipt } from './pptx-receipt.mjs';
 import { writeContactSheet } from './pptx-contact-sheet.mjs';
+import { renderedAirByPage } from '../quality/render-air.mjs';
 
 // What the saved deck carries, slide by slide, for the author to weigh
 // against the plan. A receipt that cannot be read (an exotic package the
@@ -88,7 +89,7 @@ export async function authorPptx(args, { cwd, dataDir, signal = null }) {
   const receipt = await readCompositionReceipt(session, session.authoredBrief);
   if (receipt) result.receipt = receipt;
   if (args.render === false) {
-    result.nextAction = 'Render the deck and inspect every slide before finalizing.';
+    result.nextAction = 'Measured only, not rendered: run action:qa on this session for the fit and bounds issues, fix the script, and author again with render:false until qa is clean; then author with render (default) once and inspect every slide before finalizing.';
     return result;
   }
   session.activeSignal = signal;
@@ -102,6 +103,11 @@ export async function authorPptx(args, { cwd, dataDir, signal = null }) {
       reviewToken: rendered.reviewToken,
     };
     result._images = Array.isArray(rendered._images) ? rendered._images : [];
+    // The rendered page's own air beside the shape-based reading; a failure here loses a number, not the render.
+    if (result.receipt) {
+      const airByPage = await renderedAirByPage(result._images).catch(() => null);
+      if (airByPage) attachRenderedAir(result.receipt, airByPage);
+    }
     // The whole deck on one sheet, after the per-page renders, so the sequence can be read at once.
     const sheet = await writeContactSheet(result._images, target).catch(() => null);
     if (sheet) {
