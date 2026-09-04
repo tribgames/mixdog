@@ -98,16 +98,39 @@ function cjkFallbackFamily() {
   return cjkFallback;
 }
 
-// Measured against PowerPoint's own line widths (probe 2026-09-04, 18/36 pt, 400 pt box): the canvas
-// reads these faces 1.5-2.5 % narrower than PowerPoint lays them out, so a line the canvas fits would
-// wrap one character later on the slide. Malgun Gothic, Arial, and Calibri measured within 0.5 %.
-const WIDTH_CALIBRATION = Object.freeze({ 'noto sans kr': 1.015, 'noto serif kr': 1.025 });
+// Measured against PowerPoint's own BoundWidth (probe 2026-09-04, 45 conditions: 3 faces × 13/18/36 pt
+// × Hangul / mixed / Latin / punctuation / digits): the canvas reads each face narrower than PowerPoint
+// lays it out, and by a different amount for CJK glyphs than for the face's Latin and digits — Noto Sans
+// KR's Latin runs 6-7 % narrow while its Hangul runs 1 %; Noto Serif KR's Hangul is exact; Malgun
+// Gothic is 3-4 % narrow throughout. One factor per face wrapped a pure-Hangul line a character early
+// and a digit-heavy line a character late, so the factor is per script class. Arial and Calibri measure
+// within 0.5 % and carry none.
+const WIDTH_CALIBRATION = Object.freeze({
+  'noto sans kr': { cjk: 1.027, latin: 1.082 },
+  'noto serif kr': { cjk: 1.028, latin: 1.042 },
+  'malgun gothic': { cjk: 1.039, latin: 1.032 },
+});
 
 function rawWidth(text, font) {
   const ctx = context();
   ctx.font = fontSpec(font);
-  const scale = WIDTH_CALIBRATION[String(resolveFont(font.fontName).family).toLowerCase()] || 1;
-  return ctx.measureText(text).width * scale;
+  const calibration = WIDTH_CALIBRATION[String(resolveFont(font.fontName).family).toLowerCase()];
+  if (!calibration) return ctx.measureText(text).width;
+  let width = 0;
+  let run = '';
+  let runIsCjk = false;
+  const flush = () => {
+    if (run) width += ctx.measureText(run).width * (runIsCjk ? calibration.cjk : calibration.latin);
+    run = '';
+  };
+  for (const character of text) {
+    const isCjk = CJK.test(character);
+    if (run && isCjk !== runIsCjk) flush();
+    runIsCjk = isCjk;
+    run += character;
+  }
+  flush();
+  return width;
 }
 
 export function measureTextWidth(text, font = {}) {

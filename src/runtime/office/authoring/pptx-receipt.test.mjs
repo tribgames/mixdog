@@ -58,9 +58,10 @@ test('a slide receipt observes air, quadrants, the largest object, text columns,
   assert.ok(o.quadrantAir[3] > 0.7, `bottom-right is mostly air: ${o.quadrantAir[3]}`);
   assert.equal(o.largestShare, 0.5);
   assert.ok(o.visualShare > 0.55 && o.visualShare < 0.65, `field + chart footprint ${o.visualShare}`);
-  assert.deepEqual(o.textColumns, { columns: 2, stray: 1 });
+  assert.deepEqual(o.textColumns, { columns: 2, stray: 1, rightEdges: 3, rightStray: 3 });
   assert.deepEqual(o.fills, [{ color: '0E7C86', share: 0.5 }]);
   assert.equal(o.largestTextTop, 1);
+  assert.equal(o.bodyTop, 2.78, 'the body starts at the first box under the title (the body text at 200 pt)');
   assert.ok(o.centroid[0] < 0.5, `the dark left field pulls the centroid left: ${o.centroid}`);
   assert.ok(o.centroidOffset > 1, `and past the horizontal tolerance: ${o.centroidOffset}`);
   const centered = slideReceipt({ index: 7, background: { color: 'F7F9FB' }, shapes: [
@@ -76,6 +77,26 @@ test('a slide receipt observes air, quadrants, the largest object, text columns,
   assert.deepEqual(com.observe.fills, [{ color: '0E7C86', share: 0.5 }], 'a COM fill is read from its BGR long; an invisible fill is not a surface');
   const positionless = slideReceipt(DOCUMENT.slides[0]);
   assert.equal(positionless.observe, undefined, 'no footprint, no observation');
+});
+
+test('a slide receipt reads the spacing vocabulary, ragged right edges, the type sizes, and the text colors', () => {
+  const slide = { index: 8, background: { color: 'F7F9FB' }, shapes: [
+    { text: 'Title', font: { size: 36 }, sizes: [36], colors: ['1A2B3C'], left: 43, top: 72, width: 600, height: 60 },       // right edge 643
+    { text: 'prose', font: { size: 18 }, sizes: [18, 18], colors: ['33475B', 'B04A2A'], left: 43, top: 164.4, width: 560, height: 100 },   // gap 32.4 pt = 0.45 in; right edge 603
+    { text: 'caption', font: { size: 12 }, sizes: [12], colors: ['6B7A8A'], left: 43, top: 273, width: 560, height: 20 },   // gap 8.6 pt ≈ 0.12 in
+    { geometry: 'rect', fill: { color: '0E7C86' }, left: 700, top: 100, width: 200, height: 300 },
+    { text: 'on field', font: { size: 18, color: 16777215 }, left: 720, top: 120, width: 160, height: 40 },   // COM font color BGR long → FFFFFF
+  ] };
+  const o = slideReceipt(slide).observe;
+  assert.deepEqual(o.gaps, [0.1, 0.45], 'two spacing steps read as two values');
+  assert.deepEqual(o.textColumns, { columns: 2, stray: 1, rightEdges: 3, rightStray: 2 }, 'title, prose, and caption share a left edge; prose and caption share a right edge, the title is 0.55 in wider (ragged right)');
+  assert.deepEqual(o.typeSet, [12, 18, 36]);
+  assert.deepEqual(o.textColors, ['1A2B3C', '33475B', 'B04A2A', '6B7A8A', 'FFFFFF'], 'the field\'s own surface color is not a text color; the COM long decodes to white');
+  const deck = compositionReceipt({ slides: [slide, { ...slide, index: 9, shapes: slide.shapes.slice(0, 2) }] });
+  assert.deepEqual(deck.deck.rhythm.gapSet, [0.1, 0.45]);
+  assert.deepEqual(deck.deck.rhythm.typeSet, [12, 18, 36]);
+  assert.equal(deck.deck.rhythm.textColors.length, 5);
+  assert.deepEqual(deck.deck.rhythm.rightStray, [2, 2]);
 });
 
 test('the deck receipt totals the families, lists the absent ones, and marks contradicted plan lines', () => {

@@ -68,7 +68,9 @@ test('kit layout by weight: equal weights divide equally, unequal weights do not
     assert.ok(match, `${name} is in the kit`);
     return match[0];
   }).join('\n');
-  const { spans, splitAt, weightOf } = new Function(`${source}\nreturn { spans, splitAt, weightOf };`)();
+  const gutter = /const GUTTER = [\d.]+;/.exec(kit);
+  assert.ok(gutter, 'the column gap is a named anchor (GUTTER)');
+  const { spans, splitAt, weightOf } = new Function(`${gutter[0]}\n${source}\nreturn { spans, splitAt, weightOf };`)();
   const equal = spans(0.5, 12, [10, 10, 10]);
   assert.ok(equal.every((c) => Math.abs(c.w - equal[0].w) < 1e-9), 'equal weights → equal widths');
   assert.ok(Math.abs(equal[2].x + equal[2].w - 12.5) < 1e-9, 'the row ends at x + w');
@@ -76,7 +78,8 @@ test('kit layout by weight: equal weights divide equally, unequal weights do not
   assert.ok(unequal[1].w > unequal[0].w * 1.3, 'the heavy peer is visibly wider');
   assert.ok(unequal[0].w > 0.6 * (12 / 3), 'the light peer stays readable (clamped)');
   const seam = splitAt(0.5, 12, 40, 80);
-  assert.ok(seam.left.w < seam.right.w && seam.left.w / 11.7 >= 0.38, 'the seam follows weight within the 0.38–0.62 band');
+  const free = 12 - Number(/[\d.]+/.exec(gutter[0].slice('const GUTTER = '.length))[0]);
+  assert.ok(seam.left.w < seam.right.w && seam.left.w / free >= 0.38 - 1e-9, 'the seam follows weight within the 0.38–0.62 band');
   assert.equal(splitAt(0, 10, 1, 1).left.w, splitAt(0, 10, 1, 1).right.w, 'equal weights → the middle');
   assert.ok(weightOf({ label: 'a', detail: 'long detail text' }, { active: true }) > weightOf({ label: 'a', detail: 'long detail text' }), 'active counts more');
 });

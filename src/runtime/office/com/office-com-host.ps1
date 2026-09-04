@@ -1012,6 +1012,17 @@ function Snapshot-PowerPoint($presentation, $payload) {
             color = [double]$shape.TextFrame.TextRange.Font.Color.RGB
           }
         } catch { $null })
+        # Per-run sizes and colors: TextRange.Font reports a mixed range as -2147483648, so the
+        # composition receipt reads the distinct run values instead (type scale and text colors in use).
+        runs = $(try {
+          $runSizes = @(); $runColors = @()
+          $runCount = [Math]::Min([int]$shape.TextFrame.TextRange.Runs().Count, 40)
+          for ($ri = 1; $ri -le $runCount; $ri++) {
+            $run = $shape.TextFrame.TextRange.Runs($ri, 1)
+            if ([string]$run.Text -match '\S') { $runSizes += [double]$run.Font.Size; $runColors += [double]$run.Font.Color.RGB }
+          }
+          [ordered]@{ sizes = @(@($runSizes | Sort-Object -Unique)); colors = @(@($runColors | Sort-Object -Unique)) }
+        } catch { $null })
         chart = $(try {
           if ($shape.HasChart) {
             $chart = $shape.Chart

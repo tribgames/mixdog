@@ -493,7 +493,7 @@ async function snapshotPptx(zip, options = {}) {
           ...(/<p:ph\b/i.test(shape.xml) ? { placeholder: true } : {}),
           ...(/<c:chart\b/i.test(shape.xml) ? { chart: { path: `${shapePath}/chart` } } : {}),
           ...(tableRows ? { table: { rows: tableRows, columns: tableColumns } } : {}),
-          ...(fontSizes.length ? { font: { size: Math.max(...fontSizes), ...(bold ? { bold: true } : {}), ...(fonts.length ? { name: fonts[0] } : {}) } } : {}),
+          ...(fontSizes.length ? { font: { size: Math.max(...fontSizes), ...(bold ? { bold: true } : {}), ...(fonts.length ? { name: fonts[0] } : {}) }, sizes: [...new Set(fontSizes)].sort((a, b) => a - b) } : {}),
           ...(fonts.length ? { fonts } : {}),
           ...(colors.length ? { colors } : {}),
           ...(offset && extent ? {

@@ -75,17 +75,80 @@ function airOf({ cells, cols, rows }, x0 = 0, y0 = 0, x1 = cols, y1 = rows) {
   return total ? Number((1 - covered / total).toFixed(2)) : 1;
 }
 
-// Text boxes sharing a left edge (within 6 pt) form one column; a text box no other box aligns with is stray.
-function leftEdges(textBoxes) {
-  const lefts = textBoxes.map((box) => box.left).sort((a, b) => a - b);
-  const clusters = [];
-  for (const left of lefts) {
-    const last = clusters[clusters.length - 1];
-    if (last && left - last.at(-1) <= 6) last.push(left);
-    else clusters.push([left]);
+// Values within `tolerance` pt of their predecessor form one cluster.
+function clusters(values, tolerance = 6) {
+  const out = [];
+  for (const value of [...values].sort((a, b) => a - b)) {
+    const last = out[out.length - 1];
+    if (last && value - last.at(-1) <= tolerance) last.push(value);
+    else out.push([value]);
   }
-  return { columns: clusters.length, stray: clusters.filter((cluster) => cluster.length === 1).length };
+  return out;
 }
+
+// Text boxes sharing a left edge (within 6 pt) form one column; a text box no other box aligns with is stray.
+// Right edges are read the same way: a box whose left edge shares a column but whose right edge shares
+// nothing is a width that drifted (a title 0.2 in wider than the prose under it) — the reader sees a ragged column.
+function leftEdges(textBoxes) {
+  const lefts = clusters(textBoxes.map((box) => box.left));
+  const rights = clusters(textBoxes.map((box) => box.left + box.width));
+  return {
+    columns: lefts.length,
+    stray: lefts.filter((cluster) => cluster.length === 1).length,
+    rightEdges: rights.length,
+    rightStray: rights.filter((cluster) => cluster.length === 1).length,
+  };
+}
+
+// Vertical gaps: for every box, the space to the nearest box below it that overlaps it horizontally,
+// in inches rounded to 0.05, when the two do not touch and sit within 1.5 in. The distinct values are
+// the slide's spacing vocabulary — a deck with two spacing steps reads as two values, a hand-spaced
+// deck as a spread of them (composition.md §6). Numbers only; the plan line decides what a gap means.
+function verticalGaps(boxes) {
+  const values = [];
+  for (const box of boxes) {
+    const bottom = box.top + box.height;
+    let nearest = null;
+    for (const other of boxes) {
+      if (other === box || other.top < bottom - 1) continue;
+      const overlap = Math.min(box.left + box.width, other.left + other.width) - Math.max(box.left, other.left);
+      if (overlap <= 0) continue;
+      if (!nearest || other.top < nearest.top) nearest = other;
+    }
+    if (!nearest) continue;
+    const gap = (nearest.top - bottom) / 72;
+    if (gap > 0.01 && gap <= 1.5) values.push(Number((Math.round(gap / 0.05) * 0.05).toFixed(2)));
+  }
+  return [...new Set(values)].sort((a, b) => a - b);
+}
+
+const bgrHex = (rgb) => {
+  const part = (value) => Math.round(value).toString(16).padStart(2, '0').toUpperCase();
+  return `${part(rgb % 256)}${part(Math.floor(rgb / 256) % 256)}${part(Math.floor(rgb / 65536) % 256)}`;
+};
+const asList = (value) => (value == null ? [] : [].concat(value));
+
+// The text colors of a shape: the portable snapshot's run colors minus the shape's own surface,
+// or the COM run colors (BGR longs; a mixed range reports a negative sentinel, which is skipped).
+function textColorsOf(shape) {
+  const surface = surfaceColor(shape);
+  const listed = asList(shape?.colors).map((c) => String(c).toUpperCase()).filter((c) => /^[0-9A-F]{6}$/.test(c) && c !== surface);
+  if (listed.length) return listed;
+  const longs = asList(shape?.runs?.colors).map(Number);
+  const source = longs.length ? longs : [Number(shape?.font?.color)];
+  return [...new Set(source.filter((rgb) => Number.isFinite(rgb) && rgb >= 0).map(bgrHex))];
+}
+
+// The type sizes of a shape: every run size the portable or COM snapshot lists, else the box's font size.
+function typeSizesOf(shape) {
+  const listed = [...asList(shape?.sizes), ...asList(shape?.runs?.sizes)].map(Number).filter((s) => s > 0);
+  if (listed.length) return [...new Set(listed)];
+  const size = Number(shape?.font?.size);
+  return size > 0 ? [size] : [];
+}
+
+// Page chrome (a slide-number placeholder from the master) is not the author's type or color.
+const isChrome = (shape) => Boolean(shape?.placeholder) || Number(shape?.type) === 14;
 
 // Visual centroid: the area-weighted center of every shape that is not a canvas-wide surface,
 // in canvas units [0, 1]; offset is its ellipse-normalized distance from the canvas center with
@@ -106,11 +169,30 @@ function centroidOf(boxes) {
   return { centroid: [Number(x.toFixed(2)), Number(y.toFixed(2))], centroidOffset: Number(offset.toFixed(1)) };
 }
 
-function observe(shapes, { textBoxes, visuals, fills, titleBox }) {
+// Body top: the top edge (inches) of the first element below the largest type — where the page's
+// content zone begins. Read across the deck it shows whether content slides share one body top.
+// Body fill: how much of the zone under the title (down to the lower safe margin) the content spans,
+// as a share — a dense slide whose content stops halfway reads as a hollow; a breathing slide is meant to.
+function bodyTopOf(boxes, titleBox) {
+  if (!titleBox) return { bodyTop: null, bodyFill: null };
+  const titleBottom = titleBox.top + titleBox.height;
+  const below = boxes.filter((box) => box !== titleBox && box.top >= titleBottom - 2 && box.width * box.height < CANVAS_W * CANVAS_H * 0.9);
+  if (!below.length) return { bodyTop: null, bodyFill: null };
+  const top = Math.min(...below.map((box) => box.top)), bottom = Math.max(...below.map((box) => box.top + box.height));
+  const zone = CANVAS_H - 0.5 * 72 - top;
+  return { bodyTop: Number((top / 72).toFixed(2)), bodyFill: zone > 0 ? Number(Math.min(1, (bottom - top) / zone).toFixed(2)) : null };
+}
+
+function observe(shapes, { textBoxes, visuals, content, blocks, fills, titleBox }) {
   const boxes = shapes.map(footprint).filter(Boolean);
   if (!boxes.length) return null;
+  const authored = shapes.filter((shape) => !isChrome(shape));
+  const typeSet = [...new Set(authored.flatMap(typeSizesOf))].sort((a, b) => a - b);
+  const textColors = [...new Set(authored.filter((shape) => String(shape.text || '').trim()).flatMap(textColorsOf))];
   const all = raster(boxes);
   const centroid = centroidOf(boxes);
+  // Body top and gaps read the content (text, charts, tables, pictures, contours), never a surface field or a rule.
+  const { bodyTop, bodyFill } = bodyTopOf(content, titleBox ? content.find((box) => box.left === titleBox.left && box.top === titleBox.top && box.width === titleBox.width) || titleBox : null);
   const midX = Math.floor(all.cols / 2), midY = Math.floor(all.rows / 2);
   const canvas = CANVAS_W * CANVAS_H;
   const fillShares = [...fills.entries()].map(([color, area]) => ({ color, share: Number((area / canvas).toFixed(2)) }))
@@ -123,7 +205,12 @@ function observe(shapes, { textBoxes, visuals, fills, titleBox }) {
     textColumns: leftEdges(textBoxes),
     fills: fillShares,
     largestTextTop: titleBox ? Number((titleBox.top / 72).toFixed(2)) : null,
+    bodyTop,
+    bodyFill,
     ...(centroid || {}),
+    gaps: verticalGaps(blocks),
+    typeSet,
+    textColors,
   };
 }
 
@@ -142,6 +229,8 @@ export function slideReceipt(slide) {
   const presets = new Set();
   const textBoxes = [];
   const visuals = [];
+  const content = [];   // what the reader reads as content: text, data, pictures, contours — not fields, lines, or chrome
+  const blocks = [];    // the spacing vocabulary's units: text and data blocks (a contour is part of a device, not a block)
   const fills = new Map();
   let titleBox = null;
   const seen = [];
@@ -152,16 +241,16 @@ export function slideReceipt(slide) {
     const box = footprint(shape);
     const fill = surfaceColor(shape);
     if (fill && box) fills.set(fill, (fills.get(fill) || 0) + area);
-    if (shape.chart) { receipt.charts += 1; covered += area; if (box) visuals.push(box); continue; }
-    if (shape.table) { receipt.tables += 1; covered += area; if (box) visuals.push(box); continue; }
-    if (isPicture(shape)) { receipt.pictures += 1; covered += area; if (box) visuals.push(box); continue; }
-    if (shape.group) { receipt.groups += 1; covered += area; if (box) visuals.push(box); continue; }
+    if (shape.chart) { receipt.charts += 1; covered += area; if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
+    if (shape.table) { receipt.tables += 1; covered += area; if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
+    if (isPicture(shape)) { receipt.pictures += 1; covered += area; if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
+    if (shape.group) { receipt.groups += 1; covered += area; if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
     const hasText = Boolean(String(shape.text || '').trim());
     if (hasText) {
       receipt.textBoxes += 1;
       const size = Number(shape.font?.size) || 0;
       if (size > receipt.largestText) { receipt.largestText = size; titleBox = box; }
-      if (box) textBoxes.push(box);
+      if (box) { textBoxes.push(box); if (!isChrome(shape)) { content.push(box); blocks.push(box); } }
       covered += area;
       continue;
     }
@@ -170,11 +259,11 @@ export function slideReceipt(slide) {
     const geometry = String(shape.geometry || '');
     if (geometry === 'line' || geometry.includes('Connector')) receipt.lines += 1;
     else if (geometry === 'rect' || geometry === 'roundRect') { receipt.fields += 1; covered += area; }
-    else if (geometry) { presets.add(geometry); covered += area; }
+    else if (geometry) { presets.add(geometry); covered += area; if (box) content.push(box); }
   }
   receipt.presets = [...presets];
   receipt.coverage = Math.min(1, Number((covered / CANVAS_AREA).toFixed(2)));
-  const observed = observe(seen, { textBoxes, visuals, fills, titleBox });
+  const observed = observe(seen, { textBoxes, visuals, content, blocks, fills, titleBox });
   if (observed) receipt.observe = observed;
   return receipt;
 }
@@ -203,6 +292,12 @@ export function compositionReceipt(document, brief = null) {
       air: observed.map((s) => s.observe.air),
       largestTextTops: observed.map((s) => s.observe.largestTextTop),
       centroidX: observed.map((s) => s.observe.centroid?.[0] ?? null),
+      bodyTops: observed.map((s) => s.observe.bodyTop ?? null),
+      bodyFills: observed.map((s) => s.observe.bodyFill ?? null),
+      gapSet: [...new Set(observed.flatMap((s) => s.observe.gaps || []))].sort((a, b) => a - b),
+      typeSet: [...new Set(observed.flatMap((s) => s.observe.typeSet || []))].sort((a, b) => a - b),
+      textColors: [...new Set(observed.flatMap((s) => s.observe.textColors || []))],
+      rightStray: observed.map((s) => s.observe.textColumns?.rightStray ?? 0),
     };
   }
   const gaps = brief ? plannedCarrierGaps(document, brief) : [];
@@ -217,7 +312,7 @@ export function compositionReceipt(document, brief = null) {
     note: (absent.length || gaps.length
       ? 'Information, not a verdict: a family the whole deck never uses, or a plan line whose carrier the saved slide does not show, gets one line of reason or a fix in the script.'
       : 'Every plan line\'s carriers are visible on its slide.')
-      + ' observe: air = canvas share with no shape footprint; quadrantAir = [top-left, top-right, bottom-left, bottom-right]; largestShare = the biggest object; visualShare = non-text footprint; textColumns = distinct text left edges and stray boxes; fills = surface colors by area; largestTextTop = inches from the top to the biggest type (the title, or a hero numeral); centroid = [x, y] of the area-weighted visual center in canvas units (0.5, 0.5 is dead center), centroidOffset = its distance from center with a 0.05 horizontal / 0.15 vertical tolerance (1 = at the tolerance edge); renderAir (after a render) = share of the rendered page with no local pixel variation, which counts the flat part of a picture or a field as air where the shape footprint cannot. deck.rhythm reads them in sequence.',
+      + ' observe: air = canvas share with no shape footprint; quadrantAir = [top-left, top-right, bottom-left, bottom-right]; largestShare = the biggest object; visualShare = non-text footprint; textColumns = distinct text left edges and stray boxes; fills = surface colors by area; largestTextTop = inches from the top to the biggest type (the title, or a hero numeral); centroid = [x, y] of the area-weighted visual center in canvas units (0.5, 0.5 is dead center), centroidOffset = its distance from center with a 0.05 horizontal / 0.15 vertical tolerance (1 = at the tolerance edge); bodyTop = inches from the top to the first element under the largest type (content slides of one deck share it unless the plan says otherwise); bodyFill = the share of the zone under the title (to the lower safe margin) that the content spans (a dense page near 1, a breathing page low on purpose); renderAir (after a render) = share of the rendered page with no local pixel variation, which counts the flat part of a picture or a field as air where the shape footprint cannot; gaps = the distinct vertical gaps (inches, 0.05 steps) between stacked neighbors, the slide\'s spacing vocabulary; typeSet = the distinct type sizes; textColors = the distinct text colors; textColumns.rightStray = text boxes whose right edge aligns with no other. deck.rhythm reads them in sequence and unions gapSet, typeSet, and textColors across the deck: a deck built on two spacing steps, one type scale, and one ladder shows short sets.',
   };
 }
 
