@@ -81,13 +81,19 @@ export async function qa(session, args, cwd) {
   if (fixes.length) fixed = await applyBatch(session, { operations: fixes });
   const after = fixes.length ? await issues(session, args) : before;
   const structuralReview = session.backend === 'mixdog-tabular';
-  const preview = structuralReview
+  // The measure pass of the authoring loop: fit, bounds, contrast, and the fact sheet are read from the
+  // document, not from pixels, so `render: false` skips the preview and the loop costs a few seconds
+  // instead of a render each turn. What only the rendered page can show is left to the pass that follows.
+  const measureOnly = args.render === false && !structuralReview;
+  const preview = structuralReview || measureOnly
     ? {
         output: session.target,
         pageCount: 0,
         visualCoverage: {
-          mode: 'structural',
-          reason: 'Delimited text has no paginated visual layout.',
+          mode: measureOnly ? 'measure-only' : 'structural',
+          reason: measureOnly
+            ? 'render: false — fit, bounds, contrast, and facts were measured without rendering; render before the visual read.'
+            : 'Delimited text has no paginated visual layout.',
           reviewedPages: [],
           reviewed: 0,
           total: 0,

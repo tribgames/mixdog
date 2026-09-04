@@ -26,7 +26,7 @@ export const TOOL_DEFS = [
         },
         path: { type: 'string', description: 'Document path; relative paths resolve from the caller project.' },
         script: { type: 'string', description: 'author: pptxgenjs script per the pptx skill contract.' },
-        render: { type: 'boolean', description: 'author: render and return slide images; defaults true.' },
+        render: { type: 'boolean', description: 'author/qa: render the pages; defaults true. false measures fit, bounds, contrast, and facts without pixels — the fast authoring loop.' },
         format: { type: 'string', enum: ['docx', 'dotx', 'docm', 'dotm', 'xlsx', 'xltx', 'xlsm', 'xltm', 'pptx', 'potx', 'pptm', 'potm', 'csv', 'tsv', 'pdf'], description: 'Format for describe/create without a path.' },
         backend: { type: 'string', enum: ['microsoft-office-com', 'mixdog-ooxml', 'mixdog-tabular', 'mixdog-pdf'], description: 'describe only: filter by backend.' },
         operation: { type: 'string', description: 'describe only: return one compact operation input contract.' },
