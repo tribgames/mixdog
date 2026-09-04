@@ -32,6 +32,7 @@ export const ADVISORY_CODES = new Set([
   'default_chart_treatment',
   'emphasis_mismatch',
   'excessive_slide_text',
+  'fact_without_locator',
   'flat_visual_rhythm',
   'frontier_aesthetic_score_low',
   'generic_motif_selected',
@@ -109,6 +110,7 @@ const POLISH_GUIDANCE = Object.freeze({
   number_without_source: 'Add a source note that identifies the workbook cell, range, or external document.',
   number_without_fact: 'Add the figure to the brief facts line with its source (F<n> <value> — <source>), or remove it from the slide.',
   facts_missing: 'Write the brief facts line: every figure the deck shows, each with a source, before authoring again.',
+  fact_without_locator: 'Advisory: the brief names sources, so each fact cites where to open it — a page, a cell, a section, or a URL; say so in the line if a figure comes from somewhere else.',
   plan_promise_missing: 'Advisory: the slide does not seem to carry what its plan line names; keep it if the composition is deliberate, else update the plan line or the slide.',
   plan_count_mismatch: 'Advisory: the slide plan and the deck disagree on the slide count; update whichever is stale.',
   // Package faults PowerPoint refuses (script-authored charts).

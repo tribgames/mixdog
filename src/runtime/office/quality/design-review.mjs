@@ -16,7 +16,7 @@ import {
   isOrnamentalStripe,
   slideSize,
 } from './design-review-authored.mjs';
-import { reviewBriefPromises, reviewFactCoverage } from '../authoring/pptx-brief.mjs';
+import { reviewBriefPromises, reviewFactCoverage, reviewSourceGrounding } from '../authoring/pptx-brief.mjs';
 import { isAdvisoryOfficeIssue } from './quality-pipeline.mjs';
 import { isPptxSpecimenSlide, isPptxStatementSlide } from './pptx-slide-roles.mjs';
 
@@ -231,7 +231,11 @@ function reviewPptx(document, design) {
   // An authored deck is held to its own brief: the skeleton each plan line
   // promised, and the fact sheet behind every figure it shows.
   if (design.brief) {
-    issues.push(...reviewBriefPromises(document, design.brief), ...reviewFactCoverage(document, design.brief));
+    issues.push(
+      ...reviewBriefPromises(document, design.brief),
+      ...reviewFactCoverage(document, design.brief),
+      ...reviewSourceGrounding(design.brief),
+    );
   }
   let cardGridSlides = 0;
   const signatures = new Map();

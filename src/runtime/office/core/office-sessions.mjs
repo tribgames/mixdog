@@ -420,7 +420,15 @@ export async function snapshot(session, args, { full = false } = {}) {
       && isInteractiveOfficeSession(session),
   };
   let request = createOfficeSnapshotRequest(session, requestArgs, { full });
-  const load = async () => {
+  // Reading a deck back out of PowerPoint costs seconds (thousands of COM round trips), and one authoring
+  // cycle asks for it several times — the receipt, qa, finalize's review — with nothing changed in between.
+  // A background session we own changes only through our own batches, and those bump snapshotVersion, so the
+  // last document stays true until then. An attached or visible session is never cached: the user edits it.
+  const cacheable = session.backend === 'microsoft-office-com'
+    && session.mode === 'background'
+    && session.ownership === 'owned'
+    && session.visible !== true;
+  const fetchDocument = async () => {
     if (session.backend === 'microsoft-office-com') {
       const result = await callMicrosoftOffice({
         action: 'snapshot',
@@ -436,6 +444,14 @@ export async function snapshot(session, args, { full = false } = {}) {
     if (session.format === 'pdf') return await snapshotPdf(session.target, { maxChars, ...request });
     if (TABULAR_FORMATS.has(session.format)) return await snapshotTabular(session.target, session.format, request);
     return await snapshotPortableOoxml(session.target, session.format, request);
+  };
+  const load = async () => {
+    if (!cacheable) return await fetchDocument();
+    const key = `${session.snapshotVersion || 0}|${JSON.stringify(request)}`;
+    if (session.snapshotCache?.key === key) return structuredClone(session.snapshotCache.value);
+    const value = await fetchDocument();
+    session.snapshotCache = { key, value: structuredClone(value) };
+    return value;
   };
   let wrapped;
   for (let attempt = 0; attempt < 8; attempt += 1) {

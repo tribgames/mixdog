@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseAuthoringBrief, reviewBriefPromises, reviewFactCoverage } from './pptx-brief.mjs';
+import { parseAuthoringBrief, reviewBriefPromises, reviewFactCoverage, reviewSourceGrounding } from './pptx-brief.mjs';
 
 const SCRIPT = `
 // BRIEF
@@ -79,6 +79,31 @@ test('geometry-based promises stay silent when the snapshot has no geometry', ()
   // The Office COM snapshot reports shape kinds without preset geometry: a diagram cannot be seen there, a chart can.
   const comSnapshot = reviewBriefPromises({ slides: [1, 2, 3, 4].map((index) => ({ index, shapes: [{ type: 1, text: 'x', font: { size: 14 } }] })) }, brief);
   assert.deepEqual(comSnapshot.map((issue) => [issue.code, issue.path]), [['plan_count_mismatch', '/'], ['plan_promise_missing', '/slide[1]'], ['plan_promise_missing', '/slide[2]'], ['plan_promise_missing', '/slide[3]']]);
+});
+
+test('a deck built from supplied sources cites where each figure can be opened', () => {
+  const grounded = parseAuthoringBrief(`
+// BRIEF
+// sources: 2026 운영 리포트.pdf · metrics.xlsx
+// facts: F1 38건 — 운영 리포트 p.12 · F2 0.72 — metrics.xlsx Sheet1!B4 · F3 97% — https://status.example.com/qa
+`);
+  assert.deepEqual(grounded.sources, ['2026 운영 리포트.pdf', 'metrics.xlsx']);
+  assert.deepEqual(grounded.facts.map((fact) => fact.locator), [true, true, true]);
+  assert.deepEqual(reviewSourceGrounding(grounded), []);
+
+  const loose = parseAuthoringBrief(`
+// BRIEF
+// sources: 2026 운영 리포트.pdf
+// facts: F1 38건 — 운영 리포트 · F2 0.72 — 미학 점수 · F3 97% — 리포트 p.9
+`);
+  const issues = reviewSourceGrounding(loose);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].code, 'fact_without_locator');
+  assert.match(issues[0].message, /F1, F2/);
+  assert.doesNotMatch(issues[0].message, /F3/);
+
+  // No sources line: the facts line is the whole contract and nothing is demanded of it.
+  assert.deepEqual(reviewSourceGrounding(parseAuthoringBrief(SCRIPT)), []);
 });
 
 test('figures without a fact behind them are reported; dates and slide numbers are not', () => {

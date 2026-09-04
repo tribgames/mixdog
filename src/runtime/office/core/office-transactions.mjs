@@ -310,6 +310,7 @@ export async function rollbackTransaction(session) {
   } else {
     await copyFile(transaction.checkpoint, session.target);
   }
+  session.snapshotCache = null;   // the checkpoint restored the document behind the snapshot version
   const restored = await captureSessionState(session);
   const remainingDiff = diffDocuments(transaction.beforeDocument, restored.document);
   const fingerprintRestored = restored.fingerprint === transaction.beforeFingerprint;

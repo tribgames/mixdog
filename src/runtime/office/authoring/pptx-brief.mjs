@@ -65,13 +65,26 @@ function parseDirections(text) {
   return { candidates, selected };
 }
 
+// A fact's source is a locator when it points into material the reader can open at that spot: a page,
+// a cell or range, a section, a slide, a figure, or a URL. Grounding is the half of deck quality the
+// runtime can check cheaply — a deck built from supplied sources is only as good as its citations.
+const LOCATOR = /\bp\.?\s?\d|\bpage\s*\d|\d+\s*(?:쪽|페이지)|![A-Z]{1,3}\$?\d+|§\s*\d|https?:\/\/|\bslide\s*\d|\bsheet\s*\d|\bfig(?:ure)?\.?\s*\d|\btable\s*\d|\bline\s*\d|\b\d+:\d+/i;
+
 function parseFacts(text) {
   const facts = [];
   for (const token of String(text || '').split(/\s*·\s*/)) {
     const match = /^(F\d+)\s+(.+?)\s+[—–-]\s+(.+)$/.exec(token.trim());
-    if (match) facts.push({ id: match[1], value: match[2].trim(), source: match[3].trim() });
+    if (match) {
+      const source = match[3].trim();
+      facts.push({ id: match[1], value: match[2].trim(), source, locator: LOCATOR.test(source) });
+    }
   }
   return facts;
+}
+
+// `sources: <file, document, or url> · <…>` — the supplied material the deck is built from.
+function parseSources(text) {
+  return String(text || '').split(/\s*·\s*/).map((token) => token.trim()).filter(Boolean);
 }
 
 export function parseAuthoringBrief(script) {
@@ -80,7 +93,8 @@ export function parseAuthoringBrief(script) {
   const style = /^\s*([a-z-]+)/i.exec(briefLine(script, 'style') || briefLine(script, 'family'))?.[1] || '';
   const directions = parseDirections(briefLine(script, 'directions'));
   const present = /\/\/\s*BRIEF\b/.test(String(script || ''));
-  return { present, plan, facts, style, family: style, directions };
+  const sources = parseSources(briefLine(script, 'sources'));
+  return { present, plan, facts, style, family: style, directions, sources };
 }
 
 // What each named carrier promises on the saved slide. Read back as information
@@ -169,6 +183,23 @@ const DATE = /^\d{4}$|^\d{4}-\d{2}(?:-\d{2})?$/;
 
 function normalizedNumber(token) {
   return String(token).replace(/[,\s]/g, '').replace('−', '-');
+}
+
+// A deck built from supplied sources says where each figure came from. With a `sources` line in the
+// brief, a fact whose source names no page, cell, section, or URL is reported — information, not a gate:
+// the author may be citing a conversation or a live system, and says so. Without a `sources` line the
+// facts line is the whole contract and nothing here applies.
+export function reviewSourceGrounding(brief) {
+  const sources = Array.isArray(brief?.sources) ? brief.sources : [];
+  const facts = Array.isArray(brief?.facts) ? brief.facts : [];
+  if (!sources.length || !facts.length) return [];
+  const loose = facts.filter((fact) => !fact.locator);
+  if (!loose.length) return [];
+  return [issue(
+    'fact_without_locator',
+    '/',
+    `The brief names ${sources.length} source${sources.length > 1 ? 's' : ''} but ${loose.map((fact) => fact.id).join(', ')} ${loose.length > 1 ? 'cite' : 'cites'} no locator. Point each fact where a reader can open it (F1 38건 — 운영 리포트 p.12, Sheet1!B4, §3, or a URL).`,
+  )];
 }
 
 export function reviewFactCoverage(document, brief) {

@@ -295,6 +295,13 @@ export async function render(session, args, cwd) {
   const requestedOutput = args.output ? fullPath(args.output, cwd) : defaultRenderOutput(session.target);
   const output = resolveOfficeRenderOutput(requestedOutput);
   await mkdir(dirname(output), { recursive: true });
+  // A render is an export plus a rasterize per page, and one authoring cycle asks for it more than once:
+  // qa renders, then finalize's review renders the same untouched document again. The pages stay true while
+  // the snapshot version holds, so the previous pass is handed back instead of redone.
+  const cacheKey = `${session.target}|${session.snapshotVersion || 0}|${output}|${JSON.stringify(args.pages || null)}|${Number(args.maxWidth) || 0}`;
+  if (session.renderCache?.key === cacheKey && await exists(session.renderCache.result.output)) {
+    return { ...session.renderCache.result, reused: true };
+  }
   if (session.format === 'pdf') {
     if (output !== session.target) await copyFile(session.target, output);
     const rendered = await renderPdfPages(output, { pages: args.pages, maxWidth: args.maxWidth });
@@ -311,6 +318,7 @@ export async function render(session, args, cwd) {
     session.designState ||= { renderedVersion: null, semanticCount: 0, requiresVisualReview: false };
     session.designState.renderedVersion = Number(session.snapshotVersion || 0);
     result.reviewToken = `${session.id}:${session.designState.renderedVersion}`;
+    session.renderCache = { key: cacheKey, result };
     return result;
   }
   if (session.backend === 'microsoft-office-com') {
@@ -343,5 +351,6 @@ export async function render(session, args, cwd) {
   session.designState ||= { renderedVersion: null, semanticCount: 0, requiresVisualReview: false };
   session.designState.renderedVersion = Number(session.snapshotVersion || 0);
   result.reviewToken = `${session.id}:${session.designState.renderedVersion}`;
+  session.renderCache = { key: cacheKey, result };
   return result;
 }

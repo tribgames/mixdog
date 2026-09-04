@@ -891,10 +891,25 @@ function Snapshot-PowerPoint($presentation, $payload) {
     $shapes = @()
     for ($shapeIndex = 1; $shapeIndex -le $slide.Shapes.Count; $shapeIndex++) {
       $shape = $slide.Shapes.Item($shapeIndex)
+      # Every $shape.A.B.C is a separate cross-process call into PowerPoint, so each chain is walked once
+      # per shape and reused below: a 10-slide deck was paying thousands of round trips (snapshot ~20 s).
       $text = $null
+      $textFrameRef = $null
+      $textRangeRef = $null
+      $rangeFontRef = $null
+      $textRange2Ref = $null
       try {
-        if ($shape.HasTextFrame -and $shape.TextFrame.HasText) { $text = [string]$shape.TextFrame.TextRange.Text }
+        if ($shape.HasTextFrame) {
+          $textFrameRef = $shape.TextFrame
+          $textRangeRef = $textFrameRef.TextRange
+          $rangeFontRef = $textRangeRef.Font
+          if ($textFrameRef.HasText) { $text = [string]$textRangeRef.Text }
+          try { $textRange2Ref = $shape.TextFrame2.TextRange } catch {}
+        }
       } catch {}
+      $fillRef = $(try { $shape.Fill } catch { $null })
+      $lineRef = $(try { $shape.Line } catch { $null })
+      $shadowRef = $(try { $shape.Shadow } catch { $null })
       $placeholder = $null
       try {
         if ([int]$shape.Type -eq 14) {
@@ -973,55 +988,64 @@ function Snapshot-PowerPoint($presentation, $payload) {
         width = [double]$shape.Width
         height = [double]$shape.Height
         rotation = [double]$shape.Rotation
-        fillColor = $(try { [double]$shape.Fill.ForeColor.RGB } catch { $null })
-        fillVisible = $(try { [int]$shape.Fill.Visible -ne 0 } catch { $null })
-        fillTransparency = $(try { [double]$shape.Fill.Transparency } catch { $null })
-        lineColor = $(try { [double]$shape.Line.ForeColor.RGB } catch { $null })
-        lineTransparency = $(try { [double]$shape.Line.Transparency } catch { $null })
+        fillColor = $(try { [double]$fillRef.ForeColor.RGB } catch { $null })
+        fillVisible = $(try { [int]$fillRef.Visible -ne 0 } catch { $null })
+        fillTransparency = $(try { [double]$fillRef.Transparency } catch { $null })
+        lineColor = $(try { [double]$lineRef.ForeColor.RGB } catch { $null })
+        lineTransparency = $(try { [double]$lineRef.Transparency } catch { $null })
         shadow = $(try {
           [ordered]@{
-            visible = [int]$shape.Shadow.Visible
-            color = [double]$shape.Shadow.ForeColor.RGB
-            transparency = [double]$shape.Shadow.Transparency
-            blur = [double]$shape.Shadow.Blur
-            offsetX = [double]$shape.Shadow.OffsetX
-            offsetY = [double]$shape.Shadow.OffsetY
+            visible = [int]$shadowRef.Visible
+            color = [double]$shadowRef.ForeColor.RGB
+            transparency = [double]$shadowRef.Transparency
+            blur = [double]$shadowRef.Blur
+            offsetX = [double]$shadowRef.OffsetX
+            offsetY = [double]$shadowRef.OffsetY
           }
         } catch { $null })
         textFrame = $(try {
           [ordered]@{
-            marginLeft = [double]$shape.TextFrame.MarginLeft
-            marginTop = [double]$shape.TextFrame.MarginTop
-            marginRight = [double]$shape.TextFrame.MarginRight
-            marginBottom = [double]$shape.TextFrame.MarginBottom
-            paragraphSpacing = [double]$shape.TextFrame.TextRange.ParagraphFormat.SpaceAfter
+            marginLeft = [double]$textFrameRef.MarginLeft
+            marginTop = [double]$textFrameRef.MarginTop
+            marginRight = [double]$textFrameRef.MarginRight
+            marginBottom = [double]$textFrameRef.MarginBottom
+            paragraphSpacing = [double]$textRangeRef.ParagraphFormat.SpaceAfter
           }
         } catch { $null })
         textBounds = $(try {
           [ordered]@{
-            width = [double]$shape.TextFrame2.TextRange.BoundWidth
-            height = [double]$shape.TextFrame2.TextRange.BoundHeight
+            width = [double]$textRange2Ref.BoundWidth
+            height = [double]$textRange2Ref.BoundHeight
           }
         } catch { $null })
         font = $(try {
           [ordered]@{
-            name = [string]$shape.TextFrame.TextRange.Font.Name
-            size = [double]$shape.TextFrame.TextRange.Font.Size
-            bold = [int]$shape.TextFrame.TextRange.Font.Bold
-            italic = [int]$shape.TextFrame.TextRange.Font.Italic
-            color = [double]$shape.TextFrame.TextRange.Font.Color.RGB
+            name = [string]$rangeFontRef.Name
+            size = [double]$rangeFontRef.Size
+            bold = [int]$rangeFontRef.Bold
+            italic = [int]$rangeFontRef.Italic
+            color = [double]$rangeFontRef.Color.RGB
           }
         } catch { $null })
-        # Per-run sizes and colors: TextRange.Font reports a mixed range as -2147483648, so the
-        # composition receipt reads the distinct run values instead (type scale and text colors in use).
+        # Per-run sizes and colors: TextRange.Font reports a mixed range as -2147483648, so the composition
+        # receipt reads the distinct run values instead (type scale and text colors in use). A uniform range
+        # answers in two reads — walking every run of every shape is what made the snapshot cost seconds a slide.
         runs = $(try {
-          $runSizes = @(); $runColors = @()
-          $runCount = [Math]::Min([int]$shape.TextFrame.TextRange.Runs().Count, 40)
-          for ($ri = 1; $ri -le $runCount; $ri++) {
-            $run = $shape.TextFrame.TextRange.Runs($ri, 1)
-            if ([string]$run.Text -match '\S') { $runSizes += [double]$run.Font.Size; $runColors += [double]$run.Font.Color.RGB }
+          if (-not $rangeFontRef -or -not $text) { $null } else {
+            $rangeSize = [double]$rangeFontRef.Size
+            $rangeColor = [double]$rangeFontRef.Color.RGB
+            if ($rangeSize -gt 0 -and $rangeColor -ge 0) {
+              [ordered]@{ sizes = @($rangeSize); colors = @($rangeColor) }
+            } else {
+              $runSizes = @(); $runColors = @()
+              $runCount = [Math]::Min([int]$textRangeRef.Runs().Count, 40)
+              for ($ri = 1; $ri -le $runCount; $ri++) {
+                $run = $textRangeRef.Runs($ri, 1)
+                if ([string]$run.Text -match '\S') { $runSizes += [double]$run.Font.Size; $runColors += [double]$run.Font.Color.RGB }
+              }
+              [ordered]@{ sizes = @(@($runSizes | Sort-Object -Unique)); colors = @(@($runColors | Sort-Object -Unique)) }
+            }
           }
-          [ordered]@{ sizes = @(@($runSizes | Sort-Object -Unique)); colors = @(@($runColors | Sort-Object -Unique)) }
         } catch { $null })
         chart = $(try {
           if ($shape.HasChart) {
@@ -4157,6 +4181,12 @@ function Issues-PowerPoint($presentation, $payload) {
     $visualShapeCount = 0
     $largeTextShapeCount = 0
     $dominantTextShapeCount = 0
+    # This slide's content text geometry, read once. The overlap pass below works on these numbers instead
+    # of asking PowerPoint for every pair's Left/Top/Width/Height again — one 20-shape slide was spending
+    # roughly two thousand cross-process calls on that single check.
+    $textBoxes = @()
+    $slideWidth = [single]$presentation.PageSetup.SlideWidth
+    $slideHeight = [single]$presentation.PageSetup.SlideHeight
     foreach ($shape in @($slide.Shapes)) {
       $shapeIndex++
       $path = "/slide[$($slide.SlideIndex)]/shape[$shapeIndex]"
@@ -4171,51 +4201,69 @@ function Issues-PowerPoint($presentation, $payload) {
       # Named motif shapes are deliberate decoration (ghosted numerals, halos);
       # they are never held to the legibility rules that govern content text.
       $isMotif = $(try { ([string]$shape.Name).StartsWith('Mixdog Motif') } catch { $false })
+      # One walk down each chain per shape (TextFrame, TextFrame2, Fill, geometry): every dotted step is a call.
+      $frameRef = $(try { if ($shape.HasTextFrame) { $shape.TextFrame } else { $null } } catch { $null })
+      $rangeRef = $(try { if ($frameRef) { $frameRef.TextRange } else { $null } } catch { $null })
+      $fontRef = $(try { if ($rangeRef) { $rangeRef.Font } else { $null } } catch { $null })
+      $bounds2Ref = $(try { if ($frameRef) { $shape.TextFrame2.TextRange } else { $null } } catch { $null })
+      $shapeFillRef = $(try { $shape.Fill } catch { $null })
+      $shapeLeft = [single]$shape.Left
+      $shapeTop = [single]$shape.Top
+      $shapeWidth = [single]$shape.Width
+      $shapeHeight = [single]$shape.Height
       try {
-        if ($shape.HasTextFrame -and $shape.TextFrame.HasText -and -not $isMotif) {
+        if ($frameRef -and $frameRef.HasText -and -not $isMotif) {
           $textShapeCount++
-          $boundWidth = [single]$shape.TextFrame2.TextRange.BoundWidth
-          $boundHeight = [single]$shape.TextFrame2.TextRange.BoundHeight
+          $textBoxes += [ordered]@{
+            index = $shapeIndex
+            left = [double]$shapeLeft
+            top = [double]$shapeTop
+            right = [double]($shapeLeft + $shapeWidth)
+            bottom = [double]($shapeTop + $shapeHeight)
+            area = [double]($shapeWidth * $shapeHeight)
+          }
+          $boundWidth = [single]$bounds2Ref.BoundWidth
+          $boundHeight = [single]$bounds2Ref.BoundHeight
           # A word-wrapped box cannot overflow sideways — PowerPoint folds at the box
           # width — yet BoundWidth reports a wrapped Korean line up to ~1.1 pt wider than
           # the box (probe 2026-09-04: 100.62 in a 99.6 pt box, 2 lines, no clipping).
           # Width is a defect only when wrap is off, or the excess is well past slop.
-          $wordWrap = $(try { [int]$shape.TextFrame.WordWrap -ne 0 } catch { $true })
+          $wordWrap = $(try { [int]$frameRef.WordWrap -ne 0 } catch { $true })
           $widthSlop = $(if ($wordWrap) { 6 } else { 1 })
-          if ($boundWidth -gt ([single]$shape.Width + $widthSlop) -or $boundHeight -gt ([single]$shape.Height + 1)) {
+          if ($boundWidth -gt ($shapeWidth + $widthSlop) -or $boundHeight -gt ($shapeHeight + 1)) {
             $issues += Office-Issue 'warning' 'text_overflow' $path 'Text bounds exceed the containing shape.'
           }
-          $fontIssue = Missing-FontIssue $fonts ([string]$shape.TextFrame.TextRange.Font.Name) $path
+          $fontIssue = Missing-FontIssue $fonts ([string]$fontRef.Name) $path
           if ($fontIssue) { $issues += $fontIssue }
-          $fontSize = [single]$shape.TextFrame.TextRange.Font.Size
+          $fontSize = [single]$fontRef.Size
           if ($fontSize -ge 34) { $largeTextShapeCount++ }
           if ($fontSize -ge 42) { $dominantTextShapeCount++ }
           # Page chrome (kickers, badges, captions, source lines) is one short
           # line at caption size; it may be 9 pt and sit nearer the edge. Body
           # copy keeps the 12 pt / 18 pt floors.
-          $shapeText = [string]$shape.TextFrame.TextRange.Text
+          $shapeText = [string]$rangeRef.Text
           $isChrome = ($fontSize -gt 0 -and $fontSize -le 12 -and $shapeText.Trim().Length -le 90 -and $shapeText -notmatch "[\r\n]")
           if ($fontSize -gt 0 -and $fontSize -lt 9) {
             $issues += Office-Issue 'warning' 'small_font' $path "Text uses $fontSize pt; nothing on a slide should be smaller than 9 pt."
           } elseif ($fontSize -gt 0 -and $fontSize -lt 12 -and -not $isChrome) {
             $issues += Office-Issue 'warning' 'small_font' $path "Text uses $fontSize pt; presentation body text should normally be at least 12 pt."
           }
-          $slideWidth = [single]$presentation.PageSetup.SlideWidth
-          $slideHeight = [single]$presentation.PageSetup.SlideHeight
-          if ($shape.Left -lt 0 -or $shape.Top -lt 0 -or
-            ([single]$shape.Left + [single]$shape.Width) -gt ($slideWidth + 1) -or
-            ([single]$shape.Top + [single]$shape.Height) -gt ($slideHeight + 1)) {
+          if ($shapeLeft -lt 0 -or $shapeTop -lt 0 -or
+            ($shapeLeft + $shapeWidth) -gt ($slideWidth + 1) -or
+            ($shapeTop + $shapeHeight) -gt ($slideHeight + 1)) {
             $issues += Office-Issue 'warning' 'text_outside_slide' $path 'Text shape extends outside the slide boundary.'
           }
           $edgeMargin = if ($isChrome) { 10 } else { 18 }
-          if ($shape.Left -lt $edgeMargin -or $shape.Top -lt $edgeMargin -or
-            ([single]$shape.Left + [single]$shape.Width) -gt ($slideWidth - $edgeMargin) -or
-            ([single]$shape.Top + [single]$shape.Height) -gt ($slideHeight - $edgeMargin)) {
+          if ($shapeLeft -lt $edgeMargin -or $shapeTop -lt $edgeMargin -or
+            ($shapeLeft + $shapeWidth) -gt ($slideWidth - $edgeMargin) -or
+            ($shapeTop + $shapeHeight) -gt ($slideHeight - $edgeMargin)) {
             $issues += Office-Issue 'warning' 'edge_margin' $path "Text is within $edgeMargin pt of a slide edge."
           }
           try {
-            if ($shape.Fill.Visible -and [long]$shape.Fill.ForeColor.RGB -ge 0 -and [long]$shape.TextFrame.TextRange.Font.Color.RGB -ge 0) {
-              $contrast = Color-ContrastRatio ([long]$shape.TextFrame.TextRange.Font.Color.RGB) ([long]$shape.Fill.ForeColor.RGB)
+            $fillColorValue = $(try { if ($shapeFillRef -and $shapeFillRef.Visible) { [long]$shapeFillRef.ForeColor.RGB } else { -1 } } catch { -1 })
+            $fontColorValue = $(try { [long]$fontRef.Color.RGB } catch { -1 })
+            if ($fillColorValue -ge 0 -and $fontColorValue -ge 0) {
+              $contrast = Color-ContrastRatio $fontColorValue $fillColorValue
               if ($contrast -lt 3) {
                 $issues += Office-Issue 'warning' 'low_contrast' $path "Text-to-fill contrast ratio is $([Math]::Round($contrast, 2)):1."
               }
@@ -4224,7 +4272,7 @@ function Issues-PowerPoint($presentation, $payload) {
         }
       } catch {}
       try {
-        if ($shape.Type -eq 14 -and -not ($shape.HasTextFrame -and $shape.TextFrame.HasText)) {
+        if ($shape.Type -eq 14 -and -not ($frameRef -and $frameRef.HasText)) {
           $placeholderType = [int]$shape.PlaceholderFormat.Type
           if (@(1, 2, 3, 4, 5, 6, 7) -contains $placeholderType) {
             $issues += Office-Issue 'warning' 'empty_placeholder' $path 'A visible content placeholder is still empty.'
@@ -4239,22 +4287,17 @@ function Issues-PowerPoint($presentation, $payload) {
         if ($shape.HasChart) { $issues += Office-Issue 'error' 'broken_chart' "$path/chart" 'Chart data could not be inspected.' }
       }
     }
-    for ($leftIndex = 1; $leftIndex -le $slide.Shapes.Count; $leftIndex++) {
-      $left = $slide.Shapes.Item($leftIndex)
-      for ($rightIndex = $leftIndex + 1; $rightIndex -le $slide.Shapes.Count; $rightIndex++) {
-        $right = $slide.Shapes.Item($rightIndex)
-        try {
-          $leftHasText = $left.HasTextFrame -and $left.TextFrame.HasText -and -not ([string]$left.Name).StartsWith('Mixdog Motif')
-          $rightHasText = $right.HasTextFrame -and $right.TextFrame.HasText -and -not ([string]$right.Name).StartsWith('Mixdog Motif')
-          if (-not ($leftHasText -and $rightHasText)) { continue }
-          $x = [Math]::Max(0, [Math]::Min([double]$left.Left + [double]$left.Width, [double]$right.Left + [double]$right.Width) - [Math]::Max([double]$left.Left, [double]$right.Left))
-          $y = [Math]::Max(0, [Math]::Min([double]$left.Top + [double]$left.Height, [double]$right.Top + [double]$right.Height) - [Math]::Max([double]$left.Top, [double]$right.Top))
-          $intersection = $x * $y
-          $smallest = [Math]::Min([double]$left.Width * [double]$left.Height, [double]$right.Width * [double]$right.Height)
-          if ($smallest -gt 0 -and ($intersection / $smallest) -ge 0.25) {
-            $issues += Office-Issue 'warning' 'shape_overlap' "/slide[$($slide.SlideIndex)]" "Text shapes $leftIndex and $rightIndex overlap by at least 25%."
-          }
-        } catch {}
+    for ($leftIndex = 0; $leftIndex -lt $textBoxes.Count; $leftIndex++) {
+      $left = $textBoxes[$leftIndex]
+      for ($rightIndex = $leftIndex + 1; $rightIndex -lt $textBoxes.Count; $rightIndex++) {
+        $right = $textBoxes[$rightIndex]
+        $x = [Math]::Max(0, [Math]::Min($left.right, $right.right) - [Math]::Max($left.left, $right.left))
+        $y = [Math]::Max(0, [Math]::Min($left.bottom, $right.bottom) - [Math]::Max($left.top, $right.top))
+        $intersection = $x * $y
+        $smallest = [Math]::Min($left.area, $right.area)
+        if ($smallest -gt 0 -and ($intersection / $smallest) -ge 0.25) {
+          $issues += Office-Issue 'warning' 'shape_overlap' "/slide[$($slide.SlideIndex)]" "Text shapes $($left.index) and $($right.index) overlap by at least 25%."
+        }
       }
     }
     $typographicVisual = $dominantTextShapeCount -gt 0 -or $largeTextShapeCount -ge 2
