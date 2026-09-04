@@ -9,12 +9,12 @@ Microsoft Office installed.
 | Folder | Role |
 | --- | --- |
 | `(root)` | Public surface only: `index.mjs` (tool executor), `tool-defs.mjs`, `capabilities.mjs`. Test suites and `office-test-support.mjs` also live here. |
-| `authoring/` | The `author` action: `pptx-script-contract.mjs` (what a script may require and how long it may run; the model-facing guide is the built-in `pptx` skill in `src/defaults/skills/pptx`), `pptx-script-runner.mjs` (runs a pptxgenjs script in-process with a scoped `require`), `pptx-author-action.mjs` (writes the deck, opens an `authored` session, renders). Sits beside the root and imports `core`. |
-| `core/` | Sessions, transactions, journal, snapshot pagination, tabular sessions, and the action pipeline (`office-actions-*.mjs`, `office-candidate-actions.mjs`). |
+| `authoring/` | The `author` action — the only way a deck is made: `pptx-script-contract.mjs` (what a script may require and how long it may run; the model-facing guide is the built-in `pptx` skill in `src/defaults/skills/pptx`), `pptx-script-runner.mjs` (runs a pptxgenjs script in-process with a scoped `require`, injecting `MEASURE` and `ICON`), `pptx-script-normalize.mjs` (paragraph properties, hanging punctuation, accent-series merge), `pptx-author-action.mjs` (writes the deck, opens an `authored` session, renders, returns the composition receipt and contact sheet), `pptx-receipt.mjs`, `pptx-contact-sheet.mjs`, `pptx-icons.mjs` + `pptx-icons.json` (offline Lucide subset built by `npm run office:icons`), `pptx-brief.mjs`. Sits beside the root and imports `core`. |
+| `core/` | Sessions, transactions, journal, snapshot pagination, tabular sessions, and the action pipeline (`office-actions-*.mjs`). |
 | `com/` | Windows-native path: `com-adapter.mjs` plus the PowerShell hosts `office-com-host.ps1` and `office-com-session-host.ps1`. |
 | `portable/` | OOXML read/write without Office, package validation, XLSX contracts, text and image metrics. |
 | `pdf/` | PDF adapter, analysis (text layout, OCR, tables), page rendering, document preview. |
-| `design/` | Design tokens, content model, composition, creative direction, layout grammar; `design-discipline.mjs` owns the safe typeface list, palette repair (tinted dark fields, WCAG contrast, paired accent tints), and the brief rules; `pptx/`, `docx/`, `xlsx/` format compilers (`pptx/design-pptx-scene-discipline.mjs` enforces role-only fonts/colors, contrast, band balance, and image framing, and applies the soft repairs: hollow-card hero growth, axis snapping, row equalisation, type floors; `pptx/design-pptx-motifs.mjs` draws each art-direction style's motif on cover/section/closing slides as `Mixdog Motif` shapes that structural review ignores); `library/` template library with the bundled `templates/`. |
+| `design/` | Design tokens, content model, composition, creative direction for the Word and Excel composers (`compose_document`, `compose_sheet`); `design-discipline.mjs` owns the safe typeface list, palette repair (tinted dark fields, WCAG contrast, paired accent tints), and the brief rules; `docx/`, `xlsx/` format compilers; `library/` template library with the bundled `templates/`. Decks are never composed here — a slide is authored by the model as a script (`authoring/`), and `compose_slide` is refused with that route. |
 | `quality/` | Reviews and gates: `assurance-*.mjs` (trust, structure, rendered pages, checklist), aesthetics, design review, scoring, visual diff. |
 | `bench/` | Benchmarks behind `npm run bench:office*`; `bench-support.mjs` holds the shared tool-call helpers. |
 | `shared/` | Tiny helpers used across folders: `values.mjs` (`plainObject`, `clone`, `stableValue`, `sha256`, `clamp`, `compact`, `imageBuffer`) and `asar-path.mjs`. |
@@ -44,7 +44,8 @@ the physical sidecar at runtime. Moving these files means updating that list and
 
 - `npm test -- src/runtime/office` runs the unit suites: `office-runtime-{contract,com,portable,pdf,design}.test.mjs`,
   `portable-authoring`, `office-authoring`, `office-assurance`, `office-design-aesthetics`, `office-design-discipline`,
-  `office-freeform-pipeline`, `slide-quality`, plus the desktop approval test.
+  `slide-quality`, `authoring/pptx-brief`, `authoring/pptx-receipt`, plus the desktop approval test; `pptx-skill-kit.slow`
+  and `portable-authoring.slow` author real decks.
 - `node scripts/run-office-live-tests.mjs` runs `office-live-runtime.test.mjs`, which needs Microsoft Office.
 - `npm run bench:office`, `bench:office:contract`, `bench:office:assurance`, `bench:office:polish`,
-  `bench:office:quality:live`, `bench:office:freeform:live`.
+  `bench:office:quality:live`.

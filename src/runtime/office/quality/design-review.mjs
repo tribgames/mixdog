@@ -1,7 +1,6 @@
 import { reviewOfficeStructure } from './assurance.mjs';
 import { reviewOfficeCompositionSequence } from '../design/composition-system.mjs';
 import { reviewPptxDeckDiversity } from './design-deck-diversity.mjs';
-import { reviewPptxFrontierQuality } from './design-frontier-review.mjs';
 import { resolveOfficeDesign } from '../design/design-tokens.mjs';
 import {
   MAX_ACCENT_HUE_FAMILIES,
@@ -338,7 +337,6 @@ function reviewPptx(document, design) {
     ));
   }
   issues.push(...reviewPptxDeckDiversity({ document, design }));
-  issues.push(...reviewPptxFrontierQuality({ document, design }));
   return issues;
 }
 

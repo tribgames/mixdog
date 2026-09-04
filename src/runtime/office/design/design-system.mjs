@@ -1,11 +1,8 @@
 import { bindOfficeContent, summarizeOfficeContentModel } from './content-model.mjs';
 import { planOfficeComposition, summarizeOfficeCompositions } from './composition-system.mjs';
-import { applyOfficeCreativeBrief, creativeBriefForOperation, directOfficeStory } from './design-creative-director.mjs';
+import { applyOfficeCreativeBrief, directOfficeStory } from './design-creative-director.mjs';
 import { expandDocxDocument } from './docx/design-docx.mjs';
-import { synthesizePptxFrontierPlan } from './design-layout-grammar.mjs';
-import { coalesceCreatedPptxTemplateImports, expandPptxSlide, expandTemplatePptxSlide, pptxBackgroundSpec, pptxSlidePlan, selectPptxLayout } from './pptx/design-pptx.mjs';
-import { expandPptxModelSlide } from './pptx/design-pptx-plan.mjs';
-import { compactDesign, merge, resolveOfficeDesign } from './design-tokens.mjs';
+import { compactDesign, resolveOfficeDesign } from './design-tokens.mjs';
 import { expandXlsxSheet } from './xlsx/design-xlsx.mjs';
 
 export { officeDesignCatalog, resolveOfficeDesign } from './design-tokens.mjs';
@@ -25,104 +22,19 @@ export function expandOfficeDesignOperations({
   const design = { ...resolvedDesign, creative };
   const output = [];
   const semantic = [];
-  let nextSlide = created && Number(snapshotVersion || 0) === 0 ? 1 : null;
   const docxState = { paragraph: 0, table: 0 };
   const composedSheets = new Set();
-  const layoutUsage = new Map();
   const compositionUsage = new Map();
   for (const [operationIndex, operation] of (operations || []).entries()) {
     const directedOperation = applyOfficeCreativeBrief(operation, creative, operationIndex, operations);
     const bound = bindOfficeContent(directedOperation, design.content);
-    let contentOperation = bound.operation;
+    const contentOperation = bound.operation;
     const name = String(contentOperation?.op || '');
+    // Decks are designed by the author, not composed by the runtime: a slide is
+    // written as a pptxgenjs script (action:author, pptx skill) and an existing
+    // deck is edited with the slide and shape operations.
     if (normalizedFormat === 'pptx' && name === 'compose_slide') {
-      if (design.deck.compositionMode !== 'legacy') {
-        contentOperation = synthesizePptxFrontierPlan(
-          contentOperation,
-          design,
-          creativeBriefForOperation(creative, operationIndex),
-        );
-      }
-      const composition = planOfficeComposition(normalizedFormat, contentOperation, design, {
-        usage: compositionUsage,
-      });
-      const plannedOperation = {
-        ...contentOperation,
-        kind: composition.kind,
-        __composition: composition,
-      };
-      const slide = Number(plannedOperation.slide) || nextSlide;
-      if (!slide) throw new Error('compose_slide requires slide for an existing presentation');
-      const templateRequested = Boolean(plannedOperation.layoutId)
-        || ['prefer', 'strict'].includes(String(design.deck.templateMode || ''));
-      const selectedLayout = templateRequested
-        ? selectPptxLayout(plannedOperation, design, layoutUsage)
-        : null;
-      const layout = selectedLayout?.layout || null;
-      const composed = layout ? merge(layout.defaults || {}, plannedOperation) : plannedOperation;
-      const backgroundSpec = pptxBackgroundSpec(composed, design, composition.kind, slide);
-      let plan;
-      let renderMode;
-      const templateOperations = layout
-        ? expandTemplatePptxSlide(composed, layout, slide, backend)
-        : null;
-      if (templateRequested) {
-        if (!layout || !templateOperations) {
-          throw new Error(
-            `compose_slide requires an explicit native template layout for kind "${operation.kind}"; no scratch fallback was applied`,
-          );
-        }
-        output.push(...templateOperations);
-        layoutUsage.set(layout.id, (layoutUsage.get(layout.id) || 0) + 1);
-        plan = pptxSlidePlan(composed, composition.kind, slide);
-        renderMode = 'native-template';
-      } else if (design.deck.compositionMode === 'legacy') {
-        output.push(...expandPptxSlide(composed, design, slide));
-        plan = pptxSlidePlan(composed, composition.kind, slide);
-        renderMode = 'legacy-scratch';
-      } else {
-        const modeled = expandPptxModelSlide(composed, design, slide, backgroundSpec);
-        output.push(...modeled.operations);
-        plan = modeled.plan;
-        renderMode = modeled.plan?.sourceContract === 'authored-scene-v1'
-          ? 'authored-scene'
-          : modeled.plan?.sourceContract === 'freeform-board-v1'
-            ? 'freeform-board'
-          : modeled.plan?.sourceContract === 'adaptive-tournament-fallback'
-            ? 'adaptive-fallback'
-            : 'model-plan';
-      }
-      semantic.push({
-        op: name,
-        kind: composition.kind,
-        requestedKind: String(contentOperation.kind || 'content'),
-        slide,
-        slideRole: backgroundSpec.slideRole,
-        backgroundRole: backgroundSpec.backgroundRole,
-        plan,
-        composition: layout ? {
-          ...composition,
-          id: `${composition.kind}:template:${layout.id}`,
-          family: 'native-template',
-          variant: layout.variant || composition.variant,
-          source: 'native-template',
-        } : composition,
-        renderMode,
-        ...(bound.binding ? { contentBinding: bound.binding } : {}),
-        ...(layout ? {
-          layout: layout.id,
-          variant: layout.variant || '',
-          sourceSlide: Number(layout.sourceSlide) || 0,
-          templateId: layout.templateId || '',
-          selection: {
-            score: selectedLayout.score,
-            demand: selectedLayout.demand,
-            fit: selectedLayout.fit,
-          },
-        } : {}),
-      });
-      if (nextSlide != null) nextSlide += 1;
-      continue;
+      throw new Error('compose_slide is no longer supported: author a new deck with action:author (pptx skill) and edit an existing deck with add_slide, add_textbox, add_chart, set_text, and the other slide operations.');
     }
     if (normalizedFormat === 'docx' && name === 'compose_document') {
       const composition = planOfficeComposition(normalizedFormat, contentOperation, design, {
@@ -161,11 +73,8 @@ export function expandOfficeDesignOperations({
     }
     output.push(contentOperation);
   }
-  const expandedOperations = normalizedFormat === 'pptx' && created && Number(snapshotVersion || 0) === 0
-    ? coalesceCreatedPptxTemplateImports(output)
-    : output;
   return {
-    operations: expandedOperations,
+    operations: output,
     semantic,
     design: compactDesign(design),
     content: summarizeOfficeContentModel(design.content),

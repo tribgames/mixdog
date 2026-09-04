@@ -22,7 +22,7 @@ export const TOOL_DEFS = [
         action: {
           type: 'string',
           enum: OFFICE_ACTIONS,
-          description: 'detect/describe discover; author: PPTX from a pptxgenjs script (pptx skill); transactions/recover, begin/diff/commit/rollback checkpoint; create/attach/open start; snapshot/get/query inspect; preview/compile candidates; batch edits; issues/qa/render/validate review; save/finalize/close finish; secure writes PDF. Generated pictures come from the media tool.',
+          description: 'detect/describe discover; author: PPTX from a pptxgenjs script (pptx skill); transactions/recover, begin/diff/commit/rollback checkpoint; create/attach/open start; snapshot/get/query inspect; batch edits; issues/qa/render/validate review; save/finalize/close finish; secure writes PDF. Generated pictures come from the media tool.',
         },
         path: { type: 'string', description: 'Document path; relative paths resolve from the caller project.' },
         script: { type: 'string', description: 'author: pptxgenjs script per the pptx skill contract.' },
@@ -51,7 +51,7 @@ export const TOOL_DEFS = [
         fields: { type: 'array', items: { type: 'object', additionalProperties: true }, description: 'PDF form fields; layout is linted before writing.' },
         operations: {
           type: 'array',
-          description: 'Atomic edits. Put every operation whose inputs are known in one batch; split only for result-dependent input. Semantic create ops: compose_document, compose_sheet; compose_slide edits an existing deck (new decks: action:author). Call describe only when fields/support are unknown. fill_template accepts tokens/strict; non-Latin PDF text needs properties.fontPath.',
+          description: 'Atomic edits. Put every operation whose inputs are known in one batch; split only for result-dependent input. Semantic create ops: compose_document, compose_sheet; decks are authored as scripts (action:author) and existing decks edited with the slide/shape ops. Call describe only when fields/support are unknown. fill_template accepts tokens/strict; non-Latin PDF text needs properties.fontPath.',
           items: {
             type: 'object',
             additionalProperties: true,

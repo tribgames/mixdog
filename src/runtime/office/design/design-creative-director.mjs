@@ -1,9 +1,9 @@
 import { designDisciplineBrief } from './design-discipline.mjs';
-import { compilePptxReferenceGenome, directPptxAssetIntent } from './design-reference-genome.mjs';
 import { compact, plainObject } from '../shared/values.mjs';
 
+// Decks are authored as scripts (pptx skill); the director briefs the Word and
+// Excel composers only.
 const COMPOSE_OPERATION = Object.freeze({
-  pptx: 'compose_slide',
   docx: 'compose_document',
   xlsx: 'compose_sheet',
 });
@@ -86,13 +86,10 @@ export function directOfficeStory(format, operations = [], design = {}) {
       || thesis,
     160,
   );
-  const referenceGenome = normalized === 'pptx'
-    ? compilePptxReferenceGenome(design)
-    : null;
   const briefs = authored.map(({ operation, operationIndex }, index) => {
     const role = narrativeRole(operation, index, authored.length);
     const evidence = operationEvidence(operation, content);
-    const brief = {
+    return {
       operationIndex,
       sequence: index + 1,
       role,
@@ -110,15 +107,9 @@ export function directOfficeStory(format, operations = [], design = {}) {
       density: ['opening', 'decision-close'].includes(role) ? 'light' : 'balanced',
       motif,
     };
-    return {
-      ...brief,
-      ...(normalized === 'pptx' ? {
-        assetIntent: directPptxAssetIntent(operation, brief),
-      } : {}),
-    };
   });
   return {
-    version: normalized === 'pptx' ? 2 : 1,
+    version: 1,
     standard: 'frontier-office-v1',
     format: normalized,
     thesis,
@@ -126,16 +117,6 @@ export function directOfficeStory(format, operations = [], design = {}) {
     objective: compact(content?.objective || design.intent, 220),
     decision: compact(content?.decision, 220),
     motif,
-    ...(referenceGenome ? {
-      referenceGenome,
-      assetManifest: briefs.map((brief) => ({
-        sequence: brief.sequence,
-        role: brief.role,
-        ...brief.assetIntent,
-      })),
-      layoutSearch: 'adaptive-top-k',
-      selectionMethod: 'verifiable-layout-v1',
-    } : {}),
     discipline: designDisciplineBrief(design.tokens),
     narrativeArc: briefs.map((brief) => brief.role),
     evidenceCoverage: {
@@ -151,55 +132,17 @@ export function directOfficeStory(format, operations = [], design = {}) {
       noRawTableSlides: true,
       noUnderComposedContentSlides: true,
       distinctOpeningAndClosing: true,
-      ...(normalized === 'pptx' ? {
-        sourceSpecificAssets: true,
-        adaptiveTopK: 3,
-        verifiableSelection: true,
-        prohibitedGenericMotifs: [...referenceGenome.prohibitedMotifs],
-      } : {}),
     },
     briefs,
   };
 }
 
-function directsInverse(operation, creative, operationIndex) {
-  if (!plainObject(operation) || operation.op !== 'compose_slide') return false;
-  if (String(operation.backgroundRole || '').toLowerCase() === 'inverse') return true;
-  const brief = creative.briefs?.find((entry) => entry.operationIndex === operationIndex);
-  return !operation.backgroundRole && brief?.role === 'choice';
-}
-
-// A statement slide is an inverse beat by default, but two dark pages in a
-// row read as a new deck, so it steps back to the content background when
-// the neighbouring slide is already the directed inverse choice.
-function statementNeighbourRole(operation, creative, operationIndex, operations) {
-  if (String(operation.kind || '').toLowerCase() !== 'statement') return null;
-  if (operation.slideRole || operation.backgroundRole) return null;
-  const slides = (operations || [])
-    .map((entry, index) => ({ entry, index }))
-    .filter(({ entry }) => plainObject(entry) && entry.op === 'compose_slide');
-  const position = slides.findIndex(({ index }) => index === operationIndex);
-  if (position < 0) return null;
-  const neighbours = [slides[position - 1], slides[position + 1]].filter(Boolean);
-  return neighbours.some(({ entry, index }) => directsInverse(entry, creative, index)) ? 'content' : null;
-}
-
-export function applyOfficeCreativeBrief(operation, creative, operationIndex, operations = []) {
+export function applyOfficeCreativeBrief(operation, creative, operationIndex) {
   if (!plainObject(operation) || !creative) return operation;
   const brief = creative.briefs?.find((entry) => entry.operationIndex === operationIndex);
   if (!brief) return operation;
-  const directedBackground = operation.op === 'compose_slide'
-    && !operation.backgroundRole
-    && brief.role === 'choice'
-    ? 'inverse'
-    : operation.backgroundRole;
-  const directedSlideRole = operation.op === 'compose_slide'
-    ? statementNeighbourRole(operation, creative, operationIndex, operations)
-    : null;
   return {
     ...operation,
-    ...(directedBackground ? { backgroundRole: directedBackground } : {}),
-    ...(directedSlideRole ? { slideRole: directedSlideRole } : {}),
     creativeBrief: {
       role: brief.role,
       sequence: brief.sequence,
@@ -210,11 +153,6 @@ export function applyOfficeCreativeBrief(operation, creative, operationIndex, op
       density: brief.density,
       motif: brief.motif,
       evidence: brief.evidence,
-      ...(brief.assetIntent ? { assetIntent: brief.assetIntent } : {}),
     },
   };
-}
-
-export function creativeBriefForOperation(creative, operationIndex) {
-  return creative?.briefs?.find((entry) => entry.operationIndex === operationIndex) || null;
 }

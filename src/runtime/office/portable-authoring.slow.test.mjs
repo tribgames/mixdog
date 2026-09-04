@@ -170,7 +170,6 @@ test('portable presentation authoring manages slides, shapes, tables, and notes'
 test('portable composition stays inside the portable operation catalog', () => {
   const supported = {
     xlsx: new Set(describeOfficeCapabilities({ format: 'xlsx', backend: 'mixdog-ooxml' }).operations),
-    pptx: new Set(describeOfficeCapabilities({ format: 'pptx', backend: 'mixdog-ooxml' }).operations),
     docx: new Set(describeOfficeCapabilities({ format: 'docx', backend: 'mixdog-ooxml' }).operations),
   };
   const composed = {
@@ -182,38 +181,6 @@ test('portable composition stays inside the portable operation catalog', () => {
       metrics: [{ label: 'Revenue', value: 120 }],
       source: { document: 'internal model' },
     }],
-    pptx: [
-      {
-        op: 'compose_slide',
-        kind: 'cover',
-        title: 'Portable decks',
-        plan: { regions: [{ id: 'message', role: 'title', x: 8, y: 30, w: 78, h: 22 }] },
-      },
-      {
-        op: 'compose_slide',
-        kind: 'metrics',
-        title: 'Coverage',
-        metrics: [{ label: 'Formats', value: '3' }],
-        plan: {
-          regions: [
-            { id: 'message', role: 'title', x: 7, y: 8, w: 80, h: 16 },
-            { id: 'evidence', role: 'metric', x: 62, y: 30, w: 28, h: 44 },
-          ],
-        },
-      },
-      {
-        op: 'compose_slide',
-        kind: 'table',
-        title: 'Regions',
-        table: [['Region', 'Revenue'], ['Korea', '120']],
-        plan: {
-          regions: [
-            { id: 'message', role: 'title', x: 7, y: 8, w: 80, h: 16 },
-            { id: 'evidence', role: 'table', x: 7, y: 31, w: 86, h: 50 },
-          ],
-        },
-      },
-    ],
     docx: [{
       op: 'compose_document',
       title: 'Portable authoring',
@@ -248,24 +215,6 @@ test('portable composition keeps charts native instead of rejecting them', () =>
     created: true,
   });
   assert.ok(sheet.operations.some((entry) => entry.op === 'add_chart'));
-  const deck = expandOfficeDesignOperations({
-    format: 'pptx',
-    backend: 'mixdog-ooxml',
-    operations: [{
-      op: 'compose_slide',
-      kind: 'chart',
-      title: 'Trend',
-      chart: { series: [{ name: '2026', values: [1, 2, 3] }], categories: ['a', 'b', 'c'] },
-      plan: {
-        regions: [
-          { id: 'message', role: 'title', x: 7, y: 8, w: 80, h: 16 },
-          { id: 'evidence', role: 'chart', x: 7, y: 30, w: 86, h: 60 },
-        ],
-      },
-    }],
-    created: true,
-  });
-  assert.ok(deck.operations.some((entry) => entry.op === 'add_chart' || entry.op === 'set_chart_data'));
 });
 
 test('portable charts write a chart part with an embedded workbook', async (t) => {
@@ -1695,51 +1644,6 @@ test('portable image replacement removes the orphaned media part', async (t) => 
   assert.equal(packaged.has('ppt/media/image1.png'), false, 'the replaced media part must be cleaned up');
 });
 
-test('portable table slides use an explicitly requested bundled layout without leftover rows', async (t) => {
-  const cwd = await workspace(t);
-  const target = join(cwd, 'table-layout.pptx');
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path: target,
-    mode: 'portable',
-    design: { profile: 'editorial', deck: { templateMode: 'prefer' } },
-    operations: [{
-      op: 'compose_slide',
-      kind: 'table',
-      title: '지원 범위',
-      table: [['영역', 'COM', 'portable'], ['생성', '지원', '지원'], ['차트', '지원', '지원']],
-    }],
-  }, { cwd }));
-  const modes = (created.batch?.semanticOperations || []).map((entry) => entry.renderMode);
-  assert.deepEqual(modes, ['native-template']);
-  const slide = await (await parts(target)).text('ppt/slides/slide1.xml');
-  assert.match(slide, /지원 범위/);
-  assert.match(slide, /차트/);
-  assert.doesNotMatch(slide, /Adoption/, 'unused template rows must be removed');
-});
-
-test('portable decks use the bundled template only after explicit opt-in and keep its typography', async (t) => {
-  const cwd = await workspace(t);
-  const target = join(cwd, 'branded.pptx');
-  const created = value(await executeOfficeTool({
-    action: 'create',
-    path: target,
-    mode: 'portable',
-    design: { profile: 'editorial', deck: { templateMode: 'prefer' } },
-    operations: [
-      { op: 'compose_slide', kind: 'cover', title: '표지 제목', subtitle: '부제' },
-      { op: 'compose_slide', kind: 'metrics', title: '지표', metrics: [{ label: '포맷', value: '3' }] },
-    ],
-  }, { cwd }));
-  const rendered = (created.batch?.semanticOperations || []).map((entry) => entry.renderMode);
-  assert.ok(rendered.includes('native-template'), `template layouts must drive portable decks, saw ${rendered.join(', ')}`);
-  const packaged = await parts(target);
-  const slide = await packaged.text('ppt/slides/slide1.xml');
-  assert.match(slide, /typeface="/);
-  assert.match(slide, /표지 제목/);
-  assert.equal(packaged.has('ppt/slideMasters/slideMaster1.xml'), true);
-});
-
 test('portable text metrics flag overflow and fit_text repairs it', async (t) => {
   const cwd = await workspace(t);
   const target = join(cwd, 'overflow.pptx');
@@ -1757,7 +1661,8 @@ test('portable text metrics flag overflow and fit_text repairs it', async (t) =>
         op: 'add_textbox',
         slide: 1,
         text: '오버플로를 유발하기 위해 충분히 긴 문장을 반복해서 넣습니다. '.repeat(6),
-        properties: { left: 40, top: 40, width: 200, height: 40, fontSize: 24 },
+        // 200 × 60 pt: 24 pt Hangul (measured in the East Asian fallback) runs far past it; 6 pt fits.
+        properties: { left: 40, top: 40, width: 200, height: 60, fontSize: 24 },
       },
     ],
   }, { cwd }));

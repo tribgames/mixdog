@@ -3,7 +3,7 @@ import { officeDesignCatalog } from './design/design-system.mjs';
 export const OFFICE_ACTIONS = Object.freeze([
   'detect', 'transactions', 'recover', 'describe', 'author', 'create', 'attach', 'open', 'secure',
   'begin', 'snapshot', 'get', 'query', 'batch', 'diff', 'commit', 'rollback',
-  'issues', 'qa', 'validate', 'render', 'preview', 'compile', 'save', 'finalize', 'close',
+  'issues', 'qa', 'validate', 'render', 'save', 'finalize', 'close',
 ]);
 
 const COMMON = {
@@ -87,7 +87,7 @@ const CATALOG = {
   pptx: {
     paths: ['/slide[N]', '/slide[N]/shape[N]'],
     operations: {
-      common: ['replace_text', 'fill_template', 'set_text', 'add_textbox', 'delete_shape', 'compose_slide', 'add_slide', 'delete_slide', 'move_slide', 'set_notes', 'add_image', 'add_shape', 'add_table', 'set_shape', 'set_slide_background', 'import_slides', 'replace_image', 'set_table_data', 'fit_text', 'add_chart', 'set_chart_data', 'duplicate_slide', 'z_order', 'align_shapes', 'distribute_shapes', 'keep_slides', 'set_hyperlink', 'add_provenance', 'set_layout', 'crop_image', 'set_transition', 'set_footer', 'set_slide_number', 'set_chart_axis', 'set_chart_data_labels', 'group_shapes', 'ungroup_shape', 'set_chart_trendline', 'set_chart_error_bars', 'set_chart_series', 'add_comment', 'delete_comment', 'apply_theme', 'add_media', 'add_animation'],
+      common: ['replace_text', 'fill_template', 'set_text', 'add_textbox', 'delete_shape', 'add_slide', 'delete_slide', 'move_slide', 'set_notes', 'add_image', 'add_shape', 'add_table', 'set_shape', 'set_slide_background', 'import_slides', 'replace_image', 'set_table_data', 'fit_text', 'add_chart', 'set_chart_data', 'duplicate_slide', 'z_order', 'align_shapes', 'distribute_shapes', 'keep_slides', 'set_hyperlink', 'add_provenance', 'set_layout', 'crop_image', 'set_transition', 'set_footer', 'set_slide_number', 'set_chart_axis', 'set_chart_data_labels', 'group_shapes', 'ungroup_shape', 'set_chart_trendline', 'set_chart_error_bars', 'set_chart_series', 'add_comment', 'delete_comment', 'apply_theme', 'add_media', 'add_animation'],
       office: [],
       portable: [],
     },
@@ -128,7 +128,7 @@ const CATALOG = {
 };
 
 const BACKENDS = new Set(['microsoft-office-com', 'mixdog-ooxml', 'mixdog-tabular', 'mixdog-pdf']);
-const VIRTUAL_OPERATIONS = new Set(['compose_document', 'compose_sheet', 'compose_slide']);
+const VIRTUAL_OPERATIONS = new Set(['compose_document', 'compose_sheet']);
 
 function signature(required = [], optional = [], {
   oneOf = [],
@@ -251,10 +251,6 @@ const FORMAT_SIGNATURES = {
     add_provenance: signature(['cell', 'source'], ['sheet'], { propertySets: ['provenance'] }),
   },
   pptx: {
-    compose_slide: signature(['kind'], ['claimId', 'purpose', 'expressionMode', 'title', 'subtitle', 'takeaway', 'eyebrow', 'body', 'bullets', 'metrics', 'columns', 'steps', 'allocations', 'annotations', 'gates', 'actions', 'chart', 'table', 'image', 'imagePath', 'visualText', 'visualLabel', 'allocationLabel', 'allocationNumberFormat', 'meta', 'notes', 'source', 'background', 'backgroundRole', 'slideRole', 'plan', 'create', 'slide', 'layoutId', 'variant', 'titleSize'], {
-      propertySets: ['design'],
-      notes: 'Creative Director synthesizes missing scratch plans. Explicit plan.authoredScene compiles up to 96 native text/shape/line/image/chart/table elements; plan.regions remains the semantic fallback. Invalid explicit plans fail; templates run only when requested. Scene discipline: style.fontRole display|body|data only (no font names); style.colorRole/fillRole/lineRole from the palette (canvas, ink, muted, accent, accent2, surface, surface2, inverse, inverse2, onAccent, onInverse; no free hex); at most 3 families and 2 saturated hue families per slide; text contrast >= 4.5:1 (3:1 from 24pt) against its field; content scenes fill at least two of three horizontal bands; evidence images are framed automatically and bleed images under text receive a scrim.',
-    }),
     set_text: signature(['slide', 'shape', 'text']),
     add_textbox: signature(['slide', 'text'], ['paragraphs', 'left', 'top', 'width', 'height', 'fontName', 'fontSize', 'color', 'name', 'properties'], { propertySets: ['shape', 'authoring'] }),
     delete_shape: signature(['slide', 'shape']),

@@ -152,7 +152,6 @@ export async function qa(session, args, cwd) {
         ...(session.designRequest || {}),
         ...(session.format === 'pptx' ? {
           slidePlans: reviewSlidePlans,
-          freeformSelection: session.designState?.freeformSelection || null,
           ...(session.authoredBrief ? { brief: session.authoredBrief } : {}),
         } : {}),
         compositions: session.designState?.compositions || [],
@@ -343,10 +342,6 @@ export async function render(session, args, cwd) {
   };
   session.designState ||= { renderedVersion: null, semanticCount: 0, requiresVisualReview: false };
   session.designState.renderedVersion = Number(session.snapshotVersion || 0);
-  if (session.designState.freeformSelection) {
-    session.designState.freeformSelection.renderedAfterCompile = true;
-    session.designState.freeformSelection.renderedVersion = session.designState.renderedVersion;
-  }
   result.reviewToken = `${session.id}:${session.designState.renderedVersion}`;
   return result;
 }

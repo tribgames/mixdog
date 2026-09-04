@@ -170,7 +170,7 @@ export function finalizeOfficeResult(value, {
     ? 'create'
     : action === 'render'
       ? 'render'
-      : ['batch', 'compile', 'commit', 'rollback', 'save', 'secure', 'finalize'].includes(action)
+      : ['batch', 'commit', 'rollback', 'save', 'secure', 'finalize'].includes(action)
         ? 'edit'
         : '';
   const artifactPath = action === 'render'

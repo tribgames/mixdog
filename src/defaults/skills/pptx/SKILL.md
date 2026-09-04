@@ -29,7 +29,7 @@ The model designs; the runtime measures. Every slide is composed by the author f
    **Default — the art director reads the sheet, not the slides**: before the fix list, look only at the contact sheet and `deck.rhythm` and write one line per slide naming the single move that would most improve it as a page in this sequence (a title that could sit low or inside the field, a stray column, a quadrant that reads as leftover, two adjacent slides with the same move, a density line that never dips). The observations are numbers, not verdicts: `quadrantAir` 0.9 in one corner beside 0.1 elsewhere is a fact to weigh against the plan line, and a breathing slide is meant to read that way. Make at most the two moves that change the reading; the rest are noted, not chased.
    **Hard rule — the loop converges**: each loop fixes every Hard hit and at most two Soft hits; a re-author that introduces a new Hard hit is reverted to the previous script; a defect that survives two loops is reported with the deck, not hidden by a third pass of taste edits. → manual
 8. `office action:'finalize' session:<id> design:{ reviewed:true, reviewToken, critique:[...] }` — validates the package, saves, closes.
-9. `compose_slide` and the other `batch` operations edit decks that already exist (§7); a new deck is always authored as a script.
+9. The `batch` slide and shape operations edit decks that already exist (§7); a new deck is always authored as a script, and a new page in an existing deck is a duplicated source page, never a runtime-composed one.
 
 ## 3. Brief (contract)
 ```

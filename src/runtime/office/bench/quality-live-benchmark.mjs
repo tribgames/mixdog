@@ -382,190 +382,6 @@ async function createDocument(directory, content) {
   return { path, created: created.value, qa: qa.value, validation: validation.value, images };
 }
 
-async function createPresentation(directory, content) {
-  const path = join(directory, '03-executive-deck.pptx');
-  const designRequest = {
-    ...design(content, 'executive', 'decide'),
-    deck: {
-      backgroundMode: 'sandwich',
-      templateMode: 'scratch',
-      compositionMode: 'model',
-      requireSlidePlan: true,
-    },
-  };
-  const operations = [
-    {
-      op: 'compose_slide',
-      kind: 'cover',
-      title: '7월 실적은 성장 투자의 여력을 증명했습니다',
-      subtitle: '이제 성장과 고객 유지에 각각 0.9억원을 배분할 결정이 필요합니다',
-      eyebrow: 'JULY EXECUTIVE REVIEW',
-      meta: ['2026년 7월', '경영회의'],
-      visualText: '1.8억',
-      visualLabel: 'DECISION SIZE',
-      source: '01-dashboard.xlsx#Dashboard',
-    },
-    {
-      op: 'compose_slide',
-      kind: 'statement',
-      claimId: 'growth-case',
-      title: '매출 5,660백만원이 성장 투자의 여력을 만들었습니다',
-      subtitle: '영업이익 802백만원 · 영업이익률 14.2%',
-      metrics: [
-        { factId: 'revenue' },
-        { factId: 'operating-profit' },
-        { factId: 'operating-margin' },
-      ],
-    },
-    {
-      op: 'compose_slide',
-      kind: 'chart',
-      claimId: 'growth-case',
-      title: '매출과 수익성이 3개월 연속 함께 개선됐습니다',
-      body: ['7월 매출 5,660백만원', '7월 영업이익 802백만원', '영업이익률 14.2%'],
-      chart: {
-        type: 'column',
-        title: '월별 매출(백만원)',
-        categories: ['5월', '6월', '7월'],
-        series: [{ name: '매출', values: [5000, 5300, 5660] }],
-        showValues: true,
-        showLegend: false,
-        valueNumberFormat: '#,##0',
-      },
-      annotations: [
-        { label: '7월 매출', value: 5660, numberFormat: '#,##0', note: '전월 대비 +6.8%' },
-        { label: '영업이익', value: 802, numberFormat: '#,##0', note: '3개월 연속 개선' },
-        { label: '영업이익률', value: '14.2%', note: '투자 gate 13.5% 상회' },
-      ],
-    },
-    {
-      op: 'compose_slide',
-      kind: 'table',
-      claimId: 'retention-risk',
-      title: '성장과 고객 유지 중 하나를 포기할 이유가 없습니다',
-      subtitle: '두 트랙은 서로 다른 위험을 줄입니다',
-      allocations: [
-        { label: '성장 가속', value: 90, displayValue: '0.9억', numberFormat: '#,##0', detail: 'Release ≥ 영업이익률 13.5% · Stop < 13.5%' },
-        { label: '고객 유지', value: 90, displayValue: '0.9억', numberFormat: '#,##0', detail: 'Release ≤ 이탈률 2.4% 경로 · Stop < NPS 52' },
-      ],
-      visualText: '1.8억',
-      allocationLabel: 'TWO-TRACK INVESTMENT',
-    },
-    {
-      op: 'compose_slide',
-      kind: 'process',
-      title: '30일 안에 두 트랙의 성과를 다시 판정합니다',
-      steps: [
-        { phase: 'D1', title: 'Owner 확정', detail: '채널·cohort별 책임 지정' },
-        { phase: 'D7', title: 'Leading 지표', detail: '전환·이탈 조기 점검' },
-        { phase: 'D14', title: '재배분', detail: '저효율 집행 중단' },
-        { phase: 'D30', title: 'Gate 판정', detail: '월말 release / stop' },
-      ],
-      source: '02-decision-brief.docx#4. 30일 실행계획',
-    },
-    {
-      op: 'compose_slide',
-      kind: 'closing',
-      claimId: 'investment-decision',
-      title: '오늘 두 트랙에 총 1.8억원 투자를 승인해 주십시오',
-      subtitle: '성장 0.9억원 · 고객 유지 0.9억원 · 월말 gate 재판정',
-      visualText: '1.8억',
-      visualLabel: '승인 요청',
-      allocations: [
-        { label: '성장', value: 90, displayValue: '0.9억', numberFormat: '#,##0' },
-        { label: '고객 유지', value: 90, displayValue: '0.9억', numberFormat: '#,##0' },
-      ],
-    },
-  ];
-  const created = await office({
-    action: 'create',
-    path,
-    format: 'pptx',
-    mode: 'background',
-    design: designRequest,
-    operations,
-  }, directory, 'create presentation');
-  const validation = await office({
-    action: 'validate',
-    session: created.value.session,
-    auditProfile: 'model-backed-deck',
-  }, directory, 'validate presentation');
-  await office({ action: 'close', session: created.value.session }, directory, 'close presentation');
-  const { qa, images } = await reviewPersisted({
-    path,
-    format: 'pptx',
-    directory,
-    output: join(directory, '03-executive-deck-preview.pdf'),
-    prefix: '03-executive-deck-preview',
-    task: '7월 경영회의 6장 발표',
-    auditProfile: 'model-backed-deck',
-    design: persistedReviewDesign(created.value, designRequest),
-  });
-  const categorySpacing = evaluatePowerPointCategorySpacing(
-    await extractPdfTextLayout(qa.value.preview.output, { pages: [3] }),
-    ['5월', '6월', '7월'],
-  );
-  assert.equal(categorySpacing.ok, true, JSON.stringify(categorySpacing));
-  return {
-    path,
-    created: created.value,
-    qa: qa.value,
-    validation: validation.value,
-    images,
-    categorySpacing,
-  };
-}
-
-function compactResult(entry) {
-  const issues = entry.qa.issuesAfter || [];
-  const postSaveBlocking = Array.isArray(entry.validation.postSaveGate?.blocking)
-    ? entry.validation.postSaveGate.blocking
-    : [];
-  const criticalIssues = [
-    ...issues.filter((issue) => issue.severity === 'error').map((issue) => issue.code),
-    ...postSaveBlocking.filter((issue) => issue.severity === 'error').map((issue) => issue.code),
-  ];
-  const semantic = entry.created?.batch?.semanticOperations || entry.created?.semanticOperations || [];
-  const adaptiveLayouts = semantic
-    .filter((item) => item?.plan?.sourceContract === 'adaptive-tournament-fallback')
-    .map((item) => ({
-      slide: Number(item.slide) || 0,
-      visualType: item.plan.visualType,
-      variant: item.plan.variant,
-      candidateCount: Number(item.plan.tournament?.candidateCount) || 0,
-      score: item.plan.tournament?.score ?? null,
-      metrics: item.plan.tournament?.metrics || null,
-      referenceGenome: item.plan.referenceGenome?.id || '',
-      assetKind: item.plan.assetIntent?.kind || '',
-    }));
-  return {
-    path: entry.path,
-    images: entry.images,
-    pageCount: entry.qa.preview?.pageCount || 0,
-    qaOk: entry.qa.ok,
-    aestheticOk: entry.qa.review?.render?.aesthetics?.ok !== false,
-    aestheticScore: entry.qa.review?.render?.aesthetics?.score ?? null,
-    aestheticDimensions: entry.qa.review?.render?.aesthetics?.dimensions ?? null,
-    aestheticRhythm: entry.qa.review?.render?.aesthetics?.rhythm ?? null,
-    qualityScore: entry.qa.review?.quality?.score ?? null,
-    qualityDimensions: entry.qa.review?.quality?.dimensions ?? null,
-    qualityConfidence: entry.qa.review?.quality?.confidence ?? null,
-    validationOk: entry.validation.ok,
-    issueCodes: issues.map((issue) => issue.code),
-    criticalIssues: [...new Set(criticalIssues)],
-    contentFingerprint: entry.created.batch?.content?.fingerprint
-      || entry.created.batch?.design?.content?.fingerprint
-      || entry.created.design?.content?.fingerprint
-      || '',
-    backgroundIsolation: entry.created.batch?.backgroundIsolation
-      || entry.created.backgroundIsolation
-      || null,
-    postSaveGate: entry.validation.postSaveGate,
-    ...(adaptiveLayouts.length ? { adaptiveLayouts } : {}),
-    ...(entry.categorySpacing ? { categorySpacing: entry.categorySpacing } : {}),
-  };
-}
-
 export async function runOfficeQualityLiveBenchmark({ output = '' } = {}) {
   if (process.platform !== 'win32') throw new Error('Office quality live benchmark requires Windows and Microsoft Office');
   const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
@@ -576,27 +392,18 @@ export async function runOfficeQualityLiveBenchmark({ output = '' } = {}) {
   try {
     results.xlsx = compactResult(await createWorkbook(directory, content));
     results.docx = compactResult(await createDocument(directory, content));
-    results.pptx = compactResult(await createPresentation(directory, content));
+    // Decks are authored as scripts through the pptx skill; the kit slow test covers them.
   } finally {
     resetOfficeSessionsForTest();
   }
   const fingerprints = Object.values(results).map((entry) => entry.contentFingerprint).filter(Boolean);
-  const crossAppConsistent = fingerprints.length === 3 && new Set(fingerprints).size === 1;
+  const crossAppConsistent = fingerprints.length === 2 && new Set(fingerprints).size === 1;
   const criticalCount = Object.values(results).reduce((total, entry) => total + entry.criticalIssues.length, 0);
-  const pptxQualityTarget = {
-    aestheticMinimum: 0.78,
-    qualityMinimum: 0.84,
-    adaptiveLayoutMinimum: 6,
-    met: Number(results.pptx?.aestheticScore) >= 0.78
-      && Number(results.pptx?.qualityScore) >= 0.84
-      && (results.pptx?.adaptiveLayouts || []).length >= 6
-      && (results.pptx?.adaptiveLayouts || []).every((entry) => entry.candidateCount >= 3),
-  };
   const report = {
     version: 1,
     createdAt: new Date().toISOString(),
     directory,
-    request: '7월 경영회의용 Excel 대시보드, Word 의사결정 브리프, PowerPoint 6장을 같은 데이터에서 생성',
+    request: '7월 경영회의용 Excel 대시보드와 Word 의사결정 브리프를 같은 데이터에서 생성',
     content: {
       packageId: content.packageId,
       decision: content.decision,
@@ -604,12 +411,8 @@ export async function runOfficeQualityLiveBenchmark({ output = '' } = {}) {
     },
     crossAppConsistent,
     criticalCount,
-    qualityTargets: {
-      pptx: pptxQualityTarget,
-    },
     automatedPass: crossAppConsistent
       && criticalCount === 0
-      && pptxQualityTarget.met
       && Object.values(results).every((entry) => (
         entry.qaOk
         && entry.aestheticOk

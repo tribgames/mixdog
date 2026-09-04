@@ -9,7 +9,6 @@ import { resolveOfficeDesign } from './design/design-system.mjs';
 import { inspectOfficeDesignLibrary, persistOfficeDesignBinding } from './design/library/design-library.mjs';
 import { applyBatch, closeSession, finalize, issues, qa, render, save, validate } from './core/office-actions.mjs';
 import { authorPptx } from './authoring/pptx-author-action.mjs';
-import { compilePptxCandidate, previewPptxCandidates, resetOfficeCandidatePreviewsForTest } from './core/office-candidate-actions.mjs';
 import { FILE_KIND_TO_FORMAT, OfficeConflictError, documentFormat, documentSessionKey, documentSessions, finalizeOfficeResult, isMicrosoftOfficeSession, mergeOfficeDesignRequest, normalizeOfficeFormat, resolveOfficeDesignContext, sessions, toolResult } from './core/office-core.mjs';
 import { createSession, findByDocumentPath, fullPath, openSession, queryObject, resolveSession, selectMode, snapshot, snapshotSelectionForTarget } from './core/office-sessions.mjs';
 import { assertTransactionUnchanged, beginTransaction, commitTransaction, pendingOfficeTransactions, recoverOfficeTransaction, rollbackTransaction, transactionDocumentDiff, transactionView } from './core/office-transactions.mjs';
@@ -318,11 +317,6 @@ export async function executeOfficeTool(args = {}, {
     else if (action === 'qa') value = await qa(session, args, cwd);
     else if (action === 'validate') value = await validate(session, args);
     else if (action === 'render') value = await render(session, args, cwd);
-    else if (action === 'preview') value = await previewPptxCandidates(session, args, cwd, dataDir, signal);
-    else if (action === 'compile') {
-      if (args.finalize === true) throw new Error('compile does not support finalize:true; render and visually review the compiled deck first');
-      value = await compilePptxCandidate(session, args, cwd);
-    }
     else if (action === 'save') value = await save(session);
     else if (action === 'finalize') value = await finalize(session, args, cwd, signal);
     else if (action === 'close') value = await closeSession(session, { save: args.save === true, signal });
@@ -354,7 +348,6 @@ export async function executeOfficeTool(args = {}, {
 
 export function resetOfficeSessionsForTest() {
   resetMicrosoftOfficeSessionsForTest();
-  resetOfficeCandidatePreviewsForTest();
   sessions.clear();
   documentSessions.clear();
 }

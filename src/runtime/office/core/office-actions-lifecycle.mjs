@@ -76,19 +76,6 @@ export async function finalize(session, args, cwd, signal) {
   const failOn = String(args.failOn || (session.created && !authored ? 'warning' : 'error')).toLowerCase();
   const requiresVisualReview = session.format === 'pptx'
     && session.designState?.requiresVisualReview === true;
-  const requiresFreeformCompile = session.format === 'pptx'
-    && session.designRequest?.freeform?.required === true;
-  if (requiresFreeformCompile && !session.designState?.freeformSelection) {
-    return {
-      ok: false,
-      finalized: false,
-      session: session.id,
-      reason: 'freeform_compile_required',
-      failOn,
-      stepMetrics,
-      nextAction: 'Preview at least three reference-assisted free-form candidate boards, visually compare them, and compile one selected candidate before finalizing.',
-    };
-  }
   const recalculation = session.backend === 'mixdog-ooxml' && session.format === 'xlsx'
     ? await timedStep('recalculation', async () => await recalculateLibreOfficeWorkbook(session.target, {
         force: Number(session.snapshotVersion || 0) > 0,

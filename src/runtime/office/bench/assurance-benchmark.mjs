@@ -152,58 +152,6 @@ async function koreanLocaleSecurity() {
   };
 }
 
-async function sampleSlideSelection() {
-  const layout = (id, density, metricGroups) => ({
-    id,
-    format: 'pptx',
-    kind: 'metrics',
-    density,
-    variant: 'native',
-    templatePath: 'brand-kit.pptx',
-    sourceSlide: metricGroups,
-    slots: Array.from({ length: metricGroups }, (_, index) => ([
-      { role: `metric-value-${index + 1}`, type: 'text', shape: index * 2 + 1 },
-      { role: `metric-label-${index + 1}`, type: 'text', shape: index * 2 + 2 },
-    ])).flat(),
-    capacity: { metricGroups, textSlots: metricGroups * 2 },
-    capabilities: [],
-    priority: 0,
-    defaults: {},
-  });
-  const expanded = expandOfficeDesignOperations({
-    format: 'pptx',
-    backend: 'microsoft-office-com',
-    created: true,
-    design: {
-      density: 'dense',
-      deck: { templateMode: 'strict' },
-    },
-    library: {
-      source: 'local-template',
-      layouts: [
-        layout('one-metric', 'light', 1),
-        layout('three-metrics', 'dense', 3),
-      ],
-    },
-    operations: [{
-      op: 'compose_slide',
-      kind: 'metrics',
-      title: '핵심 지표',
-      metrics: [
-        { label: '매출', value: '120' },
-        { label: '이익', value: '30' },
-        { label: '고객', value: '420' },
-      ],
-    }],
-  });
-  return {
-    category: 'sample-slide-brand-kit',
-    passed: expanded.semantic[0].layout === 'three-metrics'
-      && expanded.semantic[0].selection.fit.available.metrics === 3,
-    evidence: expanded.semantic[0].selection,
-  };
-}
-
 async function contentModelCrossApp() {
   const content = {
     packageId: 'monthly-review',
@@ -242,21 +190,6 @@ async function contentModelCrossApp() {
         metrics: [{ factId: 'revenue' }],
       },
     },
-    {
-      format: 'pptx',
-      operation: {
-        op: 'compose_slide',
-        kind: 'statement',
-        claimId: 'growth',
-        metrics: [{ factId: 'revenue' }],
-        plan: {
-          regions: [
-            { id: 'message', role: 'title', x: 7, y: 18, w: 56, h: 28 },
-            { id: 'evidence', role: 'metric', x: 70, y: 24, w: 22, h: 40 },
-          ],
-        },
-      },
-    },
   ].map(({ format, operation }) => expandOfficeDesignOperations({
     format,
     backend: 'microsoft-office-com',
@@ -291,39 +224,15 @@ async function semanticDeliverableQuality() {
       chart: { title: 'Revenue trend' },
     }],
   });
-  const deck = expandOfficeDesignOperations({
-    format: 'pptx',
-    backend: 'microsoft-office-com',
-    created: true,
-    operations: [{
-      op: 'compose_slide',
-      kind: 'chart',
-      title: 'Revenue growth supports the investment',
-      chart: {
-        categories: ['May', 'June', 'July'],
-        series: [{ name: 'Revenue', values: [5000, 5300, 5660] }],
-      },
-      source: 'model.xlsx#Raw!B6:B8',
-      plan: {
-        regions: [
-          { id: 'message', role: 'title', x: 6, y: 7, w: 88, h: 16 },
-          { id: 'evidence', role: 'chart', x: 6, y: 30, w: 88, h: 60 },
-        ],
-      },
-    }],
-  });
   const workbookChartRange = workbook.operations.find((entry) => entry.op === 'add_chart')?.range || '';
   const workbookDataRange = workbook.operations.find((entry) => entry.op === 'set_range')?.range || '';
   return {
     category: 'semantic-deliverable-quality',
     passed: workbook.operations.some((entry) => entry.op === 'set_page_setup')
       && workbook.operations.some((entry) => entry.op === 'set_sheet_view')
-      && workbookChartRange !== workbookDataRange
-      && deck.operations.some((entry) => entry.op === 'add_chart' && entry.series.length === 1)
-      && deck.operations.some((entry) => entry.op === 'set_notes' && /Source:/.test(entry.text)),
+      && workbookChartRange !== workbookDataRange,
     evidence: {
       workbookOperations: workbook.operations.map((entry) => entry.op),
-      slideOperations: deck.operations.map((entry) => entry.op),
     },
   };
 }
@@ -477,7 +386,6 @@ export async function runOfficeAssuranceBenchmark() {
     docRewardRenderPreference(),
     officeBenchCrossApp(),
     koreanLocaleSecurity(),
-    sampleSlideSelection(),
     contentModelCrossApp(),
     semanticDeliverableQuality(),
     postSaveReleaseGate(),

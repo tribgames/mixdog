@@ -1,8 +1,10 @@
 // The model's own visual critique of a rendered deck (five axes, a note, and
 // plan-derived checks per slide) and the acknowledgement gate finalize reads.
-import { PPTX_CRITIQUE_AXES } from '../design/pptx/design-pptx.mjs';
 import { strings } from '../design/design-tokens.mjs';
 import { plainObject } from '../shared/values.mjs';
+
+// The five axes a slide is scored on (1-5 each); the pptx skill §6 names them.
+export const PPTX_CRITIQUE_AXES = Object.freeze(['hierarchy', 'balance', 'legibility', 'cohesion', 'evidence']);
 
 // Instance-specific checks: binary questions derived from the slide's own
 // plan line ("the chart's accent bar is the category the title names"),

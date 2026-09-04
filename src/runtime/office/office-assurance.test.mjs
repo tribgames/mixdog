@@ -449,31 +449,13 @@ test('one content model binds the same sourced facts across Word, Excel, and Pow
       metrics: [{ factId: 'revenue' }],
     }],
   });
-  const powerpoint = expandOfficeDesignOperations({
-    format: 'pptx',
-    backend: 'microsoft-office-com',
-    created: true,
-    design: { content },
-    operations: [{
-      op: 'compose_slide',
-      kind: 'statement',
-      claimId: 'growth',
-      metrics: [{ factId: 'revenue' }],
-      plan: {
-        regions: [
-          { id: 'message', role: 'title', x: 7, y: 18, w: 56, h: 28 },
-          { id: 'evidence', role: 'metric', x: 70, y: 24, w: 22, h: 40 },
-        ],
-      },
-    }],
-  });
-  const fingerprints = [word, excel, powerpoint].map((entry) => entry.content.fingerprint);
+  // Decks are authored as scripts (pptx skill), so the content model binds the two composed formats.
+  const fingerprints = [word, excel].map((entry) => entry.content.fingerprint);
   assert.equal(new Set(fingerprints).size, 1);
   assert.ok(excel.operations.some((entry) => entry.op === 'set_cell' && entry.value === '7월 실적'));
   assert.equal(excel.operations.find((entry) => entry.op === 'set_cell' && entry.cell === 'A1')?.value, 'EXECUTIVE DECISION DASHBOARD');
   assert.ok(excel.operations.some((entry) => entry.op === 'set_cell' && entry.value === 5660));
-  assert.deepEqual(powerpoint.semantic[0].contentBinding.factIds, ['revenue']);
-  assert.ok(powerpoint.operations.some((entry) => entry.op === 'set_notes' && /Raw!B8/.test(entry.text)));
+  assert.deepEqual(word.semantic[0].contentBinding.factIds, ['revenue']);
 });
 
 test('semantic composers emit editorial rhythm, dashboard print setup, and native evidence slides', () => {
@@ -540,36 +522,13 @@ test('semantic composers emit editorial rhythm, dashboard print setup, and nativ
   assert.ok(chart.height >= 420);
   assert.doesNotMatch(chart.range, /12$/);
 
-  const deck = expandOfficeDesignOperations({
+  // A deck is never composed by the runtime: the operation is refused with the authoring route.
+  assert.throws(() => expandOfficeDesignOperations({
     format: 'pptx',
     backend: 'microsoft-office-com',
     created: true,
-    operations: [{
-      op: 'compose_slide',
-      kind: 'chart',
-      title: '매출 성장세가 계획을 앞서며 하반기 투자 여력을 확보했습니다',
-      body: ['7월 실적은 계획을 상회했습니다.'],
-      chart: {
-        type: 'column',
-        categories: ['5월', '6월', '7월'],
-        series: [{ name: '매출', values: [5000, 5300, 5660] }],
-      },
-      source: '실적원장.xlsx#Raw!B6:B8',
-      plan: {
-        regions: [
-          { id: 'message', role: 'title', x: 6, y: 7, w: 88, h: 16 },
-          { id: 'support', role: 'body', x: 6, y: 32, w: 25, h: 42 },
-          { id: 'evidence', role: 'chart', x: 37, y: 29, w: 57, h: 62 },
-        ],
-      },
-    }],
-  });
-  const nativeChart = deck.operations.find((entry) => entry.op === 'add_chart');
-  assert.equal(nativeChart.series.length, 1);
-  assert.ok(deck.operations.some((entry) => entry.op === 'set_notes' && /Source:/.test(entry.text)));
-  const title = deck.operations.find((entry) => entry.op === 'add_textbox' && /매출 성장세/.test(entry.text));
-  assert.ok(title.properties.fontSize <= 36, 'a long title takes the largest size its region holds, never more than the 36pt anchor');
-  assert.ok(title.properties.fontSize * 1.2 * 2 <= title.properties.height + 1, 'two wrapped lines still fit the title region');
+    operations: [{ op: 'compose_slide', kind: 'chart', title: '매출' }],
+  }), /action:author/);
 });
 
 test('task checklist blocks pending manual requirements and reports deterministic format gates', () => {
@@ -634,7 +593,7 @@ test('formula-consistency assertions honor the requested range', () => {
 
 test('Office assurance benchmark covers spreadsheet, slide, document, cross-app, locale, and Brand kit gates', async () => {
   const report = await runOfficeAssuranceBenchmark();
-  assert.equal(report.categories, 11);
+  assert.equal(report.categories, 10);
   assert.equal(report.failed, 0, JSON.stringify(report, null, 2));
   assert.equal(report.passRate, 1);
 });
