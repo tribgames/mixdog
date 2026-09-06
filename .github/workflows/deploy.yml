@@ -463,7 +463,9 @@ jobs:
             // Fold recovery notes into that version instead of leaving already
             // shipped fixes in Unreleased after the draft is published.
             text = text.replace(unreleasedPattern, '## Unreleased\n\n');
-            text = text.replace(versionHeading, `${versionHeading}\n\n${unreleasedBody}`);
+            // The heading line carries its date: keep the whole line and fold below it.
+            const escaped = versionHeading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            text = text.replace(new RegExp(`^${escaped}[^\\n]*$`, 'm'), (heading) => `${heading}\n\n${unreleasedBody}`);
             writeFileSync('CHANGELOG.md', text);
           }
           NODE
