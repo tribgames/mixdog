@@ -6,21 +6,31 @@ Owns the code: primitives that draw what `composition.md` names, sized with `MEA
 
 **Hard rule — paragraph options sit on the first run**: the runtime keeps one `a:pPr` per paragraph (the first). `bullet`, `align`, `paraSpaceAfter`, `lineSpacingMultiple` go on the text box or on a paragraph's first run; `breakLine: true` on a paragraph's last run. → runtime (absorbed: the normalizer keeps the first `pPr`; nothing to check)
 
-## 1. Tokens, palette, type, masters
+## 1. Tokens, palette, type, specs, masters
 ```js
 const pptxgen = require('pptxgenjs');
 const sharp = require('sharp');
 const pres = new pptxgen();
 pres.layout = 'LAYOUT_WIDE';
-const W = 13.33, H = 7.5, M = 0.6;            // canvas + outer margin (inches); safe area x M..W-M, y M..H-M
+const W = 13.33, H = 7.5;                       // canvas (inches)
 const S = pres.ShapeType;                      // camelCase presets: S.chevron, S.blockArc, S.round1Rect, S.leftBrace, S.wedgeRectCallout, S.custGeom
 const box = (x, y, w, h) => ({ x, y, w, h });
 const PX = 160;                                 // raster density: inches × PX = pixels (≥ 2× placed size)
-// Spacing anchors (composition.md §6): one set per deck, like the palette and the type scale. Every gap in a
-// script is one of these or a measured result; a literal inch that is neither is the drift a reader feels.
-const GAP = { within: 0.12, between: 0.45 };   // two spacing steps: within binds (a thing and what belongs to it), between separates (peers, blocks)
-const GUTTER = 0.4;                             // the one column gap: spans(), splitAt(), the deck seam, small multiples
-const PAD = 0.25;                               // the one inset from a field, card, callout, or plane edge to its content
+// Spacing ladder (composition.md §6): five rungs, decided once per deck like the palette and the type scale. Every
+// distance in a script is a relation named on the ladder or a measured result; a literal inch that is neither is
+// the drift a reader feels.
+const SPACE = { hair: 0.06, tight: 0.12, snug: 0.25, gap: 0.45, wide: 0.6 };
+// Relations on the ladder — a script names the relation, never the number:
+//   GAP.bind     a numeral over its own label, a kicker over its title — the one sub-within case
+//   GAP.within   a thing and what belongs to it: a heading over its paragraph, an icon over its label
+//   GAP.between  peers and blocks: stats in a band, stages under a run, a figure and its takeaway
+//   GUTTER       the one column gap: spans(), splitAt(), the deck seam, small multiples
+//   PAD          the one inset from a field, card, callout, or plane edge to its content
+//   M            the page margin; safe area x M..W-M, y M..H-M
+const GAP = { bind: SPACE.hair, within: SPACE.tight, between: SPACE.gap };
+const GUTTER = SPACE.gap;
+const PAD = SPACE.snug;
+const M = SPACE.wide;
 const RADIUS = 0.08;                            // the one corner radius for lifted or rounded fields
 // inner: the content box of a region after the inset — write inner(L) never L.x + 0.15.
 const inner = (r, pad = PAD) => ({ x: r.x + pad, y: (r.y ?? 0) + pad, w: r.w - pad * 2, h: r.h != null ? r.h - pad * 2 : undefined });
@@ -54,18 +64,31 @@ function counterHue(h) {
   if (h >= 290 && h < 340) return (h + 65) % 360;
   return (h + 190) % 360;
 }
-// The ladder: neutrals within the seed hue, one saturated accent on the counter hue (the only saturated color), tinted extremes.
-// Guarantees: body and muted ≥ 4.5:1 on paper and paperAlt; white ≥ 3:1 on accent; accent ≥ 4.5:1 on paper (an emphasis run stays readable).
+// The ladder: neutrals within the seed hue, one saturated accent on the counter hue (the only saturated color on type and
+// fields), tinted extremes, three line strengths, and the four state colors.
+// Guarantees: body and muted ≥ 4.5:1 on paper and paperAlt; white ≥ 3:1 on accent; accent ≥ 4.5:1 on paper (an emphasis run
+// stays readable); every state text ≥ 4.5:1 on paper, paperAlt, and its own weak field; every state solid ≥ 3:1 on paper.
 function palette({ hue = 205, accentHue = counterHue(hue), accentSat = 0.72, accentLight = 0.42 } = {}) {
   const paper = hsl(hue, 0.25, 0.975), paperAlt = hsl(hue, 0.18, 0.92), tint = hsl(accentHue, 0.35, 0.89), dark = hsl(hue, 0.42, 0.10);
   const accent = darkenUntil(accentHue, accentSat, accentLight, ['FFFFFF', paper, tint], 4.5);
+  // State colors (direction.md §5): four fixed meanings on fixed hues, each in three forms — `solid` fills a mark (a dot,
+  // a delta, a bar; never under type), `weak` is the field under a state word (a verdict cell, a badge, a callout), `text`
+  // is the word itself on paper, paperAlt, or weak. The text form is dark and restrained (S 0.30) so the deck's one
+  // saturated hue on type stays the accent; the saturated form is the mark. A state's word or glyph always accompanies it.
+  const state = Object.fromEntries(Object.entries({ positive: 150, warning: 40, critical: 5, informative: 215 }).map(([name, h]) => {
+    const weak = hsl(h, 0.45, 0.92);
+    return [name, { solid: darkenUntil(h, 0.65, 0.48, [paper], 3), weak, text: darkenUntil(h, 0.30, 0.34, [paper, paperAlt, weak], 4.5) }];
+  }));
   return {
     ink: hsl(hue, 0.30, 0.13), body: darkenUntil(hue, 0.22, 0.30, [paperAlt], 7), muted: darkenUntil(hue, 0.12, 0.45, [paperAlt, tint], 4.5),
-    line: hsl(hue, 0.16, 0.86), paper, paperAlt, tint,
+    // Three line strengths (composition.md §6): subtle between repeated items, line at a section boundary, strong as an outline that owns a region.
+    lineSubtle: hsl(hue, 0.14, 0.91), line: hsl(hue, 0.16, 0.86), lineStrong: hsl(hue, 0.18, 0.72),
+    paper, paperAlt, tint,
     dark, darkAlt: hsl(hue, 0.34, 0.17),
     onDark: hsl(hue, 0.20, 0.94), onDarkMuted: hsl(hue, 0.14, 0.72), onDarkAccent: hsl(accentHue, 0.62, 0.74),
     accent, accentDeep: darkenUntil(accentHue, accentSat, accentLight - 0.1, ['FFFFFF', paper], 6),
     onAccent: 'FFFFFF',                        // type on an accent surface; the only white in the ladder — scripts never write a hex literal
+    state,
   };
 }
 const T = { ...palette({ hue: 205 }), display: '', sans: '', light: '', data: '' };   // deck() seeds it from the brief; faces set by typography()
@@ -78,6 +101,7 @@ function typeScale(mode) {
   return {
     body: b, lead: Math.round(b * 1.2), caption: clamp(b * 0.7, 10.5, 16), kicker: clamp(b * 0.62, 10, 14),
     section: Math.round(b * 1.5), title: clamp(b * 2, 28, 44), cover: clamp(b * 2.6, 36, 56), hero: Math.round(b * 3.6),
+    stat: Math.round(b * 2.7),                 // the numeral of a band of peers (statBand): smaller than a hero because there are several
     poster: clamp(b * 5.5, 84, 132),           // the one display size past hero: a cover or closing numeral, a poster word
   };
 }
@@ -90,6 +114,7 @@ let DIAG = { label: TYPE.caption + 1, note: Math.max(9.5, TYPE.caption - 1.5) };
 const ROLES = {
   poster:  () => ({ size: TYPE.poster,  font: T.data,    bold: true,  color: T.ink,    lh: 1.0 }),
   hero:    () => ({ size: TYPE.hero,    font: T.data,    bold: true,  color: T.accent, lh: 1.0 }),
+  stat:    () => ({ size: TYPE.stat,    font: T.data,    bold: true,  color: T.accent, lh: 1.0 }),
   cover:   () => ({ size: TYPE.cover,   font: T.display, bold: true,  color: T.ink,    lh: 1.1 }),
   title:   () => ({ size: TYPE.title,   font: T.display, bold: true,  color: T.ink,    lh: 1.15 }),
   section: () => ({ size: TYPE.section, font: T.display, bold: true,  color: T.ink,    lh: 1.15 }),
@@ -103,6 +128,38 @@ const ROLES = {
   note:    () => ({ size: DIAG.note,    font: T.light,   bold: false, color: T.body,   lh: 1.35 }),
 };
 function role(name) { const r = ROLES[name]; if (!r) throw new Error(`role: unknown "${name}" — one of ${Object.keys(ROLES).join(', ')}`); return r(); }
+
+// Component specs (composition.md §9): a carrier's anatomy declared once — slots (what it is made of), variants (the
+// forms it comes in), definitions (the values every form takes, resolved against the current T, TYPE, and DIAG when a
+// helper draws). badge(), callout(), chevrons(), hero() / statBand(), and table() read their sizes, faces, fields, and
+// lines here instead of carrying literals, so the same carrier has the same anatomy on every slide; a deck that needs
+// a different one redefines the entry once (SPEC.badge.definitions = () => ({ ... })) before the slides, never per call.
+const SPEC = {
+  badge: { slots: ['field', 'label'], variants: { tone: ['neutral', 'accent', 'positive', 'warning', 'critical', 'informative'] },
+    definitions: () => ({ h: 0.32, radius: 0.5, size: TYPE.kicker, font: T.sans }) },
+  callout: { slots: ['field', 'text'], variants: { tone: ['neutral', 'positive', 'warning', 'critical', 'informative'], form: ['wedge', 'plain'] },
+    definitions: () => ({ size: DIAG.label, font: T.sans, width: 1, neutral: { fill: T.paper, color: T.body, line: T.lineStrong } }) },
+  chevrons: { slots: ['stage', 'label'], variants: { state: ['default', 'active'] },
+    definitions: () => ({ notch: 0.25, size: DIAG.label, font: T.sans, seam: T.paper, fill: { default: T.paperAlt, active: T.accent }, color: { default: T.body, active: T.onAccent } }) },
+  stat: { slots: ['value', 'unit', 'label', 'detail'], variants: { scale: ['hero', 'poster', 'band'] },
+    definitions: () => ({ size: { hero: TYPE.hero, poster: TYPE.poster, band: TYPE.stat }, unit: 0.4, color: T.accent, label: { size: TYPE.caption, color: T.muted }, detail: { role: 'caption', color: T.body } }) },
+  table: { slots: ['header', 'cell', 'verdict'], variants: { banding: ['plain', 'banded'], verdict: ['neutral', 'positive', 'warning', 'critical', 'informative'] },
+    definitions: () => ({ rowH: 0.55, size: TYPE.body, font: T.sans, margin: [0.10, 0.16, 0.10, 0.16], header: { fill: T.paperAlt, color: T.ink }, border: { type: 'solid', color: T.lineSubtle, pt: 0.5 } }) },
+};
+function spec(name) {
+  const s = SPEC[name];
+  if (!s) throw new Error(`spec: unknown "${name}" — one of ${Object.keys(SPEC).join(', ')}`);
+  return { slots: s.slots, variants: s.variants, ...s.definitions() };
+}
+// tone: the field + type pair a toned carrier takes — neutral ink on tint, accent white on the accent, a state its word
+// on its weak field (direction.md §5: the solid form never sits under type).
+function tone(name = 'neutral') {
+  if (name === 'neutral') return { fill: T.tint, color: T.ink };
+  if (name === 'accent') return { fill: T.accent, color: T.onAccent };
+  const s = T.state?.[name];
+  if (!s) throw new Error(`tone: unknown "${name}" — one of neutral, accent, ${Object.keys(T.state || {}).join(', ')}`);
+  return { fill: s.weak, color: s.text };
+}
 
 // Typography roles (direction.md §6). script: 'ko' | 'ja' | 'zh' | 'latin'; pairing: 'serif' | 'weight' | 'concord';
 // fonts: 'noto' (provisioned with the Office capability; the default) | 'safe' (Office system faces, when recipients lack Noto).
@@ -174,9 +231,22 @@ async function png(svg) {
   const buf = await sharp(Buffer.from(svg)).png().toBuffer();
   return 'image/png;base64,' + buf.toString('base64');
 }
-// Icon by name from the offline set (ICON is injected: 256 Lucide stroke icons — ICON.names lists them; an
-// unknown name throws with the nearest), or a 24-unit fill path of your own. Optionally inside a tinted disc.
-async function icon(slide, x, y, d, name, { tint = T.paperAlt, color = T.accent, disc = true, stroke = 2 } = {}) {
+// Icon by name from the offline set (ICON is injected: 256 Lucide stroke icons — ICON.names lists them; an unknown
+// name throws with the nearest), or a 24-unit fill path of your own. d: a size band — glyph 0.3 (inline with a text
+// line, a list prefix) · marker 0.45 (a stage or row mark) · disc 0.6 (an icon-led item in its tinted disc) · hero 1.0
+// (the one icon a page is about) — or a number, read as the band it fits (composition.md §9). The stroke follows the
+// band so a small icon does not close up and a large one does not thin out; the disc is the default from the disc band up.
+const ICON_SIZE = { glyph: 0.3, marker: 0.45, disc: 0.6, hero: 1.0 };
+const ICON_STROKE = { glyph: 2.5, marker: 2.25, disc: 2, hero: 1.5 };
+function iconBand(d) {
+  if (typeof d === 'string') { if (!(d in ICON_SIZE)) throw new Error(`icon: unknown size band "${d}" — one of ${Object.keys(ICON_SIZE).join(', ')}`); return d; }
+  return Object.keys(ICON_SIZE).find((band) => d <= ICON_SIZE[band] + 0.01) || 'hero';
+}
+async function icon(slide, x, y, d, name, { tint = T.paperAlt, color = T.accent, disc, stroke } = {}) {
+  const band = iconBand(d);
+  d = typeof d === 'string' ? ICON_SIZE[d] : d;
+  disc ??= band === 'disc' || band === 'hero';
+  stroke ??= ICON_STROKE[band];
   if (disc) slide.addShape(S.ellipse, { ...box(x, y, d, d), fill: { color: tint }, line: { color: tint } });
   const inset = disc ? 0.25 : 0, px = Math.round(d * (1 - inset * 2) * PX);
   const svg = /^[Mm]/.test(name)
@@ -321,11 +391,14 @@ function emphasis(slide, paragraphs, x, y, w, h, size = TYPE.lead, color = T.bod
   } })));
   slide.addText(wrapRuns(runs, w, size, font), { ...box(x, y, w + inset / 72, h), fontFace: font, fontSize: size, color, margin: [0, inset, 0, 0], valign: 'top', lineSpacingMultiple: lh });
 }
-// Hero numeral with its label bound under it (half a within step). size: TYPE.hero (default) or TYPE.poster — never a free number.
-function hero(slide, x, y, w, value, label, { color = T.accent, size = TYPE.hero, unit = '', labelColor = T.muted, labelSize = TYPE.caption } = {}) {
+// Hero numeral with its label bound under it (GAP.bind). scale: 'hero' (default) | 'poster' | 'band' (one of several peers,
+// statBand()) — the size is the scale's (TYPE.hero / TYPE.poster / TYPE.stat through SPEC.stat); size overrides with a TYPE.* value only.
+function hero(slide, x, y, w, value, label, { scale = 'hero', size, color, unit = '', labelColor, labelSize } = {}) {
+  const sp = spec('stat');
+  size ??= sp.size[scale] ?? sp.size.hero; color ??= sp.color; labelColor ??= sp.label.color; labelSize ??= sp.label.size;
   const runs = [{ text: value, options: { fontSize: size } }];
-  if (unit) runs.push({ text: unit, options: { fontSize: Math.round(size * 0.4) } });
-  const h = Math.max(1.12, lineH(size, T.data) + 0.04), bind = GAP.within / 2;
+  if (unit) runs.push({ text: unit, options: { fontSize: Math.round(size * sp.unit) } });
+  const h = Math.max(1.12, lineH(size, T.data) + 0.04), bind = GAP.bind;
   slide.addText(runs, { ...box(x, y, w, h), fontFace: T.data, bold: true, color, margin: 0, valign: 'bottom' });
   if (!label) return y + h;
   const l = wrapKo(label, w, labelSize, T.sans), lh = fitH(l, w, labelSize);
@@ -425,6 +498,20 @@ function splitAt(x, w, leftWeight, rightWeight, { gap = GUTTER, min = 0.38, max 
   const lw = (w - gap) * share;
   return { left: { x, w: lw }, right: { x: x + lw + gap, w: w - gap - lw } };
 }
+// Stat band: several numbers with one cause on one baseline (composition.md §4) — value (+ unit) over label over detail
+// per peer, widths by weight, one rule under the band. stats: [{ value, unit?, label, detail?, weight? }]. Returns the
+// bottom edge (under the rule). Anatomy from SPEC.stat at the band scale; scale: 'hero' for two or three large peers.
+function statBand(slide, x, y, w, stats, { scale = 'band', gap = GUTTER, ruled = true } = {}) {
+  const sp = spec('stat'), cols = spans(x, w, stats.map((st) => weightOf(st)), { gap });
+  let bottom = y;
+  stats.forEach((st, i) => {
+    const b = hero(slide, cols[i].x, y, cols[i].w, st.value, st.label, { scale, unit: st.unit || '' });
+    bottom = Math.max(bottom, st.detail ? text(slide, st.detail, cols[i].x, b + GAP.within, cols[i].w, sp.detail.role, { color: sp.detail.color }) : b);
+  });
+  if (!ruled) return bottom;
+  hairline(slide, x, bottom + GAP.between, w);
+  return bottom + GAP.between;
+}
 // flow: measured blocks stacked top-down inside one region; returns the bottom. A block is
 // { text, role?, size?, font?, bold?, color?, lh?, h?, after? } or a function (y) => bottom for any kit call.
 // The step after a block is GAP.within (it binds to the next: a heading over its paragraph); a block that closes a
@@ -480,16 +567,20 @@ function stack(slide, x, y, w, blocks, { bottom = Z.body.bottom, gap = GAP.withi
 function field(slide, x, y, w, h, tint = T.paperAlt, shape = S.rect, extra = {}) {   // page field or module surface
   slide.addShape(shape, { ...box(x, y, w, h), fill: { color: tint }, line: { color: tint }, ...extra });
 }
-// Outline carrier: no fill, one coherent stroke — ownership without a heavy card.
-function outline(slide, x, y, w, h, { color = T.line, width = 1, shape = S.rect, radius = 0, dash = 'solid' } = {}) {
+// Outline carrier: no fill, one coherent stroke (the strong line — it owns the region) — ownership without a heavy card.
+function outline(slide, x, y, w, h, { color = T.lineStrong, width = 1, shape = S.rect, radius = 0, dash = 'solid' } = {}) {
   slide.addShape(shape, { ...box(x, y, w, h), fill: { color: T.paper, transparency: 100 }, line: { color, width, dashType: dash }, ...(radius ? { rectRadius: radius } : {}) });
 }
-// Badge / chip: compact status, tag, or category label. Ink on tint by default; white on the accent for the emphasized one.
-function badge(slide, x, y, w, h, str, { fill = T.tint, color = T.ink, font = T.sans, size = TYPE.kicker } = {}) {
-  slide.addShape(S.roundRect, { ...box(x, y, w, h), rectRadius: 0.5, fill: { color: fill }, line: { color: fill } });
+// Badge / chip: compact status, tag, or category label. tone: neutral (ink on tint) · accent (white on the accent, the one
+// emphasized chip) · a state (its word on its weak field). Anatomy from SPEC.badge; h null takes the spec's height.
+function badge(slide, x, y, w, h, str, { tone: toneName = 'neutral', fill, color, font, size } = {}) {
+  const sp = spec('badge'), t = tone(toneName);
+  h ??= sp.h; fill ??= t.fill; color ??= t.color; font ??= sp.font; size ??= sp.size;
+  slide.addShape(S.roundRect, { ...box(x, y, w, h), rectRadius: sp.radius, fill: { color: fill }, line: { color: fill } });
   slide.addText(str, { ...box(x, y, w, h), fontFace: font, fontSize: size, bold: true, color, align: 'center', valign: 'middle', margin: 0 });
 }
-function hairline(slide, x, y, w, color = T.line) {   // horizontal rule
+// Horizontal rule: T.line at a section boundary (default), T.lineSubtle between repeated items, T.lineStrong as a frame edge.
+function hairline(slide, x, y, w, color = T.line) {
   slide.addShape(S.line, { ...box(x, y, w, 0), line: { color, width: 1 } });
 }
 function rule(slide, x, y, h, color = T.line, width = 1) {   // vertical rule the content hangs from
@@ -499,15 +590,16 @@ function connector(slide, x1, y1, x2, y2, { color = T.muted, width = 1.5, arrow 
   slide.addShape(S.line, { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1),
     flipH: x2 < x1, flipV: y2 < y1, line: { color, width, endArrowType: arrow, dashType: dash } });
 }
-// Chevron run: each tip enters the next notch. widths: per-stage spans from spans() (weights), else equal — equal only when the stages carry equal weight.
-function chevrons(slide, x, y, w, h, labels, { active = -1, widths = null, size = DIAG.label } = {}) {
-  const n = labels.length, notch = h * 0.25;
+// Chevron run: each tip enters the next notch. widths: per-stage spans from spans() (weights), else equal — equal only when
+// the stages carry equal weight. Anatomy from SPEC.chevrons (notch, face, size, the default and active stage).
+function chevrons(slide, x, y, w, h, labels, { active = -1, widths = null, size } = {}) {
+  const sp = spec('chevrons'), n = labels.length, notch = h * sp.notch;
   const ws = widths ? widths.map((c) => c.w) : labels.map(() => (w - notch) / n);
   let cx = x;
   labels.forEach((label, i) => {
-    const cw = ws[i] + notch, on = i === active;
-    slide.addShape(S.chevron, { ...box(cx, y, cw, h), fill: { color: on ? T.accent : T.paperAlt }, line: { color: T.paper, width: 1.5 } });
-    slide.addText(label, { ...box(cx + notch, y, cw - notch * 2, h), fontFace: T.sans, fontSize: size, bold: on, color: on ? T.onAccent : T.body, align: 'center', valign: 'middle', margin: 0 });
+    const cw = ws[i] + notch, state = i === active ? 'active' : 'default';
+    slide.addShape(S.chevron, { ...box(cx, y, cw, h), fill: { color: sp.fill[state] }, line: { color: sp.seam, width: 1.5 } });
+    slide.addText(label, { ...box(cx + notch, y, cw - notch * 2, h), fontFace: sp.font, fontSize: size ?? sp.size, bold: state === 'active', color: sp.color[state], align: 'center', valign: 'middle', margin: 0 });
     cx += ws[i];
   });
 }
@@ -532,10 +624,13 @@ function gauge(slide, cx, cy, r, share, value, label, { track = T.paperAlt, disc
   slide.addText(value, { ...box(cx - inner / 2, cy - vh * 0.7, inner, vh), fontFace: T.data, fontSize: vs, bold: true, color: valueColor, align: 'center', valign: 'middle', margin: 0 });
   slide.addText(label, { ...box(cx - inner / 2, cy + vh * 0.3 + 0.05, inner, lineH(ls, T.sans) + 0.1), fontFace: T.sans, fontSize: ls, bold: true, color: labelColor, align: 'center', margin: 0 });
 }
-function callout(slide, x, y, w, h, str, { size = DIAG.label } = {}) {
-  const c = inner({ x, w });
-  slide.addShape(S.wedgeRectCallout, { ...box(x, y, w, h), fill: { color: T.paper }, line: { color: T.line, width: 1 } });
-  slide.addText(str, { ...box(c.x, y, c.w, h), fontFace: T.sans, fontSize: size, color: T.body, valign: 'middle', margin: 0 });
+// Callout: an annotation attached to a region. tone: neutral (paper field, strong outline) or a state (its weak field, its
+// word); form: 'wedge' (the pointer) or 'plain'. Anatomy from SPEC.callout.
+function callout(slide, x, y, w, h, str, { tone: toneName = 'neutral', form = 'wedge', size } = {}) {
+  const sp = spec('callout'), c = inner({ x, w });
+  const t = toneName === 'neutral' ? sp.neutral : tone(toneName);
+  slide.addShape(form === 'plain' ? S.rect : S.wedgeRectCallout, { ...box(x, y, w, h), fill: { color: t.fill }, line: { color: t.line ?? t.fill, width: sp.width } });
+  slide.addText(str, { ...box(c.x, y, c.w, h), fontFace: sp.font, fontSize: size ?? sp.size, color: t.color, valign: 'middle', margin: 0 });
 }
 // Custom silhouette: diagonal cut field or any polygon, points in inches relative to the box.
 function polygon(slide, x, y, w, h, points, fill = T.dark) {

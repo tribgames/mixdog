@@ -135,19 +135,24 @@ function smallMultiples(slide, x, y, w, h, panels, { type = 'col', max, gap = GU
   });
 }
 // A table is a readable page object, not a tiny appendix squeezed below a chart.
-// Give numeric columns explicit alignment; banding and emphasis are optional.
-function table(slide, x, y, w, header, rows, { colW, rowH = 0.55, verdict = -1, size = TYPE.body,
-  headerFill = T.paperAlt, headerColor = T.ink, banded = false, alignments = [], highlightRows = [], emphasisCells = [], border = { type: 'solid', color: T.line, pt: 0.5 } } = {}) {
-  const head = (t, j) => ({ text: t, options: { bold: true, color: headerColor, fill: { color: headerFill }, fontFace: T.sans, fontSize: size, align: alignments[j] || 'left' } });
+// Give numeric columns explicit alignment; banding and emphasis are optional. Anatomy from SPEC.table: the header on the
+// basement surface, row rules in the subtle line (repeated items), the verdict column bold on the tint — or, with
+// tones: ['positive', 'warning', ...] one per body row, each verdict word on its state's weak field in its state text.
+function table(slide, x, y, w, header, rows, { colW, rowH, verdict = -1, tones = [], size,
+  headerFill, headerColor, banded = false, alignments = [], highlightRows = [], emphasisCells = [], border } = {}) {
+  const sp = spec('table');
+  rowH ??= sp.rowH; size ??= sp.size; headerFill ??= sp.header.fill; headerColor ??= sp.header.color; border ??= sp.border;
+  const head = (t, j) => ({ text: t, options: { bold: true, color: headerColor, fill: { color: headerFill }, fontFace: sp.font, fontSize: size, align: alignments[j] || 'left' } });
   // emphasisCells: explicit [body-row, column] pairs, zero-based. Comparing
   // different dimensions may require different cells, not one highlighted row.
   const cell = (t, i, j) => {
     const emphasized = emphasisCells.some(([row, column]) => row === i && column === j);
-    return { text: t, options: { fontFace: T.sans, fontSize: size, color: emphasized ? T.accent : j === 0 ? T.ink : T.body, bold: emphasized || j === 0 || j === verdict,
-      align: alignments[j] || 'left', fill: { color: emphasized || j === verdict || highlightRows.includes(i) ? T.tint : banded && i % 2 ? T.paperAlt : T.paper } } };
+    const state = j === verdict && tones[i] ? tone(tones[i]) : null;
+    return { text: t, options: { fontFace: sp.font, fontSize: size, color: state ? state.color : emphasized ? T.accent : j === 0 ? T.ink : T.body, bold: emphasized || j === 0 || j === verdict,
+      align: alignments[j] || 'left', fill: { color: state ? state.fill : emphasized || j === verdict || highlightRows.includes(i) ? T.tint : banded && i % 2 ? T.paperAlt : T.paper } } };
   };
   slide.addTable([header.map(head), ...rows.map((r, i) => r.map((t, j) => cell(t, i, j)))],
-    { x, y, w, colW: colW || header.map(() => w / header.length), rowH, border: Array.isArray(border) ? border.map((edge) => ({ ...edge })) : { ...border }, margin: [0.10, 0.16, 0.10, 0.16], valign: 'middle' });
+    { x, y, w, colW: colW || header.map(() => w / header.length), rowH, border: Array.isArray(border) ? border.map((edge) => ({ ...edge })) : { ...border }, margin: [...sp.margin], valign: 'middle' });
   return y + rowH * (rows.length + 1);
 }
 ```

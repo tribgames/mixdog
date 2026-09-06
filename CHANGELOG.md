@@ -5,6 +5,20 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- The pptx skill's kit gains a design vocabulary in the manner of token-based
+  design systems: `palette()` derives three line strengths (`lineSubtle`,
+  `line`, `lineStrong`) and four state colors (`T.state.positive | warning |
+  critical | informative`, each as `solid` / `weak` / `text`, contrast-
+  guaranteed and kept under the reviewer's saturated band so a verdict column
+  never trips `accent_hue_overuse`); every distance sits on one spacing ladder
+  (`SPACE`) named by relation (`GAP.bind` / `within` / `between`, `GUTTER`,
+  `PAD`, `M`); each text role carries a fixed leading; the repeating carriers
+  (badge, callout, chevron run, stat, table) read their anatomy from `SPEC`
+  with `tone` variants, a `stat` scale step, and a `statBand()` helper; icons
+  map to four size bands; and a new `references/writing.md` fixes sentence,
+  register, number, date, money, unit, and translation-room rules, linked
+  from the docx and xlsx skills.
+
 ## v0.9.161 - 2026-09-06
 
 - Office audits measure Arial, Helvetica, Times New Roman, Courier New,

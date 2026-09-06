@@ -6,6 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,8 +14,9 @@ import sharp from 'sharp';
 import { executeOfficeTool } from './index.mjs';
 import { isAdvisoryOfficeIssue } from './quality/quality-pipeline.mjs';
 import { libreOfficeAvailable } from './portable/portable-soffice.mjs';
+import { saturatedHueFamilies } from './design/design-discipline.mjs';
 
-import { kitBlocks } from './authoring/pptx-kit.mjs';
+import { kitBlocks, kitPrelude } from './authoring/pptx-kit.mjs';
 
 const SKILL = fileURLToPath(new URL('../../defaults/skills/pptx/references/', import.meta.url));
 
@@ -49,12 +51,12 @@ const DECK = `
 { const s = quiet(); await gradientField(s, 0, 0, W, H, [[0, T.dark], [100, T.darkAlt]], 35); ghost(s, '04', 7.6, 1.0, 240, 5.2); kicker(s, '운영팀 · 3분기', M, 2.15, T.onDarkAccent); const b = title(s, '도크 4 증설,\\n예산 승인 요청', { y: 2.55, w: 8.2, size: TYPE.cover, color: 'FFFFFF' }); text(s, '야간 처리량이 주간을 넘어선 지금, 다음 도크는 야간 전용으로 설계한다', M, b + 0.25, 8.5, TYPE.lead, { color: T.onDark }); text(s, '2026년 9월 · 운영팀', M, H - 1.0, 8, TYPE.caption, { color: T.onDarkMuted, font: T.data }); }
 { const s = light(); rule(s, M, 1.6, 3.6, T.accent, 2); emphasis(s, [[['증설 석 달 만에 ', {}], ['처리량은 1.6배', { bold: true, color: T.accent }], [', 오류율은 0.3%가 됐다. 다음 병목은 도크가 아니라 야간 셔틀이다.', {}]]], M + 0.4, 1.6, 9.6, 2.6, 28, T.ink, { lh: 1.3 }); text(s, '— 운영 로그와 품질 시트, 2026년 6~8월', M + 0.4, 4.5, 8, TYPE.caption, { color: T.muted }); }
 { const s = light(); kicker(s, '처리량'); const top = title(s, '분기마다 처리량이 늘었고, 4분기가 가장 컸다') + GAP.between; const ty = H - M - 0.75; chart(s, M, top, 8.2, ty - top - GAP.between, { labels: ['1분기', '2분기', '3분기', '4분기'], series: [{ name: '처리량', values: [12, 18, 24, 31] }], accent: 3 }); const hb = hero(s, 9.4, top + 0.4, 3.3, '31', '4분기 처리량, 천 건'); const py = hb + GAP.within, room = ty - GAP.between - py; if (room >= 0.6) prose(s, '분류기 도입과 야간 셔틀 추가가 겹친 분기다.', 9.4, py, 3.3, room, TYPE.caption + 1, T.body); takeaway(s, '증설 효과는 4분기에 집중됐다.', ty); }
-{ const s = light(); kicker(s, '규모'); const top = title(s, '네 숫자가 한 원인을 가리킨다') + GAP.between; const stats = [['1.6배', '처리량 증가', '야간 셔틀 두 대 추가'], ['0.3%', '오류율', '라벨 손상만 남았다'], ['4건', '근접 경보/주', '일방향 동선의 효과'], ['4,200', '건/시간 분류', '분류기 도입']]; const cols = spans(M, W - 2 * M, stats.map((v) => weightOf({ value: v[0], label: v[1], text: v[2] }))); let bottom = top; stats.forEach((v, i) => { const b = hero(s, cols[i].x, top, cols[i].w, v[0], v[1], { size: 48 }); bottom = Math.max(bottom, text(s, v[2], cols[i].x, b + GAP.within, cols[i].w, TYPE.caption + 1, { color: T.body })); }); hairline(s, M, bottom + GAP.between, W - 2 * M); takeaway(s, '증설이 아니라 야간 운영이 원인이다.'); }
+{ const s = light(); kicker(s, '규모'); const top = title(s, '네 숫자가 한 원인을 가리킨다') + GAP.between; statBand(s, M, top, W - 2 * M, [{ value: '1.6배', label: '처리량 증가', detail: '야간 셔틀 두 대 추가' }, { value: '0.3%', label: '오류율', detail: '라벨 손상만 남았다' }, { value: '4건', label: '근접 경보/주', detail: '일방향 동선의 효과' }, { value: '4,200', label: '건/시간 분류', detail: '분류기 도입' }]); takeaway(s, '증설이 아니라 야간 운영이 원인이다.'); }
 { const s = light(); kicker(s, '흐름'); const top = title(s, '입고에서 출고까지, 병목은 셔틀에 있다') + GAP.between; const stages = [{ label: '입고', detail: '두 도크가 새벽 입고를 나눠 받는다.' }, { label: '분류', detail: '분류기가 시간당 4,200건을 처리한다.' }, { label: '적재', detail: '야간 셔틀 두 대가 22시와 01시에 출발한다.', active: true }, { label: '출고', detail: '출고 오류는 라벨 손상뿐이다.' }]; const cols = spans(M, W - 2 * M - 1.15 * 0.25, stages.map((st) => weightOf({ label: st.label, detail: st.detail }, { active: st.active })), { gap: 0 }); chevrons(s, M, top, W - 2 * M, 1.15, stages.map((st) => st.label), { active: 2, widths: cols }); stages.forEach((st, i) => flow(s, cols[i].x + 0.2, top + 1.15 + GAP.between, cols[i].w - 0.4, [{ text: st.detail, size: TYPE.caption + 1, lh: 1.4 }], { bottom: H - M - 1.2 })); takeaway(s, '셔틀이 늘지 않으면 도크 4는 야간에 놀게 된다.'); }
-{ const s = light(); kicker(s, '비교'); const top = title(s, '전과 후: 달라진 쪽이 더 넓다') + GAP.between; const seam = splitAt(M, W - 2 * M, 40, 70); const ph = H - M - 1.2 - top; field(s, seam.left.x, top, seam.left.w, ph); lift(s, seam.right.x, top, seam.right.w, ph, 'FFFFFF'); badge(s, seam.left.x + 0.3, top + 0.3, 1.2, 0.32, '전'); badge(s, seam.right.x + 0.3, top + 0.3, 1.2, 0.32, '후', { fill: T.accent, color: 'FFFFFF' }); bullets(s, seam.left.x + 0.3, top + 0.85, seam.left.w - 0.6, ph - 1.1, ['교차 동선, 근접 경보 주 31건', '수작업 분류', '주간 중심 출고']); bullets(s, seam.right.x + 0.3, top + 0.85, seam.right.w - 0.6, ph - 1.1, ['일방향 동선, 근접 경보 주 4건', '분류기 시간당 4,200건', '야간 출고가 기본'], TYPE.body, T.ink, { font: T.sans }); takeaway(s, '차이 표시는 바뀐 쪽 하나에만 둔다.'); }
+{ const s = light(); kicker(s, '비교'); const top = title(s, '전과 후: 달라진 쪽이 더 넓다') + GAP.between; const seam = splitAt(M, W - 2 * M, 40, 70); const ph = H - M - 1.2 - top; field(s, seam.left.x, top, seam.left.w, ph); lift(s, seam.right.x, top, seam.right.w, ph, 'FFFFFF'); badge(s, seam.left.x + 0.3, top + 0.3, 1.2, 0.32, '전'); badge(s, seam.right.x + 0.3, top + 0.3, 1.2, 0.32, '후', { tone: 'accent' }); bullets(s, seam.left.x + 0.3, top + 0.85, seam.left.w - 0.6, ph - 1.1, ['교차 동선, 근접 경보 주 31건', '수작업 분류', '주간 중심 출고']); bullets(s, seam.right.x + 0.3, top + 0.85, seam.right.w - 0.6, ph - 1.1, ['일방향 동선, 근접 경보 주 4건', '분류기 시간당 4,200건', '야간 출고가 기본'], TYPE.body, T.ink, { font: T.sans }); takeaway(s, '차이 표시는 바뀐 쪽 하나에만 둔다.'); }
 { const s = light(); kicker(s, '구조'); const top = title(s, '증설이 만든 변화는 세 갈래다') + GAP.between; let y = top; [['처리량', ['야간 셔틀 두 대 추가', '피크 시간대가 22시로 이동']], ['품질', ['분류기 도입', '라벨 손상만 남았다']], ['안전', ['일방향 동선', '근접 경보 주 4건']]].forEach(([name, items]) => { const h = fitH(items.join('\\n'), 6, TYPE.body - 2, T.light, { lh: 1.5 }); text(s, name, M, y, 1.7, TYPE.body, { color: T.accent, bold: true, align: 'right' }); brace(s, M + 1.85, y, h); s.addText(items.map((t, i) => ({ text: t, options: { breakLine: i < items.length - 1 } })), { ...box(M + 2.3, y, 6, h), fontFace: T.light, fontSize: TYPE.body - 2, color: T.body, valign: 'top', margin: 0, lineSpacingMultiple: 1.5 }); y += h + GAP.between; }); const rx = 9.4; rule(s, rx - 0.3, top, y - top - GAP.between, T.line); prose(s, '세 갈래 모두 야간 운영에서 나왔다. 도크 4를 야간 전용으로 설계하면 세 효과가 그대로 이어진다.', rx, top, W - M - rx, 2.4, TYPE.body, T.body); }
 { const s = light(); kicker(s, '순환'); const top = title(s, '점검 주기는 닫힌 고리로 돈다') + GAP.between; const cx = 4.2, cy = top + (H - M - top) / 2, r = 1.4, labels = ['계획', '실행', '점검', '조정']; labels.forEach((l, i) => { const span = 360 / labels.length, on = i === 2; arc(s, cx, cy, r, 270 + i * span + 3, 270 + (i + 1) * span - 3, { color: on ? T.accent : T.paperAlt }); const mid = (270 + (i + 0.5) * span) * Math.PI / 180; text(s, l, cx + (r + 0.7) * Math.cos(mid) - 1.0, cy + (r + 0.7) * Math.sin(mid) - 0.25, 2.0, DIAG.label, { color: on ? T.accent : T.ink, bold: on, align: 'center', h: 0.5, valign: 'middle' }); }); const inner = r * 0.72 * 2 - 0.12; s.addShape(S.ellipse, { ...box(cx - inner / 2, cy - inner / 2, inner, inner), fill: { color: T.paper }, line: { color: T.paper } }); text(s, '점검', cx - 0.8, cy - 0.3, 1.6, TYPE.lead, { color: T.ink, bold: true, align: 'center', h: 0.6, valign: 'middle' }); prose(s, '점검 단계가 고리를 닫는다. 주간 점검에서 나온 근접 경보가 다음 계획의 입력이 된다.', 8.4, top + 0.6, W - M - 8.4, 2.6, TYPE.body); }
-{ const s = light(); kicker(s, '선택지'); const top = title(s, '세 안 중 야간 전용이 유일하게 조건을 모두 만족한다') + GAP.between; const b = table(s, M, top, W - 2 * M, ['안', '비용', '야간 대응', '판정'], [['주간 전용', '낮음', '불가', '보류'], ['혼합', '중간', '부분', '보류'], ['야간 전용', '중간', '가능', '채택']], { colW: [3.2, 2.6, 3.3, 3.03], verdict: 3 }); caption(s, '출처: 운영팀 비용 추정, 2026년 9월', M, b + GAP.between, 8); }
+{ const s = light(); kicker(s, '선택지'); const top = title(s, '세 안 중 야간 전용이 유일하게 조건을 모두 만족한다') + GAP.between; const b = table(s, M, top, W - 2 * M, ['안', '비용', '야간 대응', '판정'], [['주간 전용', '낮음', '불가', '보류'], ['혼합', '중간', '부분', '보류'], ['야간 전용', '중간', '가능', '채택']], { colW: [3.2, 2.6, 3.3, 3.03], verdict: 3, tones: ['warning', 'warning', 'positive'] }); caption(s, '출처: 운영팀 비용 추정, 2026년 9월', M, b + GAP.between, 8); }
 { const s = quiet(); ghost(s, '02', 7.5, 1.2); text(s, '02', M, 2.0, 3, 72, { color: T.onDarkAccent, font: T.data, bold: true, h: 1.3 }); title(s, '요청 사항', { y: 3.5, w: 8, size: TYPE.title, color: 'FFFFFF' }); }
 { const s = light(); kicker(s, '비율'); const top = title(s, '야간이 전체 처리량의 열 중 여섯을 차지한다') + GAP.between; const avail = H - M - top, r = Math.min(1.6, avail / 2 - 0.3); gauge(s, 3.4, top + avail / 2, r, 0.6, '60%', '야간 비중'); emphasis(s, [[['야간 처리량이 ', {}], ['60%', { bold: true, color: T.accent }], ['를 넘었다. 도크 4를 야간 전용으로 설계할 근거다.', {}]]], 6.6, top + 0.6, 6, avail - 0.8, TYPE.lead); }
 { const s = quiet(); await gradientField(s, 0, 0, W, H, [[0, T.darkAlt], [100, T.dark]], 215); ghost(s, '04', 9.4, 2.4, 180, 3.4); kicker(s, '요청', M, 2.15, T.onDarkAccent); const b = title(s, '도크 4 증설 예산을 승인해 주십시오', { y: 2.55, w: 9, size: TYPE.title, color: 'FFFFFF' }); text(s, '야간 전용 설계안은 10월 운영 회의에 올린다.', M, Math.max(b + 0.4, 4.6), 8, TYPE.lead, { color: T.onDarkAccent, bold: true, font: T.sans }); text(s, '운영팀 · 2026년 9월', M, H - 1.0, 8, TYPE.caption, { color: T.onDarkMuted, font: T.data }); }
@@ -68,9 +70,12 @@ test('kit layout by weight: equal weights divide equally, unequal weights do not
     assert.ok(match, `${name} is in the kit`);
     return match[0];
   }).join('\n');
-  const gutter = /const GUTTER = [\d.]+;/.exec(kit);
-  assert.ok(gutter, 'the column gap is a named anchor (GUTTER)');
-  const { spans, splitAt, weightOf } = new Function(`${gutter[0]}\n${source}\nreturn { spans, splitAt, weightOf };`)();
+  const ladder = /const SPACE = \{[^}]*\};/.exec(kit);
+  assert.ok(ladder, 'the spacing ladder is a named set (SPACE)');
+  const gutter = /const GUTTER = [^;\n]+;/.exec(kit);
+  assert.ok(gutter, 'the column gap is a relation named on the ladder (GUTTER)');
+  const { spans, splitAt, weightOf, GUTTER } = new Function(`${ladder[0]}\n${gutter[0]}\n${source}\nreturn { spans, splitAt, weightOf, GUTTER };`)();
+  assert.ok(GUTTER > 0, 'GUTTER resolves to a rung of the ladder');
   const equal = spans(0.5, 12, [10, 10, 10]);
   assert.ok(equal.every((c) => Math.abs(c.w - equal[0].w) < 1e-9), 'equal weights → equal widths');
   assert.ok(Math.abs(equal[2].x + equal[2].w - 12.5) < 1e-9, 'the row ends at x + w');
@@ -78,7 +83,7 @@ test('kit layout by weight: equal weights divide equally, unequal weights do not
   assert.ok(unequal[1].w > unequal[0].w * 1.3, 'the heavy peer is visibly wider');
   assert.ok(unequal[0].w > 0.6 * (12 / 3), 'the light peer stays readable (clamped)');
   const seam = splitAt(0.5, 12, 40, 80);
-  const free = 12 - Number(/[\d.]+/.exec(gutter[0].slice('const GUTTER = '.length))[0]);
+  const free = 12 - GUTTER;
   assert.ok(seam.left.w < seam.right.w && seam.left.w / free >= 0.38 - 1e-9, 'the seam follows weight within the 0.38–0.62 band');
   assert.equal(splitAt(0, 10, 1, 1).left.w, splitAt(0, 10, 1, 1).right.w, 'equal weights → the middle');
   assert.ok(weightOf({ label: 'a', detail: 'long detail text' }, { active: true }) > weightOf({ label: 'a', detail: 'long detail text' }), 'active counts more');
@@ -114,7 +119,59 @@ test('kit palette derives a contrast-safe ladder from one seed hue', async () =>
     assert.ok(contrast('FFFFFF', T.accent) >= 4.5, `${hue}: white on accent`);
     assert.ok(contrast(T.accent, T.paper) >= 4.5, `${hue}: accent on paper`);
     assert.ok(contrast(T.ink, T.tint) >= 4.5, `${hue}: ink on tint`);
+    // The four states: the word reads on paper, paperAlt, and its own weak field; the mark is seen on paper.
+    assert.deepEqual(Object.keys(T.state), ['positive', 'warning', 'critical', 'informative']);
+    for (const [name, s] of Object.entries(T.state)) {
+      for (const bg of [T.paper, T.paperAlt, s.weak]) assert.ok(contrast(s.text, bg) >= 4.5, `${hue}: ${name} text on ${bg}`);
+      assert.ok(contrast(s.solid, T.paper) >= 3, `${hue}: ${name} solid mark on paper`);
+    }
+    // State words and fields add no saturated hue family beside the accent: a verdict column never trips accent_hue_overuse.
+    const states = Object.values(T.state);
+    assert.equal(saturatedHueFamilies([T.accent, ...states.flatMap((s) => [s.text, s.weak])]).length, saturatedHueFamilies([T.accent]).length, `${hue}: state text and fields stay under the saturated band`);
+    assert.ok(luminance(T.lineSubtle) > luminance(T.line) && luminance(T.line) > luminance(T.lineStrong), `${hue}: subtle, section, and strong lines in order`);
   }
+});
+
+// The carriers read their anatomy from SPEC and the state ladder, against a recording slide (no file written): a toned
+// badge takes the state's weak field and text, a verdict cell and a callout the same pair, the table's row rules the
+// subtle line, an outline the strong line, a chevron run's active stage the spec's active fill, a band-scale numeral the
+// stat step, and an unknown tone or spec throws with the choices.
+test('kit carriers read their anatomy from SPEC and a state reads the same in a badge, a callout, and a verdict cell', () => {
+  const MEASURE = (text, { size = 18, lineHeight = 1 } = {}) => ({ lines: 1, height: size / 72 * 1.2 * lineHeight, width: String(text).length * size / 72 * 0.6 });
+  const kit = new Function('require', 'MEASURE', 'ICON', `${kitPrelude().source}\nreturn { T, get TYPE() { return TYPE; }, spec, tone, badge, callout, chevrons, hero, statBand, table, outline, deck };`)(createRequire(import.meta.url), MEASURE, { names: [], svg: () => '' });
+  const slide = { shapes: [], texts: [], tables: [], addShape(type, o) { this.shapes.push({ type, ...o }); }, addText(runs, o) { this.texts.push({ runs, ...o }); }, addTable(rows, o) { this.tables.push({ rows, ...o }); }, addImage() {} };
+  const T = kit.deck({ hue: 205, mode: 'balanced' });
+  kit.badge(slide, 1, 1, 1.2, null, '채택', { tone: 'positive' });
+  assert.equal(slide.shapes.at(-1).fill.color, T.state.positive.weak, 'a positive badge sits on the state\'s weak field');
+  assert.equal(slide.texts.at(-1).color, T.state.positive.text, 'the badge word is the state text');
+  assert.equal(slide.shapes.at(-1).h, kit.spec('badge').h, 'h null takes the spec height');
+  kit.badge(slide, 1, 1, 1.2, 0.32, '후', { tone: 'accent' });
+  assert.deepEqual([slide.shapes.at(-1).fill.color, slide.texts.at(-1).color], [T.accent, T.onAccent], 'the accent chip is white on the accent');
+  kit.callout(slide, 1, 1, 3, 0.6, '주의', { tone: 'warning', form: 'plain' });
+  assert.deepEqual([slide.shapes.at(-1).fill.color, slide.texts.at(-1).color], [T.state.warning.weak, T.state.warning.text], 'a callout reads the same state pair');
+  kit.callout(slide, 1, 1, 3, 0.6, '메모');
+  assert.equal(slide.shapes.at(-1).line.color, T.lineStrong, 'a neutral callout is outlined in the strong line');
+  kit.outline(slide, 1, 1, 3, 3);
+  assert.equal(slide.shapes.at(-1).line.color, T.lineStrong, 'an outline owns its region with the strong line');
+  kit.table(slide, 0.6, 1, 12, ['안', '판정'], [['A', '보류'], ['B', '채택']], { verdict: 1, tones: ['warning', 'positive'] });
+  const [head, first, second] = slide.tables.at(-1).rows;
+  assert.equal(slide.tables.at(-1).border.color, T.lineSubtle, 'row rules are the subtle line');
+  assert.equal(head[0].options.fill.color, T.paperAlt, 'the header sits on the basement surface');
+  assert.deepEqual([first[1].options.fill.color, first[1].options.color, first[1].options.bold], [T.state.warning.weak, T.state.warning.text, true]);
+  assert.deepEqual([second[1].options.fill.color, second[1].options.color], [T.state.positive.weak, T.state.positive.text]);
+  assert.equal(first[0].options.fill.color, T.paper, 'a cell outside the verdict column stays on paper');
+  kit.chevrons(slide, 0.6, 2, 12, 1.15, ['입고', '분류', '적재'], { active: 1 });
+  assert.deepEqual(slide.shapes.slice(-3).map((s) => s.fill.color), [T.paperAlt, T.accent, T.paperAlt], 'only the active stage takes the accent');
+  const before = slide.texts.length;
+  kit.hero(slide, 0.6, 2, 3, '31', '4분기', { scale: 'band' });
+  assert.equal(slide.texts[before].runs[0].options.fontSize, kit.TYPE.stat, 'a band-scale numeral is the stat step');
+  assert.ok(kit.TYPE.stat < kit.TYPE.hero, 'the stat step sits under the hero');
+  const bottom = kit.statBand(slide, 0.6, 2, 12, [{ value: '1.6배', label: '처리량' }, { value: '0.3%', label: '오류율', detail: '라벨 손상만' }, { value: '4건', label: '경보/주' }]);
+  assert.equal(slide.texts.filter((t) => t.runs?.[0]?.options?.fontSize === kit.TYPE.stat).length, 4, 'three band numerals join the earlier one');
+  assert.equal(slide.shapes.at(-1).line.color, T.line, 'the band closes on a section rule');
+  assert.ok(bottom > 2 + 1.12, 'the band returns its bottom under the rule');
+  assert.throws(() => kit.tone('danger'), /one of neutral, accent, positive, warning, critical, informative/);
+  assert.throws(() => kit.spec('card'), /one of badge, callout, chevrons, stat, table/);
 });
 
 // The measured-text block of the kit, run against a stand-in MEASURE (Hangul 1 em, Latin 0.55 em, a space 0.3 em)
@@ -179,7 +236,7 @@ test('kit wraps Hangul by the eojeol and shrinks type along the scale', async ()
 });
 
 test('every hard rule in the skill names a runtime code that exists, or is marked manual', async () => {
-  const files = ['direction.md', 'composition.md', 'kit.md', 'charts.md', 'pictures.md'].map((file) => join(SKILL, file));
+  const files = ['direction.md', 'composition.md', 'kit.md', 'charts.md', 'pictures.md', 'writing.md'].map((file) => join(SKILL, file));
   files.push(join(SKILL, '..', 'SKILL.md'));
   const runtime = await Promise.all(['quality', 'authoring', 'portable', 'core'].map(async (dir) => {
     const base = fileURLToPath(new URL(`./${dir}/`, import.meta.url));
