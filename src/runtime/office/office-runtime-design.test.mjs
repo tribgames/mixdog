@@ -100,6 +100,39 @@ test('authored diagram slides are read from their native shapes so shape-filled 
   );
 });
 
+// The decision panel sits to the right of the data; with a four-column table its Stop gate lands in column R
+// while the dashboard canvas ends at L. Print and PDF export clip to the print area, so the area follows the panel.
+test('a composed dashboard keeps its decision gates inside the print area', () => {
+  const expanded = expandOfficeDesignOperations({
+    format: 'xlsx',
+    backend: 'mixdog-ooxml',
+    created: true,
+    operations: [{
+      op: 'compose_sheet',
+      sheet: '결정',
+      title: '도크 4 증설 결정',
+      headers: ['안', '비용', '야간 대응', '판정'],
+      rows: [['주간 전용', '낮음', '불가', '기각'], ['야간 전용', '중간', '가능', '채택']],
+      metrics: [{ label: '처리량 증가', value: 1.6 }],
+      decision: '야간 전용안을 10월 운영 회의에 올린다.',
+      gates: [{ track: '야간 셔틀', release: '2대 증차 확정', stop: '증차 불가 시 보류' }],
+    }],
+    design: {},
+  });
+  const column = (label) => [...label].reduce((total, letter) => total * 26 + (letter.charCodeAt(0) - 64), 0);
+  const page = expanded.operations.find((entry) => entry.op === 'set_page_setup');
+  const area = /^A1:([A-Z]+)(\d+)$/.exec(String(page.printArea));
+  assert.ok(area, `unexpected print area ${page.printArea}`);
+  const stop = expanded.operations.find((entry) => entry.op === 'set_cell' && entry.value === '증차 불가 시 보류');
+  assert.ok(stop, 'the Stop gate is written');
+  const merged = expanded.operations.find((entry) => entry.op === 'merge_cells' && entry.range.startsWith(`${stop.cell}:`));
+  const gateEnd = /:([A-Z]+)\d+$/.exec(merged.range)[1];
+  assert.ok(column(area[1]) >= column(gateEnd), `print area stops at column ${area[1]} but the Stop gate reaches ${gateEnd}`);
+  assert.ok(Number(area[2]) >= Number(/\d+$/.exec(stop.cell)[0]), 'the print area reaches the gate rows');
+  const autofit = expanded.operations.find((entry) => entry.op === 'autofit_range' && !entry.rows);
+  assert.ok(column(autofit.range.split(':')[1]) >= column(gateEnd), 'the column autofit covers the panel');
+});
+
 test('a composed sheet keeps its chart inside the print area', () => {
   const expanded = expandOfficeDesignOperations({
     format: 'xlsx',

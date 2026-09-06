@@ -322,6 +322,7 @@ export function expandXlsxSheet(operation, design, composition) {
     }
   }
   let decisionLastRow = dataEndRow;
+  let decisionLastColumn = 0;
   const decision = String(operation.decision || design.content?.decision || '').trim();
   if (dashboard && decision) {
     const panel = addXlsxDecisionPanel(output, {
@@ -335,6 +336,9 @@ export function expandXlsxSheet(operation, design, composition) {
       actions: operation.actions || operation.insights,
     });
     decisionLastRow = panel.lastRow;
+    // The panel sits to the right of the data and may run past the canvas columns (a four-column
+    // table puts its Stop gate in column R while the canvas ends at L): the print area follows it.
+    decisionLastColumn = dataColumns + 2 + panelColumns - 1;
   }
   if (operation.source) {
     output.push({
@@ -344,7 +348,7 @@ export function expandXlsxSheet(operation, design, composition) {
       text: `Source: ${provenanceText(operation.source) || String(operation.source)}`,
     });
   }
-  output.push({ op: 'autofit_range', sheet, range: `A:${lastColumn}` });
+  output.push({ op: 'autofit_range', sheet, range: `A:${columnLabel(Math.max(canvasColumns, decisionLastColumn))}` });
   output.push({
     op: 'autofit_range',
     sheet,
@@ -363,7 +367,7 @@ export function expandXlsxSheet(operation, design, composition) {
   const chartLastColumn = chartRightPoints > 0
     ? Math.ceil(chartRightPoints / defaultColumnPoints) + 2
     : 0;
-  const printColumns = Math.max(canvasColumns, chartLastColumn);
+  const printColumns = Math.max(canvasColumns, chartLastColumn, decisionLastColumn);
   output.push({
     op: 'set_page_setup',
     sheet,

@@ -28,6 +28,9 @@ the Unreleased section is empty, and stamps it with the released version.
   the docx and xlsx decision gates draw Release and Stop on the positive and
   critical states instead of a literal tint and the second accent, and a
   `compose_document` section's `calloutTone` puts its callout on a state.
+  A `compose_sheet` dashboard's print area now follows the decision panel,
+  so a Stop gate in a column past the canvas is no longer cut from the
+  rendered and exported page.
 
 ## v0.9.161 - 2026-09-06
 
