@@ -361,9 +361,11 @@ test('Deploy is the one-click release entry with incremental native workers', as
     /'isDraft', '--jq', '\.isDraft'[\s\S]*result\.stdout\.trim\(\) === 'false'/,
     'a hidden draft must remain resumable instead of consuming a release version');
   assert.match(deploy, /Moving unpublished recovery tag \$\{TAG\}/);
+  // The resumed version's heading carries its date, so the fold keeps the whole heading line and
+  // appends the notes under it instead of replacing the bare `## vX.Y.Z` text.
   assert.match(deploy,
-    /const unreleasedPattern = \/\^## Unreleased[\s\S]*else if \(unreleasedBody\)[\s\S]*text\.replace\(versionHeading/,
-    'an unpublished same-version recovery must fold its notes into that release');
+    /const unreleasedPattern = \/\^## Unreleased[\s\S]*else if \(unreleasedBody\)[\s\S]*const escaped = versionHeading\.replace[\s\S]*text\.replace\(new RegExp\(`\^\$\{escaped\}\[\^\\\\n\]\*\$`, 'm'\), \(heading\) => `\$\{heading\}\\n\\n\$\{unreleasedBody\}`\)/,
+    'an unpublished same-version recovery must fold its notes under that release\'s dated heading');
   for (const bump of ['patch', 'minor', 'major']) {
     assert.equal(
       packageJson.scripts[`release:${bump}`],
