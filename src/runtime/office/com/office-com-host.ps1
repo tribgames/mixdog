@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+. (Join-Path $PSScriptRoot 'office-com-cleanup.ps1')
 
 function Emit-Json($value) {
   [Console]::Out.WriteLine(($value | ConvertTo-Json -Depth 20 -Compress))
@@ -79,7 +80,16 @@ function Installed([string]$progId) {
 }
 
 function New-HiddenApplication([string]$format, [string]$progId) {
+  $processName = switch ($format) { 'docx' { 'WINWORD' } 'xlsx' { 'EXCEL' } 'pptx' { 'POWERPNT' } }
+  $baseline = @(Get-Process -Name $processName -ErrorAction SilentlyContinue | ForEach-Object { $_.Id; $_.Dispose() })
   $app = New-Object -ComObject $progId
+  $newProcesses = @(Get-Process -Name $processName -ErrorAction SilentlyContinue | Where-Object { $baseline -notcontains $_.Id })
+  try {
+    if ($newProcesses.Count -ne 1) {
+      Release-OfficeObject $app
+      throw 'Background Office refused a shared or unidentified application before opening the document.'
+    }
+  } finally { foreach ($process in $newProcesses) { $process.Dispose() } }
   try { $app.DisplayAlerts = 0 } catch {}
   try { $app.AutomationSecurity = 3 } catch {}
   if ($format -ne 'pptx') {
@@ -100,6 +110,43 @@ function Open-BackgroundDocument($app, [string]$format, [string]$path) {
   }
 }
 
+# Word's Range.Text still spells struck-through deletions while changes are
+# tracked, so a paragraph reads "oneuno" where the page shows one word going
+# and another coming. The portable reader's `text` is the accepted view; this
+# leaves the deleted spans out and hands them back as deletedText.
+function Word-AcceptedText($doc, $range) {
+  $deleted = @()
+  $tracked = $false
+  try {
+    # Range.Revisions also lists a revision that merely touches the range's
+    # edge (the next table cell's, say), so only one that overlaps it counts.
+    $count = [int]$range.Revisions.Count
+    for ($position = 1; $position -le $count; $position++) {
+      $revision = $range.Revisions.Item($position)
+      $start = [Math]::Max([int]$range.Start, [int]$revision.Range.Start)
+      $end = [Math]::Min([int]$range.End, [int]$revision.Range.End)
+      if ($end -le $start) { continue }
+      $tracked = $true
+      $typeCode = [int]$revision.Type
+      if ($typeCode -ne 2 -and $typeCode -ne 14) { continue }
+      $deleted += [pscustomobject]@{ Start = $start; End = $end }
+    }
+  } catch {}
+  if ($deleted.Count -eq 0) { return [ordered]@{ text = [string]$range.Text; deleted = ''; tracked = $tracked } }
+  $kept = ''
+  $gone = ''
+  $cursor = [int]$range.Start
+  foreach ($span in @($deleted | Sort-Object Start)) {
+    if ($span.Start -gt $cursor) { $kept += [string]$doc.Range($cursor, $span.Start).Text }
+    if ($span.End -gt $cursor) {
+      $gone += [string]$doc.Range([Math]::Max($cursor, $span.Start), $span.End).Text
+      $cursor = $span.End
+    }
+  }
+  if ($cursor -lt [int]$range.End) { $kept += [string]$doc.Range($cursor, [int]$range.End).Text }
+  return [ordered]@{ text = $kept; deleted = $gone; tracked = $tracked }
+}
+
 function Snapshot-Word($doc, $payload) {
   try { $null = $doc.Repaginate() } catch {}
   $paragraphs = @()
@@ -112,8 +159,10 @@ function Snapshot-Word($doc, $payload) {
   $paragraphEnd = [Math]::Min([int]$doc.Paragraphs.Count, $paragraphOffset + $paragraphLimit)
   for ($index = $paragraphOffset + 1; $index -le $paragraphEnd; $index++) {
     $p = $doc.Paragraphs.Item($index)
-    $text = ([string]$p.Range.Text).TrimEnd("`r", "`a")
-    if ($text.Length -gt 0) {
+    $accepted = Word-AcceptedText $doc $p.Range
+    $text = ([string]$accepted.text).TrimEnd("`r", "`a")
+    $deletedText = ([string]$accepted.deleted).TrimEnd("`r", "`a")
+    if ($text.Length -gt 0 -or $deletedText.Length -gt 0) {
       $style = $p.Range.Style
       $styleName = try { [string]$style.NameLocal } catch {
         try { [string]$style.Name } catch { [string]$style }
@@ -130,7 +179,7 @@ function Snapshot-Word($doc, $payload) {
           }
         }
       } catch {}
-      $paragraphs += [ordered]@{
+      $entry = [ordered]@{
         path = "/body/p[$index]"
         index = $index
         text = $text
@@ -155,6 +204,26 @@ function Snapshot-Word($doc, $payload) {
           tabStops = $tabStops
         }
       }
+      # The portable reader reports the same two facts from the XML: tracked
+      # changes touching the paragraph, and list membership as kind + 0-based level.
+      if ($accepted.tracked) { $entry.tracked = $true }
+      if ($deletedText.Length -gt 0) { $entry.deletedText = $deletedText }
+      try {
+        $listFormat = $p.Range.ListFormat
+        $listType = [int]$listFormat.ListType
+        if ($listType -ne 0) {
+          # A gallery template reports an outline list type for bullets and
+          # numbers alike; the level's number style (22 picture bullet, 23
+          # bullet) is what separates them.
+          $levelNumber = [Math]::Max(1, [int]$listFormat.ListLevelNumber)
+          $numberStyle = $(try { [int]$listFormat.ListTemplate.ListLevels.Item($levelNumber).NumberStyle } catch { -1 })
+          $entry.list = [ordered]@{
+            kind = $(if ($numberStyle -eq 23 -or $numberStyle -eq 22 -or $listType -eq 1 -or $listType -eq 5) { 'bullet' } else { 'number' })
+            level = $levelNumber - 1
+          }
+        }
+      } catch {}
+      $paragraphs += $entry
     }
   }
   $tables = @()
@@ -164,7 +233,16 @@ function Snapshot-Word($doc, $payload) {
     for ($r = 1; $r -le $table.Rows.Count; $r++) {
       $cells = @()
       for ($c = 1; $c -le $table.Columns.Count; $c++) {
-        try { $cells += ([string]$table.Cell($r, $c).Range.Text).TrimEnd("`r", "`a") } catch { $cells += $null }
+        # The cell's accepted view and its struck-through words, as for a
+        # paragraph, so a redline in a table reads the same way.
+        try {
+          $accepted = Word-AcceptedText $doc $table.Cell($r, $c).Range
+          $cells += [ordered]@{
+            text = ([string]$accepted.text).TrimEnd("`r", "`a")
+            deletedText = ([string]$accepted.deleted).TrimEnd("`r", "`a")
+            tracked = [bool]$accepted.tracked
+          }
+        } catch { $cells += $null }
       }
       $rows += ,$cells
     }
@@ -172,7 +250,11 @@ function Snapshot-Word($doc, $payload) {
     for ($r = 1; $r -le $rows.Count; $r++) {
       $cells = @()
       for ($c = 1; $c -le @($rows[$r - 1]).Count; $c++) {
-        $cells += [ordered]@{ path = "/body/tbl[$i]/row[$r]/cell[$c]"; index = $c; text = @($rows[$r - 1])[$c - 1] }
+        $record = @($rows[$r - 1])[$c - 1]
+        $cell = [ordered]@{ path = "/body/tbl[$i]/row[$r]/cell[$c]"; index = $c; text = $(if ($null -eq $record) { $null } else { $record.text }) }
+        if ($null -ne $record -and $record.tracked) { $cell.tracked = $true }
+        if ($null -ne $record -and $record.deletedText.Length -gt 0) { $cell.deletedText = $record.deletedText }
+        $cells += $cell
       }
       $tableRows += [ordered]@{ path = "/body/tbl[$i]/row[$r]"; index = $r; cells = $cells }
     }
@@ -304,18 +386,48 @@ function Snapshot-Word($doc, $payload) {
     15 = 'moved_to'; 16 = 'cell_insertion'; 17 = 'cell_deletion'; 18 = 'cell_merge'
   }
   $revisions = @()
+  $revisionsByParagraph = @{}
+  $revisionAuthors = [ordered]@{}
+  $propertyChangeCount = 0
+  # Word lists formatting revisions among the others; the portable reader
+  # counts them apart as propertyChangeCount and tallies each author's
+  # insertions and deletions, so the same figures are reported here.
+  $insertionTypes = @(1, 15, 16)
+  $deletionTypes = @(2, 14, 17)
+  $propertyTypes = @(3, 8, 10, 11, 12, 13)
+  $documentEnd = [int]$doc.Content.End
   for ($revisionIndex = 1; $revisionIndex -le $doc.Revisions.Count; $revisionIndex++) {
     $revision = $doc.Revisions.Item($revisionIndex)
     $typeCode = [int]$revision.Type
-    $revisions += [ordered]@{
+    $author = $(try { [string]$revision.Author } catch { '' })
+    $entry = [ordered]@{
       path = "/body/revision[$revisionIndex]"
       index = $revisionIndex
       type = $(if ($revisionTypes.ContainsKey($typeCode)) { [string]$revisionTypes[$typeCode] } else { 'unknown' })
       typeCode = $typeCode
-      author = $(try { [string]$revision.Author } catch { '' })
+      author = $author
       date = $(try { ([datetime]$revision.Date).ToUniversalTime().ToString('o') } catch { '' })
       text = $(try { ([string]$revision.Range.Text).TrimEnd("`r", "`a") } catch { '' })
     }
+    # The paragraph the revision starts in: the range up to and including
+    # its first character ends inside that paragraph, so the paragraph count
+    # of that range is the ordinal (a range ending exactly at a paragraph
+    # start would not count the paragraph).
+    try {
+      $head = [Math]::Min($documentEnd, [Math]::Max(0, [int]$revision.Range.Start) + 1)
+      $paragraph = [Math]::Max(1, [int]$doc.Range(0, $head).Paragraphs.Count)
+      $entry.at = "/body/p[$paragraph]"
+      if (-not $revisionsByParagraph.ContainsKey($paragraph)) { $revisionsByParagraph[$paragraph] = @() }
+      $revisionsByParagraph[$paragraph] += $revisionIndex
+    } catch {}
+    $revisions += $entry
+    if ($propertyTypes -contains $typeCode) { $propertyChangeCount++; continue }
+    if (-not $revisionAuthors.Contains($author)) { $revisionAuthors[$author] = [ordered]@{ author = $author; insertions = 0; deletions = 0 } }
+    if ($insertionTypes -contains $typeCode) { $revisionAuthors[$author].insertions++ }
+    elseif ($deletionTypes -contains $typeCode) { $revisionAuthors[$author].deletions++ }
+  }
+  foreach ($entry in $paragraphs) {
+    if ($revisionsByParagraph.ContainsKey([int]$entry.index)) { $entry.revisions = @($revisionsByParagraph[[int]$entry.index]) }
   }
   $footnotes = @()
   for ($noteIndex = 1; $noteIndex -le $doc.Footnotes.Count; $noteIndex++) {
@@ -357,6 +469,8 @@ function Snapshot-Word($doc, $payload) {
     revisionCount = $doc.Revisions.Count
     comments = $comments
     revisions = $revisions
+    revisionAuthors = @($revisionAuthors.Values)
+    propertyChangeCount = $propertyChangeCount
     footnoteCount = $footnotes.Count
     endnoteCount = $endnotes.Count
     footnotes = $footnotes
@@ -534,14 +648,21 @@ function Snapshot-Excel($book, $payload) {
       }
     } catch {}
     $mergedRanges = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    $mergeScanCount = 0
-    for ($mergeRow = 1; $mergeRow -le $used.Rows.Count -and $mergeScanCount -lt 2000; $mergeRow++) {
-      for ($mergeColumn = 1; $mergeColumn -le $used.Columns.Count -and $mergeScanCount -lt 2000; $mergeColumn++) {
-        $mergeScanCount++
-        try {
-          $cell = $used.Cells.Item($mergeRow, $mergeColumn)
-          if ($cell.MergeCells) { $null = $mergedRanges.Add([string]$cell.MergeArea.Address($false, $false)) }
-        } catch {}
+    # The walk below costs two COM calls per cell — seconds on an ordinary sheet — and almost every
+    # sheet has no merged cell at all. Asking the whole range once answers that: False means no cell
+    # in it is merged. Only a mixed answer ($null) or an all-merged range needs the bounded walk.
+    $rangeMerge = $null
+    try { $rangeMerge = $used.MergeCells } catch { $rangeMerge = $null }
+    if ($null -eq $rangeMerge -or [bool]$rangeMerge) {
+      $mergeScanCount = 0
+      for ($mergeRow = 1; $mergeRow -le $used.Rows.Count -and $mergeScanCount -lt 2000; $mergeRow++) {
+        for ($mergeColumn = 1; $mergeColumn -le $used.Columns.Count -and $mergeScanCount -lt 2000; $mergeColumn++) {
+          $mergeScanCount++
+          try {
+            $cell = $used.Cells.Item($mergeRow, $mergeColumn)
+            if ($cell.MergeCells) { $null = $mergedRanges.Add([string]$cell.MergeArea.Address($false, $false)) }
+          } catch {}
+        }
       }
     }
     $freezePanes = $null
@@ -1568,6 +1689,33 @@ function Provenance-Text($op) {
 }
 
 function Apply-WordOperation($doc, $op) {
+  # Word stamps tracked changes and comments with the application user name.
+  # An explicit author on the operation labels them instead, and the name is
+  # restored right after the operation whatever happens inside it.
+  $authorLabel = if ($null -ne $op.author) { [string]$op.author } else { '' }
+  if ([string]::IsNullOrWhiteSpace($authorLabel)) { return Invoke-WordOperation $doc $op }
+  $app = $doc.Application
+  $previousUserName = [string]$app.UserName
+  # A signed-in Office account overrides the user name unless Word is told
+  # to use the local values; both settings go back afterwards.
+  $previousLocalInfo = $null
+  try { $previousLocalInfo = [bool]$app.Options.UseLocalUserInfo } catch {}
+  $initialsLabel = if ($null -ne $op.initials) { [string]$op.initials } else { '' }
+  $previousInitials = $null
+  if (-not [string]::IsNullOrWhiteSpace($initialsLabel)) { try { $previousInitials = [string]$app.UserInitials } catch {} }
+  try {
+    $app.UserName = $authorLabel
+    if ($null -ne $previousInitials) { try { $app.UserInitials = $initialsLabel } catch {} }
+    try { $app.Options.UseLocalUserInfo = $true } catch {}
+    return Invoke-WordOperation $doc $op
+  } finally {
+    try { $app.UserName = $previousUserName } catch {}
+    if ($null -ne $previousInitials) { try { $app.UserInitials = $previousInitials } catch {} }
+    if ($null -ne $previousLocalInfo) { try { $app.Options.UseLocalUserInfo = $previousLocalInfo } catch {} }
+  }
+}
+
+function Invoke-WordOperation($doc, $op) {
   switch ([string]$op.op) {
     'fill_template' { return Fill-WordTemplate $doc $op }
     'replace_text' {
@@ -1600,7 +1748,13 @@ function Apply-WordOperation($doc, $op) {
         } else {
           $paragraph.Range.ListFormat.RemoveNumbers()
         }
-        for ($level = 0; $level -lt [int]$props.listLevel; $level++) { $paragraph.Range.ListFormat.ListIndent() }
+        if ([int]$props.listLevel -gt 0) {
+          # The level is a property of the list format; indenting one step at a
+          # time depends on the template's tab stops and can stop short.
+          try { $paragraph.Range.ListFormat.ListLevelNumber = [int]$props.listLevel + 1 } catch {
+            for ($level = 0; $level -lt [int]$props.listLevel; $level++) { $paragraph.Range.ListFormat.ListIndent() }
+          }
+        }
       } else {
         $paragraph.Range.ListFormat.RemoveNumbers()
       }
@@ -1890,11 +2044,45 @@ function Apply-WordOperation($doc, $op) {
       $doc.TrackRevisions = [bool]$op.enabled
       return [ordered]@{ op = 'track_changes'; changed = $true; enabled = [bool]$doc.TrackRevisions }
     }
+    'normalize_runs' {
+      # Word's object model reads text across run boundaries, so the portable
+      # run merge has nothing to do here; the opening batch stays the same on
+      # both backends when the operation carries allowNoChange.
+      return [ordered]@{ op = 'normalize_runs'; changed = $false; merged = 0; note = 'Word searches text across runs itself; nothing to normalize in a Microsoft Office session.' }
+    }
     'resolve_revisions' {
       $resolution = ([string]$op.resolution).ToLowerInvariant()
+      $settled = $(if ($resolution -eq 'reject') { 'reject' } else { 'accept' })
+      $author = [string]$op.author
+      if ($author) {
+        # Word settles all revisions or one, never one reviewer's, so each of
+        # the reviewer's revisions is settled on its own. Walking from the last
+        # keeps the earlier indexes valid while the collection shrinks.
+        $count = 0
+        for ($position = $doc.Revisions.Count; $position -ge 1; $position--) {
+          if ($position -gt $doc.Revisions.Count) { continue }
+          $revision = $doc.Revisions.Item($position)
+          if ([string]$revision.Author -ne $author) { continue }
+          if ($resolution -eq 'reject') { $revision.Reject() } else { $revision.Accept() }
+          $count++
+        }
+        $result = [ordered]@{ op = 'resolve_revisions'; changed = $count -gt 0; resolved = $count; author = $author; resolution = $settled }
+        if ($count -eq 0) {
+          # A label matching nobody is most often misspelt; the names present
+          # let the caller correct it, as the portable backend reports them.
+          $reviewers = @()
+          for ($position = 1; $position -le $doc.Revisions.Count; $position++) {
+            $name = [string]$doc.Revisions.Item($position).Author
+            if ($reviewers -notcontains $name) { $reviewers += $name }
+          }
+          $quoted = ($reviewers | ForEach-Object { '"' + $_ + '"' }) -join ', '
+          $result.note = $(if ($reviewers.Count -gt 0) { "No revision by `"$author`"; the tracked changes are by $quoted." } else { "No revision by `"$author`"; the document carries no tracked change." })
+        }
+        return $result
+      }
       $count = $doc.Revisions.Count
       if ($resolution -eq 'reject') { $doc.RejectAllRevisions() } else { $doc.AcceptAllRevisions() }
-      return [ordered]@{ op = 'resolve_revisions'; changed = $count -gt 0; resolved = $count; resolution = $(if ($resolution -eq 'reject') { 'reject' } else { 'accept' }) }
+      return [ordered]@{ op = 'resolve_revisions'; changed = $count -gt 0; resolved = $count; resolution = $settled }
     }
     'resolve_revision' {
       $index = [int]$op.revision
@@ -4360,11 +4548,14 @@ function Validate-NativeDocument([string]$path, [string]$format) {
     return [ordered]@{ ok = $false; opened = $false; error = [string]$_.Exception.Message }
   } finally {
     if ($null -ne $validationDocument) {
-      try { $validationDocument.Close($false) } catch {}
+      try { Close-OfficeDocument $validationDocument $format }
+      catch { Write-OfficeCleanupFailure ([ordered]@{ ok = $false; errors = @("Validation document close failed: $($_.Exception.Message)") }) }
       try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($validationDocument) } catch {}
     }
     if ($null -ne $validationApp) {
-      try { $validationApp.Quit() } catch {}
+      try {
+        if ((Office-DocumentCount $validationApp $format) -eq 0) { $validationApp.Quit() }
+      } catch { Write-OfficeCleanupFailure ([ordered]@{ ok = $false; errors = @("Validation application cleanup failed: $($_.Exception.Message)") }) }
       try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($validationApp) } catch {}
     }
   }
@@ -4604,13 +4795,16 @@ try {
 } finally {
   if ($null -ne $document) {
     if (-not $live) {
-      try { $document.Close($false) } catch {}
+      try { Close-OfficeDocument $document $format }
+      catch { Write-OfficeCleanupFailure ([ordered]@{ ok = $false; errors = @("Document close failed: $($_.Exception.Message)") }) }
     }
     try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($document) } catch {}
   }
   if ($null -ne $app) {
     if ($createdApp) {
-      try { $app.Quit() } catch {}
+      try {
+        if ((Office-DocumentCount $app $format) -eq 0) { $app.Quit() }
+      } catch { Write-OfficeCleanupFailure ([ordered]@{ ok = $false; errors = @("Application cleanup failed: $($_.Exception.Message)") }) }
     }
     try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($app) } catch {}
   }

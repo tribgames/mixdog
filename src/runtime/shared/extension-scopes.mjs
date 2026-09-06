@@ -14,14 +14,11 @@
 //     mcp:    { [serverName]: [projectRoot, …] },
 //     plugins:{ [pluginId]:   [projectRoot, …] } }
 import { resolve, sep } from 'node:path';
+import { clean } from './clean.mjs';
 
 export const EXTENSION_SCOPE_KINDS = Object.freeze(['skills', 'mcp', 'plugins']);
 
 const CASE_INSENSITIVE_PATHS = process.platform === 'win32';
-
-function clean(value) {
-  return String(value ?? '').trim();
-}
 
 function normalizeRoot(value) {
   const text = clean(value);

@@ -20,6 +20,7 @@ test('headless tool profile is an explicit stable allowlist', () => {
     'apply_patch',
     'git',
     'git_stage',
+    'github',
     'shell',
     'task',
     'load_tool',

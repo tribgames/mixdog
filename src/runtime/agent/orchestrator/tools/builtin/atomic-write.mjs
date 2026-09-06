@@ -8,6 +8,7 @@ import { pipeline } from 'stream/promises';
 import { getAbortSignalForSession } from '../../session/abort-lookup.mjs';
 import { hashText } from './hash-utils.mjs';
 import { sleep } from '../../../../shared/sleep.mjs';
+import { envFlag } from '../../../../shared/env.mjs';
 
 const STREAMING_THRESHOLD_BYTES = 1024 * 1024;
 
@@ -31,7 +32,7 @@ function expectedTargetSnapshotChanged(currentStat, expected) {
 }
 
 function ioTraceEnabled() {
-    return /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_IO_TRACE || ''));
+    return envFlag('MIXDOG_IO_TRACE');
 }
 
 function ioTraceStart() {

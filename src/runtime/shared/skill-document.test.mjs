@@ -75,7 +75,41 @@ test('creates a standard document and rejects non-standard names', () => {
     description: 'Use when this project needs the skill.',
     body: '# Instructions',
   });
-  assert.equal(parseSkillDocument(source).name, 'project-skill');
+  const parsed = parseSkillDocument(source);
+  assert.equal(parsed.name, 'project-skill');
+  assert.equal(parsed.whenToUse, '');
+  assert.equal(parsed.frontmatter.when_to_use, undefined);
   assert.throws(() => validateSkillName('Project_Skill'), /lowercase letters/);
   assert.throws(() => validateSkillName('project--skill'), /consecutive hyphens/);
+});
+
+test('when_to_use is an optional trigger line that saves round-trip and clear', () => {
+  const created = createSkillDocument({
+    name: 'deploy-helper',
+    description: 'Deploy the app to staging.',
+    whenToUse: '"배포", "deploy", "ship it"; not for local builds.',
+    body: '# Instructions',
+  });
+  const parsed = parseSkillDocument(created);
+  assert.equal(parsed.description, 'Deploy the app to staging.');
+  assert.equal(parsed.whenToUse, '"배포", "deploy", "ship it"; not for local builds.');
+
+  const cleared = updateSkillDocument(created, {
+    name: 'deploy-helper',
+    description: 'Deploy the app to staging.',
+    whenToUse: '   ',
+    body: '# Instructions',
+  });
+  assert.equal(parseSkillDocument(cleared).whenToUse, '');
+  assert.doesNotMatch(cleared, /when_to_use/);
+
+  assert.throws(() => parseSkillDocument([
+    '---',
+    'name: bad-trigger',
+    'description: Fine.',
+    'when_to_use:',
+    '  - list',
+    '---',
+    'Body.',
+  ].join('\n')), /when_to_use must be a string/);
 });

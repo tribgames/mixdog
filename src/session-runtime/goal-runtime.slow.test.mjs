@@ -33,14 +33,14 @@ test('Goal runtime keeps completion visible across restart, then archives it on 
     }, { callerSessionId: 'sess_goal_main' });
     await runtime.startTurn('sess_goal_main');
 
-    clock += 12 * 60 * 1000;
+    clock += 2 * 60 * 60 * 1000;
     const completedText = await runtime.executeTool('goal', {
       action: 'complete',
     }, { callerSessionId: 'sess_goal_main' });
     const completed = JSON.parse(completedText).goal;
     assert.equal(completed.status, 'complete');
     assert.equal(completed.tasksCompleted, 2);
-    assert.equal(completed.timeUsedMs, 12 * 60 * 1000);
+    assert.equal(completed.timeUsedMs, 2 * 60 * 60 * 1000);
 
     const goalPath = join(dataDir, 'goals', 'sess_goal_main.json');
     assert.equal(runtime.snapshot('sess_goal_main').status, 'complete');
@@ -93,9 +93,15 @@ test('Goal titles use the compact fallback and promote an async generated title'
       objective: 'Implement a durable Goal task system with mobile layout verification',
     });
     assert.ok(created.goal.title.length <= 32);
+    const titleSaved = new Promise((resolve) => {
+      const unsubscribe = runtime.subscribe(({ goal }) => {
+        if (goal?.title !== 'Durable Goal Tasks') return;
+        unsubscribe();
+        resolve();
+      });
+    });
     releaseTitle('Durable Goal Tasks');
-    await new Promise((resolve) => setImmediate(resolve));
-    await new Promise((resolve) => setImmediate(resolve));
+    await titleSaved;
     assert.equal(runtime.snapshot('sess_goal_title').title, 'Durable Goal Tasks');
   } finally {
     runtime.close();
@@ -192,8 +198,7 @@ test('Goal continuation parks only for active agent work and the deadline limits
     });
     assert.equal(shellIgnored.run, true);
     assert.match(shellIgnored.prompt, /Active Goal/);
-    assert.match(shellIgnored.prompt, /goal action "set_tasks"/);
-    assert.match(shellIgnored.prompt, /mark current work in_progress before starting/);
+    assert.match(shellIgnored.prompt, /update and batching rules in the tool description/);
     assert.match(shellIgnored.prompt, /requested duration is a full-period work commitment/);
     assert.match(shellIgnored.prompt, /keep implementing, verifying, reviewing, and polishing/);
     assert.match(shellIgnored.prompt, /do not complete early unless the user allows it/);
@@ -241,6 +246,7 @@ test('Goal completion requires all durable tasks and a completed verification ta
         { text: 'Verify result', status: 'pending', kind: 'verification' },
       ],
     }, { callerSessionId: 'sess_goal_status' })).goal;
+    goal = runtime.snapshot('sess_goal_status');
     assert.equal(goal.tasksCompleted, 1);
     await assert.rejects(
       runtime.executeTool('goal', {
@@ -275,10 +281,10 @@ test('Goal tool schemas expose lifecycle and durable task contracts', () => {
   assert.equal(goalTool.name, 'goal');
   assert.deepEqual(goalTool.inputSchema.required, ['action']);
   assert.deepEqual(Object.keys(goalTool.inputSchema.properties), [
-    'action', 'objective', 'time_limit_minutes', 'tasks', 'blocker',
+    'action', 'objective', 'time_limit_minutes', 'tasks', 'updates', 'revision', 'blocker',
   ]);
   assert.deepEqual(goalTool.inputSchema.properties.action.enum, [
-    'status', 'create', 'pause', 'resume', 'set_tasks', 'complete', 'block', 'abandon',
+    'status', 'create', 'pause', 'resume', 'set_tasks', 'update_tasks', 'complete', 'block', 'abandon',
   ]);
   assert.deepEqual(goalTool.inputSchema.properties.tasks.items.required, ['text', 'status', 'kind']);
   assert.equal(goalTool.inputSchema.properties.blocker.minLength, 1);
@@ -286,23 +292,28 @@ test('Goal tool schemas expose lifecycle and durable task contracts', () => {
   assert.match(goalTool.description, /3\+ steps or careful planning/i);
   assert.match(goalTool.description, /skip trivial or conversational work/i);
   assert.match(goalTool.description, /idle reminder for unfinished work/i);
-  assert.match(goalTool.description, /never spend an iteration on Goal alone: batch create\/resume\/set_tasks with the next work tool/i);
-  assert.match(goalTool.description, /finish every approved step without stepwise approval/i);
-  assert.match(goalTool.inputSchema.properties.time_limit_minutes.description, /full-period active work commitment/i);
-  assert.match(goalTool.inputSchema.properties.time_limit_minutes.description, /do not complete early unless user allows it/i);
+  // Advisory policy anchors: ordinary turns need the update triggers too.
+  assert.match(goalTool.description, /capture new requirements immediately/i);
+  assert.match(goalTool.description, /mark work in_progress before starting and completed as soon as fully done/i);
+  assert.match(goalTool.description, /update changed plans before continuing or reporting/i);
+  assert.match(goalTool.description, /When possible, batch updates with independent work/i);
+  assert.match(goalTool.description, /standalone updates are allowed and must not be delayed for batching/i);
+  assert.match(goalTool.description, /Finish every approved step/i);
+  assert.match(goalTool.inputSchema.properties.time_limit_minutes.description, /full-period work commitment/i);
+  assert.match(goalTool.description, /only explicit user completion can end it early/i);
   assert.match(goalTool.description, /paused is the only user-wait state/i);
   // Deferred pause: a long-running Goal must not idle for hours on one
   // approval while approval-free work is still available.
-  assert.match(goalTool.description, /mark work needing a user answer awaiting_approval \(work that answer could invalidate counts too\), keep doing the rest/i);
-  assert.match(goalTool.description, /pause once nothing can proceed and ask every parked question at once/i);
-  assert.match(goalTool.description, /never pause for routine errors, retries, or a user addition/i);
-  assert.match(goalTool.description, /resume right after the answer/i);
+  assert.match(goalTool.description, /park new approval-dependent work and anything it could invalidate as awaiting_approval; continue unaffected approved work/i);
+  assert.match(goalTool.description, /pause only when nothing else can proceed, ask all parked questions together/i);
+  assert.match(goalTool.description, /Routine errors and retries are not reasons to pause/i);
+  assert.match(goalTool.description, /call resume alongside resumed work/i);
   assert.match(goalTool.description, /Block only when the same external impasse stops progress for 3 turns/i);
   // A stopped Goal must stay retirable, or it blocks every later Goal.
   assert.match(goalTool.description, /Abandon only when the user redirects away from the objective/i);
   assert.doesNotMatch(goalTool.description, /opt-in|explicit user request/i);
-  assert.match(goalTool.inputSchema.properties.action.description, /pause is the single user-wait state; resume continues it/i);
-  assert.match(goalTool.inputSchema.properties.action.description, /abandon discards a superseded Goal/i);
+  assert.match(goalTool.inputSchema.properties.action.description, /pause waits for user; resume accompanies resumed work/i);
+  assert.match(goalTool.inputSchema.properties.action.description, /abandon retires superseded work/i);
   assert.match(goalTool.inputSchema.properties.blocker.description, /external impasse.*3 consecutive turns/i);
   // Retiring scoped-out work must not require falsely marking it completed.
   assert.deepEqual(goalTool.inputSchema.properties.tasks.items.properties.status.enum, [
@@ -310,9 +321,9 @@ test('Goal tool schemas expose lifecycle and durable task contracts', () => {
   ]);
   // Schema bytes ride on every request, so this ceiling tracks the intended
   // surface rather than drifting: it covers abandon, the dropped and
-  // awaiting_approval task states, and the deferred-pause contract, with the
-  // prose already consolidated once to pay for them.
-  assert.ok(JSON.stringify(goalTool).length < 3_000);
+  // awaiting_approval task states, the deferred-pause contract, and update
+  // triggers now owned by the always-present tool description.
+  assert.ok(JSON.stringify(goalTool).length < 4_500);
 });
 
 test('a user completes their own Goal without the model evidence gate', async () => {
@@ -391,6 +402,7 @@ test('dropped tasks retire scoped-out work without a false completion', async ()
         { text: 'Verify the feature', status: 'completed', kind: 'verification' },
       ],
     }, { callerSessionId: 'sess_goal_dropped' })).goal;
+    goal = runtime.snapshot('sess_goal_dropped');
     await assert.rejects(
       runtime.executeTool('goal', { action: 'complete' }, { callerSessionId: 'sess_goal_dropped' }),
       /durable tasks remain incomplete/,
@@ -402,6 +414,7 @@ test('dropped tasks retire scoped-out work without a false completion', async ()
       tasks: goal.tasks.map((task) =>
         (task.id === 'task_2' ? { ...task, status: 'dropped' } : task)),
     }, { callerSessionId: 'sess_goal_dropped' })).goal;
+    goal = runtime.snapshot('sess_goal_dropped');
     assert.equal(goal.tasks.length, 3);
     assert.equal(goal.tasks[1].status, 'dropped');
     // Retired work leaves the denominator so progress moves instead of freezing.
@@ -413,8 +426,9 @@ test('dropped tasks retire scoped-out work without a false completion', async ()
       action: 'set_tasks',
       tasks: goal.tasks.filter((task) => task.status !== 'dropped'),
     }, { callerSessionId: 'sess_goal_dropped' })).goal;
-    assert.equal(trimmed.tasks.length, 2);
+    assert.equal(trimmed.tasksTotal, 2);
 
+    await runtime.startTurn('sess_goal_dropped');
     const completed = JSON.parse(await runtime.executeTool('goal', {
       action: 'complete',
     }, { callerSessionId: 'sess_goal_dropped' })).goal;
@@ -439,11 +453,13 @@ test('work dropped this turn cannot also close the Goal in the same turn', async
         { text: 'Verify both paths', status: 'completed', kind: 'verification' },
       ],
     }, { callerSessionId: 'sess_goal_drop_turn' })).goal;
+    goal = runtime.snapshot('sess_goal_drop_turn');
     goal = JSON.parse(await runtime.executeTool('goal', {
       action: 'set_tasks',
       tasks: goal.tasks.map((task) =>
         (task.id === 'task_2' ? { ...task, status: 'dropped' } : task)),
     }, { callerSessionId: 'sess_goal_drop_turn' })).goal;
+    goal = runtime.snapshot('sess_goal_drop_turn');
     // Writing requested work off and closing the Goal in one breath is how a
     // user condition disappears unnoticed, so the drop has to outlive the turn.
     await assert.rejects(
@@ -572,7 +588,7 @@ test('Goal observations report turns and real task movement without judging them
     clock += 60_000;
     const unchanged = JSON.parse(await runtime.executeTool('goal', {
       action: 'set_tasks',
-      tasks: moved.tasks,
+      tasks: runtime.snapshot('sess_goal_observe').tasks,
     }, { callerSessionId: 'sess_goal_observe' })).goal;
     assert.equal(unchanged.tasksUpdatedAt, moved.tasksUpdatedAt);
   } finally {
@@ -635,7 +651,6 @@ test('unified Goal tool accepts model-shaped fields, consumes only the action pa
     const created = JSON.parse(await runtime.executeTool('goal', {
       action: 'create',
       objective: 'Use one Goal tool',
-      time_limit_minutes: 60,
       tasks: [
         { id: '', text: 'Use the unified Goal tool', status: 'in_progress', kind: 'work' },
         { id: '', text: 'Verify the unified Goal tool', status: 'pending', kind: 'verification' },
@@ -751,6 +766,7 @@ test('Goal turn lifecycle requires three identical failures, preserves blockers,
     }
     assert.equal(goal.blocker, 'network unavailable');
 
+    await runtime.executeTool('goal', { action: 'status' }, { callerSessionId: 'sess_goal_lifecycle' });
     await assert.rejects(
       runtime.executeTool('goal', {
         action: 'block',
@@ -758,6 +774,7 @@ test('Goal turn lifecycle requires three identical failures, preserves blockers,
       /blocker is required/,
     );
     await runtime.control('sess_goal_lifecycle', { action: 'resume' });
+    await runtime.executeTool('goal', { action: 'status' }, { callerSessionId: 'sess_goal_lifecycle' });
     goal = JSON.parse(await runtime.executeTool('goal', {
       action: 'block',
       blocker: 'Waiting for deployment credentials',
@@ -907,9 +924,10 @@ test('daemon restart preserves active, paused, blocked, and complete Goal snapsh
         { text: 'Verify recovery work', status: 'completed', kind: 'verification' },
       ],
     }, { callerSessionId: 'sess_goal_restart_complete' });
-    const completed = JSON.parse(await runtime.executeTool('goal', {
+    await runtime.executeTool('goal', {
       action: 'complete',
-    }, { callerSessionId: 'sess_goal_restart_complete' })).goal;
+    }, { callerSessionId: 'sess_goal_restart_complete' });
+    const completed = runtime.snapshot('sess_goal_restart_complete');
     runtime.close();
 
     clock += 5_000;

@@ -202,18 +202,6 @@ export function textByteLength(text) {
     catch { return String(text || '').length; }
 }
 
-export function messageContentHasMarker(m, marker) {
-    if (!m || !marker) return false;
-    if (typeof m.content === 'string') return m.content.includes(marker);
-    if (Array.isArray(m.content)) {
-        return m.content.some((part) => {
-            if (!part || typeof part !== 'object') return false;
-            return String(part.text || part.content || '').includes(marker);
-        });
-    }
-    return false;
-}
-
 // --- Verbatim redaction for messages kept through compaction ---------------
 
 // Redaction-ONLY recursive walk for tool-call argument VALUES kept verbatim

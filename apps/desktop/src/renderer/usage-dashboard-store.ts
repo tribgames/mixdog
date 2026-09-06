@@ -16,6 +16,7 @@
 //   * request id — monotonic per request; only the owning request may release
 //               the pending slot, so an old finally cannot clear a newer one.
 import type { DesktopApi } from "../shared/contract";
+import { startVisibleRefreshCadence } from "./visible-refresh-cadence";
 
 export type UsageApi = Partial<Pick<DesktopApi, "invokeCapability">>;
 export type UsageRecord = Record<string, unknown>;
@@ -67,6 +68,7 @@ const EMPTY_SNAPSHOT: UsageDashboardSnapshot = {
 };
 
 let host: Window | null = null;
+let hostGeneration = 0;
 let snapshot: UsageDashboardSnapshot = EMPTY_SNAPSHOT;
 let listeners = new Set<Listener>();
 let epoch = 0;
@@ -76,7 +78,7 @@ let pendingId = 0;
 let retryTimer: number | null = null;
 let retryUsed = false;
 let cadenceHolders = 0;
-let cadenceTimer: number | null = null;
+let releaseCadence: (() => void) | null = null;
 let cadenceApi: UsageApi | undefined;
 let retirementQueued = false;
 const timers = new Set<number>();
@@ -209,13 +211,13 @@ function clearTimers(): void {
 }
 
 function stopCadence(): void {
-  if (cadenceTimer === null) return;
+  const release = releaseCadence;
+  releaseCadence = null;
   try {
-    host?.clearInterval(cadenceTimer);
+    release?.();
   } catch {
     // A retired window already dropped its timers.
   }
-  cadenceTimer = null;
 }
 
 /** Retires the current generation: pending ownership, tracked timers and the
@@ -240,6 +242,7 @@ function ensureHost(): Window | null {
   cadenceApi = undefined;
   listeners = new Set();
   host = active;
+  hostGeneration += 1;
   snapshot = active
     ? { dashboard: readCache(active), refreshedAt: 0, loading: false, status: "idle" }
     : EMPTY_SNAPSHOT;
@@ -336,6 +339,7 @@ function failRefresh(win: Window, timedOut: boolean): void {
   // with no cadence holder left there is nothing to refresh for.
   const api = cadenceHolders > 0 ? cadenceApi : undefined;
   const retryable = !retryUsed && retryTimer === null
+    && win.document?.visibilityState !== "hidden"
     && typeof api?.invokeCapability === "function";
   if (retryable) {
     retryUsed = true;
@@ -343,6 +347,7 @@ function failRefresh(win: Window, timedOut: boolean): void {
     retryTimer = trackTimeout(win, () => {
       retryTimer = null;
       if (host !== win || epoch !== generation || cadenceHolders === 0) return;
+      if (win.document?.visibilityState === "hidden") return;
       // cadenceApi is read at FIRE time so a same-window API swap is honoured.
       void refreshUsageDashboard(cadenceApi, { force: true, retry: true });
     }, USAGE_DASHBOARD_RETRY_DELAY_MS);
@@ -405,6 +410,14 @@ async function runRefresh(
   acceptRefresh(win, (result as { value?: unknown } | undefined)?.value);
 }
 
+/** Credentials changed: do not adopt a request started by the previous account.
+ *  The refresh remains best effort and independent of the successful login. */
+export function refreshUsageDashboardAfterAuth(api: UsageApi | undefined): Promise<void> {
+  ensureHost();
+  retire();
+  return refreshUsageDashboard(api, { force: true });
+}
+
 /** One in-flight request for the whole renderer. `force` skips the TTL check
  *  (cadence ticks and retries); everything else is stale-while-revalidate. */
 export function refreshUsageDashboard(
@@ -460,20 +473,28 @@ function scheduleRetirement(): void {
  *  mounted rail, plus the popup when open) needs it. */
 export function holdUsageDashboardCadence(api: UsageApi | undefined): () => void {
   const win = ensureHost();
+  const generation = hostGeneration;
   cadenceHolders += 1;
   // A same-window API swap (host bridge replaced) becomes the cadence API, so
   // neither the cadence nor the retry can keep a retired bridge alive.
   if (typeof api?.invokeCapability === "function") cadenceApi = api;
-  if (win && cadenceTimer === null && typeof cadenceApi?.invokeCapability === "function") {
-    cadenceTimer = win.setInterval(
-      () => void refreshUsageDashboard(cadenceApi, { force: true }),
-      USAGE_DASHBOARD_REFRESH_INTERVAL_MS,
-    );
+  if (win && releaseCadence === null && typeof cadenceApi?.invokeCapability === "function") {
+    releaseCadence = startVisibleRefreshCadence({
+      win,
+      intervalMs: USAGE_DASHBOARD_REFRESH_INTERVAL_MS,
+      refresh: (reason) => void refreshUsageDashboard(cadenceApi, { force: reason === "interval" }),
+      onHidden: () => {
+        if (retryTimer !== null) clearTracked(win, retryTimer);
+        retryTimer = null;
+        if (!pending && snapshot.status === "loading") publishStatus(settledStatus());
+      },
+    });
   }
   let released = false;
   return () => {
     if (released) return;
     released = true;
+    if (generation !== hostGeneration) return;
     cadenceHolders = Math.max(0, cadenceHolders - 1);
     if (cadenceHolders === 0) scheduleRetirement();
   };

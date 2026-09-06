@@ -1,9 +1,11 @@
-import { mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { appendFileSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { closeMicrosoftOfficeSession, detectMicrosoftOffice, resetMicrosoftOfficeSessionsForTest } from './com/com-adapter.mjs';
-import { extractPdfImages, extractPdfTextLayout, inferPdfTables } from './pdf/pdf-analysis.mjs';
+import { extractPdfImages, extractPdfTextLayout, findPdfText, inferPdfTables } from './pdf/pdf-analysis.mjs';
 import { describeOfficeCapabilities } from './capabilities.mjs';
 import { qpdfAvailable, securePdf } from './pdf/pdf-security.mjs';
+import { unicodeFontPath } from './pdf/pdf-fonts.mjs';
 import { defaultOfficeDataDir } from './core/journal.mjs';
 import { resolveOfficeDesign } from './design/design-system.mjs';
 import { inspectOfficeDesignLibrary, persistOfficeDesignBinding } from './design/library/design-library.mjs';
@@ -15,7 +17,24 @@ import { assertTransactionUnchanged, beginTransaction, commitTransaction, pendin
 
 export { initializeOfficeTransactions } from './core/office-transactions.mjs';
 
-export async function executeOfficeTool(args = {}, {
+// Office work is minutes of real application time, and guessing which action carries it is how
+// tuning goes wrong. MIXDOG_OFFICE_TRACE writes one line per call so a slow run maps itself; it
+// names a file because a test runner keeps the child process's own streams to itself.
+const OFFICE_TRACE = process.env.MIXDOG_OFFICE_TRACE || '';
+
+export async function executeOfficeTool(args = {}, context = {}) {
+  if (!OFFICE_TRACE) return await runOfficeTool(args, context);
+  const startedAt = performance.now();
+  try {
+    return await runOfficeTool(args, context);
+  } finally {
+    const line = `${String(args.action || '?')}\t${Math.round(performance.now() - startedAt)}\t${args.path || args.session || ''}\n`;
+    if (OFFICE_TRACE === '1') process.stderr.write(`[office-trace] ${line}`);
+    else try { appendFileSync(OFFICE_TRACE, line); } catch {}
+  }
+}
+
+async function runOfficeTool(args = {}, {
   cwd = process.cwd(),
   dataDir = defaultOfficeDataDir(),
   signal = null,
@@ -38,6 +57,7 @@ export async function executeOfficeTool(args = {}, {
           pdf: true,
           formats: Object.keys(FILE_KIND_TO_FORMAT),
           pdfSecurity: { available: await qpdfAvailable(), backend: 'qpdf' },
+          pdfUnicodeFont: await unicodeFontPath(),
         },
         pendingTransactions: await pendingOfficeTransactions(dataDir),
         designLibrary: await inspectOfficeDesignLibrary({ dataDir }),
@@ -137,6 +157,7 @@ export async function executeOfficeTool(args = {}, {
               opened: true,
               created: action === 'create',
               reused: session.reused === true,
+              ...(session.createReceipt || {}),
               ...(initialEdit ? { batch: initialEdit } : {}),
             },
             { action, session, startedAt },
@@ -170,6 +191,7 @@ export async function executeOfficeTool(args = {}, {
             opened: true,
             created: action === 'create',
             reused: session.reused === true,
+            ...(session.createReceipt || {}),
             foregroundActivated: session.foregroundActivated === true,
             backgroundIsolation: initialEdit?.backgroundIsolation || session.backgroundIsolation || null,
           },
@@ -259,28 +281,64 @@ export async function executeOfficeTool(args = {}, {
       if (queryKind !== 'text') {
         if (session.format !== 'pdf') throw new Error(`${queryKind} query is supported for PDF sessions only`);
         if (queryKind === 'pdf-layout') {
-          value = {
-            session: session.id,
-            queryKind,
-            ...(await extractPdfTextLayout(session.target, {
-              pages: args.pages,
-              maxItems: args.limit || 10_000,
-              signal,
-            })),
-          };
+          const needle = String(args.query || '').trim();
+          const layout = await extractPdfTextLayout(session.target, {
+            pages: args.pages,
+            maxItems: needle ? 20_000 : (args.limit || 10_000),
+            shapes: !needle,
+            signal,
+          });
+          // A search answers with the boxes alone: the caller wants where a
+          // phrase sits, not every run on the page.
+          value = needle
+            ? {
+              session: session.id,
+              queryKind,
+              pageCount: layout.pageCount,
+              ...findPdfText(layout, needle, { limit: args.limit || 200 }),
+              pages: layout.pages.map(({ page, width, height }) => ({ page, width, height })),
+            }
+            : { session: session.id, queryKind, ...layout };
         } else if (queryKind === 'pdf-tables') {
           const layout = await extractPdfTextLayout(session.target, {
             pages: args.pages,
             maxItems: args.limit || 10_000,
             signal,
           });
-          value = { session: session.id, queryKind, ...inferPdfTables(layout) };
+          const inferred = inferPdfTables(layout);
+          if (args.output) {
+            // One CSV per table, UTF-8, RFC 4180 quoting: the shape the xlsx and tabular sessions read back.
+            const directory = fullPath(args.output, cwd);
+            await mkdir(directory, { recursive: true });
+            const csvCell = (text) => (/[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text);
+            const counters = new Map();
+            for (const table of inferred.tables) {
+              const ordinal = (counters.get(table.page) || 0) + 1;
+              counters.set(table.page, ordinal);
+              const file = join(directory, `page-${table.page}-table-${ordinal}.csv`);
+              await writeFile(file, `${table.rows.map((row) => row.map((cell) => csvCell(String(cell ?? ''))).join(',')).join('\r\n')}\r\n`, 'utf8');
+              table.path = file;
+            }
+            inferred.output = directory;
+          }
+          value = { session: session.id, queryKind, ...inferred };
         } else if (queryKind === 'pdf-images') {
-          value = {
-            session: session.id,
-            queryKind,
-            ...(await extractPdfImages(session.target, { pages: args.pages, signal })),
-          };
+          const extracted = await extractPdfImages(session.target, { pages: args.pages, signal });
+          if (args.output) {
+            // Files instead of inline pictures: a directory of PNGs the caller can reuse.
+            const directory = fullPath(args.output, cwd);
+            await mkdir(directory, { recursive: true });
+            const written = [];
+            for (const image of extracted._images) {
+              const file = join(directory, `page-${image.page}-image-${image.index}.png`);
+              await writeFile(file, Buffer.from(image.data, 'base64'));
+              written.push(file);
+            }
+            extracted.images = extracted.images.map((image, index) => ({ ...image, path: written[index] }));
+            extracted.output = directory;
+            delete extracted._images;
+          }
+          value = { session: session.id, queryKind, ...extracted };
         } else {
           throw new Error(`Unsupported Office queryKind: ${queryKind}`);
         }
@@ -339,7 +397,10 @@ export async function executeOfficeTool(args = {}, {
           documentSessions.delete(documentSessionKey(activeSession.target));
         }
       }
-      return toolResult({ ok: false, code: 'cancelled', message: 'Office Use operation was cancelled' }, true);
+      return toolResult({
+        ok: false, code: 'cancelled', message: 'Office Use operation was cancelled',
+        detail: error?.message || String(error),
+      }, true);
     }
     return toolResult(`Error: ${error?.message || String(error)}`, true);
   }

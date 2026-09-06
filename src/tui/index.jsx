@@ -14,7 +14,7 @@ import { format } from 'node:util';
 import { App } from './App.jsx';
 import { cancelPendingMouseTrackingRestores } from './app/use-mouse-input.mjs';
 import { createSessionRuntime } from './session.mjs';
-import { scheduleRenderFrameAck, TUI_RENDER_FPS } from './session/render-timing.mjs';
+import { registerRenderFrameSource, scheduleRenderFrameAck, TUI_RENDER_FPS } from './session/render-timing.mjs';
 import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
 import { finishProcessLifecycle } from '../runtime/shared/process-lifecycle.mjs';
 import { rgbSgr } from '../ui/ansi.mjs';
@@ -633,6 +633,7 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
   // exitOnCtrlC:false — App handles Ctrl+C as an interrupt/line-clear so Ink
   // does not exit abruptly. Explicit exits go through /exit or /quit so teardown
   // still restores the cursor, mouse mode, and alternate screen cleanly.
+  const releaseRenderFrameSource = registerRenderFrameSource();
   try {
     // [render] incrementalRendering: line-diff repaint (only changed rows are
     // rewritten) instead of erase-all+rewrite per frame — removes the whole-
@@ -674,6 +675,7 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     }
     await waitUntilExit();
   } finally {
+    releaseRenderFrameSource();
     stopPerfProbe();
     stopLoopProbe();
     for (const [stream, event, handler] of stdioDeathListeners.splice(0)) {

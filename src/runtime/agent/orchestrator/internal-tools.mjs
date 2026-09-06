@@ -22,11 +22,6 @@ let _executor = null;
 let _tools = [];
 let _names = new Set();
 
-let _bootReady = false;
-let _bootResolver = null;
-const _bootPromise = new Promise((r) => { _bootResolver = r; });
-export function markBootReady() { if (_bootReady) return; _bootReady = true; _bootResolver(); }
-
 export function setInternalToolsProvider({ executor, tools }) {
     if (typeof executor !== 'function') throw new Error('internal-tools: executor must be a function');
     _executor = executor;

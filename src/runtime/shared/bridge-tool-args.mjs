@@ -8,7 +8,7 @@
 
 /** Parse a JSON-object string once. Anything else — including a malformed
  *  string — comes back untouched so the caller's own type check still fails. */
-export function parseJsonObjectArg(value) {
+function parseJsonObjectArg(value) {
   if (typeof value !== 'string') return value;
   const text = value.trim();
   if (!text.startsWith('{')) return value;

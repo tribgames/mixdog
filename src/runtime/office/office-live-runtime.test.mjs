@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -100,7 +100,7 @@ async function stopExternalExcel(external) {
   external.lines.close();
 }
 
-test('persistent Excel sessions own one document and preserve UTF-8 text', {
+test('[excel] persistent Excel sessions own one document and preserve UTF-8 text', {
   skip: !enabled,
 }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
@@ -137,11 +137,10 @@ test('persistent Excel sessions own one document and preserve UTF-8 text', {
   assert.deepEqual(backgroundBatch.backgroundIsolation?.observedVisibleWindows, [], JSON.stringify(backgroundBatch));
   assert.equal(backgroundBatch.backgroundIsolation?.hiddenWindows, 0, JSON.stringify(backgroundBatch));
   assert.equal(backgroundBatch.backgroundIsolation?.focusRestorations, 0, JSON.stringify(backgroundBatch));
-  assert.equal(
-    backgroundBatch.backgroundIsolation?.foregroundAfter,
-    backgroundBatch.backgroundIsolation?.foregroundBefore,
-    JSON.stringify(backgroundBatch),
-  );
+  // The contract is that background Office never takes the foreground — not that the desktop's
+  // foreground window is frozen. Any unrelated window activating during the call would break the
+  // second reading without saying anything about Office.
+  assert.equal(backgroundBatch.backgroundIsolation?.ownedForeground, false, JSON.stringify(backgroundBatch));
   const backgroundCell = value(await executeOfficeTool({
     action: 'get',
     session: background.session,
@@ -341,7 +340,7 @@ test('persistent Excel sessions own one document and preserve UTF-8 text', {
   assert.equal(await waitForProcessExit(visible.appPid), true);
 });
 
-test('persistent Word and PowerPoint sessions create, save, and read Unicode content', {
+test('[word] persistent Word sessions create, save, and read Unicode content', {
   skip: !enabled,
 }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-formats-'));
@@ -483,6 +482,16 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
     'insert_toc',
   ]);
   value(await executeOfficeTool({ action: 'close', session: word.session }, { cwd }));
+});
+
+test('[powerpoint] persistent PowerPoint sessions create, save, and read Unicode content', {
+  skip: !enabled,
+}, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-powerpoint-'));
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
 
   const powerpoint = value(await executeOfficeTool({
     action: 'create',
@@ -493,11 +502,6 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
   assert.equal(powerpoint.backgroundIsolation?.strict, true, JSON.stringify(powerpoint));
   assert.equal(powerpoint.backgroundIsolation?.isolatedProcess, true, JSON.stringify(powerpoint));
   assert.deepEqual(powerpoint.backgroundIsolation?.observedVisibleWindows, [], JSON.stringify(powerpoint));
-  assert.equal(
-    powerpoint.backgroundIsolation?.foregroundAfter,
-    powerpoint.backgroundIsolation?.foregroundBefore,
-    JSON.stringify(powerpoint),
-  );
   assert.equal(powerpoint.backgroundIsolation?.visibleOwnedWindows, 0, JSON.stringify(powerpoint));
   assert.equal(powerpoint.backgroundIsolation?.ownedForeground, false, JSON.stringify(powerpoint));
   const powerpointBatch = value(await executeOfficeTool({
@@ -593,11 +597,6 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
   }, { cwd }));
   assert.equal(powerpointBatch.backgroundIsolation?.strict, true, JSON.stringify(powerpointBatch));
   assert.deepEqual(powerpointBatch.backgroundIsolation?.observedVisibleWindows, [], JSON.stringify(powerpointBatch));
-  assert.equal(
-    powerpointBatch.backgroundIsolation?.foregroundAfter,
-    powerpointBatch.backgroundIsolation?.foregroundBefore,
-    JSON.stringify(powerpointBatch),
-  );
   assert.equal(powerpointBatch.backgroundIsolation?.visibleOwnedWindows, 0, JSON.stringify(powerpointBatch));
   assert.equal(powerpointBatch.backgroundIsolation?.ownedForeground, false, JSON.stringify(powerpointBatch));
   assert.equal(powerpointBatch.backgroundIsolation?.hiddenWindows, 0, JSON.stringify(powerpointBatch));
@@ -699,7 +698,7 @@ test('persistent Word and PowerPoint sessions create, save, and read Unicode con
   value(await executeOfficeTool({ action: 'close', session: importedPowerPoint.session }, { cwd }));
 });
 
-test('native Office creates and reopens template and macro-enabled file kinds', {
+test('[compat] native Office creates and reopens template and macro-enabled file kinds', {
   skip: !enabled,
 }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-kinds-'));
@@ -764,36 +763,40 @@ test('native Office creates and reopens template and macro-enabled file kinds', 
     },
   ];
   for (const entry of cases) {
-    const path = join(cwd, `native.${entry.fileKind}`);
-    const created = value(await executeOfficeTool({
-      action: 'create',
-      path,
-      format: entry.fileKind,
-      mode: 'background',
-    }, { cwd }));
-    assert.equal(created.fileKind, entry.fileKind);
-    value(await executeOfficeTool({
-      action: 'batch',
-      session: created.session,
-      operations: entry.operations,
-    }, { cwd }));
-    const validation = value(await executeOfficeTool({ action: 'validate', session: created.session }, { cwd }));
-    assert.equal(validation.ok, true, JSON.stringify(validation));
-    assert.equal(validation.native.opened, true);
-    value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
-    const reopened = value(await executeOfficeTool({
-      action: 'open',
-      path,
-      output: join(cwd, `reopened.${entry.fileKind}`),
-      mode: 'background',
-    }, { cwd }));
-    assert.equal(reopened.fileKind, entry.fileKind);
-    assert.match(JSON.stringify(reopened.document), entry.expected);
-    value(await executeOfficeTool({ action: 'close', session: reopened.session }, { cwd }));
+    await t.test(entry.fileKind, async (caseTest) => {
+      caseTest.after(() => resetOfficeSessionsForTest());
+      console.log(`Office 호환성 검증 시작 — ${entry.fileKind}`);
+      const path = join(cwd, `native.${entry.fileKind}`);
+      const created = value(await executeOfficeTool({
+        action: 'create',
+        path,
+        format: entry.fileKind,
+        mode: 'background',
+      }, { cwd }));
+      assert.equal(created.fileKind, entry.fileKind);
+      value(await executeOfficeTool({
+        action: 'batch',
+        session: created.session,
+        operations: entry.operations,
+      }, { cwd }));
+      const validation = value(await executeOfficeTool({ action: 'validate', session: created.session }, { cwd }));
+      assert.equal(validation.ok, true, JSON.stringify(validation));
+      assert.equal(validation.native.opened, true);
+      value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+      const reopened = value(await executeOfficeTool({
+        action: 'open',
+        path,
+        output: join(cwd, `reopened.${entry.fileKind}`),
+        mode: 'background',
+      }, { cwd }));
+      assert.equal(reopened.fileKind, entry.fileKind);
+      assert.match(JSON.stringify(reopened.document), entry.expected);
+      value(await executeOfficeTool({ action: 'close', session: reopened.session }, { cwd }));
+    });
   }
 });
 
-test('attach selects the exact workbook across multiple Excel instances', {
+test('[attach] attach selects the exact workbook across multiple Excel instances', {
   skip: !enabled,
 }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-multi-instance-'));
@@ -878,7 +881,68 @@ test('attach selects the exact workbook across multiple Excel instances', {
   secondExternal = null;
 });
 
-test('both backends satisfy one snapshot contract and agree on the same document', {
+test('[word] a background Word session reports and settles a redline like the portable reader', {
+  skip: !enabled,
+}, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-redline-'));
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+
+  const word = value(await executeOfficeTool({ action: 'create', path: join(cwd, 'redline.docx'), format: 'docx', mode: 'background' }, { cwd }));
+  value(await executeOfficeTool({
+    action: 'batch',
+    session: word.session,
+    operations: [
+      { op: 'append_text', text: 'Alpha one.' },
+      { op: 'append_text', text: 'Beta two.' },
+      { op: 'add_table', values: [['Item', 'Price'], ['Widget', 'old']] },
+      { op: 'track_changes', enabled: true },
+      { op: 'replace_text', find: 'one', replace: 'uno', author: 'Alice' },
+      { op: 'replace_text', find: 'two', replace: 'dos', author: 'Bob' },
+      { op: 'replace_text', find: 'old', replace: 'new', author: 'Bob' },
+      { op: 'track_changes', enabled: false },
+    ],
+  }, { cwd }));
+  const before = value(await executeOfficeTool({ action: 'snapshot', session: word.session }, { cwd })).document;
+  // Paragraph text is the accepted view; the struck-through words sit beside it.
+  const tracked = before.paragraphs.filter((paragraph) => paragraph.tracked);
+  assert.deepEqual(
+    tracked.map((paragraph) => [paragraph.text, paragraph.deletedText]),
+    [['Alpha uno.', 'one'], ['Beta dos.', 'two'], ['new', 'old']],
+  );
+  assert.ok(tracked.every((paragraph) => paragraph.revisions.length === 2));
+  assert.deepEqual(before.revisions.map((revision) => revision.at), tracked.flatMap((paragraph) => [paragraph.path, paragraph.path]));
+  assert.deepEqual(before.revisionAuthors, [
+    { author: 'Alice', insertions: 1, deletions: 1 },
+    { author: 'Bob', insertions: 2, deletions: 2 },
+  ]);
+  const cells = before.tables[0].rows[1].cells;
+  assert.deepEqual([cells[1].text, cells[1].deletedText, cells[1].tracked], ['new', 'old', true]);
+  assert.equal(cells[0].tracked, undefined, 'a revision touching only the neighbouring cell does not flag this one');
+
+  const nobody = value(await executeOfficeTool({
+    action: 'batch',
+    session: word.session,
+    operations: [{ op: 'resolve_revisions', resolution: 'accept', author: 'Nobody', allowNoChange: true }],
+  }, { cwd }));
+  assert.equal(nobody.results[0].changed, false);
+  assert.match(nobody.results[0].note, /"Alice", "Bob"/);
+  const bob = value(await executeOfficeTool({
+    action: 'batch',
+    session: word.session,
+    operations: [{ op: 'resolve_revisions', resolution: 'accept', author: 'Bob' }],
+  }, { cwd }));
+  assert.equal(bob.results[0].resolved, 4);
+  const after = value(await executeOfficeTool({ action: 'snapshot', session: word.session }, { cwd })).document;
+  assert.deepEqual(after.revisionAuthors, [{ author: 'Alice', insertions: 1, deletions: 1 }]);
+  assert.deepEqual(after.paragraphs.filter((paragraph) => paragraph.tracked).map((paragraph) => paragraph.text), ['Alpha uno.']);
+  assert.deepEqual([after.tables[0].rows[1].cells[1].text, after.tables[0].rows[1].cells[1].tracked], ['new', undefined]);
+  value(await executeOfficeTool({ action: 'close', session: word.session }, { cwd }));
+});
+
+test('[contract] both backends satisfy one snapshot contract and agree on the same document', {
   skip: !enabled,
 }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-contract-'));
@@ -991,4 +1055,59 @@ test('both backends satisfy one snapshot contract and agree on the same document
       assert.deepEqual(shapeCounts(com), shapeCounts(portable), 'shape counts must agree');
     }
   }
+});
+
+// The authoring loop re-authors the same target over and over, and starting PowerPoint again costs
+// seconds every pass. Re-authoring keeps the hidden process and swaps only the document: the session
+// survives, what it reads is the new deck, and a failed script leaves the live deck untouched.
+test('[author] re-authoring a deck reuses the open PowerPoint session and reads the new deck', {
+  skip: !enabled,
+  timeout: 180_000,
+}, async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-author-reuse-'));
+  t.after(async () => {
+    resetOfficeSessionsForTest();
+    await rm(cwd, { recursive: true, force: true });
+  });
+  const path = join(cwd, 'reused.pptx');
+  const deck = (titles) => `
+const pptxgen = require('pptxgenjs');
+const pres = new pptxgen();
+pres.layout = 'LAYOUT_WIDE';
+for (const title of ${JSON.stringify(titles)}) {
+  pres.addSlide().addText(title, { x: 0.8, y: 0.8, w: 11, h: 1.2, fontSize: 32, bold: true });
+}
+await pres.writeFile({ fileName: OUTPUT });
+`;
+  const first = value(await executeOfficeTool({ action: 'author', path, script: deck(['First deck']), render: false }, { cwd }));
+  assert.equal(first.ok, true, JSON.stringify(first.error || {}));
+  assert.equal(first.backend, 'microsoft-office-com');
+  assert.notEqual(first.reusedSession, true);
+  const opened = value(await executeOfficeTool({ action: 'snapshot', session: first.session }, { cwd }));
+  assert.equal(opened.document.slides.length, 1);
+
+  const again = value(await executeOfficeTool({
+    action: 'author',
+    path,
+    script: deck(['Second deck', 'Added slide']),
+    overwrite: true,
+    render: false,
+  }, { cwd }));
+  assert.equal(again.ok, true, JSON.stringify(again.error || {}));
+  assert.equal(again.reusedSession, true);
+  assert.equal(again.session, first.session, 'the session survives the rewrite');
+  assert.equal(again.receipt?.slides?.length, 2);
+  const reread = value(await executeOfficeTool({ action: 'snapshot', session: again.session }, { cwd }));
+  assert.equal(reread.document.slides.length, 2, 'the reused session reads the new deck, not the cached old one');
+  assert.match(JSON.stringify(reread.document.slides[0]), /Second deck/);
+  assert.equal(reread.appPid, opened.appPid, 'the same PowerPoint process carries both decks');
+
+  const failed = value(await executeOfficeTool({ action: 'author', path, script: 'undefinedCall();', overwrite: true, render: false }, { cwd }));
+  assert.equal(failed.ok, false);
+  assert.equal(failed.reason, 'script_failed');
+  const survived = value(await executeOfficeTool({ action: 'snapshot', session: again.session }, { cwd }));
+  assert.equal(survived.document.slides.length, 2, 'a failed script leaves the open deck alone');
+  const staged = (await readdir(cwd)).filter((entry) => entry.includes('.authoring.'));
+  assert.deepEqual(staged, [], 'no staging file is left beside the target');
+  value(await executeOfficeTool({ action: 'close', session: again.session }, { cwd }));
 });

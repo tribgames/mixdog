@@ -14,6 +14,7 @@ const {
   invalidateSharedModelCatalogRequest,
   readCachedModelCatalog,
   requestModelCatalog,
+  subscribeModelCatalogInvalidation,
 } = await import("./model-catalog-cache.ts");
 
 const CATALOG = [{
@@ -60,6 +61,26 @@ test("a successful catalog request is shared instead of refetched", async () => 
   assert.deepEqual(await second.full, await first.full);
   assert.deepEqual(api.calls.modelOptions, [{ quick: true }, { quick: false }]);
   assert.equal(api.calls.setup, 1);
+});
+
+test("provider invalidation wakes mounted catalog consumers and refetches", async () => {
+  const api = stubApi();
+  const first = requestModelCatalog(api);
+  await Promise.all([first.quick, first.full, first.setup]);
+  let invalidations = 0;
+  const unsubscribe = subscribeModelCatalogInvalidation(() => { invalidations += 1; });
+  try {
+    invalidateSharedModelCatalogRequest();
+    await Promise.resolve();
+    assert.equal(invalidations, 1);
+    const refreshed = requestModelCatalog(api);
+    assert.notEqual(refreshed, first);
+    await Promise.all([refreshed.quick, refreshed.full, refreshed.setup]);
+    assert.equal(api.calls.models, 4);
+    assert.equal(api.calls.setup, 2);
+  } finally {
+    unsubscribe();
+  }
 });
 
 test("a failed catalog request is retried by the next caller", async () => {
@@ -145,4 +166,43 @@ test("the quick catalog resolves before the full catalog starts and never replac
     readCachedModelCatalog().models.map((entry) => entry.model),
     [CATALOG[0].model],
   );
+});
+
+test("late success from an invalidated request cannot overwrite the current catalog", async () => {
+  let releaseOld, signalStarted;
+  const started = new Promise((resolve) => { signalStarted = resolve; });
+  const oldFull = new Promise((resolve) => { releaseOld = resolve; });
+  let attempts = 0;
+  const api = {
+    listProviderModels({ quick }) {
+      if (quick) return Promise.resolve([]);
+      if (++attempts === 1) { signalStarted(); return oldFull; }
+      return Promise.resolve([{ provider: "test", model: "new" }]);
+    },
+  };
+  const old = requestModelCatalog(api);
+  await started;
+  invalidateSharedModelCatalogRequest();
+  const current = requestModelCatalog(api);
+  await current.full;
+  releaseOld([{ provider: "test", model: "old" }]);
+  await old.full;
+  assert.equal(old.isCurrent(), false);
+  assert.equal(current.isCurrent(), true);
+  assert.equal(readCachedModelCatalog().models[0].model, "new");
+});
+
+test("one API object cannot share a catalog across device routes", async () => {
+  const api = stubApi();
+  window.location = { pathname: "/d/a/", protocol: "https:", origin: "https://relay.test" };
+  try {
+    const first = requestModelCatalog(api);
+    await first.full;
+    window.location.pathname = "/d/b/";
+    assert.deepEqual(readCachedModelCatalog().models, []);
+    const second = requestModelCatalog(api);
+    assert.notEqual(first, second);
+    assert.equal(first.isCurrent(), false);
+    await second.full;
+  } finally { delete window.location; }
 });

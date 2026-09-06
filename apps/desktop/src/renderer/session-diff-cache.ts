@@ -1,4 +1,8 @@
 import { sessionDiffFilePatch, type SessionDiffResult } from "./session-diff-model";
+import { RendererLruCache } from "./renderer-lru-cache";
+import { registerIdleReclaim } from "./idle-reclaim";
+import { catalogStorageScope } from "./catalog-storage-scope";
+import { estimateRetainedChars } from "./renderer-value-weight";
 
 /** Shared renderer cache for the session review diff (user: 세션디프 불러오는
  *  게 너무 느림). The backend rebuilds ONE full patch per `getSessionReviewDiff`
@@ -8,13 +12,31 @@ import { sessionDiffFilePatch, type SessionDiffResult } from "./session-diff-mod
  *  refresh, so the list and the file slices share a single round-trip and a
  *  revisited session paints its cached rows instantly while revalidating. */
 const SESSION_DIFF_CACHE_LIMIT = 32;
+export const SESSION_DIFF_CACHE_MAX_CHARS = 8 * 1024 * 1024;
+const sessionDiffCache = new RendererLruCache<string, SessionDiffResult>({
+  name: "session-diff",
+  maxEntries: SESSION_DIFF_CACHE_LIMIT,
+  maxChars: SESSION_DIFF_CACHE_MAX_CHARS,
+  measure: (result) => estimateRetainedChars(result, SESSION_DIFF_CACHE_MAX_CHARS),
+});
+const pendingDiffs = new Map<string, Promise<SessionDiffResult>>();
+let boundHost: unknown;
+let boundScope = "";
 
-interface SessionDiffCacheEntry {
-  result: SessionDiffResult | null;
-  promise: Promise<SessionDiffResult> | null;
+function adoptHost(): void {
+  const host = typeof window === "undefined" ? undefined : window.mixdogDesktop;
+  const scope = catalogStorageScope();
+  if (host === boundHost && scope === boundScope) return;
+  boundHost = host;
+  boundScope = scope;
+  sessionDiffCache.clear();
+  pendingDiffs.clear();
 }
 
-const sessionDiffCache = new Map<string, SessionDiffCacheEntry>();
+registerIdleReclaim(() => {
+  sessionDiffCache.clear();
+  pendingDiffs.clear();
+});
 
 function cleanSessionId(sessionId: string): string {
   return String(sessionId || "").trim();
@@ -33,39 +55,26 @@ async function invokeSessionDiff(sessionId: string): Promise<SessionDiffResult> 
   return (response?.value ?? emptySessionDiff()) as SessionDiffResult;
 }
 
-function evictSessionDiffs(): void {
-  while (sessionDiffCache.size > SESSION_DIFF_CACHE_LIMIT) {
-    let victim: string | null = null;
-    for (const [id, entry] of sessionDiffCache) {
-      if (!entry.promise) {
-        victim = id;
-        break;
-      }
-    }
-    if (victim === null) break;
-    sessionDiffCache.delete(victim);
-  }
-}
-
 /** The last settled result for a session, if any — paints instantly while a
  *  refresh runs behind it. */
 export function peekSessionDiff(sessionId: string): SessionDiffResult | null {
-  return sessionDiffCache.get(cleanSessionId(sessionId))?.result ?? null;
+  adoptHost();
+  return sessionDiffCache.get(cleanSessionId(sessionId)) ?? null;
 }
 
 /** Seed the cache without a round-trip (tests, optimistic restores). */
 export function primeSessionDiff(sessionId: string, result: SessionDiffResult): void {
+  adoptHost();
   const id = cleanSessionId(sessionId);
   if (!id) return;
-  const entry = sessionDiffCache.get(id) ?? { result: null, promise: null };
-  entry.result = result;
-  sessionDiffCache.set(id, entry);
-  evictSessionDiffs();
+  pendingDiffs.delete(id);
+  sessionDiffCache.set(id, result);
 }
 
 /** Drop a session's cached diff (session deleted: no stale rows on reuse). */
 export function releaseSessionDiff(sessionId: string): void {
   sessionDiffCache.delete(cleanSessionId(sessionId));
+  pendingDiffs.delete(cleanSessionId(sessionId));
 }
 
 /** One round-trip per session at a time: concurrent callers share the same
@@ -74,29 +83,21 @@ export function fetchSessionDiff(
   sessionId: string,
   options?: { force?: boolean },
 ): Promise<SessionDiffResult> {
+  adoptHost();
   const id = cleanSessionId(sessionId);
   if (!id) return Promise.resolve(emptySessionDiff());
-  let entry = sessionDiffCache.get(id);
-  if (!entry) {
-    entry = { result: null, promise: null };
-    sessionDiffCache.set(id, entry);
-  }
-  if (entry.promise) return entry.promise;
-  if (options?.force !== true && entry.result) return Promise.resolve(entry.result);
-  const task = invokeSessionDiff(id).then(
-    (result) => {
-      const live = sessionDiffCache.get(id);
-      if (live) live.promise = null;
-      primeSessionDiff(id, result);
-      return result;
-    },
-    (error) => {
-      const live = sessionDiffCache.get(id);
-      if (live) live.promise = null;
-      throw error;
-    },
-  );
-  entry.promise = task;
+  const pending = pendingDiffs.get(id);
+  if (pending) return pending;
+  const result = sessionDiffCache.get(id);
+  if (options?.force !== true && result) return Promise.resolve(result);
+  const task = invokeSessionDiff(id).then((value) => {
+    adoptHost();
+    if (pendingDiffs.get(id) === task) sessionDiffCache.set(id, value);
+    return value;
+  }).finally(() => {
+    if (pendingDiffs.get(id) === task) pendingDiffs.delete(id);
+  });
+  pendingDiffs.set(id, task);
   return task;
 }
 

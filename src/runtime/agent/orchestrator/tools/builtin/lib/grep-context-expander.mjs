@@ -18,6 +18,25 @@ import {
 } from './search-input-helpers.mjs';
 
 export const GREP_CONTEXT_CHAR_BUDGET_DEFAULT = GREP_OUTPUT_MAX_BYTES;
+
+// Default grep result cap when head_limit is unspecified. 250 is the common
+// harness default; the tool-result offload layer still bounds oversized
+// results. MIXDOG_GREP_DEFAULT_HEAD_LIMIT overrides for A/B runs.
+export function _grepDefaultHeadLimit() {
+    const parsed = parseInt(process.env.MIXDOG_GREP_DEFAULT_HEAD_LIMIT ?? '', 10);
+    return parsed > 0 ? parsed : 250;
+}
+
+// Character budget for grep context output: an explicit per-call override,
+// then the env override, then the shared default.
+export function _grepContextCharBudget(options = {}) {
+    const explicit = Number(options?._grepContextCharBudget);
+    if (Number.isFinite(explicit) && explicit > 0) return Math.floor(explicit);
+    const configured = Number(process.env.MIXDOG_GREP_CONTEXT_CHAR_BUDGET);
+    return Number.isFinite(configured) && configured > 0
+        ? Math.floor(configured)
+        : GREP_CONTEXT_CHAR_BUDGET_DEFAULT;
+}
 const GREP_FOCUSED_CONTEXT_RADIUS = 12;
 const GREP_FOCUSED_RAW_BLOCKS = 3;
 // Anchors must stay usable as evidence without a follow-up read: keep the

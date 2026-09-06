@@ -8,10 +8,8 @@ import {
   saveOpenCodeGoUsageAuth,
   loginOpenCodeGoUsage,
   saveProviderApiKey,
-  setLocalProvider,
 } from '../standalone/provider-admin.mjs';
 import { resetProviderAdmissionCooldowns } from '../runtime/agent/orchestrator/providers/admission-scheduler.mjs';
-import { clean } from './session-text.mjs';
 
 // Provider auth / catalog / preset surface. Extracted verbatim from the runtime
 // API object; the stateless admin helpers are imported directly and the runtime
@@ -61,8 +59,8 @@ export function createProviderAuthApi({
     async getProviderSetup(options = {}) {
       const force = options?.force === true || options?.refresh === true;
       // An unforced read never blocks: the authoritative setup waits on the OS
-      // keychain AND probes local provider ports, which together take seconds on
-      // a cold start and used to stall the whole settings sweep behind it. Serve
+      // keychain, which can take seconds on a cold start and used to stall the
+      // whole settings sweep behind it. Serve
       // the no-secrets snapshot until the real one is cached — flagged, so the
       // caller shows "checking" instead of a wrong "not connected" — and let the
       // scheduled warmup publish the authoritative result for the next read.
@@ -166,15 +164,6 @@ export function createProviderAuthApi({
       const result = await loginOpenCodeGoUsage(cfgMod);
       reloadFullConfig();
       invalidateProviderCaches();
-      return result;
-    },
-    setLocalProvider(providerId, opts) {
-      const result = setLocalProvider(cfgMod, providerId, opts);
-      reloadFullConfig();
-      invalidateProviderCaches();
-      releaseAdmissionCooldowns();
-      refreshProviderCatalogsSoon();
-      warmProviderModelCache();
       return result;
     },
     forgetProviderAuth(providerId) {

@@ -3,30 +3,14 @@
    order, so rules must never move between layers or be re-sorted. */
 /* Guided setup — full-window welcome flow (mixdog primitives):
    hero card, clickable progress bars, per-step titles, step transitions. */
-.onboarding-layer {
-  position: fixed;
-  z-index: 70;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: var(--mx-scrim);
-  backdrop-filter: blur(2px);
-}
+/* The layer (scrim, centring, caption reserve) and the card skin (plate,
+   hairline, elevation, entry motion, fixed 720 height) are the dialog
+   system's (30-dialogs.css); this layer owns only the wizard's own width,
+   inner gutter and type. Fixed height (user decision): the card must not
+   resize between steps; sparse steps fill it with taller portrait cards. */
 .onboarding-dialog {
   width: min(980px, calc(100vw - 48px));
-  /* Fixed height (user decision): the card must not resize between steps;
-     sparse steps fill it with taller portrait cards instead. */
-  height: min(720px, calc(var(--vvh, 100vh) - 48px));
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
   padding: 26px 34px 22px;
-  border: var(--mx-popup-border);
-  border-radius: var(--mx-popup-radius-card);
-  color: var(--mx-text);
-  background: var(--mx-popup-bg);
-  box-shadow: var(--mx-popup-shadow);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
@@ -45,19 +29,7 @@
   align-items: center;
   gap: 14px;
 }
-.onboarding-top-actions > button {
-  width: 26px;
-  height: 26px;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-icon-muted);
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-}
-.onboarding-top-actions > button:hover:not(:disabled) { color: var(--mx-icon); background: var(--mx-hover); }
+/* The close box is the dialog system's shared 26px ghost square. */
 /* Clickable progress bars: the visible bar stays 4px, the ::before plate
    keeps hover/click targeting reliable. */
 .onboarding-top-actions > nav {
@@ -85,13 +57,13 @@
 /* Per-step hero heading */
 .onboarding-hero { min-width: 0; flex: 1; }
 .onboarding-dialog h1 { color: var(--mx-text); font-size: 29px; font-weight: var(--mx-weight-semibold); line-height: 1.15; letter-spacing: -.45px; }
-.onboarding-hero p { margin-top: 10px; max-width: 640px; color: var(--mx-text-muted); font-size: var(--mx-font-ui); line-height: 21px; }
+.onboarding-hero p { margin-top: 10px; max-width: 640px; color: var(--mx-text-muted); font-size: var(--mx-font-ui); line-height: var(--mx-line-ui); }
 /* The scroll gutter lives OUTSIDE the content column (negative margin into
    the dialog padding), so the card's right edge lines up with the footer. */
 .onboarding-body {
   min-height: 0;
   flex: 1;
-  margin-top: 22px;
+  margin-top: 16px;
   margin-right: -24px;
   padding-right: 14px;
   display: flex;
@@ -120,10 +92,14 @@
   display: block;
   height: auto;
 }
-.onboarding-step-view { display: grid; gap: 22px; animation: onboarding-step-in 340ms var(--mx-ease-emphasized); }
+/* Step entry fades only: a translateY pushed the incoming step past the
+   scroll box for a few frames, so a scrollbar flashed on every step change
+   (user: 진입할 때 스크롤바가 잠시 생겼다 사라진다). The 16px gap is the
+   wizard's density at the default install size (1040×700). */
+.onboarding-step-view { display: grid; gap: 16px; animation: onboarding-step-in var(--mx-motion-slow) var(--mx-ease-standard); }
 @keyframes onboarding-step-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .onboarding-step-view { animation: none; }
@@ -138,35 +114,40 @@
   gap: 9px;
   color: var(--mx-text-muted);
 }
-.onboarding-provider-list button, .onboarding-star-actions button, .onboarding-dialog > footer button {
+/* Row actions: the footer ladder is the dialog system's; rows keep one notch
+   denser and wear the popup's quiet action plate (the usage card's Compact
+   button) so a button reads as a button on the same base plate. */
+.onboarding-provider-list button, .onboarding-star-actions button {
   min-height: 28px;
   padding: 0 11px;
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: var(--mx-button);
+  background: var(--mx-popup-action-bg);
+  box-shadow: var(--mx-popup-action-ring);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
+  cursor: pointer;
 }
-/* Secondary actions (Forget/Disable/Cancel/Download) go ghost so each row
-   keeps ONE raised action — the flat sea of raised buttons read clunky. */
-.onboarding-provider-list button.ghost, .onboarding-star-actions button.ghost {
-  color: var(--mx-text-muted);
-  background: transparent;
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-}
-.onboarding-star-actions button, .onboarding-dialog > footer button {
+.onboarding-star-actions button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
 }
 .onboarding-provider-list button:hover:not(:disabled),
-.onboarding-star-actions button:hover:not(:disabled),
-.onboarding-dialog > footer button:hover:not(:disabled) {
+.onboarding-star-actions button:hover:not(:disabled) {
   color: var(--mx-text);
-  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
+  background: var(--mx-hover);
+  box-shadow: var(--mx-popup-action-ring-hover);
+}
+/* Secondary actions (Forget/Disable/Cancel/Download) go ghost so each row
+   keeps ONE plated action. A hairline still reads as a BUTTON (user: 포갓엔
+   버튼이 없고) — the quiet twin differs by ink, not by losing its frame. */
+.onboarding-provider-list button.ghost, .onboarding-star-actions button.ghost {
+  color: var(--mx-text-muted);
+  background: transparent;
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
 }
 .onboarding-provider-list button.ghost:hover:not(:disabled),
 .onboarding-star-actions button.ghost:hover:not(:disabled) {
@@ -174,30 +155,36 @@
   background: var(--mx-hover);
   box-shadow: inset 0 0 0 .5px var(--mx-border);
 }
-/* Separated row cards instead of one tall sheet:
-   the stack keeps an even rhythm and no half-cut hairline at the fold. */
+/* Separated row cards instead of one tall sheet: the stack keeps an even
+   rhythm and no half-cut hairline at the fold. The rows are FLAT (user:
+   아이템 프레임이 블록처럼 느껴진다) — a hairline ring on the card's own
+   plate, a hover wash, no lift gradient and no drop shadow. */
 .onboarding-provider-list, .onboarding-model-grid {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   border: 0;
   background: transparent;
   box-shadow: none;
 }
 .onboarding-provider-list > form, .onboarding-provider-row, .onboarding-model-grid > label {
   min-height: 0;
-  padding: 14px 16px;
+  padding: 10px 16px;
   border: 0;
-  border-radius: var(--mx-radius-xl);
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted),
-    0 1px 2px color-mix(in srgb, var(--mx-bg-deep) 45%, transparent);
-  transition: box-shadow var(--mx-motion-chrome);
+  border-radius: var(--mx-radius-lg);
+  background: transparent;
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  transition: background-color var(--mx-motion-ink);
 }
 .onboarding-provider-list > form:hover, .onboarding-provider-row:hover,
 .onboarding-model-grid > label:hover {
-  box-shadow: inset 0 0 0 .5px var(--mx-border),
-    0 2px 5px color-mix(in srgb, var(--mx-bg-deep) 50%, transparent);
+  background: var(--mx-hover);
 }
+/* Provider rows: the state sits under the name for every kind, and the OAuth
+   action shares the API rows' action column. */
+.onboarding-provider-state { color: var(--mx-text-muted); }
+.onboarding-provider-state.connected { color: var(--mx-success); }
+.onboarding-provider-row > .onboarding-provider-action { grid-column: 4; }
+.onboarding-provider-row > .onboarding-provider-action > button { width: 100%; }
 /* Shared control columns (user: 정렬): title | extras | input 240 | two 92px
    action slots — inputs and buttons line up across every row. */
 .onboarding-provider-list > form, .onboarding-provider-row {
@@ -220,7 +207,7 @@
 /* Git rows keep a free-flowing right cluster (no input column to align). */
 .onboarding-provider-row.onboarding-provider-row--plain { display: flex; gap: 14px; }
 .onboarding-model-grid > label { display: flex; align-items: center; gap: 14px; }
-.onboarding-model-section { display: grid; gap: 12px; }
+.onboarding-model-section { display: grid; gap: 10px; }
 .onboarding-model-section > h3 {
   margin: 0;
   display: flex;
@@ -259,39 +246,46 @@
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-meta);
 }
-.onboarding-provider-list input {
-  min-width: 150px;
-  height: 28px;
+/* ONE control skin for every wizard field, identical to the dialog system's
+   (user: 테두리 스타일이 중구난방): 32px, 8px radius, hairline at rest, the
+   keyboard ring tucked one pixel off the field. */
+.onboarding-provider-list input,
+.onboarding-model-grid input,
+.onboarding-profile-fields input,
+.onboarding-dialog .mx-select-root .mx-select-trigger {
+  box-sizing: border-box;
+  height: 32px;
+  min-height: 32px;
   padding: 0 8px;
   border: 0;
   border-radius: var(--mx-radius-md);
   outline: 1px solid transparent;
+  outline-offset: 0;
   color: var(--mx-text);
   background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: var(--mx-button);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
 }
-.onboarding-provider-list input::placeholder { color: var(--mx-text-faint); }
-.onboarding-provider-list input:focus { outline-color: var(--mx-focus); box-shadow: none; }
+.onboarding-provider-list input:hover:not(:disabled),
+.onboarding-model-grid input:hover:not(:disabled),
+.onboarding-profile-fields input:hover:not(:disabled),
+.onboarding-dialog .mx-select-root .mx-select-trigger:hover:not(:disabled) {
+  box-shadow: var(--mx-button-contrast);
+}
+.onboarding-provider-list input:focus,
+.onboarding-model-grid input:focus,
+.onboarding-profile-fields input:focus,
+.onboarding-dialog .mx-select-root .mx-select-trigger:focus-visible {
+  outline-color: var(--mx-focus);
+  box-shadow: var(--mx-button);
+}
+.onboarding-provider-list input::placeholder,
+.onboarding-model-grid input::placeholder,
+.onboarding-profile-fields input::placeholder { color: var(--mx-text-faint); }
+.onboarding-provider-list input { min-width: 150px; }
 .onboarding-model-grid .mx-select-root { width: min(280px, 44vw); min-width: 150px; }
-/* Profile step inputs share the provider input skin. */
-.onboarding-model-grid input {
-  width: min(280px, 44vw);
-  min-width: 150px;
-  height: 28px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  outline: 1px solid transparent;
-  color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-regular);
-}
-.onboarding-model-grid input::placeholder { color: var(--mx-text-faint); }
-.onboarding-model-grid input:focus { outline-color: var(--mx-focus); box-shadow: none; }
+.onboarding-model-grid input { width: min(280px, 44vw); min-width: 150px; }
 /* Workflow profile cards */
 .onboarding-workflow-grid {
   display: grid;
@@ -307,24 +301,22 @@
   align-content: start;
   padding: 18px;
   border: 0;
-  border-radius: var(--mx-radius-xl);
+  border-radius: var(--mx-radius-lg);
   text-align: left;
   color: var(--mx-text);
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted),
-    0 1px 2px color-mix(in srgb, var(--mx-bg-deep) 45%, transparent);
+  background: transparent;
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
   cursor: pointer;
-  transition: box-shadow var(--mx-motion-chrome), transform var(--mx-motion-chrome);
+  transition: background-color var(--mx-motion-ink), box-shadow var(--mx-motion-ink);
 }
 .onboarding-workflow-grid > button:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: inset 0 0 0 .5px var(--mx-border),
-    0 4px 10px color-mix(in srgb, var(--mx-bg-deep) 55%, transparent);
+  background: var(--mx-hover);
+  box-shadow: inset 0 0 0 .5px var(--mx-border);
 }
+/* Selected keeps its own plate: one raised step and a full-pixel ring. */
 .onboarding-workflow-grid > button.selected {
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-2);
-  box-shadow: inset 0 0 0 1px var(--mx-border-strong),
-    0 2px 6px color-mix(in srgb, var(--mx-bg-deep) 50%, transparent);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 1px var(--mx-border-strong);
 }
 .onboarding-workflow-icon {
   width: 38px;
@@ -429,24 +421,21 @@
   gap: 8px;
   padding: 8px;
   border: 0;
-  border-radius: var(--mx-radius-xl);
+  border-radius: var(--mx-radius-lg);
   text-align: left;
   color: var(--mx-text);
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted),
-    0 1px 2px color-mix(in srgb, var(--mx-bg-deep) 45%, transparent);
+  background: transparent;
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
   cursor: pointer;
-  transition: box-shadow var(--mx-motion-chrome), transform var(--mx-motion-chrome);
+  transition: background-color var(--mx-motion-ink), box-shadow var(--mx-motion-ink);
 }
 .onboarding-theme-grid > button:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: inset 0 0 0 .5px var(--mx-border),
-    0 4px 10px color-mix(in srgb, var(--mx-bg-deep) 55%, transparent);
+  background: var(--mx-hover);
+  box-shadow: inset 0 0 0 .5px var(--mx-border);
 }
 .onboarding-theme-grid > button.selected {
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-2);
-  box-shadow: inset 0 0 0 1px var(--mx-border-strong),
-    0 2px 6px color-mix(in srgb, var(--mx-bg-deep) 50%, transparent);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 1px var(--mx-border-strong);
 }
 .onboarding-theme-preview {
   display: block;
@@ -500,30 +489,26 @@
   border: 0;
   border-radius: var(--mx-radius-lg);
   color: var(--mx-text);
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted),
-    0 1px 2px color-mix(in srgb, var(--mx-bg-deep) 45%, transparent);
+  background: transparent;
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   text-align: left;
   cursor: pointer;
-  transition: box-shadow var(--mx-motion-chrome), transform var(--mx-motion-chrome);
+  transition: background-color var(--mx-motion-ink), box-shadow var(--mx-motion-ink);
 }
 .onboarding-choice-grid > button:hover:not(:disabled) {
   border: 0;
   color: var(--mx-text);
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-1);
-  transform: translateY(-1px);
-  box-shadow: inset 0 0 0 .5px var(--mx-border),
-    0 4px 10px color-mix(in srgb, var(--mx-bg-deep) 55%, transparent);
+  background: var(--mx-hover);
+  box-shadow: inset 0 0 0 .5px var(--mx-border);
 }
 .onboarding-choice-grid > button.selected {
   border: 0;
   color: var(--mx-text);
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-2);
-  box-shadow: inset 0 0 0 1px var(--mx-border-strong),
-    0 2px 6px color-mix(in srgb, var(--mx-bg-deep) 50%, transparent);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 1px var(--mx-border-strong);
 }
 .onboarding-choice-grid > button .onboarding-choice-check { position: absolute; top: 12px; right: 12px; color: var(--mx-success); }
 .onboarding-choice-grid > button b { font-size: var(--mx-font-ui); font-weight: var(--mx-weight-semibold); }
@@ -571,8 +556,8 @@
   font-weight: var(--mx-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
-.onboarding-choice-grid > button:active:not(:disabled) { background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-bg-layer-1); box-shadow: none; }
-.onboarding-choice-grid > button.selected:active:not(:disabled) { background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-bg-layer-2); box-shadow: none; }
+.onboarding-choice-grid > button:active:not(:disabled) { background: var(--mx-pressed); }
+.onboarding-choice-grid > button.selected:active:not(:disabled) { background: linear-gradient(var(--mx-pressed), var(--mx-pressed)), var(--mx-bg-layer-1); }
 /* Closing star ask */
 .onboarding-star-card {
   display: grid;
@@ -584,11 +569,10 @@
   margin-inline: auto;
   gap: 14px;
   padding: 40px 28px;
-  border-radius: 14px;
+  border-radius: var(--mx-radius-lg);
   text-align: center;
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted),
-    0 2px 8px color-mix(in srgb, var(--mx-bg-deep) 50%, transparent);
+  background: transparent;
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
 }
 .onboarding-star-icon {
   width: 52px;
@@ -607,12 +591,11 @@
   display: grid;
   gap: 12px;
   padding: 24px 26px 18px;
-  border-radius: var(--mx-radius-xl);
+  border-radius: var(--mx-radius-lg);
   text-align: left;
   color: var(--mx-text);
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted),
-    0 1px 2px color-mix(in srgb, var(--mx-bg-deep) 45%, transparent);
+  background: transparent;
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
 }
 .onboarding-repo-head { display: flex; align-items: center; gap: 10px; color: var(--mx-icon-muted); }
 /* GitHub mark in a small hairline tile — same grammar as the connect cards. */
@@ -658,16 +641,17 @@
   text-align: left;
   font: inherit;
   color: var(--mx-text-muted);
-  background: var(--mx-bg-base);
+  background: transparent;
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  transition: background-color var(--mx-motion-ink);
 }
 .onboarding-memory-options > button:hover:not(:disabled) {
   color: var(--mx-text);
-  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
+  background: var(--mx-hover);
 }
 .onboarding-memory-options > button.selected {
   color: var(--mx-text);
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent 55%), var(--mx-bg-layer-2);
+  background: var(--mx-bg-layer-1);
   box-shadow: inset 0 0 0 1px var(--mx-border-strong);
 }
 .onboarding-memory-options > button > i {
@@ -722,20 +706,8 @@
 .onboarding-profile-fields { display: grid; gap: 18px; width: 100%; }
 .onboarding-profile-fields label { display: grid; gap: 6px; }
 .onboarding-profile-fields label > span { color: var(--mx-text); font-size: var(--mx-font-minor); font-weight: var(--mx-weight-semibold); }
-.onboarding-profile-fields input {
-  width: 100%;
-  height: 36px;
-  padding: 0 11px;
-  border: 0;
-  border-radius: 9px;
-  outline: 1px solid transparent;
-  color: var(--mx-text);
-  background: var(--mx-bg-base);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  font-size: var(--mx-font-ui);
-}
-.onboarding-profile-fields input::placeholder { color: var(--mx-text-faint); }
-.onboarding-profile-fields input:focus { outline-color: var(--mx-focus); box-shadow: none; }
+/* Profile inputs wear the shared wizard field skin declared above. */
+.onboarding-profile-fields input { width: 100%; }
 .onboarding-profile-fields .mx-select-root { width: 100%; }
 .onboarding-profile-fields small { color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
 .onboarding-connect-icon {
@@ -745,7 +717,7 @@
   place-items: center;
   border-radius: var(--mx-radius-sheet);
   color: var(--mx-text);
-  background: linear-gradient(180deg, var(--mx-alpha-light-2), transparent), var(--mx-bg-layer-3);
+  background: var(--mx-bg-layer-2);
   box-shadow: inset 0 0 0 .5px var(--mx-border);
 }
 .onboarding-connect-title {
@@ -802,7 +774,13 @@
 /* Context step: the session-lifecycle toggles live inside the memory card and
    the card drops the 300px star floor, so the fixed-height dialog never grows
    a scrollbar (user: 스크롤 안 나오게). */
-.onboarding-context-card { min-height: 0; padding: 26px 28px; }
+.onboarding-context-card { min-height: 0; gap: 12px; padding: 24px 28px; }
+/* The decorative brain tile bought nothing but height and pushed the
+   fixed-height card into a scrollbar (user: 메모리에 스크롤 안 생기게, 아이콘
+   빼고 제목 살짝 키우자). The heading carries the step instead. */
+.onboarding-context-card .onboarding-connect-title { font-size: 18px; }
+.onboarding-context-card > p,
+.onboarding-context-card div > p { margin-top: 5px; }
 .onboarding-context-rows { width: 100%; display: grid; gap: 8px; }
 .onboarding-context-row {
   display: flex;
@@ -825,22 +803,21 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-top: 16px;
-  border-top: .5px solid var(--mx-border);
+  /* No hairline: like every other card, the button row alone closes the
+     card (user: 확인/취소 구역이 분리돼 보이는 게 별로다). */
+  padding-top: 12px;
 }
 .onboarding-dialog > footer > div { display: flex; gap: 8px; }
-.onboarding-dialog > footer button.primary, .onboarding-star-actions button.primary {
+/* Footer buttons take the dialog system's ladder; only the star card's
+   in-body primary repeats the contrast plate here. */
+.onboarding-star-actions button.primary {
   color: var(--mx-grey-100);
   background: var(--mx-bg-contrast);
   box-shadow: var(--mx-button-contrast);
+  font-weight: var(--mx-weight-semibold);
 }
-.onboarding-dialog > footer button.secondary { color: var(--mx-text-muted); background: transparent; box-shadow: none; }
-.onboarding-dialog > footer button.primary:hover:not(:disabled),
-.onboarding-star-actions button.primary:hover:not(:disabled) { background: var(--mx-flat-hover-contrast); }
-.onboarding-dialog > footer button.primary:active:not(:disabled),
+.onboarding-star-actions button.primary:hover:not(:disabled) { color: var(--mx-grey-100); background: var(--mx-flat-hover-contrast); box-shadow: var(--mx-button-contrast); }
 .onboarding-star-actions button.primary:active:not(:disabled) { background: var(--mx-flat-press-contrast); }
-.onboarding-dialog > footer button.secondary:hover:not(:disabled) { color: var(--mx-text); background: var(--mx-hover); }
-.onboarding-dialog > footer button.secondary:active:not(:disabled) { color: var(--mx-text); background: var(--mx-pressed); }
 .onboarding-error { color: var(--mx-danger); font-size: var(--mx-font-meta); }
 .onboarding-dialog button:disabled { opacity: var(--mx-op-disabled); cursor: wait; }
 
@@ -973,20 +950,20 @@
   }
   .studio-topbar { gap: 8px; }
   .studio-topbar-tools { grid-column: auto; }
-  /* 16px input text stops the mobile-browser zoom-on-focus jump; a taller
-     field gives the thumb a real target (user: too small to tap). */
+  /* A taller field gives the thumb a real target (user: too small to tap).
+     The type size stays the body size: the iOS zoom-on-focus floor lives in
+     mobile-web-runtime.css under the iOS marker only, so a narrow desktop
+     window or an Android phone no longer jumps the composer to 16px. */
   .composer { min-height: 108px; }
   .composer textarea {
     min-height: 72px;
     padding: 14px 16px 10px;
-    font-size: 16px;
   }
   .composer-footer { height: 48px; }
   .studio-composer { min-height: 108px; }
   .studio-composer textarea {
     min-height: 72px;
     padding: 14px 16px 10px;
-    font-size: 16px;
   }
   .studio-composer-bar { height: 48px; }
   /* The closed trigger follows its label instead of painting the footer's

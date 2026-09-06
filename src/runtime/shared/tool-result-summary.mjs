@@ -142,7 +142,7 @@ function summarizeUpdateResult(text, args) {
   return null;
 }
 
-function textBetweenTag(text, tag) {
+export function textBetweenTag(text, tag) {
   const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
   const match = re.exec(String(text ?? ''));
   return match ? match[1].trim() : '';

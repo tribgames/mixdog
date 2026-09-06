@@ -29,6 +29,7 @@ import {
     shouldExcludeIngestMessage,
 } from '../../../../memory/lib/session-ingest.mjs';
 import { codexWireSendOpts } from '../manager/session-id.mjs';
+import { rebaseCompactedEffortConfiguration } from '../../providers/effort-configuration.mjs';
 import {
     COMPACTION_SYSTEM_PROMPT,
     enforceCompactSummarySchema,
@@ -132,6 +133,10 @@ export async function generateFreshHandoffSummary(provider, messages, model, bud
         xaiReasoningEffort: undefined,
         reasoningEffort: undefined,
         effort: 'low',
+        // Summary generation is an independent request, not a continuation
+        // of the source conversation's effort-control history.
+        effortConfiguration: undefined,
+        effortConfigurationEnabled: false,
         fast: opts.fast ?? opts.sendOpts?.fast ?? true,
         maxOutputTokens: opts.maxOutputTokens || SUMMARY_OUTPUT_TOKENS,
         providerState: undefined,
@@ -314,12 +319,12 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
             'refusing to drop older context',
         );
     }
-    const result = reconcileDedupStubs(sanitizeToolPairs([
+    const result = rebaseCompactedEffortConfiguration(baseSanitized, reconcileDedupStubs(sanitizeToolPairs([
         ...source.protectedPrefix,
         summaryMessage,
         ...(stableAck ? [stableAck] : []),
         ...volatileTail,
-    ]));
+    ])));
     const finalTokens = estimateMessagesTokens(result);
     if (finalTokens > budget) {
         throw new Error(

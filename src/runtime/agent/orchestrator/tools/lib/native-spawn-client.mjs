@@ -4,8 +4,8 @@ import { dirname, resolve as pathResolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
-import { hiddenSpawnOpts } from '../../../../shared/spawn-flags.mjs';
 import { packageNativeToolPath } from '../../../../shared/native-tool-paths.mjs';
+import { hiddenSpawnOpts } from '../../../../shared/spawn-flags.mjs';
 import { getPluginData } from '../../config.mjs';
 import { ensureSpawnBinary, findCachedSpawnBinary } from '../spawn-binary-fetcher.mjs';
 
@@ -222,7 +222,7 @@ class LineStream extends EventEmitter {
   }
 }
 
-export class NativeSpawnChild extends EventEmitter {
+class NativeSpawnChild extends EventEmitter {
   constructor(id, cancel, send = null) {
     super();
     this.pid = undefined;
@@ -727,63 +727,6 @@ export function waitNativeTask(jobId, timeoutMs = 30_000, signal = null) {
   });
 }
 
-export async function startNativeTask({
-  program,
-  argv,
-  cwd,
-  env,
-  timeoutMs = 0,
-  outputLimit = 0,
-  mergeStderr = false,
-  command = '',
-  shellType = null,
-  ownerSessionId = null,
-  clientHostPid = null,
-  jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-} = {}) {
-  await ensureNativeSpawnServer();
-  return new Promise((resolve, reject) => {
-    let timer = null;
-    const finish = (task, error = null) => {
-      if (timer) clearTimeout(timer);
-      unsubscribe();
-      if (error) reject(error);
-      else resolve(task);
-    };
-    const unsubscribe = subscribeNativeTask(jobId, (task) => {
-      if (task) finish({ ...task });
-    });
-    const native = tryNativeSpawn({
-      shell: program,
-      argv,
-      cwd,
-      spawnOptions: {
-        cwd,
-        env,
-        background: true,
-        jobId,
-        timeoutMs,
-        outputLimit,
-        mergeStderr,
-        command,
-        shellType,
-        ownerSessionId,
-        clientHostPid,
-      },
-    });
-    if (!native) {
-      finish(null, Object.assign(new Error('native spawn server unavailable'), { code: 'NATIVE_SPAWN_UNAVAILABLE' }));
-      return;
-    }
-    native.child.once('error', (error) => finish(null, error));
-    timer = setTimeout(() => {
-      try { native.child.kill(); } catch {}
-      finish(null, Object.assign(new Error('native task spawn timeout'), { code: 'ETIMEDOUT' }));
-    }, 15_000);
-    timer.unref?.();
-  });
-}
-
 function requestNativeTaskState(jobId, payload, errorLabel) {
   const key = String(jobId || '').trim();
   const server = _server;
@@ -899,15 +842,6 @@ export function _resetNativeSpawnClientForTest() {
   _stopRetentionSweep();
   _startedAtOverrides.clear();
   _taskEvents.removeAllListeners();
-}
-
-/** Test-only: seed a task record exactly as a spawn-server report would, so
- *  cancellation/teardown paths can be exercised without a live server. */
-export function _seedNativeTaskForTest(task) {
-  const normalized = normalizeTask(task);
-  if (!normalized) return null;
-  _tasks.set(normalized.jobId, normalized);
-  return normalized;
 }
 
 export function _setNativeSpawnBinaryForTest(binaryPath) {

@@ -956,17 +956,3 @@ export function _resetTurnSnapshotForTest() {
   _agentTurnSeq = 0;
   _resetTurnWorktreeSnapshotsForTest();
 }
-
-export function _turnSnapshotStatsForTest(sessionId) {
-  const tracker = _diffTrackersBySession.get(clean(sessionId));
-  if (!tracker) return null;
-  return {
-    valid: tracker.valid,
-    sealed: tracker.sealed,
-    trackedBytes: trackedContentBytes(tracker),
-    trackedPaths: tracker.baselineByPath.size + tracker.currentByPath.size,
-    patchBytes: Buffer.byteLength(tracker.unifiedDiff || '', 'utf8'),
-    snapshotKind: tracker.worktreeSnapshot ? 'worktree' : 'tool',
-    snapshotFiles: tracker.worktreeSnapshot?.files?.length || 0,
-  };
-}

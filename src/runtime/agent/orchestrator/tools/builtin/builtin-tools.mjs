@@ -6,6 +6,7 @@
 // tool; cross-tool policy lives in rules/shared/*.md.
 // Platform-specific command syntax belongs next to the command argument.
 import { GIT_STAGE_TOOL_DEF, GIT_TOOL_DEF } from './git-command-tool.mjs';
+import { GITHUB_TOOL_DEF } from '../../../../github/tool.mjs';
 // action=wait ceiling, colocated with the schema that publishes it so the
 // documented bounds and the runtime clamp cannot drift. The wait returns the
 // instant the task settles, so the ceiling only bounds how long a STILL-running
@@ -116,6 +117,7 @@ export const BUILTIN_TOOLS = [
     },
     GIT_TOOL_DEF,
     GIT_STAGE_TOOL_DEF,
+    GITHUB_TOOL_DEF,
     {
         name: 'task',
         title: 'Task',

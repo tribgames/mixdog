@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import {
+  buildSkillManifest,
   collectPromptSkillsCached,
   collectSkillsCached,
   invalidateSkillsCache,
@@ -13,6 +14,28 @@ import {
   loadSkillResource,
   skillMissingFeature,
 } from './collect.mjs';
+
+test('the skill manifest lists description — when_to_use and keeps a well-formed entry whole', () => {
+  const trigger = '"배포", "deploy", "ship it"; not for local builds or tests.';
+  const manifest = buildSkillManifest([
+    { name: 'deploy-helper', description: 'Deploy the app to staging.', whenToUse: trigger },
+    { name: 'plain-skill', description: 'A skill with no trigger line.' },
+  ]);
+  assert.match(manifest, /^- deploy-helper: Deploy the app to staging\. — "배포", "deploy", "ship it"; not for local builds or tests\.$/m);
+  assert.match(manifest, /^- plain-skill: A skill with no trigger line\.$/m);
+
+  // Past the per-entry cap the listing cuts on a word boundary; the Skill()
+  // load supplies the rest, so the description half must survive the cut.
+  const long = buildSkillManifest([{
+    name: 'verbose',
+    description: 'Short capability sentence.',
+    whenToUse: 'trigger '.repeat(60),
+  }]);
+  const line = long.split('\n').find((entry) => entry.startsWith('- verbose:')) || '';
+  assert.ok(line.startsWith('- verbose: Short capability sentence. — trigger'));
+  assert.ok(line.endsWith('...'));
+  assert.ok(line.length <= '- verbose: '.length + 250);
+});
 
 test('discovers global standard skill folders and ignores project-local skills and reference Markdown', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-standard-skill-'));

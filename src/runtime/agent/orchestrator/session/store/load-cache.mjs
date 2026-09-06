@@ -40,25 +40,6 @@ function _faultHooksEnabled() {
     return process.env[SESSION_LOAD_FAULT_ENV] === '1';
 }
 
-export function _setSessionLoadFaultHook(hook) {
-    if (!_faultHooksEnabled()) {
-        _sessionLoadFaultHook = null;
-        return false;
-    }
-    _sessionLoadFaultHook = typeof hook === 'function' ? hook : null;
-    return _sessionLoadFaultHook !== null;
-}
-
-// Test/diagnostic view of the cache: proves a signature is never paired with
-// content that came from a different inode.
-export function _inspectSessionLoadCache() {
-    return [..._sessionLoadCache.entries()].map(([path, entry]) => ({
-        path,
-        signature: entry.signature,
-        session: entry.session,
-    }));
-}
-
 function _fault(phase, path, attempt) {
     if (!_sessionLoadFaultHook) return;
     if (!_faultHooksEnabled()) {

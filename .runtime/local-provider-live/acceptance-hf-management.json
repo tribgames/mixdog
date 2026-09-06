@@ -1,0 +1,2725 @@
+{
+  "startedAt": "2026-09-05T11:21:32.215Z",
+  "pid": 57564,
+  "model": "qwen3.8-27b-q4-k-m",
+  "durationSeconds": 600,
+  "busySkips": 0,
+  "cases": [
+    {
+      "name": "long-context-1",
+      "ok": true,
+      "elapsedMs": 18699,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:21:50.924Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 16332,
+        "durationMs": 18697,
+        "outputTokens": 71,
+        "inputTokens": 13675,
+        "tokensPerSecond": 29.6,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-1",
+      "ok": true,
+      "elapsedMs": 3438,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:21:54.364Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 322,
+        "durationMs": 1474,
+        "outputTokens": 37,
+        "inputTokens": 122,
+        "tokensPerSecond": 31.3,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-1",
+      "ok": true,
+      "elapsedMs": 4497,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:21:58.861Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 225,
+        "durationMs": 1502,
+        "outputTokens": 40,
+        "inputTokens": 386,
+        "tokensPerSecond": 30.5,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-1",
+      "ok": true,
+      "elapsedMs": 2503,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:01.364Z",
+        "queueWaitMs": 1248,
+        "firstResponseMs": 216,
+        "durationMs": 1254,
+        "outputTokens": 34,
+        "inputTokens": 67,
+        "tokensPerSecond": 31.8,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-1",
+      "ok": true,
+      "elapsedMs": 1662,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:03.027Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 270,
+        "durationMs": 1224,
+        "outputTokens": 31,
+        "inputTokens": 59,
+        "tokensPerSecond": 31.4,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-2",
+      "ok": true,
+      "elapsedMs": 2551,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:05.581Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 492,
+        "durationMs": 2550,
+        "outputTokens": 63,
+        "inputTokens": 13675,
+        "tokensPerSecond": 30.1,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-2",
+      "ok": true,
+      "elapsedMs": 4370,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:09.952Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 323,
+        "durationMs": 1527,
+        "outputTokens": 38,
+        "inputTokens": 122,
+        "tokensPerSecond": 30.7,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-2",
+      "ok": true,
+      "elapsedMs": 4103,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:14.055Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 217,
+        "durationMs": 1780,
+        "outputTokens": 51,
+        "inputTokens": 386,
+        "tokensPerSecond": 32,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-2",
+      "ok": true,
+      "elapsedMs": 3450,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:17.505Z",
+        "queueWaitMs": 1988,
+        "firstResponseMs": 420,
+        "durationMs": 1461,
+        "outputTokens": 34,
+        "inputTokens": 67,
+        "tokensPerSecond": 31.7,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-2",
+      "ok": true,
+      "elapsedMs": 1870,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:19.376Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 292,
+        "durationMs": 1441,
+        "outputTokens": 38,
+        "inputTokens": 59,
+        "tokensPerSecond": 32.2,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-3",
+      "ok": true,
+      "elapsedMs": 2447,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:21.826Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 448,
+        "durationMs": 2446,
+        "outputTokens": 59,
+        "inputTokens": 13675,
+        "tokensPerSecond": 29,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-3",
+      "ok": true,
+      "elapsedMs": 5307,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:27.134Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 317,
+        "durationMs": 2518,
+        "outputTokens": 72,
+        "inputTokens": 122,
+        "tokensPerSecond": 32.3,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-3",
+      "ok": true,
+      "elapsedMs": 4928,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:32.062Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 223,
+        "durationMs": 2440,
+        "outputTokens": 73,
+        "inputTokens": 386,
+        "tokensPerSecond": 32.5,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-3",
+      "ok": true,
+      "elapsedMs": 2286,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:34.349Z",
+        "queueWaitMs": 1138,
+        "firstResponseMs": 213,
+        "durationMs": 1148,
+        "outputTokens": 30,
+        "inputTokens": 67,
+        "tokensPerSecond": 31,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-3",
+      "ok": true,
+      "elapsedMs": 1763,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:36.112Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 290,
+        "durationMs": 1339,
+        "outputTokens": 34,
+        "inputTokens": 59,
+        "tokensPerSecond": 31.5,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-4",
+      "ok": true,
+      "elapsedMs": 2561,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:38.676Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 523,
+        "durationMs": 2561,
+        "outputTokens": 62,
+        "inputTokens": 13675,
+        "tokensPerSecond": 29.9,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-4",
+      "ok": true,
+      "elapsedMs": 4882,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:43.558Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 323,
+        "durationMs": 2497,
+        "outputTokens": 69,
+        "inputTokens": 122,
+        "tokensPerSecond": 31.3,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-4",
+      "ok": true,
+      "elapsedMs": 4673,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:48.232Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 217,
+        "durationMs": 2215,
+        "outputTokens": 61,
+        "inputTokens": 386,
+        "tokensPerSecond": 30,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-4",
+      "ok": true,
+      "elapsedMs": 3184,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:51.417Z",
+        "queueWaitMs": 1610,
+        "firstResponseMs": 418,
+        "durationMs": 1573,
+        "outputTokens": 35,
+        "inputTokens": 67,
+        "tokensPerSecond": 29.4,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-4",
+      "ok": true,
+      "elapsedMs": 1957,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:53.374Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 294,
+        "durationMs": 1590,
+        "outputTokens": 40,
+        "inputTokens": 59,
+        "tokensPerSecond": 30.1,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-5",
+      "ok": true,
+      "elapsedMs": 2709,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:22:56.085Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 473,
+        "durationMs": 2709,
+        "outputTokens": 65,
+        "inputTokens": 13675,
+        "tokensPerSecond": 28.6,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-5",
+      "ok": true,
+      "elapsedMs": 4167,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:23:00.253Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 306,
+        "durationMs": 2118,
+        "outputTokens": 55,
+        "inputTokens": 122,
+        "tokensPerSecond": 29.8,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-5",
+      "ok": true,
+      "elapsedMs": 4106,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:23:04.360Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 228,
+        "durationMs": 2064,
+        "outputTokens": 57,
+        "inputTokens": 386,
+        "tokensPerSecond": 30.5,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-5",
+      "ok": true,
+      "elapsedMs": 2885,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:23:07.246Z",
+        "queueWaitMs": 1612,
+        "firstResponseMs": 325,
+        "durationMs": 1273,
+        "outputTokens": 30,
+        "inputTokens": 67,
+        "tokensPerSecond": 30.6,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-5",
+      "ok": true,
+      "elapsedMs": 1877,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:23:09.124Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 296,
+        "durationMs": 1513,
+        "outputTokens": 37,
+        "inputTokens": 59,
+        "tokensPerSecond": 29.6,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-6",
+      "ok": true,
+      "elapsedMs": 2796,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:23:11.923Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 404,
+        "durationMs": 2795,
+        "outputTokens": 67,
+        "inputTokens": 13675,
+        "tokensPerSecond": 27.6,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-6",
+      "ok": true,
+      "elapsedMs": 17064,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:23:28.988Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 535,
+        "durationMs": 2992,
+        "outputTokens": 76,
+        "inputTokens": 120,
+        "tokensPerSecond": 30.5,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-6",
+      "ok": true,
+      "elapsedMs": 4176,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:23:33.164Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 241,
+        "durationMs": 1942,
+        "outputTokens": 51,
+        "inputTokens": 386,
+        "tokensPerSecond": 29.4,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-6",
+      "ok": true,
+      "elapsedMs": 3073,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:23:36.237Z",
+        "queueWaitMs": 1538,
+        "firstResponseMs": 302,
+        "durationMs": 1534,
+        "outputTokens": 38,
+        "inputTokens": 67,
+        "tokensPerSecond": 30,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-6",
+      "ok": true,
+      "elapsedMs": 1720,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:23:37.957Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 280,
+        "durationMs": 1398,
+        "outputTokens": 35,
+        "inputTokens": 59,
+        "tokensPerSecond": 30.4,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-7",
+      "ok": true,
+      "elapsedMs": 2714,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:23:40.673Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 434,
+        "durationMs": 2714,
+        "outputTokens": 66,
+        "inputTokens": 13675,
+        "tokensPerSecond": 28.5,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-7",
+      "ok": true,
+      "elapsedMs": 4342,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:23:45.016Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 303,
+        "durationMs": 2248,
+        "outputTokens": 60,
+        "inputTokens": 122,
+        "tokensPerSecond": 30.3,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-7",
+      "ok": true,
+      "elapsedMs": 4031,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:23:49.048Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 225,
+        "durationMs": 1550,
+        "outputTokens": 41,
+        "inputTokens": 386,
+        "tokensPerSecond": 30.2,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-7",
+      "ok": true,
+      "elapsedMs": 1882,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:23:50.931Z",
+        "queueWaitMs": 714,
+        "firstResponseMs": 199,
+        "durationMs": 1168,
+        "outputTokens": 30,
+        "inputTokens": 67,
+        "tokensPerSecond": 29.9,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-7",
+      "ok": true,
+      "elapsedMs": 1419,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:23:52.351Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 298,
+        "durationMs": 976,
+        "outputTokens": 21,
+        "inputTokens": 59,
+        "tokensPerSecond": 29.5,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-8",
+      "ok": true,
+      "elapsedMs": 3678,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:23:56.032Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 1290,
+        "durationMs": 3678,
+        "outputTokens": 68,
+        "inputTokens": 13675,
+        "tokensPerSecond": 28.1,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-8",
+      "ok": true,
+      "elapsedMs": 2936,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:23:58.969Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 284,
+        "durationMs": 1287,
+        "outputTokens": 30,
+        "inputTokens": 122,
+        "tokensPerSecond": 28.9,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-8",
+      "ok": true,
+      "elapsedMs": 7596,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:06.566Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 205,
+        "durationMs": 1468,
+        "outputTokens": 39,
+        "inputTokens": 386,
+        "tokensPerSecond": 30.1,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-8",
+      "ok": true,
+      "elapsedMs": 3369,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:09.936Z",
+        "queueWaitMs": 1645,
+        "firstResponseMs": 396,
+        "durationMs": 1723,
+        "outputTokens": 41,
+        "inputTokens": 67,
+        "tokensPerSecond": 30.1,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-8",
+      "ok": true,
+      "elapsedMs": 1347,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:11.283Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 281,
+        "durationMs": 986,
+        "outputTokens": 22,
+        "inputTokens": 59,
+        "tokensPerSecond": 29.8,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-9",
+      "ok": true,
+      "elapsedMs": 3031,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:14.319Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 417,
+        "durationMs": 3031,
+        "outputTokens": 73,
+        "inputTokens": 13675,
+        "tokensPerSecond": 27.5,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-9",
+      "ok": true,
+      "elapsedMs": 3467,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:17.787Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 318,
+        "durationMs": 1390,
+        "outputTokens": 34,
+        "inputTokens": 122,
+        "tokensPerSecond": 30.8,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-9",
+      "ok": true,
+      "elapsedMs": 3966,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:21.754Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 233,
+        "durationMs": 1666,
+        "outputTokens": 43,
+        "inputTokens": 386,
+        "tokensPerSecond": 29.3,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-9",
+      "ok": true,
+      "elapsedMs": 3434,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:25.189Z",
+        "queueWaitMs": 1544,
+        "firstResponseMs": 337,
+        "durationMs": 1890,
+        "outputTokens": 47,
+        "inputTokens": 67,
+        "tokensPerSecond": 29.6,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-9",
+      "ok": true,
+      "elapsedMs": 1811,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:27.001Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 297,
+        "durationMs": 1436,
+        "outputTokens": 36,
+        "inputTokens": 59,
+        "tokensPerSecond": 30.7,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-10",
+      "ok": true,
+      "elapsedMs": 4058,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:31.061Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 455,
+        "durationMs": 4058,
+        "outputTokens": 103,
+        "inputTokens": 13675,
+        "tokensPerSecond": 28.3,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-10",
+      "ok": true,
+      "elapsedMs": 4358,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:35.421Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 311,
+        "durationMs": 2195,
+        "outputTokens": 57,
+        "inputTokens": 124,
+        "tokensPerSecond": 29.7,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-10",
+      "ok": true,
+      "elapsedMs": 4296,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:39.717Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 249,
+        "durationMs": 1659,
+        "outputTokens": 44,
+        "inputTokens": 387,
+        "tokensPerSecond": 30.5,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-10",
+      "ok": true,
+      "elapsedMs": 3027,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:42.744Z",
+        "queueWaitMs": 1465,
+        "firstResponseMs": 282,
+        "durationMs": 1561,
+        "outputTokens": 40,
+        "inputTokens": 67,
+        "tokensPerSecond": 30.5,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-10",
+      "ok": true,
+      "elapsedMs": 1784,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:44.528Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 336,
+        "durationMs": 1425,
+        "outputTokens": 32,
+        "inputTokens": 59,
+        "tokensPerSecond": 28.5,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-11",
+      "ok": true,
+      "elapsedMs": 3224,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:47.755Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 479,
+        "durationMs": 3224,
+        "outputTokens": 76,
+        "inputTokens": 13675,
+        "tokensPerSecond": 27.3,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-11",
+      "ok": true,
+      "elapsedMs": 3414,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:51.170Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 279,
+        "durationMs": 1080,
+        "outputTokens": 25,
+        "inputTokens": 124,
+        "tokensPerSecond": 30,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-11",
+      "ok": true,
+      "elapsedMs": 3781,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:54.952Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 227,
+        "durationMs": 1458,
+        "outputTokens": 38,
+        "inputTokens": 387,
+        "tokensPerSecond": 30.1,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-11",
+      "ok": true,
+      "elapsedMs": 2732,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:57.685Z",
+        "queueWaitMs": 1260,
+        "firstResponseMs": 199,
+        "durationMs": 1471,
+        "outputTokens": 39,
+        "inputTokens": 67,
+        "tokensPerSecond": 29.9,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-11",
+      "ok": true,
+      "elapsedMs": 1903,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:24:59.589Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 280,
+        "durationMs": 1557,
+        "outputTokens": 39,
+        "inputTokens": 59,
+        "tokensPerSecond": 29.7,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-12",
+      "ok": true,
+      "elapsedMs": 4105,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:03.697Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 510,
+        "durationMs": 4104,
+        "outputTokens": 101,
+        "inputTokens": 13675,
+        "tokensPerSecond": 27.8,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-12",
+      "ok": true,
+      "elapsedMs": 6155,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:09.852Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 433,
+        "durationMs": 2233,
+        "outputTokens": 54,
+        "inputTokens": 131,
+        "tokensPerSecond": 29.4,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-12",
+      "ok": true,
+      "elapsedMs": 4594,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:14.448Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 216,
+        "durationMs": 1890,
+        "outputTokens": 52,
+        "inputTokens": 387,
+        "tokensPerSecond": 30.5,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-12",
+      "ok": true,
+      "elapsedMs": 3371,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:17.820Z",
+        "queueWaitMs": 1747,
+        "firstResponseMs": 485,
+        "durationMs": 1624,
+        "outputTokens": 35,
+        "inputTokens": 67,
+        "tokensPerSecond": 29.9,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-12",
+      "ok": true,
+      "elapsedMs": 1802,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:19.622Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 291,
+        "durationMs": 1488,
+        "outputTokens": 36,
+        "inputTokens": 59,
+        "tokensPerSecond": 29.2,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-13",
+      "ok": true,
+      "elapsedMs": 3547,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:23.171Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 435,
+        "durationMs": 3547,
+        "outputTokens": 89,
+        "inputTokens": 13675,
+        "tokensPerSecond": 28.3,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-13",
+      "ok": true,
+      "elapsedMs": 4304,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:27.476Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 272,
+        "durationMs": 2093,
+        "outputTokens": 56,
+        "inputTokens": 124,
+        "tokensPerSecond": 30.2,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-13",
+      "ok": true,
+      "elapsedMs": 3478,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:30.955Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 218,
+        "durationMs": 1522,
+        "outputTokens": 40,
+        "inputTokens": 387,
+        "tokensPerSecond": 29.9,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-13",
+      "ok": true,
+      "elapsedMs": 2988,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:33.944Z",
+        "queueWaitMs": 1874,
+        "firstResponseMs": 242,
+        "durationMs": 1114,
+        "outputTokens": 27,
+        "inputTokens": 67,
+        "tokensPerSecond": 29.8,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-13",
+      "ok": true,
+      "elapsedMs": 1757,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:35.702Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 263,
+        "durationMs": 1469,
+        "outputTokens": 38,
+        "inputTokens": 59,
+        "tokensPerSecond": 30.7,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-14",
+      "ok": true,
+      "elapsedMs": 2499,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:38.203Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 353,
+        "durationMs": 2498,
+        "outputTokens": 60,
+        "inputTokens": 13675,
+        "tokensPerSecond": 27.5,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-14",
+      "ok": true,
+      "elapsedMs": 4346,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:42.549Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 270,
+        "durationMs": 1757,
+        "outputTokens": 46,
+        "inputTokens": 124,
+        "tokensPerSecond": 30.3,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-14",
+      "ok": true,
+      "elapsedMs": 4072,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:46.622Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 211,
+        "durationMs": 1977,
+        "outputTokens": 54,
+        "inputTokens": 387,
+        "tokensPerSecond": 30,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-14",
+      "ok": true,
+      "elapsedMs": 2579,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:49.202Z",
+        "queueWaitMs": 1433,
+        "firstResponseMs": 252,
+        "durationMs": 1146,
+        "outputTokens": 27,
+        "inputTokens": 67,
+        "tokensPerSecond": 29.1,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-14",
+      "ok": true,
+      "elapsedMs": 1867,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:51.070Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 270,
+        "durationMs": 1574,
+        "outputTokens": 39,
+        "inputTokens": 59,
+        "tokensPerSecond": 29.1,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-15",
+      "ok": true,
+      "elapsedMs": 2859,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:53.933Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 426,
+        "durationMs": 2859,
+        "outputTokens": 69,
+        "inputTokens": 13675,
+        "tokensPerSecond": 28,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-15",
+      "ok": true,
+      "elapsedMs": 3732,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:25:57.666Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 282,
+        "durationMs": 1881,
+        "outputTokens": 50,
+        "inputTokens": 125,
+        "tokensPerSecond": 30.7,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-15",
+      "ok": true,
+      "elapsedMs": 4530,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:02.197Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 221,
+        "durationMs": 2451,
+        "outputTokens": 67,
+        "inputTokens": 387,
+        "tokensPerSecond": 29.6,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-15",
+      "ok": true,
+      "elapsedMs": 3014,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:05.211Z",
+        "queueWaitMs": 1749,
+        "firstResponseMs": 254,
+        "durationMs": 1264,
+        "outputTokens": 31,
+        "inputTokens": 67,
+        "tokensPerSecond": 29.7,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-15",
+      "ok": true,
+      "elapsedMs": 1633,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:06.845Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 285,
+        "durationMs": 1325,
+        "outputTokens": 32,
+        "inputTokens": 59,
+        "tokensPerSecond": 29.8,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-16",
+      "ok": true,
+      "elapsedMs": 2692,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:09.540Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 400,
+        "durationMs": 2692,
+        "outputTokens": 65,
+        "inputTokens": 13675,
+        "tokensPerSecond": 27.9,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-16",
+      "ok": true,
+      "elapsedMs": 3536,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:13.077Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 279,
+        "durationMs": 1563,
+        "outputTokens": 39,
+        "inputTokens": 124,
+        "tokensPerSecond": 29.6,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-16",
+      "ok": true,
+      "elapsedMs": 4303,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:17.381Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 223,
+        "durationMs": 1949,
+        "outputTokens": 54,
+        "inputTokens": 387,
+        "tokensPerSecond": 30.7,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-16",
+      "ok": true,
+      "elapsedMs": 3129,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:20.511Z",
+        "queueWaitMs": 1441,
+        "firstResponseMs": 280,
+        "durationMs": 1688,
+        "outputTokens": 44,
+        "inputTokens": 67,
+        "tokensPerSecond": 30.5,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-16",
+      "ok": true,
+      "elapsedMs": 1841,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:22.353Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 301,
+        "durationMs": 1540,
+        "outputTokens": 39,
+        "inputTokens": 59,
+        "tokensPerSecond": 30.7,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-17",
+      "ok": true,
+      "elapsedMs": 2331,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:24.687Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 233,
+        "durationMs": 2331,
+        "outputTokens": 61,
+        "inputTokens": 13675,
+        "tokensPerSecond": 28.6,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-17",
+      "ok": true,
+      "elapsedMs": 3198,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:27.886Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 292,
+        "durationMs": 1598,
+        "outputTokens": 41,
+        "inputTokens": 124,
+        "tokensPerSecond": 30.6,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-17",
+      "ok": true,
+      "elapsedMs": 3968,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:31.855Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 211,
+        "durationMs": 1973,
+        "outputTokens": 54,
+        "inputTokens": 387,
+        "tokensPerSecond": 30.1,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-17",
+      "ok": true,
+      "elapsedMs": 3180,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:35.036Z",
+        "queueWaitMs": 1374,
+        "firstResponseMs": 283,
+        "durationMs": 1806,
+        "outputTokens": 47,
+        "inputTokens": 67,
+        "tokensPerSecond": 30.2,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-17",
+      "ok": true,
+      "elapsedMs": 1902,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:36.939Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 269,
+        "durationMs": 1595,
+        "outputTokens": 41,
+        "inputTokens": 59,
+        "tokensPerSecond": 30.2,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-18",
+      "ok": true,
+      "elapsedMs": 3530,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:40.471Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 405,
+        "durationMs": 3530,
+        "outputTokens": 86,
+        "inputTokens": 13675,
+        "tokensPerSecond": 27.2,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-18",
+      "ok": true,
+      "elapsedMs": 8121,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:48.593Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 476,
+        "durationMs": 1823,
+        "outputTokens": 42,
+        "inputTokens": 117,
+        "tokensPerSecond": 30.4,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-18",
+      "ok": true,
+      "elapsedMs": 4403,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:52.997Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 241,
+        "durationMs": 1900,
+        "outputTokens": 52,
+        "inputTokens": 387,
+        "tokensPerSecond": 30.7,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-18",
+      "ok": true,
+      "elapsedMs": 2447,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:55.445Z",
+        "queueWaitMs": 1098,
+        "firstResponseMs": 204,
+        "durationMs": 1349,
+        "outputTokens": 36,
+        "inputTokens": 67,
+        "tokensPerSecond": 30.6,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-18",
+      "ok": true,
+      "elapsedMs": 1490,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:56.936Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 291,
+        "durationMs": 1095,
+        "outputTokens": 25,
+        "inputTokens": 59,
+        "tokensPerSecond": 29.8,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-19",
+      "ok": true,
+      "elapsedMs": 2991,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:26:59.930Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 446,
+        "durationMs": 2991,
+        "outputTokens": 73,
+        "inputTokens": 13675,
+        "tokensPerSecond": 28.3,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-19",
+      "ok": true,
+      "elapsedMs": 4591,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:27:04.522Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 287,
+        "durationMs": 2070,
+        "outputTokens": 56,
+        "inputTokens": 124,
+        "tokensPerSecond": 30.8,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-19",
+      "ok": true,
+      "elapsedMs": 3940,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:27:08.463Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 223,
+        "durationMs": 1557,
+        "outputTokens": 41,
+        "inputTokens": 387,
+        "tokensPerSecond": 30,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-19",
+      "ok": true,
+      "elapsedMs": 3257,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:27:11.721Z",
+        "queueWaitMs": 1580,
+        "firstResponseMs": 394,
+        "durationMs": 1677,
+        "outputTokens": 40,
+        "inputTokens": 67,
+        "tokensPerSecond": 30.4,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-19",
+      "ok": true,
+      "elapsedMs": 1989,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:27:13.711Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 283,
+        "durationMs": 1625,
+        "outputTokens": 40,
+        "inputTokens": 59,
+        "tokensPerSecond": 29.1,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-20",
+      "ok": true,
+      "elapsedMs": 3225,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:27:16.938Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 418,
+        "durationMs": 3225,
+        "outputTokens": 81,
+        "inputTokens": 13675,
+        "tokensPerSecond": 28.5,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-20",
+      "ok": true,
+      "elapsedMs": 4373,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:27:21.312Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 294,
+        "durationMs": 2404,
+        "outputTokens": 65,
+        "inputTokens": 124,
+        "tokensPerSecond": 30.3,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-20",
+      "ok": true,
+      "elapsedMs": 4108,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:27:25.421Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 229,
+        "durationMs": 1832,
+        "outputTokens": 48,
+        "inputTokens": 387,
+        "tokensPerSecond": 29.3,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-20",
+      "ok": true,
+      "elapsedMs": 3234,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:27:28.656Z",
+        "queueWaitMs": 1802,
+        "firstResponseMs": 275,
+        "durationMs": 1431,
+        "outputTokens": 36,
+        "inputTokens": 67,
+        "tokensPerSecond": 30.3,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-20",
+      "ok": true,
+      "elapsedMs": 1884,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:27:30.540Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 284,
+        "durationMs": 1546,
+        "outputTokens": 39,
+        "inputTokens": 59,
+        "tokensPerSecond": 30.1,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-21",
+      "ok": true,
+      "elapsedMs": 2910,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:27:33.453Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 411,
+        "durationMs": 2909,
+        "outputTokens": 72,
+        "inputTokens": 13675,
+        "tokensPerSecond": 28.4,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-21",
+      "ok": true,
+      "elapsedMs": 4132,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:27:37.585Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 295,
+        "durationMs": 2443,
+        "outputTokens": 63,
+        "inputTokens": 124,
+        "tokensPerSecond": 28.9,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-21",
+      "ok": true,
+      "elapsedMs": 4822,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:27:42.408Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 238,
+        "durationMs": 2547,
+        "outputTokens": 71,
+        "inputTokens": 387,
+        "tokensPerSecond": 30.3,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-21",
+      "ok": true,
+      "elapsedMs": 2413,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:27:44.822Z",
+        "queueWaitMs": 1034,
+        "firstResponseMs": 208,
+        "durationMs": 1378,
+        "outputTokens": 36,
+        "inputTokens": 67,
+        "tokensPerSecond": 29.9,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-21",
+      "ok": true,
+      "elapsedMs": 1843,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:27:46.665Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 289,
+        "durationMs": 1624,
+        "outputTokens": 42,
+        "inputTokens": 59,
+        "tokensPerSecond": 30.7,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-22",
+      "ok": true,
+      "elapsedMs": 4039,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:27:50.707Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 394,
+        "durationMs": 4038,
+        "outputTokens": 101,
+        "inputTokens": 13675,
+        "tokensPerSecond": 27.4,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-22",
+      "ok": true,
+      "elapsedMs": 4615,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:27:55.322Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 283,
+        "durationMs": 1981,
+        "outputTokens": 55,
+        "inputTokens": 124,
+        "tokensPerSecond": 31.8,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-22",
+      "ok": true,
+      "elapsedMs": 6207,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:28:01.530Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 226,
+        "durationMs": 1535,
+        "outputTokens": 41,
+        "inputTokens": 387,
+        "tokensPerSecond": 30.5,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-22",
+      "ok": true,
+      "elapsedMs": 2916,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:28:04.446Z",
+        "queueWaitMs": 1644,
+        "firstResponseMs": 324,
+        "durationMs": 1271,
+        "outputTokens": 31,
+        "inputTokens": 67,
+        "tokensPerSecond": 31.7,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-22",
+      "ok": true,
+      "elapsedMs": 1827,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:28:06.273Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 275,
+        "durationMs": 1490,
+        "outputTokens": 39,
+        "inputTokens": 59,
+        "tokensPerSecond": 31.3,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-23",
+      "ok": true,
+      "elapsedMs": 2553,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:28:08.828Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 439,
+        "durationMs": 2552,
+        "outputTokens": 63,
+        "inputTokens": 13675,
+        "tokensPerSecond": 29.3,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-23",
+      "ok": true,
+      "elapsedMs": 3743,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:28:12.572Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 277,
+        "durationMs": 1924,
+        "outputTokens": 51,
+        "inputTokens": 124,
+        "tokensPerSecond": 30.4,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-23",
+      "ok": true,
+      "elapsedMs": 3638,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:28:16.211Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 225,
+        "durationMs": 1453,
+        "outputTokens": 40,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.8,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-23",
+      "ok": true,
+      "elapsedMs": 2899,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:28:19.109Z",
+        "queueWaitMs": 1621,
+        "firstResponseMs": 272,
+        "durationMs": 1277,
+        "outputTokens": 33,
+        "inputTokens": 67,
+        "tokensPerSecond": 31.8,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-23",
+      "ok": true,
+      "elapsedMs": 1563,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:28:20.673Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 273,
+        "durationMs": 1232,
+        "outputTokens": 31,
+        "inputTokens": 59,
+        "tokensPerSecond": 31.3,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-24",
+      "ok": true,
+      "elapsedMs": 2678,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:28:23.353Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 411,
+        "durationMs": 2678,
+        "outputTokens": 68,
+        "inputTokens": 13675,
+        "tokensPerSecond": 29.6,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-24",
+      "ok": true,
+      "elapsedMs": 5019,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:28:28.373Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 456,
+        "durationMs": 1361,
+        "outputTokens": 30,
+        "inputTokens": 125,
+        "tokensPerSecond": 32.1,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-24",
+      "ok": true,
+      "elapsedMs": 3019,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:00.790Z",
+        "queueWaitMs": 1669,
+        "firstResponseMs": 308,
+        "durationMs": 1350,
+        "outputTokens": 33,
+        "inputTokens": 67,
+        "tokensPerSecond": 30.7,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-24",
+      "ok": true,
+      "elapsedMs": 1768,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:02.559Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 287,
+        "durationMs": 1423,
+        "outputTokens": 34,
+        "inputTokens": 59,
+        "tokensPerSecond": 29.1,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-25",
+      "ok": true,
+      "elapsedMs": 2736,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:05.297Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 396,
+        "durationMs": 2735,
+        "outputTokens": 68,
+        "inputTokens": 13675,
+        "tokensPerSecond": 28.6,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-25",
+      "ok": true,
+      "elapsedMs": 4308,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:09.605Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 286,
+        "durationMs": 2291,
+        "outputTokens": 63,
+        "inputTokens": 124,
+        "tokensPerSecond": 30.9,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-25",
+      "ok": true,
+      "elapsedMs": 4627,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:14.233Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 234,
+        "durationMs": 1438,
+        "outputTokens": 39,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.6,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-25",
+      "ok": true,
+      "elapsedMs": 2177,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:16.411Z",
+        "queueWaitMs": 1007,
+        "firstResponseMs": 194,
+        "durationMs": 1169,
+        "outputTokens": 31,
+        "inputTokens": 67,
+        "tokensPerSecond": 30.8,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-25",
+      "ok": true,
+      "elapsedMs": 2017,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:18.428Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 264,
+        "durationMs": 1683,
+        "outputTokens": 45,
+        "inputTokens": 59,
+        "tokensPerSecond": 31,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-26",
+      "ok": true,
+      "elapsedMs": 2999,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:21.430Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 379,
+        "durationMs": 2999,
+        "outputTokens": 80,
+        "inputTokens": 13675,
+        "tokensPerSecond": 30.2,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-26",
+      "ok": true,
+      "elapsedMs": 2584,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:24.015Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 278,
+        "durationMs": 1176,
+        "outputTokens": 29,
+        "inputTokens": 117,
+        "tokensPerSecond": 31.2,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-26",
+      "ok": true,
+      "elapsedMs": 4278,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:28.294Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 221,
+        "durationMs": 2319,
+        "outputTokens": 66,
+        "inputTokens": 387,
+        "tokensPerSecond": 31,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-26",
+      "ok": true,
+      "elapsedMs": 2519,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:30.814Z",
+        "queueWaitMs": 1058,
+        "firstResponseMs": 199,
+        "durationMs": 1461,
+        "outputTokens": 40,
+        "inputTokens": 67,
+        "tokensPerSecond": 30.9,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-26",
+      "ok": true,
+      "elapsedMs": 2545,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:33.360Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 275,
+        "durationMs": 2197,
+        "outputTokens": 61,
+        "inputTokens": 59,
+        "tokensPerSecond": 31.2,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-27",
+      "ok": true,
+      "elapsedMs": 3935,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:37.298Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 366,
+        "durationMs": 3935,
+        "outputTokens": 106,
+        "inputTokens": 13675,
+        "tokensPerSecond": 29.4,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-27",
+      "ok": true,
+      "elapsedMs": 4055,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:41.354Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 285,
+        "durationMs": 1991,
+        "outputTokens": 55,
+        "inputTokens": 124,
+        "tokensPerSecond": 31.7,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-27",
+      "ok": true,
+      "elapsedMs": 3378,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:44.733Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 209,
+        "durationMs": 1283,
+        "outputTokens": 35,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.7,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-27",
+      "ok": true,
+      "elapsedMs": 3290,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:48.024Z",
+        "queueWaitMs": 1499,
+        "firstResponseMs": 297,
+        "durationMs": 1789,
+        "outputTokens": 49,
+        "inputTokens": 67,
+        "tokensPerSecond": 32.2,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-27",
+      "ok": true,
+      "elapsedMs": 1088,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:49.112Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 266,
+        "durationMs": 790,
+        "outputTokens": 17,
+        "inputTokens": 59,
+        "tokensPerSecond": 30.5,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-28",
+      "ok": true,
+      "elapsedMs": 2934,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:52.050Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 353,
+        "durationMs": 2934,
+        "outputTokens": 78,
+        "inputTokens": 13675,
+        "tokensPerSecond": 29.8,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-28",
+      "ok": true,
+      "elapsedMs": 4153,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:29:56.203Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 283,
+        "durationMs": 2010,
+        "outputTokens": 56,
+        "inputTokens": 124,
+        "tokensPerSecond": 31.9,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-28",
+      "ok": true,
+      "elapsedMs": 3973,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:00.177Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 215,
+        "durationMs": 1786,
+        "outputTokens": 52,
+        "inputTokens": 387,
+        "tokensPerSecond": 32.5,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-28",
+      "ok": true,
+      "elapsedMs": 3041,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:03.218Z",
+        "queueWaitMs": 1858,
+        "firstResponseMs": 251,
+        "durationMs": 1182,
+        "outputTokens": 31,
+        "inputTokens": 67,
+        "tokensPerSecond": 32.2,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-28",
+      "ok": true,
+      "elapsedMs": 1677,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:04.896Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 275,
+        "durationMs": 1406,
+        "outputTokens": 35,
+        "inputTokens": 59,
+        "tokensPerSecond": 30.1,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-29",
+      "ok": true,
+      "elapsedMs": 2647,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:07.546Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 380,
+        "durationMs": 2647,
+        "outputTokens": 65,
+        "inputTokens": 13675,
+        "tokensPerSecond": 28.2,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-29",
+      "ok": true,
+      "elapsedMs": 3296,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:10.843Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 290,
+        "durationMs": 1226,
+        "outputTokens": 31,
+        "inputTokens": 124,
+        "tokensPerSecond": 32,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-29",
+      "ok": true,
+      "elapsedMs": 4013,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:14.857Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 213,
+        "durationMs": 1919,
+        "outputTokens": 56,
+        "inputTokens": 387,
+        "tokensPerSecond": 32.2,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-29",
+      "ok": true,
+      "elapsedMs": 2338,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:17.196Z",
+        "queueWaitMs": 1057,
+        "firstResponseMs": 213,
+        "durationMs": 1280,
+        "outputTokens": 34,
+        "inputTokens": 67,
+        "tokensPerSecond": 30.9,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-29",
+      "ok": true,
+      "elapsedMs": 1641,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:18.838Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 276,
+        "durationMs": 1258,
+        "outputTokens": 31,
+        "inputTokens": 59,
+        "tokensPerSecond": 30.5,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-30",
+      "ok": true,
+      "elapsedMs": 2404,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:21.245Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 398,
+        "durationMs": 2404,
+        "outputTokens": 61,
+        "inputTokens": 13675,
+        "tokensPerSecond": 29.9,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-30",
+      "ok": true,
+      "elapsedMs": 3500,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:24.746Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 274,
+        "durationMs": 1563,
+        "outputTokens": 42,
+        "inputTokens": 124,
+        "tokensPerSecond": 31.8,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-30",
+      "ok": true,
+      "elapsedMs": 6952,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:31.699Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 216,
+        "durationMs": 2042,
+        "outputTokens": 58,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.2,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-30",
+      "ok": true,
+      "elapsedMs": 2823,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:34.523Z",
+        "queueWaitMs": 1408,
+        "firstResponseMs": 316,
+        "durationMs": 1415,
+        "outputTokens": 36,
+        "inputTokens": 67,
+        "tokensPerSecond": 31.9,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-30",
+      "ok": true,
+      "elapsedMs": 1467,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:35.991Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 273,
+        "durationMs": 1140,
+        "outputTokens": 29,
+        "inputTokens": 59,
+        "tokensPerSecond": 32.3,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-31",
+      "ok": true,
+      "elapsedMs": 2825,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:38.818Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 401,
+        "durationMs": 2825,
+        "outputTokens": 73,
+        "inputTokens": 13675,
+        "tokensPerSecond": 29.7,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-31",
+      "ok": true,
+      "elapsedMs": 3277,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:42.096Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 294,
+        "durationMs": 1642,
+        "outputTokens": 43,
+        "inputTokens": 117,
+        "tokensPerSecond": 31.2,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-31",
+      "ok": true,
+      "elapsedMs": 4470,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:46.567Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 218,
+        "durationMs": 2342,
+        "outputTokens": 69,
+        "inputTokens": 387,
+        "tokensPerSecond": 32,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-31",
+      "ok": true,
+      "elapsedMs": 2230,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:48.798Z",
+        "queueWaitMs": 1081,
+        "firstResponseMs": 206,
+        "durationMs": 1149,
+        "outputTokens": 31,
+        "inputTokens": 67,
+        "tokensPerSecond": 31.8,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-31",
+      "ok": true,
+      "elapsedMs": 1839,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:50.638Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 277,
+        "durationMs": 1463,
+        "outputTokens": 39,
+        "inputTokens": 59,
+        "tokensPerSecond": 32,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-32",
+      "ok": true,
+      "elapsedMs": 2393,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:53.033Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 399,
+        "durationMs": 2393,
+        "outputTokens": 59,
+        "inputTokens": 13675,
+        "tokensPerSecond": 29.1,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-32",
+      "ok": true,
+      "elapsedMs": 3697,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:30:56.731Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 276,
+        "durationMs": 2048,
+        "outputTokens": 58,
+        "inputTokens": 124,
+        "tokensPerSecond": 32.2,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-32",
+      "ok": true,
+      "elapsedMs": 3354,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:31:00.086Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 222,
+        "durationMs": 1379,
+        "outputTokens": 38,
+        "inputTokens": 387,
+        "tokensPerSecond": 32,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-32",
+      "ok": true,
+      "elapsedMs": 2840,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:31:02.927Z",
+        "queueWaitMs": 1731,
+        "firstResponseMs": 328,
+        "durationMs": 1109,
+        "outputTokens": 26,
+        "inputTokens": 67,
+        "tokensPerSecond": 32,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-32",
+      "ok": true,
+      "elapsedMs": 1830,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:31:04.757Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 273,
+        "durationMs": 1502,
+        "outputTokens": 39,
+        "inputTokens": 59,
+        "tokensPerSecond": 30.9,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-33",
+      "ok": true,
+      "elapsedMs": 3145,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:31:07.905Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 216,
+        "durationMs": 3145,
+        "outputTokens": 87,
+        "inputTokens": 13675,
+        "tokensPerSecond": 29.4,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-33",
+      "ok": true,
+      "elapsedMs": 3468,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:31:11.374Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 277,
+        "durationMs": 2061,
+        "outputTokens": 58,
+        "inputTokens": 124,
+        "tokensPerSecond": 32,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-33",
+      "ok": true,
+      "elapsedMs": 3984,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:31:15.359Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 216,
+        "durationMs": 2100,
+        "outputTokens": 62,
+        "inputTokens": 387,
+        "tokensPerSecond": 32.4,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-33",
+      "ok": true,
+      "elapsedMs": 2964,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:31:18.324Z",
+        "queueWaitMs": 1524,
+        "firstResponseMs": 274,
+        "durationMs": 1439,
+        "outputTokens": 37,
+        "inputTokens": 67,
+        "tokensPerSecond": 30.9,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-33",
+      "ok": true,
+      "elapsedMs": 1275,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:31:19.599Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 284,
+        "durationMs": 939,
+        "outputTokens": 22,
+        "inputTokens": 59,
+        "tokensPerSecond": 32.1,
+        "error": null
+      }
+    },
+    {
+      "name": "long-context-34",
+      "ok": true,
+      "elapsedMs": 2748,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:31:22.349Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 399,
+        "durationMs": 2748,
+        "outputTokens": 71,
+        "inputTokens": 13675,
+        "tokensPerSecond": 29.8,
+        "error": null
+      }
+    },
+    {
+      "name": "multi-turn-34",
+      "ok": true,
+      "elapsedMs": 2914,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:31:25.264Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 282,
+        "durationMs": 1327,
+        "outputTokens": 34,
+        "inputTokens": 124,
+        "tokensPerSecond": 31.6,
+        "error": null
+      }
+    },
+    {
+      "name": "tool-roundtrip-34",
+      "ok": true,
+      "elapsedMs": 4302,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:31:29.567Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 222,
+        "durationMs": 1845,
+        "outputTokens": 51,
+        "inputTokens": 387,
+        "tokensPerSecond": 30.8,
+        "error": null
+      }
+    },
+    {
+      "name": "concurrent-queue-34",
+      "ok": true,
+      "elapsedMs": 2807,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:31:32.374Z",
+        "queueWaitMs": 1351,
+        "firstResponseMs": 275,
+        "durationMs": 1455,
+        "outputTokens": 39,
+        "inputTokens": 67,
+        "tokensPerSecond": 32.2,
+        "error": null
+      }
+    },
+    {
+      "name": "cancel-and-recover-34",
+      "ok": true,
+      "elapsedMs": 1647,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:31:34.023Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 273,
+        "durationMs": 1318,
+        "outputTokens": 34,
+        "inputTokens": 59,
+        "tokensPerSecond": 31.6,
+        "error": null
+      }
+    }
+  ],
+  "failures": [
+    {
+      "name": "tool-roundtrip-24",
+      "elapsedMs": 29396,
+      "error": "false == true"
+    }
+  ],
+  "finishedAt": "2026-09-05T11:31:34.024Z",
+  "elapsedMs": 601808,
+  "cycles": 34,
+  "passed": false,
+  "scope": "Existing model process; long-running multi-turn/tool/queue/cancel recovery. No OS sleep, app restart, model reload or new model installation."
+}

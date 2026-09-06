@@ -17,7 +17,7 @@ import { scoreDeck } from '../quality/pptx-deck-rubric.mjs';
 
 const value = (result) => JSON.parse(result.content[0].text);
 
-export async function benchDeck(path, { cwd = process.cwd() } = {}) {
+async function benchDeck(path, { cwd = process.cwd() } = {}) {
   const opened = value(await executeOfficeTool({ action: 'open', path }, { cwd }));
   if (!opened.session) throw new Error(`open failed for ${path}`);
   const session = sessions.get(opened.session);

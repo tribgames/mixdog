@@ -9,6 +9,7 @@ import {
   updateSkillDocument,
   validateSkillDescription,
   validateSkillName,
+  validateSkillWhenToUse,
 } from '../runtime/shared/skill-document.mjs';
 import { clean } from './session-text.mjs';
 
@@ -47,6 +48,7 @@ export function createSkillsApi({ contextMod, getCwd }) {
         return {
           name: skill.name,
           description: skill.description || '',
+          whenToUse: skill.whenToUse || '',
           filePath: skill.filePath || null,
           source,
           owner: ownerForSkill(skill, source),
@@ -88,12 +90,13 @@ export function createSkillsApi({ contextMod, getCwd }) {
   function addGlobalSkill(input = {}) {
     const name = validateSkillName(clean(input.name));
     const description = validateSkillDescription(input.description);
+    const whenToUse = validateSkillWhenToUse(input.whenToUse);
     const body = String(input.instructions || input.body || DEFAULT_SKILL_BODY);
     const dir = join(globalSkillsRoot(), name);
     const filePath = join(dir, 'SKILL.md');
     if (existsSync(filePath)) throw new Error(`skill already exists: ${name}`);
     mkdirSync(dir, { recursive: true });
-    writeFileSync(filePath, createSkillDocument({ name, description, body }), 'utf8');
+    writeFileSync(filePath, createSkillDocument({ name, description, whenToUse, body }), 'utf8');
     contextMod.invalidateSkillsCache?.(getCwd());
     return { name, filePath };
   }
@@ -102,6 +105,7 @@ export function createSkillsApi({ contextMod, getCwd }) {
     const originalName = validateSkillName(input.originalName);
     const name = validateSkillName(input.name);
     const description = validateSkillDescription(input.description);
+    const whenToUse = validateSkillWhenToUse(input.whenToUse);
     const body = String(input.instructions || input.body || '');
     const resource = contextMod.loadSkillResource?.(originalName, getCwd());
     if (!resource?.filePath) throw new Error(`skill not found: ${originalName}`);
@@ -123,7 +127,7 @@ export function createSkillsApi({ contextMod, getCwd }) {
       throw new Error(`skill folder already exists: ${name}`);
     }
     const source = readFileSync(resource.filePath, 'utf8');
-    const updated = updateSkillDocument(source, { name, description, body });
+    const updated = updateSkillDocument(source, { name, description, whenToUse, body });
     let filePath = resource.filePath;
     if (nextDir !== currentDir) {
       renameSync(currentDir, nextDir);

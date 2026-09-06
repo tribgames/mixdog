@@ -166,12 +166,9 @@ test('openai-oauth always builds the standard Responses payload', () => {
     assert.equal('context' in body.reasoning, false);
     assert.equal(body.input[0].role, 'user');
     assert.equal(body.input[1].role, 'user');
-    assert.deepEqual(body.input[0].internal_chat_message_metadata_passthrough, {
-        turn_id: '019fc135-f07a-7880-8767-ec3b7be1de64',
-    });
-    assert.deepEqual(body.input[1].internal_chat_message_metadata_passthrough, {
-        turn_id: '019fc135-f07a-7880-8767-ec3b7be1de64',
-    });
+    // Turn identity rides request metadata, not the reusable input prefix.
+    assert.deepEqual(body.input[0].internal_chat_message_metadata_passthrough, {});
+    assert.deepEqual(body.input[1].internal_chat_message_metadata_passthrough, {});
 
     const warmup = buildCodexStartupPrewarmBody(body);
     assert.equal(warmup.generate, false);

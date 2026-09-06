@@ -152,7 +152,7 @@ export function registerFontInProcess(fontPath, family) {
   return false;
 }
 
-export async function installFont(fontDef, { onProgress } = {}) {
+async function installFont(fontDef, { onProgress } = {}) {
   const status = isFontInstalled(fontDef);
   if (status.installed) {
     registerFontInProcess(status.path, fontDef.family);

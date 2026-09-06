@@ -1,8 +1,8 @@
 // Pull Requests service: GitHub CLI (`gh`) calls from the singleton daemon,
 // with the conventional default pull-request queries.
 // gh owns auth (keyring) — no tokens ever touch this process.
-import { execFile } from 'node:child_process';
 import { childEnvironment } from './child-environment';
+import { runGithubProcess } from '../../../../src/runtime/github/client.mjs';
 
 export interface GhPrChecks {
   total: number;
@@ -88,30 +88,10 @@ export const PR_CATEGORIES: ReadonlyArray<{ key: string; label: string; search: 
 ];
 
 function run(cwd: string, args: string[]): Promise<string> {
-  return new Promise((resolvePromise, reject) => {
-    execFile('gh', args, {
-      cwd,
-      windowsHide: true,
-      timeout: 60_000,
-      maxBuffer: 16_000_000,
-      env: childEnvironment({
-        GH_PROMPT_DISABLED: '1',
-        GH_NO_UPDATE_NOTIFIER: '1',
-        GH_PAGER: 'cat',
-        CLICOLOR: '0',
-      }),
-    }, (error: (Error & { code?: unknown }) | null, stdout, stderr) => {
-      if (!error) {
-        resolvePromise(String(stdout));
-        return;
-      }
-      if (error.code === 'ENOENT') {
-        reject(new Error('GitHub CLI (gh) is not installed. Install it from https://cli.github.com and run `gh auth login`.'));
-        return;
-      }
-      reject(new Error(String(stderr || error.message).trim()));
-    });
-  });
+  return runGithubProcess({
+    args,
+    mutation: args[0] === 'pr' && ['create', 'checkout', 'merge'].includes(args[1]),
+  }, { cwd, env: childEnvironment() });
 }
 
 export function requiredPrNumber(value: unknown): number {

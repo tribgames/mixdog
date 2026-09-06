@@ -43,6 +43,7 @@ import {
   type RelayUplinkCeilings,
 } from '../shared/remote-payload-limit';
 import { createKeyedListDeltaDecoder } from '../shared/list-delta';
+import { createRemoteCatalog } from '../shared/remote-catalog';
 import {
   REMOTE_PAIRING_STORAGE_KEYS,
   canReuseStoredRemoteClientRegistration,
@@ -53,6 +54,8 @@ import {
   readRemoteDeviceId,
 } from './remote-pairing-recovery';
 import { createSnapshotDeltaDecoder, markCompactWire } from '../main/state-delta';
+import { armRemoteCallDeadline } from './remote-call-deadline';
+import { createRemoteSessionInbox } from './remote-session-inbox';
 import {
   isInstalledMobileWebAppSurface,
   isMobileRemoteSurface,
@@ -202,9 +205,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   };
   const pending = new Map<number, PendingCall>();
   const stateListeners = new Set<(snapshot: SessionSnapshot) => void>();
-  const sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
-  const agentPoolListeners = new Set<(agents: DesktopAgentPoolRow[]) => void>();
-  const sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
+  const sessionsCatalog = createRemoteCatalog<DesktopSessionSummary>();
+  const agentsCatalog = createRemoteCatalog<DesktopAgentPoolRow>();
+  const sessionInbox = createRemoteSessionInbox({ onGap: () => requestResync() });
   const termListeners = new Set<(event: { id: string; data: string }) => void>();
   const folderChangeListeners = new Set<(dir: string) => void>();
   const lspDiagnosticsListeners = new Set<(event: DesktopLspDiagnosticEvent) => void>();
@@ -747,6 +750,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     sessionStateDecoders.clear();
     sessionsDecoder.reset();
     agentPoolDecoder.reset();
+    sessionsCatalog.reset();
+    agentsCatalog.reset();
+    sessionInbox.reset();
   };
   // stateResync only restores the bound-session state lane, so this still has
   // to tell the renderer to re-read its per-session transcript lanes.
@@ -995,10 +1001,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         requestResync();
         return;
       }
-      const sessions = decoded.items ?? [];
-      for (const listener of [...sessionListeners]) {
-        try { listener(sessions); } catch { /* renderer listener fault */ }
-      }
+      sessionsCatalog.publish(decoded.items ?? []);
     } else if (message.event === 'agentPool') {
       const decoded = Array.isArray(message.payload)
         ? { ok: true, items: message.payload as DesktopAgentPoolRow[] }
@@ -1007,10 +1010,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         requestResync();
         return;
       }
-      const agents = decoded.items ?? [];
-      for (const listener of [...agentPoolListeners]) {
-        try { listener(agents); } catch { /* renderer listener fault */ }
-      }
+      agentsCatalog.publish(decoded.items ?? []);
     } else if (message.event === 'sessionState') {
       const payload = message.payload as DesktopSessionStateUpdate & {
         wire?: unknown;
@@ -1041,9 +1041,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         };
         if (update.snapshot === null) sessionStateDecoders.delete(payload.sessionId);
       }
-      for (const listener of [...sessionStateListeners]) {
-        try { listener(update); } catch { /* renderer listener fault */ }
-      }
+      sessionInbox.publish(update);
       if (isRemotePaintProbe(payload.perfProbe)) {
         const probe = payload.perfProbe;
         window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
@@ -1570,13 +1568,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     const ws = await connect();
     return await new Promise<T>((resolve, reject) => {
       const id = nextId++;
-      // A NAT-killed socket accepts sends and never answers: cap every RPC
-      // so the UI fails fast and the socket recycles instead of hanging.
-      const deadline = window.setTimeout(() => {
-        if (!pending.delete(id)) return;
-        reject(new Error('mixdog remote call timed out.'));
-        try { ws.close(); } catch { /* reconnect loop takes over */ }
-      }, 20_000);
+      const deadline = armRemoteCallDeadline(pending, id, reject, wakeProbe);
       pending.set(id, {
         resolve: (value: unknown) => {
           window.clearTimeout(deadline);
@@ -1710,15 +1702,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     listSessions: () => call('listSessions'),
     markSessionRead: (sessionId, messageCount, consumedUnread) =>
       call<boolean>('markSessionRead', [sessionId, messageCount, consumedUnread]),
-    subscribeSessions: (listener) => {
-      sessionListeners.add(listener);
-      return () => { sessionListeners.delete(listener); };
-    },
+    subscribeSessions: (listener) => sessionsCatalog.subscribe(listener),
     listAgentPool: () => call('listAgentPool'),
-    subscribeAgentPool: (listener) => {
-      agentPoolListeners.add(listener);
-      return () => { agentPoolListeners.delete(listener); };
-    },
+    subscribeAgentPool: (listener) => agentsCatalog.subscribe(listener),
     renameSession: (sessionId, title) => call('renameSession', [sessionId, title]),
     setSessionArchived: (sessionId: string, archived: boolean) =>
       call('setSessionArchived', [sessionId, archived]),
@@ -1817,6 +1803,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     libreOfficeStatus: () => call('libreOfficeStatus'),
     installLibreOffice: () => call('installLibreOffice'),
     githubCliStatus: () => call('githubCliStatus'),
+    githubRequest: (cwd, input) => call('githubRequest', [cwd, input]),
     installGithubCli: () => call('installGithubCli'),
     githubCliLoginStart: () => call('githubCliLoginStart'),
     githubCliLoginStatus: (flowId) => call('githubCliLoginStatus', [flowId]),
@@ -1854,10 +1841,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     abortSession: (sessionId, options = {}) => call('abortSession', [sessionId, options]),
     resolveToolApprovalForSession: (sessionId, id, decision) =>
       call('resolveToolApprovalForSession', [sessionId, id, decision]),
-    subscribeSessionState: (listener) => {
-      sessionStateListeners.add(listener);
-      return () => { sessionStateListeners.delete(listener); };
-    },
+    subscribeSessionState: (listener) => sessionInbox.subscribe(listener),
     inheritSession: (sourceSessionId, selection) =>
       call('inheritSession', [sourceSessionId, selection ?? null]),
     listProviderModels: (options) => call('listProviderModels', [options]),

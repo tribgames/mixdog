@@ -1,9 +1,4 @@
 // Core-memory candidate pipeline (nomination → review → promotion), extracted from core-memory-store.mjs.
-import { getDatabase, embeddingToSql } from './memory.mjs'
-import { cachedEmbedTextBatch } from './memory-embed.mjs'
-import { callAgentDispatch } from './agent-ipc.mjs'
-import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
-import { checkedConnect } from './pg/adapter.mjs'
 import { __mixdogMemoryLog, CORE_DEDUP_TOP_K, _getDb, throwIfAborted, addCore } from './core-memory-store.mjs';
 
 //

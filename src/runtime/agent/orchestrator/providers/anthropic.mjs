@@ -1,20 +1,18 @@
-import { createRequire } from 'node:module';
 import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
-import { sanitizeToolPairs, sanitizeAnthropicContentPairs, foldUserTextIntoToolResultTail } from '../session/context-utils.mjs';
+import { sanitizeToolPairs } from '../session/context-utils.mjs';
 import {
-    ANTHROPIC_RETRY_BACKOFF_MS,
-    ANTHROPIC_RETRY_JITTER_RATIO,
-    AnthropicFallbackTriggeredError,
-    anthropicMaxAttempts,
-    anthropicRequestTimeoutMs,
-    classifyError,
-    markProviderRecoveryExhausted,
-    resolveStallRetryBudget,
-    midstreamBackoffFor,
-    sleepWithAbort,
-    STREAM_STALL_RETRY_BUDGET_MS,
-    withRetry,
-    retryAfterMsFromError,
+  ANTHROPIC_RETRY_BACKOFF_MS,
+  ANTHROPIC_RETRY_JITTER_RATIO,
+  AnthropicFallbackTriggeredError,
+  anthropicMaxAttempts,
+  anthropicRequestTimeoutMs,
+  classifyError,
+  markProviderRecoveryExhausted,
+  resolveStallRetryBudget,
+  midstreamBackoffFor,
+  STREAM_STALL_RETRY_BUDGET_MS,
+  withRetry,
+  retryAfterMsFromError,
 } from './retry-classifier.mjs';
 import { readStreamOutcome } from './lib/stream-outcome.mjs';
 import { traceAgentUsage } from '../agent-trace.mjs';
@@ -35,33 +33,31 @@ import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropi
 import { applyAnthropicServerFallback } from './anthropic-server-fallback.mjs';
 import { fastModeAvailable, noteFastModeCapacityError } from './anthropic-fast-mode.mjs';
 import {
-    applyAnthropicEffortToBody,
-    effortValuesForModel,
-    shouldIncludeEffortBeta,
+  applyAnthropicEffortToBody,
+  shouldIncludeEffortBeta,
 } from './anthropic-effort.mjs';
-import { normalizeContentForAnthropic } from './media-normalization.mjs';
+import { prepareAnthropicImages } from './lib/anthropic-image-input.mjs';
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
-import { makeModelCache } from './model-cache.mjs';
-import { resolveAnthropicMaxTokens } from './anthropic-max-tokens.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { notifyCurrentAnthropicRateLimit } from './admission-scheduler.mjs';
 import {
-    ANTHROPIC_CACHE_TTL_STABLE as CACHE_TTL_STABLE,
-    ANTHROPIC_CACHE_TTL_VOLATILE as CACHE_TTL_VOLATILE,
-    applyAnthropicCacheMarkers,
-    clampAnthropicThinkingBudget as clampThinkingBudgetTokens,
-    deferredAnthropicTools as sharedDeferredAnthropicTools,
-    requestAnthropicTools as sharedRequestAnthropicTools,
-    normalizeAnthropicNonStreamingResponse,
-    resolveAnthropicCacheTtls as resolveCacheTtls,
-    resolveAnthropicMessageCacheSlots,
-    sanitizeAnthropicInputSchema,
-    toAnthropicToolChoice,
+  applyAnthropicCacheMarkers,
+  clampAnthropicThinkingBudget as clampThinkingBudgetTokens,
+  normalizeAnthropicNonStreamingResponse,
+  resolveAnthropicCacheTtls as resolveCacheTtls,
+  resolveAnthropicMessageCacheSlots,
+  toAnthropicToolChoice,
 } from './lib/anthropic-request-utils.mjs';
 
-import { loadAnthropic, _midstreamSleepWithAbort, buildSystemBlocks, MODELS, ANTHROPIC_VERSION, _normalizeAnthropicModel, _setApiKeyCatalogMirror, resolveMaxTokens, deferredAnthropicTools, requestAnthropicTools, toAnthropicMessages } from './anthropic-messages.mjs';
+import { loadAnthropic, _midstreamSleepWithAbort, buildSystemBlocks, MODELS, ANTHROPIC_VERSION, _normalizeAnthropicModel, _setApiKeyCatalogMirror, resolveMaxTokens, requestAnthropicTools, toAnthropicMessages } from './anthropic-messages.mjs';
 export { _test, _toAnthropicMessagesForTest } from './anthropic-messages.mjs';
+
+import {
+    EFFORT_CONFIGURATION_BETA,
+    projectEffortConfiguration,
+    lowerAnthropicEffortHistory,
+} from './effort-configuration.mjs';
 
 export class AnthropicProvider {
     // Anthropic reports usage.input_tokens EXCLUDING cache_read/cache_creation
@@ -134,6 +130,9 @@ export class AnthropicProvider {
         const useModel = model;
         const maxTokens = resolveMaxTokens(useModel);
         const opts = sendOpts || {};
+        const effortProjection = projectEffortConfiguration(messages, this.name, useModel, {
+            ...this.config, ...opts, disableBetaHeaders: this.config?.disableBetaHeaders,
+        });
         const ttls = resolveCacheTtls(opts);
 
         const systemMsgs = messages.filter(m => m.role === 'system');
@@ -154,7 +153,7 @@ export class AnthropicProvider {
         // drops / inserts / reorders performed by the sanitizer can never move
         // or delete a marked block. NEVER sanitize again after this.
         const anthropicMessages = applyAnthropicCacheMarkers(
-            toAnthropicMessages(chatMsgs, requestTools),
+            lowerAnthropicEffortHistory(chatMsgs, (segment) => toAnthropicMessages(segment, requestTools), effortProjection),
             messageCacheSlots,
         );
 
@@ -162,7 +161,7 @@ export class AnthropicProvider {
             model: useModel,
             max_tokens: maxTokens,
             system: systemBlocks.length ? systemBlocks : undefined,
-            messages: anthropicMessages,
+            messages: await prepareAnthropicImages(anthropicMessages, { signal: opts.signal }),
         };
         applyAnthropicServerFallback(params, useModel, {
             enabled: this.config?.disableBetaHeaders !== true && opts.serverFallback !== false,
@@ -191,7 +190,7 @@ export class AnthropicProvider {
         );
         applyAnthropicEffortToBody(params, {
             model: useModel,
-            opts,
+            opts: effortProjection ? { ...opts, effort: effortProjection.initialEffort } : opts,
             maxTokens,
             clampThinkingBudgetTokens,
             logTag: this.name,
@@ -207,7 +206,7 @@ export class AnthropicProvider {
         // Re-sanitizing after marking could drop/reorder a marked block and
         // move the provider-visible cache breakpoint off the cached one — the
         // exact COLD-turn bug this change fixes. Order: build → sanitize
-        // (once) → mark → send.
+        // (once) → mark → prepare image bytes → send.
         params.stream = true;
 
         const onStageChange = typeof opts.onStageChange === 'function' ? opts.onStageChange : null;
@@ -239,12 +238,15 @@ export class AnthropicProvider {
         const betaHeaders = this.config?.disableBetaHeaders
             ? null
             : {
-                'anthropic-beta': buildAnthropicBetaHeaders({
+                'anthropic-beta': [
+                  buildAnthropicBetaHeaders({
                     fastMode: this.fastModeBetaHeaderLatched,
                     toolSearch: hasDeferredTools,
                     effort: shouldIncludeEffortBeta(useModel, opts),
                     serverFallback: params.fallbacks === 'default',
-                }),
+                  }),
+                  ...(effortProjection ? [EFFORT_CONFIGURATION_BETA] : []),
+                ].join(','),
             };
 
         const MAX_MIDSTREAM_RETRIES = ANTHROPIC_MAX_MIDSTREAM_RETRIES;
@@ -365,6 +367,7 @@ export class AnthropicProvider {
                         perAttemptTimeoutMs: anthropicRequestTimeoutMs(),
                         perAttemptLabel: `${this.name} Anthropic non-streaming fallback`,
                         provider: 'anthropic',
+                        recoveryOwner: `${this.name}-nonstreaming-request`,
                         model: useModel,
                         fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
                     },
@@ -380,10 +383,13 @@ export class AnthropicProvider {
             }
         };
 
+        // Exposed text and exposed thinking are both retractable via the
+        // owner's ack; only a dispatched/partial tool call denies the replay.
         const recoverNonStreaming = async (midState, streamingError, streamController) => {
             const exposedChars = Number(midState?.emittedTextChars) || 0;
-            if (!onTextReset || exposedChars <= 0
-                || midState.emittedToolCall || midState.partialToolCall || midState.emittedThinking) {
+            const exposedReasoning = midState?.emittedThinking === true;
+            if (!onTextReset || (exposedChars <= 0 && !exposedReasoning)
+                || midState.emittedToolCall || midState.partialToolCall) {
                 try { streamingError.liveTextEmitted = true; streamingError.unsafeToRetry = true; } catch {}
                 throw streamingError;
             }
@@ -391,6 +397,7 @@ export class AnthropicProvider {
             try {
                 resetAccepted = await onTextReset({
                     chars: exposedChars,
+                    reasoning: exposedReasoning,
                     reason: 'anthropic-streaming-fallback',
                 }) === true;
             } catch {}
@@ -486,6 +493,7 @@ export class AnthropicProvider {
                             perAttemptTimeoutMs: anthropicRequestTimeoutMs(),
                             perAttemptLabel: `${this.name} Anthropic streaming response`,
                             provider: 'anthropic',
+                            recoveryOwner: `${this.name}-initial-response`,
                             model: useModel,
                             fallbackModel: opts._fallbackTriggered ? undefined : opts.fallbackModel,
                             onRetry: ({ attempt, lastErr, delayMs, delayReason }) => {
@@ -582,7 +590,7 @@ export class AnthropicProvider {
                     // attempt before the full request is restarted non-streaming.
                     // Without that acknowledgement, recoverNonStreaming stamps
                     // the error unsafe and preserves the no-concatenation rule.
-                    if (midState.emittedText) {
+                    if (midState.emittedText || midState.emittedThinking) {
                         return await recoverNonStreaming(midState, err, streamController);
                     }
                     // Real exposure (dispatched tool, exposed thinking, or a

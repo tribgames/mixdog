@@ -4,6 +4,7 @@ import { liveAgentRows } from './AgentActivityPane';
 import type { GoalSnapshot, GoalTask, Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
+import { GoalSubmissionContext, useGoalAfterSubmission } from './session-goal-submission';
 
 const ACTIVE_AGENT_STAGE = /^(?:connecting|requesting|streaming|tool_running|running|cancelling)$/i;
 
@@ -112,16 +113,20 @@ function GoalTaskGlyph({ status }: { status?: GoalTask['status'] }) {
 export function SessionGoalHost({
   placement,
   children,
+  submissionId = '',
 }: {
   placement: 'composer';
   children?: ReactNode;
+  submissionId?: string;
 }) {
-  return <div className="session-goal-host"
-    data-goal-placement={placement}>{children}</div>;
+  return <GoalSubmissionContext.Provider value={submissionId}>
+    <div className="session-goal-host"
+      data-goal-placement={placement}>{children}</div>
+  </GoalSubmissionContext.Provider>;
 }
 
 export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
-  const goal = snapshot.goal || null;
+  const goal = useGoalAfterSubmission(snapshot.goal || null, String(snapshot.sessionId || ''));
   const active = goal?.status === 'active';
   const clock = useGoalClock(active);
   const [open, setOpen] = useState(false);

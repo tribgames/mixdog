@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { listRegisteredPlugins } from '../plugin-admin.mjs';
 import { NO_MATCHER_EVENTS } from './constants.mjs';

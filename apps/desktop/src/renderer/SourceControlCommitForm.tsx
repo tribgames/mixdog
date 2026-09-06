@@ -43,23 +43,31 @@ export function SourceControlCommitForm({
   const committing = busy === "commit" || busy === "amend";
   const autoDraft = !summary.trim() && autoCommitMessage;
   const branchName = detached ? "" : branch;
-  const verb = committing ? "Committing…" : "Commit";
-  const countText = selectedFileCount > 0
-    ? `${selectedFileCount} ${selectedFileCount > 1 ? "files" : "file"} `
-    : "";
+  const commitLabel = committing ? t("Committing…")
+    : branchName
+      ? selectedFileCount === 1
+        ? t("Commit 1 file to {{branch}}", { branch: branchName })
+        : selectedFileCount > 0
+        ? t("Commit {{count}} files to {{branch}}", { count: selectedFileCount, branch: branchName })
+        : t("Commit to {{branch}}", { branch: branchName })
+      : selectedFileCount === 1
+        ? t("Commit 1 file")
+        : selectedFileCount > 0
+        ? t("Commit {{count}} files", { count: selectedFileCount })
+        : t("Commit");
   const title = autoDraft
-    ? "Commit with an auto-generated message"
+    ? t("Commit with an auto-generated message")
     : !summary.trim()
-      ? "A commit summary is required to commit"
+      ? t("A commit summary is required to commit")
       : selectedFileCount === 0 && fileCount > 0
-        ? "Select one or more files to commit"
+        ? t("Select one or more files to commit")
         : committing
-          ? "Committing changes…"
+          ? t("Committing changes…")
           : operation
-            ? "Finish the in-progress Git operation first"
+            ? t("Finish the in-progress Git operation first")
             : conflictCount > 0
-              ? "Resolve conflicts before committing"
-              : branchName ? `Commit to ${branchName}` : "Commit";
+              ? t("Resolve conflicts before committing")
+              : branchName ? t("Commit to {{branch}}", { branch: branchName }) : t("Commit");
 
   const submitOnAccelerator = (
     event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
@@ -73,13 +81,13 @@ export function SourceControlCommitForm({
     event.preventDefault();
     if (!commitBlocked) onCommit();
   }}>
-    <input type="text" className="dock-scm-commit-summary" aria-label="Summary"
+    <input type="text" className="dock-scm-commit-summary" aria-label={t("Summary")}
       placeholder={summaryPlaceholder} value={summary}
       readOnly={committing}
       onInput={(event) => onSummaryChange(event.currentTarget.value)}
       onKeyDown={submitOnAccelerator} />
     <div className="dock-scm-commit-description-box">
-      <textarea className="dock-scm-commit-description" aria-label="Description"
+      <textarea className="dock-scm-commit-description" aria-label={t("Description")}
         placeholder={descriptionPlaceholder} value={description} rows={1}
         readOnly={committing}
         onInput={(event) => onDescriptionChange(event.currentTarget.value)}
@@ -94,10 +102,7 @@ export function SourceControlCommitForm({
       <button type="submit" className="dock-scm-commit-button"
         disabled={commitBlocked} title={title}>
         {committing && <ProgressSpinner size={14} aria-hidden="true" />}
-        <span>
-          {`${verb} ${countText}${branchName ? "to " : ""}`}
-          {branchName ? <strong>{branchName}</strong> : null}
-        </span>
+        <span>{commitLabel}</span>
       </button>
     </div>
   </form>;

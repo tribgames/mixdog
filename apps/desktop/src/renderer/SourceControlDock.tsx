@@ -1,7 +1,6 @@
 import {
   Archive,
   ArchiveRestore,
-  ArrowDown,
   ArrowUp,
   ArrowUpDown,
   Check,
@@ -30,10 +29,8 @@ import type {
 } from "../shared/contract";
 import { isConventionalCommitMessage } from "../shared/commit-message-format";
 import { t } from "./i18n";
-import {
-  PullRequestsPane,
-  type PullRequestOpenHandler,
-} from "./PullRequestsPane";
+import type { PullRequestOpenHandler } from "./PullRequestsPane";
+import { GithubDock as PullRequestsPane } from "./github/GithubDock";
 import {
   ScmContextMenu,
   elementMenuPoint,
@@ -50,6 +47,7 @@ import { sourceControlRemoteActions } from "./source-control-remote-actions";
 import { SourceControlBranchPicker } from "./source-control-branch-picker";
 import { SourceControlCommitDetail } from "./source-control-commit-detail";
 import { SourceControlCommitForm } from "./SourceControlCommitForm";
+import { partialStagingWarning, resetModePrompt } from "./source-control-confirmations";
 import {
   SourceControlViewControls,
   type SourceControlView,
@@ -515,8 +513,8 @@ export function SourceControlDock({
   const commitFormatLines = (commitFormat.preset === "conventional"
     ? "feat(scope): summary"
     : commitFormat.preset === "custom" ? commitFormat.example : "").split("\n");
-  const summaryPlaceholder = (commitFormatLines[0] || "").trim() || "Summary (required)";
-  const descriptionPlaceholder = commitFormatLines.slice(1).join("\n").trim() || "Description";
+  const summaryPlaceholder = (commitFormatLines[0] || "").trim() || t("Summary (required)");
+  const descriptionPlaceholder = commitFormatLines.slice(1).join("\n").trim() || t("Description");
   /** Auto-message needs both the setting AND a build that carries the API. */
   const autoCommitMessage = commitFormat.auto && Boolean(api?.gitGenerateCommitMessage);
   const conventionalWarning = commitFormat.preset === "conventional"
@@ -537,15 +535,8 @@ export function SourceControlDock({
       throw new Error(`Finish the in-progress ${fresh.operation.replace("-", " ")} before committing.`);
     }
     const selection = sourceControlCommitSelection(files, fresh.files, isIncluded);
-    if (selection.partiallyStaged.length && !window.confirm(
-      `${selection.partiallyStaged.length} file${
-        selection.partiallyStaged.length === 1 ? " has" : "s have"
-      } staged changes that `
-      + "differ from the working tree:\n\n"
-      + `${selection.partiallyStaged.slice(0, 5).map((file) => file.path).join("\n")}`
-      + `${selection.partiallyStaged.length > 5 ? "\n…" : ""}\n\n`
-      + "Committing replaces that staged content with the full working-tree version. Continue?",
-    )) return null;
+    if (selection.partiallyStaged.length
+      && !window.confirm(partialStagingWarning(selection.partiallyStaged))) return null;
     return selection.paths;
   };
   /** ONE commit entry point for the button, the split menu and the title menu:
@@ -640,13 +631,7 @@ export function SourceControlDock({
   /** Ask for the reset mode before confirmation; `hard` states what it
    *  destroys. */
   const resetToCommit = (entry: DesktopGitLogEntry) => {
-    const answer = window.prompt(
-      `Reset to ${entry.shortHash} — type the reset mode:\n\n`
-      + "soft   move HEAD, keep the index and the working tree\n"
-      + "mixed  move HEAD, reset the index, keep the working tree\n"
-      + "hard   move HEAD and DISCARD every change made after this commit",
-      "mixed",
-    );
+    const answer = window.prompt(resetModePrompt(entry.shortHash), "mixed");
     if (answer === null) return;
     const modes = ["soft", "mixed", "hard"] as const;
     const mode = modes.find((candidate) => candidate === answer.trim().toLowerCase());
@@ -655,9 +640,8 @@ export function SourceControlDock({
       return;
     }
     if (!confirmCommit(entry, mode === "hard"
-      ? "Reset the branch to this commit with --hard? Every change after it, staged"
-        + " or not, is destroyed and cannot be recovered."
-      : `Reset the branch to this commit with --${mode}?`)) return;
+      ? t("Reset the branch to this commit with --hard? Every change after it, staged or not, is destroyed and cannot be recovered.")
+      : t("Reset the branch to this commit with --{{mode}}?", { mode }))) return;
     void run(`reset:${entry.hash}`, async () => {
       const reset = (confirmedDirty: boolean) =>
         api?.gitResetToCommit?.(projectPath, entry.hash, mode, confirmedDirty);
@@ -679,24 +663,22 @@ export function SourceControlDock({
     });
   };
   const revertCommit = (entry: DesktopGitLogEntry) => {
-    if (!confirmCommit(entry, "Revert the changes in this commit? A new commit that"
-      + " undoes them is created on the current branch.")) return;
+    if (!confirmCommit(entry, t("Revert the changes in this commit? A new commit that undoes them is created on the current branch."))) return;
     void run(`revert-commit:${entry.hash}`,
       () => api?.gitRevertCommit?.(projectPath, entry.hash));
   };
   const cherryPickCommit = (entry: DesktopGitLogEntry) => {
-    if (!confirmCommit(entry, "Cherry-pick this commit onto the current branch?")) return;
+    if (!confirmCommit(entry, t("Cherry-pick this commit onto the current branch?"))) return;
     void run(`cherry-pick:${entry.hash}`,
       () => api?.gitCherryPickCommit?.(projectPath, entry.hash));
   };
   const checkoutCommit = (entry: DesktopGitLogEntry) => {
-    if (!confirmCommit(entry, "Check this commit out? HEAD becomes DETACHED: new commits"
-      + " belong to no branch until one is created from them.")) return;
+    if (!confirmCommit(entry, t("Check this commit out? HEAD becomes DETACHED: new commits belong to no branch until one is created from them."))) return;
     void run(`checkout-commit:${entry.hash}`,
       () => api?.gitCheckoutCommit?.(projectPath, entry.hash));
   };
   const createTagAt = (entry: DesktopGitLogEntry) => {
-    const name = window.prompt(`Create a tag at ${entry.shortHash} (${commitTitle(entry)})`, "");
+    const name = window.prompt(t("Create a tag at {{hash}} ({{subject}})", { hash: entry.shortHash, subject: commitTitle(entry) }), "");
     if (name === null) return;
     if (!name.trim()) {
       setError("A tag name is required to create a tag.");
@@ -708,7 +690,7 @@ export function SourceControlDock({
   /** `Delete tag <name>` — the reference names the tag in the item itself
    *  and one item per tag replaces its submenu. */
   const deleteTagAt = (entry: DesktopGitLogEntry, tag: string) => {
-    if (!confirmCommit(entry, `Delete tag "${tag}"? The tag is removed locally.`)) return;
+    if (!confirmCommit(entry, t('Delete tag "{{tag}}"? The tag is removed locally.', { tag }))) return;
     void run(`tag-delete:${tag}`, () => api?.gitDeleteTag?.(projectPath, tag));
   };
   /** `Amend commit…` / `Undo commit…`: both belong to
@@ -717,20 +699,20 @@ export function SourceControlDock({
    *  reference has kept them all along. */
   const amendCommitAt = (entry: DesktopGitLogEntry) => {
     if (!confirmCommit(entry, commitMessage.trim()
-      ? "Amend this commit with the message in the commit form?"
-      : "Amend this commit with the currently included changes?")) return;
+      ? t("Amend this commit with the message in the commit form?")
+      : t("Amend this commit with the currently included changes?"))) return;
     void run("amend", () => api?.gitAmend?.(projectPath, commitMessage.trim() || undefined),
       clearCommitDraft);
   };
   const undoCommitAt = (entry: DesktopGitLogEntry) => {
     if (!confirmCommit(entry,
-      "Undo this commit and keep all of its changes staged?")) return;
+      t("Undo this commit and keep all of its changes staged?"))) return;
     void run("undo-commit", () => api?.gitUndoLastCommit?.(projectPath));
   };
   /** `branch-` prefix so run() reloads the branch list too. */
   const createBranchAtCommit = (entry: DesktopGitLogEntry) => {
     const name = window.prompt(
-      `Create a branch at ${entry.shortHash} (${commitTitle(entry)})`, "");
+      t("Create a branch at {{hash}} ({{subject}})", { hash: entry.shortHash, subject: commitTitle(entry) }), "");
     if (name === null) return;
     if (!name.trim()) {
       setError("A branch name is required to create a branch.");
@@ -818,9 +800,9 @@ export function SourceControlDock({
     const discardActionFiles = () => {
       const message = actionFiles.length === 1
         ? file.untracked
-          ? `Delete untracked file "${file.path}"? This cannot be undone.`
-          : `Discard changes to "${file.path}"? This cannot be undone.`
-        : `Discard ${actionFiles.length} selected working tree changes? This cannot be undone.`;
+          ? t('Delete untracked file "{{file}}"? This cannot be undone.', { file: file.path })
+          : t('Discard changes to "{{file}}"? This cannot be undone.', { file: file.path })
+        : t("Discard {{count}} selected working tree changes? This cannot be undone.", { count: actionFiles.length });
       if (!window.confirm(message)) return;
       void run(`revert:${file.path}`, () => discardFiles(actionFiles),
         clearSelected);
@@ -867,7 +849,7 @@ export function SourceControlDock({
   const discardAllChanges = () => {
     const targets = files.filter((file) => !file.conflicted);
     if (!targets.length
-      || !window.confirm(`Discard all ${targets.length} working tree changes? This cannot be undone.`)) return;
+      || !window.confirm(t("Discard all {{count}} working tree changes? This cannot be undone.", { count: targets.length }))) return;
     void run("discard-all", () => discardFiles(targets), clearSelected);
   };
   // ONE implementation per branch action, shared by the branch row's inline
@@ -878,13 +860,13 @@ export function SourceControlDock({
     () => setBranchPickerOpen(false),
   );
   const renameBranch = (branch: DesktopGitBranch) => {
-    const nextName = window.prompt("Rename branch", branch.name);
+    const nextName = window.prompt(t("Rename branch"), branch.name);
     if (!nextName?.trim() || nextName.trim() === branch.name) return;
     void run(`branch-rename:${branch.name}`, () =>
       api?.gitRenameBranch?.(projectPath, branch.name, nextName.trim()));
   };
   const deleteBranch = (branch: DesktopGitBranch) => {
-    if (!window.confirm(`Delete local branch "${branch.name}"?`)) return;
+    if (!window.confirm(t('Delete local branch "{{branch}}"?', { branch: branch.name }))) return;
     void run(`branch-delete:${branch.name}`, () =>
       api?.gitDeleteBranch?.(projectPath, branch.name));
   };
@@ -897,7 +879,7 @@ export function SourceControlDock({
   };
   const createBranchFromFilter = () => {
     // Seed the create-branch flow with the current filter text.
-    const name = branchQuery.trim() || window.prompt("New branch name") || "";
+    const name = branchQuery.trim() || window.prompt(t("New branch name")) || "";
     if (!name.trim()) return;
     void run("branch-create", () => api?.gitCreateBranch?.(projectPath, name.trim()),
       () => setBranchPickerOpen(false));
@@ -947,7 +929,7 @@ export function SourceControlDock({
         ? missingChannel("Popping a stash")
         : "";
   const stashChanges = () => {
-    const message = window.prompt("Stash message (optional)", "");
+    const message = window.prompt(t("Stash message (optional)"), "");
     if (message === null) return;
     void run("stash", () => api?.gitStash?.(projectPath, message));
   };
@@ -956,12 +938,12 @@ export function SourceControlDock({
   if (!projectPath) {
     return <p className="utility-dock-empty">Open a project to use Source Control.</p>;
   }
-  if (!statusReady) {
+  if (!statusReady && !prOnly) {
     return <div className="dock-scm-loading">
       <ProgressSpinner size={16} aria-hidden="true" /> Loading…
     </div>;
   }
-  if (!status && statusError) {
+  if (!status && statusError && !prOnly) {
     // Git status is a background read. A cold host/repository can miss the
     // first pass, so keep that failure in the panel's neutral empty-state
     // grammar instead of flashing the red action-error bar.
@@ -969,7 +951,7 @@ export function SourceControlDock({
       {t("Source Control is temporarily unavailable.")}
     </p>;
   }
-  if (status && !status.repository) {
+  if (status && !status.repository && !prOnly) {
     return <p className="utility-dock-empty">
       The selected project is not a Git repository.
     </p>;
@@ -1043,16 +1025,13 @@ export function SourceControlDock({
                 : null}
             </span>
           </button>
-          {/* Ahead/behind rides the section's corner as an overlay, outside
-              the button's clipped flex row: a third-width section cannot fit
-              icon + label + badge inline, and the badge was the piece that
-              got cut (user). The counts stay in the button's tooltip. */}
+          {/* Ahead/behind rides the section's top-right corner as an overlay,
+              outside the button's clipped flex row. Show numbers only;
+              direction details stay in the button's tooltip. */}
           {entry.key === "push" && status.upstream && (aheadCount > 0 || behindCount > 0) &&
             <span className="dock-scm-ahead-behind" aria-hidden="true">
-              {aheadCount > 0 && <span>{aheadCount}
-                <ArrowUp size={10} aria-hidden="true" /></span>}
-              {behindCount > 0 && <span>{behindCount}
-                <ArrowDown size={10} aria-hidden="true" /></span>}
+              {aheadCount > 0 && <span>{aheadCount}</span>}
+              {behindCount > 0 && <span>{behindCount}</span>}
             </span>}
         </div>)}
     </div>}
@@ -1082,7 +1061,7 @@ export function SourceControlDock({
       <button type="button" disabled={Boolean(busy) || conflicts.length > 0}
         onClick={() => void run("continue", () => api?.gitContinue?.(projectPath))}>Continue</button>
       <button type="button" disabled={Boolean(busy)} onClick={() => {
-        if (!window.confirm(`Abort the ${status.operation.replace("-", " ")} operation?`)) return;
+        if (!window.confirm(t("Abort the {{operation}} operation?", { operation: status.operation.replace("-", " ") }))) return;
         void run("abort-operation", () => api?.gitAbortOperation?.(projectPath));
       }}>Abort</button>
     </div>}

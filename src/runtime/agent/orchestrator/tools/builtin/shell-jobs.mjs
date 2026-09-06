@@ -11,10 +11,7 @@ import {
     enqueuePendingMessage,
     markCompletionEntry,
 } from '../../session/manager.mjs';
-import {
-    completeBackgroundTask,
-    getBackgroundTask,
-} from '../../../../shared/background-tasks.mjs';
+import { completeBackgroundTask } from '../../../../shared/background-tasks.mjs';
 import {
     cancelNativeTask,
     getNativeTask,
@@ -141,7 +138,7 @@ export function normalizeShellJobDetail(detail) {
 /** Cause line for a failed job. The native side fills `error` only for its own
  *  control-plane failures, so a signal death or a status-less exit arrived with
  *  a null cause and the completion said "failed" while explaining nothing. */
-export function shellJobFailureCause(detail) {
+function shellJobFailureCause(detail) {
     const explicit = String(detail?.error || '').trim();
     if (explicit) return explicit;
     const exitCode = typeof detail?.exitCode === 'number' ? detail.exitCode : null;
@@ -260,20 +257,6 @@ export function attachShellJobResourceLease(jobId, lease) {
     });
     shellJobResourceLeaseSubscriptions.set(jobId, unsubscribe);
     return true;
-}
-
-export function beginShellJobWait(jobId) {
-    jobWaitWaiterCountByJobId.set(jobId, (jobWaitWaiterCountByJobId.get(jobId) || 0) + 1);
-}
-
-export function endShellJobWait(jobId) {
-    const next = (jobWaitWaiterCountByJobId.get(jobId) || 0) - 1;
-    if (next <= 0) {
-        jobWaitWaiterCountByJobId.delete(jobId);
-        return 0;
-    }
-    jobWaitWaiterCountByJobId.set(jobId, next);
-    return next;
 }
 
 export function clearShellJobNotifyCtx(jobId) {
@@ -541,42 +524,4 @@ export async function shutdownShellJobs(_reason = 'runtime-close', { scope = nul
         confirmedJobs: settled.filter((task) => task && task.status !== 'running').length,
         cancelledWatchers,
     };
-}
-
-// Compatibility exports for callers built against the former file-backed
-// implementation. Native task events now provide the lifecycle boundary.
-export function reconcileShellJobAfterQuiescence(jobId) {
-    return getNativeTask(jobId);
-}
-
-export function releaseShellJobOwnershipWhenQuiescent(jobId, _pid, { onConfirmed = null } = {}) {
-    const current = getNativeTask(jobId);
-    if (!current || current.status !== 'running') {
-        queueMicrotask(() => onConfirmed?.());
-        releaseShellJobResourceLease(jobId);
-        return Boolean(current);
-    }
-    let unsubscribe = () => {};
-    unsubscribe = subscribeNativeTask(jobId, (task) => {
-        if (task?.status === 'running') return;
-        unsubscribe();
-        releaseShellJobResourceLease(jobId);
-        onConfirmed?.();
-    });
-    return true;
-}
-
-export function trackChildUntilConfirmedExit(child, jobId, onConfirmed = null) {
-    if (!child || typeof child.once !== 'function') return false;
-    let settled = false;
-    const finish = () => {
-        if (settled) return;
-        settled = true;
-        releaseShellJobResourceLease(jobId);
-        onConfirmed?.();
-    };
-    child.once('exit', finish);
-    child.once('close', finish);
-    child.once('error', finish);
-    return true;
 }

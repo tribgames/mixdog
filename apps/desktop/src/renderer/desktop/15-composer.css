@@ -169,9 +169,10 @@
 .composer-model-aside .session-context-indicator[data-open="true"] .session-context-popover {
   transform: translateY(0);
 }
+/* Card flipped upward, so the frame that joins it to the gauge hangs BELOW it. */
 .composer-model-aside .session-context-popover::before {
   top: auto;
-  bottom: -6px;
+  bottom: calc(-1 * var(--mx-popup-bridge-reach));
 }
 /* The composer is its own stacking context at z-index 1, so the card used to
    slide UNDER the turn-review bar (z 6) and the goal capsule (z 9) stacked

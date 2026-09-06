@@ -19,6 +19,7 @@ export interface BrowserSettleDiagnostics {
 export interface BrowserSettleHost {
   diagnostics(guest: WebContents): BrowserSettleDiagnostics;
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T>;
+  pageText(guest: WebContents, signal?: AbortSignal): Promise<string>;
   /** How long the page must stay quiet before a gesture counts as settled. */
   quietMs: number;
   domTimeoutMs: number;
@@ -178,7 +179,10 @@ export function createBrowserSettle(host: BrowserSettleHost) {
         // that state; only caller cancellation must stop the sequence here.
       }
     }
-    return { text: '' };
+    const dialog = diagnosticsFor(guest).pendingDialog;
+    return dialog
+      ? { outcome: 'blocked', text: `A ${dialog.type} dialog is blocking the sequence.` }
+      : { outcome: 'completed', text: '' };
   }
 
   async function postconditionMatchesGuest(
@@ -190,15 +194,9 @@ export function createBrowserSettle(host: BrowserSettleHost) {
     if (expected.url && !url.includes(expected.url.toLowerCase())) return false;
     if (!expected.text && !expected.textGone) return true;
     try {
-      return await evaluate<boolean>(
-        guest,
-        `(() => {
-          const text = (document.body ? (document.body.innerText || document.body.textContent || '') : '').toLowerCase();
-          return ${expected.text ? `text.includes(${JSON.stringify(expected.text.toLowerCase())})` : 'true'}
-            && ${expected.textGone ? `!text.includes(${JSON.stringify(expected.textGone.toLowerCase())})` : 'true'};
-        })()`,
-        signal,
-      );
+      const text = (await host.pageText(guest, signal)).toLowerCase();
+      return (!expected.text || text.includes(expected.text.toLowerCase()))
+        && (!expected.textGone || !text.includes(expected.textGone.toLowerCase()));
     } catch (error) {
       if (signal?.aborted) throw signal.reason || error;
       return false;

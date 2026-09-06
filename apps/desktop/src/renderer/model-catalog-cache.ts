@@ -1,4 +1,5 @@
 import type { DesktopApi, DesktopModelOption } from '../shared/contract';
+import { catalogStorageKey, catalogStorageScope } from './catalog-storage-scope';
 
 const MODEL_CATALOG_STORAGE_KEY = 'mixdog.desktop-model-catalog.v2';
 const MODEL_CATALOG_LIMIT = 1_000;
@@ -108,7 +109,7 @@ function modelOption(value: unknown): DesktopModelOption | null {
 
 export function readCachedModelCatalog(): CachedModelCatalog {
   try {
-    const stored = JSON.parse(window.localStorage.getItem(MODEL_CATALOG_STORAGE_KEY) || 'null');
+    const stored = JSON.parse(window.localStorage.getItem(catalogStorageKey(MODEL_CATALOG_STORAGE_KEY)) || 'null');
     const record = stored && typeof stored === 'object' && !Array.isArray(stored)
       ? stored as Record<string, unknown>
       : {};
@@ -127,10 +128,10 @@ export function readCachedModelCatalog(): CachedModelCatalog {
   }
 }
 
-export function writeCachedModelCatalog(models: DesktopModelOption[]): CachedModelCatalog {
+export function writeCachedModelCatalog(models: DesktopModelOption[], scope = catalogStorageScope()): CachedModelCatalog {
   const catalog = { models: normalizeModelCatalog(models), updatedAt: Date.now() };
   try {
-    window.localStorage.setItem(MODEL_CATALOG_STORAGE_KEY, JSON.stringify(catalog));
+    window.localStorage.setItem(catalogStorageKey(MODEL_CATALOG_STORAGE_KEY, scope), JSON.stringify(catalog));
   } catch {
     // The live catalog remains usable when browser storage is unavailable.
   }
@@ -161,6 +162,8 @@ function normalizeModelCatalog(models: unknown): DesktopModelOption[] {
 
 export type SharedModelCatalogRequest = {
   api: DesktopApi;
+  scope: string;
+  isCurrent(): boolean;
   startedAt: number;
   quick: Promise<DesktopModelOption[]>;
   full: Promise<DesktopModelOption[]>;
@@ -169,6 +172,8 @@ export type SharedModelCatalogRequest = {
 
 export const SHARED_MODEL_CATALOG_MAX_AGE_MS = 24 * 60 * 60_000;
 let sharedModelCatalogRequest: SharedModelCatalogRequest | null = null;
+let catalogGeneration = 0;
+const invalidationListeners = new Set<() => void>();
 
 /** Forgets the shared request, so the next caller fetches again. Guarded by
  *  identity: a newer request must survive an older one's late failure. */
@@ -176,25 +181,42 @@ function dropSharedModelCatalogRequest(request: SharedModelCatalogRequest): void
   if (sharedModelCatalogRequest === request) sharedModelCatalogRequest = null;
 }
 
-/** Drops the shared request unconditionally (provider edits, tests). */
+export function subscribeModelCatalogInvalidation(listener: () => void): () => void {
+  invalidationListeners.add(listener);
+  return () => invalidationListeners.delete(listener);
+}
+
+/** Drops the shared request and wakes mounted pickers after provider changes. */
 export function invalidateSharedModelCatalogRequest(): void {
+  catalogGeneration += 1;
   sharedModelCatalogRequest = null;
+  for (const listener of [...invalidationListeners]) {
+    queueMicrotask(() => {
+      if (invalidationListeners.has(listener)) listener();
+    });
+  }
 }
 
 export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest {
+  const scope = catalogStorageScope();
   const current = sharedModelCatalogRequest;
   if (current
     && current.api === api
+    && current.scope === scope
     && Date.now() - current.startedAt < SHARED_MODEL_CATALOG_MAX_AGE_MS) {
     return current;
   }
+  const generation = ++catalogGeneration;
+  const isCurrent = () => generation === catalogGeneration && scope === catalogStorageScope();
   const quick = Promise.resolve().then(() =>
     api.listProviderModels?.({ quick: true }) ?? [])
     .then(normalizeModelCatalog);
   const quickSettled = quick.catch(() => []);
   const full = quickSettled.then(() =>
     api.listProviderModels?.({ quick: false }) ?? [])
-    .then((models) => writeCachedModelCatalog(Array.isArray(models) ? models : []).models);
+    .then((models) => isCurrent()
+      ? writeCachedModelCatalog(Array.isArray(models) ? models : [], scope).models
+      : normalizeModelCatalog(models));
   const setup = api.invokeCapability
     ? quickSettled.then(() => api.invokeCapability<unknown>({
         capability: 'getProviderSetup',
@@ -203,6 +225,8 @@ export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest 
     : Promise.resolve(null);
   const request: SharedModelCatalogRequest = {
     api,
+    scope,
+    isCurrent,
     startedAt: Date.now(),
     quick,
     full,

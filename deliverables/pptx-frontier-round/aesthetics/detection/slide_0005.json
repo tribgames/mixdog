@@ -1,0 +1,306 @@
+{
+  "source": "pptx-snapshot",
+  "image": "slide_0005.png",
+  "boxes": [
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        107,
+        801,
+        186
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        63,
+        99,
+        95
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        92,
+        233,
+        251,
+        265
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        355,
+        233,
+        491,
+        265
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        303,
+        122,
+        334
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        610,
+        303,
+        657,
+        334
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        805,
+        303,
+        852,
+        334
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        357,
+        186,
+        389
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        602,
+        357,
+        650,
+        389
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        800,
+        357,
+        848,
+        389
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        412,
+        145,
+        443
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        569,
+        412,
+        617,
+        443
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        710,
+        412,
+        758,
+        443
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        466,
+        221,
+        498
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        565,
+        466,
+        613,
+        498
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        765,
+        466,
+        812,
+        498
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        521,
+        185,
+        553
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        467,
+        521,
+        514,
+        553
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        744,
+        521,
+        792,
+        553
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        576,
+        141,
+        607
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        441,
+        576,
+        489,
+        607
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        640,
+        576,
+        688,
+        607
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        630,
+        164,
+        662
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        357,
+        630,
+        405,
+        662
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        551,
+        630,
+        599,
+        662
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        977,
+        233,
+        1304,
+        351
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        977,
+        358,
+        1174,
+        387
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        977,
+        434,
+        1347,
+        669
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        706,
+        922,
+        737
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        1232,
+        735,
+        1258,
+        767
+      ]
+    }
+  ]
+}

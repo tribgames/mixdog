@@ -13,7 +13,7 @@
 //      has no entry for this model, also capped at the safety cap.
 
 export const MAX_TOKENS_FLOOR = 8192;
-export const DEFAULT_SAFETY_CAP = 65536;
+const DEFAULT_SAFETY_CAP = 65536;
 const ENV_VAR = 'MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS';
 
 // Per-model max_tokens when the model id is explicitly listed. New models
@@ -38,20 +38,6 @@ function envAnthropicMaxOutputOverride() {
     const n = Number(raw);
     if (!Number.isFinite(n) || n <= 0) return null;
     return Math.floor(n);
-}
-
-function resolveAnthropicSafetyCap() {
-    return envAnthropicMaxOutputOverride() ?? DEFAULT_SAFETY_CAP;
-}
-
-// Pure lookup over an already-loaded catalog array (disk cache or in-memory
-// mirror) — no I/O, no caching strategy. Callers own how/when the array is
-// loaded/refreshed.
-function lookupCatalogOutputTokens(models, id) {
-    if (!id || !Array.isArray(models)) return null;
-    const entry = models.find(m => m?.id === id);
-    const out = Number(entry?.outputTokens);
-    return Number.isFinite(out) && out > 0 ? out : null;
 }
 
 // Static per-model table + family heuristic, used when the catalog has no

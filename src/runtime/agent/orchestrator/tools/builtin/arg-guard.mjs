@@ -10,6 +10,7 @@
 // `file_path` alias for read.path).
 
 import { coerceReadFamilyPathArg, coerceShapeFlex, hasGlobMagic } from './path-utils.mjs';
+import { hasOwn } from '../../../../shared/object.mjs';
 
 const MAX_INT = 100000;
 // Explicit grep context should be large enough to frame a function/block without
@@ -135,10 +136,6 @@ function hasMultipleAbsoluteWindowsPaths(value) {
     if (typeof value !== 'string') return false;
     const matches = value.match(/[A-Za-z]:[\\/]/g);
     return Array.isArray(matches) && matches.length > 1;
-}
-
-function hasWindowsDrivePath(value) {
-    return typeof value === 'string' && /[A-Za-z]:[\\/]/.test(value);
 }
 
 function isFiniteInt(v) {
@@ -330,9 +327,6 @@ function describeType(v) {
     return typeof v;
 }
 
-function hasOwn(o, k) {
-    return o && Object.prototype.hasOwnProperty.call(o, k);
-}
 
 function isPresent(o, k) {
     return hasOwn(o, k) && o[k] !== undefined && o[k] !== null;

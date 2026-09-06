@@ -1,4 +1,5 @@
 import { presentationSlides, renumberPresentationSlides } from './portable-pptx-package.mjs';
+import { resolvePptxTargets } from './pptx-targets.mjs';
 import { handleAddChart, handleSetChartAxis, handleSetChartData, handleSetChartDataLabels, handleSetChartSeries, handleSetChartTrendlineOrSetChartErrorBars } from './portable-pptx-charts.mjs';
 import { handleAddCommentOrDeleteComment, handleAddProvenance, handleAddSlide, handleApplyTheme, handleDeleteSlide, handleDuplicateSlide, handleFillTemplate, handleImportSlides, handleKeepSlides, handleMoveSlide, handleReplaceText, handleSetFooterOrSetSlideNumber, handleSetLayout, handleSetNotes, handleSetSlideBackground, handleSetTransition } from './portable-pptx-deck.mjs';
 import { handleAddAnimation, handleAddImage, handleAddMedia, handleAddTable, handleAddTextboxOrAddShape, handleAlignShapesOrDistributeShapes, handleCropImage, handleDeleteShape, handleFitText, handleGroupShapesOrUngroupShape, handleSetHyperlink, handleSetShape, handleSetTableDataOrReplaceImage, handleSetText, handleZOrder } from './portable-pptx-shapes.mjs';
@@ -61,7 +62,8 @@ export async function applyPptx(zip, operations) {
   const context = { zip, slides: await presentationSlides(zip) };
   const results = [];
   let structural = false;
-  for (const op of operations) {
+  for (const operation of operations) {
+    const op = await resolvePptxTargets(context, operation);
     const handler = PPTX_OPERATIONS[op.op];
     if (!handler) throw new Error(`Portable PPTX backend does not support operation: ${op.op}`);
     const result = await handler(context, op);

@@ -50,6 +50,11 @@ for (const scenario of report) {
   console.log(`   commit row   ${box(scenario.commitRow)} button ${box(scenario.commitButton)}`
     + ` controls=${scenario.commitControls}`);
   console.log(`   badge        ${box(scenario.badge)}`);
+  const badgeDirections = scenario.badgeDirections || [];
+  check(scenario, badgeDirections.length === 2
+    && badgeDirections.every((direction) => direction.visible),
+  `the Push badge lost its ahead/behind direction marks`
+    + ` (${badgeDirections.filter((direction) => direction.visible).length}/2 visible)`);
 
   // Every overlay is fully inside the window. The commit split menu is gone
   // with its chevron: the commit row must carry exactly ONE full-width

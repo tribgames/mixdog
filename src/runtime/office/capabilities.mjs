@@ -36,12 +36,14 @@ const CATALOG = {
   docx: {
     paths: ['/body/p[N]', '/body/p[N]/run[N]', '/body/tbl[N]/row[N]/cell[N]', '/body/comment[N]', '/body/comment-thread[N]', '/body/revision[N]', '/body/footnote[N]', '/body/endnote[N]', '/body/content-control[N]'],
     operations: {
-      common: ['replace_text', 'fill_template', 'compose_document', 'append_text', 'set_paragraph_text', 'set_table_cell', 'remove_paragraph', 'move_paragraph', 'add_table', 'set_table_style', 'merge_table_cells', 'set_table_cell_style', 'set_paragraph_format', 'set_font', 'add_image', 'set_header_footer', 'set_page', 'add_page_numbers', 'insert_break', 'set_list', 'add_hyperlink', 'insert_table_row', 'delete_table_row', 'insert_table_column', 'delete_table_column', 'insert_toc', 'add_bookmark', 'add_comment', 'delete_comment', 'add_provenance', 'fit_table', 'resolve_revision', 'resolve_revisions', 'track_changes', 'add_comment_reply', 'set_comment_resolved'],
+      common: ['replace_text', 'fill_template', 'compose_document', 'append_text', 'set_paragraph_text', 'set_table_cell', 'remove_paragraph', 'move_paragraph', 'add_table', 'set_table_style', 'merge_table_cells', 'set_table_cell_style', 'set_paragraph_format', 'set_font', 'add_image', 'set_header_footer', 'set_page', 'add_page_numbers', 'insert_break', 'set_list', 'add_hyperlink', 'insert_table_row', 'delete_table_row', 'insert_table_column', 'delete_table_column', 'insert_toc', 'add_bookmark', 'add_comment', 'delete_comment', 'add_provenance', 'fit_table', 'resolve_revision', 'resolve_revisions', 'track_changes', 'add_comment_reply', 'set_comment_resolved', 'normalize_runs'],
       office: ['set_paragraph_style'],
       // set_run_text addresses OOXML runs. Word exposes no run object, so the
       // Office backend could only edit the Nth word instead, silently rewriting
       // different text for the same index. It stays portable-only rather than
-      // meaning two different things.
+      // meaning two different things. normalize_runs is common so one opening
+      // batch works on both backends: Word searches across runs itself and
+      // reports the operation as unnecessary (changed:false).
       portable: ['set_paragraph_style', 'set_run_text'],
     },
     properties: {
@@ -86,6 +88,7 @@ const CATALOG = {
   },
   pptx: {
     paths: ['/slide[N]', '/slide[N]/shape[N]'],
+    stableTargets: 'Portable batch operations may replace slide/shape indices with slideId/shapeId from snapshot. IDs survive ordering changes; conflicting indices fail rather than edit a different element. COM continues to use indices.',
     operations: {
       common: ['replace_text', 'fill_template', 'set_text', 'add_textbox', 'delete_shape', 'add_slide', 'delete_slide', 'move_slide', 'set_notes', 'add_image', 'add_shape', 'add_table', 'set_shape', 'set_slide_background', 'import_slides', 'replace_image', 'set_table_data', 'fit_text', 'add_chart', 'set_chart_data', 'duplicate_slide', 'z_order', 'align_shapes', 'distribute_shapes', 'keep_slides', 'set_hyperlink', 'add_provenance', 'set_layout', 'crop_image', 'set_transition', 'set_footer', 'set_slide_number', 'set_chart_axis', 'set_chart_data_labels', 'group_shapes', 'ungroup_shape', 'set_chart_trendline', 'set_chart_error_bars', 'set_chart_series', 'add_comment', 'delete_comment', 'apply_theme', 'add_media', 'add_animation'],
       office: [],
@@ -108,18 +111,20 @@ const CATALOG = {
     },
   },
   pdf: {
-    paths: ['/page[N]', '/field[N]', '/metadata', '/attachments'],
+    paths: ['/page[N]', '/field[N]', '/outline[N]', '/attachments[N]', '/metadata'],
     operations: {
-      common: ['add_text', 'watermark', 'stamp_image', 'ocr_pages', 'rotate_pages', 'delete_pages', 'move_page', 'extract_pages', 'fill_form', 'add_form_field', 'flatten_form', 'merge_pdf', 'add_attachment', 'compress', 'set_metadata'],
+      common: ['add_text', 'watermark', 'highlight', 'add_link', 'stamp_image', 'ocr_pages', 'rotate_pages', 'delete_pages', 'move_page', 'extract_pages', 'split_pages', 'fill_form', 'add_form_field', 'flatten_form', 'preview_fields', 'merge_pdf', 'add_bookmark', 'add_attachment', 'extract_attachment', 'compress', 'set_metadata'],
       office: [],
       portable: [],
     },
     properties: {
-      text: ['x', 'y', 'size', 'color', 'opacity', 'rotation'],
-      metadata: ['title', 'author', 'subject', 'keywords'],
-      form: ['name', 'type', 'page', 'x', 'y', 'width', 'height', 'options', 'value', 'multiline'],
-      attachment: ['path', 'name', 'mimeType', 'description'],
+      text: ['x', 'y', 'size', 'color', 'opacity', 'rotation', 'align'],
+      metadata: ['title', 'author', 'subject', 'keywords', 'creator'],
+      form: ['name', 'type', 'page', 'x', 'y', 'width', 'height', 'options', 'value', 'multiline', 'multiselect', 'editable', 'maxLength', 'fontSize', 'required', 'readOnly', 'fontPath'],
+      attachment: ['path', 'name', 'mimeType', 'description', 'index', 'output'],
       textFont: ['fontPath'],
+      create: ['blocks', 'fields', 'properties.pageSize', 'properties.orientation', 'properties.margin', 'properties.fontPath', 'properties.pageNumbers', 'properties.footer', 'properties.title', 'properties.author', 'properties.subject', 'properties.keywords'],
+      units: ['points; origin bottom-left; 1 inch = 72 pt; A4 = 595.28 x 841.89'],
       unsupportedSecurity: ['secureRedaction', 'digitalSignature', 'PDF/A'],
     },
   },
@@ -139,9 +144,11 @@ function signature(required = [], optional = [], {
 }
 
 const COMMON_SIGNATURES = {
-  replace_text: signature(['find', 'replace']),
-  fill_template: signature(['tokens'], ['strict'], {
-    notes: 'Use strict:true to fail when a token is missing or left unresolved.',
+  replace_text: signature(['find', 'replace'], ['author'], {
+    notes: 'In a Word document with track_changes on, only the matched characters are wrapped as a deletion plus an insertion (a match across a tab, break, or field rewrites that paragraph whole) and author labels the change.',
+  }),
+  fill_template: signature(['tokens'], ['strict', 'author'], {
+    notes: 'Use strict:true to fail when a token is missing or left unresolved. In a Word document with track_changes on, each token is filled as a tracked deletion plus insertion and author labels the change.',
   }),
 };
 
@@ -155,15 +162,20 @@ const FORMAT_SIGNATURES = {
       propertySets: ['paragraph', 'font', 'paragraphFormat'],
       notes: 'Creates one real paragraph.',
     }),
-    set_paragraph_text: signature(['paragraph', 'text']),
+    set_paragraph_text: signature(['paragraph', 'text'], ['author'], {
+      notes: 'With track_changes on, the old runs are marked deleted and one inserted run carries the new text; author labels the change.',
+    }),
     set_run_text: signature(['paragraph', 'run', 'text']),
-    set_table_cell: signature(['table', 'row', 'col', 'text']),
+    normalize_runs: signature([], [], {
+      notes: 'Portable backend: merges adjacent runs with identical formatting, drops proofing marks and rsid attributes, and never crosses a tracked-change boundary; run it first on a document Word fragmented so replace_text and fill_template match whole phrases. An already-clean document, and every Microsoft Office session (Word searches across runs itself), returns changed:false — pass allowNoChange:true when running it routinely.',
+    }),
+    set_table_cell: signature(['table', 'row', 'col', 'text'], ['author']),
     add_table: signature(['values'], ['paragraph', 'rows', 'columns', 'properties'], { propertySets: ['table'] }),
     set_table_style: signature(['table', 'properties'], [], { propertySets: ['table'] }),
     merge_table_cells: signature(['table', 'row', 'col'], ['rowSpan', 'colSpan']),
     set_table_cell_style: signature(['table', 'row', 'col', 'properties'], [], { propertySets: ['tableCell'] }),
     set_paragraph_format: signature(['paragraph', 'properties'], [], { propertySets: ['paragraphFormat'] }),
-    remove_paragraph: signature(['paragraph']),
+    remove_paragraph: signature(['paragraph'], ['author']),
     move_paragraph: signature(['paragraph', 'index']),
     set_paragraph_style: signature(['paragraph', 'style']),
     set_font: signature(['find', 'properties'], [], { propertySets: ['font'] }),
@@ -178,8 +190,13 @@ const FORMAT_SIGNATURES = {
     delete_table_column: signature(['table', 'column']),
     set_header_footer: signature(['text'], ['section', 'kind', 'header'], { propertySets: ['headerFooter'] }),
     track_changes: signature(['enabled']),
-    resolve_revision: signature(['revision', 'resolution']),
-    resolve_revisions: signature(['resolution']),
+    resolve_revision: signature(['resolution'], ['revision', 'id'], {
+      oneOf: [['revision'], ['id']],
+      notes: 'revision is the ordinal of the snapshot revisions list on both backends; id is the w:id the snapshot reports and is honoured by the portable backend only (Word exposes no revision id).',
+    }),
+    resolve_revisions: signature(['resolution'], ['author'], {
+      notes: 'author settles only that reviewer\'s revisions (text wrappers, paragraph marks, table rows, formatting records) on both backends and leaves the other reviewers\' changes tracked; without it every revision resolves.',
+    }),
     set_page: signature(['properties'], ['section'], { propertySets: ['page'] }),
     fit_table: signature(['table']),
     insert_toc: signature([], ['paragraph', 'lowerHeadingLevel', 'upperHeadingLevel']),
@@ -252,7 +269,10 @@ const FORMAT_SIGNATURES = {
   },
   pptx: {
     set_text: signature(['slide', 'shape', 'text']),
-    add_textbox: signature(['slide', 'text'], ['paragraphs', 'left', 'top', 'width', 'height', 'fontName', 'fontSize', 'color', 'name', 'properties'], { propertySets: ['shape', 'authoring'] }),
+    add_textbox: signature(['slide', 'text'], ['paragraphs', 'left', 'top', 'width', 'height', 'fontName', 'fontSize', 'color', 'name', 'properties'], {
+      propertySets: ['shape', 'authoring'],
+      notes: 'left/top/width/height are points (72 per inch; the wide canvas is 960 × 540), the unit the snapshot reports — not the inches of an authoring script.',
+    }),
     delete_shape: signature(['slide', 'shape']),
     add_slide: signature([], ['index', 'layout']),
     delete_slide: signature(['slide']),
@@ -271,7 +291,10 @@ const FORMAT_SIGNATURES = {
     replace_image: signature(['slide', 'shape', 'path']),
     crop_image: signature(['slide', 'shape'], ['left', 'top', 'right', 'bottom']),
     add_media: signature(['slide', 'path'], ['kind', 'link', 'embed', 'poster', 'left', 'top', 'width', 'height'], { propertySets: ['media', 'shape'] }),
-    set_shape: signature(['slide', 'shape', 'properties'], [], { propertySets: ['shape'] }),
+    set_shape: signature(['slide', 'shape', 'properties'], [], {
+      propertySets: ['shape'],
+      notes: 'properties.left/top/width/height are points (72 per inch; the wide canvas is 960 × 540), the unit the snapshot reports — not the inches of an authoring script.',
+    }),
     group_shapes: signature(['slide', 'shapes']),
     ungroup_shape: signature(['slide', 'shape']),
     set_slide_background: signature(['slide', 'color']),
@@ -281,7 +304,10 @@ const FORMAT_SIGNATURES = {
     add_animation: signature(['slide', 'shape'], ['effect', 'trigger', 'duration', 'delay'], { propertySets: ['animation'] }),
     add_chart: signature(['slide'], ['chartType', 'title', 'categories', 'series', 'left', 'top', 'width', 'height', 'showValues', 'showLegend', 'zeroBaseline', 'valueNumberFormat', 'dataLabelPosition', 'dataLabelColor'], { propertySets: ['chart'] }),
     fit_text: signature(['slide', 'shape'], ['minFontSize', 'allowNoChange']),
-    add_shape: signature(['slide', 'shapeType'], ['text', 'paragraphs', 'left', 'top', 'width', 'height', 'fillColor', 'lineColor', 'name', 'properties'], { propertySets: ['shape', 'authoring'] }),
+    add_shape: signature(['slide', 'shapeType'], ['text', 'paragraphs', 'left', 'top', 'width', 'height', 'fillColor', 'lineColor', 'name', 'properties'], {
+      propertySets: ['shape', 'authoring'],
+      notes: 'left/top/width/height are points (72 per inch; the wide canvas is 960 × 540), the unit the snapshot reports — not the inches of an authoring script.',
+    }),
     add_table: signature(['slide', 'values'], ['rows', 'columns', 'left', 'top', 'width', 'height', 'properties'], { propertySets: ['table'] }),
     set_table_data: signature(['slide', 'shape', 'values'], [], { propertySets: ['table'] }),
     set_chart_data: signature(['slide', 'shape', 'series'], ['categories', 'title'], { propertySets: ['chart'] }),
@@ -297,26 +323,59 @@ const FORMAT_SIGNATURES = {
     add_provenance: signature(['slide', 'shape', 'source'], [], { propertySets: ['provenance'] }),
   },
   pdf: {
-    add_text: signature(['text'], ['page', 'pages', 'x', 'y', 'size', 'color', 'opacity', 'rotation', 'fontPath'], {
+    add_text: signature(['text'], ['page', 'pages', 'x', 'y', 'size', 'color', 'opacity', 'rotation', 'align', 'fontPath'], {
       propertySets: ['text', 'textFont'],
-      notes: 'Non-Latin text in an existing PDF requires fontPath.',
+      notes: 'x, y are the baseline start in points from the bottom-left; align center|right places the run between the margins when x is omitted. {page} and {pages} in text become each page\'s number and the page count. Non-Latin text embeds an installed Unicode font (fontPath chooses).',
     }),
-    watermark: signature(['text'], ['page', 'pages', 'x', 'y', 'size', 'color', 'opacity', 'rotation', 'fontPath'], {
+    highlight: signature([], ['find', 'wholeWord', 'regex', 'first', 'page', 'pages', 'x', 'y', 'width', 'height', 'color', 'opacity'], {
+      oneOf: [['find'], ['page', 'x', 'y', 'width', 'height']],
+      notes: 'find marks every case-insensitive match on the selected pages, including 90/180/270-degree page rotations and shifted page origins; wholeWord:true skips matches inside longer words, regex:true treats find as a pattern, first:true marks only the first match. A box in bottom-left PDF points marks one region. Yellow at 45% with multiply blend unless told otherwise; text remains extractable: this is not redaction.',
+    }),
+    add_link: signature([], ['find', 'wholeWord', 'regex', 'first', 'page', 'pages', 'x', 'y', 'width', 'height', 'url', 'toPage', 'urls'], {
+      oneOf: [['url'], ['toPage'], ['urls']],
+      notes: 'Lays an invisible link over every find match (or one box) that opens url (http, https, mailto) or toPage in the same document; urls:true instead links every http(s) address in the text to itself and reports them as urls.',
+    }),
+    watermark: signature(['text'], ['page', 'pages', 'x', 'y', 'size', 'color', 'opacity', 'rotation', 'align', 'fontPath'], {
       propertySets: ['text', 'textFont'],
-      notes: 'Non-Latin text requires fontPath.',
+      notes: 'Centred, 48 pt, 25% opacity, rotated 45° unless told otherwise. Non-Latin text embeds an installed Unicode font (fontPath chooses).',
     }),
-    stamp_image: signature(['path'], ['page', 'pages', 'x', 'y', 'width', 'height', 'opacity']),
-    ocr_pages: signature([], ['page', 'pages', 'languages', 'minConfidence', 'maxWidth', 'fontPath']),
-    rotate_pages: signature([], ['page', 'pages', 'rotation']),
-    delete_pages: signature([], ['page', 'pages']),
+    stamp_image: signature(['path'], ['page', 'pages', 'x', 'y', 'width', 'height', 'opacity'], { notes: 'PNG or JPEG; x, y are the bottom-left corner in points.' }),
+    ocr_pages: signature([], ['page', 'pages', 'languages', 'minConfidence', 'maxWidth', 'fontPath'], {
+      notes: 'Adds an invisible searchable text layer in place; a Unicode font is resolved from the system when the text is non-Latin.',
+    }),
+    rotate_pages: signature([], ['page', 'pages', 'rotation', 'absolute'], {
+      notes: 'rotation (multiple of 90) is added to each page\'s current rotation; absolute:true sets it instead.',
+    }),
+    delete_pages: signature([], ['page', 'pages'], { notes: 'At least one page must remain.' }),
     move_page: signature(['page', 'index']),
-    extract_pages: signature([], ['page', 'pages']),
-    fill_form: signature(['values'], ['flatten']),
-    add_form_field: signature(['name', 'type', 'page', 'x', 'y', 'width', 'height'], ['options', 'value', 'multiline'], { propertySets: ['form'] }),
-    flatten_form: signature(),
-    merge_pdf: signature(['path']),
+    extract_pages: signature([], ['page', 'pages', 'output'], {
+      notes: 'With output the selected pages are written to that file and the session document is unchanged; without it the document becomes that subset.',
+    }),
+    split_pages: signature([], ['page', 'pages', 'every', 'output'], {
+      notes: 'Writes <name>-001.pdf, -002.pdf … beside the document (or into output), one file per page or per `every` pages; the session document is unchanged.',
+    }),
+    fill_form: signature(['values'], ['flatten', 'fontPath'], {
+      notes: 'values maps field name → value: text string, checkbox true/false, radio/dropdown by option text, optionlist an array. Unknown names or options fail listing what exists; non-Latin values embed a Unicode font automatically when one is installed.',
+    }),
+    add_form_field: signature(['name', 'type', 'page', 'x', 'y', 'width', 'height'], ['options', 'value', 'multiline', 'multiselect', 'editable', 'maxLength', 'fontSize', 'required', 'readOnly', 'fontPath'], {
+      propertySets: ['form'],
+      notes: 'type: text | checkbox | radio | dropdown | optionlist; the box is linted (name, page bounds, overlap, minimum size) before it is added.',
+    }),
+    flatten_form: signature([], ['fontPath'], { notes: 'Bakes every field into page content; fill first, then flatten only when the form must stop being editable.' }),
+    preview_fields: signature(['output'], ['boxes'], {
+      notes: 'Writes a copy beside the document with every form field outlined and named, plus any boxes:[{ page, x, y, width, height, label }] you propose, for a render to check placement; the document is unchanged.',
+    }),
+    merge_pdf: signature([], ['sources', 'path', 'index', 'bookmarks'], {
+      oneOf: [['sources'], ['path']],
+      notes: 'sources: [path | { path, pages, title }] appended in order (or inserted before page index); bookmarks:true adds an outline entry per source; encrypted sources must be decrypted first.',
+    }),
+    add_bookmark: signature(['title', 'page'], [], { notes: 'Appends an outline entry that opens the page; the snapshot lists them under outline.' }),
     add_attachment: signature(['path'], ['name', 'mimeType', 'description'], { propertySets: ['attachment'] }),
-    compress: signature(),
+    extract_attachment: signature([], ['name', 'index', 'output'], {
+      oneOf: [['name'], ['index']],
+      notes: 'Writes an embedded file beside the document (or to output); the document is unchanged.',
+    }),
+    compress: signature([], [], { notes: 'Re-serializes with object streams and reports bytesBefore/bytesAfter; images are not resampled, so savings are small.' }),
     set_metadata: signature(['properties'], [], { propertySets: ['metadata'] }),
   },
 };
@@ -351,7 +410,7 @@ function explicitOperationSignature(format, operation) {
   return null;
 }
 
-export const OFFICE_OPERATION_REGISTRY = Object.freeze(Object.fromEntries(
+const OFFICE_OPERATION_REGISTRY = Object.freeze(Object.fromEntries(
   Object.entries(CATALOG).map(([format, catalog]) => [
     format,
     Object.freeze(Object.fromEntries(rawCatalogOperations(catalog).map((operation) => {
@@ -479,6 +538,9 @@ export function assertOfficeOperationContracts({ format = '', backend = '', oper
       ...signatureValue.optional,
       ...signatureValue.oneOf.flat(),
     ]);
+    const stableTargets = format === 'pptx' && backend === 'mixdog-ooxml';
+    if (stableTargets && allowed.has('slide')) allowed.add('slideId');
+    if (stableTargets && allowed.has('shape')) allowed.add('shapeId');
     const unknown = Object.keys(operation).filter((field) => !allowed.has(field));
     if (unknown.length) {
       const suggestions = unknown.map((field) => {
@@ -487,9 +549,11 @@ export function assertOfficeOperationContracts({ format = '', backend = '', oper
       });
       throw new Error(`${format.toUpperCase()} operation "${name}" at index ${index + 1} has unknown field(s): ${unknown.join(', ')}.${suggestions.length ? ` Did you mean: ${suggestions.join(', ')}?` : ''} ${describeHint(format, backend, name)}`);
     }
-    const missing = signatureValue.required.filter((field) => operation[field] === undefined);
+    const supplied = (field) => operation[field] !== undefined
+      || (stableTargets && ['slide', 'shape'].includes(field) && operation[`${field}Id`] !== undefined);
+    const missing = signatureValue.required.filter((field) => !supplied(field));
     const matchesAlternative = !signatureValue.oneOf.length
-      || signatureValue.oneOf.some((alternative) => alternative.every((field) => operation[field] !== undefined));
+      || signatureValue.oneOf.some((alternative) => alternative.every(supplied));
     if (missing.length || !matchesAlternative) {
       const requirements = [
         ...(missing.length ? [`missing: ${missing.join(', ')}`] : []),

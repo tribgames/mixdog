@@ -1,4 +1,5 @@
 import { Menu, type MenuItemConstructorOptions } from 'electron';
+import { nativeT } from './native-i18n';
 
 export interface NativeZoomActions {
   reset(): void;
@@ -25,13 +26,13 @@ function nativeMenuTemplate(
     fileItems.push(
       // The Windows shell is frameless (no visible menu bar), so the
       // accelerator IS the entry point there; macOS shows the item too.
-      { label: 'Remote Access…', accelerator: 'CmdOrCtrl+Shift+R', click: extras.showRemoteAccess },
+      { label: nativeT('Remote Access…'), accelerator: 'CmdOrCtrl+Shift+R', click: extras.showRemoteAccess },
       { type: 'separator' },
     );
   }
   template.push(
     {
-      label: 'File',
+      label: nativeT('File'),
       submenu: process.platform === 'darwin'
         ? [...fileItems, { role: 'close', accelerator: 'CmdOrCtrl+Shift+W' }]
         // Ctrl+Q belongs to the focused workspace tab. Keep explicit menu
@@ -39,20 +40,20 @@ function nativeMenuTemplate(
         : [...fileItems, { role: 'quit', registerAccelerator: false }],
     },
     {
-      label: 'Edit',
+      label: nativeT('Edit'),
       submenu: [
         { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
         { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
       ],
     },
     {
-      label: 'View',
+      label: nativeT('View'),
       submenu: [
         ...(development ? [{ role: 'reload' as const }, { role: 'forceReload' as const }] : []),
         ...(zoom ? [
-          { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: zoom.reset },
-          { label: 'Zoom In', accelerator: 'CmdOrCtrl+Plus', click: zoom.zoomIn },
-          { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: zoom.zoomOut },
+          { label: nativeT('Actual Size'), accelerator: 'CmdOrCtrl+0', click: zoom.reset },
+          { label: nativeT('Zoom In'), accelerator: 'CmdOrCtrl+Plus', click: zoom.zoomIn },
+          { label: nativeT('Zoom Out'), accelerator: 'CmdOrCtrl+-', click: zoom.zoomOut },
         ] : [
           { role: 'resetZoom' as const, accelerator: 'CmdOrCtrl+0' },
           { role: 'zoomIn' as const, accelerator: 'CmdOrCtrl+Plus' },
@@ -63,7 +64,7 @@ function nativeMenuTemplate(
       ],
     },
     {
-      label: 'Window',
+      label: nativeT('Window'),
       submenu: [
         { role: 'minimize', accelerator: 'CmdOrCtrl+M' },
         { role: 'close', accelerator: process.platform === 'darwin' ? 'CmdOrCtrl+Shift+W' : undefined },

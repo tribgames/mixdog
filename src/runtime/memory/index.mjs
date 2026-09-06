@@ -23,7 +23,6 @@ const BOOT_PROMOTION_CODE_FINGERPRINT = readPromotionCodeFingerprint(PLUGIN_ROOT
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
@@ -45,36 +44,22 @@ import {
   cleanMemoryText,
 } from './lib/memory.mjs'
 import {
-  normalizeIngestRole,
   firstTextContent,
-  stableSessionSourceRef,
-  sessionMessageContent,
-  createIngestTurnAllocator,
-  sessionMessageContentForIngest,
-  shouldExcludeIngestMessage,
-} from './lib/session-ingest.mjs'
-import { configureEmbedding, embedText, embedTexts, getEmbeddingDims, getEmbeddingDtype, getEmbeddingModelId, getKnownDimsForCurrentModel, isEmbeddingModelReady, primeEmbeddingDims, shutdownEmbeddingProvider, warmupEmbeddingProvider } from './lib/embedding-provider.mjs'
+} from './lib/session-ingest.mjs';
+import { configureEmbedding, getEmbeddingDims, getEmbeddingDtype, getEmbeddingModelId, getKnownDimsForCurrentModel, primeEmbeddingDims, shutdownEmbeddingProvider, warmupEmbeddingProvider } from './lib/embedding-provider.mjs'
 import { startLlmWorker, stopLlmWorker } from './lib/llm-worker-host.mjs'
-import { runCycle1, runCycle2, runCycle3, runUnifiedGate, parseInterval, syncRootEmbedding, flushEmbeddingDirty, flushRawEmbeddings, applySimpleStatus, applyUpdate, applyMerge, CYCLE2_ACTIVE_TARGET_CAP } from './lib/memory-cycle.mjs'
+import { runCycle1, runCycle2, runCycle3, parseInterval, flushEmbeddingDirty, flushRawEmbeddings } from './lib/memory-cycle.mjs'
 import { callAgentDispatch } from './lib/agent-ipc.mjs'
 import { getInFlightCycle1 } from './lib/memory-cycle1.mjs'
 import { cancelCoalescedCycleRetries, claimAndMarkScheduledCycle, markCycleRequest, resolveCoalesceMaxRetries, scheduleCoalescedCycleRetry } from './lib/memory-cycle-requests.mjs'
-import { searchRelevantHybrid } from './lib/memory-recall-store.mjs'
-import { fetchEntriesByIdsScoped } from './lib/memory-recall-id-patch.mjs'
-import { retrieveEntries } from './lib/memory-retrievers.mjs'
-import { pruneOldEntries } from './lib/memory-maintenance-store.mjs'
-import { computeEntryScore } from './lib/memory-score.mjs'
-import { runFullBackfill } from './lib/memory-ops-policy.mjs'
-import { listCore, addCore, editCore, deleteCore, listCoreCandidates, promoteCoreCandidate, dismissCoreCandidate, backfillCoreEmbeddings } from './lib/core-memory-store.mjs'
+import { backfillCoreEmbeddings } from './lib/core-memory-store.mjs'
 import { drainEmbeddingReindex } from './lib/embedding-reindex.mjs'
 import { refreshCoreMemoryFile } from './lib/core-memory-file.mjs'
 import { resolveProjectId, resolveProjectScope } from './lib/project-id-resolver.mjs'
-import { openTraceDatabase, closeTraceDatabase, insertTraceEvents, enqueueTraceEvents, insertAgentCalls, registerTraceExitDrain } from './lib/trace-store.mjs'
-import { updateJsonAtomicSync, writeJsonAtomicSync } from '../shared/atomic-file.mjs'
+import { openTraceDatabase, closeTraceDatabase, enqueueTraceEvents, insertAgentCalls, registerTraceExitDrain } from './lib/trace-store.mjs'
+import { writeJsonAtomicSync } from '../shared/atomic-file.mjs'
 import { safeIpcSend } from '../shared/safe-ipc-send.mjs'
 import { resolvePluginData, mixdogHome } from '../shared/plugin-paths.mjs'
-import { parsePeriod, formatTs, coreRecallTerms, normalizeRecallProjectScope, sessionRecallTerms, interleaveRawRows, renderEntryLines, renderSessionGroupedLines } from './lib/recall-format.mjs'
-import { readBody, sendJson, sendError, isLocalOrigin, normalizeCoreProjectId } from './lib/http-wire.mjs'
 import { scheduledCycle1Signature, scheduledCycle2Signature, scheduledCycle3Signature } from './lib/cycle-signatures.mjs'
 import { createTranscriptIngest } from './lib/transcript-ingest.mjs'
 import { createCycleLlmAdapters } from './lib/cycle-llm-adapters.mjs'
@@ -87,8 +72,6 @@ import { createMemoryPortAdvertiser } from './lib/memory-port-advertiser.mjs'
 import { createMemoryDaemonLifecycle } from './lib/memory-daemon-lifecycle.mjs'
 import {
   readMainConfig,
-  readRecapEnabled,
-  embeddingWarmupEnabled,
   envFlagEnabled,
   memorySecondaryMode,
   embeddingWarmupCanStart,
@@ -97,7 +80,7 @@ import {
   memoryCyclesEnabled,
   secondaryPgAdvertised as _secondaryPgAdvertised,
   assertSecondaryPgAttachable as _assertSecondaryPgAttachable,
-} from './lib/memory-config-flags.mjs'
+} from './lib/memory-config-flags.mjs';
 const IS_MEMORY_ENTRY = !!process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
 if (IS_MEMORY_ENTRY) {
   process.removeAllListeners('warning')
@@ -135,9 +118,6 @@ import {
   readServiceAdvert as _readServiceAdvert,
   writeServiceAdvert as _writeServiceAdvert,
 } from '../shared/service-discovery.mjs'
-import { resolveRuntimeRoot } from '../shared/runtime-root.mjs'
-
-const RUNTIME_ROOT = resolveRuntimeRoot()
 
 const MEMORY_SERVER_PID = parsePositivePid(process.env.MIXDOG_SERVER_PID) ?? process.pid
 const _isPidAliveLocal = isPidAliveLocal

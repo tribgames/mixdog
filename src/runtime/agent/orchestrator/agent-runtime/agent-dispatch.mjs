@@ -86,7 +86,7 @@ function agentCompactEventLabel(event = {}) {
     return reactive ? 'Compact complete (overflow recovery)' : 'Compact complete';
 }
 
-export function agentCompactEventDetail(event = {}) {
+function agentCompactEventDetail(event = {}) {
     const parts = [];
     const elapsed = formatCompactElapsedSeconds(Number(event.durationMs ?? event.elapsedMs ?? 0));
     if (elapsed) parts.push(elapsed);
@@ -306,7 +306,7 @@ export function buildAgentDispatchAskSessionArgs(factoryOpts = {}, callArgs = {}
 // cancellation sources, so collapse them before installing that one link.
 // The first already-aborted source wins (in declaration order), retaining its
 // original reason instead of replacing it with a generic AbortError.
-export function composeAgentDispatchAbortSignal(signals) {
+function composeAgentDispatchAbortSignal(signals) {
     const sources = (Array.isArray(signals) ? signals : [])
         .filter((signal) => signal instanceof AbortSignal);
     if (sources.length === 0) return { signal: null, dispose: () => {} };

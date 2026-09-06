@@ -7,6 +7,7 @@ import { issuesPortableOoxml, validateLibreOfficeReopen, validatePortableOoxml }
 import { issuesPdf, validatePdf } from '../pdf/pdf-adapter.mjs';
 import { validateOoxmlSchema } from '../portable/ooxml-validator.mjs';
 import { evaluateXlsxAssertions } from '../portable/xlsx-assertions.mjs';
+import { mergeXlsxFormulaAudit } from '../portable/xlsx-formula-audit.mjs';
 import { issuesTabular, validateTabular } from './tabular.mjs';
 import { evaluateOfficeSubmissionGate } from '../quality/quality-pipeline.mjs';
 import { OOXML_FORMATS, TABULAR_FORMATS, sessions } from './office-core.mjs';
@@ -133,6 +134,12 @@ export async function issues(session, args = {}) {
     });
     if (!response.ok) throw new Error(response.error || 'Microsoft Office issue inspection failed');
     result = response.value;
+    // Excel's host reports its own subset; the shared formula audit reads the
+    // same cells (cached for an owned background session) and adds the rest.
+    if (session.format === 'xlsx') {
+      const read = await snapshot(session, { includeStyles: true }, { full: true });
+      result = mergeXlsxFormulaAudit(result, read?.document, { auditProfile: args.auditProfile, sheet: args.sheet });
+    }
   } else {
     result = session.format === 'pdf'
       ? await issuesPdf(session.target, args)

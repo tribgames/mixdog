@@ -439,6 +439,8 @@ const measure = async (scenario: {
       labelReport(".dock-project-select .mx-select-value"),
     ],
     badge: rectOf(".dock-scm-ahead-behind"),
+    badgeDirections: [...document.querySelectorAll(".dock-scm-ahead-behind svg")]
+      .map((node, index) => lineReport(node, `badge-direction-${index}`)),
     // Changes tab: the shared filter box must share the file rows' EDGES
     // (the dock gutter + the scrollbar reserve the rows sit inside of), and
     // it is the SAME component as the History box (height + insets).
@@ -610,7 +612,7 @@ const measure = async (scenario: {
     document.querySelector(".dock-scm-commit-author > span"),
     "detail-author");
   report.commitHeaderSha = lineReport(
-    document.querySelector(".dock-scm-commit-ref code"), "detail-sha");
+    document.querySelector(".dock-scm-commit-sha code"), "detail-sha");
   report.commitHeaderTotals = lineReport(
     document.querySelector(".dock-scm-commit-lines"), "detail-totals");
   report.commitFileRows = document.querySelectorAll(".dock-scm-commit-file").length;

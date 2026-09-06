@@ -1,4 +1,5 @@
 import { monaco } from "./monaco-setup";
+import { t } from "./i18n";
 // @ts-expect-error The Peek submenu registry is internal and has no declarations.
 import { MenuId, MenuRegistry } from "monaco-editor/esm/vs/platform/actions/common/actions.js";
 // @ts-expect-error See the menu-registry import above.
@@ -377,7 +378,9 @@ export async function applyLspWorkspaceEdit(
   const groups = workspaceEditGroups(value);
   const editCount = [...groups.values()].reduce((sum, group) => sum + group.edits.length, 0);
   if (confirmationLabel && groups.size > 1
-    && !window.confirm(`${confirmationLabel} will update ${editCount} locations in ${groups.size} files. Continue?`)) {
+    && !window.confirm(t("{{action}} will update {{locations}} locations in {{files}} files. Continue?", {
+      action: confirmationLabel, locations: editCount, files: groups.size,
+    }))) {
     return false;
   }
   const modelEdits: Array<{

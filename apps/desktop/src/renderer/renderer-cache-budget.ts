@@ -30,7 +30,9 @@ const caches = new Map<string, BudgetedCache>();
  *  module-level registrations simply never call it. */
 export function registerBudgetedCache(cache: BudgetedCache): () => void {
   caches.set(cache.name, cache);
-  return () => { caches.delete(cache.name); };
+  return () => {
+    if (caches.get(cache.name) === cache) caches.delete(cache.name);
+  };
 }
 
 export function totalBudgetedChars(): number {

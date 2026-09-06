@@ -148,21 +148,6 @@ export function createProviderSetupPicker({
         _authenticated: p.authenticated,
       });
     }
-    for (const p of setup.local || []) {
-      providerItems.push({
-        value: `local:${p.id}`,
-        label: p.name,
-        meta: providerStatusLabel(p),
-        description: '',
-        _type: 'local',
-        _providerId: p.id,
-        _providerName: p.name,
-        _provider: p,
-        _enabled: p.enabled,
-        _baseURL: p.baseURL,
-        _defaultURL: p.defaultURL,
-      });
-    }
     providerItems.sort((a, b) => {
       const rank = providerItemRank(a) - providerItemRank(b);
       if (rank !== 0) return rank;
@@ -540,64 +525,6 @@ export function createProviderSetupPicker({
       });
     };
 
-    const openLocalProviderActions = (providerItem) => {
-      if (!ownsSurface()) return;
-      rememberProviderSelection(providerItem);
-      const provider = providerItem._provider || {};
-      const localActions = [
-        {
-          value: 'set-local-url',
-          label: providerItem._enabled ? 'Update Base URL' : 'Enable / Set URL',
-          description: providerDetailText(provider) || providerItem._defaultURL,
-          _action: 'set-local-url',
-        },
-      ];
-      if (providerItem._enabled) {
-        localActions.push({
-          value: 'disable-local',
-          label: 'Disable provider',
-          description: 'keep URL but stop using this local provider',
-          _action: 'disable-local',
-        });
-      }
-      paintProviders({
-        title: `Provider · ${providerItem._providerName}`,
-        description: 'Choose a local endpoint action.',
-        footer: () => providerActionFooter(provider),
-        help: '↑/↓ Select · Enter Choose · Esc Providers',
-        indexMode: 'always',
-        labelWidth: 22,
-        pickerKey: `providers-action:${providerItem.value}`,
-        initialIndex: 0,
-        items: localActions,
-        onSelect: (_detailValue, detail) => {
-          releaseSurface();
-          if (detail._action === 'set-local-url') {
-            setProviderPrompt({
-              kind: 'local-url',
-              providerId: providerItem._providerId,
-              label: providerItem._providerName,
-              defaultURL: providerItem._baseURL || providerItem._defaultURL,
-              afterSave: returnTo,
-            });
-            return;
-          }
-          if (detail._action === 'disable-local') {
-            void Promise.resolve(store.setLocalProvider?.(providerItem._providerId, { enabled: false, baseURL: providerItem._baseURL }))
-              .then(() => {
-                clearModelCaches('all');
-                reopenProviders();
-              })
-              .catch((e) => {
-                store.pushNotice(`local provider update failed: ${e?.message || e}`, 'error');
-                openLocalProviderActions(providerItem);
-              });
-          }
-        },
-        onCancel: reopenProviders,
-      });
-    };
-
     paintProviders({
       title: options.title || 'Providers',
       description: options.description || 'Choose a provider. Enter opens provider actions.',
@@ -631,9 +558,6 @@ export function createProviderSetupPicker({
         if (item._type === 'oauth') {
           openOAuthProviderActions(item);
           return;
-        }
-        if (item._type === 'local') {
-          openLocalProviderActions(item);
         }
       },
       onCancel: () => {

@@ -28,6 +28,7 @@ import {
   requiredString,
 } from './ipc-validation';
 import type { DesktopSettingsStore } from './settings-store';
+import { validateGithubRequest } from '../../../../src/runtime/github/contract.mjs';
 
 type ServiceOperation = (...args: any[]) => Promise<any>;
 type Handle = (
@@ -234,6 +235,8 @@ export function registerSourceControlIpc({
   handle(DESKTOP_IPC.gitStashDrop, (_event, cwd, ref) =>
     gitStashDrop(requiredRepositoryCwd(cwd), requiredString(ref, 'stash ref', 64)));
   handle(DESKTOP_IPC.ghPrList, (_event, cwd) => ghPrList(requiredRepositoryCwd(cwd)));
+  handle(DESKTOP_IPC.githubRequest, (_event, cwd, input) =>
+    operations.githubRequest(requiredRepositoryCwd(cwd), validateGithubRequest(input)));
   handle(DESKTOP_IPC.ghPrDefaultBranch, (_event, cwd) =>
     ghPrDefaultBranch(requiredRepositoryCwd(cwd)));
   handle(DESKTOP_IPC.ghPrCreate, (_event, cwd, input) =>

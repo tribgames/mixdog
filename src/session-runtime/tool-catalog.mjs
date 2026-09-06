@@ -3,10 +3,8 @@
 // application/selection logic. Pure module (session objects passed in).
 import { clean } from './session-text.mjs';
 import { mergePendingDeferredToolDelta } from './deferred-tool-delta.mjs';
-import { estimateToolSchemaTokens, toolSchemaSignature } from '../runtime/agent/orchestrator/session/context-utils.mjs';
 import {
   applyInitialDeferredToolManifestToBp2,
-  buildDeferredToolManifest,
   stripDeferredToolManifestBlock,
 } from '../runtime/agent/orchestrator/context/collect.mjs';
 import { getMcpServerInstructionsMap } from '../runtime/agent/orchestrator/mcp/client.mjs';
@@ -14,10 +12,6 @@ import {
   isResponsesFreeformTool,
   toResponsesCustomTool,
 } from '../runtime/agent/orchestrator/providers/custom-tool-wire.mjs';
-import {
-  finalizeProviderRequestTools,
-  providerNativeToolPrefixCount,
-} from './provider-request-tools.mjs';
 import {
   DEFERRED_DEFAULT_FULL_TOOLS,
   DEFERRED_DEFAULT_LEAD_TOOLS,

@@ -86,6 +86,7 @@ export function loadWorker({
     ReadableStream,
     Request,
     Response,
+    TextEncoder,
     URL,
     caches: cacheStorage ?? {
       keys: async () => [],
@@ -102,6 +103,7 @@ export function loadWorker({
       clients: {
         claim: async () => undefined,
         matchAll: async () => windows,
+        get: async (id) => windows.find((client) => client.id === id),
         openWindow: async (url) => { opened.push(url); },
       },
       location: { origin },
@@ -113,7 +115,11 @@ export function loadWorker({
     },
   };
   context.globalThis = context;
-  vm.runInNewContext(
+  vm.createContext(context);
+  context.importScripts = (path) => vm.runInContext(
+    readFileSync(new URL(`./public${path}`, import.meta.url), "utf8"), context,
+  );
+  vm.runInContext(
     `${source}\n;globalThis.__swTest = {`
     + " cacheFirst, pruneSharedPayloads, receiveSharedPayload, scheduleAssetCacheTrim,"
     + " shellFirst, storableCopy, SHELL_UPDATE_MESSAGE,"

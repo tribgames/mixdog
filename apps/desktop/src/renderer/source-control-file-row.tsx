@@ -6,6 +6,7 @@ import type { ScmContextMenuItem } from "./ScmContextMenu";
 import { ScmPathText } from "./ScmPathText";
 import { ScmStatusIcon } from "./ScmStatusIcon";
 import { statusKind } from "./source-control-support";
+import { t } from "./i18n";
 
 export function changedFileMenuItems({
   file,
@@ -149,9 +150,9 @@ export function SourceControlFileRow({
       disabled={file.conflicted || busy}
       aria-label={`Include ${file.path} in the commit`}
       onChange={(event) => onSetIncluded(event.currentTarget.checked)} />
-    <button type="button" className="dock-scm-file-main" title={file.path}
+    <button type="button" className="dock-scm-file-main" title={file.path} data-i18n-skip
       data-status={kind}
-      aria-label={`Open changes ${file.path}`}
+      aria-label={t("Open changes {{value0}}", { value0: file.path })}
       onClick={(event) => {
         const additive = event.ctrlKey || event.metaKey;
         onToggleSelected(additive);

@@ -1,5 +1,7 @@
 import { cancelBackgroundTasks } from '../runtime/shared/background-tasks.mjs';
 import { hasUserConversationMessage } from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
+import { stripEffortConfiguration } from '../runtime/agent/orchestrator/providers/effort-configuration.mjs';
+import { inheritedCompatReplayMessages } from '../runtime/agent/orchestrator/providers/compat-request-policy.mjs';
 import { isAgentOwner } from '../runtime/agent/orchestrator/agent-owner.mjs';
 import {
   isAgentOnlySession,
@@ -73,6 +75,7 @@ export function inheritanceContextFit(status) {
 // callbacks and long-lived handles (managers, timers, channel/agent/mcp).
 export function createLifecycleApi(deps) {
   const cancelBackgroundTasksForLifecycle = deps.cancelBackgroundTasks || cancelBackgroundTasks;
+  const saveSessionForLifecycle = deps.saveSession || saveSession;
   const {
     getSession, setSession, getRoute, setRoute, getConfig, getMode, getCurrentCwd,
     getMcpScopeId,
@@ -690,7 +693,9 @@ export function createLifecycleApi(deps) {
         throw new Error('inheritFrom: the source session has no conversation to carry');
       }
       const messageStart = target.messages.length;
-      target.messages.push(...structuredClone(carried));
+      target.messages.push(...stripEffortConfiguration(
+        inheritedCompatReplayMessages(structuredClone(carried), source.provider),
+      ));
       invalidateContextStatusCache();
       try {
         const fit = inheritanceContextFit(
@@ -710,7 +715,7 @@ export function createLifecycleApi(deps) {
       target.inheritedFromSessionId = source.id;
       target.updatedAt = Date.now();
       if (!clean(target.title) && clean(source.title)) target.title = source.title;
-      saveSession(target, { immediate: true });
+      saveSessionForLifecycle(target, { immediate: true });
       invalidateContextStatusCache();
       return {
         sessionId: target.id,

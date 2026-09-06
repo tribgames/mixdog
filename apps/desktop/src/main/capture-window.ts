@@ -10,7 +10,7 @@ import {
   type NativeImage,
 } from 'electron';
 import { SETTINGS_CATEGORIES } from '../renderer/settings/settings-items';
-import { DESKTOP_IPC } from '../shared/contract';
+import { DESKTOP_IPC, type SessionSnapshot } from '../shared/contract';
 import { registerDesktopIpc } from './ipc';
 import { DESKTOP_WINDOW_OPTIONS } from './window-options';
 
@@ -112,7 +112,8 @@ async function captureWindow(): Promise<void> {
       || process.env.MIXDOG_JITTER_PROBE === 'entry'
       || process.env.MIXDOG_JITTER_PROBE === 'keys'
       || process.env.MIXDOG_JITTER_PROBE === 'switch'
-      || process.env.MIXDOG_JITTER_PROBE === 'width') {
+      || process.env.MIXDOG_JITTER_PROBE === 'width'
+      || process.env.MIXDOG_JITTER_PROBE === 'select') {
       const { runJitterProbe, jitterProbeOutPath } = await import('./jitter-probe');
       await runJitterProbe({
         window,
@@ -120,6 +121,7 @@ async function captureWindow(): Promise<void> {
         baseSnapshot: host.getSnapshot() as unknown as Record<string, unknown>,
         prepareRemoteResume: (stored, live) => host.prepareJitterRemoteResume(stored, live),
         prepareColdResume: (snapshot) => host.prepareJitterColdResume(snapshot),
+        publish: (snapshot) => host.publishProbeSnapshot(snapshot as unknown as SessionSnapshot),
         outPath: jitterProbeOutPath(resolve(__dirname, '../..')),
       });
       removeIpc();

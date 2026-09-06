@@ -21,7 +21,7 @@ import { withFileLock, withFileLockSync } from './atomic-file.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
 
 const execFileAsync = promisify(execFile);
-export const LIFECYCLE_LEDGER_MAX_BYTES = 64 * 1024;
+const LIFECYCLE_LEDGER_MAX_BYTES = 64 * 1024;
 const LEDGER_NAME = 'process-lifecycle.jsonl';
 const MARKER_DIR_NAME = 'process-lifecycle.active';
 const LEGACY_MARKER_NAME = 'process-lifecycle.active.json';
@@ -549,8 +549,4 @@ export async function finishProcessLifecycleAsync(reason = 'clean-shutdown', exi
     () => state.active === active && active.finishing,
   );
   return completeProcessLifecycleFinish(state, active, written);
-}
-
-export function lifecyclePathsForTest(directory) {
-  return paths(directory);
 }

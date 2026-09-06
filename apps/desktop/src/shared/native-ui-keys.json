@@ -1,0 +1,10 @@
+[
+  "File", "Edit", "View", "Window", "Remote Access…", "Actual Size", "Zoom In", "Zoom Out",
+  "Restart Mixdog?", "Mixdog's graphics process has crashed repeatedly.",
+  "Restart with software rendering to keep Mixdog from disrupting video playback in other apps.",
+  "Restart with software rendering", "Keep running", "Mixdog needs to recover",
+  "The interface stopped repeatedly.",
+  "Your active task remains in the desktop host. Reload the interface to continue.",
+  "Reload interface", "Close window", "Browser Use approval", "Allow this action once?",
+  "Session", "Action", "Page", "Target", "Cancel", "Allow once"
+]

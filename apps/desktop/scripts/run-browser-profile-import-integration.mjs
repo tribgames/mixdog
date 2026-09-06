@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import electron from 'electron';
 import { build } from 'esbuild';
+import { computerSourceEsbuildPlugin } from './computer-source-assets.mjs';
 
 const staging = await mkdtemp(join(tmpdir(), 'mixdog-browser-profile-import-integration-'));
 const output = join(staging, 'browser-profile-import-integration.mjs');
@@ -17,6 +18,7 @@ try {
     ],
     outfile: output,
     bundle: true,
+    plugins: [computerSourceEsbuildPlugin()],
     platform: 'node',
     format: 'esm',
     target: 'node22',

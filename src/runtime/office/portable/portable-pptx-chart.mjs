@@ -1,7 +1,7 @@
 import { dirname, join, posix } from 'node:path';
 import { createPortableChartWorkbook } from './portable-package.mjs';
 import { toEmu } from './portable-slide-shapes.mjs';
-import { CHART_CONTENT_TYPE, PACKAGE_RELATIONSHIP_NS, WORKBOOK_CONTENT_TYPE, ensureContentTypeOverride, ensureDefaultContentType, partRelationshipPath, relationshipMap, zipText } from './portable-opc.mjs';
+import { CHART_CONTENT_TYPE, PACKAGE_RELATIONSHIP_NS, WORKBOOK_CONTENT_TYPE, ensureContentTypeOverride, ensureDefaultContentType, partRelationshipPath, relationshipMap, relationshipTarget, zipText } from './portable-opc.mjs';
 import { OFFICE_RELATIONSHIP_BASE, XML_HEADER, containerInner, topLevelElements, xmlDecode, xmlEncode } from './portable-xml.mjs';
 import { slidePath } from './portable-pptx-package.mjs';
 
@@ -49,7 +49,9 @@ export async function resolveSlideChart(zip, slides, op) {
   if (!reference) throw new Error(`PPTX shape ${op.shape} on slide ${op.slide} is not a chart`);
   const target = relationshipMap(await zipText(zip, partRelationshipPath(path))).get(reference);
   if (!target) throw new Error(`PPTX chart relationship ${reference} is missing on slide ${op.slide}`);
-  const part = posix.normalize(posix.join('ppt/slides', target));
+  // The Target is relative to the slide ("../charts/chart1.xml") or an absolute part name
+  // ("/ppt/charts/chart1.xml", which pptxgenjs writes); both name the same part.
+  const part = relationshipTarget(partRelationshipPath(path), target);
   const xml = await zipText(zip, part);
   if (!xml) throw new Error(`PPTX chart part is missing: ${part}`);
   return { path, part, xml };

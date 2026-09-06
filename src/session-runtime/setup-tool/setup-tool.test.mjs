@@ -25,6 +25,8 @@ test('tool definition: schema enums mirror the exported action/domain/target lis
   assert.equal(def.annotations.agentHidden, true);
   // Secrets never travel through this schema.
   for (const key of Object.keys(def.inputSchema.properties)) {
+    // A one-use deletion receipt is not an authentication credential.
+    if (key === 'confirmationToken') continue;
     assert.doesNotMatch(key, /key|token|secret|password/i);
   }
 });
@@ -105,7 +107,7 @@ test('status providers exposes connection state and key-console URL, never secre
             { id: 'x', name: 'X', type: 'api', enabled: true, authenticated: true, env: true, envName: 'X_KEY', url: 'javascript:alert(1)' },
           ],
           oauth: [{ id: 'anthropic', name: 'Anthropic', type: 'oauth', enabled: true, authenticated: true, accessToken: 't', refreshToken: 'r' }],
-          local: [{ id: 'ollama', name: 'Ollama', type: 'local', enabled: false, detected: true, defaultURL: 'http://localhost:11434' }],
+          local: [],
         };
       },
     }),
@@ -117,7 +119,7 @@ test('status providers exposes connection state and key-console URL, never secre
   assert.equal(status.api[0].source, 'none');
   assert.equal(status.api[1].keyUrl, null);
   assert.equal(status.api[1].source, 'env:X_KEY');
-  assert.equal(status.local[0].baseURL, 'http://localhost:11434');
+  assert.deepEqual(status.local, []);
   assert.doesNotMatch(JSON.stringify(status), /sk-live|accessToken|refreshToken|apiKey/);
   await assert.rejects(run(executor, { action: 'status', domain: 'secrets' }), /domain must be one of/);
 });
@@ -142,14 +144,16 @@ test('mutations go through the runtime facade with validated input', async () =>
 
   await run(executor, { action: 'set_builtin_enabled', name: 'office', enabled: false });
   assert.deepEqual(calls[2], ['setBuiltinToolEnabled', 'office', false]);
-  await assert.rejects(run(executor, { action: 'set_builtin_enabled', name: 'memory', enabled: true }), /name must be one of git, office/);
+  await run(executor, { action: 'set_builtin_enabled', name: 'localProvider', enabled: true });
+  assert.deepEqual(calls[3], ['setBuiltinToolEnabled', 'localProvider', true]);
+  await assert.rejects(run(executor, { action: 'set_builtin_enabled', name: 'memory', enabled: true }), /name must be one of git, office, localProvider/);
   await assert.rejects(run(executor, { action: 'set_builtin_enabled', name: 'git', enabled: 'yes' }), /enabled \(boolean\)/);
 
   await run(executor, { action: 'set_compaction', enabled: true });
-  assert.deepEqual(calls[3], ['setCompactionSettings', { auto: true }]);
+  assert.deepEqual(calls[4], ['setCompactionSettings', { auto: true }]);
 
   await run(executor, { action: 'set_disabled_skills', skills: [' a ', '', 'b'] });
-  assert.deepEqual(calls[4], ['setDisabledSkills', ['a', 'b']]);
+  assert.deepEqual(calls[5], ['setDisabledSkills', ['a', 'b']]);
 
   await assert.rejects(run(executor, { action: 'set_route', route: {} }), /at least one of/);
   await assert.rejects(run(executor, { action: 'set_agent_route', route: { model: 'x' } }), /agent is required/);
@@ -161,15 +165,20 @@ test('mutations fail clearly before the runtime facade is assembled', async () =
 });
 
 test('setup skill documents every tool action and open target', () => {
-  const skill = fs.readFileSync(path.join(repoRoot, 'src', 'defaults', 'skills', 'setup', 'SKILL.md'), 'utf8');
+  const skillRoot = path.join(repoRoot, 'src', 'defaults', 'skills', 'setup');
+  const skill = fs.readFileSync(path.join(skillRoot, 'SKILL.md'), 'utf8');
+  const references = fs.readdirSync(path.join(skillRoot, 'references'))
+    .filter((name) => name.endsWith('.md'))
+    .map((name) => fs.readFileSync(path.join(skillRoot, 'references', name), 'utf8'));
+  const documentation = [skill, ...references].join('\n');
   assert.match(skill, /^name: setup$/m);
   assert.match(skill, /^description: .*`setup` tool/m);
   for (const action of SETUP_ACTIONS) {
-    assert.ok(skill.includes('`' + action + '`'), `SKILL.md does not document action ${action}`);
+    assert.ok(documentation.includes('`' + action + '`'), `setup docs do not document action ${action}`);
   }
   for (const target of SETUP_OPEN_TARGETS) {
-    assert.ok(new RegExp('(?<![\\w-])' + target + '(?![\\w-])').test(skill), `SKILL.md does not list open target ${target}`);
+    assert.ok(new RegExp('(?<![\\w-])' + target + '(?![\\w-])').test(documentation), `setup docs do not list open target ${target}`);
   }
-  assert.match(skill, /Extensions/);
-  assert.doesNotMatch(skill, /Settings\s*→\s*(MCP|Skills|Plugins)\b/, 'MCP/Skills/Plugins live under Extensions, not Settings');
+  assert.match(documentation, /Extensions/);
+  assert.doesNotMatch(documentation, /Settings\s*→\s*(MCP|Skills|Plugins)\b/, 'MCP/Skills/Plugins live under Extensions, not Settings');
 });

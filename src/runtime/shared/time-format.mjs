@@ -60,7 +60,7 @@ function validDate(value = new Date()) {
   return Number.isFinite(date.getTime()) ? date : null;
 }
 
-export function resolvedLocalTimeZone() {
+function resolvedLocalTimeZone() {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   } catch {

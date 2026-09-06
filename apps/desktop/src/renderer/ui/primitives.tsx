@@ -174,7 +174,7 @@ export function DialogFrame({
   useEffect(() => acquireTitleBarDim(), []);
   return <div className="mx-dialog-layer" role="presentation">
     <section className="mx-dialog" role="dialog" aria-modal="true" aria-label={title}>
-      <header><strong>{title}</strong><IconButton icon="close-small" label="Close" onClick={onClose} /></header>
+      <header><h2>{title}</h2><IconButton icon="close-small" label="Close" onClick={onClose} /></header>
       <div className="mx-dialog-body">{children}</div>
       {footer && <footer>{footer}</footer>}
     </section>

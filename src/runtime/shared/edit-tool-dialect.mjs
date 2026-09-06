@@ -1,6 +1,6 @@
 const MODEL_EDIT_TOOL_NAMES = new Set(['apply_patch', 'edit']);
 
-export function isGptFamilyModel(modelName) {
+function isGptFamilyModel(modelName) {
   const leaf = String(modelName || '')
     .trim()
     .toLowerCase()
@@ -9,7 +9,7 @@ export function isGptFamilyModel(modelName) {
   return /^(?:chat)?gpt(?:[-_.\d]|$)/.test(leaf);
 }
 
-export function modelEditToolName(modelName) {
+function modelEditToolName(modelName) {
   return isGptFamilyModel(modelName) ? 'apply_patch' : 'edit';
 }
 
@@ -24,7 +24,7 @@ export function unusedModelEditToolName(modelName) {
 // Static tool descriptions name both dialects with this token; the surface
 // rewrites it to the one dialect the session can call, so a Claude session
 // never reads `apply_patch` and a GPT session never reads `edit`.
-export const EDIT_DIALECT_TOKEN = 'edit/apply_patch';
+const EDIT_DIALECT_TOKEN = 'edit/apply_patch';
 
 function bindEditDialectDescription(tool, selected) {
   const description = tool?.description;

@@ -198,31 +198,49 @@
   opacity: var(--mx-op-disabled);
   cursor: default;
 }
+/* The icon and chevron span both text rows and sit on their CENTER: the rail's
+   .utilities-row sets align-items: flex-start on the container, so the
+   spanning children pin themselves with align-self. */
+/* One identity plate size for the list row, the dialog header, and the hero
+   (user: 아이콘 크기 정리): 30px plate, 18px glyph, on the soft text ink so the
+   glyph reads at rail width instead of fading into the plate. */
 .extensions-row > .extensions-row-icon {
   grid-column: 1;
   grid-row: 1 / 3;
+  align-self: center;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: var(--mx-radius-md);
-  color: var(--mx-icon-muted);
+  color: var(--mx-text-soft);
   background: var(--mx-rail-item-surface);
   box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
 }
+.extensions-row > .extensions-row-icon > svg,
+.extensions-dialog > header > .extensions-dialog-icon > svg,
+.extensions-hero-icon > svg {
+  width: 18px;
+  height: 18px;
+}
 .extensions-row[data-enabled="false"] .extensions-row-icon { opacity: var(--mx-op-disabled); }
 .extensions-row > .sidebar-resource-title { grid-column: 2; grid-row: 1; min-width: 0; }
+/* The description keeps up to TWO lines before it ellipsizes (user: 설명은
+   두줄까지), so a row reads its whole sentence at the rail's width. */
 .extensions-row > small {
   grid-column: 2;
   grid-row: 2;
   min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .extensions-row > .utilities-row-chevron {
   grid-column: 3;
   grid-row: 1 / 3;
+  align-self: center;
 }
 
 /* Built-in features list as plain extension rows; the install/enable control
@@ -308,7 +326,7 @@
   min-height: 0;
   display: grid;
   gap: 8px;
-  padding: 4px 20px 20px;
+  padding: 4px var(--mx-dialog-inset) var(--mx-dialog-inset);
 }
 .extensions-create-options > button {
   min-width: 0;
@@ -354,8 +372,25 @@
 
 /* Detail dialogs are intentionally narrower than full Markdown editors. */
 .extensions-dialog { --mx-editor-width: 640px; }
-.extensions-plugin-dialog { --mx-editor-width: 520px; }
-/* The body owns the same 20px gutter and 16px rhythm as editor forms. */
+.extensions-plugin-dialog,
+.extensions-dialog[data-feature-id] { --mx-editor-width: 520px; }
+/* Identity glyph on the title line: the list row's 28px plate, so the dialog
+   opens as a continuation of the row that was clicked. */
+.extensions-dialog > header > .extensions-dialog-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: grid;
+  place-items: center;
+  margin-right: -2px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-rail-item-surface);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+}
+/* The body owns the same dialog gutter and 16px rhythm as editor forms. The
+   gutter is the shared token, never a literal: the sticky footer's negative
+   margins and the ≤640px 16px step are computed from it. */
 .extensions-dialog-body {
   min-height: 0;
   flex: 1 1 auto;
@@ -364,7 +399,7 @@
   gap: 16px;
   overflow-y: auto;
   /* Same opening step as the editors' form body under the shared header. */
-  padding: 4px 20px 20px;
+  padding: 4px var(--mx-dialog-inset) var(--mx-dialog-inset);
 }
 .extensions-dialog-facts { margin: 0; display: grid; gap: 10px; }
 .extensions-dialog-facts > div {
@@ -469,20 +504,25 @@
   color: var(--mx-text);
   background: var(--mx-hover);
 }
+/* The chosen transport is a persistent selection, so it wears the rail's
+   .selected plate (pressed wash + the -active hairline) and its check in
+   text ink. The old accent inset ring + accent check was the only place in
+   the dialog system that painted the focus colour on a resting state. */
 .extensions-mcp-transport button.active,
 .extensions-mcp-transport button[aria-pressed="true"] {
   color: var(--mx-text);
-  background: var(--mx-bg-layer-3);
-  box-shadow: inset 0 0 0 1px var(--mx-focus);
+  background: var(--mx-pressed);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
   font-weight: var(--mx-weight-semibold);
 }
 .extensions-mcp-transport button.active > svg,
 .extensions-mcp-transport button[aria-pressed="true"] > svg {
-  color: var(--mx-focus);
+  color: currentColor;
 }
+/* Keyboard focus is the dialog-wide hairline ring, not a 2px halo. */
 .extensions-mcp-transport button:focus-visible {
-  outline: 0;
-  box-shadow: 0 0 0 2px var(--mx-focus);
+  outline: 1px solid var(--mx-focus);
+  outline-offset: -1px;
 }
 .extensions-mcp-transport button:disabled { cursor: default; opacity: var(--mx-op-disabled); }
 .extensions-mcp-list {
@@ -587,8 +627,9 @@
   }
 }
 
-/* List-row scope badge: a quiet pill after the title ("2 projects",
-   "Not in this project"). Same ink as row metadata; never a colour plate. */
+/* List-row status note after the title (built-in: "Not installed",
+   "Installing…"). Project scope is not badged in the list (user: 배지 빼줘) —
+   it lives in the detail dialog's "Applies to" field only. */
 .extensions-row-badge {
   flex: 0 0 auto;
   display: inline-flex;
@@ -617,9 +658,18 @@
   column-gap: 12px;
   padding: 0 0 4px;
 }
+/* Tagline only (the icon sits on the header line): one text column, three
+   lines max, on the body's text ink so it reads as the lead sentence. */
+.extensions-hero[data-plain] { grid-template-columns: minmax(0, 1fr); padding: 0; }
+.extensions-hero[data-plain] .extensions-hero-copy small {
+  -webkit-line-clamp: 3;
+  color: var(--mx-text-soft);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-minor);
+}
 .extensions-hero-icon {
-  width: 36px;
-  height: 36px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   border-radius: var(--mx-radius-md);
@@ -668,6 +718,11 @@
   display: grid;
   gap: 6px;
 }
+.local-provider-installation {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
 .extensions-item {
   min-width: 0;
   display: grid;
@@ -680,7 +735,8 @@
   box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
 }
 .extensions-item:not(:has(> .extensions-item-icon)) { grid-template-columns: minmax(0, 1fr) auto; }
-.extensions-item-icon { display: grid; place-items: center; color: var(--mx-icon-muted); }
+.extensions-item-icon { display: grid; place-items: center; color: var(--mx-text-soft); }
+.extensions-item-icon > svg { width: 16px; height: 16px; }
 .extensions-item-copy {
   min-width: 0;
   display: grid;
@@ -695,12 +751,14 @@
   white-space: nowrap;
 }
 .extensions-item-copy small {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
+  overflow-wrap: anywhere;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .extensions-item-trailing {
   display: inline-flex;
@@ -754,4 +812,184 @@
   font-family: var(--mx-font-mono);
   font-size: var(--mx-font-meta);
   line-height: 1.5;
+}
+
+/* Built-in Computer Use: the authorization editor inside the feature dialog.
+   Notes, field blocks and controls follow the dialog form grammar
+   (schedules-field labels, settings-action plates, OpenSelect, the compact
+   switch). The dialog-wide 32px input plate is lifted off the checkboxes, and
+   the fieldset is a grouping box only — no border, no floating legend. */
+.computer-authorization-note {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.computer-authorization-note[data-tone="danger"] { color: var(--mx-danger); }
+.computer-authorization {
+  min-width: 0;
+  display: grid;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+/* Legend + note mirror the schedules-field label/note block. */
+.computer-authorization > legend {
+  padding: 0;
+  color: var(--mx-text);
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-emphasis);
+}
+.computer-authorization > legend + small {
+  margin-top: -4px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.computer-authorization .schedules-field { min-width: 0; }
+.computer-authorization-windows {
+  min-width: 0;
+  max-height: 220px;
+  display: grid;
+  gap: 2px;
+  overflow-y: auto;
+  padding: 4px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.computer-authorization-empty {
+  margin: 0;
+  padding: 10px 8px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  text-align: center;
+}
+.computer-authorization-window {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
+  padding: 7px 8px;
+  border-radius: var(--mx-radius-md);
+  cursor: pointer;
+}
+.computer-authorization-window:hover { background: var(--mx-hover); }
+.computer-authorization-window:has(input:checked) {
+  background: var(--mx-rail-item-surface);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+}
+.computer-authorization-window:has(input:disabled) { opacity: var(--mx-op-disabled); cursor: default; }
+.computer-authorization-window-copy { min-width: 0; display: grid; gap: 2px; }
+.computer-authorization-window-copy b {
+  overflow: hidden;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.computer-authorization-window-copy small {
+  overflow-wrap: anywhere;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.computer-authorization-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.computer-authorization-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  font-size: var(--mx-font-meta);
+  cursor: pointer;
+  user-select: none;
+}
+.computer-authorization-chip:hover { color: var(--mx-text); background: var(--mx-hover); }
+.computer-authorization-chip:has(input:checked) {
+  color: var(--mx-text);
+  background: var(--mx-rail-item-surface);
+  box-shadow: inset 0 0 0 .5px var(--mx-accent-bg);
+}
+.computer-authorization-chip:has(input:disabled) { opacity: var(--mx-op-disabled); cursor: default; }
+/* Native checkboxes: the dialog's text-field plate (32px, shadow, hover
+   contrast) must not apply to them. */
+.extensions-dialog .computer-authorization input[type="checkbox"],
+.extensions-dialog .computer-authorization input[type="checkbox"]:hover,
+.extensions-dialog .computer-authorization input[type="checkbox"]:focus {
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+  border-radius: var(--mx-radius-sm);
+  background: transparent;
+  box-shadow: none;
+  accent-color: var(--mx-accent-bg);
+  cursor: inherit;
+}
+.extensions-dialog .computer-authorization input[type="checkbox"]:focus { outline: none; }
+.extensions-dialog .computer-authorization input[type="checkbox"]:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 1px;
+}
+.computer-authorization-targets {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 72px;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  outline: 1px solid transparent;
+  outline-offset: 0;
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-code);
+  line-height: 1.55;
+  resize: vertical;
+}
+.computer-authorization-targets:hover:not(:disabled):not(:focus) { box-shadow: var(--mx-button-contrast); }
+.computer-authorization-targets:focus { outline-color: var(--mx-focus); box-shadow: var(--mx-button); }
+.computer-authorization-targets:disabled { opacity: var(--mx-op-disabled); }
+/* One-line rows: label left, control right (duration select, elevated
+   switch, the diagnostics export). */
+.computer-authorization-inline {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+}
+.computer-authorization-inline > span {
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+}
+.computer-authorization-inline > small {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.computer-authorization-select.mx-select-root { min-width: 150px; }
+.computer-authorization-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.computer-authorization-actions > span {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
 }

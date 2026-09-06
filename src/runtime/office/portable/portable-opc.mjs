@@ -1,5 +1,5 @@
 import { basename, dirname, join, posix } from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { readFile, writeFile } from 'node:fs/promises';
 import {
@@ -17,7 +17,7 @@ function templateTokenMatches(text) {
     .map((match) => ({ raw: match[0], key: match[1] }));
 }
 
-export async function fillTemplateParts(zip, parts, tag, operation) {
+export async function fillTemplateParts(zip, parts, tag, operation, { replace = replaceAcrossRuns } = {}) {
   const tokens = operation.tokens;
   if (!tokens || typeof tokens !== 'object' || Array.isArray(tokens)) {
     throw new Error('fill_template requires tokens as an object');
@@ -29,7 +29,7 @@ export async function fillTemplateParts(zip, parts, tag, operation) {
     let changed = false;
     for (const [raw, key] of variants) {
       if (!Object.hasOwn(tokens, key)) continue;
-      const replaced = replaceAcrossRuns(xml, tag, raw, String(tokens[key] ?? ''));
+      const replaced = replace(xml, tag, raw, String(tokens[key] ?? ''));
       if (!replaced.count) continue;
       xml = replaced.xml;
       changed = true;
@@ -169,6 +169,14 @@ export async function ensureDefaultContentType(zip, extension, type) {
 
 export async function addPackageRelationship(zip, relsPath, type, target, mode = '') {
   const existing = await zipText(zip, relsPath);
+  if (!existing) {
+    // A relationships part the package never had needs the rels default
+    // content type, or the package validator reports the new part as untyped.
+    const types = await zipText(zip, '[Content_Types].xml');
+    if (types.includes('</Types>')) {
+      await ensureDefaultContentType(zip, 'rels', 'application/vnd.openxmlformats-package.relationships+xml');
+    }
+  }
   const xml = existing || `${XML_HEADER}<Relationships xmlns="${PACKAGE_RELATIONSHIP_NS}"></Relationships>`;
   const id = nextRelationshipId(xml);
   const relationship = `<Relationship Id="${id}" Type="${type}" Target="${xmlEncode(target)}"`

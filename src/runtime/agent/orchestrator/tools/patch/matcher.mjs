@@ -3,10 +3,9 @@
 // patch.mjs; matching/fuzz semantics mirror the native engine and are
 // unchanged.
 
-import { closeSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { classifyEntry, stripDiffPrefix } from './paths.mjs';
 import { normalizeOutputPath } from '../builtin.mjs';
-import { detectReadEncodingFromBuffer } from '../builtin/snapshot-helpers.mjs';
 
 function collectUnifiedOldLines(hunk) {
   const oldLines = [];

@@ -1,16 +1,16 @@
 import { RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import type { Snapshot } from "./desktop-types";
 import { t } from "./i18n";
+import { ErrorNotice } from "./ErrorNotice";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { ScmPathText } from "./ScmPathText";
 import { ScmStatusIcon, scmStatusKind } from "./ScmStatusIcon";
 import {
   buildSessionDiffRows,
-  type SessionDiffResult,
   type SessionDiffRow,
 } from "./session-diff-model";
-import { fetchSessionDiff, peekSessionDiff } from "./session-diff-cache";
+import { useSessionDiffRefresh } from "./use-session-diff-refresh";
 import {
   defaultSessionLaneStore,
   useSessionLane,
@@ -98,43 +98,9 @@ export function SessionDiffPane({
   const busy = Boolean(lane?.busy || lane?.commandBusy);
   // A revisited session paints its cached rows instantly while the refresh
   // below revalidates behind them.
-  const [result, setResult] = useState<SessionDiffResult | null>(
-    () => peekSessionDiff(sessionId));
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const request = useRef(0);
-  useEffect(() => {
-    request.current += 1;
-    setResult(peekSessionDiff(sessionId));
-    setError("");
-  }, [sessionId]);
-  const refresh = useCallback(async (force = true) => {
-    if (!active || !sessionId) return;
-    const current = ++request.current;
-    if (!peekSessionDiff(sessionId)) setLoading(true);
-    setError("");
-    try {
-      const next = await fetchSessionDiff(sessionId, { force });
-      if (request.current !== current) return;
-      setResult(next);
-    } catch (reason) {
-      if (request.current !== current) return;
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      if (request.current === current) setLoading(false);
-    }
-  }, [active, sessionId]);
-  useEffect(() => {
-    if (!active || !sessionId) return;
-    void refresh(true);
-    // The lane revision changes only at meaningful session boundaries.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, revision, sessionId]);
-  useEffect(() => {
-    if (!active || !sessionId || !busy) return undefined;
-    const timer = window.setInterval(() => void refresh(true), 4_000);
-    return () => window.clearInterval(timer);
-  }, [active, busy, refresh, sessionId]);
+  const { result, loading, error, refresh } = useSessionDiffRefresh({
+    sessionId, active, revision, busy,
+  });
   const rows = useMemo(() => buildSessionDiffRows(result), [result]);
   const additions = rows.reduce((total, row) => total + row.additions, 0);
   const deletions = rows.reduce((total, row) => total + row.deletions, 0);
@@ -154,10 +120,7 @@ export function SessionDiffPane({
   }
   if (error) {
     return <SessionDiffFrame>
-      <div className="session-diff-state" role="alert">
-        <span>{error}</span>
-        <button type="button" onClick={() => void refresh(true)}>{t("Retry")}</button>
-      </div>
+      <ErrorNotice error={error} onRetry={() => void refresh(true)} />
     </SessionDiffFrame>;
   }
   if (result?.supported === false) {

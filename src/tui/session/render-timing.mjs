@@ -17,7 +17,9 @@
  * The fixed timeout below is only a fallback ceiling for when no renderer ack is
  * wired (or the renderer is idle) so a yield can never hang the turn.
  */
-const RENDER_ACK_FALLBACK_MS = 32;
+import { hasRenderFrameSource, onRenderFrameSourcesClosed } from './render-frame-source.mjs';
+export { registerRenderFrameSource } from './render-frame-source.mjs';
+
 const RENDER_ACK_HANG_GUARD_MS = 250;
 const RENDER_SETTLE_IDLE_MS = 64;
 export const TUI_RENDER_FPS = 120;
@@ -70,20 +72,27 @@ const notifyRenderFrame = (seq = ++renderAckSeq) => {
   for (const ack of acks) ack(seq);
 };
 
-export const yieldToRenderer = ({ frames = 1 } = {}) => new Promise((resolve) => {
+export const yieldToRenderer = ({ frames = 1 } = {}) => {
+  // Flush the current synchronous mutation chain, but do not charge a daemon
+  // for an acknowledgement that exists only in another process.
+  if (!hasRenderFrameSource()) return new Promise((resolve) => setImmediate(resolve));
+  return new Promise((resolve) => {
   const minSeq = renderAckSeq;
   let remainingFrames = Math.max(1, Math.floor(Number(frames) || 1));
   let settled = false;
   let sawRealFrame = false;
   let timer = null;
+  let releaseClosedListener = () => {};
   const finish = () => {
     if (settled) return;
     settled = true;
     if (timer) clearTimeout(timer);
+    releaseClosedListener();
     const idx = pendingRenderAcks.indexOf(onFrame);
     if (idx !== -1) pendingRenderAcks.splice(idx, 1);
     resolve();
   };
+  releaseClosedListener = onRenderFrameSourcesClosed(finish);
   const onTimeout = () => {
     if (settled) return;
     // A render has already reached onRender and scheduled its deferred
@@ -135,4 +144,5 @@ export const yieldToRenderer = ({ frames = 1 } = {}) => new Promise((resolve) =>
   // guard, while the post-first-frame timeout is an idle-settle fallback so a
   // missing second frame does not add a quarter-second tool-card delay.
   armWait();
-});
+  });
+};

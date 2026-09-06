@@ -34,6 +34,8 @@ import { RowOverflowMenu } from "./RowOverflowMenu";
 import { ScmPathText } from "./ScmPathText";
 import { ScmStatusIcon, type ScmStatusKind } from "./ScmStatusIcon";
 import { SourceControlErrorNotice } from "./SourceControlErrorNotice";
+import { ErrorNotice } from "./ErrorNotice";
+import { GithubReviewForm } from "./github/GithubReviewForm";
 
 export type PullRequestViewMode = "overview" | "changes";
 export type PullRequestListView = "open" | "mine" | "review";
@@ -382,7 +384,7 @@ export function PullRequestsPane({
     if (pullRequest.url) void api?.openExternal?.(pullRequest.url);
   };
   const checkoutByNumber = () => {
-    const raw = window.prompt("Pull request number", "");
+    const raw = window.prompt(t("Pull request number"), "");
     if (raw === null) return;
     const match = /^#?(\d+)$/.exec(raw.trim());
     if (!match) {
@@ -540,8 +542,8 @@ export function PullRequestsPane({
       {pullRequestViews && visiblePullRequests.length === 0 &&
         <div className="dock-pr-empty" role="status">
           <GitPullRequestArrow size={24} aria-hidden="true" />
-          <b>{emptyTitle}</b>
-          <span>{emptyMessage}</span>
+          <b>{t(emptyTitle)}</b>
+          <span>{t(emptyMessage)}</span>
           {!filter && listView === "open" && !onDefaultBranch && currentBranch && api?.ghPrCreate &&
             <button type="button" onClick={beginCreatePullRequest}>
               Create pull request
@@ -698,10 +700,10 @@ export function PullRequestEditor({
   const checkedOut = Boolean(detail && currentBranch && detail.headRefName === currentBranch);
   const checksTone = !detail || detail.checks.pending > 0 ? "pending"
     : detail.checks.failing > 0 ? "failing" : "passing";
-  const checksLabel = !detail || detail.checks.total === 0 ? "No checks reported"
-    : detail.checks.failing > 0 ? `${detail.checks.failing} checks failing`
-      : detail.checks.pending > 0 ? `${detail.checks.pending} checks pending`
-        : "All checks passing";
+  const checksLabel = !detail || detail.checks.total === 0 ? t("No checks reported")
+    : detail.checks.failing > 0 ? t("{{count}} checks failing", { count: detail.checks.failing })
+      : detail.checks.pending > 0 ? t("{{count}} checks pending", { count: detail.checks.pending })
+        : t("All checks passing");
 
   return <div className="workspace-pr-editor dock-pr-detail" data-mode={mode}>
     <header className="workspace-pr-editor-header">
@@ -750,7 +752,7 @@ export function PullRequestEditor({
               onClick={() => {
                 const action = mergeMethod === "merge" ? "Merge"
                   : mergeMethod === "squash" ? "Squash and merge" : "Rebase and merge";
-                if (!window.confirm(`${action} pull request #${detail.number}?`)) return;
+                if (!window.confirm(t("{{action}} pull request #{{number}}?", { action: t(action), number: detail.number }))) return;
                 void run("merge", () => api?.ghPrMerge?.(projectPath, detail.number, mergeMethod));
               }}>
               {busy === "merge" ? <ProgressSpinner size={14} aria-hidden="true" />
@@ -801,11 +803,8 @@ export function PullRequestEditor({
       </button>
     </div>
     <div className="workspace-pr-editor-scroll">
-      {detailError && <div className="dock-pr-error-state" role="alert">
-        <Github size={18} aria-hidden="true" />
-        <div><b>Could not load pull request</b><span>{detailError}</span></div>
-        <button type="button" onClick={() => setRefresh((value) => value + 1)}>Retry</button>
-      </div>}
+      {detailError && <ErrorNotice error={detailError}
+        onRetry={() => setRefresh((value) => value + 1)} />}
       {!detail && !detailError && <p className="utility-dock-empty">
         <ProgressSpinner size={14} aria-hidden="true" /> Loading pull request…
       </p>}
@@ -850,6 +849,9 @@ export function PullRequestEditor({
               ))}
             </div> : <div className="dock-pr-empty-row">No conversation yet.</div>}
           </section>
+          {detail.state === "OPEN" && <GithubReviewForm key={`${projectPath}:${number}`}
+            projectPath={projectPath} number={number} url={detail.url} active={active}
+            onSubmitted={() => setRefresh((value) => value + 1)} />}
         </div>}
         {detailTab === "checks" && <div className="dock-pr-panel dock-pr-checks-panel"
           role="tabpanel" data-pr-detail-panel="checks">

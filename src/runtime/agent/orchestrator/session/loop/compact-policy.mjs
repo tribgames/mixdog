@@ -17,7 +17,8 @@ import {
     COMPACT_TARGET_MIN_TOKENS,
     COMPACT_SAFETY_PERCENT,
 } from '../compact.mjs';
-import { positiveTokenInt, envFlag, envTokenInt } from './env.mjs';
+import { envFlag, envPositiveInt } from '../../../../shared/env.mjs';
+import { positiveInt } from '../../../../shared/numbers.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { providerInputExcludesCache } from '../../providers/registry.mjs';
 
@@ -39,40 +40,40 @@ function resolveCompactTargetRatio(cfg = {}) {
     return n > 1 ? n / 100 : n;
 }
 function resolveCompactTargetTokens(boundaryTokens, cfg = {}) {
-    const boundary = positiveTokenInt(boundaryTokens);
+    const boundary = positiveInt(boundaryTokens);
     if (!boundary) return null;
-    const explicit = positiveTokenInt(cfg.targetTokens ?? cfg.target)
-        || envTokenInt('MIXDOG_AGENT_COMPACT_TARGET_TOKENS')
-        || envTokenInt('MIXDOG_COMPACT_TARGET_TOKENS');
+    const explicit = positiveInt(cfg.targetTokens ?? cfg.target)
+        || envPositiveInt('MIXDOG_AGENT_COMPACT_TARGET_TOKENS')
+        || envPositiveInt('MIXDOG_COMPACT_TARGET_TOKENS');
     if (explicit) return Math.max(1, Math.min(boundary, explicit));
-    const minTarget = Math.min(boundary, positiveTokenInt(cfg.targetMinTokens ?? cfg.minTargetTokens)
-        || envTokenInt('MIXDOG_AGENT_COMPACT_TARGET_MIN_TOKENS')
-        || envTokenInt('MIXDOG_COMPACT_TARGET_MIN_TOKENS')
+    const minTarget = Math.min(boundary, positiveInt(cfg.targetMinTokens ?? cfg.minTargetTokens)
+        || envPositiveInt('MIXDOG_AGENT_COMPACT_TARGET_MIN_TOKENS')
+        || envPositiveInt('MIXDOG_COMPACT_TARGET_MIN_TOKENS')
         || COMPACT_TARGET_MIN_TOKENS);
     const byRatio = Math.max(1, Math.floor(boundary * resolveCompactTargetRatio(cfg)));
     return Math.max(1, Math.min(boundary, Math.max(minTarget, byRatio)));
 }
 function resolveCompactKeepTokens(cfg = {}) {
-    return positiveTokenInt(cfg.keepTokens ?? cfg.keep?.tokens ?? cfg.preserveRecentTokens)
-        || envTokenInt('MIXDOG_AGENT_COMPACT_KEEP_TOKENS')
+    return positiveInt(cfg.keepTokens ?? cfg.keep?.tokens ?? cfg.preserveRecentTokens)
+        || envPositiveInt('MIXDOG_AGENT_COMPACT_KEEP_TOKENS')
         || DEFAULT_COMPACTION_KEEP_TOKENS;
 }
 
 function compactTriggerMarginTokens(boundaryTokens) {
-    const boundary = positiveTokenInt(boundaryTokens);
+    const boundary = positiveInt(boundaryTokens);
     if (!boundary) return 1;
     return Math.max(1, Math.min(1_024, Math.floor(boundary * 0.01)));
 }
 
 function legacyCompactTargetBudget(boundaryTokens, targetTokens, reserveTokens) {
-    const boundary = positiveTokenInt(boundaryTokens);
+    const boundary = positiveInt(boundaryTokens);
     if (!boundary) return null;
     return Math.max(1, Math.min(boundary, targetTokens + reserveTokens));
 }
 
 function compactTargetBudgetForTrigger(boundaryTokens, targetTokens, reserveTokens, triggerTokens, singleShot = false, force = false) {
     const legacyTarget = legacyCompactTargetBudget(boundaryTokens, targetTokens, reserveTokens);
-    const trigger = positiveTokenInt(triggerTokens);
+    const trigger = positiveInt(triggerTokens);
     // Degenerate reserve/window combinations cannot leave any post-compact
     // headroom. Keep the legacy target and let the caller compact once only,
     // rather than inventing a zero/negative margin that would immediately loop.
@@ -88,9 +89,9 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
     const cfg = sessionRef.compaction || {};
     const auto = cfg.auto !== false && envFlag('MIXDOG_AGENT_COMPACT_AUTO', true);
     if (!auto) return { auto: false };
-    const contextWindow = positiveTokenInt(sessionRef.contextWindow ?? cfg.contextWindow);
-    const explicitBoundary = positiveTokenInt(sessionRef.compactBoundaryTokens ?? cfg.boundaryTokens);
-    const autoLimit = positiveTokenInt(sessionRef.autoCompactTokenLimit ?? cfg.autoCompactTokenLimit);
+    const contextWindow = positiveInt(sessionRef.contextWindow ?? cfg.contextWindow);
+    const explicitBoundary = positiveInt(sessionRef.compactBoundaryTokens ?? cfg.boundaryTokens);
+    const autoLimit = positiveInt(sessionRef.autoCompactTokenLimit ?? cfg.autoCompactTokenLimit);
     const boundaryTokens = explicitBoundary && contextWindow
         ? Math.min(explicitBoundary, contextWindow)
         : (explicitBoundary || contextWindow || autoLimit);
@@ -104,8 +105,8 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
     // re-persists a boundary-collapsing limit.
     const policy = resolveSessionCompactPolicy(sessionRef, compactBoundaryTokens);
     const explicitAutoCompactTokenLimit = policy.autoCompactTokenLimit;
-    const configuredReserve = positiveTokenInt(cfg.reservedTokens)
-        || envTokenInt('MIXDOG_AGENT_COMPACT_RESERVED_TOKENS')
+    const configuredReserve = positiveInt(cfg.reservedTokens)
+        || envPositiveInt('MIXDOG_AGENT_COMPACT_RESERVED_TOKENS')
         || 0;
     const requestReserve = estimateRequestReserveTokens(tools);
     const reserveTokens = requestReserve + configuredReserve;
@@ -139,14 +140,14 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
         compactTargetTokens,
         singleShot,
         contextWindow,
-        rawContextWindow: positiveTokenInt(sessionRef.rawContextWindow ?? cfg.rawContextWindow) || contextWindow,
+        rawContextWindow: positiveInt(sessionRef.rawContextWindow ?? cfg.rawContextWindow) || contextWindow,
         effectiveContextWindowPercent: Number.isFinite(Number(sessionRef.effectiveContextWindowPercent ?? cfg.effectiveContextWindowPercent))
             ? Number(sessionRef.effectiveContextWindowPercent ?? cfg.effectiveContextWindowPercent)
             : null,
         autoCompactTokenLimit: explicitAutoCompactTokenLimit,
-        handoffTimeoutMs: positiveTokenInt(cfg.timeoutMs) || envTokenInt('MIXDOG_AGENT_COMPACT_TIMEOUT_MS') || 30_000,
+        handoffTimeoutMs: positiveInt(cfg.timeoutMs) || envPositiveInt('MIXDOG_AGENT_COMPACT_TIMEOUT_MS') || 30_000,
         keepTokens,
-        preserveRecentTokens: positiveTokenInt(cfg.preserveRecentTokens) || envTokenInt('MIXDOG_AGENT_COMPACT_PRESERVE_RECENT_TOKENS') || keepTokens,
+        preserveRecentTokens: positiveInt(cfg.preserveRecentTokens) || envPositiveInt('MIXDOG_AGENT_COMPACT_PRESERVE_RECENT_TOKENS') || keepTokens,
         reserveTokens,
         requestReserveTokens: requestReserve,
         configuredReserveTokens: configuredReserve,
@@ -154,28 +155,6 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
         tokenCalibration: providerTokenCalibration(sessionRef.provider),
         toolSchemaSignature: toolSchemaSignature(tools),
     };
-}
-/**
- * Transcript + request reserve fallback used until an aligned provider
- * baseline exists. The transcript estimate and the serialized-tool-schema
- * reserve are both text the provider tokenizes, so the per-provider billing
- * calibration applies to them; a configured operator reserve is a raw token
- * allowance and stays uncalibrated. With no calibration on the policy the
- * result is the exact legacy sum (estimate + reserveTokens).
- */
-function compactPressureTokens(messageTokensEst, policy) {
-    if (messageTokensEst === null) return 0;
-    const calibration = Number(policy?.tokenCalibration) > 0 ? Number(policy.tokenCalibration) : 1;
-    const configured = Math.max(0, Number(policy?.configuredReserveTokens) || 0);
-    const totalReserve = Math.max(0, Number(policy?.reserveTokens) || 0);
-    // reserveTokens is the caller-facing override (tests/policies may zero it);
-    // the request-schema share can never exceed it.
-    const requestReserve = Math.min(
-        totalReserve,
-        Math.max(0, Number(policy?.requestReserveTokens ?? (totalReserve - configured)) || 0),
-    );
-    const otherReserve = Math.max(0, totalReserve - requestReserve);
-    return Math.max(0, Math.round((messageTokensEst + requestReserve) * calibration) + otherReserve);
 }
 
 // Provider-visible context estimate without operator-only compaction reserve.
@@ -222,7 +201,7 @@ export function recordContextUsageSnapshot(sessionRef, policy, {
         version: CONTEXT_USAGE_SNAPSHOT_VERSION,
         source: String(source || 'estimated'),
         usedTokens: Math.max(0, Math.round(used)),
-        limitTokens: positiveTokenInt(policy.triggerTokens || policy.boundaryTokens) || null,
+        limitTokens: positiveInt(policy.triggerTokens || policy.boundaryTokens) || null,
         messageTokensEst: messageEstimate,
         messageCount: messages.length,
         messagesSignature: contextMessagesSignature(messages),
@@ -233,9 +212,9 @@ export function recordContextUsageSnapshot(sessionRef, policy, {
         toolSchemaSignature: policy.toolSchemaSignature || null,
         provider: sessionRef.provider || policy.provider || null,
         model: sessionRef.model || null,
-        contextWindow: positiveTokenInt(policy.contextWindow || sessionRef.contextWindow) || null,
-        boundaryTokens: positiveTokenInt(policy.boundaryTokens) || null,
-        triggerTokens: positiveTokenInt(policy.triggerTokens || policy.boundaryTokens) || null,
+        contextWindow: positiveInt(policy.contextWindow || sessionRef.contextWindow) || null,
+        boundaryTokens: positiveInt(policy.boundaryTokens) || null,
+        triggerTokens: positiveInt(policy.triggerTokens || policy.boundaryTokens) || null,
         updatedAt: Math.max(0, Math.round(Number(updatedAt) || Date.now())),
     };
     sessionRef.contextUsageSnapshot = snapshot;
@@ -394,7 +373,7 @@ function providerBaselinePressureTokens(messages, sessionRef, policy, {
 } = {}) {
     if (!Array.isArray(messages) || !sessionRef
         || sessionRef.lastContextTokensStaleAfterCompact === true) return null;
-    let tokens = positiveTokenInt(sessionRef.contextPressureBaselineTokens);
+    let tokens = positiveInt(sessionRef.contextPressureBaselineTokens);
     const outputTokens = Math.max(0, Number(sessionRef.contextPressureBaselineOutputTokens) || 0);
     let count = Number(sessionRef.contextPressureBaselineMessageCount);
     const baselineAt = Number(sessionRef.contextPressureBaselineUpdatedAt || 0);
@@ -480,8 +459,8 @@ export function resolveContextTokensWithSource(messageTokensEst, policy, { messa
     // proactive-compaction signal: the next real provider response will either
     // refresh the anchor or return an overflow for the existing reactive path.
     if (sessionRef?.contextPressureUnanchoredAfterRestart === true) {
-        const lastActual = positiveTokenInt(sessionRef.contextPressureBaselineTokens)
-            || positiveTokenInt(sessionRef.lastContextTokens);
+        const lastActual = positiveInt(sessionRef.contextPressureBaselineTokens)
+            || positiveInt(sessionRef.lastContextTokens);
         if (lastActual) return { tokens: lastActual, source: 'provider_resume' };
     }
     return {
@@ -492,10 +471,6 @@ export function resolveContextTokensWithSource(messageTokensEst, policy, { messa
 
 export function resolveContextTokens(messageTokensEst, policy, options = {}) {
     return resolveContextTokensWithSource(messageTokensEst, policy, options).tokens;
-}
-
-export function resolveCurrentContextTokens(messageTokensEst, policy, options = {}) {
-    return resolveContextTokens(messageTokensEst, policy, options);
 }
 
 /**
@@ -518,17 +493,17 @@ export function compactionTelemetryPressureTokens(messageTokensEst, policy, {
 } = {}) {
     const base = resolveContextTokens(messageTokensEst, policy, { messages, sessionRef });
     if (!reactivePending) return base;
-    const floor = positiveTokenInt(policy?.triggerTokens) || positiveTokenInt(policy?.boundaryTokens) || 0;
+    const floor = positiveInt(policy?.triggerTokens) || positiveInt(policy?.boundaryTokens) || 0;
     return floor ? Math.max(base, floor) : base;
 }
 export function compactTargetBudget(policy) {
-    const boundary = positiveTokenInt(policy?.boundaryTokens);
+    const boundary = positiveInt(policy?.boundaryTokens);
     if (!boundary) return null;
     const reserve = Math.max(0, Number(policy?.reserveTokens) || 0);
-    const targetEffective = positiveTokenInt(policy?.compactTargetTokens)
+    const targetEffective = positiveInt(policy?.compactTargetTokens)
         || resolveCompactTargetTokens(boundary, policy)
         || boundary;
-    const trigger = positiveTokenInt(policy?.triggerTokens);
+    const trigger = positiveInt(policy?.triggerTokens);
     const singleShot = policy?.singleShot === true
         || (trigger > 0 && reserve >= trigger);
     return compactTargetBudgetForTrigger(
@@ -581,7 +556,7 @@ export function shouldCompactForSession(messageTokensEst, policy, {
 
 /** A last actual prompt size that no compaction has invalidated since. */
 function providerReadingBelowTrigger(sessionRef, trigger) {
-    const actual = positiveTokenInt(sessionRef?.lastContextTokens);
+    const actual = positiveInt(sessionRef?.lastContextTokens);
     if (!actual || !trigger || actual >= trigger) return false;
     if (sessionRef.lastContextTokensStaleAfterCompact === true) return false;
     const compactAt = Number(sessionRef.compaction?.lastChangedAt || sessionRef.compaction?.lastCompactAt || 0);
@@ -642,7 +617,7 @@ export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         currentEstimatedTokens: changed && meta.stage === 'pre_send'
             ? (meta.afterTokens ?? meta.pressureTokens ?? prev.currentEstimatedTokens ?? null)
             : (meta.pressureTokens ?? prev.currentEstimatedTokens ?? null),
-        lastApiRequestTokens: positiveTokenInt(sessionRef?.lastContextTokens) || prev.lastApiRequestTokens || null,
+        lastApiRequestTokens: positiveInt(sessionRef?.lastContextTokens) || prev.lastApiRequestTokens || null,
         lastStage: meta.stage || prev.lastStage || null,
         lastChanged: changed,
         lastTrigger: meta.trigger || prev.lastTrigger || null,
@@ -679,7 +654,7 @@ export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
             pressure: meta.pressureTokens ?? null,
             est: meta.messageTokensEst ?? meta.beforeTokens ?? null,
             trigger: policy.triggerTokens || policy.boundaryTokens || null,
-            baseline: positiveTokenInt(sessionRef.contextPressureBaselineTokens) || null,
+            baseline: positiveInt(sessionRef.contextPressureBaselineTokens) || null,
             baselineAt: Number(sessionRef.contextPressureBaselineUpdatedAt) || null,
         }].slice(-8);
     }
@@ -697,8 +672,8 @@ export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
     // boundary-sized autoCompactTokenLimit on the session is cleared here rather
     // than carried forward to re-collapse the buffer next turn.
     {
-        const _boundary = positiveTokenInt(sessionRef.compactBoundaryTokens);
-        const _prevLimit = positiveTokenInt(sessionRef.autoCompactTokenLimit);
+        const _boundary = positiveInt(sessionRef.compactBoundaryTokens);
+        const _prevLimit = positiveInt(sessionRef.autoCompactTokenLimit);
         const _keepPrev = _prevLimit && (!_boundary || _prevLimit < _boundary) ? _prevLimit : null;
         sessionRef.autoCompactTokenLimit = policy.autoCompactTokenLimit || _keepPrev || null;
     }

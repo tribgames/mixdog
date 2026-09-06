@@ -5,6 +5,7 @@
 // helper it used in manager.mjs is now imported from its split module.
 import { createHash, randomUUID } from 'crypto';
 import { getProvider } from '../../providers/registry.mjs';
+import { prepareTurnEffortConfiguration } from '../../providers/effort-configuration.mjs';
 import { readStreamOutcome } from '../../providers/lib/stream-outcome.mjs';
 import { cloneProviderReplay } from '../../providers/lib/provider-replay.mjs';
 import { classifyError } from '../../providers/retry-classifier.mjs';
@@ -23,7 +24,7 @@ import {
 } from '../../../../../session-runtime/goal-reminder.mjs';
 import { recordStandaloneStatusTelemetry } from './status-telemetry.mjs';
 import { normalizeStaleCompactingStage } from './compaction-runner.mjs';
-import { resolveSessionContextMeta, positiveContextWindow } from './context-meta.mjs';
+import { resolveSessionContextMeta } from './context-meta.mjs';
 import {
     promptContentText,
     hasModelVisiblePromptContent,
@@ -35,14 +36,13 @@ import {
     hasUserConversationMessage,
 } from './prompt-utils.mjs';
 import {
-    _groupPendingMessageEntries,
-    PENDING_MODE_TASK_NOTIFICATION,
-    acknowledgePendingMessages,
-    finalizePendingMessageDelivery,
-    drainPendingMessages,
-    hydratePendingMessages,
-    recordPendingMessageDelivery,
-    releasePendingMessages,
+  _groupPendingMessageEntries,
+  PENDING_MODE_TASK_NOTIFICATION,
+  finalizePendingMessageDelivery,
+  drainPendingMessages,
+  hydratePendingMessages,
+  recordPendingMessageDelivery,
+  releasePendingMessages,
 } from './pending-messages.mjs';
 import { persistIterationMetrics, applyAskTerminalUsageTotals } from './usage-metrics.mjs';
 import {
@@ -79,7 +79,7 @@ import { getAgentRuntimeSync } from './agent-runtime-singleton.mjs';
 import { recordProviderContextBaseline } from '../loop/compact-policy.mjs';
 import { runAbortable, settleWithin, throwIfAborted } from '../../../../shared/abort-race.mjs';
 
-export const DEFAULT_ASK_CLEANUP_SETTLE_MS = 2_000;
+const DEFAULT_ASK_CLEANUP_SETTLE_MS = 2_000;
 
 export async function settleAskCleanup(promise, { timeoutMs } = {}) {
     const configured = Number(process.env.MIXDOG_ASK_CLEANUP_SETTLE_MS);
@@ -120,7 +120,7 @@ export async function acknowledgeAskTextReset(askOpts, detail, onAcknowledged) {
     return true;
 }
 
-export function persistedAssistantTranscriptMetadata(value, fallbackAt = Date.now()) {
+function persistedAssistantTranscriptMetadata(value, fallbackAt = Date.now()) {
     if (!value || typeof value !== 'object') return null;
     const candidateAt = Number(value.assistantAt);
     const assistantAt = Number.isFinite(candidateAt) && candidateAt > 0 ? candidateAt : fallbackAt;
@@ -133,7 +133,7 @@ export function persistedAssistantTranscriptMetadata(value, fallbackAt = Date.no
     };
 }
 
-export function attachAssistantTranscriptCompletion(messages, completion, turnStartedAt = 0) {
+function attachAssistantTranscriptCompletion(messages, completion, turnStartedAt = 0) {
     if (!Array.isArray(messages) || !completion || typeof completion !== 'object') return false;
     const elapsedMs = Math.max(0, Number(completion.elapsedMs || 0));
     const status = typeof completion.status === 'string' && completion.status
@@ -531,6 +531,8 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             runtime.session = session;
             if (!provider)
                 throw new Error(`Provider "${session.provider}" not available`);
+            const turnEffort = session.effort || null;
+            const effortConfiguration = prepareTurnEffortConfiguration(session, provider);
             const contextMeta = resolveSessionContextMeta(provider, session.model, session);
             session.contextWindow = contextMeta.contextWindow;
             session.rawContextWindow = contextMeta.rawContextWindow;
@@ -581,7 +583,8 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                             messages: filterModelVisibleSessionMessages(session.messages),
                             model: session.model,
                             tools: session.tools,
-                            effort: session.effort || null,
+                            effort: turnEffort,
+                            effortConfiguration,
                             fast: session.fast === true,
                             modelParameters: session.modelParameters || {},
                             selectedContextWindow: session.selectedContextWindow || session.contextWindow || null,
@@ -658,6 +661,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             const _userTurnMeta = {
                 ...(_transcriptMeta ? { transcript: _transcriptMeta } : {}),
                 ...(_turnPromptSource || {}),
+                ...(effortConfiguration ? { effortConfiguration } : {}),
             };
             const outgoing = [...historyMessages, {
                 role: 'user',
@@ -769,7 +773,8 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             try {
             result = await _api_call_with_interrupt(sessionId, (signal) =>
                 agentLoop(provider, outgoing, session.model, session.tools, _trackedOnToolCall, effectiveCwd, {
-                    effort: session.effort || null,
+                    effort: turnEffort,
+                    effortConfiguration,
                     fast: session.fast === true,
                     modelParameters: session.modelParameters || {},
                     selectedContextWindow: session.selectedContextWindow || session.contextWindow || null,
@@ -982,7 +987,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                     ...(_providerReplay
                         ? { providerReplay: _providerReplay }
                         : {}),
-                    ...(typeof result.reasoningContent === 'string' && result.reasoningContent
+                    ...(typeof result.reasoningContent === 'string'
                         ? { reasoningContent: result.reasoningContent }
                         : {}),
                     ...(result.providerMetadata && typeof result.providerMetadata === 'object'
@@ -1024,6 +1029,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 session.messages.push({
                     role: 'assistant',
                     content: '',
+                    ...(typeof result.reasoningContent === 'string' ? { reasoningContent: result.reasoningContent } : {}),
                     emptyFinal: true,
                     ...(_assistantTranscriptMeta ? { meta: { transcript: _assistantTranscriptMeta } } : {}),
                     stopReason: _emptyStop,

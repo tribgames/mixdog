@@ -16,13 +16,11 @@
 //
 // Public API:
 //   ensureWhisperRuntime(dataDir, onProgress?) → { whisperCmd, version, variantId }
-//   ensureWhisperModel(dataDir, onProgress?)   → { modelPath, modelId, size }
+//   ensureWhisperModel(dataDir, onProgress?, modelId?) → { modelPath, modelId, size }
 //   ensureFfmpegRuntime(dataDir, onProgress?)  → { ffmpegPath, version }
-//   resolveManagedWhisperCmd(dataDir)     → string | null  (read-only check)
-//   resolveManagedWhisperModel(dataDir)   → string | null  (read-only check)
-//   resolveManagedFfmpegPath(dataDir)     → string | null  (read-only check)
-//   resolveVoiceRuntime(dataDir)          → runtime descriptor; managed
+//   resolveVoiceRuntime(dataDir, { modelId }?) → runtime descriptor; managed
 //                                           whisper.cpp only
+//   selectVoiceModelId()                  → the configured whisper model id
 
 import { createHash } from 'crypto'
 import {
@@ -31,7 +29,6 @@ import {
   readFileSync, readdirSync, rmSync, writeFileSync,
 } from 'fs'
 import { setTimeout as sleep } from 'timers/promises'
-import { readFile } from 'fs/promises'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { pipeline } from 'stream/promises'
@@ -39,6 +36,7 @@ import { spawnSync } from 'child_process'
 import { createGunzip } from 'zlib'
 import { renameWithRetrySync, writeFileAtomicSync } from '../../shared/atomic-file.mjs'
 import { streamResponseToFile } from '../../shared/bounded-download.mjs'
+import { platformKey, sha256File, verifySha256File } from '../../shared/native-asset.mjs'
 import { windowsProgramRoots, windowsSystemRoot } from '../../agent/orchestrator/tools/builtin/windows-roots.mjs'
 // The standard multilingual model is the only managed model. Legacy
 // voice.model values are accepted by callers but converge here.
@@ -83,11 +81,6 @@ function _installLockTokenMatches(lockPath, expectedPid, expectedTs, expectedTok
   return current?.pid === expectedPid &&
     Object.is(current.ts, expectedTs) &&
     current.token === expectedToken
-}
-
-function platformKey() {
-  const os = process.platform === 'win32' ? 'win32' : process.platform
-  return `${os}-${process.arch}`
 }
 
 // Raised when the running OS×arch has no manifest coverage (e.g. linux-arm64).
@@ -242,16 +235,8 @@ async function loadManifest(dataDir) {
   return manifest
 }
 
-async function sha256File(filePath) {
-  const data = await readFile(filePath)
-  return createHash('sha256').update(data).digest('hex')
-}
-
-async function verifySha256(filePath, expected) {
-  const actual = await sha256File(filePath)
-  if (actual !== expected) {
-    throw new Error(`[voice-runtime] sha256 mismatch for ${filePath}: expected ${expected}, got ${actual}`)
-  }
+function verifySha256(filePath, expected) {
+  return verifySha256File(filePath, expected, '[voice-runtime]')
 }
 
 // Deterministic CUDA toolkit detection on Windows.
@@ -572,7 +557,7 @@ export async function ensureWhisperRuntime(dataDir, onProgress = null) {
 // Reported separately from `installed` on purpose: the old runtime still WORKS,
 // so the transcribe hot path must keep using it (offline, mid-install), while
 // the install path treats this as "re-fetch".
-export function isManagedWhisperStale(dataDir) {
+function isManagedWhisperStale(dataDir) {
   const activeFile = join(dataDir, 'voice-runtime', 'active-version')
   if (!existsSync(activeFile)) return false
   const activeName = readFileSync(activeFile, 'utf8').trim()
@@ -623,15 +608,6 @@ function resolveManagedWhisperCmd(dataDir) {
     if (existsSync(p)) return p
   }
   return null
-}
-
-// Read-only resolver matching the managed model layout. The bundled manifest
-// path is read synchronously because this runs on the per-message hot path
-// and an async fetch would add latency to every voice transcribe.
-function resolveManagedWhisperModel(dataDir) {
-  if (!existsSync(BUNDLED_MANIFEST_PATH)) return null
-  const manifest = JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'))
-  return resolveManagedWhisperModelForId(manifest, dataDir, 'standard')
 }
 
 function resolveManagedWhisperModelById(dataDir, modelId = 'standard') {
@@ -799,34 +775,6 @@ export function resolveVoiceRuntime(dataDir, { modelId = 'standard' } = {}) {
     modelName: managedModelPath ? managedModelPath.split(/[\\/]/).pop() : '',
     ffmpegPath: managedFfmpegPath,
   }
-}
-
-/**
- * Explicit uninstall counterpart to ensureWhisperRuntime + ensureWhisperModel.
- *
- * This is deliberately NOT part of the Voice ON/OFF lifecycle: OFF preserves
- * the runtime and model so a later ON is instant. A future explicit storage
- * cleanup action may call this helper to remove both.
- *
- * The managed ffmpeg runtime is deliberately KEPT — it is shared with non-voice
- * media paths and is two orders of magnitude smaller.
- *
- * @returns {string[]} removed directory labels (empty when nothing was present)
- */
-export function removeManagedVoiceRuntime(dataDir) {
-  const removed = []
-  for (const parts of [['voice-runtime'], ['voice', 'models']]) {
-    const target = join(dataDir, ...parts)
-    if (!existsSync(target)) continue
-    try {
-      rmSync(target, { recursive: true, force: true })
-      removed.push(parts.join('/'))
-    } catch (err) {
-      // A locked file (transcribe in flight) must not fail the toggle itself.
-      process.stderr.write(`[voice-runtime] uninstall skipped ${parts.join('/')}: ${err?.message || err}\n`)
-    }
-  }
-  return removed
 }
 
 // Single managed location for the whisper model weight file. Idempotent: if

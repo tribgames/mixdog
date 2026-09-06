@@ -12,8 +12,8 @@ Microsoft Office installed.
 | `authoring/` | The `author` action — the only way a deck is made: `pptx-script-contract.mjs` (what a script may require and how long it may run; the model-facing guide is the built-in `pptx` skill in `src/defaults/skills/pptx`), `pptx-script-runner.mjs` (runs a pptxgenjs script in-process with a scoped `require`, injecting `MEASURE` and `ICON`), `pptx-script-normalize.mjs` (paragraph properties, hanging punctuation, accent-series merge), `pptx-author-action.mjs` (writes the deck, opens an `authored` session, renders, returns the composition receipt and contact sheet), `pptx-receipt.mjs`, `pptx-contact-sheet.mjs`, `pptx-icons.mjs` + `pptx-icons.json` (offline Lucide subset built by `npm run office:icons`), `pptx-brief.mjs`. Sits beside the root and imports `core`. |
 | `core/` | Sessions, transactions, journal, snapshot pagination, tabular sessions, and the action pipeline (`office-actions-*.mjs`). |
 | `com/` | Windows-native path: `com-adapter.mjs` plus the PowerShell hosts `office-com-host.ps1` and `office-com-session-host.ps1`. |
-| `portable/` | OOXML read/write without Office, package validation, XLSX contracts, text and image metrics. |
-| `pdf/` | PDF adapter, analysis (text layout, OCR, tables), page rendering, document preview. |
+| `portable/` | OOXML read/write without Office, package validation, XLSX contracts, the backend-neutral XLSX audits shared by portable `issues`, Excel's `issues` merge, and the quality review (`xlsx-audit-support.mjs` cell reading and the capped issue list, `xlsx-sheet-hygiene.mjs` every-profile hygiene and layout information, `xlsx-formula-audit.mjs` the financial-model discipline and the orchestration), the workbook conventions summary a snapshot carries (`xlsx-conventions.mjs`), LibreOffice recalculation with its error summary, text and image metrics. |
+| `pdf/` | `pdf-adapter.mjs` (session surface: snapshot, batch — including the marks `highlight`, `add_link`, `preview_fields` — validate, issues; re-exports `createPdf`), `pdf-writer.mjs` (blocks → pages, tables, page numbers), `pdf-forms.mjs` (field lint, add, describe, fill), `pdf-draw.mjs` (colors, page sizes, wrapping, images), `pdf-fonts.mjs` (system Unicode font fallback shared by create, marks, forms, and OCR), `pdf-analysis.mjs` (text layout with rules, boxes, and links, ruled and aligned tables, images, OCR), `pdf-search.mjs` (text search over a layout: lines from runs, glyph-width placement, whole words), `pdf-safety.mjs` (active-content report: JavaScript, Launch, non-web links), `pdf-render.mjs`, `pdf-security.mjs` (qpdf), `document-preview.mjs`. |
 | `design/` | Design tokens, content model, composition, creative direction for the Word and Excel composers (`compose_document`, `compose_sheet`); `design-discipline.mjs` owns the safe typeface list, palette repair (tinted dark fields, WCAG contrast, paired accent tints), and the brief rules; `docx/`, `xlsx/` format compilers; `library/` template library with the bundled `templates/`. Decks are never composed here — a slide is authored by the model as a script (`authoring/`), and `compose_slide` is refused with that route. |
 | `quality/` | Reviews and gates: `assurance-*.mjs` (trust, structure, rendered pages, checklist), aesthetics, design review, scoring, visual diff. |
 | `bench/` | Benchmarks behind `npm run bench:office*`; `bench-support.mjs` holds the shared tool-call helpers. |
@@ -42,7 +42,10 @@ the physical sidecar at runtime. Moving these files means updating that list and
 
 ## Tests and benchmarks
 
-- `npm test -- src/runtime/office` runs the unit suites: `office-runtime-{contract,com,portable,pdf,design}.test.mjs`,
+- `npm test -- src/runtime/office` runs the unit suites: `office-runtime-{contract,com,portable,pdf,pdf-marks,design}.test.mjs`
+  (the PDF suite builds its own RC4-encrypted fixture, so no binary PDF is checked in),
+  `xlsx-formula-audit` (the formula audit, conventions, recalculation summary, and style helpers without the runtime),
+  `xlsx-portable-snapshot` (the portable workbook reader end to end),
   `portable-authoring`, `office-authoring`, `office-assurance`, `office-design-aesthetics`, `office-design-discipline`,
   `slide-quality`, `authoring/pptx-brief`, `authoring/pptx-receipt`, plus the desktop approval test; `pptx-skill-kit.slow`
   and `portable-authoring.slow` author real decks.

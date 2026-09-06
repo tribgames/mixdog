@@ -6,11 +6,12 @@ import { callMicrosoftOffice } from '../com/com-adapter.mjs';
 import { applyPortableOoxmlBatch, clearPortablePresentationSlides } from '../portable/portable-ooxml.mjs';
 import { applyPdfBatch } from '../pdf/pdf-adapter.mjs';
 import { assertOfficeOperationContracts } from '../capabilities.mjs';
-import { validateXlsxOperations } from '../portable/xlsx-contract.mjs';
+import { quoteUnquotedSheetReferences, validateXlsxOperations } from '../portable/xlsx-contract.mjs';
 import { applyTabularBatch } from './tabular.mjs';
 import { expandOfficeDesignOperations } from '../design/design-system.mjs';
 import { createPptxSlideSelection } from '../design/library/design-library.mjs';
 import { assertOfficeMutationAllowed } from '../quality/assurance.mjs';
+import { inlineOfficeAudit } from '../quality/inline-audit.mjs';
 import { TABULAR_FORMATS, isMicrosoftOfficeSession, mergeOfficeDesignRequest } from './office-core.mjs';
 import { fullPath, trustForMutation } from './office-sessions.mjs';
 import {
@@ -59,8 +60,19 @@ export async function applyBatch(session, args) {
         if (operation?.path && pathOperations.has(String(operation.op || ''))) {
           normalized = { ...normalized, path: fullPath(operation.path, args.__cwd || dirname(session.target)) };
         }
-        if (operation?.fontPath && ['add_text', 'watermark', 'ocr_pages'].includes(String(operation.op || ''))) {
+        if (operation?.fontPath && ['add_text', 'watermark', 'ocr_pages', 'fill_form', 'add_form_field', 'flatten_form'].includes(String(operation.op || ''))) {
           normalized = { ...normalized, fontPath: fullPath(operation.fontPath, args.__cwd || dirname(session.target)) };
+        }
+        if (operation?.op === 'merge_pdf' && Array.isArray(operation.sources)) {
+          normalized = {
+            ...normalized,
+            sources: operation.sources.map((entry) => (typeof entry === 'string'
+              ? fullPath(entry, args.__cwd || dirname(session.target))
+              : entry?.path ? { ...entry, path: fullPath(entry.path, args.__cwd || dirname(session.target)) } : entry)),
+          };
+        }
+        if (operation?.output && ['extract_pages', 'split_pages', 'extract_attachment'].includes(String(operation.op || ''))) {
+          normalized = { ...normalized, output: fullPath(operation.output, args.__cwd || dirname(session.target)) };
         }
         return normalized;
       })
@@ -79,6 +91,15 @@ export async function applyBatch(session, args) {
     operations,
   });
   if (session.format === 'xlsx' || TABULAR_FORMATS.has(session.format)) validateXlsxOperations(operations);
+  // Excel rejects `My Sheet!A1` outright; the portable writer quotes it from
+  // the sheet list, and an Excel session gets the same courtesy here.
+  if (session.format === 'xlsx' && isMicrosoftOfficeSession(session)) {
+    for (const operation of operations) {
+      if (operation?.op === 'set_formula' && typeof operation.formula === 'string') {
+        operation.formula = quoteUnquotedSheetReferences(operation.formula);
+      }
+    }
+  }
   const transaction = session.transaction;
   if (transaction) {
     await assertTransactionUnchanged(session);
@@ -221,7 +242,13 @@ export async function applyBatch(session, args) {
     }
     results = (Array.isArray(results) ? results : [results])
       .filter((entry) => entry && typeof entry === 'object' && !Array.isArray(entry));
-    const noChange = results.filter((entry) => entry.changed === false);
+    // An operation may declare allowNoChange (a routine normalize_runs, a
+    // fit_text that already fits); the Office host honours it per entry and
+    // the portable path does the same when results map onto operations.
+    const aligned = results.length === operations.length;
+    const noChange = results.filter((entry, index) => (
+      entry.changed === false && !(aligned && operations[index]?.allowNoChange === true)
+    ));
     if (args.requireChanges !== false && noChange.length && session.backend !== 'microsoft-office-com') {
       throw new Error(`Office batch produced no change for: ${noChange.map((entry) => entry.op || 'operation').join(', ')}`);
     }
@@ -266,6 +293,10 @@ export async function applyBatch(session, args) {
     session.snapshotVersion = Number(session.snapshotVersion || 0) + 1;
     session.designState.renderedVersion = null;
     session.backgroundIsolation = backgroundIsolation;
+    // The measured read rides on the mutation result so a fit, bounds, or
+    // package fault surfaces in the turn that caused it; qa owns the full
+    // review and passes audit:false for its own repair batches.
+    const audit = args.audit === false ? null : await inlineOfficeAudit(session, { operations });
     return {
       ok: true,
       session: session.id,
@@ -280,6 +311,7 @@ export async function applyBatch(session, args) {
         changed: results.filter((entry) => entry.changed === true).length,
         noChange: noChange.length,
       },
+      ...(audit ? { audit } : {}),
       design: session.design,
       semanticOperations: prepared.semantic,
       ...(backgroundIsolation ? { backgroundIsolation } : {}),

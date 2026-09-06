@@ -5,6 +5,151 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- The pdf skill and runtime take the inspect-first discipline of the
+  reference PDF skills. Reading: a snapshot reports `encrypted` and
+  `passwordRequired` instead of pdf-lib's own error, `open`/`snapshot` with
+  `password` read a locked file's text for that call without keeping the
+  password, every edit on an encrypted file points at `secure` → decrypt,
+  pages carry their size and rotation, bookmarks come back under `outline`
+  with the page each opens, and text extraction (office snapshots, chat
+  attachments, the read tool) keeps line ends as newlines so paragraphs and
+  table rows survive. Forms: fields expose the
+  `text|checkbox|radio|dropdown|optionlist` type, `options`, `readOnly`, and
+  `multiline` a fill needs; `fill_form` names an unknown field or option
+  together with what exists and reports `filled`; `add_form_field` and
+  `create` accept `optionlist`, `required`, `readOnly`, `maxLength`, and
+  `fontSize`; the lint flags a box too small to use (`formIssues` on create,
+  `field_too_small` in `issues`); `preview_fields` writes a copy with every
+  field and any proposed box outlined and named so a render shows placement
+  before a fill; a dropdown or list with Korean options no
+  longer fails at creation because the widget is painted with the embedded
+  face from the start; and a multiline field defaults to 11 pt instead of
+  pdf-lib's auto size, which drew the first line huge and dropped the rest.
+  Fonts: `create`, `add_text`, `watermark`, `fill_form`, and OCR embed an
+  installed Unicode font on their own when the text is Korean, CJK,
+  Cyrillic, or Greek (`pdf-fonts.mjs`; `fontPath` still chooses; `detect`
+  names the face as `portable.pdfUnicodeFont`). Writing: `create` wraps
+  unspaced prose by character, honours `\n`, wraps table cells and grows
+  rows, repeats the header after a page break, numbers multi-page output,
+  and accepts `columnWidths`, heading `level`, image `align`, `orientation`,
+  `footer`, and more page sizes. Editing: `merge_pdf` takes `sources:[path | { path,
+  pages, title }]`, `index`, and `bookmarks:true`; `add_bookmark` writes an
+  outline entry; `extract_pages` writes to `output` and `split_pages` one
+  numbered file per page or per `every` pages without touching the session
+  document; `extract_attachment` round-trips embedded files; `rotate_pages`
+  adds to the current rotation; `delete_pages` keeps one page; `compress`
+  reports `bytesBefore`/`bytesAfter`; `add_text` takes `align:'center'|'right'`
+  and numbers an existing file through `{page}`/`{pages}`; `highlight` marks
+  every match of `find` (or one box; `wholeWord`, `regex`, and `first` narrow
+  it) with a multiply-blend mark that leaves the text legible; `add_link`
+  lays an invisible link over a match that opens a URL or another page, or
+  with `urls:true` makes every http(s) address in the text open itself;
+  `stamp_image` fits inside the margins unless sized;
+  `issues` no longer reports a scanned page twice and names active content
+  (`active_content`: JavaScript, Launch, actions on open, links to files or
+  other non-web schemes) without following it. Analysis: `pdf-layout` with
+  `query` returns only the matches with their boxes; its text boxes follow
+  the run on rotated pages and for diagonal text, it and the snapshot report
+  `origin` when a page box does not start at 0,0. Marks by `find` invert the
+  display transform to handle both origin offsets and 90/180/270-degree page
+  rotations without reorienting the document; `first:true` preserves document
+  row order at every rotation. The layout lists each page's
+  links (`url` or the target `page`) and adds each page's rules (`lines`) and
+  `boxes` (small squares flagged `checkbox`), which is what filling a form
+  that has no fields needs; `pdf-tables` reads a bordered table from its
+  cell rectangles (`source:'ruled'`, wrapped cells intact) before the
+  text-alignment guess (`source:'alignment'`) and writes one CSV per table
+  when `output:<dir>` is given, as `pdf-images` writes PNG files and reports
+  where each picture sits on the page; OCR fits
+  each invisible word to its box so the text layer keeps single spaces. Page
+  previews (`render`, `qa`, `finalize`) hand pdf.js its bundled standard
+  fonts, so a page set in Helvetica or Times no longer renders
+  letter-spaced. The adapter is split into `pdf-writer`, `pdf-forms`,
+  `pdf-draw`, and `pdf-fonts`, and the skill is rewritten as inspect →
+  create → edit → secure → verify with the qpdf requirement (PATH or
+  `MIXDOG_QPDF_PATH`), the permission-bits caveat, and the in-place-text
+  limit stated.
+
+- The xlsx skill and runtime take the modelling discipline a reader expects
+  of a spreadsheet: a backend-neutral formula audit (shared by portable
+  `issues` and the quality review) reports an unquoted multi-word sheet
+  reference, an external-workbook link, a percentage stored as a whole
+  number, a year under a thousands separator, and a figure stored as text
+  for every workbook (plus, as information, a long sheet whose header is
+  not frozen and a table column of numbers under General), and
+  under `auditProfile:'financial-model'` an inline rate in a formula, an
+  unguarded division, a lone formula that breaks its row or column pattern,
+  a single reference past the sheet's populated extent (the off-by-one that
+  recalculates cleanly), a hardcode inside a formula row, and inputs
+  indistinguishable from
+  formulas, plus an input a formula reads that carries no source note and a
+  Checks-sheet tie-out that evaluates FALSE — on both backends, since Excel's
+  `issues` now folds the shared audit into the host's own findings. Snapshots
+  expose each styled cell's number format, font, color, and fill (Excel's BGR
+  integers normalize to the same RRGGBB shape), legacy notes per cell and per
+  sheet, Excel tables per sheet (records inside one are data the table
+  sources, so the audit asks for a note only on assumptions outside it),
+  merged ranges and freeze panes in Excel's shape,
+  booleans as booleans, the workbook `defaultStyle`, and a
+  `document.conventions` summary (default face, faces in use, number formats
+  by column, input markers, sample inputs) so an edit can match the file's
+  own conventions; `set_formula` quotes the multi-word sheet names the
+  workbook holds (and, on both backends, any multi-word name written
+  before `!` and a reference) and reports the `normalizedFormula`, LibreOffice
+  recalculation returns a `status` with `totalErrors`, an `errorSummary` by
+  error type and cell, and the `unparsedFormulas` LibreOffice wrote back in
+  lower case, and `finalize` refuses a workbook whose recalculation found any
+  error even when the review was skipped. The skill rewrites its rules around zero
+  formula errors, formulas over pasted results, literal specs, documented
+  assumptions, the fill-in legend, and matching an existing file's
+  conventions, with `references/model-conventions.md` for colors, number
+  formats, structure, the Checks sheet, and sourcing.
+
+- The pptx skill opens with a route table — a new deck is an `author`
+  script, an existing deck is `open` → `snapshot` → `batch`, and reading is a
+  paged `snapshot` or the source extractor — and resolves its script paths
+  through `${MIXDOG_SKILL_DIR}`, so page QC, the independent reviewer, and
+  `source-extract.mjs` (moved into the skill with a test) run from any
+  Project. The editing section names the pitfalls the runtime actually has:
+  a duplicated slide shares its chart part with its source, template
+  decoration stays where the placeholder's line count put it, and a script
+  that declares its own `pres` inherits pptxgenjs's 10 × 5.625 in canvas.
+  The docx, xlsx, and pdf skills add the triggers users actually write
+  ("Word", "Excel", "PDF 읽어", "PDF 만들어"), and the docx skill says how a
+  snapshot shows a line break.
+
+- Portable PowerPoint editing resolves a chart's relationship target the way
+  the package does: pptxgenjs writes it as an absolute part name
+  (`/ppt/charts/chart1.xml`), which `set_chart_data` and the other chart
+  operations on an authored deck used to report as a missing part. Portable
+  snapshots now keep line breaks and paragraph ends as newlines — a deck's
+  shape and notes text, and a Word document's paragraph, cell, comment,
+  revision, note, and content-control text — instead of running "4주차" and
+  "잔존율" together.
+
+- Pane tab strips animate adds and closes on the chrome clock: a new tab grows
+  in from nothing while its neighbours shrink, so the run never overflows the
+  strip and slides back, and a closed tab collapses in place while the
+  survivors glide into its space instead of jumping. A draft promoted to its
+  session still swaps instantly, and the strip drops its unused width-hold
+  state.
+
+- Office authoring gains three output-quality structures: `author` and
+  `batch` return a measured `audit` (fit, bounds, contrast, spacing, package)
+  with per-slide counts and a same-turn fix mandate that counts its rounds;
+  `author` refuses to land a deck whose figures have no fact behind them
+  (`facts_gate`) unless the brief declares `facts: sample`, which carries an
+  illustrative-figures disclosure through qa and finalize; and the pptx skill
+  ships `scripts/qc-pages.mjs`, a per-page fixer that runs one fresh session
+  per slide with the office tool alone and adopts its working copy only when
+  the page's measured defects did not grow and no other slide changed.
+
+- Skills split their listing line into a one-sentence description and a
+  `when_to_use` trigger; the model's skill list shows `description — trigger`
+  cut at 250 characters, the skill editor gains a separate Trigger field, the
+  skill-creator validator warns when a listing line will be cut, and every
+  built-in skill is rewritten to the new shape.
+
 ## v0.9.161 - 2026-09-03
 
 - The session Goal island aligns its task list with the collapsed header,

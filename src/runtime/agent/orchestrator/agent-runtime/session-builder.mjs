@@ -21,7 +21,6 @@ import { createSession } from '../session/manager.mjs';
 import { traceAgentPreset } from '../agent-trace.mjs';
 import { resolveAgentSessionPermission } from '../internal-agents.mjs';
 import { loadConfig } from '../config.mjs';
-import { AGENT_OWNER } from '../agent-owner.mjs';
 
 function normalizeAgentCompactionConfig(value = {}) {
     const raw = value && typeof value === 'object' ? value : {};

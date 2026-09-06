@@ -50,6 +50,7 @@ export type TranscriptRowModel =
       key: string;
       turnKey: string;
       item?: TranscriptItem;
+      failures: { turnKey: string; item?: TranscriptItem }[];
     };
 
 export function isCompletionTranscriptItem(item: TranscriptItem | undefined): boolean {
@@ -212,8 +213,23 @@ export function projectSettledTranscriptRows({
     pendingToolActivity = [];
   };
   const pushFailure = (turnKey: string, item?: TranscriptItem) => {
+    // Hidden continuation/recovery turns do not create another visible error
+    // surface. Any visible prompt, output or tool activity seals this run.
+    const previous = builder.rows.at(-1);
+    if (previous?._tag === "Error") {
+      previous.failures.push({ turnKey, item });
+      builder.rows[builder.rows.length - 1] = {
+        ...previous, turnKey, item,
+      };
+      builder.currentTurnKey = turnKey;
+      builder.previousRowWasUser = false;
+      return;
+    }
     beginBuilderTurn(builder, sessionKey, turnKey);
-    builder.rows.push({ _tag: "Error", key: `${sessionKey}:failed:${turnKey}`, turnKey, item });
+    builder.rows.push({
+      _tag: "Error", key: `${sessionKey}:failed:${turnKey}`, turnKey, item,
+      failures: [{ turnKey, item }],
+    });
     builder.previousRowWasUser = false;
   };
   items.forEach((item, index) => {

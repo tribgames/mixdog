@@ -8,6 +8,7 @@ import {
 } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { rendererDependencyFiles } from './renderer-dependencies.mjs';
 
 const relayDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const desktopDir = resolve(relayDir, '../desktop');
@@ -64,7 +65,7 @@ async function walkFiles(input, files = [], knownType = '') {
   entries.sort((left, right) => left.name.localeCompare(right.name));
   for (const entry of entries) {
     const path = join(input, entry.name);
-    if (entry.isFile()) files.push(path);
+    if (entry.isFile() && !ignoredSource.test(path)) files.push(path);
     else if (entry.isDirectory()) await walkFiles(path, files, 'directory');
     else await walkFiles(path, files);
   }
@@ -89,9 +90,12 @@ export function rendererManifestForFingerprint(manifest) {
   return normalized;
 }
 
-export async function fingerprint(inputs) {
-  const files = [];
-  for (const input of inputs) await walkFiles(input, files);
+export async function fingerprint(inputs, { followImports = false } = {}) {
+  const initial = [];
+  for (const input of inputs) await walkFiles(input, initial);
+  const files = followImports
+    ? await rendererDependencyFiles(initial)
+    : [...new Set(initial)];
   files.sort((left, right) => left.localeCompare(right));
   const details = new Array(files.length);
   await mapPool(files, 16, async (file, index) => {
@@ -157,7 +161,7 @@ export function decideDeployPlan({
 
 async function createPlan(statePath, planPath) {
   const [renderer, relay, previous] = await Promise.all([
-    fingerprint(rendererInputs),
+    fingerprint(rendererInputs, { followImports: true }),
     fingerprint(relayInputs),
     readJson(statePath),
   ]);

@@ -1,4 +1,5 @@
 import { BrowserWindow, globalShortcut, screen, type Display } from 'electron';
+import { join } from 'node:path';
 import {
   computerUseCoordinator,
   type ComputerUseSnapshot,
@@ -8,16 +9,13 @@ import {
 } from './model';
 import { createComputerUseCursorOverlay } from './cursor-overlay';
 import { registerComputerUseInternalWindow } from './internal-windows';
+import { overlayHtml, overlayScript, OVERLAY_WIDTH, OVERLAY_HEIGHT } from './content';
+import { createComputerOverlayController, type ComputerUseOverlayControls } from './controls';
+import { bindComputerOverlayControls } from './ipc-controls';
+export type { ComputerUseOverlayControls } from './controls';
 
-const OVERLAY_WIDTH = 312;
-const OVERLAY_HEIGHT = 76;
 const OVERLAY_FADE_OUT_MS = 180;
 const STOP_SHORTCUT = 'CommandOrControl+Alt+Escape';
-
-export interface ComputerUseOverlayControls {
-  /** End the agent turns of every session using the computer. */
-  stop(sessionIds: string[]): Promise<void>;
-}
 
 export interface ComputerUseOverlay {
   dispose(): void;
@@ -26,62 +24,6 @@ export interface ComputerUseOverlay {
 interface OverlayWindowEntry {
   window: BrowserWindow;
   lastRenderedPresentation: string;
-}
-
-function overlayHtml(locale: string): string {
-  const ko = locale.toLowerCase().startsWith('ko');
-  const stopLabel = ko ? '중단' : 'Stop';
-  return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'none'">
-  <style>
-    :root { color-scheme: dark; font-family: "Segoe UI", system-ui, sans-serif; }
-    * { box-sizing: border-box; }
-    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
-    body { display: flex; align-items: flex-start; justify-content: center; padding: 10px; }
-    #pill {
-      display: flex; align-items: center; gap: 14px;
-      padding: 10px 10px 10px 18px; border: 1px solid color-mix(in srgb, var(--accent) 58%, #ffffff22);
-      border-radius: 999px; background: rgba(15, 18, 24, .94);
-      box-shadow: 0 10px 34px rgba(0,0,0,.4), inset 0 0 0 1px rgba(255,255,255,.035);
-      backdrop-filter: blur(18px); opacity: 1; transform: translateY(0) scale(1);
-      transition: opacity 180ms ease, transform 180ms ease;
-    }
-    body.hiding #pill { opacity: 0; transform: translateY(-4px) scale(.985); }
-    #dot { width: 11px; height: 11px; flex: 0 0 auto; border-radius: 999px; background: var(--accent); box-shadow: 0 0 14px var(--accent); }
-    #title { white-space: nowrap; color: #f4f7fb; font-size: 16px; font-weight: 650; line-height: 22px; }
-    button {
-      appearance: none; border: 1px solid rgba(255,255,255,.12); border-radius: 999px;
-      background: rgba(255,255,255,.075); color: #ffb4b4; padding: 0;
-      width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center;
-      font: 600 14px/1 "Segoe UI", system-ui, sans-serif; cursor: pointer; flex: 0 0 auto;
-    }
-    button:hover { background: rgba(255,120,120,.18); }
-    button svg { display: block; }
-  </style>
-</head>
-<body>
-  <div id="pill">
-    <div id="dot"></div>
-    <div id="title"></div>
-    <button id="stop" title="${stopLabel}" aria-label="${stopLabel}"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="10" height="10" rx="2" fill="currentColor"/></svg></button>
-  </div>
-  </body>
-</html>`;
-}
-
-function overlayScript(): string {
-  return `(() => {
-    document.getElementById('stop').onclick = () => { location.href = 'mixdog-computer-overlay://stop'; };
-    window.mixdogComputerOverlay = (state) => {
-      document.body.classList.remove('hiding');
-      document.documentElement.style.setProperty('--accent', state.accent || '#58a6ff');
-      document.getElementById('title').textContent = state.title || '';
-    };
-    window.mixdogComputerOverlayHide = () => document.body.classList.add('hiding');
-  })();`;
 }
 
 function overlayBounds(display: Display): Electron.Rectangle {
@@ -105,14 +47,14 @@ export function createComputerUseOverlay(
   let latestSnapshot: ComputerUseSnapshot = computerUseCoordinator.snapshot();
   let latestPresentation = computerUseOverlayPresentation(latestSnapshot, locale);
   let hideTimer: NodeJS.Timeout | null = null;
+  let renderRevision = 0;
+  const controller = createComputerOverlayController(controls, () => {
+    if (!disposed) void render().catch(() => {});
+  });
 
   const stop = (): void => {
-    void controls.stop(latestPresentation.sessionIds).catch(() => {});
+    void controller.invoke('stop', latestPresentation.generation, latestPresentation.sessionIds);
   };
-  const invokeControl = (action: string): void => {
-    if (action === 'stop') stop();
-  };
-
   const liveEntries = (): OverlayWindowEntry[] =>
     [...windows.values()].filter((entry) => !entry.window.isDestroyed());
 
@@ -133,6 +75,7 @@ export function createComputerUseOverlay(
       skipTaskbar: true,
       transparent: true,
       webPreferences: {
+        preload: join(__dirname, '../preload/computer-overlay.js'),
         backgroundThrottling: false,
         contextIsolation: true,
         nodeIntegration: false,
@@ -152,15 +95,8 @@ export function createComputerUseOverlay(
       // Best effort on Electron/Windows combinations without workspace flags.
     }
     next.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    next.webContents.on('will-navigate', (event, url) => {
-      if (!url.startsWith('mixdog-computer-overlay://')) return;
-      event.preventDefault();
-      try {
-        invokeControl(new URL(url).hostname);
-      } catch {
-        // Ignore malformed local control URLs.
-      }
-    });
+    next.webContents.on('will-navigate', (event) => event.preventDefault());
+    bindComputerOverlayControls(next.webContents, controller, controls, () => latestPresentation);
     next.on('closed', () => {
       unregisterInternalWindow();
       if (windows.get(display.id)?.window === next) windows.delete(display.id);
@@ -168,7 +104,7 @@ export function createComputerUseOverlay(
     await next.loadURL(
       `data:text/html;base64,${Buffer.from(overlayHtml(locale)).toString('base64')}`,
     );
-    await next.webContents.executeJavaScript(overlayScript());
+    await next.webContents.executeJavaScript(overlayScript(locale));
     if (disposed) {
       next.destroy();
       throw new Error('Computer Use overlay disposed during creation');
@@ -236,8 +172,10 @@ export function createComputerUseOverlay(
   };
 
   const render = async (): Promise<void> => {
+    const currentRender = ++renderRevision;
     const revision = latestSnapshot.revision;
-    const presentation = computerUseOverlayPresentation(latestSnapshot, locale);
+    const presentation = computerUseOverlayPresentation(latestSnapshot, locale,
+      controller.state(latestSnapshot.takeoverGeneration ?? 0));
     latestPresentation = presentation;
     if (!presentation.visible) {
       for (const entry of windows.values()) entry.lastRenderedPresentation = '';
@@ -250,6 +188,7 @@ export function createComputerUseOverlay(
     }
     await syncWindowsToDisplays();
     if (disposed) return;
+    if (currentRender !== renderRevision) return;
     if (latestSnapshot.revision !== revision) {
       void render().catch(() => {});
       return;
@@ -259,9 +198,9 @@ export function createComputerUseOverlay(
     await Promise.all(liveEntries().map(async (entry) => {
       if (serialized !== entry.lastRenderedPresentation) {
         await entry.window.webContents.executeJavaScript(
-          `window.mixdogComputerOverlay?.(${serialized})`,
+          `window.mixdogComputerOverlay?.(${JSON.stringify({ ...presentation, renderRevision: currentRender }).replaceAll('<', '\\u003c')})`,
         );
-        entry.lastRenderedPresentation = serialized;
+        if (currentRender === renderRevision) entry.lastRenderedPresentation = serialized;
       }
       if (!entry.window.isVisible()) entry.window.showInactive();
     }));

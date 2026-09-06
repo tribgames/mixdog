@@ -40,7 +40,7 @@ export const SURVIVING_DESCENDANTS_UNREACHABLE_WARNING =
  *  task. It uses the SAME task registry every other background shell task
  *  uses, so task list/read/cancel need no special case: `run` settles the task
  *  when the last observed survivor exits, `cancel` terminates them. */
-export function _trackSurvivingDescendants(handle, { command, cwd, options, startedAtMs } = {}) {
+function _trackSurvivingDescendants(handle, { command, cwd, options, startedAtMs } = {}) {
     if (!handle?.taskId) return null;
     try {
         return startBackgroundTask({

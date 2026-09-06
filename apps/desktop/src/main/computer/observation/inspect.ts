@@ -200,6 +200,7 @@ export function createInspection(host: InspectHost) {
     let statuses: VerifyStatus[] = predicates.map(() => 'unknown');
     let title = '';
     let observedElements = 0;
+    let textComplete = false;
     let providerError = '';
     const needsElementText = predicates.some(
       (predicate) => typeof (predicate as Record<string, unknown>).present === 'string'
@@ -221,22 +222,26 @@ export function createInspection(host: InspectHost) {
         }, Math.min(VERIFY_PROVIDER_TIMEOUT_MS, remainingMs));
       } catch (error) {
         providerError = (error as Error).message || String(error);
+        statuses = predicates.map(() => 'unknown');
         break;
       }
       samples += 1;
       if (!response.ok) {
         providerError = response.error || 'window predicate provider failed';
+        statuses = predicates.map(() => 'unknown');
         break;
       }
       const elements = (Array.isArray(response.result?.elements)
         ? response.result.elements
         : []) as Array<Record<string, unknown>>;
       observedElements = elements.length;
-      title = String(response.result?.title || title);
+      textComplete = response.result?.text_complete === true && observedElements > 0;
+      title = String(response.result?.title || '');
       const observation = {
         ok: response.ok === true,
         exists: response.ok === true && response.result?.exists !== false,
         title,
+        textComplete,
         haystack: elements
           .map((element) => `${String(element.name || '')} ${String(element.value || '')}`)
           .join('\n')
@@ -266,6 +271,7 @@ export function createInspection(host: InspectHost) {
         samples,
         stable_samples: stableSamples,
         observed_elements: observedElements,
+        ...(needsElementText ? { text_complete: textComplete } : {}),
         ...(providerError ? { provider_error: providerError } : {}),
         results: predicates.map((predicate, index) => ({
           predicate,

@@ -8,7 +8,7 @@ export const SMART_BASH_MAX_BYTES = TOOL_OUTPUT_MAX_BYTES;
 export const SMART_BASH_HEAD_LINES = 80;
 export const SMART_BASH_TAIL_LINES = 80;
 export const BACKGROUND_PARTIAL_OUTPUT_MAX_BYTES = 10 * 1024;
-export const BACKGROUND_PARTIAL_OUTPUT_HEAD_BYTES = 2 * 1024;
+const BACKGROUND_PARTIAL_OUTPUT_HEAD_BYTES = 2 * 1024;
 
 const BACKGROUND_PARTIAL_TRUNCATION_MARKER =
     '\n\n... [partial output truncated; head and tail shown] ...\n\n';

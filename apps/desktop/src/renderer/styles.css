@@ -16,6 +16,19 @@
 html, body, #root { width: 100%; height: 100%; }
 body { margin: 0; min-width: 320px; overflow: hidden; }
 button, input, textarea, select { font: inherit; }
+/* Text fields share ONE type size (user: 텍스트 박스마다 폰트 사이즈가 다르다).
+   `font: inherit` alone let each field take its container's size — a 13px
+   note label here, a 15px title there — so the same control read differently
+   from one surface to the next. Every text input and textarea now starts at
+   the 14px control size on the UI line-height. Deliberate overrides stay
+   class-based: the chat/Studio composers (transcript body size), in-place
+   rename fields (`font: inherit` on their own class) and mono editors (code
+   size). :where() keeps this at element specificity so those still win. */
+input:where(:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([type="hidden"])),
+textarea {
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+}
 button { color: inherit; }
 
 .app-shell { height: var(--vvh, 100dvh); display: flex; flex-direction: column; overflow: hidden; isolation: isolate; }
@@ -194,7 +207,7 @@ button { color: inherit; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.slash-palette { position: absolute; z-index: 25; left: 0; right: 0; bottom: calc(100% + 8px); overflow-y: auto; }
+.slash-palette { position: fixed; z-index: var(--mx-menu-z-index, 10010); visibility: hidden; overflow-y: auto; }
 .slash-palette header { display: flex; align-items: center; }
 .slash-palette button { display: grid; align-items: center; border: 0; background: transparent; }
 .slash-palette p { margin: 0; text-align: center; }

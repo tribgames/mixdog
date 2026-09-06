@@ -3,6 +3,7 @@
  * uploads, and answering the dialog that a submit may have opened.
  */
 import { redactBrowserText } from '../redaction';
+import { mutateRef } from './ref-mutation';
 import { type BrowserActionContext, defineBrowserActions } from './types';
 
 /** After the control changed: forget the old refs, optionally submit, and
@@ -18,18 +19,16 @@ async function afterEdit(
 
 export const formActions = defineBrowserActions({
   async fill(context) {
-    const { guest, command, signal, refRecovery, services } = context;
-    const { reply, refActions, state } = services;
+    const { guest, command, signal, services } = context;
+    const { refActions, state } = services;
     const fields = Array.isArray(command.fields) ? command.fields : [];
     if (!fields.length) {
       if (!command.ref) throw new Error('fill requires ref or fields');
       if (typeof command.text !== 'string') throw new Error('fill requires text');
-      await reply.withRefRecovery(
-        guest,
-        refRecovery,
+      await mutateRef(
+        context,
         command.ref,
         (ref) => refActions.fillRef(guest, ref, command.text as string, signal),
-        signal,
       );
       return afterEdit(context, Boolean(command.submit));
     }
@@ -52,7 +51,7 @@ export const formActions = defineBrowserActions({
           : hasChecked
             ? (ref) => refActions.setCheckedRef(guest, ref, field.checked as boolean, signal)
             : (ref) => refActions.fillRef(guest, ref, String(field.text ?? field.value), signal);
-        await reply.withRefRecovery(guest, refRecovery, field.ref, operation, signal);
+        await mutateRef(context, field.ref, operation);
         changed = true;
       }
     } catch (error) {
@@ -63,15 +62,13 @@ export const formActions = defineBrowserActions({
   },
 
   async type(context) {
-    const { guest, command, signal, refRecovery, services } = context;
+    const { guest, command, signal, services } = context;
     if (!command.ref) throw new Error('type requires ref (from snapshot)');
     if (typeof command.text !== 'string') throw new Error('type requires text');
-    await services.reply.withRefRecovery(
-      guest,
-      refRecovery,
+    await mutateRef(
+      context,
       command.ref,
       (ref) => services.refActions.typeRef(guest, ref, command.text as string, signal),
-      signal,
     );
     return afterEdit(context, Boolean(command.submit));
   },
@@ -97,25 +94,21 @@ export const formActions = defineBrowserActions({
           : `${command.ref} has no options.`,
       }, refRecovery);
     }
-    await reply.withRefRecovery(
-      guest,
-      refRecovery,
+    await mutateRef(
+      context,
       command.ref,
       (ref) => refActions.selectRef(guest, ref, values, signal),
-      signal,
     );
     return afterEdit(context, false);
   },
 
   async check(context) {
-    const { guest, command, signal, refRecovery, services } = context;
+    const { guest, command, signal, services } = context;
     if (!command.ref) throw new Error('check requires ref (from snapshot)');
-    await services.reply.withRefRecovery(
-      guest,
-      refRecovery,
+    await mutateRef(
+      context,
       command.ref,
       (ref) => services.refActions.setCheckedRef(guest, ref, command.checked !== false, signal),
-      signal,
     );
     return afterEdit(context, false);
   },

@@ -1,10 +1,9 @@
 import { isInclusiveProvider } from '../../shared/llm/cost.mjs';
 import { estimateJsonBytes, hashStructuredValue } from '../../shared/json-metrics.mjs';
 import {
-    appendAgentTrace,
-    drainAgentTrace,
-    normalizeSessionId,
-    warnAgentOnce,
+  appendAgentTrace,
+  drainAgentTrace,
+  warnAgentOnce,
 } from './agent-trace-io.mjs';
 import {
     traceAgentLoop,

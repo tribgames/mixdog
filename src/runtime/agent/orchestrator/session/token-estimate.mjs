@@ -27,6 +27,8 @@
 // lets an operator dial extra headroom without a code change.
 // ---------------------------------------------------------------------------
 
+import { denseTokenFloor, structuredTokenFloor } from './token-estimate-floors.mjs';
+
 function readSafetyMultiplier() {
     const raw = Number(process.env.MIXDOG_TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
     if (Number.isFinite(raw)) return Math.min(2.0, Math.max(1.0, raw));
@@ -89,42 +91,7 @@ export function estimateTokens(text) {
     if (s.length === 0) return 0;
     let weighted = 0;
     for (const ch of s) weighted += codePointTokenWeight(ch.codePointAt(0));
-    // Encoded blobs, minified JSON and generated identifiers do not get the
-    // word/whitespace merges that make prose approach chars/4. Long printable
-    // ASCII runs are commonly 0.5-0.8 tokens/byte; retain a conservative floor
-    // for those runs without penalizing ordinary spaced prose.
-    let denseAsciiFloor = 0;
-    for (const match of s.matchAll(/[\x21-\x7e]{16,}/g)) {
-        // Dense JSON/JSONL prices at chars/2, so 0.5/char covers ordinary
-        // unmerged printable runs. A run this long is no longer punctuation-
-        // separated data but a base64/hex/minified payload, which receives
-        // almost no BPE merges at all and measures ~1.6 chars/token; 0.5/char
-        // read 20% LOW against a real encode of one. Price the long tier at the
-        // measured ratio instead.
-        denseAsciiFloor += match[0].length * (match[0].length >= 64 ? 0.65 : 0.5);
-    }
-    const encodedWords = s.match(/\b(?=[A-Za-z0-9]{8,}\b)(?=[A-Za-z0-9]*[A-Za-z])(?=[A-Za-z0-9]*\d)[A-Za-z0-9]+\b/g) || [];
-    if (encodedWords.length >= 3) {
-        // Encoded/generated identifiers are often wrapped at short columns or
-        // separated by spaces. Their individual runs can stay below the long-
-        // run threshold while still receiving almost no prose-style BPE merges.
-        const encodedChars = encodedWords.reduce((sum, word) => sum + word.length, 0);
-        denseAsciiFloor = Math.max(
-            denseAsciiFloor,
-            (encodedChars * 0.5) + ((s.length - encodedChars) * 0.25),
-        );
-    }
-    const lines = s.split(/\r?\n/).filter(line => line.trim());
-    const nonWhitespace = s.match(/\S/g)?.length || 0;
-    const structural = s.match(/[\[\]{}":,=<>|\\]/g)?.length || 0;
-    const jsonLikeLines = lines.filter(line => /^\s*[\[{].*[\]}],?\s*$/.test(line)).length;
-    if (lines.length >= 3 && nonWhitespace > 0
-        && (jsonLikeLines >= Math.ceil(lines.length / 2) || structural / nonWhitespace >= 0.12)) {
-        // JSONL, compact tables and generated line protocols can consist
-        // entirely of short runs while still tokenizing like minified data.
-        // chars/2 on the dense payload chars (dense-JSON pricing).
-        denseAsciiFloor = Math.max(denseAsciiFloor, (nonWhitespace * 0.5) + ((s.length - nonWhitespace) * 0.25));
-    }
+    const denseAsciiFloor = Math.max(denseTokenFloor(s), structuredTokenFloor(s));
     const asciiFloor = s.length / 4; // never below the legacy chars/4 lower bound
     return Math.ceil(Math.max(weighted, asciiFloor, denseAsciiFloor) * TOKEN_ESTIMATE_SAFETY_MULTIPLIER);
 }

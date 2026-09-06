@@ -2,7 +2,6 @@ import {
   ArrowLeft,
   ArrowRight,
   ExternalLink,
-  Globe,
   Keyboard,
   LoaderCircle,
   RotateCw,
@@ -26,6 +25,7 @@ import { normalizeAddressInput } from "./browser-address";
 import { readBrowserZoom, writeBrowserZoom } from "./browser-zoom-level";
 import { BrowserZoomPill } from "./BrowserZoomPill";
 import { t } from "./i18n";
+import { ErrorNotice } from "./ErrorNotice";
 import type { BrowserPaneProps } from "./BrowserPane.lazy";
 
 /** Keep a zoomed frame's edges inside the box: the image may pan only as far
@@ -55,6 +55,7 @@ export default function RemoteBrowserPane({
   const [frame, setFrame] = useState<DesktopRemoteBrowserFrame | null>(null);
   const [imageUrl, setImageUrl] = useState("");
   const [failure, setFailure] = useState("");
+  const [actionFailure, setActionFailure] = useState("");
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const refreshSoon = useCallback(() => wakePoll.current?.(), []);
   // Client-side zoom of the frame image (user: 화면 하단 중앙에 확대축소):
@@ -78,6 +79,8 @@ export default function RemoteBrowserPane({
 
   useEffect(() => {
     if (!active || !api?.remoteBrowserFrame) return undefined;
+    setFailure("");
+    setActionFailure("");
     let cancelled = false;
     let timer = 0;
     let polling = false;
@@ -139,12 +142,16 @@ export default function RemoteBrowserPane({
 
   const control = useCallback(async (input: DesktopRemoteBrowserControl) => {
     if (!api?.remoteBrowserControl) return;
+    // A submitted gesture consumes its frame. Never silently replay it on a
+    // newer page, and force the next poll to return the full image.
+    frameId.current = "";
+    setActionFailure("");
     try {
       await api.remoteBrowserControl(ownerSessionId, input);
-      setFailure("");
       refreshSoon();
     } catch (error) {
-      setFailure(error instanceof Error ? error.message : String(error));
+      setActionFailure(error instanceof Error ? error.message : String(error));
+      refreshSoon();
     }
   }, [api, ownerSessionId, refreshSoon]);
 
@@ -324,15 +331,15 @@ export default function RemoteBrowserPane({
           alt={frame?.title || "Browser Use"} />
         : <div className="browser-remote-empty">
             {failure
-              ? <><Globe size={28} /><strong>{t("Could not connect to browser screen")}</strong>
-                  <span>{failure}</span>
-                  <button type="button" onClick={refreshSoon}>{t("Reconnect")}</button></>
+              ? <ErrorNotice error={failure} title={t("Could not connect to browser screen")}
+                  onRetry={refreshSoon} role="status" />
               : <><LoaderCircle size={24} className="is-spinning" />
                   <span>{t("Connecting to desktop Browser Use…")}</span></>}
           </div>}
-      {failure && imageUrl && <div className="browser-remote-status" role="status">
-        <span>{failure}</span>
-        <button type="button" onClick={refreshSoon}>{t("Reconnect")}</button>
+      {(actionFailure || (failure && imageUrl)) && <div className="browser-remote-status">
+        <ErrorNotice errors={[imageUrl ? failure : "", actionFailure]} role="status"
+          onDismiss={actionFailure ? () => setActionFailure("") : undefined}
+          onRetry={failure ? refreshSoon : undefined} />
       </div>}
       {imageUrl && <BrowserZoomPill level={zoomLevel} onChange={changeZoomLevel} />}
     </div>

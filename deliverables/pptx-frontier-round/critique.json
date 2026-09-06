@@ -1,0 +1,81 @@
+[
+  { "slide": 1, "role": "anchor", "verdict": "pass", "hierarchy": 5, "balance": 4, "legibility": 5, "cohesion": 5, "evidence": 3,
+    "note": "생성 사진의 비워 둔 왼쪽 삼분의 일이 스크림 아래 제목을 받고, 카드의 코랄 마크가 액센트 hue 12와 같은 색이라 표지가 팔레트를 선언한다. 제목 두 줄과 리드 세 줄의 줄바꿈이 어절 단위다.",
+    "fixes": [],
+    "checks": [
+      { "item": "제목·리드·크레딧이 스크림 위(왼쪽 62%)에만 놓이고 사진의 밝은 카드 면과 겹치지 않는다", "pass": true },
+      { "item": "키커의 EMNLP 2026이 F9의 원문 표기 그대로다", "pass": true },
+      { "item": "리드가 세 축(내용, 미학, 편집성)과 Mixdog가 겨냥할 자리를 한 문장으로 말한다", "pass": true },
+      { "item": "스피커 노트에 생성 이미지의 레인과 모델, 프롬프트 요지가 기록돼 있다", "pass": true }
+    ] },
+  { "slide": 2, "verdict": "pass", "hierarchy": 5, "balance": 4, "legibility": 5, "cohesion": 5, "evidence": 4,
+    "note": "결론 한 문장이 캔버스 중앙 약간 위에 앉고 세로 룰이 정확히 두 줄 높이다. 강조 런 하나만 액센트 굵게, 나머지는 라이트 페이스라 무게가 결론을 든다. 아래 공기는 breathing 리듬의 의도다.",
+    "fixes": [],
+    "checks": [
+      { "item": "강조 런이 '편집 가능한 쪽은 미학이 낮다' 한 구절뿐이다", "pass": true },
+      { "item": "줄바꿈이 '낮다.' 뒤에서 일어나 '두 축을'이 둘째 줄 첫머리에 온다", "pass": true },
+      { "item": "세로 룰의 높이가 문장 두 줄 높이와 같고 아래로 남지 않는다", "pass": true },
+      { "item": "캡션이 F6(상단 오른쪽 사분면 Q1 비어 있음)을 원문 사분면 이름으로 말한다", "pass": true }
+    ] },
+  { "slide": 3, "verdict": "pass", "hierarchy": 5, "balance": 4, "legibility": 4, "cohesion": 5, "evidence": 5,
+    "note": "왼쪽 어두운 평면이 주장(한 절씩 네 줄의 스탠자)과 히어로 0을 들고 오른쪽 필드가 11개 노드를 F1·F5 좌표로 놓는다. Q1 틴트가 비어 있음을 눈으로 보여 주고, Skywork 레이블을 점선 오른쪽으로 옮겨 텍스트가 선을 가로지르지 않는다.",
+    "fixes": [],
+    "checks": [
+      { "item": "11개 노드의 x가 F1 총점, y가 F5 PEI 레벨과 일치한다 (PPTAgent 15.32/L5, AutoPresent 12.63/L4, NotebookLM 22.82/L0)", "pass": true },
+      { "item": "Q1 틴트 안에 노드가 하나도 없고 히어로 값이 0이다 (F6)", "pass": true },
+      { "item": "노드 레이블이 점선이나 다른 레이블을 가로지르지 않는다", "pass": true },
+      { "item": "L3 이상 노드(Quark, AutoPresent, PPTAgent)만 액센트색이고 나머지는 중립색이다", "pass": true }
+    ] },
+  { "slide": 4, "verdict": "pass", "hierarchy": 5, "balance": 5, "legibility": 5, "cohesion": 5, "evidence": 5,
+    "note": "가로 막대 11개가 왼쪽 척추를 이루고 1위 막대만 액센트라 시선이 Skywork-Banana에서 히어로 27.28로 건너간다. 오른쪽 설명이 순위의 대가(편집성 L1)를 말해 다음 페이지로 잇는다.",
+    "fixes": [],
+    "checks": [
+      { "item": "막대 11개의 값과 순서가 F1과 일치하고 액센트는 Skywork-Banana 하나뿐이다", "pass": true },
+      { "item": "히어로 27.28이 1위 막대의 값과 같다", "pass": true },
+      { "item": "설명이 미학 1·2위의 대가(편집성 L1, F5)를 말하고 하위권 두 시스템을 이름으로 든다", "pass": true }
+    ] },
+  { "slide": 5, "verdict": "pass", "hierarchy": 4, "balance": 5, "legibility": 4, "cohesion": 5, "evidence": 5,
+    "note": "덤벨 7행이 High에서 Low로 벌어지는 폭을 보여 주고 범례 색이 점 색과 일치한다. 히어로 88.29%가 Zhipu 행과 같은 높이에서 시작해 표와 숫자가 한 쌍으로 읽힌다.",
+    "fixes": [],
+    "checks": [
+      { "item": "7행의 High/Low 값이 F3과 일치하고 High 점이 항상 왼쪽(낮은 쪽)에 있다", "pass": true },
+      { "item": "히어로 88.29%가 F2와 같다", "pass": true },
+      { "item": "범례의 색(회색 High, 액센트 Low)이 덤벨 점의 색과 일치한다", "pass": true },
+      { "item": "설명의 QuizBank 10 문항이 F12와 같다", "pass": true }
+    ] },
+  { "slide": 6, "verdict": "pass", "hierarchy": 5, "balance": 4, "legibility": 5, "cohesion": 5, "evidence": 4,
+    "note": "네이티브 표 6행에서 L2 행만 틴트라 제목이 말하는 레벨이 바로 보인다. 행 높이를 줄여 캡션과 테이크어웨이 사이에 숨이 생겼고, Mixdog의 L3–L4는 자체 판단으로 명시했다.",
+    "fixes": [],
+    "checks": [
+      { "item": "6행의 레벨-이름-시스템 매핑이 F5와 일치한다", "pass": true },
+      { "item": "강조 행이 L2이고 제목이 말하는 레벨과 같다", "pass": true },
+      { "item": "테이크어웨이가 Mixdog의 L3–L4를 자체 판단·벤치 미측정으로 표기한다 (F13)", "pass": true },
+      { "item": "캡션과 테이크어웨이 밴드 사이가 0.3인치 이상이다", "pass": true }
+    ] },
+  { "slide": 7, "verdict": "pass", "hierarchy": 4, "balance": 4, "legibility": 4, "cohesion": 5, "evidence": 5,
+    "note": "세로 막대 5개 중 첫 막대만 액센트이고 사람 막대 위 리더 주석이 상한을 표시한다. 오른쪽 설명의 숫자 여섯 개가 모두 F4·F7·F10에서 왔고 0.71만 액센트로 든다.",
+    "fixes": [],
+    "checks": [
+      { "item": "막대 5개의 값이 F4와 일치하고 액센트는 SlidesGen-Bench 하나뿐이다", "pass": true },
+      { "item": "리더 주석 '사람 간 일치 — 상한'이 사람(0.85) 막대 위에 있다", "pass": true },
+      { "item": "설명의 0.71·0.57이 F4, 0.16이 F10, 1,500·11·189·7이 F7과 같다", "pass": true }
+    ] },
+  { "slide": 8, "verdict": "pass", "hierarchy": 4, "balance": 4, "legibility": 5, "cohesion": 5, "evidence": 4,
+    "note": "아이콘 4개를 0.9인치로 키우고 행을 본문 띠의 가운데로 내려 페이지가 비어 보이지 않는다. 설명은 킷의 어절 줄바꿈으로 감겨 외래어가 갈리거나 한 음절만 남는 줄이 없고, 테이크어웨이는 스케일 단계(18pt)에 앉는다.",
+    "fixes": [],
+    "checks": [
+      { "item": "네 항목이 F8의 네 지표 이름(Harmony, Engagement, Usability, Visual Rhythm)을 원문 그대로 병기한다", "pass": true },
+      { "item": "각 설명의 줄바꿈이 어절 단위이고 한 글자짜리 마지막 줄이 없다", "pass": true },
+      { "item": "가독성 항목의 4.5:1이 F11과 같다", "pass": true },
+      { "item": "아이콘 4개가 모두 Lucide 이름(palette, sparkles, eye, waves)으로 그려졌고 이모지가 없다", "pass": true }
+    ] },
+  { "slide": 9, "role": "anchor", "verdict": "pass", "hierarchy": 5, "balance": 4, "legibility": 5, "cohesion": 5, "evidence": 3,
+    "note": "네이티브 그라디언트 필드 위에 표지 사진이 오른쪽에서 물러나 표지를 되받고, 세로 룰과 제목의 위치 체계가 표지와 같다. 요청 문장은 세 줄로, 파일 이름 aesthetics_metrics.py가 둘째 줄을 통째로 차지해 어디서도 갈리지 않는다.",
+    "fixes": [],
+    "checks": [
+      { "item": "배경 필드가 네이티브 그라디언트이고 사진이 오른쪽 8.6인치부터 투명도로 물러나 있다", "pass": true },
+      { "item": "요청 문장에 F8의 네 지표 이름(조화, 참여, 가독성, 리듬)이 모두 있다", "pass": true },
+      { "item": "리드가 세 줄이고 aesthetics_metrics.py가 한 줄 안에 통째로 있으며 크레딧 줄과 겹치지 않는다", "pass": true },
+      { "item": "세로 룰·제목·크레딧의 위치 체계가 표지와 같아 덱이 닫힌다", "pass": true }
+    ] }
+]

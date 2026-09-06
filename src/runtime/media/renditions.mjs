@@ -46,7 +46,7 @@ const FAILED_RENDITION_COOLDOWN_MS = 30_000;
 const MAX_CACHED_RENDITION_BYTES = 4 * 1024 * 1024;
 const DEFAULT_RENDITION_CACHE_MAX_BYTES = 512 * 1024 * 1024;
 const configuredRenditionCacheMaxBytes = Number(process.env.MIXDOG_RENDITION_CACHE_MAX_BYTES);
-export const RENDITION_CACHE_MAX_BYTES = Number.isFinite(configuredRenditionCacheMaxBytes)
+const RENDITION_CACHE_MAX_BYTES = Number.isFinite(configuredRenditionCacheMaxBytes)
   && configuredRenditionCacheMaxBytes >= MAX_CACHED_RENDITION_BYTES
   ? Math.floor(configuredRenditionCacheMaxBytes)
   : DEFAULT_RENDITION_CACHE_MAX_BYTES;

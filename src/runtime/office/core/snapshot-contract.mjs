@@ -112,7 +112,35 @@ function checkXlsx(document, violations) {
       if (!('value' in cell)) {
         violations.push({ path: cellPath, message: 'cell must report a value key' });
       }
+      // Optional facets both readers publish in one shape.
+      if ('style' in cell && (!cell.style || typeof cell.style !== 'object' || Array.isArray(cell.style))) {
+        violations.push({ path: cellPath, message: 'cell.style must be an object when present' });
+      }
+      if ('dataType' in cell && cell.dataType !== 'text') {
+        violations.push({ path: cellPath, message: "cell.dataType must be 'text' when present" });
+      }
+      if ('note' in cell && typeof cell.note !== 'string') {
+        violations.push({ path: cellPath, message: 'cell.note must be a string when present' });
+      }
     }
+    for (const table of Array.isArray(sheet.tables) ? sheet.tables : []) {
+      if (typeof table?.name !== 'string' || !/^\$?[A-Z]+\$?\d+:\$?[A-Z]+\$?\d+$/i.test(String(table?.range || ''))) {
+        violations.push({ path: `${at}/table`, message: 'every table needs a name and an A1:B2 range' });
+      }
+    }
+    for (const note of Array.isArray(sheet.notes) ? sheet.notes : []) {
+      if (typeof note?.cell !== 'string' || !/^\$?[A-Z]+\$?\d+$/i.test(note.cell) || typeof note?.text !== 'string') {
+        violations.push({ path: `${at}/note`, message: 'every note needs a cell reference and text' });
+      }
+    }
+    if ('freezePanes' in sheet && sheet.freezePanes !== null
+      && (typeof sheet.freezePanes !== 'object' || typeof sheet.freezePanes.frozen !== 'boolean')) {
+      violations.push({ path: at, message: 'freezePanes must be null or { frozen, splitRow, splitColumn }' });
+    }
+  }
+  if ('conventions' in document && document.conventions !== null
+    && (typeof document.conventions !== 'object' || !Array.isArray(document.conventions.fonts))) {
+    violations.push({ path: '/conventions', message: 'conventions must summarize fonts, numberFormats, and inputMarkers' });
   }
 }
 

@@ -1,8 +1,9 @@
 import { columnNumber } from './portable-cells.mjs';
+import { quoteSheetName } from './portable-sheet-xml.mjs';
 
-export const XLSX_MAX_ROWS = 1_048_576;
-export const XLSX_MAX_COLUMNS = 16_384;
-export const XLSX_MAX_RANGE_CELLS = 100_000;
+const XLSX_MAX_ROWS = 1_048_576;
+const XLSX_MAX_COLUMNS = 16_384;
+const XLSX_MAX_RANGE_CELLS = 100_000;
 
 export function parseXlsxCell(reference) {
   const match = /^([A-Z]+)([1-9]\d*)$/i.exec(String(reference || '').trim());
@@ -76,7 +77,49 @@ const SPILLING_FUNCTIONS = Object.freeze([
   'XLOOKUP', 'XMATCH', 'SORTBY', 'SORT', 'FILTER', 'UNIQUE', 'SEQUENCE', 'RANDARRAY',
 ]);
 
-export function normalizeXlsxFormula(formula, { backend = '' } = {}) {
+const SHEET_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_.]*$/;
+
+function escapeRegExp(text) {
+  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// `My Sheet!B5` evaluates to #VALUE!; Excel needs `'My Sheet'!B5`. Only names
+// the workbook actually holds are quoted, and never inside a string literal.
+function quoteSheetReferences(text, sheetNames) {
+  const names = (sheetNames || [])
+    .map((name) => String(name || ''))
+    .filter((name) => name && !SHEET_IDENTIFIER.test(name))
+    .sort((left, right) => right.length - left.length);
+  if (!names.length) return text;
+  return text.split(/("(?:[^"]|"")*")/).map((segment, index) => {
+    if (index % 2 === 1) return segment;
+    let output = segment;
+    for (const name of names) {
+      output = output.replace(
+        new RegExp(`(^|[^'A-Za-z0-9_.\\]])${escapeRegExp(name)}!`, 'g'),
+        (_match, lead) => `${lead}${quoteSheetName(name)}!`,
+      );
+    }
+    return output;
+  }).join('');
+}
+
+// Without a sheet list (Excel sessions): a multi-word token written straight
+// before `!` and a cell or range (`Data 2024!A1:A5`) can only be a sheet name
+// Excel would reject, so it is quoted. A token that starts with a cell
+// reference is left alone — `A1:C3 Sheet2!B2` is an intersection, not a name.
+const UNQUOTED_MULTIWORD_SHEET = /(^|[^'A-Za-z0-9_.!\]])([A-Za-z0-9_.]+(?: +[A-Za-z0-9_.]+)+)!(?=\$?[A-Z]{1,3}\$?\d|\$?[A-Z]{1,3}:|\$?\d+:)/gi;
+
+export function quoteUnquotedSheetReferences(formula) {
+  return String(formula ?? '').split(/("(?:[^"]|"")*")/).map((segment, index) => {
+    if (index % 2 === 1) return segment;
+    return segment.replace(UNQUOTED_MULTIWORD_SHEET, (match, lead, name) => (
+      /^[A-Z]{1,3}\d+(?:\s|$)/i.test(name) ? match : `${lead}${quoteSheetName(name)}!`
+    ));
+  }).join('');
+}
+
+export function normalizeXlsxFormula(formula, { backend = '', sheetNames = null } = {}) {
   const text = String(formula ?? '').replace(/^=/, '');
   if (!text) throw new Error('XLSX formula must not be empty');
   if (backend === 'mixdog-ooxml') {
@@ -85,10 +128,11 @@ export function normalizeXlsxFormula(formula, { backend = '' } = {}) {
       throw new Error(`XLSX formula uses ${spilling[1].toUpperCase()}, which the portable recalculation engine cannot evaluate and would bake in as #NAME?; use INDEX/MATCH or precompute the values`);
     }
   }
-  return text.replace(
+  const prefixed = text.replace(
     new RegExp(`(^|[^A-Za-z0-9_.])(${PREFIXED_FUNCTIONS.join('|')})\\s*\\(`, 'gi'),
     (_match, lead, name) => `${lead}_xlfn.${name.toUpperCase()}(`,
   );
+  return quoteUnquotedSheetReferences(quoteSheetReferences(prefixed, sheetNames));
 }
 
 export function validateXlsxOperations(operations) {

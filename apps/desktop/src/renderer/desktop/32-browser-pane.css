@@ -160,7 +160,7 @@
   border-radius: 14px;
   background: var(--mx-surface-plate);
   color: var(--mx-text);
-  font-size: var(--mx-font-meta);
+  font-size: var(--mx-font-ui);
   outline: none;
 }
 

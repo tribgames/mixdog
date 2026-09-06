@@ -1,4 +1,5 @@
 import type { DesktopProjectSummary } from "../shared/contract";
+import { catalogStorageKey } from "./catalog-storage-scope";
 
 export const PROJECT_CATALOG_CACHE_KEY = "mixdog.desktop-project-catalog.v1";
 
@@ -33,7 +34,7 @@ export function readCachedProjectCatalog(
   storage: ProjectCatalogStorage = window.localStorage,
 ): DesktopProjectSummary[] {
   try {
-    const raw = storage.getItem(PROJECT_CATALOG_CACHE_KEY);
+    const raw = storage.getItem(catalogStorageKey(PROJECT_CATALOG_CACHE_KEY));
     return raw ? normalizeProjectCatalog(JSON.parse(raw)) : [];
   } catch {
     return [];
@@ -46,7 +47,7 @@ export function writeCachedProjectCatalog(
 ): void {
   try {
     storage.setItem(
-      PROJECT_CATALOG_CACHE_KEY,
+      catalogStorageKey(PROJECT_CATALOG_CACHE_KEY),
       JSON.stringify(normalizeProjectCatalog(projects)),
     );
   } catch {

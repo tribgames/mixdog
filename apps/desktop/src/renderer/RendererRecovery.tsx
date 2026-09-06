@@ -1,4 +1,7 @@
 import React, { Component, type ErrorInfo, type ReactNode } from "react";
+import { t } from "./i18n";
+// @ts-expect-error Shared runtime module is plain ESM.
+import { safeErrorDetails } from "../../../../src/runtime/shared/error-presentation.mjs";
 
 import type { DesktopRendererFailureDiagnostic } from "../shared/contract";
 import { ProgressSpinner, WindowLoadingMark } from "./ProgressSpinner";
@@ -130,7 +133,7 @@ export function reportRendererNotice(
   text: unknown,
   options: { bridge?: boolean } = {},
 ): void {
-  const message = String(text ?? "").trim();
+  const message = safeErrorDetails(text);
   if (!message) return;
   const fingerprint = rendererFailureFingerprint(message);
   const now = Date.now();
@@ -276,11 +279,11 @@ export class DesktopErrorBoundary extends Component<
       return <main className="desktop-recovery-screen" role="alert">
         <section className="desktop-recovery-card">
           <span className="desktop-recovery-mark" aria-hidden="true">!</span>
-          <h1>Mixdog could not draw this view</h1>
-          <p>Your active task is still running in the desktop host. Retry the view or reload the interface.</p>
+          <h1>{t("Mixdog could not draw this view")}</h1>
+          <p>{t("Your active task is still running in the desktop host. Retry the view or reload the interface.")}</p>
           <div className="desktop-recovery-actions">
-            <button type="button" onClick={this.retry}>Try again</button>
-            <button type="button" className="primary" onClick={this.reload}>Reload interface</button>
+            <button type="button" onClick={this.retry}>{t("Retry")}</button>
+            <button type="button" className="primary" onClick={this.reload}>{t("Reload interface")}</button>
           </div>
         </section>
       </main>;

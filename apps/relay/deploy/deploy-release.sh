@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 DOMAIN="${1:?usage: deploy-release.sh <relay-domain> <release-tag>}"
 RELEASE_TAG="${2:?usage: deploy-release.sh <relay-domain> <release-tag>}"
@@ -37,7 +37,7 @@ if [[ -d "$RENDERER_DELTA_DIR" && -f "$RENDERER_MANIFEST" ]]; then
 elif [[ -f "$SRC_DIR/renderer/index.html" ]]; then
   RENDERER_MODE="full"
 fi
-ACTIVATED=0
+source "$SRC_DIR/deploy/release-transaction.sh"
 
 # One release at a time: the staging globs below sweep every
 # /opt/mixdog-relay.* directory, so a concurrent run would delete the other's
@@ -57,34 +57,14 @@ cleanup_stale_releases() {
     /opt/mixdog-relay.next-*
 }
 
-rollback() {
-  local status=$?
-  trap - ERR
-  rm -rf "$NEXT_DIR"
-  if [[ "$ACTIVATED" = 1 && -d "$BACKUP_DIR" ]]; then
-    systemctl stop mixdog-relay || true
-    rm -rf "$INSTALL_DIR"
-    mv "$BACKUP_DIR" "$INSTALL_DIR"
-    # A rollback that restores the files but cannot start the service leaves
-    # production DOWN. That is a different (worse) outcome than the deploy
-    # failure that triggered it, so it exits with its own status instead of
-    # being swallowed by `|| true`.
-    if ! systemctl restart mixdog-relay || ! systemctl is-active --quiet mixdog-relay; then
-      echo "[deploy] ROLLBACK FAILED: $INSTALL_DIR restored but mixdog-relay is not running" >&2
-      exit 90
-    fi
-    echo "[deploy] rolled back to the previous release (deploy exited $status)" >&2
-  fi
-  exit "$status"
-}
-trap rollback ERR
-
 test -d "$INSTALL_DIR"
 test -f "/etc/letsencrypt/live/$DOMAIN/fullchain.pem"
 rm -rf "$NEXT_DIR" "$BACKUP_DIR"
+arm_release_transaction
 mkdir -p "$NEXT_DIR"
 cp "$SRC_DIR/server.mjs" "$SRC_DIR/package.json" "$SRC_DIR/package-lock.json" "$NEXT_DIR/"
 cp -r "$SRC_DIR/lib" "$NEXT_DIR/"
+cp -r "$SRC_DIR/deploy" "$NEXT_DIR/"
 if [[ "$RENDERER_MODE" = "delta" ]]; then
   node "$SRC_DIR/deploy/renderer-delta.mjs" --action=apply \
     "--base=$INSTALL_DIR/renderer" \
@@ -112,28 +92,17 @@ else
   printf '%s' "$LOCK_HASH" > "$NEXT_DIR/node_modules/.mixdog-lock-hash"
 fi
 
-mv "$INSTALL_DIR" "$BACKUP_DIR"
-mv "$NEXT_DIR" "$INSTALL_DIR"
-ACTIVATED=1
-systemctl restart mixdog-relay
+activate_release
 
-# The health body stays in this shell: a predictable /tmp path lets any local
-# user pre-place a symlink there and have root truncate whatever it points at.
-HEALTH_BODY=""
-for _ in $(seq 1 30); do
-  if systemctl is-active --quiet mixdog-relay \
-    && HEALTH_BODY="$(curl --fail --silent \
-      --resolve "$DOMAIN:443:127.0.0.1" "https://$DOMAIN/healthz")"; then
-    break
-  fi
-  sleep 1
-done
+# Verification runs from the installed package so its ws dependency is the
+# exact lockfile tree this service runs. Failure is still inside the rollback
+# transaction: a listening process alone is not a usable web deployment.
 systemctl is-active --quiet mixdog-relay
-printf '%s' "$HEALTH_BODY" | grep -q '"status":"ok"'
 test "$(sha256sum "$INSTALL_DIR/renderer/index.html" | awk '{print $1}')" = "$LOCAL_HASH"
+node "$INSTALL_DIR/deploy/verify-release.mjs" \
+  "--origin=https://$DOMAIN" "--address=127.0.0.1" "--expected-index=$LOCAL_HASH"
 
+commit_release_transaction
 rm -rf "$BACKUP_DIR"
 cleanup_stale_releases
-ACTIVATED=0
-trap - ERR
 echo "[deploy] activated $RELEASE_TAG renderer=$LOCAL_HASH mode=$RENDERER_MODE"

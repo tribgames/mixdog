@@ -2,12 +2,7 @@
  * Agent loop ceilings. Lead and delegated agents share one high runaway guard.
  */
 
-function envPositiveInt(name, fallback) {
-    const raw = process.env[name];
-    if (raw === undefined || raw === '') return fallback;
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
+import { envPositiveInt } from '../../../shared/env.mjs';
 
 // Single runaway guard for ALL sessions. High by design; env-overridable only
 // to raise/lower the safety ceiling, never used as a general task-length budget.

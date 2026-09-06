@@ -140,11 +140,13 @@ export function formatRemoteByteReport(report: RemoteByteReport): string {
   return `[mixdog-remote-meter] ${Math.round(seconds)}s`
     + ` frames=${report.frames} total=${size(report.bytes)}`
     + ` rate=${(report.bytes / seconds / 1024).toFixed(1)}KB/s`
+    + ' direction=desktop-to-relay unit=ws-message'
     + (lanes ? ` | ${lanes}` : "");
 }
 
-/** Measures what this desktop puts on the wire, in the SAME unit the relay
- *  bills (the declared frame length). The relay itself cannot break this down:
+/** Measures application message bytes, including encryption and relay routing,
+ *  but excluding WebSocket/TLS/TCP/IP headers. This is not a billing counter.
+ *  The relay itself cannot break this down:
  *  every phone-leg payload is E2EE ciphertext by the time it arrives there, so
  *  the lane that owns a byte is knowable HERE or nowhere. The caller decides
  *  whether it runs; the meter itself is two integer adds per frame. */
@@ -160,16 +162,18 @@ export function createRemoteByteMeter({
   const lanes = new Map<string, { bytes: number; frames: number }>();
   let frames = 0;
   let bytes = 0;
-  let windowStartedAt = now();
-  const reset = (current: number): void => {
+  let windowStartedAt: number | null = null;
+  const reset = (): void => {
     lanes.clear();
     frames = 0;
     bytes = 0;
-    windowStartedAt = current;
+    windowStartedAt = null;
   };
   return {
     record(payload, size): RemoteByteReport | null {
       if (!enabled || !Number.isFinite(size) || size <= 0) return null;
+      const current = now();
+      windowStartedAt ??= current;
       const lane = remoteFrameLane(payload);
       const entry = lanes.get(lane) ?? { bytes: 0, frames: 0 };
       entry.bytes += size;
@@ -179,7 +183,6 @@ export function createRemoteByteMeter({
       bytes += size;
       // A window closes on the first frame past its edge: an idle leg reports
       // nothing rather than emitting empty windows forever.
-      const current = now();
       const elapsed = current - windowStartedAt;
       if (elapsed < windowMs) return null;
       const report: RemoteByteReport = {
@@ -190,11 +193,11 @@ export function createRemoteByteMeter({
           .map(([name, total]) => ({ lane: name, bytes: total.bytes, frames: total.frames }))
           .sort((left, right) => right.bytes - left.bytes),
       };
-      reset(current);
+      reset();
       return report;
     },
     clear(): void {
-      reset(now());
+      reset();
     },
   };
 }

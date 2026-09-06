@@ -6,12 +6,14 @@ import {
   reportBootSurfaceStage,
 } from "./boot-metrics";
 import { routePreferenceStore } from "./app-route-preference";
+import { useModelSelection } from "./use-model-selection";
 import { type RecordValue } from "./desktop-types";
 import { t } from "./i18n";
 import {
   SHARED_MODEL_CATALOG_MAX_AGE_MS,
   readCachedModelCatalog,
   requestModelCatalog,
+  subscribeModelCatalogInvalidation,
 } from "./model-catalog-cache";
 import { preferredModelParameters } from "./model-route-utils";
 import { RouteEditor } from "./RouteEditor";
@@ -189,7 +191,9 @@ function routeModelParameters(
 }
 
 export const ModelSelector = memo(function ModelSelector({
-  provider, model, effort, fast, fastCapable, modelParameters, contextPercent, modelDisabled, tuningDisabled,
+  provider: sourceProvider, model: sourceModel, effort: sourceEffort, fast: sourceFast,
+  fastCapable: sourceFastCapable, modelParameters: sourceModelParameters,
+  contextPercent: sourceContextPercent, modelDisabled, tuningDisabled,
   invokeResult, applySnapshot, onOpenSettings, onDraftSelection,
   onRoutePreferenceApplied, sessionId,
 }: {
@@ -222,7 +226,15 @@ export const ModelSelector = memo(function ModelSelector({
   );
   const [catalogRefreshing, setCatalogRefreshing] = useState(false);
   const [routing, setRouting] = useState(false);
-  const [optimisticFast, setOptimisticFast] = useState<boolean | null>(null);
+  const { selection, pending: selectionPending, begin, settle } = useModelSelection(sessionId || "", {
+    provider: sourceProvider,
+    model: sourceModel,
+    effort: sourceEffort,
+    fast: sourceFast,
+    modelParameters: sourceModelParameters,
+    contextPercent: sourceContextPercent,
+  });
+  const { provider, model, effort = "", fast = false, modelParameters, contextPercent } = selection;
   const catalogInFlight = useRef<Promise<void> | null>(null);
   const routingGuard = useRef(false);
   const restoreAfterRoute = useRef<HTMLElement | null>(null);
@@ -235,9 +247,9 @@ export const ModelSelector = memo(function ModelSelector({
     reportBootSurfaceStage("model-controls", modelBootKey, "module");
     reportBootSurfaceReady("model-controls", modelBootKey, "shell");
   }, [modelBootKey]);
-  const modelUnavailable = modelDisabled || routing;
-  const tuningUnavailable = tuningDisabled || routing;
-  const displayedFast = optimisticFast ?? fast;
+  const modelUnavailable = modelDisabled || routing || selectionPending;
+  const tuningUnavailable = tuningDisabled || routing || selectionPending;
+  const displayedFast = fast;
   const catalogModels = useMemo(() => {
     const unique = new Map<string, DesktopModelOption>();
     for (const option of models) {
@@ -259,6 +271,7 @@ export const ModelSelector = memo(function ModelSelector({
   // 모델이 그대로 표기되게). The RAW catalog answers those cases.
   const known = selected || models.find((option) =>
     option.provider === provider && option.model === model);
+  const fastCapable = known?.fastCapable ?? sourceFastCapable;
   const selectedModelParameters = preferredModelParameters(known, modelParameters || {});
   const defaultContextWindow = known ? modelContextWindow(known) : 0;
   const maxContextWindow = known ? modelMaxContextWindow(known) : 0;
@@ -286,8 +299,8 @@ export const ModelSelector = memo(function ModelSelector({
       ? modelDisplayName(model, provider)
       : t("Select model");
 
-  const loadCatalog = useCallback(async () => {
-    if (catalogInFlight.current) return catalogInFlight.current;
+  const loadCatalog = useCallback(async (force = false) => {
+    if (!force && catalogInFlight.current) return catalogInFlight.current;
     const api = window.mixdogDesktop;
     if (!api?.listProviderModels) {
       setCatalogLoaded(true);
@@ -300,26 +313,28 @@ export const ModelSelector = memo(function ModelSelector({
       setProviderSetupError("");
       const shared = requestModelCatalog(api);
       const setupRequest = shared.setup
-        .then((setup) => { setProviderSetup(setup); })
+        .then((setup) => { if (shared.isCurrent()) setProviderSetup(setup); })
         .catch((reason) => {
+          if (!shared.isCurrent()) return;
           console.warn("[model-catalog] provider setup refresh failed", reason);
           setProviderSetupError("unavailable");
         });
       const fullRequest = shared.full
         .then((full) => {
-          if (!Array.isArray(full)) return;
+          if (!shared.isCurrent() || !Array.isArray(full)) return;
           setModels(full);
           setCatalogError("");
         })
         .catch((reason) => {
+          if (!shared.isCurrent()) return;
           // The quick or persisted catalog stays usable. A background refresh
           // failure must not become a boot-time error surface.
           console.warn("[model-catalog] full catalog refresh failed", reason);
         })
-        .finally(() => { setCatalogRefreshing(false); });
+        .finally(() => { if (shared.isCurrent()) setCatalogRefreshing(false); });
       try {
         const quick = await shared.quick;
-        if (Array.isArray(quick) && quick.length > 0) {
+        if (shared.isCurrent() && Array.isArray(quick) && quick.length > 0) {
           setModels((current) => {
             const merged = new Map(current.map((option) => [
               `${option.provider}:${option.model}`,
@@ -332,14 +347,19 @@ export const ModelSelector = memo(function ModelSelector({
           });
         }
       } catch (reason) {
+        if (!shared.isCurrent()) return;
         console.warn("[model-catalog] quick catalog refresh failed", reason);
         setCatalogError(reason instanceof Error ? reason.message : String(reason || "Model catalog failed."));
       } finally {
-        setCatalogLoaded(true);
-        setStartupCatalogSettled(true);
+        if (shared.isCurrent()) {
+          setCatalogLoaded(true);
+          setStartupCatalogSettled(true);
+        }
       }
       void Promise.allSettled([fullRequest, setupRequest]);
-    })().finally(() => { catalogInFlight.current = null; });
+    })().finally(() => {
+      if (catalogInFlight.current === request) catalogInFlight.current = null;
+    });
     catalogInFlight.current = request;
     return request;
   }, [invokeResult]);
@@ -364,14 +384,14 @@ export const ModelSelector = memo(function ModelSelector({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => subscribeModelCatalogInvalidation(() => {
+    void loadCatalog(true);
+  }), [loadCatalog]);
+
   useEffect(() => {
     if (model && !startupCatalogSettled) return;
     reportBootSurfaceStage("model-controls", modelBootKey, "data");
   }, [model, modelBootKey, startupCatalogSettled]);
-
-  useEffect(() => {
-    if (optimisticFast !== null && optimisticFast === fast) setOptimisticFast(null);
-  }, [fast, optimisticFast]);
 
   useEffect(() => {
     if (routing || !restoreAfterRoute.current) return;
@@ -390,17 +410,20 @@ export const ModelSelector = memo(function ModelSelector({
     routingGuard.current = true;
     restoreAfterRoute.current = restoreTarget;
     setRouting(true);
+    const token = begin(selection);
     let applied = false;
     try {
       const next = await invokeResult(
         () => window.mixdogDesktop.setModelRoute(selection, sessionId),
       );
       if (next !== undefined) {
+        settle(token, next);
         applySnapshot(next);
         onRoutePreferenceApplied?.(selection);
         applied = true;
       }
     } finally {
+      if (!applied) settle(token);
       routingGuard.current = false;
       setRouting(false);
     }
@@ -464,13 +487,14 @@ export const ModelSelector = memo(function ModelSelector({
       });
       return;
     }
-    setOptimisticFast(enabled);
+    const token = begin({ provider, model, fast: enabled });
     routingGuard.current = true;
     let accepted = false;
     try {
       const next = await invokeResult(() => window.mixdogDesktop.setFast(enabled, sessionId));
       if (next !== undefined) {
         accepted = next?.fast === enabled;
+        settle(token, next);
         applySnapshot(next);
         if (accepted && provider && model) {
           onRoutePreferenceApplied?.({
@@ -482,11 +506,7 @@ export const ModelSelector = memo(function ModelSelector({
         }
       }
     } finally {
-      // A successful snapshot still needs one React commit to reach `fast`.
-      // Keep the optimistic value through that handoff so the control never
-      // flashes back to the previous speed between IPC completion and paint.
-      // Errors or an authoritative mismatch roll back immediately.
-      if (!accepted) setOptimisticFast(null);
+      if (!accepted) settle(token);
       routingGuard.current = false;
     }
   };
@@ -519,6 +539,11 @@ export const ModelSelector = memo(function ModelSelector({
     }
     routingGuard.current = true;
     setRouting(true);
+    const token = begin({
+      provider, model, effort,
+      ...(nextFast === undefined ? {} : { fast: nextFast }),
+    });
+    let accepted = false;
     try {
       const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<string>({
         capability: 'setEffort',
@@ -526,7 +551,9 @@ export const ModelSelector = memo(function ModelSelector({
         ...(sessionId ? { sessionId } : {}),
       }));
       if (result !== undefined) {
+        settle(token, result.snapshot);
         applySnapshot(result.snapshot);
+        accepted = true;
         onRoutePreferenceApplied?.({
           provider,
           model,
@@ -537,6 +564,7 @@ export const ModelSelector = memo(function ModelSelector({
         });
       }
     } finally {
+      if (!accepted) settle(token);
       routingGuard.current = false;
       setRouting(false);
     }

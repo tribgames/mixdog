@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
+import { getEventListeners } from 'node:events';
 import test from 'node:test';
 
+import {
+  createPassthroughSignal,
+  createTimeoutSignal,
+} from '../agent/orchestrator/stall-policy.mjs';
+import { createAbortController } from './abort-controller.mjs';
 import {
   createRuntimeLagTracker,
   recordRuntimeDirectoryReadSuccess,
@@ -59,6 +65,24 @@ test('the event-loop lag monitor samples this process and stops cleanly', async 
   assert.equal(samples.length, seen, 'no samples after stop');
 });
 
+test('sequential and parallel session scopes release every parent abort listener', () => {
+  const parent = createAbortController(128);
+  for (let index = 0; index < 75; index += 1) {
+    const scope = createPassthroughSignal(parent.signal);
+    assert.equal(getEventListeners(parent.signal, 'abort').length, 1);
+    scope.cleanup();
+    assert.equal(getEventListeners(parent.signal, 'abort').length, 0);
+  }
+
+  const scopes = Array.from(
+    { length: 64 },
+    (_, index) => createTimeoutSignal(parent.signal, 60_000, `parallel scope ${index}`),
+  );
+  assert.equal(getEventListeners(parent.signal, 'abort').length, scopes.length);
+  for (const scope of scopes) scope.cleanup();
+  assert.equal(getEventListeners(parent.signal, 'abort').length, 0);
+});
+
 test('repeated AbortSignal listener pressure marks only the session runtime worker unhealthy', () => {
   const originalRuntimeWorkerPid = process.env.MIXDOG_SESSION_RUNTIME_WORKER_PID;
   let detail = null;
@@ -67,13 +91,33 @@ test('repeated AbortSignal listener pressure marks only the session runtime work
   process.on('mixdog:session-runtime-worker-unhealthy', onUnhealthy);
   recordRuntimeDirectoryReadSuccess();
   try {
-    const warning = new Error('51 abort listeners added to [AbortSignal]');
+    const warning = Object.assign(
+      new Error('51 abort listeners added to [AbortSignal]'),
+      {
+        count: 51,
+        target: createAbortController().signal,
+        type: 'abort',
+      },
+    );
+    const context = {
+      shard: 2,
+      runtimesAtWarning: 4,
+      agentDispatchesAtWarning: 3,
+      runtimesAfterDelay: 2,
+      agentDispatchesAfterDelay: 1,
+    };
     assert.equal(reportRuntimeAbortListenerPressure(warning, 500, 0), false);
-    assert.equal(reportRuntimeAbortListenerPressure(warning, 1_000, 51), false);
-    assert.equal(reportRuntimeAbortListenerPressure(warning, 2_000, 51), false);
-    assert.equal(reportRuntimeAbortListenerPressure(warning, 3_000, 51), true);
+    assert.equal(reportRuntimeAbortListenerPressure(warning, 1_000, 51, context), false);
+    assert.equal(reportRuntimeAbortListenerPressure(warning, 2_000, 51, context), false);
+    assert.equal(reportRuntimeAbortListenerPressure(warning, 3_000, 51, context), true);
     assert.equal(detail?.code, 'ABORT_LISTENER_PRESSURE');
     assert.equal(detail?.retainedListeners, 51);
+    assert.equal(detail?.observedListeners, 51);
+    assert.equal(detail?.targetType, 'AbortSignal');
+    assert.equal(detail?.shard, 2);
+    assert.equal(detail?.runtimesAtWarning, 4);
+    assert.equal(detail?.agentDispatchesAfterDelay, 1);
+    assert.match(detail?.warningStack, /51 abort listeners/u);
   } finally {
     recordRuntimeDirectoryReadSuccess();
     process.off('mixdog:session-runtime-worker-unhealthy', onUnhealthy);

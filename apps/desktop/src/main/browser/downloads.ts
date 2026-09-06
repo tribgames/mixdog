@@ -117,6 +117,9 @@ export function createBrowserDownloads(host: BrowserDownloadsHost) {
     } = {},
     signal?: AbortSignal,
   ): Promise<{ text: string; file?: { mimeType: string; data: string; name: string } }> {
+    // Pin the newest download once. Older completed files must not satisfy a
+    // wait for the file that is currently arriving.
+    let selectedId = command.downloadId;
     const timeoutMs = Math.min(
       MAX_WAIT_MS,
       Math.max(
@@ -126,11 +129,20 @@ export function createBrowserDownloads(host: BrowserDownloadsHost) {
     );
     if (command.wait) {
       const startedAt = Date.now();
-      while (!downloads(sessionId).some((download) => (
-        (!command.downloadId || download.id === command.downloadId)
-        && download.state !== 'in_progress'
-      ))) {
-        if (Date.now() - startedAt >= timeoutMs) break;
+      selectedId ||= downloads(sessionId)[0]?.id;
+      for (;;) {
+        selectedId ||= downloads(sessionId)[0]?.id;
+        const selected = downloads(sessionId).find((entry) => entry.id === selectedId);
+        if (selected && selected.state !== 'in_progress') {
+          if (selected.state !== 'completed') {
+            throw new Error(`download ${selected.id} ended as ${selected.state}`);
+          }
+          break;
+        }
+        if (Date.now() - startedAt >= timeoutMs) {
+          throw new Error(`download ${selectedId || '(not started)'} did not complete within ${timeoutMs}ms`);
+        }
+        if (signal?.aborted) throw signal.reason || new Error('download wait cancelled');
         await pause(WAIT_POLL_MS, signal);
       }
     }
@@ -145,8 +157,8 @@ export function createBrowserDownloads(host: BrowserDownloadsHost) {
       text: `Downloads this session (newest first):\n${lines.join('\n')}`,
     };
     if (!command.attach) return result;
-    const selected = command.downloadId
-      ? recorded.find((download) => download.id === command.downloadId)
+    const selected = selectedId
+      ? recorded.find((download) => download.id === selectedId)
       : recorded.find((download) => download.state === 'completed');
     if (!selected) throw new Error('no completed download is available to attach');
     if (selected.state !== 'completed') {

@@ -57,6 +57,8 @@ export type GoalTask = {
 };
 export type GoalSnapshot = {
   id?: string;
+  revision?: number;
+  needsTaskReview?: boolean;
   sessionId?: string;
   objective?: string;
   title?: string;

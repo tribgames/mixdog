@@ -2,7 +2,6 @@ import { spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
-  readFileSync,
   readdirSync,
   renameSync,
   rmSync,
@@ -16,12 +15,10 @@ import {
 } from '../runtime/shared/atomic-file.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import { pluginManifest } from '../runtime/shared/plugin-manifest.mjs';
+import { clean } from '../runtime/shared/clean.mjs';
+import { readJsonSafe } from '../runtime/shared/json-file.mjs';
 
 const REGISTRY_VERSION = 1;
-
-function clean(value) {
-  return String(value ?? '').trim();
-}
 
 function nowIso() {
   return new Date().toISOString();
@@ -37,10 +34,6 @@ function registryPath(dataDir = resolvePluginData()) {
 
 function installRoot(dataDir = resolvePluginData()) {
   return join(pluginBaseDir(dataDir), 'installed');
-}
-
-function readJsonSafe(path) {
-  try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
 }
 
 function loadRegistry(dataDir = resolvePluginData()) {

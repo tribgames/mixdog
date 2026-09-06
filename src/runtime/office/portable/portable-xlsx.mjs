@@ -146,17 +146,19 @@ export async function applyXlsx(zip, operations) {
     let xml = await zipText(zip, sheet.path);
     if (op.op === 'set_cell' || op.op === 'set_formula') {
       const formula = op.op === 'set_formula'
-        ? normalizeXlsxFormula(op.formula, { backend: 'mixdog-ooxml' })
+        ? normalizeXlsxFormula(op.formula, { backend: 'mixdog-ooxml', sheetNames: sheets.map((entry) => entry.name) })
         : '';
       const anchored = mergedCellAnchor(xml, op.cell);
       xml = setCellInSheet(xml, op.cell, op.value, formula);
       zip.file(sheet.path, xml);
       if (formula) recalculationRequired = true;
+      const normalized = formula && formula !== String(op.formula ?? '').replace(/^=/, '');
       results.push({
         op: op.op,
         changed: true,
         sheet: sheet.name,
         cell: parseCellRef(op.cell).ref,
+        ...(normalized ? { normalizedFormula: `=${formula}` } : {}),
         ...(anchored ? {} : { warning: 'Cell is inside a merged range but is not its top-left anchor; Excel hides the value.' }),
       });
       continue;

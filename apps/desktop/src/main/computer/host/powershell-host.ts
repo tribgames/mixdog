@@ -18,7 +18,12 @@
  * from their own modules, and the lifecycle, input resolution, sequence runner,
  * command router, and bridge server are wired together here.
  */
-import { screen } from 'electron';
+import { screen, powerMonitor } from 'electron';
+import { bindComputerEnvironmentGuard } from './environment-guard';
+import { join } from 'node:path';
+import type { ComputerAuthorizationStatus, ComputerAuthorizationWindow } from '../../../shared/computer-settings';
+import { createComputerAuthorizationSettings } from './authorization-settings';
+import { createComputerFailureDiagnostics } from '../session/failure-diagnostics';
 import { bridgeDiscoveryDirectory } from '../../bridge/discovery-file';
 import { mixdogDataDirectory } from '../shared/common';
 import { createWorkerPool } from '../backend/worker-pool';
@@ -28,6 +33,7 @@ import { createSessionState } from '../session/state';
 import { createWindowTargeting } from '../input/targeting';
 import {
   createChromeRemoteDebuggingSetup,
+  CHROME_SETUP_SESSION_ID,
   type ChromeRemoteDebuggingSetup,
   type ChromeRemoteDebuggingTarget,
 } from '../session/chrome-setup';
@@ -39,17 +45,24 @@ import { createInputResolution } from './input-resolution';
 import { createSequenceRunner, suppressCaptureAfter } from './sequence-runner';
 import { createCommandRouter } from './command-router';
 import { createBridgeServer } from './bridge-server';
+import { loadComputerExecutionPolicy } from './execution-policy';
+import { createUserWaitService } from './user-wait-service';
 
 export type { ChromeRemoteDebuggingSetup, ChromeRemoteDebuggingTarget };
 
 export interface PowerShellComputerHost {
+  readAuthorization(): ComputerAuthorizationStatus;
+  updateAuthorization(value: unknown): Promise<ComputerAuthorizationStatus>;
+  authorizationWindows(): Promise<ComputerAuthorizationWindow[]>;
+  readFailureDiagnostics(): unknown[];
   setBridgeEnabled(enabled: boolean): void;
   /** Observation-only opt-in: reads stay available, input is refused. */
   setObserveOnly(enabled: boolean): void;
   /** Yield all desktop control immediately without restoring stale input state. */
   takeOver(reason?: string): void;
   /** Allow new Computer Use commands after an explicit user takeover. */
-  resumeAfterTakeover(): void;
+  resumeAfterTakeover(generation: number, signal?: AbortSignal): Promise<void>;
+  configureIdleResume(seconds: number): void;
   /** Stop one session and perform its normal input-state cleanup. */
   abortSession(sessionId: string): Promise<void>;
   /** Stop every live or paused Computer Use session. */
@@ -73,12 +86,31 @@ export function createPowerShellComputerHost(
   options: {
     bridgeEnabled?: boolean;
     observeOnly?: boolean;
+    policyFile?: string;
+    maxWorkers?: number;
     onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
   } = {},
 ): PowerShellComputerHost {
   let bridgeWanted = options.bridgeEnabled !== false;
   let observeOnly = options.observeOnly === true;
   let disposed = false;
+  const basePolicy = loadComputerExecutionPolicy(options.policyFile);
+  const failureDiagnostics = createComputerFailureDiagnostics(join(mixdogDataDirectory(), 'computer-failures'));
+  const authorization = createComputerAuthorizationSettings({
+    directory: mixdogDataDirectory(),
+    base: basePolicy,
+    stop: () => {
+      computerUseCoordinator.pauseForUser('authorization_changed');
+      userWait.cancel();
+      return lifecycle.stopAllComputerSessions(false);
+    },
+    windows: async () => {
+      const windows = await readComputerWindows({ action: 'list_windows', session_id: 'computer-settings' }, true);
+      if (!windows) throw new Error('computer_windows_unavailable: could not read current app windows');
+      return windows.map(({ id, pid, app, title }) => ({ id, pid, app, title }));
+    },
+  });
+  const policy = authorization.policy;
   const diagnose = (event: string, data: Record<string, unknown> = {}): void => {
     try { options.onDiagnostic?.(event, data); } catch { /* diagnostics are advisory */ }
   };
@@ -88,7 +120,8 @@ export function createPowerShellComputerHost(
     dataDirectory: mixdogDataDirectory,
     isBridgeEnabled: () => bridgeWanted,
     isDisposed: () => disposed,
-    onSessionRetired: (sessionId) => lifecycle.onSessionWorkerRetired(sessionId),
+    onSessionRetired: (sessionId, child) => lifecycle.onSessionWorkerRetired(sessionId, child),
+    maxWorkers: options.maxWorkers,
   });
   const { callPowerShell, powerShellBySession } = workerPool;
 
@@ -124,6 +157,11 @@ export function createPowerShellComputerHost(
     assertExecutionNotAborted,
     resolveAppWindowId: targeting.resolveAppWindowId,
     resolveForegroundWindowId: targeting.resolveForegroundWindowId,
+    authorizeCapture: async (command, windowId) => {
+      if (!policy.restricted || sessionIdFor(command) === CHROME_SETUP_SESSION_ID) return;
+      if (!windowId) throw new Error('computer_policy_denied: full-screen capture is not authorized');
+      policy.assertWindow({ ...command, action: 'capture', window_id: windowId }, await readComputerWindows(command));
+    },
   });
 
   // The lifecycle owns the command chain, so the router it dispatches through
@@ -133,6 +171,7 @@ export function createPowerShellComputerHost(
     ...sessionState,
     releaseCaptureSession: captureEngine.releaseCaptureSession,
     execution,
+    recordDiagnostic: failureDiagnostics.record,
     runCommand: (command) => router.runCommand(command),
     recaptureRequiredReply: (command, error) => router.recaptureRequiredReply(command, error),
   });
@@ -149,6 +188,7 @@ export function createPowerShellComputerHost(
     runCommand: (command) => router.runCommand(command),
   });
   const router = createCommandRouter({
+    policy,
     ...workerPool,
     ...sessionState,
     ...execution,
@@ -169,9 +209,20 @@ export function createPowerShellComputerHost(
     suppressCaptureAfter,
   });
 
+  const userWait = createUserWaitService({
+    directory: mixdogDataDirectory(), lifecycle, callPowerShell,
+    enabled: () => bridgeWanted && !disposed && !observeOnly,
+  });
+
   const bridge = createBridgeServer({
     ...workerPool,
     ...lifecycle,
+    waitForUser: userWait.command,
+    abortComputerSession: (command) => {
+      computerUseCoordinator.pauseForUser('user_stop');
+      userWait.cancel(sessionIdFor(command));
+      return lifecycle.abortComputerSession(command);
+    },
     // Discovery only: the worker script/cache stay in the data dir while the
     // published endpoint follows the isolation namespace, like Browser Use.
     dataDirectory: bridgeDiscoveryDirectory,
@@ -181,13 +232,20 @@ export function createPowerShellComputerHost(
   });
 
   if (bridgeWanted) bridge.startBridge();
+  const unbindEnvironment = bindComputerEnvironmentGuard(powerMonitor, screen, (reason) => {
+    if (bridgeWanted && !disposed) lifecycle.takeOverComputer(reason);
+  });
 
   return {
+    readAuthorization: authorization.read,
+    updateAuthorization: authorization.update,
+    authorizationWindows: authorization.windows,
+    readFailureDiagnostics: failureDiagnostics.read,
     setBridgeEnabled(enabled: boolean): void {
       if (disposed || bridgeWanted === enabled) return;
       bridgeWanted = enabled;
       if (enabled) bridge.startBridge();
-      else void bridge.stopBridge().catch(() => {});
+      else { userWait.cancel(); void bridge.stopBridge().catch(() => {}); }
     },
     setObserveOnly(enabled: boolean): void {
       observeOnly = enabled === true;
@@ -195,13 +253,17 @@ export function createPowerShellComputerHost(
     takeOver(reason = 'user_takeover'): void {
       lifecycle.takeOverComputer(reason);
     },
-    resumeAfterTakeover(): void {
-      computerUseCoordinator.resumeAfterUserTakeover();
-    },
+    resumeAfterTakeover: lifecycle.resumeAfterTakeover,
+    configureIdleResume: userWait.configure,
     async abortSession(sessionId: string): Promise<void> {
+      userWait.cancel(sessionId);
       await lifecycle.abortComputerSession({ action: 'session_abort', session_id: sessionId });
     },
-    stopAllSessions: lifecycle.stopAllComputerSessions,
+    async stopAllSessions(): Promise<void> {
+      computerUseCoordinator.pauseForUser('user_stop');
+      userWait.cancel();
+      await lifecycle.stopAllComputerSessions();
+    },
     residentWorkerPids: workerPool.residentWorkerPids,
     inspectChromeRemoteDebuggingTarget: chromeSetup.inspectChromeRemoteDebuggingTarget,
     prepareChromeRemoteDebugging: chromeSetup.prepareChromeRemoteDebugging,
@@ -210,6 +272,8 @@ export function createPowerShellComputerHost(
     releaseChromeRemoteDebugging: chromeSetup.releaseChromeRemoteDebugging,
     async dispose(): Promise<void> {
       if (disposed) return;
+      unbindEnvironment();
+      userWait.dispose();
       disposed = true;
       bridgeWanted = false;
       await bridge.stopBridge();

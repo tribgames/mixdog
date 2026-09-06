@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { type DocumentPreview } from "./editor-document-model";
 import { t } from "./i18n";
+import { ErrorNotice } from "./ErrorNotice";
 import { ProgressSpinner } from "./ProgressSpinner";
 
 // A4 portrait: the shape most conversions land on. It only reserves space for
@@ -104,8 +105,6 @@ export function EditorPaneDocumentSurface({
     </div>
     {/* This surface only exists where there is no OS handler to fall back to
         (a browser), so the message is the whole answer. */}
-    {error && <div className="editor-pane-document-note" role="alert">
-      <p>{error}</p>
-    </div>}
+    {error && <ErrorNotice error={error} />}
   </div>;
 }

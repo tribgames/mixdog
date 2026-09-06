@@ -22,12 +22,4 @@ export const OPENAI_COMPAT_PRESETS = {
             'X-OpenRouter-Title': 'mixdog',
         },
     },
-    ollama: {
-        baseURL: 'http://localhost:11434/v1',
-        defaultModel: 'llama3.3:latest',
-    },
-    lmstudio: {
-        baseURL: 'http://localhost:1234/v1',
-        defaultModel: 'default',
-    },
 };

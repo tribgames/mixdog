@@ -9,13 +9,10 @@ import {
   waitWithTimeout,
 } from './runtime/shared/process-shutdown.mjs';
 import { sleep } from './runtime/shared/sleep.mjs';
+import { clean } from './runtime/shared/clean.mjs';
 
 const TERMINAL_STATUS_RE = /^status:\s*(completed|failed|error|cancelled|canceled)\b/im;
 const FAILURE_STATUS_RE = /^status:\s*(failed|error|cancelled|canceled)\b/im;
-
-function clean(value) {
-  return String(value ?? '').trim();
-}
 
 function taskIdFromOutput(text) {
   return clean(text).match(/agent task:\s*(\S+)/i)?.[1] || null;
@@ -27,7 +24,7 @@ function makeTag(agent) {
     .replace(/^-+|-+$/g, '');
 }
 
-export function buildHeadlessSpawnArgs({ agent, tag, cwd, message, provider, model, effort, fast } = {}) {
+function buildHeadlessSpawnArgs({ agent, tag, cwd, message, provider, model, effort, fast } = {}) {
   const spawnArgs = {
     type: 'spawn',
     agent: clean(agent),

@@ -18,7 +18,7 @@ const BUFFER_FLUSH_BYTES = 32 * 1024;
 const DEBOUNCE_MS = 50;
 // Per path: comfortably above normal transcript/log bursts while bounding
 // producer memory when a filesystem append is stalled.
-export const BUFFERED_APPEND_MAX_BYTES = 8 * 1024 * 1024;
+const BUFFERED_APPEND_MAX_BYTES = 8 * 1024 * 1024;
 let totalDroppedBufferedBytes = 0;
 const droppedBytesByPath = new Map();
 

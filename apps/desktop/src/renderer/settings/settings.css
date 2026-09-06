@@ -588,7 +588,28 @@
 .settings-commit-rule-preview { grid-column: 1 / -1; }
 .settings-commit-custom-fields { width: 100%; display: grid; gap: 10px; }
 .settings-commit-custom-fields label { display: grid; gap: 5px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
-.settings-commit-custom-fields textarea { width: 100%; min-width: 0; resize: vertical; }
+/* The same field plate as the dialog inputs, on the 14px control size: the
+   textarea used to inherit the 13px muted label it sits in and had no plate
+   of its own (user: 텍스트 박스마다 폰트 사이즈가 다르다). */
+.settings-commit-custom-fields textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 64px;
+  padding: 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  outline: 1px solid transparent;
+  outline-offset: 0;
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  resize: vertical;
+}
+.settings-commit-custom-fields textarea:hover:not(:disabled):not(:focus) { box-shadow: var(--mx-button-contrast); }
+.settings-commit-custom-fields textarea:focus { outline-color: var(--mx-focus); box-shadow: var(--mx-button); }
 .settings-commit-custom-fields button { justify-self: end; }
 @media (max-width: 720px) {
   .settings-commit-rule-grid { grid-template-columns: 1fr; }

@@ -50,7 +50,7 @@ export function buildCacheBreakPayload(record = {}) {
     return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== null));
 }
 
-export function formatCacheBreakLine(record = {}) {
+function formatCacheBreakLine(record = {}) {
     const payload = buildCacheBreakPayload(record);
     const fields = [
         ['classification', payload.classification],

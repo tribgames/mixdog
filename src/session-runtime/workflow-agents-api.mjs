@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { clean, hasOwn } from './session-text.mjs';
+import { clean } from './session-text.mjs';
+import { hasOwn } from '../runtime/shared/object.mjs';
 import { serializeFrontmatterDoc } from '../runtime/shared/markdown-frontmatter.mjs';
 import { isHiddenAgent } from '../runtime/agent/orchestrator/internal-agents.mjs';
 import {

@@ -19,6 +19,7 @@ import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { sendViaHttpSse, _envFlag } from './openai-oauth-http-sse.mjs';
 import { shouldFallbackTransport } from './retry-classifier.mjs';
 import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
+import { applyOpenAIDirectCachePolicy } from './openai-direct-request.mjs';
 import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
 import {
     resolveProviderCacheKey,
@@ -138,43 +139,10 @@ export class OpenAIDirectProvider {
         // so gpt-5.4-mini can opt into Priority even when the OAuth catalog does
         // not advertise a Fast tier for its OAuth endpoint.
         applyOpenAIDirectFastTier(body, useModel, opts);
-        // P0 audit fix: buildRequestBody (openai-oauth.mjs) defaults
-        // store:false (env-gated, MIXDOG_OAI_STORE), which is correct for
-        // the openai-oauth ChatGPT-subscription backend — that backend keeps
-        // its own conversation state via the WS handshake session_id
-        // (see openai-oauth-ws.mjs "conversation slot ... in-memory prefix
-        // state"), independent of the public Responses API `store` field.
-        // The public OpenAI direct WS path below, however, talks to the real
-        // api.openai.com Responses API, where `previous_response_id`
-        // continuation is only valid when the anchored response was actually
-        // stored — store:false + previous_response_id is a broken
-        // combination there (the server has nothing to look up). This
-        // provider's WS transport injects previous_response_id via
-        // openai-oauth-ws.mjs's delta path once a response id is cached, so
-        // store defaults to true here — same override xAI's Responses path takes
-        // (see openai-compat.mjs _doSendXaiResponses/_doSendXaiResponsesWebSocket:
-        // "the public endpoint currently returns previous_response_not_found
-        // ... unless the chain is stored").
-        //
-        // MIXDOG_OAI_STORE=0 is an explicit user opt-out of server-side
-        // response persistence and outranks that default: store stays false and
-        // the 24h retention hint is not sent. _computeDelta (openai-ws-delta.mjs)
-        // refuses to build a previous_response_id continuation for a non-stored
-        // direct request, so opting out degrades to full frames rather than
-        // anchoring on a response the server never kept.
-        const storeResponses = _envFlag('MIXDOG_OAI_STORE', true);
-        body.store = storeResponses;
-        if (storeResponses) {
-            // Public Responses API supports prompt_cache_retention='24h' at no
-            // extra cost (same cached_input_tokens billing as the default 5–10
-            // min in-memory cache). openai-oauth rejects the parameter, so it's
-            // injected only on the direct path. See openai-oauth.mjs:290-294
-            // for the rationale. Retention is meaningless without storage, so it
-            // rides the same opt-out.
-            body.prompt_cache_retention = '24h';
-        } else {
-            delete body.prompt_cache_retention;
-        }
+        // Keep public response storage and model-specific cache options out of
+        // the shared OAuth payload. Storage opt-out still forces full frames in
+        // _computeDelta; retained output items make those frames self-contained.
+        applyOpenAIDirectCachePolicy(body, useModel, _envFlag('MIXDOG_OAI_STORE', true));
         // poolKey MUST be sessionId-only. Falling back to promptCacheKey would
         // let unrelated raw sessions sharing the same provider-scoped cache
         // bucket reuse each other's pooled socket and inherit lastResponseId
@@ -184,7 +152,7 @@ export class OpenAIDirectProvider {
         // shard — safe to share across sessions, unlike the sessionId poolKey
         // above. buildRequestBody derives it from the base namespace plus a
         // model/system/tools hash, mirroring the openai-oauth path while keeping
-        // public OpenAI's 24h retention below.
+        // public OpenAI's model-specific cache policy.
         const cacheKey = body.prompt_cache_key || resolveProviderCacheKey(opts, 'openai');
         const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
         const auth = { type: 'openai-direct', apiKey };

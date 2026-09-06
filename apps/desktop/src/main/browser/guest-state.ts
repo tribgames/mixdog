@@ -30,6 +30,8 @@ export interface RemoteBrowserFrameCache {
   width: number;
   height: number;
   url: string;
+  capturedAt?: number;
+  revision?: string;
 }
 
 /** A native file picker the page asked for. Chromium hands it to the host
@@ -57,6 +59,7 @@ export interface BrowserDiagnostics {
 export interface BrowserGuestState extends BrowserDiagnostics {
   readonly pageId: string;
   snapshotGeneration: number;
+  documentGeneration: number;
   /** When a snapshot last told the caller about this page's downloads. */
   downloadsReportedAt: number;
   /** Renderer death leaves a live WebContents whose document is gone: CDP
@@ -95,6 +98,7 @@ export class BrowserGuestStateStore {
     const created: BrowserGuestState = {
       pageId: `p${++this.nextPageId}`,
       snapshotGeneration: 0,
+      documentGeneration: 0,
       downloadsReportedAt: 0,
       crashed: false,
       pendingDialog: null,
@@ -173,7 +177,9 @@ export class BrowserGuestStateStore {
   beginDocument(guest: WebContents): void {
     const state = this.states.get(guest);
     if (!state) return;
-    state.sensitiveValues = undefined;
+    state.documentGeneration += 1;
+    this.invalidateInteraction(guest);
+    // Secrets remain sensitive after redirects, including echoed form values.
     state.pendingFileChooser = null;
   }
 

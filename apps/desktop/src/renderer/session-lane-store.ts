@@ -7,6 +7,7 @@ import type { DesktopSessionStateUpdate } from "../shared/contract";
 import { desktopAgentIdentity } from "../shared/agent-activity";
 import type { Snapshot, TranscriptItem } from "./desktop-types";
 import { estimateSessionSnapshotBytes } from "./app-session-snapshots";
+import { SessionLaneCache } from "./session-lane-cache";
 import {
   sharedTranscriptSnapshotDecorator,
   type TranscriptSnapshotDecorator,
@@ -44,14 +45,6 @@ export interface SessionLaneStore {
 const SESSION_LANE_CACHE_LIMIT = 64;
 const SESSION_LANE_CACHE_BYTE_LIMIT = 24 * 1024 * 1024;
 const SESSION_LANE_ESTIMATE_INTERVAL_MS = 1_000;
-
-interface SessionLaneEntry {
-  snapshot: Snapshot;
-  bytes: number;
-  estimatedAt: number;
-  /** Authoritative content generation this cached transcript was accepted at. */
-  revision: number | null;
-}
 
 function queuedIdentity(snapshot: Snapshot): string {
   const queued = Array.isArray(snapshot.queued) ? snapshot.queued : [];
@@ -468,16 +461,14 @@ export function createSessionLaneStore({
    *  transcript jumped). */
   decorator?: TranscriptSnapshotDecorator;
 } = {}): SessionLaneStore {
-  const snapshots = new Map<string, SessionLaneEntry>();
   const listeners = new Map<string, Set<() => void>>();
+  const snapshots = new SessionLaneCache({
+    maxEntries,
+    maxBytes,
+    subscribed: (sessionId) => (listeners.get(sessionId)?.size || 0) > 0,
+  });
   const notificationKeys = new Map<string, object>();
-  let retainedBytes = 0;
   let stop: (() => void) | null = null;
-  const removeSnapshot = (sessionId: string): void => {
-    const entry = snapshots.get(sessionId);
-    if (entry) retainedBytes -= entry.bytes;
-    snapshots.delete(sessionId);
-  };
   const notificationKey = (sessionId: string): object => {
     let key = notificationKeys.get(sessionId);
     if (!key) {
@@ -490,23 +481,6 @@ export function createSessionLaneStore({
     const bucket = listeners.get(sessionId);
     if (!bucket) return;
     for (const listener of [...bucket]) listener();
-  };
-  const prune = (): void => {
-    while (snapshots.size > Math.max(0, maxEntries)
-      || retainedBytes > Math.max(0, maxBytes)) {
-      let oldestInactive = "";
-      for (const sessionId of snapshots.keys()) {
-        if ((listeners.get(sessionId)?.size || 0) === 0) {
-          oldestInactive = sessionId;
-          break;
-        }
-      }
-      // A mounted pane owns its live frame even when one unusually large
-      // transcript exceeds the background cache budget. It becomes evictable
-      // as soon as that pane unsubscribes.
-      if (!oldestInactive) break;
-      removeSnapshot(oldestInactive);
-    }
   };
   const applyUpdate = (
     update: DesktopSessionStateUpdate,
@@ -550,10 +524,7 @@ export function createSessionLaneStore({
         return;
       }
     }
-    if (prior) {
-      snapshots.delete(sessionId);
-      retainedBytes -= prior.bytes;
-    }
+    if (prior) snapshots.delete(sessionId);
     if (update.snapshot) {
       const incoming = decorator.decorate(update.snapshot);
       const decision = decideSessionLaneFrame(
@@ -577,9 +548,8 @@ export function createSessionLaneStore({
           ? decision.revision
           : prior?.revision ?? null,
       });
-      retainedBytes += bytes;
     }
-    prune();
+    snapshots.prune();
     const nextSnapshot = snapshots.get(sessionId)?.snapshot ?? null;
     if ((listeners.get(sessionId)?.size || 0) === 0) {
       const key = notificationKeys.get(sessionId);
@@ -600,8 +570,7 @@ export function createSessionLaneStore({
     get(sessionId) {
       const entry = snapshots.get(sessionId);
       if (!entry) return null;
-      snapshots.delete(sessionId);
-      snapshots.set(sessionId, entry);
+      snapshots.touch(sessionId);
       return entry.snapshot;
     },
     subscribe(sessionId, listener) {
@@ -611,22 +580,23 @@ export function createSessionLaneStore({
         listeners.set(sessionId, bucket);
       }
       bucket.add(listener);
+      let released = false;
       return () => {
+        if (released) return;
+        released = true;
         bucket.delete(listener);
         if (bucket.size === 0) {
           listeners.delete(sessionId);
           const key = notificationKeys.get(sessionId);
           if (key) cancelLayoutFrame(key);
           notificationKeys.delete(sessionId);
-          prune();
+          snapshots.release(sessionId);
         }
       };
     },
     subscribedSessionIds: () => [...listeners.keys()],
     evictInactive() {
-      for (const sessionId of [...snapshots.keys()]) {
-        if ((listeners.get(sessionId)?.size || 0) === 0) removeSnapshot(sessionId);
-      }
+      snapshots.evictInactive();
     },
     start(source = window.mixdogDesktop?.subscribeSessionState?.bind(window.mixdogDesktop)) {
       if (stop) return stop;
@@ -647,7 +617,7 @@ export function createSessionLaneStore({
     apply,
     stats: () => ({
       entries: snapshots.size,
-      estimatedBytes: retainedBytes,
+      estimatedBytes: snapshots.bytes,
       subscribedSessions: listeners.size,
       notificationKeys: notificationKeys.size,
     }),
@@ -655,7 +625,6 @@ export function createSessionLaneStore({
       for (const key of notificationKeys.values()) cancelLayoutFrame(key);
       notificationKeys.clear();
       snapshots.clear();
-      retainedBytes = 0;
       decorator.clear();
     },
   };

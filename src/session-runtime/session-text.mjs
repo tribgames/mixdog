@@ -1,4 +1,5 @@
 // Session message/preview text helpers. Pure, no runtime-closure deps.
+import { clean } from '../runtime/shared/clean.mjs';
 
 export function sessionMessageText(content) {
   if (content == null) return '';
@@ -104,40 +105,10 @@ export function isLateToolAnnouncement(text) {
     && /<available-deferred-tools>/i.test(value);
 }
 
-// Derive a muted one-line notice from a late-tool announcement body, e.g.
-// "MCP tools available: UnityMCP (12 tools)". MCP tool entries in the manifest
-// are `- mcp__<server>__<tool>: ...` lines; the server name is the segment
-// after the `mcp__` prefix. Returns '' for non-announcement text.
-function summarizeLateToolAnnouncement(text) {
-  const value = String(text || '');
-  if (!isLateToolAnnouncement(value)) return '';
-  const block = value.match(/<available-deferred-tools>([\s\S]*?)<\/available-deferred-tools>/i);
-  const body = block ? block[1] : value;
-  const names = [];
-  const lineRe = /^\s*-\s+([A-Za-z0-9_.:-]+)/gm;
-  let m;
-  while ((m = lineRe.exec(body))) names.push(m[1]);
-  const servers = new Set();
-  for (const name of names) {
-    const seg = name.startsWith('mcp__') ? name.slice(5) : name;
-    const server = seg.split('__')[0];
-    if (server) servers.add(server);
-  }
-  const count = names.length;
-  const label = servers.size === 1
-    ? [...servers][0]
-    : (servers.size ? `${servers.size} MCP servers` : 'MCP');
-  if (!count) return `MCP tools available: ${label}`;
-  return `MCP tools available: ${label} (${count} ${count === 1 ? 'tool' : 'tools'})`;
-}
+export { hasOwn } from '../runtime/shared/object.mjs';
 
-export function clean(value) {
-  return String(value ?? '').trim();
-}
+export { clean };
 
-export function hasOwn(obj, key) {
-  return Object.prototype.hasOwnProperty.call(obj || {}, key);
-}
 
 export function toolResponseText(result) {
   if (result && typeof result === 'object' && Array.isArray(result.content)) {

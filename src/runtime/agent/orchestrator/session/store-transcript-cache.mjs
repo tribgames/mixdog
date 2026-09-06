@@ -95,14 +95,15 @@ export function createStoredTranscriptCache({
             if (pending && pending.fingerprint === fingerprint && pending.text === text) {
                 return { value: await pending.promise, hit: true, read: true };
             }
+            const record = { text, fingerprint, promise: null };
             const promise = (async () => {
                 const value = await produce(text);
-                if (value && typeof value === 'object') {
+                if (inFlight.get(key) === record && value && typeof value === 'object') {
                     remember(key, text, fingerprint, fileStat, value);
                 }
                 return value;
             })();
-            const record = { text, fingerprint, promise };
+            record.promise = promise;
             inFlight.set(key, record);
             try {
                 return { value: await promise, hit: false, read: true };
@@ -111,6 +112,9 @@ export function createStoredTranscriptCache({
             }
         },
         forget(keyPrefix) {
+            for (const key of inFlight.keys()) {
+                if (key.startsWith(keyPrefix)) inFlight.delete(key);
+            }
             for (const key of [...entries.keys()]) {
                 if (key.startsWith(keyPrefix)) drop(key);
             }

@@ -80,7 +80,7 @@ export function findPathExecutable(name, {
 // costs no process spawn, and it still answers on images where the git binary
 // is absent. `.git` is a directory in a normal clone and a file in a worktree
 // or submodule, so both count as "inside a repository".
-export function findRepositoryRoot(startDirectory, { maxDepth = 64 } = {}) {
+function findRepositoryRoot(startDirectory, { maxDepth = 64 } = {}) {
     let current;
     try {
         current = pathResolveAbsolute(String(startDirectory || '.'));

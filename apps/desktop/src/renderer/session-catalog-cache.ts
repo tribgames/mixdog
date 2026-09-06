@@ -1,4 +1,5 @@
 import type { DesktopSessionSummary } from "../shared/contract";
+import { catalogStorageKey, catalogStorageScope } from "./catalog-storage-scope";
 
 export const SESSION_CATALOG_STORAGE_KEY = "mixdog.desktop-session-catalog.v1";
 const SESSION_CATALOG_LIMIT = 500;
@@ -81,33 +82,33 @@ export function normalizeCachedSessionCatalog(value: unknown): CachedSessionCata
 
 export function readCachedSessionCatalog(): DesktopSessionSummary[] {
   try {
-    const stored = JSON.parse(window.localStorage.getItem(SESSION_CATALOG_STORAGE_KEY) || "null");
+    const stored = JSON.parse(window.localStorage.getItem(catalogStorageKey(SESSION_CATALOG_STORAGE_KEY)) || "null");
     return normalizeCachedSessionCatalog(stored).rows;
   } catch {
     return [];
   }
 }
 
-export function writeCachedSessionCatalog(rows: DesktopSessionSummary[]): void {
+export function writeCachedSessionCatalog(rows: DesktopSessionSummary[], scope = catalogStorageScope()): void {
   const catalog = normalizeCachedSessionCatalog({
     version: 1,
     updatedAt: Date.now(),
     rows,
   });
   try {
-    window.localStorage.setItem(SESSION_CATALOG_STORAGE_KEY, JSON.stringify(catalog));
+    window.localStorage.setItem(catalogStorageKey(SESSION_CATALOG_STORAGE_KEY, scope), JSON.stringify(catalog));
   } catch {
     // The authoritative live catalog remains usable when storage is unavailable.
   }
 }
 
-let pendingCatalogRows: DesktopSessionSummary[] | null = null;
+let pendingCatalogRows: { rows: DesktopSessionSummary[]; scope: string } | null = null;
 let pendingCatalogTimer: number | undefined;
 
 /** Keep live sidebar publication immediate while coalescing the synchronous
  * JSON/localStorage persistence that is only used for the next app startup. */
 export function scheduleCachedSessionCatalogWrite(rows: DesktopSessionSummary[]): void {
-  pendingCatalogRows = rows;
+  pendingCatalogRows = { rows, scope: catalogStorageScope() };
   if (pendingCatalogTimer !== undefined) return;
   pendingCatalogTimer = window.setTimeout(flushCachedSessionCatalogWrite, 1_000);
 }
@@ -120,7 +121,7 @@ export function flushCachedSessionCatalogWrite(): void {
   }
   const pending = pendingCatalogRows;
   pendingCatalogRows = null;
-  if (pending) writeCachedSessionCatalog(pending);
+  if (pending) writeCachedSessionCatalog(pending.rows, pending.scope);
 }
 
 if (typeof window !== "undefined") {

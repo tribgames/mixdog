@@ -4,6 +4,8 @@ import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path
 import { randomUUID } from 'node:crypto';
 import { callMicrosoftOffice, detectMicrosoftOffice, microsoftOfficeComSupported, openMicrosoftOfficeSession } from '../com/com-adapter.mjs';
 import { snapshotPortableOoxml } from '../portable/portable-ooxml.mjs';
+import { normalizeExcelCellStyle } from '../portable/portable-sheet-styles.mjs';
+import { summarizeXlsxConventions } from '../portable/xlsx-conventions.mjs';
 import { createPortableOoxmlDocument, portableCreateSupported } from '../portable/portable-package.mjs';
 import { createPdf, snapshotPdf } from '../pdf/pdf-adapter.mjs';
 import { createTabular, snapshotTabular } from './tabular.mjs';
@@ -106,6 +108,7 @@ export async function openSession(args, cwd, dataDir) {
     format,
     mode: selected.mode,
     backend: selected.backend,
+    ...(selected.backend === 'mixdog-ooxml' ? { ownership: 'owned', visible: false } : {}),
     openedAt: new Date().toISOString(),
     dataDir,
     created: false,
@@ -167,7 +170,7 @@ export async function createSession(args, cwd, dataDir) {
     const designed = applyPdfDesign((args.blocks || []).map((block) => (
       block?.path ? { ...block, path: fullPath(block.path, cwd) } : block
     )), designRequest, { library: designLibrary });
-    await createPdf(target, {
+    const written = await createPdf(target, {
       blocks: designed.blocks,
       fields: args.fields,
       properties: {
@@ -187,6 +190,13 @@ export async function createSession(args, cwd, dataDir) {
       openedAt: new Date().toISOString(),
       dataDir,
       created: true,
+      // What the writer decided (numbering, the font it embedded) rides on the
+      // create result so the caller need not re-open the file to learn it.
+      createReceipt: {
+        pageNumbers: written.pageNumbers,
+        font: written.font,
+        ...(written.form?.issueCount ? { formIssues: written.form.issues } : {}),
+      },
       ownership: 'owned',
       visible: false,
       snapshotVersion: 0,
@@ -325,14 +335,22 @@ export async function createSession(args, cwd, dataDir) {
 // owns that file in place so render, critique, and finalize treat it like a
 // created deliverable while the design gates know a script, not the
 // composer, decided the layout.
+export function validatePptxAuthorMode(requested) {
+  const requestedMode = String(requested || 'auto').toLowerCase();
+  if (['attach', 'live', 'visible'].includes(requestedMode)) {
+    throw new Error('author requires auto, background, or portable mode');
+  }
+  if (!['auto', 'background', 'portable'].includes(requestedMode)) {
+    throw new Error(`Unsupported Office mode: ${requestedMode}`);
+  }
+  return requestedMode;
+}
+
 export async function createAuthoredSession(args, cwd, dataDir, target) {
   const fileKind = documentFileKind(target);
   const format = documentFormat(target);
   if (format !== 'pptx') throw new Error('author currently supports PowerPoint targets only');
-  const requestedMode = String(args.mode || 'auto').toLowerCase();
-  if (['attach', 'live', 'visible'].includes(requestedMode)) {
-    throw new Error('author requires auto, background, or portable mode');
-  }
+  const requestedMode = validatePptxAuthorMode(args.mode);
   const selected = await selectMode(requestedMode, format, target);
   const resolved = await resolveOfficeDesignContext({
     args,
@@ -411,6 +429,19 @@ export async function resolveSession(args, cwd, dataDir) {
 }
 
 
+// Excel's cells read like the portable snapshot's: RRGGBB colors with
+// defaults omitted, and text cells flagged, so the formula audit and the
+// model see one shape from both readers.
+function normalizeExcelSnapshotStyles(document) {
+  for (const sheet of document?.sheets || []) {
+    for (const cell of sheet?.cells || []) {
+      if (!cell || typeof cell !== 'object') continue;
+      if (cell.style) cell.style = normalizeExcelCellStyle(cell.style);
+      if (!cell.formula && typeof cell.value === 'string' && cell.value !== '') cell.dataType = 'text';
+    }
+  }
+}
+
 export async function snapshot(session, args, { full = false } = {}) {
   const maxChars = Math.min(100_000, Math.max(1000, Number(args.maxChars) || 30_000));
   const requestArgs = {
@@ -439,9 +470,11 @@ export async function snapshot(session, args, { full = false } = {}) {
         ...request,
       }, { signal: session.activeSignal || null });
       if (!result.ok) throw new Error(result.error || 'Microsoft Office snapshot failed');
+      if (session.format === 'xlsx') normalizeExcelSnapshotStyles(result.value);
       return result.value;
     }
-    if (session.format === 'pdf') return await snapshotPdf(session.target, { maxChars, ...request });
+    // A user password only unlocks this read; it is never kept on the session.
+    if (session.format === 'pdf') return await snapshotPdf(session.target, { maxChars, ...request, ...(args.password ? { password: String(args.password) } : {}) });
     if (TABULAR_FORMATS.has(session.format)) return await snapshotTabular(session.target, session.format, request);
     return await snapshotPortableOoxml(session.target, session.format, request);
   };
@@ -457,6 +490,10 @@ export async function snapshot(session, args, { full = false } = {}) {
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const value = await load();
     finalizeOfficeSnapshotPage(value, session, request);
+    if (session.format === 'xlsx' && Array.isArray(value?.sheets)) {
+      const conventions = summarizeXlsxConventions(value);
+      if (conventions) value.conventions = conventions;
+    }
     wrapped = {
       session: session.id,
       mode: session.mode,

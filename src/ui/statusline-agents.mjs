@@ -10,6 +10,7 @@ import { forEachSessionRuntime } from '../runtime/agent/orchestrator/session/man
 import { listHiddenAgentNames } from '../runtime/agent/orchestrator/internal-agents.mjs';
 import { classifyToolCategory } from '../runtime/shared/tool-surface.mjs';
 import { num, GRN, R, B } from './statusline-format.mjs';
+import { positiveInt } from '../runtime/shared/numbers.mjs';
 
 const DEFAULT_HIDDEN_STATUSLINE_AGENTS = Object.freeze(['cycle1-agent', 'cycle2-agent', 'cycle3-agent']);
 const TERMINAL_AGENT_STATUS = /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i;
@@ -263,9 +264,4 @@ function maintenanceLabel(tag) {
     case 'cycle3-agent': return 'cycle3';
     default: return '';
   }
-}
-
-function positiveInt(value) {
-  const n = Number(value);
-  return Number.isInteger(n) && n > 0 ? n : 0;
 }

@@ -9,6 +9,8 @@ import { join } from 'node:path';
 
 import { elapsedMs, mixdogDataDirectory } from '../shared/common';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
+import { computerLogTarget } from './log-privacy';
+import { diagnosticRecord } from './failure-diagnostics';
 
 const RUN_LOG_DIRECTORY = 'computer-runs';
 const RUN_LOG_MAX_BYTES = 256 * 1_024;
@@ -66,7 +68,7 @@ export function computerRunRecord(
   const record: Record<string, unknown> = {
     action: String(command.action || ''),
     ...(command.window_id ? { window_id: String(command.window_id) } : {}),
-    ...(command.app ? { app: String(command.app) } : {}),
+    ...(command.app ? { app: computerLogTarget(String(command.app)) } : {}),
     ...(command.ref ? { ref: String(command.ref) } : {}),
     ...(command.delivery ? { delivery: String(command.delivery) } : {}),
     ms: Math.round(elapsedMs(startedAt)),
@@ -77,6 +79,9 @@ export function computerRunRecord(
   try {
     const payload = JSON.parse(result.text) as Record<string, unknown>;
     if (typeof payload.ok === 'boolean') record.ok = payload.ok;
+    const diagnostic = diagnosticRecord(payload);
+    record.input_recovery = diagnostic.recovery;
+    record.timings_ms = diagnostic.timings_ms;
     for (const key of [
       'effect', 'verified', 'goal_verified', 'code', 'path', 'escalation',
       'window_id', 'pixel_status', 'accessibility_status',

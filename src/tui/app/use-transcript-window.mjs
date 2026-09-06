@@ -8,7 +8,7 @@
  * the scroll clamp. Scroll/anchor/drag refs stay App-owned (injected); this
  * hook owns the measurement maps, measuredRowsVersion and totalRows bookkeeping.
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import {
   TRANSCRIPT_MEASURED_ROWS,
   transcriptMeasuredRowsCache,

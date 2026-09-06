@@ -81,6 +81,60 @@ test('resume restores persisted deferred tools before asynchronous route prepara
   assert.equal(typeof pendingRoutePreparation, 'function');
 });
 
+test('resume binds the session to the runtime MCP registry scope', async () => {
+  const read = { name: 'read', description: 'Read files', annotations: { readOnlyHint: true } };
+  const resumed = {
+    id: 'resume-mcp-scope',
+    provider: 'openai-oauth',
+    model: 'gpt-5.6-sol',
+    effort: 'high',
+    cwd: 'C:\\Project\\mixdog',
+    messages: [{ role: 'user', content: 'continue' }],
+    tools: [read],
+    deferredToolCatalog: [read],
+    deferredSelectedTools: ['read'],
+    deferredCallableTools: ['read'],
+    deferredDefaultTools: ['read'],
+    deferredDiscoveredTools: [],
+    deferredToolBp2Applied: true,
+  };
+  let current = null;
+  let route = {};
+  let receivedOptions = null;
+  const api = createLifecycleApi({
+    getSession: () => current,
+    setSession: (session) => { current = session; },
+    getRoute: () => route,
+    setRoute: (next) => { route = next; },
+    getConfig: () => ({}),
+    getMode: () => 'full',
+    getCurrentCwd: () => resumed.cwd,
+    getMcpScopeId: () => 'runtime-scope-1234',
+    getDesktopSession: () => null,
+    setSessionNeedsCwdRefresh: () => {},
+    clearRoutePreparation: () => {},
+    beginRoutePreparation: () => {},
+    invalidateContextStatusCache: () => {},
+    invalidatePreSessionToolSurface: () => {},
+    applyResolvedCwd: () => {},
+    resolveRoute: (_config, next) => ({ ...next, effectiveEffort: next.effort }),
+    applyDeferredToolSurface,
+    getStandaloneTools: () => [read],
+    mgr: {
+      async resumeSession(_id, _spec, options) {
+        receivedOptions = options;
+        return resumed;
+      },
+    },
+  });
+
+  await api.resume(resumed.id);
+
+  // A resumed session must look up MCP tools in THIS runtime's scope; a null
+  // scope silently maps to the empty 'global' registry and drops every MCP tool.
+  assert.equal(receivedOptions?.mcpScopeId, 'runtime-scope-1234');
+});
+
 test('lifecycle listSessions applies durable child visibility at the public catalog boundary', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-lifecycle-visibility-'));
   const previous = process.env.MIXDOG_DATA_DIR;

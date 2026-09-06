@@ -1,14 +1,17 @@
 import { FoldVertical, GitFork, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { DesktopModelSelection } from "../shared/contract";
 import { resolveContextDisplayUsage } from "./context-usage";
 import { type Snapshot, type TranscriptItem } from "./desktop-types";
+import { useHoverPopover } from "./hover-popover";
 import { t } from "./i18n";
 import { MxIcon } from "./MxIcon";
-import { useMobileBack } from "./mobile-back";
 import { showDesktopToast } from "./notifications";
 import { ProgressSpinner } from "./ProgressSpinner";
-import { shouldOfferSessionInheritance } from "./session-inheritance";
-import { touchPrimaryPointer } from "./surface-input-focus";
+import {
+  sessionModelSelection,
+  shouldOfferSessionInheritance,
+} from "./session-inheritance";
 import { asRecord, formatElapsed, publicThinkingSummary } from "./text-format";
 import {
   completionTone,
@@ -114,45 +117,18 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
   snapshot: Snapshot;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-  onInherit?: () => void;
+  /** Runs the handover itself (user: 팝업 안 뜨고 바로 진행되게). Inheritance is
+   *  a mechanical carry — compact, then inject into a fresh session — so the
+   *  button IS the decision; the old dialog only restated readings this card
+   *  already shows. The host still owns opening the heir's tab. */
+  onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
 }) {
-  const [localOpen, setLocalOpen] = useState(false);
-  const popoverOpen = controlledOpen ?? localOpen;
-  const setPopoverOpen = useCallback((next: boolean) => {
-    if (controlledOpen === undefined) setLocalOpen(next);
-    onOpenChange?.(next);
-  }, [controlledOpen, onOpenChange]);
-  const [pinned, setPinned] = useState(false);
-  const host = useRef<HTMLDivElement | null>(null);
+  // The card hangs 6px off the gauge, so the pointer heading for it leaves the
+  // gauge first; the shared hover contract holds the card through that trip
+  // instead of closing on the frame the pointer crosses the gap.
+  const popover = useHoverPopover({ open: controlledOpen, onOpenChange });
+  const popoverOpen = popover.open;
   const context = contextMetrics(snapshot);
-  const touch = touchPrimaryPointer();
-  useEffect(() => {
-    const keydown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setPinned(false);
-        setPopoverOpen(false);
-      }
-    };
-    const pointerdown = (event: globalThis.PointerEvent) => {
-      const target = event.target instanceof Node ? event.target : null;
-      if (target && host.current?.contains(target)) return;
-      setPinned(false);
-      setPopoverOpen(false);
-    };
-    document.addEventListener("keydown", keydown, true);
-    document.addEventListener("pointerdown", pointerdown, true);
-    return () => {
-      document.removeEventListener("keydown", keydown, true);
-      document.removeEventListener("pointerdown", pointerdown, true);
-    };
-  }, [setPopoverOpen]);
-  useEffect(() => {
-    if (controlledOpen === false) setPinned(false);
-  }, [controlledOpen]);
-  useMobileBack(popoverOpen, () => {
-    setPinned(false);
-    setPopoverOpen(false);
-  });
   const descriptionId = `context-usage-${String(snapshot.sessionId || "session")}`;
   const tone = !context ? ""
     : context.percent >= 90 ? "danger"
@@ -161,7 +137,33 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
   const state = asRecord(snapshot);
   const sessionId = String(state?.sessionId || "").trim();
   const compactBusy = compacting || Boolean(state?.busy) || Boolean(state?.commandBusy);
-  const offerInheritance = Boolean(onInherit) && shouldOfferSessionInheritance(snapshot);
+  const [inheriting, setInheriting] = useState(false);
+  const inheritRoute = sessionModelSelection(snapshot);
+  const offerInheritance = Boolean(onInherit) && Boolean(inheritRoute)
+    && shouldOfferSessionInheritance(snapshot);
+  const inheritBusy = inheriting || compactBusy;
+  // The one fact the card cannot act through is a transcript that no longer
+  // fits: the runtime rejects that carry with a raw engine sentence, so it is
+  // named here in the user's own terms before the call is made.
+  const inherit = async () => {
+    if (!sessionId || !onInherit || !inheritRoute || inheritBusy) return;
+    if (context && context.limit > 0 && context.used >= context.limit) {
+      showDesktopToast(
+        t("This conversation no longer fits the model context. Run /compact first."),
+        "warn",
+      );
+      return;
+    }
+    setInheriting(true);
+    try {
+      await onInherit(sessionId, inheritRoute);
+      popover.close();
+    } catch (reason) {
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), "error");
+    } finally {
+      setInheriting(false);
+    }
+  };
   const compact = async () => {
     if (!sessionId || compactBusy) return;
     setCompacting(true);
@@ -173,22 +175,12 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
       setCompacting(false);
     }
   };
-  return <div className="session-context-indicator" ref={host}
+  return <div className="session-context-indicator" {...popover.hostProps}
     data-active={context ? "true" : "false"}
     {...(tone ? { "data-tone": tone } : {})}
-    data-open={popoverOpen ? "true" : "false"}
-    onMouseEnter={() => { if (!touch) setPopoverOpen(true); }}
-    onMouseLeave={() => { if (!touch && !pinned) setPopoverOpen(false); }}>
-    <button type="button" onClick={() => {
-      if (!context) return;
-      const next = !pinned;
-      setPinned(next);
-      setPopoverOpen(next || (!touch && host.current?.matches(":hover") === true));
-    }} onFocus={() => {
-      setPopoverOpen(true);
-    }} onBlur={(event) => {
-      if (!pinned && !host.current?.contains(event.relatedTarget)) setPopoverOpen(false);
-    }} aria-label={context ? t("Context usage") : t("Context unavailable")}
+    data-open={popoverOpen ? "true" : "false"}>
+    <button type="button" {...popover.triggerProps}
+      aria-label={context ? t("Context usage") : t("Context unavailable")}
       aria-expanded={popoverOpen}
       aria-describedby={context ? descriptionId : undefined}
       disabled={!context}>
@@ -219,13 +211,9 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
           hand over); otherwise plain compaction. */}
       {offerInheritance
         ? <button type="button" className="context-action context-inherit"
-          disabled={compactBusy} onClick={() => {
-            setPinned(false);
-            setPopoverOpen(false);
-            onInherit?.();
-          }}>
+          disabled={inheritBusy} onClick={() => { void inherit(); }}>
           <GitFork size={14} aria-hidden="true" />
-          {t("Inherit session")}
+          {inheriting ? t("Inheriting…") : t("Inherit session")}
         </button>
         : <button type="button" className="context-action context-compact" disabled={compactBusy}
           onClick={() => { void compact(); }}>

@@ -5,12 +5,9 @@
  * remains part of session-local.mjs's public surface.
  */
 import { isBackgroundErrorOnlyBody } from '../../runtime/shared/err-text.mjs';
+import { textBetweenTag } from '../../runtime/shared/tool-result-summary.mjs';
 
-export function textBetweenTag(text, tag) {
-  const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
-  const match = re.exec(String(text ?? ''));
-  return match ? match[1].trim() : '';
-}
+export { textBetweenTag };
 
 function stripSyntheticAgentTags(text) {
   const value = String(text ?? '').trim();

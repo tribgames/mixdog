@@ -1,28 +1,13 @@
 // Tool schema/kind classification + measured-usage ordering, extracted from tool-catalog.mjs.
-import { clean, LATE_TOOL_ANNOUNCEMENT_SENTINEL } from './session-text.mjs';
+import { clean } from './session-text.mjs';
 import { estimateToolSchemaTokens, toolSchemaSignature } from '../runtime/agent/orchestrator/session/context-utils.mjs';
-import {
-  applyInitialDeferredToolManifestToBp2,
-  buildDeferredToolManifest,
-  stripDeferredToolManifestBlock,
-} from '../runtime/agent/orchestrator/context/collect.mjs';
-import { getMcpServerInstructionsMap } from '../runtime/agent/orchestrator/mcp/client.mjs';
-import {
-  isResponsesFreeformTool,
-  toResponsesCustomTool,
-} from '../runtime/agent/orchestrator/providers/custom-tool-wire.mjs';
 import {
   finalizeProviderRequestTools,
   isFinalizedProviderRequestTools,
   providerNativeToolPrefixCount,
 } from './provider-request-tools.mjs';
 import {
-  DEFERRED_DEFAULT_FULL_TOOLS,
-  DEFERRED_DEFAULT_LEAD_TOOLS,
-  DEFERRED_DEFAULT_READONLY_TOOLS,
-  DEFERRED_SELECT_ALIASES,
   MEASURED_TOOL_USAGE,
-  READONLY_TOOL_NAMES,
   ROUTE_TOOL_ORDER,
 } from './tool-catalog-data.mjs';
 

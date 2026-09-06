@@ -14,7 +14,7 @@ export const AUTO_MODEL = {
     contextWindow: 200_000,
 };
 
-function isCursorEffortParameterId(id) {
+export function isCursorEffortParameterId(id) {
     const key = String(id || '').trim().toLowerCase();
     return key === 'effort' || key === 'reasoning' || key.endsWith('_effort') || key.endsWith('-effort');
 }

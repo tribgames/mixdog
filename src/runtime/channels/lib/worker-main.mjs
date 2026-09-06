@@ -1,43 +1,23 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { performance } from "perf_hooks";
 import { createRequire } from "module";
 const _require = createRequire(import.meta.url);
-import { loadConfig, createProvider, loadProfileConfig, DATA_DIR } from "./config.mjs";
+import { loadConfig, createProvider, DATA_DIR } from "./config.mjs";
 import { resolveVoiceRuntime } from "./voice-runtime-fetcher.mjs";
 import { ensureReady, stopVoiceWhisperServer } from "./whisper-server.mjs";
-import { loadConfig as loadAgentConfig } from "../../agent/orchestrator/config.mjs";
-import { captureOriginalUserCwd, readLastSessionCwd } from "../../shared/user-cwd.mjs";
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from "../../shared/runtime-root.mjs";
-import { initProviders } from "../../agent/orchestrator/providers/registry.mjs";
 import { Scheduler } from "./scheduler.mjs";
-import { startSnapshotWriter, stopSnapshotWriter } from "./status-snapshot.mjs";
 import { hasPending as dispatchHasPending } from "../../agent/orchestrator/dispatch-persist.mjs";
 import { setListener as setActivityBusListener } from "../../agent/orchestrator/activity-bus.mjs";
 import { stripSoftWarns } from "../../agent/orchestrator/tool-loop-guard.mjs";
-import { WebhookServer } from "./webhook.mjs";
-import { EventPipeline } from "./event-pipeline.mjs";
-import { startCliWorker } from "./cli-worker-host.mjs";
-import { JsonStateFile, ensureDir, removeFileIfExists, writeTextFile } from "./state-file.mjs";
+import { JsonStateFile } from "./state-file.mjs";
 import {
-  ensureRuntimeDirs,
   makeInstanceId,
   getStatusPath,
-  getChannelOwnerPath,
-  getActiveOwnerPid,
   getTerminalLeadPid,
-  readActiveInstance,
-  refreshActiveInstance,
-  cleanupStaleRuntimeFiles,
-  probeActiveOwner,
   cleanupInstanceRuntimeFiles,
-  releaseOwnedChannelLocks,
-  clearActiveInstance,
-  notePreviousServerIfAny,
-  writeServerPid,
   clearServerPid,
-  RUNTIME_ROOT
 } from "./runtime-paths.mjs";
 import { invalidateConfigReadCache } from "../../shared/config.mjs";
 import { bootProfile, utcTimestamp } from "./boot-profile.mjs";
@@ -48,11 +28,9 @@ import {
   BENIGN_CRASH_FATAL_THRESHOLD,
   BENIGN_CRASH_STREAK_WINDOW_MS,
 } from "./crash-log.mjs";
-import { dropTrace, preview, _dtIdxFlush } from "./index-drop-trace.mjs";
 import { createParentBridge } from "./parent-bridge.mjs";
 import { createToolDispatch } from "./tool-dispatch.mjs";
 import { createOwnerHeartbeat } from "./owner-heartbeat.mjs";
-import { isNetworkError, retryOnNetwork } from "./network-retry.mjs";
 import { runWorkerIpc } from "./worker-ipc.mjs";
 import { createOwnedRuntime } from "./owned-runtime.mjs";
 import { runWorkerBootstrap } from "./worker-bootstrap.mjs";
@@ -175,12 +153,6 @@ setActivityBusListener(() => scheduler.noteActivity());
 let webhookServer = null;
 let eventPipeline = null;
 let bridgeRuntimeConnected = false;
-// Stop-requested signal: set by stopOwnedRuntime() when it runs during the
-// startOwnedRuntime() in-flight window (bridgeRuntimeStarting=true). Checked
-// by startOwnedRuntime() right after provider.connect() resolves so the
-// in-flight start does not revive owner state after the stop already tore
-// the partial-start state down.
-const ACTIVE_OWNER_STALE_MS = 1e4;
 // ── Bridge ownership snapshot + owner heartbeat ─────────────────────────────
 // Extracted → lib/owner-heartbeat.mjs. Owns its own heartbeat timer + last-note
 // dedup; bound to live identity + active-instance primitives.

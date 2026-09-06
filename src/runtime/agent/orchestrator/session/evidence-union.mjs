@@ -9,6 +9,7 @@
  */
 
 import { gitCommandMutates } from '../tools/builtin/git-command-policy.mjs';
+import { githubRequestMutates } from '../../../github/contract.mjs';
 
 const EXACT_RESULT_TOOLS = new Set(['find', 'find_files', 'glob', 'list']);
 
@@ -168,7 +169,8 @@ function mutationBatch(toolCalls) {
             || name === 'shell'
             || name === 'bash_session'
             || name === 'git_stage'
-            || (name === 'git' && gitCallMutates(call));
+            || (name === 'git' && gitCallMutates(call))
+            || (name === 'github' && githubRequestMutates(parsedArguments(call?.arguments ?? call?.function?.arguments)));
     });
 }
 
@@ -552,9 +554,3 @@ export function projectProviderEvidence(messages, options = {}) {
 
     return { messages: projected || messages, stats };
 }
-
-export const _evidenceUnionInternals = {
-    extractReadRows,
-    extractGrepRows,
-    extractCodeGraphRows,
-};

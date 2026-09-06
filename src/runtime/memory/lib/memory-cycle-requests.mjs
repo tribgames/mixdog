@@ -50,46 +50,6 @@ function cycleScheduleKey(kind, signature = 'default') {
   return `cycle_schedule.${normalized}.${sig}`
 }
 
-async function claimScheduledCycle(db, kind, intervalMs, signature = 'default', options = {}) {
-  const key = cycleScheduleKey(kind, signature)
-  const now = Number.isFinite(Number(options?.now)) ? Number(options.now) : Date.now()
-  const spacingMsRaw = Number.isFinite(Number(options?.spacingMs)) ? Number(options.spacingMs) : Number(intervalMs)
-  const spacingMs = Math.max(1000, Number.isFinite(spacingMsRaw) && spacingMsRaw > 0 ? spacingMsRaw : 60_000)
-  const nextAllowedAt = now + spacingMs
-  try {
-    const result = await db.query(
-      `INSERT INTO meta(key, value)
-       VALUES ($1, jsonb_build_object(
-         'last_attempt_at', $2::bigint,
-         'next_allowed_at', $3::bigint,
-         'claimed_count', 1,
-         'last_reason', $4::text
-       ))
-       ON CONFLICT(key) DO UPDATE SET value = jsonb_build_object(
-         'last_attempt_at', $2::bigint,
-         'next_allowed_at', $3::bigint,
-         'claimed_count',
-           CASE WHEN jsonb_typeof(meta.value->'claimed_count') = 'number'
-             THEN (meta.value->>'claimed_count')::integer + 1
-             ELSE 1
-           END,
-         'last_reason', $4::text,
-         'last_skipped_at', meta.value->'last_skipped_at'
-       )
-       WHERE CASE WHEN jsonb_typeof(meta.value->'next_allowed_at') = 'number'
-         THEN (meta.value->>'next_allowed_at')::bigint
-         ELSE 0
-       END <= $2::bigint
-       RETURNING value`,
-      [key, now, nextAllowedAt, String(options?.reason || 'scheduled').slice(0, 80)],
-    )
-    return { claimed: result.rows.length > 0, nextAllowedAt }
-  } catch (err) {
-    __mixdogMemoryLog(`[${kind}] scheduled claim failed: ${err.message}\n`)
-    return { claimed: false, error: err.message, nextAllowedAt: 0 }
-  }
-}
-
 export async function claimAndMarkScheduledCycle(db, kind, intervalMs, signature = 'default', options = {}) {
   const scheduleKey = cycleScheduleKey(kind, signature)
   const requestKey = cycleRequestKey(kind, signature)

@@ -16,6 +16,8 @@ export function nextTranscriptHistoryLimit(
   const page = Math.max(1, Math.floor(Number(pageItems) || TRANSCRIPT_HISTORY_PAGE_ITEMS));
   const maximum = Math.max(page, Math.floor(Number(maxItems) || TRANSCRIPT_HISTORY_MAX_ITEMS));
   const retained = Math.max(page, Math.floor(Number(currentLimit) || page), count);
-  if (count < page || retained >= maximum) return null;
+  // A successful read can be acknowledged before its larger page arrives.
+  // Do not issue the next page until that requested window is actually full.
+  if (count < Math.max(page, Number(currentLimit) || page) || retained >= maximum) return null;
   return Math.min(maximum, retained + page);
 }

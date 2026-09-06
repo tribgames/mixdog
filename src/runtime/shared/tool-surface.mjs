@@ -9,24 +9,19 @@ import {
   parseMcpToolName,
   isMcpToolName,
   isExternalMcpToolName,
-  isSelfMcpToolName,
   titleCaseMcpServer,
   normalizeToolName,
   truncateToolText,
-  truncateSingleLine,
   truncateCommand,
   parseToolArgs,
   displayToolPath,
   compactParts,
-  compactSlash,
-  mcpToolTarget,
   quoted,
   firstText,
   splitToolSearchSelection,
   toolSearchDisplayLabel,
   displayToolSearchTarget,
   titleizeToolName,
-  displayAgentName,
   displayModelName,
   bridgeAgentModelSummary,
   summarizeLineWindow,
@@ -37,8 +32,6 @@ import {
   codeGraphLabel,
   codeGraphSummary,
   pluralize,
-  titleWord,
-  titleStatus,
 } from './tool-primitives.mjs';
 import {
   parseLineDelta,
@@ -474,6 +467,7 @@ const TOOL_CATEGORY = new Map([
   ['search_replace', 'Patch'],
   ['git', 'Git'],
   ['git_stage', 'Git'],
+  ['github', 'Git'],
   ['bash', 'Shell'],
   ['shell', 'Shell'],
   ['shell_command', 'Shell'],
@@ -521,20 +515,6 @@ const CATEGORY_COPY = new Map([
   ['Setup', { active: 'Setting up', done: 'Set up', noun: 'item' }],
   ['Other', { active: 'Calling', done: 'Called', noun: 'tool' }],
 ]);
-
-/** Active gerund for a category (e.g. "Reading" for "Read"). */
-function activeCategoryLabel(category) {
-  return CATEGORY_COPY.get(category)?.active || category;
-}
-
-function doneCategoryLabel(category) {
-  return CATEGORY_COPY.get(category)?.done || category;
-}
-
-function categoryNoun(category, count) {
-  const copy = CATEGORY_COPY.get(category) || { noun: 'item' };
-  return pluralize(count, copy.noun, copy.pluralNoun || `${copy.noun}s`);
-}
 
 function categoryCopy(category) {
   return CATEGORY_COPY.get(category) || CATEGORY_COPY.get('Other') || { active: 'Calling', done: 'Called', noun: 'tool' };
@@ -668,6 +648,8 @@ export function toolWorkUnit(name, args = {}, category = '') {
       return unitDescriptor('Shell', { count: queryCount(a, 'command', 'commands', 'cmd') || 1, noun: 'command' });
     case 'git':
       return unitDescriptor('Git', { count: queryCount(a, 'command', 'commands') || 1, noun: 'Git command' });
+    case 'github':
+      return unitDescriptor('Git', { count: 1, noun: 'GitHub operation' });
     // Staging is not "running a Git command": it selects change_ids out of an
     // existing diff. Its own work unit keeps the two apart on the activity row.
     case 'git_stage':

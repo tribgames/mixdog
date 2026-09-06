@@ -1,7 +1,4 @@
-function positiveInt(value, fallback) {
-  const parsed = Math.floor(Number(value));
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
+import { positiveInt } from '../runtime/shared/numbers.mjs';
 
 function activeLimit(value, fallback) {
   if (value === null || value === Infinity) return Infinity;

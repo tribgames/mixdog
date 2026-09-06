@@ -5,28 +5,12 @@
 // (i18next-cli extract) keeps every catalog in step with literal t() usage.
 import i18next from "i18next";
 
-import { supplementalUiTranslations } from "./auto-i18n";
 import { publishUiLanguage } from "./push-notification-bridge";
-
-/** Selectable UI languages with their native display names (settings picker).
- *  RTL locales stay out until the chrome grows mirrored-layout support. */
-export const SUPPORTED_UI_LANGUAGES = [
-  { value: "en", label: "English" },
-  { value: "ko", label: "한국어" },
-  { value: "ja", label: "日本語" },
-  { value: "zh-CN", label: "中文（简体）" },
-  { value: "zh-TW", label: "中文（繁體）" },
-  { value: "es", label: "Español" },
-  { value: "fr", label: "Français" },
-  { value: "de", label: "Deutsch" },
-  { value: "it", label: "Italiano" },
-  { value: "pt-BR", label: "Português (Brasil)" },
-  { value: "ru", label: "Русский" },
-  { value: "vi", label: "Tiếng Việt" },
-] as const;
-
-export type UiLanguage = (typeof SUPPORTED_UI_LANGUAGES)[number]["value"];
-export type UiLanguagePreference = "system" | UiLanguage;
+import {
+  SUPPORTED_UI_LANGUAGES, UI_LANGUAGE_STORAGE_KEY, uiLanguageForLocale,
+  type UiLanguage, type UiLanguagePreference,
+} from "../shared/ui-language";
+export { SUPPORTED_UI_LANGUAGES, UI_LANGUAGE_STORAGE_KEY, type UiLanguage, type UiLanguagePreference };
 
 const UI_LANGUAGE_VALUES: readonly string[] = SUPPORTED_UI_LANGUAGES.map((entry) => entry.value);
 
@@ -35,21 +19,6 @@ function asUiLanguage(value: unknown): UiLanguage | null {
     ? (value as UiLanguage)
     : null;
 }
-
-/** Map a BCP-47 locale onto a supported UI language: exact tag, Chinese
- *  script/region resolution, then the bare language prefix. */
-function uiLanguageForLocale(locale: string): UiLanguage | null {
-  const lower = String(locale || "").trim().toLowerCase();
-  if (!lower) return null;
-  const exact = UI_LANGUAGE_VALUES.find((value) => value.toLowerCase() === lower);
-  if (exact) return exact as UiLanguage;
-  const base = lower.split(/[-_]/)[0];
-  if (base === "zh") return /hant|tw|hk|mo/.test(lower) ? "zh-TW" : "zh-CN";
-  const byBase = UI_LANGUAGE_VALUES.find((value) => value.toLowerCase().split("-")[0] === base);
-  return (byBase as UiLanguage) || null;
-}
-
-export const UI_LANGUAGE_STORAGE_KEY = "mixdog.desktop.ui-language.v1";
 
 export function getUiLanguagePreference(): UiLanguagePreference {
   try {
@@ -135,21 +104,23 @@ void i18next.init({
  *  (Settings → Display language), so one catalog per session is enough. */
 export async function initUiLanguage(): Promise<void> {
   const language = resolveUiLanguage();
+  if (typeof document !== "undefined") document.documentElement.lang = language;
   // The worker showing notifications on this device cannot read localStorage;
   // this is the only way it learns which language to speak. English included:
   // it has to overwrite whatever a previous choice left behind.
   void publishUiLanguage(language);
-  if (language === "en") return;
+  if (language === "en") {
+    await i18next.changeLanguage("en");
+    return;
+  }
   try {
     const catalog = await CATALOGS[language]();
-    i18next.addResourceBundle(language, "translation", {
-      ...catalog.default,
-      ...supplementalUiTranslations(language),
-    });
+    i18next.addResourceBundle(language, "translation", catalog.default);
     await i18next.changeLanguage(language);
-  } catch {
+  } catch (error) {
     // A catalog that fails to load leaves the UI on its English source text,
     // which is readable; a blank chrome would not be.
+    console.warn("Could not load UI translations; using English.", error);
   }
 }
 
@@ -172,9 +143,16 @@ export function tExisting(
   return i18next.exists(key) ? String(i18next.t(key, options)) : original;
 }
 
-// Used only by the legacy DOM compatibility localizer for interpolated
-// hardcoded strings. Keeping the list on the function avoids another catalog
-// import in the renderer entry.
-(t as unknown as { autoKeys: string[] }).autoKeys = Object.keys(supplementalUiTranslations("ko"));
+/** Active keyed catalog only: no second bundle or fragile numeric indices. */
+let activeCatalog: unknown;
+let activeKeys: string[] = [];
+export function activeUiTranslationKeys(): string[] {
+  const catalog = i18next.getResourceBundle(i18next.language, "translation");
+  if (catalog !== activeCatalog) {
+    activeCatalog = catalog;
+    activeKeys = Object.keys(catalog || {});
+  }
+  return activeKeys;
+}
 
 export default i18next;

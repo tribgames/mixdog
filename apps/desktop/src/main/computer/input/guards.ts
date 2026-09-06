@@ -117,6 +117,9 @@ export function assertSafeComputerTargetTokens(command: ComputerCommand): void {
       if (!predicate || typeof predicate !== 'object' || Array.isArray(predicate)) {
         throw new Error('invalid_verify: each expectation must be an object');
       }
+      if (Object.keys(predicate).length !== 1) {
+        throw new Error('invalid_verify: each expectation requires exactly one condition');
+      }
       const predicateTypes = {
         present: 'string',
         absent: 'string',
@@ -130,6 +133,9 @@ export function assertSafeComputerTargetTokens(command: ComputerCommand): void {
         }
         if (typeof value !== expectedType) {
           throw new Error(`invalid_verify: ${field} must be a ${expectedType}`);
+        }
+        if (typeof value === 'string' && !value.trim()) {
+          throw new Error(`invalid_verify: ${field} must not be empty`);
         }
         if (typeof value === 'string' && value.length > MAX_COMPUTER_TARGET_TOKEN_LENGTH) {
           throw new Error(

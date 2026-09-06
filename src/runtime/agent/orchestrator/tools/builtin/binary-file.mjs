@@ -122,28 +122,3 @@ export function formatBinaryReadPreviewFromBuffer(
     const text = `${disp}\n${note}\n${hex || '(empty)'}`;
     return { text, snapshotMeta: { source: 'read_hex', ranges: [] } };
 }
-
-/** Short hex preview for read when null bytes mark the file as binary. */
-export function formatBinaryReadPreview(fullPath, displayPath, fileSize, { previewBytes = BINARY_PREVIEW_BYTES } = {}) {
-    const n = Math.max(0, Math.min(previewBytes, fileSize > 0 ? fileSize : previewBytes));
-    let fd = null;
-    try {
-        fd = openSync(fullPath, 'r');
-        const buf = Buffer.alloc(n);
-        const bytesRead = readSync(fd, buf, 0, n, 0);
-        return formatBinaryReadPreviewFromBuffer(
-            buf.subarray(0, bytesRead),
-            displayPath || fullPath,
-            fileSize,
-            { previewBytes },
-        );
-    } catch {
-        const disp = displayPath || fullPath;
-        return {
-            text: `${disp}\nbinary, ${fileSize} bytes\n(preview unavailable)`,
-            snapshotMeta: { source: 'read_hex', ranges: [] },
-        };
-    } finally {
-        if (fd !== null) { try { closeSync(fd); } catch {} }
-    }
-}

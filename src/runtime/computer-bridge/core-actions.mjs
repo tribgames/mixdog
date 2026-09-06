@@ -1,3 +1,5 @@
+import { hasOwn } from '../shared/object.mjs';
+
 const COMPUTER_CORE_ACTION_TYPES = Object.freeze([
   'click',
   'double_click',
@@ -71,9 +73,6 @@ const FIELDS_BY_TYPE = {
   wait: new Set(['type', 'duration']),
 };
 
-function hasOwn(value, key) {
-  return Object.prototype.hasOwnProperty.call(value, key);
-}
 
 function targetFormError(action, { required = true, frameId = '' } = {}) {
   const semantic = ['ref', 'element'].filter((field) => hasOwn(action, field));

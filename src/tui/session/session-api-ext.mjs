@@ -775,11 +775,6 @@ export function createSessionApiB(bag) {
       pushNotice('OpenAI usage auth saved', 'info');
       return true;
     },
-    setLocalProvider: (provider, opts) => {
-      const result = runtime.setLocalProvider(provider, opts);
-      pushNotice(`local provider ${result.enabled ? 'enabled' : 'disabled'}: ${result.provider}`, 'info');
-      return true;
-    },
     authenticateProvider: async (provider, secret) => {
       if (getState().commandBusy) return false;
       set({ commandBusy: true });
@@ -861,8 +856,8 @@ export function createSessionApiB(bag) {
       set({ commandBusy: true });
       try {
         const routeOpts = opts && typeof opts === 'object' ? opts : {};
-        // Default: apply to the NEXT session only. Only an explicit
-        // `applyToCurrentSession: true` rewrites the live session in place.
+        // The explicit address initializes an empty session in place. Once
+        // conversation history exists, only same-model effort/Fast may change.
         const applyToCurrentSession = routeOpts.applyToCurrentSession === true;
         const { applyToCurrentSession: _drop, ...nextRoute } = routeOpts;
         const resolvedRoute = await runtime.setRoute(nextRoute, { applyToCurrentSession });

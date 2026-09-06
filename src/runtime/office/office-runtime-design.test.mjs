@@ -1,21 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign as signBytes } from 'node:crypto';
-import { cp, mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   applyPdfDesign,
   expandOfficeDesignOperations,
-  officeDesignCatalog,
   resolveOfficeDesign,
 } from './design/design-system.mjs';
 import { summarizeOfficeCompositions } from './design/composition-system.mjs';
 import {
   canonicalOfficeDesignPack,
-  createPptxSlideSelection,
-  defaultOfficeTemplateDirectories,
   indexOfficeTemplates,
-  inspectOfficeTemplate,
   persistOfficeDesignBinding,
   readOfficeCompositionHistory,
   recordOfficeCompositionHistory,
@@ -31,7 +27,7 @@ import {
   reviewOfficeDesign,
   reviewPptxVisualCritique,
 } from './quality/design-review.mjs';
-import { value, workspace, writeZip } from './office-test-support.mjs';
+import { workspace } from './office-test-support.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
 
@@ -657,4 +653,29 @@ test('Office design review judges an authored deck by its own ladder and geometr
     design: { profile: 'editorial' },
   });
   assert.ok(edgeStripe.issues.some((issue) => issue.code === 'decorative_stripe'));
+  // A level line in a diagram column is not an underline of the hero numeral beside it: they share no columns.
+  const beside = reviewOfficeDesign({
+    format: 'pptx',
+    document: {
+      slides: [
+        { index: 1, background: { color: '1F1512' }, shapes: [] },
+        { index: 2, background: { color: 'F9F4F1' }, shapes: [title(2), { type: 1, text: '0', left: 660, top: 210, width: 250, height: 80, font: { size: 65 } }, { type: 1, text: '', left: 80, top: 288, width: 540, height: 0 }] },
+        { index: 3, background: { color: '1F1512' }, shapes: [] },
+      ],
+    },
+    design: { profile: 'editorial' },
+  });
+  assert.equal(beside.issues.some((issue) => issue.code === 'decorative_stripe'), false);
+  const underline = reviewOfficeDesign({
+    format: 'pptx',
+    document: {
+      slides: [
+        { index: 1, background: { color: '1F1512' }, shapes: [] },
+        { index: 2, background: { color: 'F9F4F1' }, shapes: [title(2), { type: 1, text: '', left: 43, top: 130, width: 540, height: 2 }] },
+        { index: 3, background: { color: '1F1512' }, shapes: [] },
+      ],
+    },
+    design: { profile: 'editorial' },
+  });
+  assert.ok(underline.issues.some((issue) => issue.code === 'decorative_stripe'), 'a rule under the title is still an underline');
 });

@@ -26,6 +26,7 @@ export function getPluginData() {
 // Webhook endpoints may omit a model and use the fallback route below.
 // Legacy route slots accepted only at config ingress for migration.
 const MAINTENANCE_SLOTS = Object.freeze(['memory']);
+const RETIRED_LOCAL_PROVIDER_IDS = new Set(['ollama', 'lmstudio']);
 
 // --- User profile (statusline /profile) -------------------------------------
 // Supported response languages for the /profile picker. `system` is the default
@@ -195,9 +196,8 @@ export function buildDefaultConfig(options = {}) {
     // Google Antigravity (Cloud Code Assist). Gemini and Claude behind one
     // Google login; enabled only once a login has stored tokens + project.
     providers['antigravity-oauth'] = oauthEntry('antigravity-oauth');
-    // Local providers — opt-in via setup UI after HTTP ping confirms server is running
-    providers.ollama = { enabled: false, baseURL: 'http://localhost:11434/v1' };
-    providers.lmstudio = { enabled: false, baseURL: 'http://localhost:1234/v1' };
+    // First-party local inference is installed and toggled from Built-in.
+    providers['mixdog-local'] = { enabled: false };
     return {
         providers,
         disabledAgents: [...DEFAULT_DISABLED_AGENT_IDS],
@@ -374,12 +374,53 @@ function normalizedModelSettings(raw = {}) {
         : {};
 }
 
+function canonicalizeBuiltinsStorage(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    return Object.fromEntries(
+        Object.entries(raw)
+            .filter(([id, entry]) => String(id || '').trim() && entry && typeof entry === 'object' && !Array.isArray(entry))
+            .map(([id, entry]) => [id, { ...entry, installed: entry.installed === true }]),
+    );
+}
+
+function retiredLocalProviderStoragePresent(value = {}) {
+    const retiredRoute = (route) => RETIRED_LOCAL_PROVIDER_IDS.has(String(route?.provider || '').trim());
+    return [...RETIRED_LOCAL_PROVIDER_IDS].some((id) => Object.prototype.hasOwnProperty.call(value?.providers || {}, id))
+        || (Array.isArray(value?.presets) && value.presets.some(retiredRoute))
+        || Object.values(configObject(value?.agents)).some(retiredRoute)
+        || Object.values(configObject(value?.maintenance)).some(retiredRoute)
+        || Object.keys(configObject(value?.modelSettings)).some((key) =>
+            [...RETIRED_LOCAL_PROVIDER_IDS].some((id) => key.startsWith(`${id}/`)));
+}
+
 function canonicalizeLegacyAgentStorage(value = {}) {
     const next = canonicalizeAgentRouteStorage(value);
+    const removedPresetIds = new Set(
+        (Array.isArray(next.presets) ? next.presets : [])
+            .filter((preset) => RETIRED_LOCAL_PROVIDER_IDS.has(String(preset?.provider || '').trim()))
+            .map((preset) => String(preset?.id || preset?.name || '').trim())
+            .filter(Boolean),
+    );
+    next.providers = configObject(next.providers);
+    for (const id of RETIRED_LOCAL_PROVIDER_IDS) delete next.providers[id];
     next.presets = Array.isArray(next.presets)
-        ? next.presets.map((preset) => normalizePreset(preset)).filter(Boolean)
+        ? next.presets
+            .map((preset) => normalizePreset(preset))
+            .filter((preset) => preset && !RETIRED_LOCAL_PROVIDER_IDS.has(preset.provider))
         : [];
-    next.modelSettings = normalizedModelSettings(value);
+    if (removedPresetIds.has(String(next.default || '').trim())) next.default = null;
+    next.agents = Object.fromEntries(
+        Object.entries(configObject(next.agents))
+            .filter(([, route]) => !RETIRED_LOCAL_PROVIDER_IDS.has(String(route?.provider || '').trim())),
+    );
+    next.maintenance = Object.fromEntries(
+        Object.entries(configObject(next.maintenance))
+            .filter(([, route]) => !RETIRED_LOCAL_PROVIDER_IDS.has(String(route?.provider || '').trim())),
+    );
+    next.modelSettings = Object.fromEntries(
+        Object.entries(normalizedModelSettings(value))
+            .filter(([key]) => ![...RETIRED_LOCAL_PROVIDER_IDS].some((id) => key.startsWith(`${id}/`))),
+    );
     const autoClear = canonicalizeAutoClearStorage(next.autoClear);
     if (autoClear) next.autoClear = autoClear;
     else delete next.autoClear;
@@ -428,6 +469,7 @@ function agentConfigStorageNeedsMigration(value = {}) {
     const canonical = canonicalizeLegacyAgentStorage(value);
     const normalizedFields = ['autoClear', 'compaction', 'shell', 'profile', 'skills', 'extensionScopes', 'modules', 'guide'];
     return agentRouteStorageNeedsMigration(value)
+        || retiredLocalProviderStoragePresent(value)
         || Object.prototype.hasOwnProperty.call(value || {}, 'fastModels')
         || Object.prototype.hasOwnProperty.call(value || {}, 'agentMaintenance')
         || Object.prototype.hasOwnProperty.call(value || {}, 'runtime')
@@ -570,6 +612,9 @@ export function loadConfig(options = {}) {
                 update: raw.update && typeof raw.update === 'object' ? { ...raw.update } : {},
                 recap: recapConfig,
                 modules: canonicalizeModulesStorage(raw.modules) || {},
+                ...(raw.builtins && typeof raw.builtins === 'object'
+                    ? { builtins: canonicalizeBuiltinsStorage(raw.builtins) }
+                    : {}),
             });
             if (storageNeedsMigration) {
                 try {
@@ -724,6 +769,7 @@ function buildAgentSaveBuilder(config) {
     const compaction = canonicalizeCompactionStorage(config.compaction);
     const shell = canonicalizeShellStorage(config.shell);
     const modules = canonicalizeModulesStorage(config.modules);
+    const builtins = canonicalizeBuiltinsStorage(config.builtins);
     // Build the replacement from `existingRaw` — the section read INSIDE the
     // file lock — not a snapshot taken before it, so unmanaged keys written by
     // a concurrent instance survive the save (lost-update guard).
@@ -750,6 +796,7 @@ function buildAgentSaveBuilder(config) {
             update: config.update || {},
             recap: config.recap || {},
             modules,
+            builtins,
         };
         // These keys were previously round-tripped despite having no runtime
         // consumer. Explicitly remove them from the in-lock baseline so a

@@ -110,7 +110,7 @@ function resolveWindowsPowerShell() {
     return shellSpec('powershell.exe', 'powershell');
 }
 
-export function resolveShell() {
+function resolveShell() {
     if (_resolvedShell) return _resolvedShell;
     // Gate on the actual platform, NOT WINDIR/SystemRoot env presence: under
     // WSL those vars can be inherited via interop while process.platform is

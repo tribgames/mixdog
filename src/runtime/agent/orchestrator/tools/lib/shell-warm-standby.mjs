@@ -63,7 +63,7 @@ function psQuote(value) {
 }
 
 /** Pre-spawn the next standby (fire-and-forget; a live one is kept). */
-export function ensureWarmShellStandby({ shell, env }) {
+function ensureWarmShellStandby({ shell, env }) {
     if (_disabled() || !shell) return;
     // Old spawn binaries ignore stdinPipe (null stdin → instant-EOF standby
     // that would ack commands without running them); require the handshake.
@@ -150,13 +150,4 @@ export function takeWarmShellStandby({ shell, env, cwd }) {
         slot.native.child.writeStdin(prelude + String(commandText ?? ''), { close: true });
     };
     return { spawned: slot.native, feed };
-}
-
-export function _resetWarmShellStandbyForTest() {
-    const slot = _slot;
-    _slot = null;
-    _clearSlotIdleTimer();
-    if (slot?.native?.child) {
-        try { slot.native.child.kill(); } catch { /* best-effort */ }
-    }
 }

@@ -1,27 +1,8 @@
 // Provider request-tool resolution + JSON-safe snapshot machinery, extracted from tool-catalog.mjs.
 import { clean } from './session-text.mjs';
-import { estimateToolSchemaTokens, toolSchemaSignature } from '../runtime/agent/orchestrator/session/context-utils.mjs';
-import {
-  applyInitialDeferredToolManifestToBp2,
-  buildDeferredToolManifest,
-  stripDeferredToolManifestBlock,
-} from '../runtime/agent/orchestrator/context/collect.mjs';
-import { getMcpServerInstructionsMap } from '../runtime/agent/orchestrator/mcp/client.mjs';
-import {
-  isResponsesFreeformTool,
-  toResponsesCustomTool,
-} from '../runtime/agent/orchestrator/providers/custom-tool-wire.mjs';
 import {
   finalizeProviderRequestTools,
-  providerNativeToolPrefixCount,
 } from './provider-request-tools.mjs';
-import {
-  DEFERRED_DEFAULT_FULL_TOOLS,
-  DEFERRED_DEFAULT_LEAD_TOOLS,
-  DEFERRED_DEFAULT_READONLY_TOOLS,
-  DEFERRED_SELECT_ALIASES,
-  READONLY_TOOL_NAMES,
-} from './tool-catalog-data.mjs';
 import { parseToolSelection, ANTHROPIC_NATIVE_PROVIDERS } from './tool-catalog-schema.mjs';
 
 export function resolveProviderRequestTools({

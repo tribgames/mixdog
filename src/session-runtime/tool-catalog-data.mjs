@@ -2,7 +2,7 @@
 // locator → path → content → symbol → read → edit → execute.
 export const ROUTE_TOOL_ORDER = Object.freeze([
   'find', 'glob', 'list', 'grep', 'code_graph', 'read',
-  'edit', 'apply_patch', 'git', 'git_stage', 'shell', 'task',
+  'edit', 'apply_patch', 'git', 'git_stage', 'github', 'shell', 'task',
 ]);
 
 // Measured call counts (3-day trace window); orders the unrouted tail and
@@ -56,5 +56,6 @@ export const DEFERRED_SELECT_ALIASES = {
   graph: ['code_graph'],
   code: ['code_graph'],
   shell: ['shell', 'task'],
-  git: ['git'],
+  git: ['git', 'git_stage', 'github'],
+  github: ['github'],
 };

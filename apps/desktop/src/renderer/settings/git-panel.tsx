@@ -1,4 +1,4 @@
-// Settings → Git (desktop-only): GitHub CLI status/install/device-flow login,
+// Built-in Git & GitHub: GitHub CLI status/install/device-flow login,
 // the commit format preset (ghost-text preview, never inserted), and the
 // global git identity sourced from the signed-in GitHub account. The Connect
 // flow follows the Providers OAuth grammar: start → one-time code card →
@@ -13,7 +13,8 @@ import type {
   DesktopGitCommitPreset,
   DesktopGitGlobalConfig,
 } from '../../shared/contract';
-import { showDesktopToast } from '../notifications';
+import { useErrorToast } from '../notifications';
+import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
 
 import { ActionButton, FormRow, Group, ResourceRow, SelectRow, ToggleRow } from './capability-controls';
@@ -44,8 +45,8 @@ function customInstructions(preferences: {
   return String(preferences?.commitInstructions || '');
 }
 
-export function GitPanel() {
-  const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
+export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
+  const host = api ?? (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
   const supported = Boolean(host?.githubCliStatus);
   // Cached snapshot first (user: 캐시해서 툭 나오지 않게): the panel paints its
   // last known rows immediately; the background probe reconciles afterwards.
@@ -75,9 +76,7 @@ export function GitPanel() {
     Partial<Record<GitPreferenceField, boolean>>
   >({});
   const [error, setError] = useState('');
-  useEffect(() => {
-    if (error) showDesktopToast(error, 'error');
-  }, [error]);
+  useErrorToast(error, 'git-settings');
 
   const refreshStatus = useCallback(async () => {
     if (!host?.githubCliStatus) return;
@@ -294,9 +293,7 @@ export function GitPanel() {
               Open github.com ↗</ActionButton></>
           : 'Starting GitHub sign-in…'}
       </p>}
-      {flowState === 'error' && <p className="settings-connection-note" role="alert">
-        Sign-in failed: {flow?.message || 'unknown error'}
-      </p>}
+      {flowState === 'error' && <ErrorNotice error={flow?.message || 'Sign-in failed'} />}
     </Group>
     <Group title="Commit messages"
       description={t('Choose how manual commit hints and AI-generated messages should be written.')}>

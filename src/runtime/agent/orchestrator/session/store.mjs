@@ -7,14 +7,14 @@ import { readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync, statS
 import * as fsp from 'fs/promises';
 import { randomBytes } from 'crypto';
 import { join } from 'path';
-import { Worker } from 'worker_threads';
-import { getPluginData, loadConfig } from '../config.mjs';
+import { getPluginData } from '../config.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
-import { renameWithRetrySync } from '../../../shared/atomic-file.mjs';
-import { sanitizeContentForStoredHistory } from '../providers/media-normalization.mjs';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-scan.mjs';
+import {
+    readCanonicalSessionRecord as _readCanonicalRecord,
+    CANONICAL_RECORD_UNREADABLE as LIFECYCLE_AMBIGUOUS,
+} from './store/canonical-reader.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../../../../lib/mixdog-debug.cjs';
-import { resolveAgentTerminalReapMs } from '../../../../session-runtime/config-helpers.mjs';
 import { getStoreDir, sessionPath, publishHeartbeat, deleteHeartbeat, deleteSessionPresence } from './store/paths-heartbeat.mjs';
 import {
     guardedSaveOptions as _guardedSaveOptions,
@@ -29,16 +29,14 @@ import {
     WRITE_COMMIT_STALE as _WRITE_COMMIT_STALE,
 } from './store/write-guards.mjs';
 import {
-    SESSION_SUMMARY_INDEX_VERSION,
-    summaryIndexPath,
-    _sessionSummary,
-    _normalizeSummaryIndex,
-    _writeSummaryIndex,
-    _upsertSessionSummary,
-    _removeSessionSummary,
-    _pruneSummaryIndexIds,
-    _flushPendingSummaryOps,
-    _hasUnsettledSummaryOps,
+  SESSION_SUMMARY_INDEX_VERSION,
+  summaryIndexPath,
+  _sessionSummary,
+  _normalizeSummaryIndex,
+  _writeSummaryIndex,
+  _upsertSessionSummary,
+  _removeSessionSummary,
+  _flushPendingSummaryOps,
 } from './store-summary-index.mjs';
 // Facade re-export: summary-index API moved to store-summary-index.mjs; keep
 // prior importers of store.mjs unchanged.
@@ -66,9 +64,9 @@ import { _readStoredSessionCached } from './store/load-cache.mjs';
 import { probePath, PROBE_PRESENT, PROBE_ABSENT } from './store/fs-probe.mjs';
 // Every canonical commit now goes through _commitSessionWrite (fault-aware
 // rename + scratch ownership), so the raw rename helper is no longer imported.
-import { _sessionForDisk, _ensureLifecycleFields, _storedSessionFromFile } from './store/serialize.mjs';
-import { _ensureSummaryCacheDataDir, _cachedSummaryRows, _setSummaryRowsCache, _cacheSessionSummary, _uncacheSessionSummary, _rollbackCachedSessionSummary, _queueSessionSummaryUpsert, _queueSessionSummaryRemoval, _queueSummaryIndexPrune, _scanStoredSessionSummaryRows, _summaryCacheVersions, _summaryCacheRemovals, _summaryRowsCache } from './store/summary-cache.mjs';
-import { _lastSaveError, _liveSessions, _droppedSaveIds, setLiveSession, _clearLiveSession, LIVE_MEDIA_RETENTION_MS, _messagesCarryLiveMedia, getSessionSaveError, clearSessionSaveError, _recordSaveFailure, _recordSaveDrop, _clearSaveStateIfCurrent, _nextSaveEpoch, _acquireSessionIncarnation, _releaseSessionIncarnation, _isCurrentSessionIncarnation, _retireSessionIncarnation, _clearSessionSaveState, SAVE_OUTCOME_SAVED, SAVE_OUTCOME_DROPPED, SAVE_OUTCOME_STALE, hasSessionSaveFailure, getFailedSaveSnapshot, _recordLifecycleCommitFailure, clearSessionLifecycleCommitError } from './store/live-state.mjs';
+import { _sessionForDisk, _ensureLifecycleFields } from './store/serialize.mjs';
+import { _cacheSessionSummary, _uncacheSessionSummary, _rollbackCachedSessionSummary, _queueSessionSummaryUpsert, _queueSessionSummaryRemoval, _summaryCacheVersions } from './store/summary-cache.mjs';
+import { _liveSessions, _droppedSaveIds, setLiveSession, _clearLiveSession, LIVE_MEDIA_RETENTION_MS, _messagesCarryLiveMedia, getSessionSaveError, clearSessionSaveError, _recordSaveFailure, _recordSaveDrop, _clearSaveStateIfCurrent, _nextSaveEpoch, _acquireSessionIncarnation, _releaseSessionIncarnation, _isCurrentSessionIncarnation, _retireSessionIncarnation, _clearSessionSaveState, SAVE_OUTCOME_SAVED, SAVE_OUTCOME_DROPPED, SAVE_OUTCOME_STALE, hasSessionSaveFailure, getFailedSaveSnapshot, _recordLifecycleCommitFailure, clearSessionLifecycleCommitError } from './store/live-state.mjs';
 import { _saveWorkerPending, _saveAsyncQueued, _saveAsyncInflight, _deferredSessionSaves, saveSessionAsync, saveSessionAsyncDeferred, _resetSaveWorkerBookkeeping } from './store/save-worker.mjs';
 import { purgeSessionSaveBookkeeping as _purgeSessionSaveBookkeeping } from './store/save-worker.mjs';
 import { _setLiveSessionPublisher, _setSessionWriteAuthorityCheck } from './store/save-worker.mjs';
@@ -166,10 +164,6 @@ function _recordAsyncSaveError(id, payload, err) {
     // to mark a hard-deleted or re-created id.
     process.stderr.write(`[session-store] save failed: ${err?.message}\n`);
 }
-// Disk mtime of the summary index at the last time it was read into (or
-// refreshed as) the in-memory cache base — cross-process staleness detector.
-let _summaryIndexMtimeSeen = 0;
-
 
 /**
  * Cheap authoritative lifecycle read straight from disk (no live/pending
@@ -600,7 +594,7 @@ function _shouldDrop(id, opts) {
     const target = sessionPath(id);
     let record;
     try {
-        record = _readCanonicalRecord(target);
+        record = _readCanonicalRecord(target, true);
     } catch {
         // The guard could not establish WHAT is on disk. Refusing the write is
         // the only safe verdict: the alternative renames over a record whose
@@ -645,28 +639,8 @@ function _shouldDrop(id, opts) {
 // the write), otherwise the strict record itself ({ doc, id, closed,
 // generation }) — the single disk authority shared by the save guard and the
 // lifecycle barriers.
-const LIFECYCLE_AMBIGUOUS = Symbol('lifecycle-ambiguous');
-
-function _readCanonicalRecord(target) {
-    let raw;
-    try {
-        raw = readFileSync(target, 'utf-8');
-    } catch (err) {
-        const code = err?.code;
-        // Absence is the ONLY benign read failure. An EACCES/EBUSY/EIO file
-        // that exists but cannot be read is ambiguous, not "no tombstone".
-        if (code === 'ENOENT' || code === 'ENOTDIR') return null;
-        return LIFECYCLE_AMBIGUOUS;
-    }
-    // AUTHORITATIVE by construction: a message body can contain literal text
-    // like `{"closed":true}` (tool result, pasted JSON) and a duplicate
-    // top-level key would be silently last-wins under a plain JSON.parse.
-    // readTopLevelLifecycleRecord is the single strict authority; there is no
-    // parse fallback to differ from.
-    const onDisk = readTopLevelLifecycleRecord(raw);
-    if (isLifecycleUnreadable(onDisk)) return LIFECYCLE_AMBIGUOUS;
-    return onDisk;
-}
+// canonical-reader.mjs may reuse primitive authority after exact byte equality,
+// never by stat. Full lifecycle barriers still parse a private document.
 
 // ONE absolute budget for the WHOLE drain: the commit-lock waits and the
 // bounded commit acquisitions of every id share it, so exit cost cannot scale
@@ -679,7 +653,7 @@ function _sessionWriteAuthorityRefusal(id) {
     if (!id) return null;
     let authority;
     try {
-        authority = _readCanonicalRecord(sessionPath(id));
+        authority = _readCanonicalRecord(sessionPath(id), true);
     } catch {
         // A THROWN authority check is never acceptance: fail closed.
         return 'unreadable';

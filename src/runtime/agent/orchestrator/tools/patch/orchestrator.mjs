@@ -733,7 +733,7 @@ function _scopePatchedFiles(scopeKey) {
 const POST_PATCH_EXCERPT_MAX_FILES = 3;
 const POST_PATCH_EXCERPT_MAX_LINES = 6;
 const POST_PATCH_EXCERPT_MAX_CHARS = 700;
-export function appendPostPatchExcerpts(outputText, patchStr, requestedFormat, basePath, readStateScope) {
+function appendPostPatchExcerpts(outputText, patchStr, requestedFormat, basePath, readStateScope) {
   try {
     if (isPatchErrorText(outputText)) return outputText;
     if (!isV4APatchInput(patchStr, requestedFormat)) return outputText;

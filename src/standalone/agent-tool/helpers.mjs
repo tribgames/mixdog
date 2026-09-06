@@ -10,6 +10,10 @@ import {
   writeGatewaySessionRoutes,
 } from '../../vendor/statusline/src/gateway/session-routes.mjs';
 import { PRESET_ALIASES } from './tool-def.mjs';
+import { positiveInt } from '../../runtime/shared/numbers.mjs';
+import { clean } from '../../runtime/shared/clean.mjs';
+
+export { positiveInt };
 
 export function envTimeoutMs(name, fallback) {
   const raw = process.env[name];
@@ -18,8 +22,33 @@ export function envTimeoutMs(name, fallback) {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
 }
 
-export function clean(value) {
-  return String(value ?? '').trim();
+export { clean };
+
+const exitFlushes = new Set();
+let exitFlushInstalled = false;
+
+/** Run every registered flush once on process exit (best effort). */
+export function registerExitFlush(flush) {
+  exitFlushes.add(flush);
+  if (exitFlushInstalled) return;
+  exitFlushInstalled = true;
+  process.on('exit', () => {
+    for (const entry of exitFlushes) {
+      try { entry(); } catch { /* exit flush is best effort */ }
+    }
+  });
+}
+
+/** Unstamped legacy rows report alive: only the freshness window judges them. */
+export function runtimeAlive(pid) {
+  const id = Number(pid) || 0;
+  if (id <= 0 || id === process.pid) return true;
+  try {
+    process.kill(id, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
 }
 
 export function agentTagOf(session) {
@@ -32,11 +61,6 @@ export function normalizeAgentName(value) {
   if (id === 'heavy' || id === 'heavyworker') return 'heavy-worker';
   if (id === 'review') return 'reviewer';
   return id;
-}
-
-export function positiveInt(value) {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
 }
 
 export function terminalPidForContext(context = {}) {

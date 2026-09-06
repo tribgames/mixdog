@@ -1,22 +1,6 @@
 import { existsSync, unlinkSync } from 'fs';
 import { finalizeTurnInterruptionSnapshot } from './turn-interruption.mjs';
-import {
-    appendJournalLines,
-    cancelJournalWrites,
-    createTurnJournalEncoder,
-    emptyInterruptionSnapshot,
-    findTurnStart,
-    journalHeadLines,
-    matchingUserMessage,
-    openJournalForTurn,
-    readTurnCheckpointHeader,
-    removeTurnJournal,
-    replayTurnJournal,
-    settleTurnJournalWrites,
-    turnCheckpointPath,
-    turnMessagesForCheckpoint,
-    writeCheckpointHeader,
-} from './turn-checkpoint-journal.mjs';
+import { appendJournalLines, cancelJournalWrites, createTurnJournalEncoder, emptyInterruptionSnapshot, findTurnStart, matchingUserMessage, openJournalForTurn, readTurnCheckpointHeader, removeTurnJournal, replayTurnJournal, settleTurnJournalWrites, turnCheckpointPath, turnMessagesForCheckpoint, writeCheckpointHeader } from './turn-checkpoint-journal.mjs';
 import {
     captureTurnCheckpointContextState,
     restoreTurnCheckpointContextState,
@@ -133,18 +117,8 @@ export function createTurnCheckpointRecorder({ sessionId, generation, turnToken,
 /** Retire queued (not yet written) journal appends for a session. The durable
  * prefix stays on disk on purpose: between turn commit and clearTurnCheckpoint
  * a crash must still recover the turn's work, not just its opening header. */
-export function cancelPendingTurnCheckpoint(sessionId) {
+function cancelPendingTurnCheckpoint(sessionId) {
     cancelJournalWrites(sessionId);
-}
-
-/** Full-snapshot write (header + journal reset). The streaming path uses
- * createTurnCheckpointRecorder; this stays for callers holding a complete
- * checkpoint object that must become durable in one shot. */
-export function writeTurnCheckpoint(checkpoint) {
-    if (!checkpoint?.sessionId || !checkpoint?.turnToken) return false;
-    writeCheckpointHeader(checkpoint);
-    openJournalForTurn(checkpoint.sessionId, journalHeadLines(checkpoint.turnToken));
-    return true;
 }
 
 export function readTurnCheckpoint(sessionId) {

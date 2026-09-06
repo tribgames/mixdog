@@ -9,6 +9,7 @@ import {
   reportBootSurfaceReady,
   reportBootSurfaceStage,
 } from "./boot-metrics";
+import type { DesktopModelSelection } from "../shared/contract";
 import { Conversation } from "./Conversation";
 import {
   desktopConversationShellSnapshotsEqual,
@@ -154,6 +155,13 @@ type PaneConversationProps =
     hidden: boolean;
     transcriptPending?: boolean;
     reconcileOnMount?: boolean;
+    /** Context card → Inherit session, run in place (user: 팝업 안 뜨고 바로
+     *  진행되게). The pane holds the source session and its route; the host
+     *  creates the heir and opens its tab. */
+    onInheritSession?: (
+      sourceSessionId: string,
+      route: DesktopModelSelection,
+    ) => Promise<void>;
   };
 
 export const PaneConversation = memo(function PaneConversation({
@@ -163,6 +171,7 @@ export const PaneConversation = memo(function PaneConversation({
   transcriptPending = false,
   reconcileOnMount = true,
   draftMode = false,
+  onInheritSession,
   ...props
 }: PaneConversationProps) {
   const lane = useSessionLane(
@@ -303,13 +312,12 @@ export const PaneConversation = memo(function PaneConversation({
   // The context gauge sits beside the composer's model trigger on every
   // surface (user: 컨텍스트는 모델 선택기 옆; 모바일도 PC에 맞춰) — the
   // phone's floating status capsule is retired with it.
-  const onOpenCommandSurface = props.onOpenCommandSurface;
   const contextIndicator = useMemo(() =>
     <PaneContextIndicator
       sessionId={presentedSessionId}
       hidden={hidden}
-      onInherit={() => onOpenCommandSurface("inherit")} />,
-  [hidden, onOpenCommandSurface, presentedSessionId]);
+      onInherit={onInheritSession} />,
+  [hidden, onInheritSession, presentedSessionId]);
   return <>
     <Conversation
       snapshot={paneSnapshot}
@@ -442,7 +450,7 @@ export function PaneContextIndicator({
 }: {
   sessionId: string;
   hidden: boolean;
-  onInherit?: () => void;
+  onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
 }) {
   const visibleSnapshot = usePaneIslandSnapshot(sessionId, hidden);
   return <ContextUsageIndicator snapshot={visibleSnapshot} onInherit={onInherit} />;

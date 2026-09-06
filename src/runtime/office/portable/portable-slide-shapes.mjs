@@ -58,7 +58,7 @@ export function toEmu(points, fallback = 0) {
   return Math.round((Number.isFinite(value) ? value : fallback) * EMU_PER_POINT);
 }
 
-export function normalizeHex(value) {
+function normalizeHex(value) {
   const raw = String(value ?? '').trim().replace(/^#/, '').toUpperCase();
   if (/^[0-9A-F]{6}$/.test(raw)) return raw;
   if (/^[0-9A-F]{3}$/.test(raw)) return raw.split('').map((digit) => `${digit}${digit}`).join('');

@@ -19,11 +19,7 @@ import { assertPathReachable, assertPathsReachable } from '../builtin/fs-reachab
 import { markCodeGraphDirtyPaths } from '../code-graph-state.mjs';
 import { isSpecialFileStat } from '../builtin/device-paths.mjs';
 import { resolveV4AEntryPath } from './paths.mjs';
-import {
-  isV4AEndOfFileMarker,
-  parseUnifiedBareV4APatch,
-  parseUnifiedCountedAsV4APatch,
-} from './parsing.mjs';
+import { isV4AEndOfFileMarker } from './parsing.mjs';
 import {
   findLineSequence,
   findLineSequenceEscapeEquiv,
@@ -415,7 +411,7 @@ function v4aOpsForResolvedHunk(hunk, loc) {
   return ops;
 }
 
-export function applyV4AHunksToLines(sourceLines, hunks, options = {}) {
+function applyV4AHunksToLines(sourceLines, hunks, options = {}) {
   const lines = cloneTextLinesForPatch(sourceLines);
   const orderedHunks = orderV4AHunksByFilePosition(lines, hunks, options.fuzzy !== false);
   let nextSearchLine = 0;
@@ -738,14 +734,6 @@ export async function applyV4ARenameSections(renameSections, basePath, options =
     results.push(await applyV4ARenameSection(section, basePath, { ...options, linesCache }));
   }
   return results;
-}
-
-export function convertUnifiedBareV4AToUnifiedPatch(patchStr, basePath, options = {}) {
-  return convertV4ASectionsToUnifiedPatch(parseUnifiedBareV4APatch(patchStr), basePath, options);
-}
-
-export function convertUnifiedCountedToUnifiedPatchViaV4A(patchStr, basePath, options = {}) {
-  return convertV4ASectionsToUnifiedPatch(parseUnifiedCountedAsV4APatch(patchStr), basePath, options);
 }
 
 function readRawBufForV4AConversion(fullPath) {

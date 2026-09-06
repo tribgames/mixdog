@@ -56,10 +56,6 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     const base = baseRouteState();
     const sameContextRoute = state.sessionId === base.sessionId
       && state.clientHostPid === base.clientHostPid
-      && state.provider === base.provider
-      && state.model === base.model
-      && state.effort === base.effort
-      && state.fast === base.fast
       && state.contextWindow === base.contextWindow
       && state.rawContextWindow === base.rawContextWindow;
     return {

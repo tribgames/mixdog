@@ -16,7 +16,7 @@ function record(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
-export function isCompleteAgentRoute(value) {
+function isCompleteAgentRoute(value) {
   return !!value
     && typeof value === 'object'
     && !Array.isArray(value)
@@ -73,7 +73,7 @@ export function configuredAgentRouteCandidates(config, agentId) {
   return route ? [route] : [];
 }
 
-export function canonicalizeAgentRoutes(config = {}) {
+function canonicalizeAgentRoutes(config = {}) {
   const agents = Object.fromEntries(
     Object.entries(record(config.agents)).filter(([, route]) => isCompleteAgentRoute(route)),
   );
@@ -81,7 +81,7 @@ export function canonicalizeAgentRoutes(config = {}) {
   return agents;
 }
 
-export function isRedundantGeneratedRoutePreset(preset, defaultPreset = null) {
+function isRedundantGeneratedRoutePreset(preset, defaultPreset = null) {
   const id = String(preset?.id || '').trim();
   if (!id || id === String(defaultPreset || '').trim()) return false;
   return REDUNDANT_WORKFLOW_PRESET_IDS.has(id) || id.startsWith('workflow-agent-');

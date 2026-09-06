@@ -31,10 +31,10 @@ import {
     unusedModelEditToolName,
 } from '../../../../shared/edit-tool-dialect.mjs';
 import {
-    positiveContextWindow,
     preserveBufferConfigFields,
     resolveSessionContextMeta,
 } from './context-meta.mjs';
+import { positiveInt } from '../../../../shared/numbers.mjs';
 import { getAgentRuntimeSync, warnAgentRuntimeResolveFailureOnce } from './agent-runtime-singleton.mjs';
 import { ensureCodexWireSessionId, mintSessionId, mintUuidV7 } from './session-id.mjs';
 import { providerCacheKey } from './provider-cache-key.mjs';
@@ -66,7 +66,7 @@ function buildSessionProviderCacheOpts(providerName, sessionId, agent = null) {
     }
 }
 
-export function normalizeDesktopSessionMetadata(value, cwd = null) {
+function normalizeDesktopSessionMetadata(value, cwd = null) {
     if (!value || typeof value !== 'object') return null;
     if (value.classification === 'task') {
         return { classification: 'task', projectPath: null };
@@ -101,21 +101,21 @@ export function normalizeDesktopSessionMetadata(value, cwd = null) {
 //   opts.profile — pre-resolved profile (bypasses router; used by async
 //     callers who already ran AgentRuntime.resolve()).
 //   opts.providerCacheOpts — pre-resolved cache options merged into ask() sendOpts.
-export function initialCompactionConfig(compaction = {}, contextMeta = {}) {
+function initialCompactionConfig(compaction = {}, contextMeta = {}) {
     return {
         auto: compaction?.auto !== false,
         model: compaction?.model || null,
         summaryModel: compaction?.summaryModel || compaction?.semanticModel || null,
-        timeoutMs: positiveContextWindow(compaction?.timeoutMs),
-        memoryTimeoutMs: positiveContextWindow(compaction?.memoryTimeoutMs ?? compaction?.recallMemoryTimeoutMs),
-        bufferTokens: positiveContextWindow(compaction?.bufferTokens ?? compaction?.buffer),
-        mainBufferTokens: positiveContextWindow(compaction?.mainBufferTokens ?? compaction?.mainBuffer),
+        timeoutMs: positiveInt(compaction?.timeoutMs),
+        memoryTimeoutMs: positiveInt(compaction?.memoryTimeoutMs ?? compaction?.recallMemoryTimeoutMs),
+        bufferTokens: positiveInt(compaction?.bufferTokens ?? compaction?.buffer),
+        mainBufferTokens: positiveInt(compaction?.mainBufferTokens ?? compaction?.mainBuffer),
         // Preserve percent/ratio-named config so the shared policy can honor
         // agent and main/user buffer settings.
         ...preserveBufferConfigFields(compaction),
-        keepTokens: positiveContextWindow(compaction?.keepTokens ?? compaction?.keep?.tokens),
-        preserveRecentTokens: positiveContextWindow(compaction?.preserveRecentTokens),
-        reservedTokens: positiveContextWindow(compaction?.reservedTokens),
+        keepTokens: positiveInt(compaction?.keepTokens ?? compaction?.keep?.tokens),
+        preserveRecentTokens: positiveInt(compaction?.preserveRecentTokens),
+        reservedTokens: positiveInt(compaction?.reservedTokens),
         boundaryTokens: contextMeta.compactBoundaryTokens,
     };
 }

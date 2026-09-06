@@ -1,5 +1,5 @@
 import { monitorEventLoopDelay } from 'node:perf_hooks';
-import { envFlag } from './env.mjs';
+import { envFlag } from '../runtime/shared/env.mjs';
 
 const HITCH_PROFILE_ENABLED = envFlag('MIXDOG_HITCH_PROFILE');
 

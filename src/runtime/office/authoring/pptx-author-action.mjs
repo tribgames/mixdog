@@ -1,53 +1,52 @@
-import { access } from 'node:fs/promises';
-import { constants as fsConstants } from 'node:fs';
-import { closeSession, render } from '../core/office-actions.mjs';
+import { rm } from 'node:fs/promises';
+import { render } from '../core/office-actions.mjs';
 import { documentFormat, documentSessionKey, documentSessions, sessions } from '../core/office-core.mjs';
-import { createAuthoredSession, fullPath, snapshot } from '../core/office-sessions.mjs';
+import { createAuthoredSession, fullPath, validatePptxAuthorMode } from '../core/office-sessions.mjs';
+import { inlineOfficeAudit } from '../quality/inline-audit.mjs';
+import {
+  exists,
+  landStagedDeck,
+  releaseExistingSession,
+  reusableAuthoredSession,
+  stagingTarget,
+  swapAuthoredDocument,
+  throwIfAuthoringCancelled,
+} from './pptx-author-session.mjs';
 import { runPptxAuthoringScript } from './pptx-script-runner.mjs';
-import { parseAuthoringBrief } from './pptx-brief.mjs';
-import { attachRenderedAir, compositionReceipt } from './pptx-receipt.mjs';
-import { writeContactSheet } from './pptx-contact-sheet.mjs';
-import { renderedAirByPage } from '../quality/render-air.mjs';
-
-// What the saved deck carries, slide by slide, for the author to weigh
-// against the plan. A receipt that cannot be read (an exotic package the
-// snapshot refuses) is omitted rather than failing the authoring call.
-async function readCompositionReceipt(session, brief) {
-  try {
-    const current = await snapshot(session, { includeStyles: true, limit: 100, maxChars: 100_000 }, { full: true });
-    return compositionReceipt(current?.document, brief);
-  } catch {
-    return null;
-  }
-}
+import { factsGate, parseAuthoringBrief } from './pptx-brief.mjs';
+import { readCompositionReceipt } from './pptx-review-artifacts.mjs';
+import { snapshotPortableOoxml } from '../portable/portable-ooxml.mjs';
 
 /** The design guide lives in the built-in `pptx` skill; the tool never
  *  serves it so one copy stays authoritative and user-overridable. */
-export const PPTX_AUTHOR_NEEDS_SCRIPT =
+const PPTX_AUTHOR_NEEDS_SCRIPT =
   'author requires script. Load the `pptx` Skill first (Skill name:"pptx"): it carries the authoring workflow, composition grammar, device kit, and the pptxgenjs footguns, then call author again with path and script.';
 
-async function exists(path) {
+// The gate reads the staged deck with the portable reader whatever backend
+// will hold it; a package the reader cannot open is left to qa, never turned
+// into a refusal.
+async function factsGateForDeck(path, brief) {
+  if (!brief.present || brief.factsMode === 'sample') return { blocked: false };
   try {
-    await access(path, fsConstants.F_OK);
-    return true;
-  } catch {
-    return false;
+    return factsGate(await snapshotPortableOoxml(path, 'pptx', {}), brief);
+  } catch (error) {
+    return { blocked: false, unavailable: error?.message || String(error) };
   }
 }
 
-// Re-authoring replaces the deck, so a session still holding the previous
-// file has to let go first; nothing in it is worth saving because the script
-// is the source of truth.
-async function releaseExistingSession(target, signal) {
-  const existingId = documentSessions.get(documentSessionKey(target));
-  const existing = existingId ? sessions.get(existingId) : null;
-  if (!existing) return null;
-  await closeSession(existing, { save: false, signal }).catch(() => {});
-  sessions.delete(existing.id);
-  if (documentSessions.get(documentSessionKey(target)) === existing.id) {
-    documentSessions.delete(documentSessionKey(target));
-  }
-  return existing.id;
+function factsGateResult(target, brief, gate, run) {
+  const listed = gate.slides.map((entry) => `slide ${entry.slide}: ${entry.figures.join(', ')}`).join('; ');
+  return {
+    ok: false,
+    reason: 'facts_gate',
+    output: target,
+    gate: { code: gate.code, slides: gate.slides, facts: brief.facts.length },
+    logs: run.logs,
+    elapsedMs: run.elapsedMs,
+    nextAction: gate.code === 'facts_missing'
+      ? `The deck shows figures (${listed}) but the brief has no facts line, so nothing landed. Add \`// facts: F1 <value> — <source> · …\` for every figure the slides show, or declare \`// facts: sample — <why no source>\` to mark every figure illustrative; then call author again.`
+      : `Figures with no fact behind them (${listed}), so nothing landed. Add each to the brief facts line with its source, remove it from the slide, or declare \`// facts: sample — <why>\`; then call author again.`,
+  };
 }
 
 export async function authorPptx(args, { cwd, dataDir, signal = null }) {
@@ -56,24 +55,70 @@ export async function authorPptx(args, { cwd, dataDir, signal = null }) {
   if (!requestedPath) throw new Error('author requires path');
   const target = fullPath(requestedPath, cwd);
   if (documentFormat(target) !== 'pptx') throw new Error('author writes .pptx targets only');
-  const replacedSession = await releaseExistingSession(target, signal);
-  if (await exists(target) && args.overwrite !== true && !replacedSession) {
+  const mode = validatePptxAuthorMode(args.mode);
+  throwIfAuthoringCancelled(signal);
+  const reusable = reusableAuthoredSession(target, mode);
+  const existing = sessions.get(documentSessions.get(documentSessionKey(target)) || '') || null;
+  // A re-author replaces the session, but the audit fix rounds belong to the
+  // deck: the loop keeps counting across passes on the same path.
+  const priorAudit = reusable ? null : existing?.inlineAudit || null;
+  if (!reusable && !existing && await exists(target) && args.overwrite !== true) {
     throw new Error(`author target already exists: ${target}; pass overwrite:true to replace it`);
   }
-  const run = await runPptxAuthoringScript(args.script, target);
-  if (!run.ok) {
-    return {
-      ok: false,
-      reason: 'script_failed',
-      output: target,
-      error: run.error,
-      logs: run.logs,
-      elapsedMs: run.elapsedMs,
-      nextAction: 'Fix the script at the reported line and call author again.',
-    };
+  // The script always writes beside the target: a failed script or a refused
+  // deck leaves the file on disk and the session holding the previous deck
+  // untouched.
+  const staging = stagingTarget(target);
+  const brief = parseAuthoringBrief(args.script);
+  let run;
+  let session = null;
+  let reusedSession = false;
+  let replacedSession = null;
+  let discardStaging = true;
+  try {
+    throwIfAuthoringCancelled(signal);
+    run = await runPptxAuthoringScript(args.script, staging);
+    throwIfAuthoringCancelled(signal);
+    if (!run.ok) {
+      return {
+        ok: false,
+        reason: 'script_failed',
+        output: target,
+        error: run.error,
+        logs: run.logs,
+        elapsedMs: run.elapsedMs,
+        nextAction: 'Fix the script at the reported line and call author again.',
+      };
+    }
+    // The gate reads the staged deck before anything lands: a figure with no
+    // fact behind it is refused here, not reported once the deck is open.
+    const gate = await factsGateForDeck(staging, brief);
+    if (gate.blocked) return factsGateResult(target, brief, gate, run);
+    // Keep the valid staged deck recoverable if replacement fails for a non-cancellation reason.
+    discardStaging = false;
+    if (reusable) {
+      reusedSession = await swapAuthoredDocument(reusable, staging, signal);
+      if (reusedSession) session = reusable;
+      else {
+        await releaseExistingSession(target, signal);
+        await landStagedDeck(staging, target, signal);
+      }
+    } else {
+      replacedSession = await releaseExistingSession(target, signal);
+      await landStagedDeck(staging, target, signal);
+    }
+    throwIfAuthoringCancelled(signal);
+    if (!session) session = await createAuthoredSession(signal ? { ...args, mode, __signal: signal } : { ...args, mode }, cwd, dataDir, target);
+    discardStaging = true;
+  } catch (error) {
+    if (signal?.aborted || error?.name === 'AbortError') discardStaging = true;
+    throw error;
+  } finally {
+    if (discardStaging) await rm(staging, { force: true }).catch(() => {});
   }
-  const session = await createAuthoredSession(signal ? { ...args, __signal: signal } : args, cwd, dataDir, target);
-  session.authoredBrief = parseAuthoringBrief(args.script);
+  session.authoredBrief = brief;
+  if (priorAudit && !session.inlineAudit) session.inlineAudit = { ...priorAudit };
+  const audit = args.audit === false ? null : await inlineOfficeAudit(session);
   const result = {
     ok: true,
     session: session.id,
@@ -83,13 +128,19 @@ export async function authorPptx(args, { cwd, dataDir, signal = null }) {
     bytes: run.bytes,
     elapsedMs: run.elapsedMs,
     logs: run.logs,
+    kit: run.kit,
     ...(run.normalizedParagraphs ? { normalizedParagraphs: run.normalizedParagraphs } : {}),
+    ...(run.nativeGradients ? { nativeGradients: run.nativeGradients } : {}),
     ...(replacedSession ? { replacedSession } : {}),
+    ...(reusedSession ? { reusedSession: true } : {}),
+    ...(audit ? { audit } : {}),
   };
-  const receipt = await readCompositionReceipt(session, session.authoredBrief);
-  if (receipt) result.receipt = receipt;
   if (args.render === false) {
-    result.nextAction = 'Measured only, not rendered: run action:qa on this session for the fit and bounds issues, fix the script, and author again with render:false until qa is clean; then author with render (default) once and inspect every slide before finalizing.';
+    const receipt = await readCompositionReceipt(session);
+    if (receipt) result.receipt = receipt;
+    result.nextAction = audit?.status === 'fail'
+      ? audit.nextAction
+      : 'Written and measured clean, not visually reviewed: call action:render on this session for the page images, contact sheet, receipt, and reviewToken, then inspect every slide before finalizing. action:qa render:false adds the design read (theme, plan promises, facts) without pixels. Re-author only if the script changes.';
     return result;
   }
   session.activeSignal = signal;
@@ -101,21 +152,13 @@ export async function authorPptx(args, { cwd, dataDir, signal = null }) {
       visualCoverage: rendered.visualCoverage,
       images: rendered.images,
       reviewToken: rendered.reviewToken,
+      contactSheet: rendered.contactSheet,
     };
     result._images = Array.isArray(rendered._images) ? rendered._images : [];
-    // The rendered page's own air beside the shape-based reading; a failure here loses a number, not the render.
-    if (result.receipt) {
-      const airByPage = await renderedAirByPage(result._images).catch(() => null);
-      if (airByPage) attachRenderedAir(result.receipt, airByPage);
-    }
-    // The whole deck on one sheet, after the per-page renders, so the sequence can be read at once.
-    const sheet = await writeContactSheet(result._images, target).catch(() => null);
-    if (sheet) {
-      const { data, ...meta } = sheet;
-      result.render.contactSheet = meta;
-      result._images.push({ page: 0, path: sheet.path, width: sheet.width, height: sheet.height, mimeType: sheet.mimeType, data });
-    }
-    result.nextAction = 'Inspect every rendered slide, then the contact sheet as a sequence (density rhythm, repeated moves, title positions), and read the receipt against the plan (a deck-wide absence or a contradicted carrier gets a reason or a fix). Fix defects in the script and author again with overwrite:true, or finalize with design: { reviewed: true, reviewToken, critique: [one entry per slide] }.';
+    if (rendered.receipt) result.receipt = rendered.receipt;
+    result.nextAction = audit?.status === 'fail'
+      ? `${audit.nextAction} The rendered pages are attached; the visual read starts once the audit passes.`
+      : 'Inspect every rendered slide for message visibility, relevant evidence, legibility, and grouping; then read the contact sheet for coherent sequence. Use the receipt to investigate possible defects, not to require an inventory of charts, pictures, or shapes. Change the script only for an observed problem, or finalize with design: { reviewed: true, reviewToken, critique: [one entry per slide] }.';
   } finally {
     delete session.activeSignal;
   }

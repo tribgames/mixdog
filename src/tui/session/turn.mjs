@@ -1,16 +1,19 @@
 /**
  * src/tui/session/turn.mjs - lead TUI turn session runtime (createRunTurn). Extracted from session-local.mjs.
  */
-import { aggregateToolCategoryEntries, aggregateDoneCategories, classifyToolCategory, formatAggregateDetail, isTaskWaitToolCall, summarizeToolResult, toolLoadingTargets } from '../../runtime/shared/tool-surface.mjs';
+import { aggregateToolCategoryEntries, classifyToolCategory, isTaskWaitToolCall } from '../../runtime/shared/tool-surface.mjs';
 import { applyUsageDelta } from './session-stats.mjs';
 import { pickVerb, pickDoneVerb, compactEventLabel, compactEventDetail } from './labels.mjs';
-import { toolResultText, toolErrorDisplay, stripShellExitHeader } from './tool-result-text.mjs';
-import { isCancelLikeError } from '../../runtime/shared/err-text.mjs';
+import { toolErrorDisplay } from './tool-result-text.mjs';
+import { errText, isCancelLikeError } from '../../runtime/shared/err-text.mjs';
+import { safeErrorDetails } from '../../runtime/shared/error-presentation.mjs';
 import { toolCallId, toolResultCallId, toolCallName, toolCallArgs } from './tool-call-fields.mjs';
 import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
 import { TUI_FRAME_MS, yieldToRenderer } from './render-timing.mjs';
-import { aggregateRawResult, aggregateBucketForCategory, aggregateSummaries, aggregateToolMembers, assignAggregateSummaryOrder, failureDetailText, toolCallOutcome } from './tool-result-status.mjs';
+import { aggregateBucketForCategory } from './tool-result-status.mjs';
 import { isTranscriptHiddenControlToolName, isTranscriptSkillToolName } from '../../runtime/shared/tool-execution-contract.mjs';
+import { createDeferredCardRegistry } from './turn-deferred-cards.mjs';
+import { createAggregateCardTracker } from './turn-aggregate-cards.mjs';
 
 export const STREAM_BATCH_INTERVAL_MS = TUI_FRAME_MS;
 
@@ -151,6 +154,7 @@ export function createRunTurn(bag) {
     let cancelled = false;
     let failed = false;
     let turnFailureDetail = '';
+    let turnFailureDiagnostic = '';
     let turnFailureUsageLimited = false;
     let askResult = null;
     let turnFinishedNormally = false;
@@ -210,134 +214,23 @@ export function createRunTurn(bag) {
     // Streaming providers can deliver eager onToolResult before onToolCall registers
     // cards (send() still in flight). Hold those by callId until the batch lands.
     const earlyResultBuffer = new Map();
-    const aggregateCards = []; // active aggregate cards in the current consecutive tool block
-    let tailAggregate = null; // most recently touched aggregate card; only the tail may absorb the next same-bucket call
     let providerToolBatch = 0;
 
     // ── Ordered tool-card push ────────────────────────────────────────────────
-    // Register entries first so sibling ordering and batched result handling
-    // stay intact, then flush them synchronously once every header is ready.
-    // The zero-delay timer is only a safety fallback for an interrupted setup.
-    // `deferredDisplayReady` makes the first visible frame real content rather
-    // than ToolExecution's pending placeholder.
-    const TOOL_CARD_PUSH_DELAY_MS = 0;
-    let deferredSeqCounter = 0;
-    const deferredEntries = []; // creation-order list; each is pushed at most once
-    // Push this entry AND every earlier-created still-deferred entry, in order,
-    // so transcript order always matches call order even when a later card's
-    // result/timer fires before an earlier one's. Commit the collected cards in
-    // ONE state update: emitting one pushItem() per deferred card made a tool
-    // batch climb into view one row/card at a time (stepwise upward row jitter).
-    const flushDeferredUpTo = (entry) => {
-      if (!isCurrentTurn()) return;
-      if (!entry) return;
-      const specs = collectDeferredUpTo(entry);
-      if (!specs.length) return;
-      flags.pushingFromDeferredEntry = true;
-      try { appendItemsBatch(specs); } finally { flags.pushingFromDeferredEntry = false; }
-    };
-    flags.flushDeferredBeforeImmediatePush = () => {
-      if (!deferredEntries.length) return;
-      const last = deferredEntries[deferredEntries.length - 1];
-      if (last) flushDeferredUpTo(last);
-    };
-    const registerDeferredCard = (card) => {
-      const entry = {
-        seq: deferredSeqCounter++,
-        pushed: false,
-        timer: null,
-        // Mark the card visible and return its spec WITHOUT emitting, so a
-        // batched turn-close flush can commit many specs in one set().
-        materialize: () => {
-          card.pushed = true;
-          if (!card.spec) return null;
-          card.spec.deferredDisplayReady = true;
-          return card.spec;
-        },
-        push: () => {
-          const spec = entry.materialize();
-          if (!spec) return;
-          flags.pushingFromDeferredEntry = true;
-          try { pushItem(spec); } finally { flags.pushingFromDeferredEntry = false; }
-        },
-      };
-      card.deferred = entry;
-      card.ensureVisible = () => flushDeferredUpTo(entry);
-      deferredEntries.push(entry);
-      entry.timer = setTimeout(() => {
-        entry.timer = null;
-        if (!isCurrentTurn()) return;
-        flushDeferredUpTo(entry);
-      }, TOOL_CARD_PUSH_DELAY_MS);
-      entry.timer.unref?.();
-    };
-    const registerDeferredAggregate = (aggregate) => {
-      const entry = {
-        seq: deferredSeqCounter++,
-        pushed: false,
-        timer: null,
-        materialize: () => {
-          aggregate.pushed = true;
-          if (!aggregate.pendingSpec) return null;
-          aggregate.pendingSpec.deferredDisplayReady = true;
-          return aggregate.pendingSpec;
-        },
-        push: () => {
-          const spec = entry.materialize();
-          if (!spec) return;
-          flags.pushingFromDeferredEntry = true;
-          try { pushItem(spec); } finally { flags.pushingFromDeferredEntry = false; }
-        },
-      };
-      aggregate.deferred = entry;
-      aggregate.ensureVisible = () => flushDeferredUpTo(entry);
-      deferredEntries.push(entry);
-      entry.timer = setTimeout(() => {
-        entry.timer = null;
-        if (!isCurrentTurn()) return;
-        flushDeferredUpTo(entry);
-      }, TOOL_CARD_PUSH_DELAY_MS);
-      entry.timer.unref?.();
-    };
-    const clearDeferredTimers = () => {
-      for (const e of deferredEntries) {
-        if (e.timer) { clearTimeout(e.timer); e.timer = null; }
-      }
-    };
-    // Collect (mark pushed + cancel timers) every still-deferred entry up to
-    // `entry` in creation order, returning their specs WITHOUT emitting — the
-    // caller commits them (optionally alongside a trailing turndone item) in a
-    // single set() so turn-close writes land as ONE visible commit.
-    const collectDeferredUpTo = (entry) => {
-      const specs = [];
-      if (!entry) return specs;
-      for (const e of deferredEntries) {
-        if (e.seq > entry.seq) break;
-        if (e.pushed) continue;
-        e.pushed = true;
-        if (e.timer) { clearTimeout(e.timer); e.timer = null; }
-        const spec = e.materialize?.();
-        if (spec) specs.push(spec);
-      }
-      return specs;
-    };
-    // Append pre-built items (deferred cards + turndone) in ONE set(). None are
-    // 'user' kind, so no promptHistory rebuild is needed.
-    const appendItemsBatch = (newItems, extra = {}) => {
-      if (!isCurrentTurn()) return;
-      if (!newItems || !newItems.length) { set(extra); return; }
-      if (appendItems) {
-        appendItems(newItems, extra);
-        return;
-      }
-      const base = getState().items.length;
-      const items = [...getState().items, ...newItems];
-      for (let i = 0; i < newItems.length; i++) {
-        const it = newItems[i];
-        if (it?.id != null) itemIndexById.set(it.id, base + i);
-      }
-      set({ items, structureRevision: (Number(getState().structureRevision) || 0) + 1, ...extra });
-    };
+    // Cards enter the transcript in call order once their headers are ready
+    // (see turn-deferred-cards.mjs).
+    const deferredCards = createDeferredCardRegistry({
+      isCurrentTurn, flags, pushItem, appendItems, getState, set, itemIndexById,
+    });
+    const { appendItemsBatch } = deferredCards;
+    flags.flushDeferredBeforeImmediatePush = () => deferredCards.flushAll();
+    // Consecutive same-bucket calls merge into one aggregate card (see
+    // turn-aggregate-cards.mjs).
+    const aggregates = createAggregateCardTracker({
+      toolCards, cardByCallId, nextId, getState, set, patchItem, itemIndexById, markToolCallDone,
+      registerDeferredAggregate: deferredCards.registerAggregate,
+    });
+    const { finalizeToolHeaders, clearAggregateContinuation } = aggregates;
 
     const markPromptCommitted = () => {
       if (flags.activePromptRestore) {
@@ -351,151 +244,6 @@ export function createRunTurn(bag) {
         flags.activePromptRestore.pastedImages = null;
         flags.activePromptRestore.pastedTexts = null;
       }
-    };
-
-    const finalizeToolHeaders = () => {
-      const ids = new Set();
-      for (const card of toolCards || []) {
-        if (card?.itemId) ids.add(card.itemId);
-        // Seal not-yet-pushed specs too, so a card that pushes later (timer)
-        // enters already-finalized instead of flashing the active header form.
-        if (card && card.pushed === false && card.spec) card.spec.headerFinalized = true;
-      }
-      for (const aggregate of aggregateCards || []) {
-        if (aggregate?.itemId) ids.add(aggregate.itemId);
-        if (aggregate && aggregate.pushed === false && aggregate.pendingSpec) aggregate.pendingSpec.headerFinalized = true;
-      }
-      if (ids.size === 0) return false;
-      let changed = false;
-      const items = getState().items.map((item) => {
-        if (!ids.has(item?.id) || item.kind !== 'tool' || item.headerFinalized !== false) return item;
-        changed = true;
-        return { ...item, headerFinalized: true };
-      });
-      if (changed) set({ items, structureRevision: (Number(getState().structureRevision) || 0) + 1 });
-      return changed;
-    };
-
-    const completeAggregateVisual = () => {
-      for (const aggregate of aggregateCards) {
-        const allCalls = [...aggregate.calls.values()];
-        if (allCalls.length === 0) continue;
-        aggregate.ensureVisible?.();
-        const errors = allCalls.filter((r) => r.isError).length;
-        const callErrors = allCalls.filter((r) => r.isCallError).length;
-        const exitErrors = allCalls.filter((r) => r.isExitError).length;
-        const completed = allCalls.filter((r) => r.resolved).length;
-        const succeeded = Math.max(0, completed - errors - exitErrors);
-        const rawResult = aggregateRawResult(allCalls);
-        // Merged count summary (see patchToolCardResult); real failures keep
-        // 'N Failed'; completed command failures render separately. Raw
-        // preserved for ctrl+o expansion.
-        const displayDetail = errors > 0 || exitErrors > 0
-          ? failureDetailText({ succeeded, realErrors: callErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
-          : formatAggregateDetail(aggregateSummaries(aggregate));
-        patchItem(aggregate.itemId, {
-          result: displayDetail,
-          text: displayDetail,
-          rawResult: rawResult || null,
-          toolMembers: aggregateToolMembers(allCalls),
-          isError: errors > 0,
-          errorCount: errors,
-          callErrorCount: callErrors,
-          exitErrorCount: exitErrors,
-          count: allCalls.length,
-          completedCount: allCalls.length,
-          doneCategories: aggregateDoneCategories(allCalls),
-          completedAt: Date.now(),
-        });
-      }
-    };
-
-    const clearAggregateContinuation = () => {
-      completeAggregateVisual();
-      finalizeToolHeaders();
-      aggregateCards.length = 0;
-      // Seal the block: same-bucket calls after this point must open a fresh
-      // card, never continue one from before the seal (assistant text/turn
-      // end boundary).
-      tailAggregate = null;
-    };
-
-    const rememberActiveAggregate = (aggregate) => {
-      if (!aggregate) return;
-      if (!aggregateCards.includes(aggregate)) aggregateCards.push(aggregate);
-      tailAggregate = aggregate;
-    };
-
-    const ensureAggregateCard = (bucket) => {
-      // Only the TAIL aggregate (most recent card) may absorb the next call,
-      // and only when the bucket matches. Any different-bucket aggregate or
-      // standalone card in between breaks the run, so Search, Memory, Search
-      // renders as three cards in call order — a new call never merges into
-      // an earlier card above the current tail (which read as out-of-order
-      // count changes in the transcript). clearAggregateContinuation seals
-      // the block at assistant-text/turn boundaries.
-      const cached = tailAggregate && tailAggregate.bucket === bucket ? tailAggregate : null;
-      if (cached) {
-        rememberActiveAggregate(cached);
-        return cached;
-      }
-      const itemId = nextId();
-      const aggregate = {
-        itemId,
-        bucket,
-        categories: new Map(),
-        categoryOrder: [],
-        calls: new Map(),
-        nextSummarySeq: 0,
-        pushed: false,
-        startedAt: Date.now(),
-      };
-      // Arm the deferred push once at creation; syncAggregateHeader only keeps
-      // pendingSpec current until the timer/result flushes it in call order.
-      registerDeferredAggregate(aggregate);
-      rememberActiveAggregate(aggregate);
-      return aggregate;
-    };
-
-    const syncAggregateHeader = (aggregate) => {
-      if (!aggregate?.itemId) return;
-      const loadingTargetGroups = [...aggregate.calls.values()]
-        .map((call) => toolLoadingTargets(call.name, call.args));
-      const loadingTargets = loadingTargetGroups.length > 0
-        && loadingTargetGroups.every((targets) => targets.length > 0)
-        ? [...new Set(loadingTargetGroups.flat())]
-        : [];
-      const patch = {
-        args: {
-          categoryOrder: aggregate.categoryOrder.slice(),
-          ...(loadingTargets.length > 0 ? { loadingTargets } : {}),
-          ...(aggregate.verifyShell ? { verifyShell: true } : {}),
-        },
-        count: aggregate.calls.size,
-        completedCount: [...aggregate.calls.values()].filter((r) => r.resolved || r.completedEarly).length,
-        categories: Object.fromEntries(aggregate.categories),
-        toolMembers: aggregateToolMembers(aggregate.calls),
-      };
-      if (aggregate.pushed) {
-        patchItem(aggregate.itemId, patch);
-        return;
-      }
-      // Not yet visible: keep the latest header spec current. The deferred entry
-      // (armed at creation) pushes pendingSpec when its timer fires or a result
-      // forces it visible, preserving call order via flushDeferredUpTo.
-      aggregate.pendingSpec = {
-        kind: 'tool',
-        id: aggregate.itemId,
-        name: '__aggregate__',
-        ...patch,
-        aggregate: true,
-        result: null,
-        rawResult: null,
-        isError: false,
-        expanded: false,
-        headerFinalized: false,
-        startedAt: aggregate.startedAt || Date.now(),
-      };
     };
 
     const ensureAssistant = (initialText = '') => {
@@ -716,87 +464,6 @@ export function createRunTurn(bag) {
       if (_batchTimer?.unref) _batchTimer.unref(); // don't prevent process exit
     };
 
-    // __earlyNotify: show 1-line summary + completedCount immediately; defer
-    // rawResult/expand and resultsDone to the history flush.
-    const markToolCardCompletedState = (callId, message) => {
-      const card = cardByCallId.get(callId);
-      if (!card) return;
-      // Early completion also clears the active-summary entry.
-      markToolCallDone(card.callId);
-      const aggregate = card.aggregate;
-      if (aggregate && card.itemId === aggregate.itemId) {
-        const callRec = aggregate.calls.get(callId);
-        if (!callRec || callRec.resolved || callRec.completedEarly) return;
-        aggregate.ensureVisible?.();
-        const rawText = toolResultText(message?.content);
-        // Tool result text (including HTTP/domain failures, zero matches, task
-        // statuses, and shell output) is detail, not a failed invocation. Only
-        // the provider's isError/error-tool envelope drives failure counts/red.
-        const { exitCode, isExitError, isCallError } = toolCallOutcome(
-          { ...message, toolName: callRec.name },
-          rawText,
-        );
-        const isError = isCallError;
-        const text = isError
-          ? toolErrorDisplay(rawText, callRec.name || 'tool')
-          // Strip the machine exit header for ANY parsed code (0 included):
-          // exit 0 no longer routes through isExitError but its
-          // `[exit code: 0]` line is still display noise.
-          : (exitCode != null ? stripShellExitHeader(rawText) : rawText);
-        callRec.summary = !isError ? summarizeToolResult(callRec.name, callRec.args, rawText, isError) : null;
-        assignAggregateSummaryOrder(aggregate, callRec);
-        callRec.isError = isError;
-        callRec.isCallError = isCallError;
-        callRec.isExitError = isExitError;
-        callRec.exitCode = exitCode;
-        callRec.resultText = text;
-        callRec.rawResultText = rawText;
-        callRec.completedEarly = true;
-        callRec.completedAt = callRec.completedAt || Date.now();
-        const allCalls = [...aggregate.calls.values()];
-        const completedCount = allCalls.filter((r) => r.resolved || r.completedEarly).length;
-        const errors = allCalls.filter((r) => r.isError).length;
-        const callErrors = allCalls.filter((r) => r.isCallError).length;
-        const exitErrors = allCalls.filter((r) => r.isExitError).length;
-        const succeeded = Math.max(0, completedCount - errors - exitErrors);
-        const rawResult = aggregateRawResult(allCalls);
-        // Collapsed detail carries the merged per-call count summary even on
-        // the early-notify path; patching '' here flipped the detail row back
-        // to the 'Running' placeholder between count updates (the visible
-        // jitter). Failures keep 'N Failed'. Raw preserved for ctrl+o expansion.
-        const displayDetail = errors > 0 || exitErrors > 0
-          ? failureDetailText({ succeeded, realErrors: callErrors, exitErrors, exitCode: allCalls.find((r) => r.isExitError)?.exitCode })
-          : formatAggregateDetail(aggregateSummaries(aggregate));
-        const currentIndex = itemIndexById.get(card.itemId);
-        const currentItem = Number.isInteger(currentIndex) && getState().items[currentIndex]?.id === card.itemId
-          ? getState().items[currentIndex]
-          : null;
-        const visualCompleted = Math.max(
-          completedCount,
-          Math.min(allCalls.length, Number(currentItem?.completedCount || 0)),
-        );
-        const patch = {
-          result: displayDetail,
-          text: displayDetail,
-          isError: errors > 0,
-          errorCount: errors,
-          callErrorCount: callErrors,
-          exitErrorCount: exitErrors,
-          count: allCalls.length,
-          completedCount: visualCompleted,
-          toolMembers: aggregateToolMembers(allCalls),
-        };
-        if (visualCompleted >= allCalls.length) {
-          patch.completedAt = Number(currentItem?.completedAt) || Date.now();
-        }
-        patchItem(card.itemId, patch);
-        return;
-      }
-      // Non-aggregate eager tools are rare; flipping completedCount without
-      // result changes pending/detail rendering and risks row jitter — wait for
-      // the real history flush (unchanged behavior).
-    };
-
     const deliverToolResultMessage = (message) => {
       const suppressedCallId = toolResultCallId(message);
       if (suppressedCallId && suppressedTranscriptCallIds.has(suppressedCallId)) {
@@ -807,7 +474,7 @@ export function createRunTurn(bag) {
       if (message?.__earlyNotify === true) {
         const earlyCallId = toolResultCallId(message);
         if (earlyCallId) {
-          markToolCardCompletedState(earlyCallId, message);
+          aggregates.markToolCardCompletedState(earlyCallId, message);
         }
         return;
       }
@@ -974,14 +641,14 @@ export function createRunTurn(bag) {
                   startedAt: Date.now(),
                 },
               };
-              registerDeferredCard(card);
+              deferredCards.registerCard(card);
               if (callId) {
                 cardByCallId.set(callId, card);
               }
               toolCards.push(card);
               // [jitter fix] Immediate row-reserve is deferred to after the
               // syncAggregateHeader loop below (see standaloneReserve): calling
-              // ensureVisible() here would flushDeferredUpTo() every earlier-seq
+              // ensureVisible() here would flush every earlier-seq deferred
               // entry — including an aggregate whose pendingSpec syncAggregateHeader
               // hasn't built yet — marking it pushed without inserting (lost/
               // out-of-order card). Record it and flush once headers exist.
@@ -989,11 +656,11 @@ export function createRunTurn(bag) {
               // A standalone card (Agent) breaks the consecutive run too: a
               // later same-bucket call must open a fresh card BELOW it, not
               // merge into an aggregate above it.
-              tailAggregate = null;
+              aggregates.sealTail();
               continue;
             }
 
-            const aggregateCard = ensureAggregateCard(bucket);
+            const aggregateCard = aggregates.ensureAggregateCard(bucket);
             if (shellAfterEdit) aggregateCard.verifyShell = true;
             for (const categoryEntry of categoryEntries) {
               if (!aggregateCard.categories.has(categoryEntry.key)) aggregateCard.categoryOrder.push(categoryEntry.key);
@@ -1013,7 +680,7 @@ export function createRunTurn(bag) {
           }
 
           for (const aggregateCard of touchedAggregates) {
-            syncAggregateHeader(aggregateCard);
+            aggregates.syncAggregateHeader(aggregateCard);
           }
           // [jitter fix] Now that every touched aggregate has its pendingSpec,
           // every entry is push-ready. Flush through the standalone and final
@@ -1362,7 +1029,8 @@ export function createRunTurn(bag) {
           finalizeToolHeaders();
           turnFailureUsageLimited = isUsageLimitError(error);
           turnFailureDetail = toolErrorDisplay(error, 'turn').replace(/^Error:\s*/i, '');
-          pushNotice(turnFailureDetail, 'error');
+          turnFailureDiagnostic = safeErrorDetails(errText(error));
+          pushNotice(turnFailureDetail, 'error', { owner: 'transcript' });
         }
       }
     } finally {
@@ -1372,20 +1040,17 @@ export function createRunTurn(bag) {
       // A replaced/disposed surface must not write shared state owned by the
       // current visible turn.
       let closingItems = [];
-      if (deferredEntries.length) {
-        if (!isStaleUnwind) {
-          // Flush any still-deferred tool cards into the transcript and cancel
-          // their pending push timers so nothing fires (or leaks) after the turn
-          // ends. The finalize path above already patches results onto visible
-          // cards; this just guarantees every registered card is materialized
-          // before the turn closes. Collect (don't emit) the still-deferred cards
-          // so the turn-close flush and the turndone item append in ONE set()
-          // below instead of one render bounce per row. Order/ids are preserved
-          // (creation order, then turndone last).
-          const last = deferredEntries[deferredEntries.length - 1];
-          closingItems = collectDeferredUpTo(last);
-        }
-        clearDeferredTimers();
+      if (deferredCards.hasEntries()) {
+        // Flush any still-deferred tool cards into the transcript and cancel
+        // their pending push timers so nothing fires (or leaks) after the turn
+        // ends. The finalize path above already patches results onto visible
+        // cards; this just guarantees every registered card is materialized
+        // before the turn closes. Collect (don't emit) the still-deferred cards
+        // so the turn-close flush and the turndone item append in ONE set()
+        // below instead of one render bounce per row. Order/ids are preserved
+        // (creation order, then turndone last).
+        if (!isStaleUnwind) closingItems = deferredCards.collectAll();
+        deferredCards.clearTimers();
       }
       if (!isStaleUnwind) flags.flushDeferredBeforeImmediatePush = null;
       closeThinkingSegment();
@@ -1443,6 +1108,7 @@ export function createRunTurn(bag) {
             verb: completionVerb,
             at: Date.now(),
             ...(turnFailureDetail ? { detail: turnFailureDetail } : {}),
+            ...(turnFailureDiagnostic ? { errorDetails: turnFailureDiagnostic } : {}),
             ...turnRouteMeta,
           });
         }

@@ -44,6 +44,7 @@ import {
   sendStaticFile,
 } from './lib/static-http.mjs';
 import { parseMediaRequest } from './lib/media-http.mjs';
+import { createRendererReadiness } from './lib/renderer-readiness.mjs';
 import {
   decodeRelayBinaryFrame,
   encodeRelayBinaryFrame,
@@ -2254,7 +2255,20 @@ export async function startRelay({
       try { request.destroy(); } catch { /* already gone */ }
     }
   };
+  const rendererReadiness = createRendererReadiness(rendererDir);
   const routeRequest = (request, response) => {
+    if ((request.url || '').split('?')[0] === '/readyz') {
+      if (request.method !== 'GET' && request.method !== 'HEAD') {
+        response.writeHead(405).end();
+        return;
+      }
+      const ready = rendererReadiness();
+      response.writeHead(ready.statusCode, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+      }).end(request.method === 'HEAD' ? undefined : JSON.stringify(ready.body));
+      return;
+    }
     // Public webhook ingress bypasses the pairing-token gate: callers are
     // external services (GitHub, Stripe); authentication is the per-endpoint
     // HMAC signature verified on the agent side.

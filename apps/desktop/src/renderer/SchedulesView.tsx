@@ -3,6 +3,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
+import { ErrorNotice } from './ErrorNotice';
 import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
 import {
@@ -366,7 +367,7 @@ function ScheduleEditor({
           </div>
         </div>
         <footer>
-          {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
+          {(formError || error) && <ErrorNotice error={formError || error} />}
           {editing && onDelete && <button type="button"
             className={`danger${confirmDelete ? ' confirming' : ''}`} disabled={busy}
             onClick={() => {
@@ -448,7 +449,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
       return result?.value ?? true;
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason);
-      if (errorMode === 'toast') showDesktopToast(message, 'error');
+      if (errorMode === 'toast') showDesktopToast(message, 'error', { scope: `schedule:${capability}` });
       else setError(message);
       return undefined;
     } finally {
@@ -474,7 +475,7 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
       void completeMutation('runScheduleNow');
       notifySessionsRefresh();
     } catch (reason) {
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', { scope: `schedule:run:${name}` });
     } finally {
       setRunningName('');
     }

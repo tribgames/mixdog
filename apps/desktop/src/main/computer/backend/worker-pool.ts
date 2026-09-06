@@ -10,8 +10,14 @@ import { mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 
 import { join } from 'node:path';
 
 import { powershellHostProgram, RESPONSE_MARKER } from './program';
-import { BLOCKED_COMPUTER_KEY_PATTERN_SOURCE } from '../input/guards';
+import { elevatedProgramInvocation } from './elevated-program';
+import { createSessionJobs } from './session-jobs';
+import { assertComputerWorkerCapacity, MAX_COMPUTER_WORKERS } from './worker-capacity';
 import type { PowerShellResponse } from '../shared/types';
+import {
+  createComputerLineDecoder,
+  MAX_COMPUTER_INTERNAL_REQUEST_BYTES,
+} from '../../../../../../src/runtime/computer-bridge/limits.mjs';
 
 /** Per-command ceiling for the PowerShell host round trip. */
 const COMMAND_TIMEOUT_MS = 45_000;
@@ -24,7 +30,10 @@ export interface WorkerPoolHost {
   /** A spare is only worth keeping while the bridge would use it. */
   isBridgeEnabled(): boolean;
   isDisposed(): boolean;
-  onSessionRetired?(sessionId: string): void;
+  onSessionRetired?(sessionId: string, child?: ChildProcessWithoutNullStreams): void;
+  maxWorkers?: number;
+  /** Injectable process transport for isolated lifecycle tests. */
+  spawnProcess?: typeof spawn;
 }
 
 export function createWorkerPool(host: WorkerPoolHost) {
@@ -49,6 +58,12 @@ export function createWorkerPool(host: WorkerPoolHost) {
   const powerShellBySession = new Map<string, ChildProcessWithoutNullStreams>();
   const workerLastUsedAt = new Map<string, number>();
   const hostWorkers = new Set<ChildProcessWithoutNullStreams>();
+  const elevatedJobs = createSessionJobs();
+  const maxWorkers = host.maxWorkers ?? MAX_COMPUTER_WORKERS;
+  const spawnProcess = host.spawnProcess || spawn;
+  assertComputerWorkerCapacity(0, maxWorkers);
+  let elevatedSlots = 0;
+  const inputMarker = String((randomBytes(4).readUInt32LE() & 0x7fffffff) || 1);
 
   function ensureHostScript(): string {
     if (hostScriptPath) return hostScriptPath;
@@ -71,32 +86,31 @@ export function createWorkerPool(host: WorkerPoolHost) {
   }
 
   function spawnHostWorker(): ChildProcessWithoutNullStreams {
+    elevatedJobs.assertClear();
+    assertComputerWorkerCapacity(hostWorkers.size + elevatedSlots, maxWorkers);
     // The program runs from a temp .ps1 via -File, NOT piped through -Command -:
     // with -Command - PowerShell consumes stdin as the command text, colliding
     // with the per-command JSON we also write to stdin. -File leaves stdin
     // dedicated to runtime commands.
     const scriptPath = ensureHostScript();
-    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
+    const child = spawnProcess('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
       windowsHide: true,
       env: {
         ...process.env,
         MIXDOG_COMPUTER_HOST_CACHE: join(dataDirectory(), HOST_ASSEMBLY_CACHE_DIRECTORY),
         MIXDOG_COMPUTER_HOST_BUILD: hostScriptBuild,
+        MIXDOG_COMPUTER_INPUT_MARKER: inputMarker,
       },
     });
     hostWorkers.add(child);
-    let childBuffer = '';
+    const receive = createComputerLineDecoder((line) => {
+      const marker = line.indexOf(RESPONSE_MARKER);
+      if (marker >= 0) handlePsLine(line.slice(marker + RESPONSE_MARKER.length), child);
+    });
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
-      childBuffer += chunk;
-      let index = childBuffer.indexOf('\n');
-      while (index >= 0) {
-        const line = childBuffer.slice(0, index).replace(/\r$/, '');
-        childBuffer = childBuffer.slice(index + 1);
-        const marker = line.indexOf(RESPONSE_MARKER);
-        if (marker >= 0) handlePsLine(line.slice(marker + RESPONSE_MARKER.length));
-        index = childBuffer.indexOf('\n');
-      }
+      try { receive(chunk); }
+      catch (error) { retirePowerShell(child, error instanceof Error ? error : new Error(String(error))); }
     });
     child.stderr.on('data', () => { /* diagnostics ignored; errors ride responses */ });
     child.stdin.once('error', (error) => {
@@ -116,7 +130,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
         if (activeChild !== child) continue;
         powerShellBySession.delete(id);
         workerLastUsedAt.delete(id);
-        try { onSessionRetired?.(id); } catch { /* host cleanup is best effort */ }
+        try { onSessionRetired?.(id, child); } catch { /* host cleanup is best effort */ }
       }
       for (const [id, entry] of pending) {
         if (entry.child !== child) continue;
@@ -138,15 +152,19 @@ export function createWorkerPool(host: WorkerPoolHost) {
   }
 
   function ensurePowerShell(sessionId: string): ChildProcessWithoutNullStreams {
-    workerLastUsedAt.set(sessionId, Date.now());
+    elevatedJobs.assertClear();
     const existing = powerShellBySession.get(sessionId);
-    if (existing && !existing.killed) return existing;
+    if (existing && !existing.killed) {
+      workerLastUsedAt.set(sessionId, Date.now());
+      return existing;
+    }
     let child = spareHostWorker && !spareHostWorker.killed ? spareHostWorker : null;
     if (child) spareHostWorker = null;
     else child = spawnHostWorker();
     const refill = setTimeout(() => ensureSpareHostWorker(), 0);
     refill.unref?.();
     powerShellBySession.set(sessionId, child);
+    workerLastUsedAt.set(sessionId, Date.now());
     return child;
   }
 
@@ -166,11 +184,11 @@ export function createWorkerPool(host: WorkerPoolHost) {
     }
     try { child.kill(); } catch { /* already gone */ }
     for (const sessionId of retiredSessionIds) {
-      try { onSessionRetired?.(sessionId); } catch { /* host cleanup is best effort */ }
+      try { onSessionRetired?.(sessionId, child); } catch { /* host cleanup is best effort */ }
     }
   }
 
-  function handlePsLine(json: string): void {
+  function handlePsLine(json: string, child: ChildProcessWithoutNullStreams): void {
     let parsed: PowerShellResponse;
     try {
       parsed = JSON.parse(json) as PowerShellResponse;
@@ -178,7 +196,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
       return;
     }
     const entry = pending.get(parsed.id);
-    if (!entry) return;
+    if (!entry || entry.child !== child) return;
     clearTimeout(entry.timer);
     pending.delete(parsed.id);
     entry.resolve(parsed);
@@ -189,9 +207,12 @@ export function createWorkerPool(host: WorkerPoolHost) {
     timeoutMs = COMMAND_TIMEOUT_MS,
   ): Promise<PowerShellResponse> {
     const sessionId = String(request.session_id || 'default');
-    const child = ensurePowerShell(sessionId);
     const id = nextId++;
     const line = `${JSON.stringify({ ...request, id })}\n`;
+    if (pending.size >= 32 || Buffer.byteLength(line) > MAX_COMPUTER_INTERNAL_REQUEST_BYTES) {
+      return Promise.reject(new Error('computer_capacity_exhausted: worker request budget exceeded; input was not dispatched'));
+    }
+    const child = ensurePowerShell(sessionId);
     const commandTimeoutMs = Number.isFinite(timeoutMs)
       ? Math.max(50, Math.min(COMMAND_TIMEOUT_MS, Math.round(timeoutMs)))
       : COMMAND_TIMEOUT_MS;
@@ -221,124 +242,11 @@ export function createWorkerPool(host: WorkerPoolHost) {
     if (!hostScriptPath) throw new Error('privileged_worker_unavailable: computer host script is missing');
     const directory = dataDirectory();
     mkdirSync(directory, { recursive: true });
-    const elevatedBootstrap = String.raw`
-  $ErrorActionPreference = 'Stop'
-  $token = [string]$env:MIXDOG_ELEVATED_TOKEN
-  $hostScript = [string]$env:MIXDOG_ELEVATED_HOST_SCRIPT
-  $hostSha256 = [string]$env:MIXDOG_ELEVATED_HOST_SHA256
-  $requestPath = [string]$env:MIXDOG_ELEVATED_REQUEST
-  $requestSha256 = [string]$env:MIXDOG_ELEVATED_REQUEST_SHA256
-  $responsePath = [string]$env:MIXDOG_ELEVATED_RESPONSE
-  $marker = [string]$env:MIXDOG_ELEVATED_MARKER
-  $protectedHost = $null
-
-  function Get-Sha256Hex([byte[]]$bytes) {
-  $sha = [System.Security.Cryptography.SHA256]::Create()
-  try {
-    return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace('-', '').ToLowerInvariant()
-  } finally {
-    $sha.Dispose()
-  }
-  }
-
-  function Set-AdminOnlyDirectory([string]$path) {
-  [void][System.IO.Directory]::CreateDirectory($path)
-  $administrators = New-Object System.Security.Principal.SecurityIdentifier(
-    [System.Security.Principal.WellKnownSidType]::BuiltinAdministratorsSid, $null)
-  $system = New-Object System.Security.Principal.SecurityIdentifier(
-    [System.Security.Principal.WellKnownSidType]::LocalSystemSid, $null)
-  $acl = New-Object System.Security.AccessControl.DirectorySecurity
-  $acl.SetAccessRuleProtection($true, $false)
-  $acl.SetOwner($administrators)
-  $inheritance = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
-    [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
-  $propagation = [System.Security.AccessControl.PropagationFlags]::None
-  $allow = [System.Security.AccessControl.AccessControlType]::Allow
-  $full = [System.Security.AccessControl.FileSystemRights]::FullControl
-  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
-    $administrators, $full, $inheritance, $propagation, $allow)))
-  $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule(
-    $system, $full, $inheritance, $propagation, $allow)))
-  [System.IO.Directory]::SetAccessControl($path, $acl)
-  }
-
-  try {
-  if ([string]::IsNullOrWhiteSpace($token) -or
-      [string]::IsNullOrWhiteSpace($hostScript) -or
-      [string]::IsNullOrWhiteSpace($hostSha256) -or
-      [string]::IsNullOrWhiteSpace($requestPath) -or
-      [string]::IsNullOrWhiteSpace($requestSha256) -or
-      [string]::IsNullOrWhiteSpace($responsePath) -or
-      [string]::IsNullOrWhiteSpace($marker)) {
-    throw 'privileged worker environment is incomplete'
-  }
-  if ($token -notmatch '^[A-Za-z0-9_-]{32,}$') {
-    throw 'privileged worker token is malformed'
-  }
-  $hostBytes = [System.IO.File]::ReadAllBytes($hostScript)
-  if ((Get-Sha256Hex $hostBytes) -ne $hostSha256.ToLowerInvariant()) {
-    throw 'privileged worker host authentication failed'
-  }
-  $requestBytes = [System.IO.File]::ReadAllBytes($requestPath)
-  if ((Get-Sha256Hex $requestBytes) -ne $requestSha256.ToLowerInvariant()) {
-    throw 'privileged worker request authentication failed'
-  }
-  $requestText = [System.Text.Encoding]::UTF8.GetString($requestBytes)
-  $request = $requestText | ConvertFrom-Json
-  $allowed = @('click','double_click','right_click','middle_click','triple_click','mouse_move','drag','scroll','key','type')
-  if (-not ($allowed -contains [string]$request.action)) {
-    throw "privileged worker action is not allowed: $($request.action)"
-  }
-  if ([string]$request.delivery -ne 'foreground') {
-    throw 'privileged worker requires delivery=foreground'
-  }
-  if ([string]$request.window_id -notmatch '^hwnd:0x[0-9a-fA-F]+$') {
-    throw 'privileged worker requires exact window_id'
-  }
-  if (-not [string]::IsNullOrWhiteSpace([string]$request.ref) -or
-      -not [string]::IsNullOrWhiteSpace([string]$request.to)) {
-    throw 'privileged worker requires frame-bound coordinates or direct keys/text'
-  }
-  $normalizedKeys = ([string]$request.keys).Trim()
-  if ($normalizedKeys -match '(?i)${BLOCKED_COMPUTER_KEY_PATTERN_SOURCE}') {
-    throw 'privileged worker blocked a destructive or session-ending key combination'
-  }
-  $workerDirectory = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'Mixdog\ComputerWorker'
-  Set-AdminOnlyDirectory $workerDirectory
-  $protectedHost = Join-Path $workerDirectory ('host-' + $token + '.ps1')
-  [System.IO.File]::WriteAllBytes($protectedHost, $hostBytes)
-  $powershell = Join-Path $PSHOME 'powershell.exe'
-  $lines = @(
-    $requestText |
-      & $powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $protectedHost 2>&1 |
-      ForEach-Object { [string]$_ }
-  )
-  $response = @($lines | Where-Object { $_.StartsWith($marker) } | Select-Object -Last 1)
-  if ($response.Count -ne 1) {
-    throw 'privileged worker host returned no structured response'
-  }
-  [System.IO.File]::WriteAllText(
-    $responsePath,
-    $token + [Environment]::NewLine + [string]$response[0],
-    [System.Text.Encoding]::UTF8)
-  exit 0
-  } catch {
-  try {
-    [System.IO.File]::WriteAllText(
-      $responsePath,
-      $token + [Environment]::NewLine + 'ERROR:' + $_.Exception.Message,
-      [System.Text.Encoding]::UTF8)
-  } catch {}
-  exit 1
-  } finally {
-  if (-not [string]::IsNullOrWhiteSpace($protectedHost)) {
-    Remove-Item -LiteralPath $protectedHost -Force -ErrorAction SilentlyContinue
-  }
-  }
-  `;
+    assertComputerWorkerCapacity(hostWorkers.size + elevatedSlots + 2, maxWorkers);
     const nonce = randomBytes(24).toString('base64url');
     const requestPath = join(directory, `computer-elevated-${nonce}.request.json`);
     const responsePath = join(directory, `computer-elevated-${nonce}.response.txt`);
+    const cancelPath = join(directory, `computer-elevated-${nonce}.cancel`);
     const id = nextId++;
     const requestBytes = Buffer.from(`${JSON.stringify({ ...request, id })}\n`, 'utf8');
     const hostBytes = readFileSync(hostScriptPath);
@@ -347,16 +255,19 @@ export function createWorkerPool(host: WorkerPoolHost) {
       encoding: 'utf8',
       mode: 0o600,
     });
-    const bootstrapEncoded = Buffer.from(elevatedBootstrap, 'utf16le').toString('base64');
+    const bootstrapEncoded = Buffer.from(elevatedProgramInvocation(), 'utf16le').toString('base64');
     const launcher = [
       "$ErrorActionPreference = 'Stop'",
       "$powershell = Join-Path $PSHOME 'powershell.exe'",
       `$bootstrap = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('${bootstrapEncoded}'))`,
       "function ConvertTo-MixdogLiteral([string]$value) { return \"'\" + $value.Replace(\"'\", \"''\") + \"'\" }",
-      "$variableNames = @('MIXDOG_ELEVATED_TOKEN','MIXDOG_ELEVATED_HOST_SCRIPT','MIXDOG_ELEVATED_HOST_SHA256','MIXDOG_ELEVATED_REQUEST','MIXDOG_ELEVATED_REQUEST_SHA256','MIXDOG_ELEVATED_RESPONSE','MIXDOG_ELEVATED_MARKER')",
+      "$env:MIXDOG_ELEVATED_PARENT_PID = [string]$PID",
+      "$env:MIXDOG_ELEVATED_PARENT_TICKS = [string]([Diagnostics.Process]::GetCurrentProcess().StartTime.ToUniversalTime().Ticks)",
+      "$variableNames = @('MIXDOG_ELEVATED_TOKEN','MIXDOG_ELEVATED_HOST_SCRIPT','MIXDOG_ELEVATED_HOST_SHA256','MIXDOG_ELEVATED_REQUEST','MIXDOG_ELEVATED_REQUEST_SHA256','MIXDOG_ELEVATED_RESPONSE','MIXDOG_ELEVATED_CANCEL','MIXDOG_ELEVATED_MARKER','MIXDOG_ELEVATED_PARENT_PID','MIXDOG_ELEVATED_PARENT_TICKS','MIXDOG_COMPUTER_INPUT_MARKER')",
       "$prelude = @($variableNames | ForEach-Object { '$env:' + $_ + ' = ' + (ConvertTo-MixdogLiteral ([string][Environment]::GetEnvironmentVariable($_))) }) -join [Environment]::NewLine",
       '$elevatedScript = $prelude + [Environment]::NewLine + $bootstrap',
       '$elevatedEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($elevatedScript))',
+      "if ($elevatedEncoded.Length -gt 30000) { throw 'privileged_worker_unavailable: launch configuration exceeds Windows command line capacity' }",
       "$arguments = @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-EncodedCommand',$elevatedEncoded)",
       'try {',
       "  $process = Start-Process -FilePath $powershell -Verb RunAs -ArgumentList $arguments -Wait -PassThru",
@@ -366,9 +277,13 @@ export function createWorkerPool(host: WorkerPoolHost) {
       '  exit 1223',
       '}',
     ].join('; ');
+    let stopped = false;
+    const cancel = () => writeFileSync(cancelPath, nonce, { mode: 0o600 });
+    const job = elevatedJobs.begin(String(request.session_id || 'default'), cancel);
+    elevatedSlots += 3;
     try {
       const launcherResult = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve, reject) => {
-        const child = spawn('powershell.exe', [
+        const child = spawnProcess('powershell.exe', [
           '-NoProfile',
           '-NonInteractive',
           '-ExecutionPolicy',
@@ -381,11 +296,13 @@ export function createWorkerPool(host: WorkerPoolHost) {
           env: {
             ...process.env,
             MIXDOG_ELEVATED_TOKEN: nonce,
+            MIXDOG_COMPUTER_INPUT_MARKER: inputMarker,
             MIXDOG_ELEVATED_HOST_SCRIPT: hostScriptPath!,
             MIXDOG_ELEVATED_HOST_SHA256: sha256(hostBytes),
             MIXDOG_ELEVATED_REQUEST: requestPath,
             MIXDOG_ELEVATED_REQUEST_SHA256: sha256(requestBytes),
             MIXDOG_ELEVATED_RESPONSE: responsePath,
+            MIXDOG_ELEVATED_CANCEL: cancelPath,
             MIXDOG_ELEVATED_MARKER: RESPONSE_MARKER,
           },
         });
@@ -399,16 +316,23 @@ export function createWorkerPool(host: WorkerPoolHost) {
         child.stderr.on('data', (chunk: Buffer) => {
           stderr = appendBounded(stderr, chunk);
         });
+        let cleanupTimer: NodeJS.Timeout | undefined;
         const timer = setTimeout(() => {
-          try { child.kill(); } catch { /* launcher already exited */ }
-          reject(new Error('privileged_worker_timeout: UAC consent or elevated input timed out'));
+          try { cancel(); } catch { /* parent death also cancels the input child */ }
+          cleanupTimer = setTimeout(() => {
+            try { child.kill(); } catch { /* launcher already exited */ }
+            reject(new Error('privileged_worker_cleanup_unconfirmed: elevated input did not acknowledge cancellation'));
+          }, 6_000);
         }, 120_000);
         child.once('error', (error) => {
           clearTimeout(timer);
+          if (cleanupTimer) clearTimeout(cleanupTimer);
+          if (!child.pid) stopped = true;
           reject(error);
         });
         child.once('exit', (code) => {
           clearTimeout(timer);
+          if (cleanupTimer) clearTimeout(cleanupTimer);
           resolve({
             code: Number(code ?? 1),
             stdout,
@@ -425,6 +349,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
           .replace(/\s+/g, ' ')
           .slice(0, 1000);
         if (launcherResult.code === 1223) {
+          stopped = true;
           throw new Error('privileged_worker_cancelled: UAC consent was declined');
         }
         if (launcherResult.code === 0) {
@@ -439,10 +364,15 @@ export function createWorkerPool(host: WorkerPoolHost) {
       const responseToken = (newline >= 0 ? envelope.slice(0, newline) : envelope)
         .replace(/^\uFEFF/, '')
         .replace(/\r$/, '');
-      const responseLine = newline >= 0 ? envelope.slice(newline + 1).trim() : '';
+      const receipt = newline >= 0 ? envelope.slice(newline + 1).trim().split(/\r?\n/) : [];
+      const responseLine = receipt.slice(1).join('\n');
       if (responseToken !== nonce) {
         throw new Error('privileged_worker_rejected: response authentication failed');
       }
+      if (receipt[0] !== 'STOPPED') {
+        throw new Error('privileged_worker_cleanup_unconfirmed: elevated worker did not confirm termination');
+      }
+      stopped = true;
       if (responseLine.startsWith('ERROR:')) {
         throw new Error(`privileged_worker_failed: ${responseLine.slice(6)}`);
       }
@@ -452,8 +382,13 @@ export function createWorkerPool(host: WorkerPoolHost) {
       if (parsed.id !== id) throw new Error('privileged_worker_rejected: response id mismatch');
       return parsed;
     } finally {
+      job.finish(stopped);
+      if (stopped) elevatedSlots -= 3;
       try { unlinkSync(requestPath); } catch { /* already removed */ }
       try { unlinkSync(responsePath); } catch { /* no response on UAC cancellation */ }
+      if (stopped) {
+        try { unlinkSync(cancelPath); } catch { /* no cancellation requested */ }
+      }
     }
   }
 
@@ -511,5 +446,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
     retirePowerShell,
     callPowerShell,
     callPowerShellElevated,
+    cancelElevatedSession: elevatedJobs.cancel,
+    elevatedSessionIds: elevatedJobs.sessionIds,
   };
 }

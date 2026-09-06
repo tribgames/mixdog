@@ -10,7 +10,7 @@ import { readFileSync, existsSync, statSync } from 'fs';
 import { join, resolve } from 'path';
 import { createServer } from 'http';
 import { randomBytes, createHash } from 'crypto';
-import { updateJsonAtomicSync, writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
+import { updateJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
@@ -58,11 +58,6 @@ const OAUTH_TOKEN_TIMEOUT_MS = 30_000;
 
 // --- Credential helpers ---
 
-function _pushUnique(list, value) {
-    if (!value || typeof value !== 'string') return;
-    if (!list.includes(value)) list.push(value);
-}
-
 function credentialCandidates() {
     const bound = boundProviderAuthPath('anthropic-oauth');
     if (bound) return [resolve(bound)];
@@ -95,17 +90,6 @@ function _loadCredentialsFile(path) {
     } catch {
         return null;
     }
-}
-
-// Cross-process safe credential save. Lockfile (O_EXCL) prevents two Mixdog
-// refreshers from clobbering each other; atomic rename guarantees readers see
-// either the old or new file, never a half-written one. Used so refresh_token
-// rotation propagates to other Mixdog readers of the same credentials file
-// instead of leaving them stuck on the previous refresh_token.
-export function _saveCredentialsFile(path, raw) {
-    // Secret file, not parent-dir ACL mutation. `secret: true` clamps the file
-    // itself on Windows; it deliberately leaves the data dir inheritance alone.
-    writeJsonAtomicSync(path, raw, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
 }
 
 function _updateCredentialsFile(path, mutator) {
@@ -351,99 +335,6 @@ export async function refreshOAuthCredentials(creds) {
         );
     }, {
         timeoutMs: 120_000,
-        staleMs: 120_000,
-        secret: true,
-    });
-}
-
-/**
- * Serialize host-side refresh, establish a bounded access-token lease, and
- * optionally write an owner-only snapshot while the lease lock is still held.
- * The returned object deliberately contains metadata only, never token bytes.
- */
-export async function preflightAnthropicOAuthCredentials({
-    credentialsPath = null,
-    minimumValidityMs = TOKEN_REFRESH_SKEW_MS,
-    snapshotPath = null,
-    refreshFn = refreshOAuthCredentials,
-    now = () => Date.now(),
-    lockTimeoutMs = 120_000,
-} = {}) {
-    if (isAnthropicOAuthRefreshDisabled()) {
-        throw new Error('Anthropic OAuth host preflight cannot run while refresh is disabled.');
-    }
-    const requiredMs = Number(minimumValidityMs);
-    if (!Number.isFinite(requiredMs) || requiredMs < 0) {
-        throw new Error('Anthropic OAuth host preflight minimumValidityMs must be a non-negative number.');
-    }
-    const pinnedPath = resolve(
-        credentialsPath
-        || process.env.ANTHROPIC_OAUTH_CREDENTIALS_PATH
-        || DEFAULT_CREDENTIALS_PATH,
-    );
-    const initial = _loadCredentialsFile(pinnedPath);
-    if (!initial?.path || !initial.accessToken) {
-        throw new Error(
-            `Anthropic OAuth host preflight found no credentials at ${pinnedPath}. `
-            + 'Open /providers in mixdog to sign in.',
-        );
-    }
-
-    return withFileLock(_refreshLockPath(pinnedPath), async () => {
-        let leased = _loadCredentialsFile(pinnedPath);
-        if (!leased?.path || !leased.accessToken) {
-            throw new Error('Anthropic OAuth credentials disappeared during host preflight.');
-        }
-
-        const validAfter = now() + requiredMs;
-        let refreshed = false;
-        if (!leased.expiresAt || leased.expiresAt < validAfter) {
-            if (!leased.refreshToken) {
-                throw new Error(
-                    'Anthropic OAuth host preflight cannot establish the required lease: '
-                    + 'refresh token is unavailable.',
-                );
-            }
-            // The public refresh function owns this same lock. Call its
-            // unlocked exchange only because preflight already owns it;
-            // injected test exchanges run under the identical ownership.
-            const next = refreshFn === refreshOAuthCredentials
-                ? await _refreshOAuthCredentialsUnlocked(leased)
-                : await refreshFn(leased);
-            const persisted = _loadCredentialsFile(pinnedPath);
-            if (!persisted?.accessToken || persisted.accessToken !== next?.accessToken) {
-                throw new Error('Anthropic OAuth host preflight refresh was not persisted.');
-            }
-            leased = persisted;
-            refreshed = true;
-        }
-
-        const remainingMs = leased.expiresAt ? leased.expiresAt - now() : 0;
-        if (remainingMs < requiredMs) {
-            throw new Error(
-                `Anthropic OAuth host preflight cannot satisfy the ${Math.ceil(requiredMs / 1000)}s `
-                + `credential lease (provider granted ${Math.max(0, Math.floor(remainingMs / 1000))}s).`,
-            );
-        }
-
-        if (snapshotPath) {
-            const raw = JSON.parse(readFileSync(leased.path, 'utf-8'));
-            // Containers need only the leased access token. Never distribute
-            // the rotating refresh credential, even into disposable storage.
-            if (raw?.claudeAiOauth) {
-                delete raw.claudeAiOauth.refreshToken;
-                delete raw.claudeAiOauth.refresh_token;
-            }
-            _saveCredentialsFile(snapshotPath, raw);
-        }
-        return {
-            expiresAt: leased.expiresAt,
-            remainingMs,
-            refreshed,
-            snapshotWritten: Boolean(snapshotPath),
-        };
-    }, {
-        timeoutMs: lockTimeoutMs,
         staleMs: 120_000,
         secret: true,
     });

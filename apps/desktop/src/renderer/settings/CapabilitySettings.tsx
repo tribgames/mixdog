@@ -9,7 +9,8 @@ import type {
 
 import { PaneSurfaceGate } from '../PaneSurfaceGate';
 import { preferredModelEffort } from '../model-route-utils';
-import { showDesktopToast } from '../notifications';
+import { showDesktopToast, useErrorToast } from '../notifications';
+import { ErrorNotice } from '../ErrorNotice';
 import { record } from '../record-utils';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
 import { SettingsConfirmDialog } from "./capability-controls";
@@ -31,7 +32,8 @@ export function CapabilitySettings({
   const [data, setData] = useState<Record<string, unknown>>(() => initialCache?.data || {});
   const [hydrating, setHydrating] = useState(() => !initialCache);
   const [pending, setPending] = useState('');
-  const [error, setError] = useState(() => initialCache?.error || '');
+  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState(() => initialCache?.error || '');
   const [confirmation, setConfirmation] = useState<SettingsConfirmation | null>(null);
   const [liveSnapshot, setLiveSnapshot] = useState<SessionSnapshot>(null);
   const [updaterState, setUpdaterState] = useState<DesktopUpdaterState>({ status: 'disabled' });
@@ -41,9 +43,7 @@ export function CapabilitySettings({
   // Tail of the in-flight mutation chain: capability calls run one after the
   // other so a burst of clicks lands in order instead of being dropped.
   const mutationChain = useRef<Promise<void>>(Promise.resolve());
-  useEffect(() => {
-    if (error) showDesktopToast(error, 'error');
-  }, [error]);
+  useErrorToast(error, 'settings');
 
   const load = useCallback(async (force = false) => {
     const sequence = ++loadSequence.current;
@@ -51,10 +51,10 @@ export function CapabilitySettings({
     const cached = getCachedCapabilitySettings(api);
     if (cached) {
       setData(cached.data);
-      setError(cached.error);
+      setLoadError(cached.error);
       setHydrating(false);
     } else {
-      setError('');
+      setLoadError('');
       setHydrating(true);
     }
     // Cold settings stay behind one spinner until the complete snapshot lands.
@@ -63,7 +63,7 @@ export function CapabilitySettings({
     const next = await preloadCapabilitySettings(api, force);
     if (sequence !== loadSequence.current) return;
     setData(next.data);
-    setError(next.error);
+    setLoadError(next.error);
     setHydrating(false);
     // Perf diagnostics (dropped unless MIXDOG_DESKTOP_PERF=1): how long the
     // panel showed skeleton/stale values before real data landed.
@@ -104,6 +104,7 @@ export function CapabilitySettings({
     key: string = capability,
     refresh = true,
     silent = false,
+    errorMode: 'toast' | 'throw' = 'toast',
   ): Promise<T | undefined> => {
     if (!api.invokeCapability || hydrating) return undefined;
     // Serialize instead of dropping: a fast second click used to be swallowed
@@ -125,6 +126,7 @@ export function CapabilitySettings({
         if (refresh) setRevision((value) => value + 1);
         return result.value;
       } catch (reason) {
+        if (errorMode === 'throw') throw reason;
         if (!silent) setError(reason instanceof Error ? reason.message : String(reason));
         return undefined;
       } finally {
@@ -229,6 +231,7 @@ export function CapabilitySettings({
 
   return <PaneSurfaceGate ready label="Loading settings…">
     <div className="capability-settings-content">
+    {loadError && <ErrorNotice error={loadError} role="status" onRetry={() => void load(true)} />}
     <CategoryPanel category={category} context={context} />
     {confirmation && <SettingsConfirmDialog options={confirmation} onClose={() => setConfirmation(null)} />}
     </div>

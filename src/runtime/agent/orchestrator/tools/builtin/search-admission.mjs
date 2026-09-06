@@ -1,7 +1,7 @@
 import { searchIoAdmission } from '../../../../shared/tool-workload-gates.mjs';
 import { recordLocalSearchAdmission } from './local-search-telemetry.mjs';
 
-export function isBroadSearchRequest(request) {
+function isBroadSearchRequest(request) {
   if (!request || typeof request !== 'object') return false;
   return request.fuzzy != null
     || request.bulkHint === true

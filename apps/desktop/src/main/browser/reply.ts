@@ -16,7 +16,6 @@ import {
 } from './command';
 import type { TrackedBrowserDownload } from './downloads';
 import type { BrowserGuestStateStore } from './guest-state';
-import { redactBrowserText } from './redaction';
 import {
   describeBrowserPostcondition,
   normalizeBrowserPostcondition,
@@ -102,7 +101,7 @@ export function createBrowserReply(host: BrowserReplyHost) {
     const record = state.for(guest);
     const downloads = unreportedDownloads(downloadsForGuest(guest), record.downloadsReportedAt);
     record.downloadsReportedAt = Date.now();
-    return formatSnapshot(payload, record, { downloads });
+    return state.redactText(guest, formatSnapshot(payload, record, { downloads }));
   }
 
   function refRecoveryFor(guest: WebContents): BrowserRefRecoveryContext {
@@ -143,7 +142,8 @@ export function createBrowserReply(host: BrowserReplyHost) {
     const dialog = state.for(guest).pendingDialog;
     if (!dialog) return null;
     return {
-      text: `A ${dialog.type} dialog is blocking the page: ${JSON.stringify(redactBrowserText(dialog.message))}\n`
+      outcome: 'blocked',
+      text: `A ${dialog.type} dialog is blocking the page: ${JSON.stringify(state.redactText(guest, dialog.message))}\n`
         + 'Call handle_dialog with accept:true or accept:false before continuing.',
     };
   }
@@ -236,6 +236,7 @@ export function createBrowserReply(host: BrowserReplyHost) {
         : expected && `Postcondition met after ${postconditionElapsed}ms; action executed once.`,
     ].filter(Boolean);
     const result: BrowserCommandResult = {
+      outcome: expected && options.preexistingPostcondition ? 'inconclusive' : 'completed',
       text: notes.length ? `${notes.join(' ')}\n\n${snapshot}` : snapshot,
     };
     if (options.includeScreenshot || command.includeScreenshot === true) {
@@ -247,6 +248,9 @@ export function createBrowserReply(host: BrowserReplyHost) {
         command,
         signal,
       );
+      if (state.peek(guest)?.refSet !== refSet) {
+        throw new Error('page changed during screenshot capture; take a fresh snapshot');
+      }
       if (capture.fullPage) {
         result.text += `\n\nFull-page screenshot: ${capture.width}x${capture.height} px; inspection-only and not coordinate-bound.`;
       } else {
@@ -258,8 +262,8 @@ export function createBrowserReply(host: BrowserReplyHost) {
     return result;
   }
 
-  /** Run a ref-addressed operation, transparently swapping a stale ref for
-   *  its fresh equivalent once. The action itself is never replayed. */
+  /** Recover a ref for a read-only operation or input preflight. Mutations and
+   * their post-dispatch verification must execute outside this callback. */
   async function withRefRecovery<T>(
     guest: WebContents,
     context: BrowserRefRecoveryContext,

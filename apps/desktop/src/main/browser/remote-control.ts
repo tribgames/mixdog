@@ -31,6 +31,7 @@ export interface BrowserRemoteControlHost {
     options: { format?: unknown; quality?: unknown },
   ): Promise<BrowserScreenshotCapture>;
   assertResolvedUrlAllowed(url: string, pageGenerated: boolean): Promise<void>;
+  revision?(guest: WebContents): Promise<string>;
 }
 
 export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
@@ -52,11 +53,15 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     noteRemoteViewer?.(sessionId);
     const guest = await ensureGuest(sessionId, { reveal: false });
     await cdp.waitForInitialDocument(guest);
+    const revision = await host.revision?.(guest);
     const capture = await captureScreenshot(guest, false, {
       format: 'jpeg',
       quality: 58,
     });
     const record = state.for(guest);
+    if (revision !== await host.revision?.(guest)) {
+      throw new Error('Remote Browser Use page changed during capture; wait for a fresh frame.');
+    }
     const previous = record.remoteFrame;
     const url = guest.getURL() || 'about:blank';
     const current = previous
@@ -64,6 +69,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
       && previous.width === capture.width
       && previous.height === capture.height
       && previous.url === url
+      && previous.revision === revision
       ? previous
       : {
         frameId: `rbf_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
@@ -71,7 +77,10 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
         width: capture.width,
         height: capture.height,
         url,
+        capturedAt: Date.now(),
+        revision,
       };
+    current.capturedAt = Date.now();
     if (current !== previous) record.remoteFrame = current;
     const history = guest.navigationHistory;
     return {
@@ -98,7 +107,19 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
       if (!frame || !('frameId' in control) || control.frameId !== frame.frameId) {
         throw new Error('Remote Browser Use frame is stale; wait for the latest frame and retry.');
       }
+      if (frame.url !== guest.getURL() || !frame.capturedAt || Date.now() - frame.capturedAt > 10_000
+        || frame.revision !== await host.revision?.(guest)) {
+        state.invalidateInteraction(guest);
+        throw new Error('Remote Browser Use page changed; wait for the latest frame and retry.');
+      }
+      // DOM revisions do not cover canvas/video. Compare the actual pixels too.
+      const current = await captureScreenshot(guest, false, { format: 'jpeg', quality: 58 });
+      if (current.data !== frame.image.data || state.peek(guest)?.remoteFrame !== frame) {
+        state.invalidateInteraction(guest);
+        throw new Error('Remote Browser Use image changed; wait for the latest frame and retry.');
+      }
     }
+    state.invalidateInteraction(guest);
     switch (control.type) {
       case 'navigate': {
         const url = normalizePageUrl(control.url, urlPolicy);

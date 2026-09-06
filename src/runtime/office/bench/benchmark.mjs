@@ -130,7 +130,7 @@ function presentationOperations(index) {
   return operations;
 }
 
-export async function generateOfficeBenchmarkCorpus(directory, {
+async function generateOfficeBenchmarkCorpus(directory, {
   documentsPerFormat = 8,
   onProgress = null,
 } = {}) {

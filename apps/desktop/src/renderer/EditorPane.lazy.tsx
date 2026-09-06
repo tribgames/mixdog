@@ -2,6 +2,7 @@
 // and guarded changed-on-disk handling.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
+import { ErrorNotice } from "./ErrorNotice";
 import { createGitRefreshScheduler } from "./git-refresh-scheduler";
 import { monaco, resolveThemeColor } from "./monaco-setup";
 import { subscribeProjectFileChanges } from "./project-file-changes";
@@ -590,8 +591,7 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
   />;
   if (error && !load) {
     return <EditorPaneNoticeSurface breadcrumbs={editorBreadcrumbs}>
-      <p>{error}</p>
-      <button type="button" onClick={reload}>Retry</button>
+      <ErrorNotice error={error} onRetry={reload} />
     </EditorPaneNoticeSurface>;
   }
   if (!load) {

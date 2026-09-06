@@ -14,20 +14,15 @@
  * preset wired for the Responses API — with the proxy URL + CLI headers
  * injected via config.extraHeaders, bearer swapped for the OAuth access token.
  */
-import { createServer } from 'http';
-import { randomBytes, randomUUID, createHash } from 'crypto';
+import { randomUUID } from 'crypto';
 import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
 import { join, resolve } from 'path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
-import { enrichModels, getModelMetadataSync } from './model-catalog.mjs';
-import { sanitizeModelList } from './model-list-sanitize.mjs';
-import { makeModelCache } from './model-cache.mjs';
 import { OpenAICompatProvider } from './openai-compat.mjs';
 import { createTimeoutSignal } from '../stall-policy.mjs';
-import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
-import { normalizeGrokToolSchemas } from './lib/grok-tool-schema.mjs';
+import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import {
     decodeJwtPayload,
     expiryFromAccessToken,
@@ -208,7 +203,7 @@ export function _normalizeExpiresAt(value) {
 // store carries no explicit expires_at — without it expires_at stays 0, which
 // ensureAuth reads as "never expires", disabling proactive refresh. Returns 0
 // for opaque (non-JWT) tokens. JWT `exp` is epoch SECONDS (RFC 7519).
-export const _expiryFromAccessToken = expiryFromAccessToken;
+const _expiryFromAccessToken = expiryFromAccessToken;
 
 export function _identityFromAccessToken(token) {
     const payload = decodeJwtPayload(token);

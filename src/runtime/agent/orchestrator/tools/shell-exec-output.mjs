@@ -11,7 +11,6 @@ import {
   writeSync,
   fsyncSync,
   unlinkSync,
-  writeFileSync,
   statSync,
 } from 'node:fs';
 import { join } from 'node:path';
@@ -19,6 +18,7 @@ import { StringDecoder } from 'node:string_decoder';
 import * as nodeUtil from 'node:util';
 import { getPluginData } from '../config.mjs';
 import { TOOL_OUTPUT_MAX_BYTES } from './builtin/tool-output-limit.mjs';
+import { envPositiveInt as positiveIntEnv } from '../../../shared/env.mjs';
 
 // Inline cap, in BYTES. Output at or below this size is pasted whole; above
 // it the rendered body becomes head+tail carrying a "full output at <path>"
@@ -44,17 +44,13 @@ export const SHELL_OUTPUT_DISK_CAP = 100 * 1024 * 1024;
 // On Windows every fsyncSync is a noticeable I/O syscall, so throttle
 // consecutive calls to at most one per this interval. Tune via env
 // MIXDOG_SHELL_FSYNC_THROTTLE_MS (default 1000 ms, positive integer).
-export function positiveIntEnv(name, fallback) {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
-}
 const MIXDOG_SHELL_FSYNC_THROTTLE_MS = positiveIntEnv('MIXDOG_SHELL_FSYNC_THROTTLE_MS', 1000);
 
 // ANSI / VT control sequence stripper. Falls back to a regex sweep when
 // node:util's stripVTControlCharacters isn't available (older Node).
-export const _ANSI_REGEX =
+const _ANSI_REGEX =
   /(?:\[[0-?]*[ -/]*[@-~]|\][\s\S]*?(?:|\\|))/g;
-export const _stripAnsiImpl =
+const _stripAnsiImpl =
   typeof nodeUtil.stripVTControlCharacters === 'function'
     ? (s) => nodeUtil.stripVTControlCharacters(s)
     : (s) => String(s).replace(_ANSI_REGEX, () => '');
@@ -66,7 +62,7 @@ export function stripAnsi(s) {
 
 const UNSAFE_TEXT_CONTROL_RE = /[\u0001-\u0006\u0008\u000B\u000C\u000E-\u001A\u001C-\u001F\u007F]/g;
 
-export function inspectShellTextChunk(value, channel = 'stdout') {
+function inspectShellTextChunk(value, channel = 'stdout') {
   const text = String(value ?? '');
   if (!text) return { text: '', binary: false, bytes: 0 };
   const bytes = Buffer.byteLength(text, 'utf8');

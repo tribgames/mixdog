@@ -63,10 +63,11 @@ import {
     traceXaiResponsesCacheContext,
     writeXaiResponsesCacheTrace,
 } from './openai-compat-xai.mjs';
-import { envFlag as _envFlag } from './lib/env-utils.mjs';
+import { envFlag as _envFlag } from '../../../shared/env.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
 import { ensureChatToolPairs } from './lib/wire-pairing.mjs';
 import { sendCompatResponses } from './openai-compat-responses.mjs';
+import { applyCompatToolChoice } from './compat-request-policy.mjs';
 
 const requireOpenAI = createRequire(import.meta.url);
 let _OpenAI = null;
@@ -135,8 +136,8 @@ const MODEL_LIST_TIMEOUT_MS = resolveTimeoutMs(
 
 // SSRF guard for provider baseURL. config.baseURL comes from user JSON;
 // reject non-http(s) schemes (file:/data:/ftp:/etc.) and require https for
-// any non-localhost host. Localhost-only presets (ollama, lmstudio) and
-// loopback hosts may use http. Throws a clear config error — no silent
+// any non-localhost host. The managed Local Provider and other loopback hosts
+// may use http. Throws a clear config error — no silent
 // fallback — so misconfig surfaces immediately instead of leaking apiKey.
 function assertSafeBaseURL(rawURL, providerName) {
     let parsed;
@@ -224,29 +225,13 @@ export function applyCompatProviderChatOptions(params, providerName, opts = {}, 
             params.thinking = { type: disabled ? 'disabled' : 'enabled' };
             if (!disabled) {
                 const effort = String(rawEffort ?? '').trim().toLowerCase();
-                if (effort === 'max' || effort === 'xhigh') params.reasoning_effort = 'max';
+                if (effort === 'max') params.reasoning_effort = 'max';
                 // DeepSeek documents low/high/max; `medium` is its own alias for
                 // high, and `low` is a real level that must not be promoted.
                 else if (effort === 'low') params.reasoning_effort = 'low';
-                else if (['medium', 'high'].includes(effort)) params.reasoning_effort = 'high';
+                else if (['medium', 'high', 'xhigh'].includes(effort)) params.reasoning_effort = 'high';
             }
         }
-        return params;
-    }
-    if (providerName === 'ollama') {
-        const effort = normalizeReasoningEffort(
-            opts.ollamaReasoningEffort ?? opts.effort ?? config?.reasoningEffort,
-            ['none', 'low', 'medium', 'high', 'max'],
-        );
-        if (effort) params.reasoning_effort = effort;
-        return params;
-    }
-    if (providerName === 'lmstudio') {
-        const effort = normalizeReasoningEffort(
-            opts.lmStudioReasoningEffort ?? opts.effort ?? config?.reasoningEffort,
-            ['none', 'low', 'medium', 'high', 'max'],
-        );
-        if (effort) params.reasoning_effort = effort;
         return params;
     }
     if (providerName === 'opencode-go') {
@@ -459,6 +444,7 @@ export class OpenAICompatProvider {
         if (tools?.length) {
             params.tools = toOpenAITools(tools);
         }
+        applyCompatToolChoice(params, opts);
         applyCompatProviderChatOptions(params, this.name, opts, this.config, modelInfo);
         // Streaming (params.stream = true is always set below): no absolute
         // wall-clock cap on a healthy stream. A fixed total-lifetime timer
@@ -622,8 +608,7 @@ export class OpenAICompatProvider {
         // require or benefit from that official multi-turn shape.
         const capturesReasoningContent = this.name === 'deepseek'
             || this.name === 'xai'
-            || this.name === 'ollama'
-            || this.name === 'lmstudio'
+            || this.name === 'mixdog-local'
             || replaysReasoningContent;
         const reasoningContent = (capturesReasoningContent && typeof assembled.reasoningContent === 'string')
             ? assembled.reasoningContent
@@ -645,7 +630,7 @@ export class OpenAICompatProvider {
             // cutoff. Flag it so loop.mjs can surface a one-line warning
             // instead of silently treating a truncated answer as complete.
             ...(stopReason === 'length' && (assembled.content || '').length > 0 ? { truncated: true } : {}),
-            ...(reasoningContent ? { reasoningContent } : {}),
+            ...(reasoningContent !== null ? { reasoningContent } : {}),
             ...(reasoningDetails?.length ? {
                 providerMetadata: { openrouter: { reasoning_details: reasoningDetails } },
             } : {}),
@@ -781,6 +766,7 @@ export class OpenAICompatProvider {
         // reference shape. Probe-verified accepted by api.x.ai (HTTP 200,
         // 2026-08-16); absent, the service default decides per turn.
         if (params.tools?.length) params.parallel_tool_calls = true;
+        applyCompatToolChoice(params, opts);
         // SSE transport: report 'requesting' until the stream opens, then
         // per-chunk onStreamDelta feeds the agent stall watchdog.
         try { opts.onStageChange?.('requesting'); } catch { /* heartbeat best-effort */ }
@@ -1008,6 +994,7 @@ export class OpenAICompatProvider {
         if (tools?.length || nativeTools.length) params.tools = [...nativeTools, ...toResponsesTools(tools || [], { provider: 'xai' })];
         // Same explicit parallel-tool-calls contract as the HTTP/SSE path.
         if (params.tools?.length) params.parallel_tool_calls = true;
+        applyCompatToolChoice(params, opts);
         const reasoningEffort = normalizeXaiReasoningEffort(opts.xaiReasoningEffort
             ?? opts.effort
             ?? this.config?.reasoningEffort

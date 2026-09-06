@@ -66,14 +66,16 @@ or inconclusive, keep the CORE entry.
     text, or the merge is held. Consolidate whenever a reader would want the
     pieces together; never consolidate entries that merely share a topic
     word but state independent rules.
-- `reclassify` — the entry is filed under the WRONG project pool. Its subject
-  clearly belongs to a different pool shown among the entries under review: a
-  project-specific fact stored in COMMON belongs under that project, or a generic
-  cross-project rule mis-filed under one project belongs in COMMON. Name the
-  correct destination: `<id>|reclassify|<project_slug|common>`. The target must
-  be COMMON or a project pool that already appears on another entry above — never
-  invent a new pool. Reclassify only MOVES the entry (its text is unchanged and
-  nothing is deleted); use it only when the mis-scoping is unambiguous, else `keep`.
+- `reclassify` — the entry is filed under the WRONG project pool. Each entry has
+  current-scope memory for content review and separate evidence retrieved across
+  all other pools for scope review. A project-specific fact stored in COMMON
+  belongs under that project; a generic cross-project rule mis-filed under one
+  project belongs in COMMON. Name the correct destination:
+  `<id>|reclassify|<project_slug|common>`. The target must be COMMON or a project
+  pool shown in a CORE header or scope-evidence row — never invent a new pool.
+  Reclassify only MOVES the entry (its text is unchanged and nothing is deleted);
+  use it only when the cross-pool evidence makes the mis-scoping unambiguous,
+  else `keep`.
 - `superseded` — a NEWER active core entry directly CONTRADICTS the value/state
   this older entry asserts (same
   subject, changed fact: a renamed thing, a moved location, a reversed
@@ -119,7 +121,8 @@ stays `keep`/`update`.
 
 ## Entries to review
 
-Each block is one CORE entry followed by its most-related current memory.
+Each block is one CORE entry followed by current-scope memory for content
+review and cross-pool memory for scope review.
 
 {{CORE_REVIEW}}
 

@@ -10,8 +10,7 @@ import WebSocket from 'ws';
 import { errText } from '../../../shared/err-text.mjs';
 import { createHash, randomBytes } from 'crypto';
 import { performance } from 'node:perf_hooks';
-import { appendFileSync, chmodSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, chmodSync } from 'node:fs';
 import { codexOriginator, codexUserAgent, codexVersionHeader } from './codex-client-meta.mjs';
 import {
     PROVIDER_WS_ACQUIRE_TIMEOUT_MS,
@@ -845,7 +844,7 @@ export function releaseWebSocket({ entry, poolKey, keep }) {
     _releasePoolOwner(poolKey, entry);
 }
 
-export function closeOpenaiWsPoolForSession(poolKey, reason = 'session_closed') {
+function closeOpenaiWsPoolForSession(poolKey, reason = 'session_closed') {
     if (!poolKey) return;
     _clearPoolOwnerScope(poolKey);
     clearCodexTurnStateScope(poolKey);

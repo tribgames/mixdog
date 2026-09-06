@@ -123,6 +123,26 @@ export function paragraphTexts(xml, tag) {
   return textNodes(xml, tag).map((node) => node.text).filter(Boolean);
 }
 
+// Text of a block as a reader sees it: runs joined as written (a bold run mid-sentence carries no
+// space), a line break (<a:br>, <w:br>) as '\n', and paragraphs (<a:p>, <w:p>) separated by '\n'.
+// paragraphTexts() keeps the raw run list for editing; this is the read side.
+// The scan is a token walk, not a paragraph extraction, so a slice that starts or ends inside a
+// paragraph (a comment range, a revision span) keeps every run and still marks the paragraph ends
+// it crosses; an empty paragraph (<w:p/>, <a:p></a:p>) is one blank line; trailing blanks are dropped.
+export function blockText(xml, tag) {
+  const prefix = tagPattern(String(tag).split(':')[0]);
+  const run = tagPattern(tag);
+  const token = new RegExp(
+    `<${run}(?:\\s[^>]*)?>([\\s\\S]*?)</${run}>`
+    + `|<${prefix}:br\\b(?:[^>]*?/>|[^>]*>[\\s\\S]*?</${prefix}:br>)`
+    + `|</${prefix}:p>|<${prefix}:p\\b[^>]*/>`,
+    'g',
+  );
+  let text = '';
+  for (const match of String(xml || '').matchAll(token)) text += match[1] === undefined ? '\n' : xmlDecode(match[1]);
+  return text.replace(/\n+$/, '');
+}
+
 
 export function topLevelElements(fragment, acceptedTags) {
   const accepted = new Set(acceptedTags);

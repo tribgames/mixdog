@@ -16,7 +16,7 @@ import { writeStatuslineRoute } from './statusline-route.mjs';
 import { createWarmupSchedulers } from './warmup-schedulers.mjs';
 import { warmCatalogsInBackground } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
 import { providerCachedModelMetadataSync } from '../runtime/agent/orchestrator/providers/provider-catalog-cache.mjs';
-import { envFlag } from './env.mjs';
+import { envFlag } from '../runtime/shared/env.mjs';
 import { createPrewarmSchedulers } from './prewarm.mjs';
 import { hasActiveAutomation } from '../standalone/channel-admin.mjs';
 import { createSessionTranscript } from './session-transcript.mjs';

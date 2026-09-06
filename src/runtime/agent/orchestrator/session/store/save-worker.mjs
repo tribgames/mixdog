@@ -114,17 +114,6 @@ function _buildWirePayload(id, session, forceFull = false) {
     return { session: full, attempt: full };
 }
 
-/**
- * Build the exact payload the worker will persist BEFORE Worker.postMessage
- * structured-clones it on the caller's thread. Inline image/document bytes and
- * transient live-turn aliases are disk-ineligible already; removing them here
- * prevents a multi-megabyte duplicate allocation and long clone pause while
- * preserving canonical text/tool history byte-for-byte.
- */
-export function _sessionPayloadForSaveWorker(session) {
-    return _sessionForDisk(session);
-}
-
 // ── Fault-state mirroring (parent → worker) ─────────────────────────────────
 // The worker thread is long-lived and owns its own module instance of
 // save-fault.mjs, which setSessionSaveFault() never reaches, so the parent

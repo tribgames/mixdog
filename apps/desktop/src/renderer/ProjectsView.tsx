@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import type { DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
+import { ErrorNotice } from './ErrorNotice';
 import { projectIdentity, SidebarPanelAction } from './session-sidebar';
 import { SidebarDialogLayer } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
@@ -202,8 +203,10 @@ export function ProjectsPane({
           aria-labelledby="projects-add-title">
           <header>
             <h2 id="projects-add-title">{t('Add project')}</h2>
-            <button type="button" aria-label={t('Close add project')} onClick={closeAdd}>
-              <X size={16} aria-hidden="true" /></button>
+            <div className="schedules-dialog-header-actions">
+              <button type="button" aria-label={t('Close add project')} onClick={closeAdd}>
+                <X size={16} aria-hidden="true" /></button>
+            </div>
           </header>
           <form onSubmit={(event) => {
             event.preventDefault();
@@ -238,7 +241,7 @@ export function ProjectsPane({
               </div>
             </div>
             <footer>
-              {addError && <p className="schedules-form-error" role="alert">{addError}</p>}
+              {addError && <ErrorNotice error={addError} />}
               <button type="button" className="secondary" disabled={addBusy} onClick={closeAdd}>{t('Cancel')}</button>
               <button type="submit" disabled={addBusy || !addPath}>{t('Add')}</button>
             </footer>
@@ -250,8 +253,10 @@ export function ProjectsPane({
           aria-labelledby="projects-edit-title">
           <header>
             <h2 id="projects-edit-title">{t('Edit {{name}}', { name: editTarget.title })}</h2>
-            <button type="button" aria-label={t('Close')} onClick={closeEdit}>
-              <X size={16} aria-hidden="true" /></button>
+            <div className="schedules-dialog-header-actions">
+              <button type="button" aria-label={t('Close')} onClick={closeEdit}>
+                <X size={16} aria-hidden="true" /></button>
+            </div>
           </header>
           <form onSubmit={(event) => {
             event.preventDefault();
@@ -392,7 +397,7 @@ export function ProjectsPane({
               </div>
             </section>}
             <footer>
-              {editError && <p className="schedules-form-error" role="alert">{editError}</p>}
+              {editError && <ErrorNotice error={editError} />}
               {editTarget.path !== null && <button type="button" className="danger" disabled={editBusy || memoryBusy}
                 onClick={() => {
                   if (!editConfirmRemove) {

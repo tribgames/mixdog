@@ -166,7 +166,7 @@ const AUTO_CLEAR_DEFAULT_IDLE_MS = 60 * 60 * 1000;
 // GPT-5.6+ models (prompt_cache_options.ttl=30m, refreshed on use), so the
 // sweep matches that window to avoid clearing a still-warm cache.
 // Unknown/unrecognized providers fall back to the 'default' 1h entry.
-export const AUTO_CLEAR_PROVIDER_IDLE_MS = Object.freeze({
+const AUTO_CLEAR_PROVIDER_IDLE_MS = Object.freeze({
   'anthropic': 60 * 60 * 1000,
   'anthropic-oauth': 60 * 60 * 1000,
   'gemini': 60 * 60 * 1000,

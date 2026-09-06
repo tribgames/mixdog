@@ -13,7 +13,7 @@ import { readFileSync, statSync } from 'fs';
 
 export const PROBE_PRESENT = 'present';
 export const PROBE_ABSENT = 'absent';
-export const PROBE_UNREADABLE = 'unreadable';
+const PROBE_UNREADABLE = 'unreadable';
 
 // ONLY these mean "nothing is at this path". Everything else means a file is
 // very likely there and we simply cannot look at it (same classification the
@@ -26,15 +26,6 @@ const ABSENT_CODES = new Set(['ENOENT', 'ENOTDIR']);
 // the hook cannot be installed and an already installed one goes inert.
 const PROBE_FAULT_ENV = 'MIXDOG_SESSION_LOAD_FAULT_HOOKS';
 let _probeFaultHook = null;
-
-export function _setStatProbeFaultHook(hook) {
-    if (process.env[PROBE_FAULT_ENV] !== '1') {
-        _probeFaultHook = null;
-        return false;
-    }
-    _probeFaultHook = typeof hook === 'function' ? hook : null;
-    return _probeFaultHook !== null;
-}
 
 function _probeFault(path, phase) {
     if (!_probeFaultHook) return;
@@ -78,14 +69,4 @@ export function readTextFile(path) {
         if (ABSENT_CODES.has(code)) return { state: PROBE_ABSENT, text: '', code };
         return { state: PROBE_UNREADABLE, text: '', code };
     }
-}
-
-/** True only for a positively observed file/dir. */
-export function probeExists(path) {
-    return probePath(path).state === PROBE_PRESENT;
-}
-
-/** True only when the path is PROVEN absent (never for an unreadable probe). */
-export function probeAbsent(path) {
-    return probePath(path).state === PROBE_ABSENT;
 }

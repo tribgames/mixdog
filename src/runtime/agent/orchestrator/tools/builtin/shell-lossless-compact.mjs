@@ -87,18 +87,6 @@ function statusOwningCommand(command) {
     return !/[;&|<>`]|\$\(|\$\{/.test(text);
 }
 
-// Runner-agnostic failure markers. Whichever matcher would otherwise claim the
-// run, an explicit failure line forbids a success summary.
-function hasTestFailureMarker(stdout) {
-    const text = String(stdout ?? '');
-    return /(?:^|\n)\s*not ok\b/i.test(text)
-        || /^#\s*(?:fail|cancelled|todo)\s+[1-9]/m.test(text)
-        || /(?:^|\n)(?:---\s*FAIL|FAIL\b|FAILED\b)/.test(text)
-        || /(?:^|\n)\s*failures:/i.test(text)
-        || /\bpanicked at\b/.test(text)
-        || /[\u2716\u2718]/.test(text);
-}
-
 function testLikeCommand(command) {
     const text = String(command ?? '').trim();
     if (!statusOwningCommand(text)) return false;

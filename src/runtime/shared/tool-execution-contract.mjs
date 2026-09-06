@@ -1,3 +1,5 @@
+import { clean } from './clean.mjs';
+
 export const TOOL_SYNC_EXECUTION_CONTRACT =
   'Runs synchronously in this tool call.';
 
@@ -6,10 +8,6 @@ export const TOOL_ASYNC_EXECUTION_CONTRACT =
 
 export const TOOL_MANUAL_CONTROL_CONTRACT =
   'read returns one current output snapshot; cancel is for manual recovery, while normal completion arrives by notification.';
-
-function clean(value) {
-  return String(value ?? '').trim();
-}
 
 function positivePid(value) {
   const n = Number(value);

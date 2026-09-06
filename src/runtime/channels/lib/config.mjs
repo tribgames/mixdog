@@ -8,7 +8,6 @@ import {
 import { listSchedules } from "../../shared/schedules-db.mjs";
 import { resolvePluginData } from "../../shared/plugin-paths.mjs";
 const DATA_DIR = resolvePluginData();
-const CONFIG_FILE = MIXDOG_CONFIG_PATH;
 const DEFAULT_ACCESS = {
   dmPolicy: "allowlist",
   allowFrom: [],

@@ -64,12 +64,3 @@ export function recordLocalSearchCacheHit(layer) {
     target.cache_hits = (Number(target.cache_hits) || 0) + 1;
     target.cache_layer = target.cache_layer && target.cache_layer !== name ? 'mixed' : name;
 }
-
-export function recordLocalSearchIndex(event, fileCount = null) {
-    const target = current();
-    if (!target) return;
-    const name = String(event || '').replace(/[^a-z0-9_]/gi, '').toLowerCase();
-    if (!name) return;
-    target[`index_${name}s`] = (Number(target[`index_${name}s`]) || 0) + 1;
-    if (Number.isFinite(Number(fileCount))) target.index_files = Math.max(Number(target.index_files) || 0, Number(fileCount));
-}

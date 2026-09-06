@@ -25,6 +25,7 @@ import {
 } from './intercept';
 import { redactBrowserText, redactBrowserUrl } from './redaction';
 import { pause } from './settle';
+import { createBrowserCdpExecution } from './cdp-execution';
 
 export interface BrowserGuestCdpHost {
   state: BrowserGuestStateStore;
@@ -50,6 +51,8 @@ export type BrowserCdpPort = Pick<
 >;
 
 export interface BrowserGuestCdp {
+  /** Do not reuse a page while a cancelled dispatch is still executing. */
+  waitForIdle(guest: WebContents, signal?: AbortSignal): Promise<void>;
   /** Race a promise against a timeout and the caller's cancellation. */
   bounded<T>(
     promise: Promise<T>,
@@ -136,28 +139,10 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     }
   }
 
-  async function sendCdp<T>(
-    guest: WebContents,
-    cdp: Electron.Debugger,
-    method: string,
-    params: Record<string, unknown> = {},
-    timeoutMs = CDP_REQUEST_TIMEOUT_MS,
-    signal?: AbortSignal,
-    sessionId?: string,
-  ): Promise<T> {
-    return await bounded(
-      cdp.sendCommand(method, params, sessionId) as Promise<T>,
-      timeoutMs,
-      `CDP ${method}`,
-      signal,
-      () => {
-        if (method === 'Runtime.evaluate') {
-          void cdp.sendCommand('Runtime.terminateExecution').catch(() => undefined);
-        }
-        state.for(guest).console.recordError(`CDP ${method} timed out`);
-      },
-    );
-  }
+  const { sendCdp, waitForIdle } = createBrowserCdpExecution({
+    bounded,
+    diagnostic: (guest, message) => state.for(guest).console.recordError(message),
+  });
 
   async function call<T>(
     guest: WebContents,
@@ -591,6 +576,7 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
 
   return {
     bounded,
+    waitForIdle,
     sendCdp,
     call,
     sendCdpInput,

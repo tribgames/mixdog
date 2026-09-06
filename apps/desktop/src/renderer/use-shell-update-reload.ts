@@ -10,8 +10,9 @@
 // nothing: no turn in flight, nothing half-typed, and either an app that is
 // off screen or a short pause in use.
 import { useEffect, useRef } from "react";
+import { subscribeShellUpdate } from "./shell-update-state";
 
-export const SHELL_UPDATE_MESSAGE = "mixdog:shell-updated";
+export { SHELL_UPDATE_MESSAGE } from "./shell-update-state";
 
 /** How long the app has to sit untouched before a reload interrupts a VISIBLE
  *  screen. Off screen there is nothing to interrupt. */
@@ -102,9 +103,7 @@ export function useShellUpdateReload({ busy, reload }: {
       timer = window.setTimeout(decide, delay);
     };
 
-    const onMessage = (event: MessageEvent): void => {
-      const data = event.data as { type?: unknown } | null;
-      if (!data || data.type !== SHELL_UPDATE_MESSAGE) return;
+    const onUpdate = (): void => {
       pending.current = true;
       decide();
     };
@@ -113,7 +112,7 @@ export function useShellUpdateReload({ busy, reload }: {
       decide();
     };
 
-    navigator.serviceWorker.addEventListener("message", onMessage);
+    const unsubscribe = subscribeShellUpdate(onUpdate);
     document.addEventListener("visibilitychange", decide);
     // Capture: a pause in use is a pause anywhere, including inside surfaces
     // that stop their own events from bubbling.
@@ -125,7 +124,7 @@ export function useShellUpdateReload({ busy, reload }: {
     return () => {
       settled = true;
       window.clearTimeout(timer);
-      navigator.serviceWorker.removeEventListener("message", onMessage);
+      unsubscribe();
       document.removeEventListener("visibilitychange", decide);
       window.removeEventListener("pointerdown", onInteraction, true);
       window.removeEventListener("keydown", onInteraction, true);

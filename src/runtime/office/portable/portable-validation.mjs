@@ -1,5 +1,5 @@
 import { dirname, extname, join, posix } from 'node:path';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { measureTextBlock, reviewShapeSpacing, reviewStatLabelProximity, reviewTextBoxFit, reviewTextContrast, reviewVerticalBalance } from './text-metrics.mjs';
 import {
   columnLabel,
@@ -13,9 +13,11 @@ import { imagePixelSize, loadPackage, partRelationshipPath, relationshipMap, rel
 import { chartFaultIssues } from './portable-chart-faults.mjs';
 import { reviewDeadVectorChart, reviewTextFragmentation } from './review-editability.mjs';
 import { docxTables } from './portable-docx-xml.mjs';
+import { auditDocxRedliningStories, lintDocxRevisions } from './docx-revisions.mjs';
 import { inspectPptxTextBoxes } from './portable-pptx.mjs';
 import { slidePath } from './portable-pptx-package.mjs';
 import { snapshotDocx, snapshotXlsx } from './portable-snapshot.mjs';
+import { auditXlsxFormulas } from './xlsx-formula-audit.mjs';
 import { worksheetSection } from './portable-sheet-xml.mjs';
 import { OOXML_REQUIRED, paragraphTexts, xmlAttribute, xmlDecode } from './portable-xml.mjs';
 
@@ -98,20 +100,21 @@ async function baselinePackage(zip, original) {
 }
 
 
-function rejectedDocxText(xml) {
-  let value = String(xml || '');
-  value = value.replace(/<w:ins(?:\s[^>]*)?>[\s\S]*?<\/w:ins>/g, '');
-  value = value.replace(/<w:del(?:\s[^>]*)?>([\s\S]*?)<\/w:del>/g, (_, body) => (
-    body.replaceAll('<w:delText', '<w:t').replaceAll('</w:delText>', '</w:t>')
-  ));
-  return [...value.matchAll(/<w:p(?:\s[^>]*)?>([\s\S]*?)<\/w:p>/g)]
-    .map((paragraph) => paragraphTexts(paragraph[1], 'w:t').join(''))
-    .filter((text) => text.length > 0)
-    .join('\n');
+
+
+const DOCX_STORY_PART = /^word\/(document|header\d+|footer\d+|footnotes|endnotes)\.xml$/i;
+
+/** Every story part by name: the audit compares each one with its source
+ *  counterpart, so a header edited untracked is caught like the body. */
+async function docxStoryParts(zip) {
+  const parts = new Map();
+  for (const name of Object.keys(zip.files).filter((entry) => DOCX_STORY_PART.test(entry)).sort()) {
+    parts.set(name, await zipText(zip, name));
+  }
+  return parts;
 }
 
-
-async function validateDocxRedlining(zip, originalPath) {
+async function validateDocxRedlining(zip, originalPath, author = '') {
   if (!originalPath) {
     return {
       requested: true,
@@ -121,15 +124,7 @@ async function validateDocxRedlining(zip, originalPath) {
   }
   try {
     const original = await loadPackage(originalPath);
-    const before = rejectedDocxText(await zipText(original, 'word/document.xml'));
-    const after = rejectedDocxText(await zipText(zip, 'word/document.xml'));
-    return {
-      requested: true,
-      ok: before === after,
-      originalCharacters: before.length,
-      rejectedCharacters: after.length,
-      reason: before === after ? '' : 'Document text differs from the source after rejecting tracked changes; at least one edit is untracked.',
-    };
+    return auditDocxRedliningStories(await docxStoryParts(zip), await docxStoryParts(original), { author });
   } catch (error) {
     return {
       requested: true,
@@ -186,10 +181,20 @@ export async function validatePortableOoxml(path, format, options = {}) {
     }
   }
   const baseline = await baselinePackage(zip, options.original);
+  const documentLint = format === 'docx'
+    ? lintDocxRevisions(
+      await Promise.all(entries
+        .filter((name) => /^word\/(?:document|header\d+|footer\d+|footnotes|endnotes)\.xml$/i.test(name))
+        .sort()
+        .map(async (name) => ({ part: name, xml: await zipText(zip, name) }))),
+      await zipText(zip, 'word/comments.xml'),
+    )
+    : [];
   const redlining = format === 'docx' && options.auditProfile === 'redlining'
-    ? await validateDocxRedlining(zip, options.original)
+    ? await validateDocxRedlining(zip, options.original, options.author)
     : null;
   const ok = missing.length === 0
+    && !documentLint.some((finding) => finding.severity === 'error')
     && unsafeEntries.length === 0
     && malformedXml.length === 0
     && contentTypes.missingContentTypes.length === 0
@@ -223,6 +228,7 @@ export async function validatePortableOoxml(path, format, options = {}) {
     ...contentTypes,
     baseline,
     redlining,
+    documentLint,
     validation: 'opc-relationships-content-types-xml',
   };
 }
@@ -683,8 +689,24 @@ export async function issuesPortableOoxml(path, format, options = {}) {
   }
   if (format === 'docx') {
     const snapshot = await snapshotDocx(zip);
-    if (snapshot.revisionCount) issues.push({ severity: 'info', code: 'unresolved_revisions', path: '/body', message: `${snapshot.revisionCount} tracked revision element(s) remain unresolved.` });
+    if (snapshot.revisionCount || snapshot.propertyChangeCount) {
+      issues.push({
+        severity: 'info',
+        code: 'unresolved_revisions',
+        path: '/body',
+        message: `${snapshot.revisionCount} tracked revision element(s)${snapshot.propertyChangeCount ? ` and ${snapshot.propertyChangeCount} formatting change record(s)` : ''} remain unresolved.`,
+      });
+    }
     if (snapshot.commentCount) issues.push({ severity: 'info', code: 'unresolved_comments', path: '/body', message: `${snapshot.commentCount} comment(s) remain in the document.` });
+    for (const finding of validation.documentLint || []) {
+      issues.push({
+        severity: finding.severity,
+        code: finding.code,
+        path: finding.part && finding.part !== 'word/document.xml' ? `/${finding.part}` : '/body',
+        message: finding.message,
+        source: 'document-lint',
+      });
+    }
     const document = await zipText(zip, 'word/document.xml');
     const body = /<w:body\b[^>]*>([\s\S]*)<\/w:body>/.exec(document)?.[1] || '';
     const printable = body
@@ -739,19 +761,15 @@ export async function issuesPortableOoxml(path, format, options = {}) {
         }
       }
     }
+    // Sheet names come from the workbook, not the (possibly selective)
+    // snapshot, so a cross-sheet reference to an unselected sheet still audits.
+    const sheetNames = (await workbookSheets(zip)).map((sheet) => sheet.name);
     if (options.auditProfile === 'financial-model') {
-      if (!snapshot.sheets.some((sheet) => sheet.name.toLowerCase() === 'checks')) {
+      if (!sheetNames.some((name) => name.toLowerCase() === 'checks')) {
         issues.push({ severity: 'warning', code: 'missing_checks_sheet', path: '/', message: 'Financial-model audit expects a Checks sheet with explicit tie-out formulas.' });
       }
-      for (const sheet of snapshot.sheets) {
-        const formulaRows = new Set(sheet.cells.filter((cell) => cell.formula).map((cell) => parseCellRef(cell.ref).row));
-        for (const cell of sheet.cells) {
-          if (!cell.formula && formulaRows.has(parseCellRef(cell.ref).row) && /^-?\d+(?:\.\d+)?$/.test(String(cell.value || ''))) {
-            issues.push({ severity: 'warning', code: 'rogue_hardcode', path: cell.path, message: 'Numeric hardcode appears inside a row that otherwise contains formulas.' });
-          }
-        }
-      }
     }
+    issues.push(...auditXlsxFormulas(snapshot.sheets, { auditProfile: options.auditProfile, sheetNames }));
   } else if (format === 'pptx') {
     const requestedPages = new Set((options.pages || []).map(Number));
     const slidePaths = Object.keys(zip.files).filter((name) => {

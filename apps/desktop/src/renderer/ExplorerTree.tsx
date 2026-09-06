@@ -28,6 +28,7 @@ import {
 } from "./explorer-logic";
 import { COMPOSER_PROJECT_PATHS_MIME } from "./composer-support";
 import { t } from "./i18n";
+import { ErrorNotice } from "./ErrorNotice";
 import { useMobileBack } from "./mobile-back";
 import { scheduleEditorPanePrefetch } from "./lazy-widgets";
 import { subscribeProjectFileChanges } from "./project-file-changes";
@@ -492,8 +493,8 @@ export const FilesRootPane = memo(function FilesRootPane({
   const deleteSelection = () => {
     const rels = selected.size > 0 ? [...selected] : focusedRel ? [focusedRel] : [];
     if (rels.length === 0) return;
-    const label = rels.length === 1 ? (rels[0].split("/").at(-1) || rels[0]) : `${rels.length} items`;
-    if (!window.confirm(`Move ${label} to the Recycle Bin?`)) return;
+    const label = rels.length === 1 ? (rels[0].split("/").at(-1) || rels[0]) : t("{{count}} items", { count: rels.length });
+    if (!window.confirm(t("Move {{name}} to the Recycle Bin?", { name: label }))) return;
     setMutationError("");
     void Promise.allSettled(rels.map((rel) => Promise.resolve(api?.trashProjectEntry?.(projectPath, rel))))
       .then((results) => {
@@ -558,8 +559,8 @@ export const FilesRootPane = memo(function FilesRootPane({
       // explorer.confirmDragAndDrop default: every DnD move asks once.
       const label = rels.length === 1
         ? `'${rels[0].split("/").at(-1)}'`
-        : `the following ${rels.length} items`;
-      if (!window.confirm(`Are you sure you want to move ${label}?`)) return;
+        : t("the following {{count}} items", { count: rels.length });
+      if (!window.confirm(t("Are you sure you want to move {{name}}?", { name: label }))) return;
     }
     const failed: string[] = [];
     let firstError: unknown;
@@ -712,7 +713,7 @@ export const FilesRootPane = memo(function FilesRootPane({
   };
   const firstFocusableRel = focusedRel || navRows[0]?.rel || "";
   const rowNode = (row: ExplorerRow): ReactNode => {
-    if (row.error) return <p key={row.rel} className="utility-dock-empty">{row.error}</p>;
+    if (row.error) return <ErrorNotice key={row.rel} error={row.error} role="status" />;
     const badge = row.dir ? undefined : gitFiles.get(row.rel);
     const isSelected = selected.has(row.rel);
     const isCut = Boolean(clipboard?.cut && clipboard.rels.includes(row.rel));
@@ -728,7 +729,7 @@ export const FilesRootPane = memo(function FilesRootPane({
     const guides = row.level > 0
       ? { "--guide-size": `${row.level * 8}px 100%` } as React.CSSProperties
       : undefined;
-    return <button type="button" key={row.rel} role="treeitem"
+    return <button type="button" key={row.rel} role="treeitem" data-i18n-skip
       aria-level={row.level + 1}
       aria-expanded={row.dir ? row.expanded : undefined}
       aria-selected={isSelected}
@@ -867,7 +868,7 @@ export const FilesRootPane = memo(function FilesRootPane({
         <span className={`explorer-twistie${rootExpanded ? "" : " collapsed"}`} aria-hidden="true">
           <ChevronDown size={14} />
         </span>
-        <span title={projectPath}>{rootLabel || rootName}</span>
+        <span title={projectPath} data-i18n-skip>{rootLabel || rootName}</span>
       </button>
       {/* "Remove from workspace" dropped with the multi-root concept. */}
     </div>}
@@ -904,7 +905,7 @@ export const FilesRootPane = memo(function FilesRootPane({
       {rootVisible && treeItems}
       {rootVisible && rows.length === 0 && !editing && rootEntriesEmpty
         && <p className="utility-dock-empty">{t("Empty folder.")}</p>}
-      {mutationError && <p className="utility-dock-empty" role="alert">{mutationError}</p>}
+      {mutationError && <ErrorNotice error={mutationError} />}
     </div>
     {visibleMenu && (() => {
       const menu = visibleMenu;

@@ -1,29 +1,18 @@
 import { createHash } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { resourceAdmission } from '../../../shared/resource-admission.mjs';
+import { PRIORITY_RANK, normalizePriority, resourceAdmission } from '../../../shared/resource-admission.mjs';
 
 // Normal provider traffic is not concurrency-gated. Independent sessions and
 // accounts start immediately; a finite limit exists only when an operator
 // explicitly configures one, or after that account reports a real 429.
-export const PROVIDER_ACCOUNT_CONCURRENCY = Infinity;
-export const PROVIDER_ACCOUNT_MAX_QUEUE = 1024;
+const PROVIDER_ACCOUNT_CONCURRENCY = Infinity;
+const PROVIDER_ACCOUNT_MAX_QUEUE = 1024;
 // Only transient burst windows are coordinated locally. Longer subscription
 // quota windows are provider-authoritative and must be checked on every new
 // request because their scope can differ by model.
-export const PROVIDER_COOLDOWN_FAIL_FAST_MS = 60_000;
+const PROVIDER_COOLDOWN_FAIL_FAST_MS = 60_000;
 const MAX_TIMEOUT_MS = 2_147_483_647;
 const currentAdmission = new AsyncLocalStorage();
-const PRIORITY_RANK = Object.freeze({
-    'user-blocking': 0,
-    'user-visible': 1,
-    'best-effort': 2,
-});
-
-function normalizePriority(value) {
-    const key = String(value || 'user-visible').toLowerCase();
-    return Object.hasOwn(PRIORITY_RANK, key) ? key : 'user-visible';
-}
-
 export function currentProviderAdmissionOwner() {
     const active = currentAdmission.getStore();
     return active?.ownerKey ? String(active.ownerKey) : null;
@@ -537,7 +526,7 @@ function digest(value) {
     return createHash('sha256').update(String(value || '')).digest('hex');
 }
 
-export function providerAdmissionKey(providerName, provider) {
+function providerAdmissionKey(providerName, provider) {
     const name = String(providerName || provider?.name || 'provider');
     const stableAnthropicOAuthPath = name.toLowerCase() === 'anthropic-oauth'
         ? (provider?.credentials?.path

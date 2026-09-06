@@ -376,42 +376,46 @@ test("a remote transcript drops provider replay blocks and keeps item identity",
   assert.equal(again.items[1], projected.items[1]);
 });
 
-test("a remote client receives the transcript's tail, not its whole history", () => {
+test("remote join, history backfill and reconnect retain user prompts before long tool activity", () => {
   const items = Array.from({ length: 400 }, (unused, index) => ({
     id: `i${index}`,
+    kind: index === 0 ? "user" : "tool",
     content: `turn ${index}`,
   }));
   const encoders = new Map();
-  const floors = new Map();
   const first = encodeRelayClientSessionState(
-    encoders, "s", { sessionId: "s", items }, true, floors,
+    encoders, "s", { sessionId: "s", items }, true,
   );
   const decoder = createSnapshotDeltaDecoder();
   const opened = decoder.decode(receiveCompact(first));
 
   assert.equal(opened.ok, true);
-  assert.equal(opened.snapshot.items.length, 60);
-  assert.equal(opened.snapshot.items[59].id, "i399", "the window ends at the newest turn");
-  assert.equal(opened.snapshot.transcriptWindowStart, 340);
+  assert.deepEqual(opened.snapshot.items, items);
+  assert.equal(opened.snapshot.items[0].kind, "user");
 
-  // An appended turn must cost ONE item, not a rewritten window: the floor
-  // stays put, so the receiver's array simply grows.
+  // An append still costs one item, not another complete page.
   const grown = [...items, { id: "i400", content: "turn 400" }];
   const next = encodeRelayClientSessionState(
-    encoders, "s", { sessionId: "s", items: grown }, true, floors,
+    encoders, "s", { sessionId: "s", items: grown }, true,
   );
   assert.ok(JSON.stringify(next).length < 200, JSON.stringify(next).slice(0, 300));
   const appended = decoder.decode(receiveCompact(next));
   assert.equal(appended.ok, true);
-  assert.equal(appended.snapshot.items.length, 61);
-  assert.equal(appended.snapshot.items[60].id, "i400");
+  assert.deepEqual(appended.snapshot.items, grown);
+
+  const earlier = [{ id: "earlier-user", kind: "user", content: "my earlier message" }, ...grown];
+  const backfill = encodeRelayClientSessionState(encoders, "s", { sessionId: "s", items: earlier }, true);
+  assert.deepEqual(decoder.decode(receiveCompact(backfill)).snapshot.items, earlier);
+  const reopened = createSnapshotDeltaDecoder().decode(receiveCompact(
+    encodeRelayClientSessionState(new Map(), "s", { sessionId: "s", items: earlier }, true),
+  ));
+  assert.deepEqual(reopened.snapshot.items, earlier);
 });
 
 test("a transcript shorter than the window is sent whole", () => {
   const items = Array.from({ length: 12 }, (unused, index) => ({ id: `i${index}` }));
-  const floors = new Map();
   const wire = encodeRelayClientSessionState(
-    new Map(), "s", { sessionId: "s", items }, true, floors,
+    new Map(), "s", { sessionId: "s", items }, true,
   );
   assert.equal(wire.items.length, 12);
   assert.equal(Object.hasOwn(wire, "transcriptWindowStart"), false);

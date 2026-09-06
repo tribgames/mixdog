@@ -13,6 +13,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { formatElapsed } from './statusline-format.mjs';
+import { positiveInt } from '../runtime/shared/numbers.mjs';
 
 const DEFAULT_MIXDOG_HOME = process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
 const DEFAULT_STANDALONE_DATA_DIR = join(DEFAULT_MIXDOG_HOME, 'data');
@@ -236,9 +237,4 @@ async function isShellJobAlive(detail, detailPath, dir, id) {
 function jobStampMs(id) {
   const m = /^job_(\d+)/.exec(String(id || ''));
   return m ? Number(m[1]) : 0;
-}
-
-function positiveInt(value) {
-  const n = Number(value);
-  return Number.isInteger(n) && n > 0 ? n : 0;
 }

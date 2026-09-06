@@ -40,12 +40,12 @@ import { CODEX_OAUTH_ORIGINATOR, CODEX_RESPONSES_URL, _displayCodexModel } from 
 import { createActiveToolItemTracker } from './tool-stream-state.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
 import { parseProviderJsonBatch } from './stream-json-pool.mjs';
-import { envFlag as _envFlag } from './lib/env-utils.mjs';
+import { envFlag as _envFlag } from '../../../shared/env.mjs';
 import {
     activateCodexTurnState,
     captureCodexTurnState,
 } from './openai-turn-state.mjs';
-export { envPositiveInt as _envPositiveInt } from './lib/env-utils.mjs';
+export { envPositiveInt as _envPositiveInt } from '../../../shared/env.mjs';
 export { _envFlag };
 
 // Public OpenAI Responses API endpoint for the api-key `openai` provider.
@@ -101,19 +101,6 @@ function _sseEventsFromBuffer(buffer) {
         rest = rest.slice(idx + 2);
     }
     return { frames, rest };
-}
-
-function _parseSseFrame(frame) {
-    const lines = String(frame || '').split('\n');
-    const data = [];
-    for (const line of lines) {
-        if (!line || line.startsWith(':')) continue;
-        if (line.startsWith('data:')) data.push(line.slice(5).trimStart());
-    }
-    if (!data.length) return null;
-    const raw = data.join('\n').trim();
-    if (!raw || raw === '[DONE]') return null;
-    try { return JSON.parse(raw); } catch { return null; }
 }
 
 function _sseJsonPayload(frame) {

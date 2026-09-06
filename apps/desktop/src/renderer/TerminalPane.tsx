@@ -14,6 +14,7 @@ import {
   reportBootSurfaceStage,
 } from './boot-metrics';
 import { reportRendererFailure } from './RendererRecovery';
+import { errorSummary } from './ErrorNotice';
 import { TerminalLocalEcho } from './terminal-local-echo';
 import { TerminalWritePump } from './terminal-write-pump';
 import {
@@ -571,8 +572,7 @@ export default function TerminalPane({
             noticeShown = true;
             // Name the concrete failure. A bare "unavailable" hid a missing
             // native PTY binding behind an endless retry loop.
-            const detail = (error instanceof Error ? error.message : String(error ?? ""))
-              .replace(/\s+/g, " ").trim().slice(0, 200);
+            const detail = errorSummary(error);
             try {
               term.write(`\r\n\x1b[31mterminal service unavailable${
                 detail ? ` — ${detail}` : ""} — retrying…\x1b[0m\r\n`);

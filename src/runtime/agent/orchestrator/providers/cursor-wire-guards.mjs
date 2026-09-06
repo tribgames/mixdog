@@ -14,11 +14,11 @@ const SCHEMA_ANNOTATIONS = new Set([
 export const MAX_CONNECT_FRAME_BYTES = 64 * 1024 * 1024;
 export const MAX_CHECKPOINT_BYTES = 48 * 1024 * 1024;
 export const MAX_TOOL_TEXT_BYTES = 512 * 1024;
-export const MAX_TOOL_MEDIA_BYTES = 16 * 1024 * 1024;
-export const MAX_USER_IMAGE_BYTES = 5 * 1024 * 1024;
-export const MAX_CONVERSATION_BLOB_BYTES = 128 * 1024 * 1024;
-export const MAX_CONVERSATION_BLOB_ENTRIES = 512;
-export const MAX_INDIVIDUAL_BLOB_BYTES = 32 * 1024 * 1024;
+const MAX_TOOL_MEDIA_BYTES = 16 * 1024 * 1024;
+const MAX_USER_IMAGE_BYTES = 5 * 1024 * 1024;
+const MAX_CONVERSATION_BLOB_BYTES = 128 * 1024 * 1024;
+const MAX_CONVERSATION_BLOB_ENTRIES = 512;
+const MAX_INDIVIDUAL_BLOB_BYTES = 32 * 1024 * 1024;
 
 function boundedInteger(value, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
     const parsed = Number(value);

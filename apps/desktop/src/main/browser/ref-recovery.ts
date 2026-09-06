@@ -14,6 +14,7 @@ export interface BrowserRefFingerprint {
 
 export interface BrowserRefSet {
   snapshotId: string;
+  revision?: string;
   url: string;
   viewportWidth: number;
   viewportHeight: number;

@@ -168,14 +168,13 @@
   padding: 0 12px;
   border-radius: var(--mx-radius-md);
 }
-/* One restrained item surface across Projects, Workflows, Webhooks,
-   Schedules, and Agents. The inset half-pixel distinguishes adjacent rows
-   without turning either rail into a stack of prominent cards. */
+/* Quiet resting rows leave room for a visible hover wash. The shared inset
+   keeps borders stable; only keyboard focus gets the stronger inner line. */
 .session-sidebar,
 .session-sidebar-panels,
 .utility-dock {
-  --mx-rail-item-surface: color-mix(in srgb, var(--mx-text) 6%, transparent);
-  --mx-rail-item-outline: color-mix(in srgb, var(--mx-text) 14%, transparent);
+  --mx-rail-item-surface: color-mix(in srgb, var(--mx-text) 4%, transparent);
+  --mx-rail-item-outline: color-mix(in srgb, var(--mx-text) 10%, transparent);
   --mx-rail-item-outline-active: color-mix(in srgb, var(--mx-text) 20%, transparent);
 }
 .session-sidebar-panels .schedules-list { gap: 6px; }
@@ -200,15 +199,19 @@
   border-radius: var(--mx-radius-md);
   background: var(--mx-rail-item-surface);
   box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+  transition: background-color var(--mx-motion-ink);
 }
 /* In-row ramp: NAME leads at 13/400 full ink, then description/meta at 12. */
 .session-sidebar-panels .schedules-row-copy b {
   font-size: var(--mx-font-item);
   font-weight: var(--mx-weight-regular);
+  line-height: 18px;
 }
+.session-sidebar-panels .schedules-row-copy { gap: 4px; }
 .session-sidebar-panels .schedules-row-copy small {
   color: var(--mx-text-faint);
   font-size: var(--mx-font-supporting);
+  line-height: 16px;
 }
 /* Hover is a background wash only — bumping the inset ring to the -active
    tint made an outline flash in/out on every pass (user: 호버하면 불필요한
@@ -221,12 +224,19 @@
   background: var(--mx-pressed);
   box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
 }
-/* Projects are editor launchers, not a persistent selection list: keep every
-   row on the same quiet surface at rest, on hover, and for the current path. */
-.session-sidebar-panels .projects-pane .projects-row:hover,
+/* Projects open editors; the current path is not a persistent selection.
+   Hover still acknowledges that the row can be opened. */
 .session-sidebar-panels .projects-pane .projects-row.selected {
   background: var(--mx-rail-item-surface);
   box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+}
+.session-sidebar-panels .projects-pane .projects-row:hover { background: var(--mx-hover); }
+.session-sidebar-panels .schedules-row:focus-visible,
+.session-sidebar-panels .schedules-row:has(:focus-visible),
+.session-sidebar-panels .projects-pane .projects-row:focus-visible,
+.session-sidebar-panels .projects-pane .projects-row:has(:focus-visible) {
+  outline: 0;
+  box-shadow: var(--mx-list-focus-ring);
 }
 .session-sidebar-panels .schedules-row.utilities-row {
   width: 100%;
@@ -580,6 +590,7 @@
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
   background: transparent;
+  transition: background-color var(--mx-motion-ink);
 }
 .session-row-main {
   min-width: 0;
@@ -603,7 +614,8 @@
 .session-row-actions {
   position: absolute;
   z-index: 3;
-  top: 2px;
+  top: 50%;
+  transform: translateY(-50%);
   /* The hover action replaces the unread dot on the shared 20px trailing
      centerline. Keeping the 24px button 8px inboard also leaves a safer gap
      from the scrollbar than the old edge-hugging placement. */
@@ -687,31 +699,13 @@
   top: 26px;
   right: 0;
   width: 132px;
-  padding: 4px;
+  padding: var(--mx-menu-inset);
   border: var(--mx-popup-border);
   border-radius: var(--mx-popup-radius);
   color: var(--mx-text);
   background: var(--mx-popup-bg);
   box-shadow: var(--mx-popup-shadow);
 }
-.session-row-menu button {
-  width: 100%;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--mx-radius-sm);
-  color: inherit;
-  background: transparent;
-  text-align: left;
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-regular);
-}
-.session-row-menu button:hover,
-/* Menu items announce keyboard focus with the hover plate, never an outline. */
-.session-row-menu button:focus-visible { background: var(--mx-hover); outline: 0; }
 .session-row-menu button.danger { color: var(--mx-danger); }
 .session-title-input {
   position: absolute;
@@ -752,9 +746,11 @@
   pointer-events: none;
 }
 .session-title-input[aria-invalid="true"] { outline-color: var(--mx-danger); }
-/* Selection reads through the pressed background alone — no blue focus ring
-   on click/keyboard for the rail rows (user decision). */
+/* No blue ring on list rows; keyboard focus uses the neutral inner line. */
 .session-sidebar .session-row-main:focus-visible { outline: none; }
+.session-sidebar .session-row:has(.session-row-main:focus-visible) {
+  box-shadow: var(--mx-list-focus-ring);
+}
 /* Rows and list surfaces keep the user's "no blue Tab outline" decision, but
    the sweep must not swallow real controls — keyboard users could not see
    where focus was. Narrowed to non-control focus targets: every control that
@@ -885,7 +881,12 @@
   text-align: left;
   cursor: pointer;
 }
-.sidebar-recent-heading.sidebar-heading-toggle:focus-visible { outline: none; }
+.sidebar-recent-heading.sidebar-heading-toggle:focus-visible {
+  outline: none;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-hover);
+  box-shadow: var(--mx-list-focus-ring);
+}
 .sidebar-recent-heading.sidebar-heading-toggle > span { flex: 0 0 auto; min-width: 0; }
 .sidebar-recent-heading.sidebar-heading-toggle svg {
   color: var(--mx-text-muted);

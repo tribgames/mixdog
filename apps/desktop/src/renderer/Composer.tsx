@@ -1,4 +1,5 @@
 import { ArrowUp, Command, Mic, X } from "lucide-react";
+import { ErrorNotice, errorSummary } from "./ErrorNotice";
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type MutableRefObject, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { DesktopAbortOptions, DesktopCapability, DesktopModelSelection, DesktopPromptContent, DesktopSubmitOptions, SessionSnapshot } from "../shared/contract";
@@ -49,6 +50,7 @@ import { useComposerShareIntake } from "./use-composer-share-intake";
 import { useComposerQueue } from "./use-composer-queue";
 import { useComposerSubmission } from "./use-composer-submission";
 import { useComposerKeyboard } from "./use-composer-keyboard";
+import { ComposerPalette } from "./ComposerPalette";
 export {
   PROJECT_CONTEXT_LOCAL,
   ProjectContextSelector,
@@ -234,6 +236,7 @@ export const Composer = memo(function Composer({
   const [persistedHistory, setPersistedHistory] = useState(() => readPromptHistory(historyScope));
   const activeIdentityScope = useRef(identityScope);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const paletteAnchor = useRef<HTMLFormElement>(null);
   // Chromium does not report `KeyboardEvent.isComposing` consistently across
   // every IME event ordering, so keep the explicit composition lifecycle too.
   const composingRef = useRef(false);
@@ -1001,13 +1004,9 @@ export const Composer = memo(function Composer({
         onRemove={(id) => void discardQueued(id)} />
       {/* Error/notice banners float ABOVE the input card (user-flagged: they
           previously rendered inside the pill and read as composer content). */}
-      {(attachmentError) && <p className="composer-error" role="alert">
-        <span>{attachmentError}</span>
-        <button type="button" className="composer-banner-close" aria-label={t("Dismiss error")}
-          onClick={() => setAttachmentError('')}><X size={14} /></button>
-      </p>}
+      {attachmentError && <ErrorNotice error={attachmentError} onDismiss={() => setAttachmentError('')} />}
       {composerNotice && <p className="composer-notice" role="status">
-        <span>{composerNotice}</span>
+        <span>{errorSummary(composerNotice)}</span>
         <button type="button" className="composer-banner-close" aria-label={t("Dismiss notice")}
           onClick={() => showComposerNotice('')}><X size={14} /></button>
       </p>}
@@ -1017,15 +1016,16 @@ export const Composer = memo(function Composer({
         </div>,
         dropTargetRef.current,
       )}
-      <form className="composer" onSubmit={onSubmit}
+      <form ref={paletteAnchor} className="composer" onSubmit={onSubmit}
+        data-composer-palette-open={selectorOpen || slashOpen || mentionOpen ? "true" : undefined}
         aria-busy={transitioning} onMouseDown={(event) => {
           if (touchPrimaryPointer()) return;
           const target = event.target as HTMLElement;
           if (!target.closest('button, input, textarea, [role="listbox"]')) textarea.current?.focus();
         }}>
       {selectorOpen && (
-        <div ref={messagePalette} id="composer-message-selector"
-          className="slash-palette message-selector" role="listbox" aria-label={t("Previous messages")}>
+        <ComposerPalette anchor={paletteAnchor} panel={messagePalette} id="composer-message-selector"
+          className="message-selector" label={t("Previous messages")}>
           <header><span>{t("Jump back to a message")}</span></header>
           {selectableMessages.map((message, index) => (
             <button type="button" role="option" aria-selected={index === selectorIndex} key={message.id}
@@ -1036,10 +1036,10 @@ export const Composer = memo(function Composer({
               <span>{oneLine(queuedFollowupPreview(message.text), 90)}</span>
             </button>
           ))}
-        </div>
+        </ComposerPalette>
       )}
       {slashOpen && (
-        <div ref={slashPalette} id="composer-slash-palette" className="slash-palette" role="listbox" aria-label={t("Slash commands")}>
+        <ComposerPalette anchor={paletteAnchor} panel={slashPalette} id="composer-slash-palette" label={t("Slash commands")}>
           <header><Command size={14} /><span>{t("Commands")}</span></header>
           {slashCommands.length ? slashCommands.map((command, index) => (
             <button type="button" role="option" aria-selected={index === slashIndex} key={command.name}
@@ -1051,11 +1051,11 @@ export const Composer = memo(function Composer({
               <span>{desktopSlashCommandDescription(command)}</span>
             </button>
           )) : <p>{t("No matching command.")}</p>}
-        </div>
+        </ComposerPalette>
       )}
       {mentionOpen && (
-        <div ref={mentionPalette} id="composer-mention-palette"
-          className="slash-palette mention-palette" role="listbox" aria-label={t("Project files")}>
+        <ComposerPalette anchor={paletteAnchor} panel={mentionPalette} id="composer-mention-palette"
+          className="mention-palette" label={t("Project files")}>
           <header><MxIcon name="open-file" size={14} /><span>{t("Files")}</span></header>
           {mentionResults.length ? mentionResults.map((path, index) => {
             const separator = path.lastIndexOf('/');
@@ -1072,7 +1072,7 @@ export const Composer = memo(function Composer({
               </button>
             );
           }) : <p role="status">{mentionLoading ? t('Searching project files…') : t('No matching files.')}</p>}
-        </div>
+        </ComposerPalette>
       )}
       {attachments.length > 0 && <div className="composer-attachments" aria-label={t("Attachments")}>
         {attachments.map((attachment) => <div className={`attachment-chip ${attachment.kind}`} key={attachment.id}>

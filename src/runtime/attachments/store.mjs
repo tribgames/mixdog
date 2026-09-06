@@ -31,12 +31,12 @@ import { inspectPdfBuffer } from './pdf-extract.mjs';
 const ATTACHMENT_REF_RE = /^[a-f0-9]{64}$/;
 const TEXT_TOKEN_RE = /\[(?:Pasted text|File) #(\d+)[^\]\r\n]*\]/g;
 const TEXT_REFERENCE_THRESHOLD_BYTES = 800;
-export const MAX_PROMPT_TEXT_BYTES = 1024 * 1024;
-export const MAX_PROMPT_PDF_BYTES = 20 * 1024 * 1024;
-export const MAX_PROMPT_PDF_PAGES = 100;
-export const ATTACHMENT_CACHE_MAX_BYTES = 64 * 1024 * 1024;
-export const MAX_ATTACHMENT_BLOB_BYTES = 64 * 1024 * 1024;
-export const ATTACHMENT_GC_MIN_AGE_MS = Math.max(
+const MAX_PROMPT_TEXT_BYTES = 1024 * 1024;
+const MAX_PROMPT_PDF_BYTES = 20 * 1024 * 1024;
+const MAX_PROMPT_PDF_PAGES = 100;
+const ATTACHMENT_CACHE_MAX_BYTES = 64 * 1024 * 1024;
+const MAX_ATTACHMENT_BLOB_BYTES = 64 * 1024 * 1024;
+const ATTACHMENT_GC_MIN_AGE_MS = Math.max(
   60_000,
   Number(process.env.MIXDOG_ATTACHMENT_GC_MIN_AGE_MS) || 7 * 24 * 60 * 60 * 1000,
 );
@@ -168,7 +168,7 @@ export function readAttachmentBase64(value) {
   return readAttachmentBuffer(value).toString('base64');
 }
 
-export function readAttachmentText(value) {
+function readAttachmentText(value) {
   return readAttachmentBuffer(value).toString('utf8');
 }
 
@@ -350,7 +350,7 @@ const NATIVE_PDF_PROVIDERS = new Set([
   'openai-oauth',
 ]);
 
-export function providerSupportsNativePdf(provider) {
+function providerSupportsNativePdf(provider) {
   return NATIVE_PDF_PROVIDERS.has(String(provider || '').trim().toLowerCase());
 }
 

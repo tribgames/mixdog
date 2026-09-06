@@ -1,14 +1,14 @@
 import { Activity, PanelRight } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { liveAgentRows, liveShellCount, liveShellRows } from './AgentActivityPane';
 import { desktopCancelOutcome } from '../shared/agent-activity';
+import type { DesktopModelSelection } from '../shared/contract';
 import type { Snapshot } from './desktop-types';
+import { useHoverPopover } from './hover-popover';
 import { t } from './i18n';
-import { useMobileBack } from './mobile-back';
 import { MxIcon } from './MxIcon';
 import { showDesktopToast } from './notifications';
-import { touchPrimaryPointer } from './surface-input-focus';
 import { ContextUsageIndicator, formatWorkElapsed } from './TranscriptView';
 
 /** The readout ticks its own 1s clock only while its session has live work,
@@ -168,45 +168,11 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
   ]).filter((group) => group.rows.length > 0);
   // A coarse pointer has no hover to read the card with, so there a tap opens
   // the same card the desktop shows on hover, and the next pointer landing
-  // outside it — or Escape — puts it away again.
-  const touch = touchPrimaryPointer();
-  const [localOpen, setLocalOpen] = useState(false);
-  const open = controlledOpen ?? localOpen;
-  const setOpen = useCallback((next: boolean) => {
-    if (controlledOpen === undefined) setLocalOpen(next);
-    onOpenChange?.(next);
-  }, [controlledOpen, onOpenChange]);
-  const [pinned, setPinned] = useState(false);
-  const host = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    const dismiss = (event: PointerEvent) => {
-      const target = event.target instanceof Node ? event.target : null;
-      if (target && host.current?.contains(target)) return;
-      setPinned(false);
-      setOpen(false);
-    };
-    const keydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setPinned(false);
-        setOpen(false);
-      }
-    };
-    document.addEventListener('pointerdown', dismiss, true);
-    document.addEventListener('keydown', keydown, true);
-    return () => {
-      document.removeEventListener('pointerdown', dismiss, true);
-      document.removeEventListener('keydown', keydown, true);
-    };
-  }, [open, setOpen]);
-  useEffect(() => {
-    if (controlledOpen === false) setPinned(false);
-  }, [controlledOpen]);
-  // ABB: the tapped-open activity card closes on hardware back.
-  useMobileBack(open, () => {
-    setPinned(false);
-    setOpen(false);
-  });
+  // outside it — or Escape, or hardware back — puts it away again. The shared
+  // contract also holds the card open while the pointer crosses the gap
+  // between the capsule and the card.
+  const popover = useHoverPopover({ open: controlledOpen, onOpenChange });
+  const open = popover.open;
   // Stop rides the OWNER session: this card paints one Lead's lane, so an
   // agent cancel and a background-shell cancel both resolve inside that
   // session's own scope rather than whichever pane holds focus.
@@ -236,7 +202,7 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
         );
       }
     } catch (reason) {
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', { scope: `${ownerSessionId}:cancel:${key}` });
     } finally {
       setStopping((current) => {
         const next = new Set(current);
@@ -245,22 +211,11 @@ export function LiveWorkIndicator({ snapshot, open: controlledOpen, onOpenChange
       });
     }
   };
-  return <div className="session-work-indicator" ref={host}
+  return <div className="session-work-indicator" {...popover.hostProps}
     data-active={total > 0 ? 'true' : 'false'}
-    data-open={open ? 'true' : 'false'}
-    onMouseEnter={() => { if (!touch) setOpen(true); }}
-    onMouseLeave={() => { if (!touch && !pinned) setOpen(false); }}>
+    data-open={open ? 'true' : 'false'}>
     {/* One fixed-width glyph keeps the capsule stable; the card carries detail. */}
-    <button type="button"
-      onClick={() => {
-        const next = !pinned;
-        setPinned(next);
-        setOpen(next || (!touch && host.current?.matches(':hover') === true));
-      }}
-      onFocus={() => setOpen(true)}
-      onBlur={(event) => {
-        if (!pinned && !host.current?.contains(event.relatedTarget)) setOpen(false);
-      }}
+    <button type="button" {...popover.triggerProps}
       aria-expanded={open}
       aria-label={t('Background activity: {{count}} running', { count: total })}>
       <span className="session-work-icon-stack" aria-hidden="true">
@@ -317,7 +272,7 @@ export function SessionStatusIsland({
   onToggleDock,
 }: {
   snapshot: Snapshot;
-  onInherit?: () => void;
+  onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
   dockOpen?: boolean;
   onToggleDock?: () => void;
 }) {

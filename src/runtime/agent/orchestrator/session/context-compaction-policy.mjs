@@ -1,4 +1,6 @@
 import { isAgentOwner } from '../agent-owner.mjs';
+import { envPositiveInt } from '../../../shared/env.mjs';
+import { positiveInt } from '../../../shared/numbers.mjs';
 
 export const DEFAULT_COMPACTION_BUFFER_TOKENS = 0;
 export const DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
@@ -15,13 +17,6 @@ const MAX_BUFFER_INPUT_RATIO = 0.999_999;
 export const DEFAULT_COMPACTION_KEEP_TOKENS = 8_000;
 const LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO = 0.1;
 
-export function positiveTokenInt(value) {
-    const n = Number(value);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
-}
-function envTokenInt(name) {
-    return positiveTokenInt(process.env[name]);
-}
 export function normalizeCompactionBufferRatio(value, fallback = DEFAULT_COMPACTION_BUFFER_RATIO) {
     // Explicit 0 is a valid buffer (main full-window trigger). Only nullish /
     // empty / non-finite / negative values fall back. Do not treat Number(null)
@@ -52,7 +47,7 @@ export function resolveCompactBufferRatio(cfg = {}) {
 }
 function positiveTokenCandidate(values = []) {
     for (const value of values) {
-        const tokens = positiveTokenInt(value);
+        const tokens = positiveInt(value);
         if (tokens) return tokens;
     }
     return null;
@@ -88,9 +83,9 @@ export function compactionBufferTokensForBoundary(boundaryTokens, opts = {}) {
     return Math.max(0, Math.min(Math.floor(boundary * ratio), cap));
 }
 export function isPersistedZeroBufferTelemetry(cfg = {}, boundaryTokens = 0) {
-    const boundary = positiveTokenInt(boundaryTokens);
+    const boundary = positiveInt(boundaryTokens);
     if (!boundary) return false;
-    if (envTokenInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS')) return false;
+    if (envPositiveInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS')) return false;
     for (const envName of ['MIXDOG_AGENT_COMPACT_BUFFER_PERCENT', 'MIXDOG_AGENT_COMPACT_BUFFER_RATIO']) {
         const n = Number(process.env[envName]);
         if (Number.isFinite(n) && n > 0) return false;
@@ -105,9 +100,9 @@ export function isPersistedZeroBufferTelemetry(cfg = {}, boundaryTokens = 0) {
     return Number.isFinite(explicitTokens) && explicitTokens === 0;
 }
 export function isLegacyDefaultBufferTelemetry(cfg = {}, boundaryTokens = 0) {
-    const boundary = positiveTokenInt(boundaryTokens);
+    const boundary = positiveInt(boundaryTokens);
     if (!boundary) return false;
-    if (envTokenInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS')) return false;
+    if (envPositiveInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS')) return false;
     for (const envName of ['MIXDOG_AGENT_COMPACT_BUFFER_PERCENT', 'MIXDOG_AGENT_COMPACT_BUFFER_RATIO']) {
         const n = Number(process.env[envName]);
         if (Number.isFinite(n) && n > 0) return false;
@@ -116,12 +111,12 @@ export function isLegacyDefaultBufferTelemetry(cfg = {}, boundaryTokens = 0) {
         const n = Number(cfg?.[key]);
         if (Number.isFinite(n) && n > 0) return false;
     }
-    const explicitTokens = positiveTokenInt(cfg?.bufferTokens ?? cfg?.buffer);
+    const explicitTokens = positiveInt(cfg?.bufferTokens ?? cfg?.buffer);
     const ratio = Number(cfg?.bufferRatio);
     if (!explicitTokens || !Number.isFinite(ratio) || Math.abs(ratio - LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO) > 1e-9) return false;
     const expectedTokens = Math.floor(boundary * LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO);
-    const cfgBoundary = positiveTokenInt(cfg?.boundaryTokens);
-    const cfgTrigger = positiveTokenInt(cfg?.triggerTokens);
+    const cfgBoundary = positiveInt(cfg?.boundaryTokens);
+    const cfgTrigger = positiveInt(cfg?.triggerTokens);
     return explicitTokens === expectedTokens
         || (cfgBoundary === boundary && cfgTrigger > 0 && explicitTokens === Math.max(0, boundary - cfgTrigger));
 }
@@ -132,11 +127,11 @@ export function compactBufferConfigForBoundary(cfg = {}, boundaryTokens = 0) {
     return { ...base, bufferTokens: null, buffer: null, bufferRatio: null };
 }
 export function resolveCompactBufferTokens(boundaryTokens, cfg = {}, opts = {}) {
-    const boundary = positiveTokenInt(boundaryTokens);
+    const boundary = positiveInt(boundaryTokens);
     const effectiveCfg = compactBufferConfigForBoundary(cfg, boundary);
-    const configured = positiveTokenInt(effectiveCfg.bufferTokens ?? effectiveCfg.buffer)
-        || envTokenInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS') || 0;
-    if (!boundary) return configured || positiveTokenInt(opts.defaultTokens) || DEFAULT_COMPACTION_BUFFER_TOKENS;
+    const configured = positiveInt(effectiveCfg.bufferTokens ?? effectiveCfg.buffer)
+        || envPositiveInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS') || 0;
+    if (!boundary) return configured || positiveInt(opts.defaultTokens) || DEFAULT_COMPACTION_BUFFER_TOKENS;
     return compactionBufferTokensForBoundary(boundary, {
         explicitTokens: configured,
         ratio: resolveCompactBufferRatio(effectiveCfg),
@@ -144,10 +139,10 @@ export function resolveCompactBufferTokens(boundaryTokens, cfg = {}, opts = {}) 
     });
 }
 export function resolveMainCompactBufferTokens(boundaryTokens, cfg = {}, opts = {}) {
-    const boundary = positiveTokenInt(boundaryTokens);
+    const boundary = positiveInt(boundaryTokens);
     const setting = resolveMainBufferSetting(cfg);
     const configured = setting?.tokens || 0;
-    if (!boundary) return configured || positiveTokenInt(opts.defaultTokens) || DEFAULT_COMPACTION_BUFFER_TOKENS;
+    if (!boundary) return configured || positiveInt(opts.defaultTokens) || DEFAULT_COMPACTION_BUFFER_TOKENS;
     return compactionBufferTokensForBoundary(boundary, {
         explicitTokens: configured,
         ratio: setting?.ratio ?? DEFAULT_MAIN_COMPACTION_BUFFER_RATIO,
@@ -159,7 +154,7 @@ export function resolveCompactTriggerTokens(sessionOrConfig = {}, boundaryTokens
 }
 export function resolveSessionCompactPolicy(sessionOrConfig = {}, boundaryTokens = 0) {
     const cfg = sessionOrConfig?.compaction || sessionOrConfig || {};
-    const boundary = positiveTokenInt(boundaryTokens);
+    const boundary = positiveInt(boundaryTokens);
     if (!boundary) {
         return {
             autoCompactTokenLimit: null,
@@ -170,7 +165,7 @@ export function resolveSessionCompactPolicy(sessionOrConfig = {}, boundaryTokens
                 : resolveMainCompactBufferRatio(cfg),
         };
     }
-    const rawLimit = positiveTokenInt(sessionOrConfig?.autoCompactTokenLimit ?? cfg?.autoCompactTokenLimit);
+    const rawLimit = positiveInt(sessionOrConfig?.autoCompactTokenLimit ?? cfg?.autoCompactTokenLimit);
     const explicitLimit = rawLimit && rawLimit < boundary ? rawLimit : null;
     let triggerTokens;
     if (explicitLimit) triggerTokens = explicitLimit;

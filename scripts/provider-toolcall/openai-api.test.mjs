@@ -9,20 +9,36 @@ import {
 
 // --- Helpers ---------------------------------------------------------------
 
-test('OpenAI API-key request keeps public defaults without network under every transport mode', async (t) => {
+test('OpenAI API-key request uses model-specific cache contracts under every transport mode', async (t) => {
     const priorTransport = process.env.MIXDOG_OAI_TRANSPORT;
+    const priorStore = process.env.MIXDOG_OAI_STORE;
+    process.env.MIXDOG_OAI_STORE = '1';
     t.after(() => {
         if (priorTransport == null) delete process.env.MIXDOG_OAI_TRANSPORT;
         else process.env.MIXDOG_OAI_TRANSPORT = priorTransport;
+        if (priorStore == null) delete process.env.MIXDOG_OAI_STORE;
+        else process.env.MIXDOG_OAI_STORE = priorStore;
     });
     const provider = new OpenAIDirectProvider({ apiKey: 'fixture-openai-key' });
+    const models = [
+        ['gpt-5.4', false],
+        ['gpt-5.5', false],
+        ['gpt-5.6-sol', true],
+        ['gpt-5.6-terra', true],
+        ['gpt-5.6-luna', true],
+        ['gpt-6-astra', true],
+        ['gpt-6-astra-2026-09-01', true],
+        ['gpt-6-astra-other', false],
+        ['gpt-60', false],
+    ];
     for (const mode of ['auto', 'ws-full', 'ws-delta', 'http-sse']) {
+      for (const [model, cacheOptions] of models) {
         process.env.MIXDOG_OAI_TRANSPORT = mode;
         const calls = [];
         let captured = null;
         const result = await provider.send(
             [{ role: 'user', content: 'fixture' }],
-            'gpt-5.4',
+            model,
             [],
             {
                 sessionId: `direct-request-defaults-${mode}`,
@@ -45,8 +61,32 @@ test('OpenAI API-key request keeps public defaults without network under every t
         assert.equal(captured.auth.apiKey, 'fixture-openai-key');
         if (mode !== 'http-sse') assert.equal(captured.traceProvider, 'openai-direct');
         assert.equal(captured.body.store, true);
-        assert.equal(captured.body.prompt_cache_retention, '24h');
+        assert.equal(captured.body.prompt_cache_retention, cacheOptions ? undefined : '24h', model);
+        assert.deepEqual(captured.body.prompt_cache_options, cacheOptions ? { ttl: '30m' } : undefined, model);
         assert.equal(captured.body.stream, true);
+      }
+    }
+});
+
+test('OpenAI cache contract preserves the response-storage opt-out for old and new models', async (t) => {
+    const priorStore = process.env.MIXDOG_OAI_STORE;
+    process.env.MIXDOG_OAI_STORE = '0';
+    t.after(() => {
+        if (priorStore == null) delete process.env.MIXDOG_OAI_STORE;
+        else process.env.MIXDOG_OAI_STORE = priorStore;
+    });
+    const provider = new OpenAIDirectProvider({ apiKey: 'fixture-openai-key' });
+    for (const model of ['gpt-5.4', 'gpt-6-astra']) {
+        const capture = async ({ body }) => {
+            assert.equal(body.store, false);
+            assert.equal(body.prompt_cache_retention, undefined);
+            assert.equal(body.prompt_cache_options, undefined);
+            return { content: 'ok', toolCalls: [] };
+        };
+        await provider.send([], model, [], {
+            _sendViaWebSocketFn: capture,
+            _sendViaHttpSseFn: capture,
+        });
     }
 });
 

@@ -59,7 +59,7 @@ export function createBrowserPageState(host: BrowserPageStateHost) {
         : String(cookies.length);
       const serialized = redactBrowserText(JSON.stringify(shown.map((cookie) => ({
         name: cookie.name,
-        value: redactBrowserText(cookie.value),
+        value: '[REDACTED]',
         domain: cookie.domain,
         path: cookie.path,
         secure: cookie.secure,

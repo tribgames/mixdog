@@ -23,11 +23,12 @@ export async function inspectPdfBuffer(buffer, {
   maxPages = DEFAULT_MAX_PAGES,
   maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES,
   pageRange = null,
+  password = '',
 } = {}) {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) throw new TypeError('PDF payload is empty');
   await resolvedPdfJs();
   const { getDocumentProxy } = await import('unpdf');
-  const pdf = await getDocumentProxy(new Uint8Array(buffer));
+  const pdf = await getDocumentProxy(new Uint8Array(buffer), password ? { password: String(password) } : {});
   try {
     const pageCount = Math.max(0, Number(pdf?.numPages) || 0);
     const pageLimit = Number.isFinite(Number(maxPages)) ? Math.max(1, Math.floor(Number(maxPages))) : Infinity;
@@ -46,11 +47,18 @@ export async function inspectPdfBuffer(buffer, {
       const page = await pdf.getPage(pageNumber);
       try {
         const content = await page.getTextContent();
-        const body = (content?.items || [])
-          .map((item) => typeof item?.str === 'string' ? item.str : '')
-          .filter(Boolean)
-          .join(' ')
-          .trim();
+        // pdf.js marks where each text line ends; keeping that as a newline
+        // preserves paragraphs and table rows instead of one long run.
+        let body = '';
+        for (const item of content?.items || []) {
+          if (typeof item?.str !== 'string') continue;
+          if (item.str) {
+            const glued = !body || body.endsWith('\n') || body.endsWith(' ') || item.str.startsWith(' ');
+            body += (glued ? '' : ' ') + item.str;
+          }
+          if (item.hasEOL && !body.endsWith('\n')) body += '\n';
+        }
+        body = body.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
         const block = `--- Page ${pageNumber} ---\n${body || '(no extractable text on this page)'}`;
         const separatorBytes = chunks.length ? 2 : 0;
         const remaining = byteLimit - bytes - separatorBytes;

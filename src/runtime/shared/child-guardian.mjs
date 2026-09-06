@@ -2,13 +2,9 @@
 
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { positiveInt } from './numbers.mjs';
 import { isPidAlive } from './pid-liveness.mjs';
 import { detachedSpawnOpts } from './spawn-flags.mjs';
-
-function positiveInt(value) {
-  const n = Number(value);
-  return Number.isInteger(n) && n > 0 ? n : null;
-}
 
 export function childGuardianSpawnEnv(env = process.env) {
   return {

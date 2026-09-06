@@ -360,6 +360,11 @@ function Session-Response($state, $value) {
     session = [string]$state.Id
     mode = [string]$state.Mode
     backend = 'microsoft-office-com'
+    ownership = $state.Ownership
+    ownsApplication = [bool]$state.OwnsApplication
+    appPid = $state.AppPid
+    windowHwnd = $state.WindowHwnd
+    documentId = $state.DocumentId
   }
   if ($null -ne $isolation) { $result.backgroundIsolation = $isolation }
   foreach ($entry in $value.GetEnumerator()) { $result[$entry.Key] = $entry.Value }
@@ -416,12 +421,15 @@ function File-AppearsOpen([string]$path) {
 
 function New-OfficeApplication([string]$format, [bool]$visible) {
   $app = New-Object -ComObject (ProgId-ForFormat $format)
+  return $app
+}
+
+function Initialize-OwnedOfficeApplication($app, [string]$format, [bool]$visible) {
   try { $app.DisplayAlerts = 0 } catch {}
   try { $app.AutomationSecurity = 3 } catch {}
   if ($format -ne 'pptx') {
     try { $app.Visible = $visible } catch {}
   }
-  return $app
 }
 
 function Set-OfficeVisible($app, $document, [string]$format) {
@@ -447,6 +455,8 @@ function Open-OwnedDocument($app, [string]$format, [string]$path, [bool]$visible
 
 function Create-OwnedDocument($app, [string]$format, [string]$path, [bool]$visible) {
   $saveFormat = Office-SaveFormatForPath $format $path
+  $document = $null
+  try {
   switch ($format) {
     'docx' {
       $document = $app.Documents.Add()
@@ -463,6 +473,16 @@ function Create-OwnedDocument($app, [string]$format, [string]$path, [bool]$visib
   }
   if ($visible) { Set-OfficeVisible $app $document $format }
   return $document
+  } catch {
+    $createError = [string]$_.Exception.Message
+    if ($null -ne $document) {
+      try { Close-OfficeDocument $document $format }
+      catch { $createError += "; document cleanup failed: $($_.Exception.Message)" }
+      try { Release-OfficeObject $document }
+      catch { $createError += "; document release failed: $($_.Exception.Message)" }
+    }
+    throw $createError
+  }
 }
 
 function Application-Hwnd($app, $document, [string]$format) {
@@ -527,6 +547,9 @@ function Open-SessionState($payload) {
   $document = $null
   $ownership = 'owned'
   $sharedBackgroundProcess = $false
+  $ownsApplication = $false
+  $processId = 0
+  $appStartTicks = 0
   try {
     if (-not $create -and @('attach', 'visible') -contains $mode) {
       $document = Find-RunningDocumentExact $format $path
@@ -552,6 +575,25 @@ function Open-SessionState($payload) {
       }
       $visible = $mode -eq 'visible'
       $app = New-OfficeApplication $format $visible
+      $applicationHwnd = Application-Hwnd $app $null $format
+      $processId = if ($applicationHwnd) { [MixdogOfficeInterop]::ProcessIdForWindow($applicationHwnd) } else { 0 }
+      for ($attempt = 0; -not $processId -and $attempt -lt 20; $attempt++) {
+        $newProcessIds = @(Office-ProcessIds $format | Where-Object { $baselineProcessIds -notcontains [int]$_ })
+        if ($newProcessIds.Count -eq 1) { $processId = [int]$newProcessIds[0] }
+        if (-not $processId) { Start-Sleep -Milliseconds 50 }
+      }
+      $ownsApplication = $processId -gt 0 -and $baselineProcessIds -notcontains [int]$processId
+      $sharedBackgroundProcess = -not $ownsApplication
+      if ($mode -eq 'background' -and -not $ownsApplication) {
+        throw "Background Office refused a shared or unidentified application before opening the document (pid $processId). Existing documents were not opened, hidden, or closed."
+      }
+      if ($ownsApplication) {
+        $appStartTicks = Office-ProcessStartTicks $processId
+        Initialize-OwnedOfficeApplication $app $format $visible
+      }
+      # Publish ownership before a document open can block. Cancellation still
+      # lets this host finish its operation and run the EOF cleanup.
+      Emit-Json ([ordered]@{ ok = $true; session = $id; ownership = 'owned'; ownsApplication = $ownsApplication; appPid = $processId; lifecycle = 'initializing' })
       $document = if ($create) {
         Create-OwnedDocument $app $format $path $visible
       } else {
@@ -584,7 +626,7 @@ function Open-SessionState($payload) {
     )
     if ($mode -eq 'background' -and -not $isolatedProcess) {
       $sharedBackgroundProcess = $true
-      throw 'Background Office refused a COM application that reused an existing user Office process.'
+      throw "Background Office refused a COM application that reused an existing Office process (pid $processId). Close that Office window, or end the process if it is a leftover background instance, then retry."
     }
     $state = [pscustomobject]@{
       Id = $id
@@ -592,6 +634,8 @@ function Open-SessionState($payload) {
       Path = $path
       Mode = $mode
       Ownership = $ownership
+      OwnsApplication = $ownsApplication
+      AppStartTicks = $appStartTicks
       App = $app
       Document = $document
       Visible = $mode -ne 'background'
@@ -609,71 +653,17 @@ function Open-SessionState($payload) {
     }
     return $state
   } catch {
-    if ($null -ne $document) {
-      if ($ownership -eq 'owned') { try { $document.Close($false) } catch {} }
-      try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($document) } catch {}
+    $openError = [string]$_.Exception.Message
+    $cleanupState = [pscustomobject]@{
+      Document = $document; App = $app; Format = $format; Mode = $mode
+      Ownership = $ownership; OwnsApplication = $ownsApplication -and -not $sharedBackgroundProcess
+      AppPid = $processId; AppStartTicks = $appStartTicks
     }
-    if ($null -ne $app) {
-      if ($ownership -eq 'owned' -and -not $sharedBackgroundProcess) { try { $app.Quit() } catch {} }
-      try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($app) } catch {}
-    }
-    throw
+    $cleanup = Close-SessionState $cleanupState $false
+    Write-OfficeCleanupFailure $cleanup
+    if (-not $cleanup.ok) { $openError += "; cleanup incomplete: $($cleanup.errors -join '; ')" }
+    throw $openError
   }
-}
-
-function Close-SessionState($state, [bool]$save) {
-  if ($save) { Save-Document $state.Document $state.Format }
-  $process = $null
-  if ($state.Ownership -eq 'owned' -and [int]$state.AppPid -gt 0) {
-    try { $process = [System.Diagnostics.Process]::GetProcessById([int]$state.AppPid) } catch {}
-  }
-  if ($state.Ownership -eq 'owned') {
-    try { $state.Document.Close($false) } catch {}
-  }
-  try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($state.Document) } catch {}
-  $state.Document = $null
-  if ($state.Ownership -eq 'owned') {
-    try { $state.App.Quit() } catch {}
-  }
-  try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($state.App) } catch {}
-  $state.App = $null
-  if ($state.Format -eq 'pptx') {
-    try {
-      $null = Close-PowerPointChartExcelApplications ($state.Ownership -eq 'owned')
-    } catch {}
-  }
-  if ($state.Ownership -eq 'owned' -and $state.Format -eq 'pptx' -and [int]$state.AppPid -gt 0) {
-    $children = @(
-      Get-CimInstance Win32_Process `
-        -Filter "ParentProcessId = $([int]$state.AppPid) AND Name = 'EXCEL.EXE'" `
-        -ErrorAction SilentlyContinue
-    )
-    foreach ($child in $children) {
-      $childProcess = $null
-      try { $childProcess = [System.Diagnostics.Process]::GetProcessById([int]$child.ProcessId) } catch {}
-      if ($null -eq $childProcess) { continue }
-      $exited = $false
-      try { $exited = [bool]$childProcess.WaitForExit(500) } catch { $exited = $true }
-      if (-not $exited) {
-        try {
-          $childProcess.Kill()
-          $null = $childProcess.WaitForExit(1000)
-        } catch {}
-      }
-      try { $childProcess.Dispose() } catch {}
-    }
-  }
-  $exited = $null -eq $process
-  if (-not $exited) {
-    try { $exited = [bool]$process.WaitForExit(250) } catch { $exited = $true }
-  }
-  if (-not $exited) {
-    try {
-      $process.Kill()
-      $exited = [bool]$process.WaitForExit(1000)
-    } catch {}
-  }
-  if ($null -ne $process) { try { $process.Dispose() } catch {} }
 }
 
 function Repair-ExcelPageSetupDpi([string]$path) {
@@ -747,17 +737,8 @@ function Reopen-BackgroundPowerPointSession($state, [string]$restorePath = '') {
   if ($state.Format -ne 'pptx' -or $state.Mode -ne 'background' -or $state.Ownership -ne 'owned') {
     throw 'PowerPoint process reopen is available only for owned background sessions'
   }
-  if ($null -ne $state.Document) {
-    try { $state.Document.Close() } finally {
-      try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($state.Document) } catch {}
-      $state.Document = $null
-    }
-  }
-  if ($null -ne $state.App) {
-    try { $state.App.Quit() } catch {}
-    try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($state.App) } catch {}
-    $state.App = $null
-  }
+  $cleanup = Close-SessionState $state $false
+  if (-not $cleanup.ok) { throw "PowerPoint reopen cleanup incomplete: $($cleanup.errors -join '; ')" }
   if (-not [string]::IsNullOrWhiteSpace($restorePath)) {
     [System.IO.File]::Copy(
       [System.IO.Path]::GetFullPath($restorePath),
@@ -765,13 +746,39 @@ function Reopen-BackgroundPowerPointSession($state, [string]$restorePath = '') {
       $true
     )
   }
-  $state.App = New-OfficeApplication 'pptx' $false
-  $state.Document = Open-OwnedDocument $state.App 'pptx' $state.Path $false
-  $state.WindowHwnd = Application-Hwnd $state.App $state.Document 'pptx'
-  $state.AppPid = if ($state.WindowHwnd) {
-    [MixdogOfficeInterop]::ProcessIdForWindow([long]$state.WindowHwnd)
-  } else {
-    0
+  $opened = Open-SessionState ([pscustomobject]@{ session = $state.Id; format = 'pptx'; path = $state.Path; mode = 'background' })
+  foreach ($name in @('App', 'Document', 'WindowHwnd', 'AppPid', 'OwnsApplication', 'AppStartTicks', 'IsolatedProcess')) {
+    $state.$name = $opened.$name
+  }
+  return $state.Document
+}
+
+# Re-authoring rewrites the whole deck, and starting PowerPoint again costs seconds. The application
+# stays and only the document is swapped: the freshly written file is moved onto the session's path
+# while nothing holds it open, then reopened in place. A dead application falls back to a full reopen.
+function Reload-SessionDocument($state, [string]$sourcePath) {
+  if ($state.Format -ne 'pptx' -or $state.Mode -ne 'background' -or $state.Ownership -ne 'owned') {
+    throw 'Document reload is available only for owned background PowerPoint sessions'
+  }
+  if ($null -ne $state.Document) {
+    Close-OfficeDocument $state.Document $state.Format
+    try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($state.Document) } catch {}
+    $state.Document = $null
+  }
+  $target = [System.IO.Path]::GetFullPath($state.Path)
+  if (-not [string]::IsNullOrWhiteSpace($sourcePath)) {
+    $source = [System.IO.Path]::GetFullPath($sourcePath)
+    if (-not (Test-Path -LiteralPath $source)) { throw "Document reload source not found: $source" }
+    if ($source -ne $target) {
+      [System.IO.File]::Copy($source, $target, $true)
+      try { [System.IO.File]::Delete($source) } catch {}
+    }
+  }
+  try {
+    $state.Document = Open-OwnedDocument $state.App 'pptx' $target $false
+  } catch {
+    $state.Document = $null
+    $null = Reopen-BackgroundPowerPointSession $state
   }
   return $state.Document
 }
@@ -853,6 +860,15 @@ function Invoke-SessionAction($state, $payload) {
       return Session-Response $state ([ordered]@{
         output = $output
         saved = [bool]$document.Saved
+      })
+    }
+    'reload_document' {
+      $null = Reload-SessionDocument $state ([string]$payload.source)
+      return Session-Response $state ([ordered]@{
+        reloaded = $true
+        path = $state.Path
+        appPid = $state.AppPid
+        documentId = $state.DocumentId
       })
     }
     'replace_presentation_from_source' {
@@ -1056,7 +1072,6 @@ try {
     if ([string]::IsNullOrWhiteSpace($raw)) { continue }
     $requestId = ''
     $closeAfterResponse = $false
-    $stateToClose = $null
     try {
       $payload = $raw | ConvertFrom-Json
       $requestId = [string]$payload.requestId
@@ -1080,15 +1095,22 @@ try {
         if ($payload.action -eq 'close_session') {
           if ([bool]$payload.save) { Save-Document $state.Document $state.Format }
           $result = Session-Response $state ([ordered]@{
-            closed = $true
+            closed = $false
             saved = [bool]$payload.save
             ownership = $state.Ownership
             appPid = $state.AppPid
             path = $state.Path
           })
-          $stateToClose = $state
-          $state = $null
-          $closeAfterResponse = $true
+          $cleanup = Close-SessionState $state $false
+          $result.cleanup = $cleanup
+          $result.ok = [bool]$cleanup.ok
+          $result.closed = [bool]$cleanup.ok
+          if ($cleanup.ok) {
+            $state = $null
+            $closeAfterResponse = $true
+          } else {
+            $result.error = "Office cleanup incomplete: $($cleanup.errors -join '; ')"
+          }
         } else {
           $result = Invoke-SessionAction $state $payload
         }
@@ -1099,16 +1121,21 @@ try {
         backend = 'microsoft-office-com'
         error = [string]$_.Exception.Message
       }
+      # A reopen may have changed the application before a later step failed.
+      if ($null -ne $state) {
+        $result.session = [string]$state.Id
+        $result.appPid = $state.AppPid
+      }
     }
     if ($requestId) { $result['requestId'] = $requestId }
     Emit-Json $result
     if ($closeAfterResponse) {
-      try { Close-SessionState $stateToClose $false } catch {}
       break
     }
   }
 } finally {
   if ($null -ne $state) {
-    try { Close-SessionState $state $false } catch {}
+    try { Write-OfficeCleanupFailure (Close-SessionState $state $false) }
+    catch { [Console]::Error.WriteLine("MIXDOG_OFFICE_CLEANUP $($_.Exception.Message)") }
   }
 }

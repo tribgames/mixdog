@@ -16,8 +16,7 @@ const CACHE_PROVIDERS = [
     'deepseek',
     'opencode-go',
     'cursor-oauth',
-    'ollama',
-    'lmstudio',
+    'mixdog-local',
 ];
 
 test('accepts append-only provider history for every provider surface', () => {

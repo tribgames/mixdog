@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 
 import type { DesktopRemoteClientClaim } from "../shared/contract";
 import { t } from "./i18n";
+import { ErrorNotice } from "./ErrorNotice";
 import {
   enqueueRemoteClientClaim,
   normalizeRemoteClientClaim,
@@ -20,6 +21,7 @@ import {
 export function RemoteClaimPrompt() {
   const [queue, setQueue] = useState<DesktopRemoteClientClaim[]>([]);
   const [answering, setAnswering] = useState(false);
+  const [answerError, setAnswerError] = useState<{ claimId: string; reason: string } | null>(null);
   const [active, setActive] = useState(isRemoteClaimPromptActive);
   const answeringRef = useRef(false);
   const api = window.mixdogDesktop;
@@ -93,6 +95,7 @@ export function RemoteClaimPrompt() {
     }
     answeringRef.current = true;
     setAnswering(true);
+    setAnswerError(null);
     try {
       const handled = await resolve(claimId, approved);
       if (handled) {
@@ -103,8 +106,8 @@ export function RemoteClaimPrompt() {
         // than walking the user through another approval loop.
         setQueue([]);
       }
-    } catch {
-      // Keep the live card retryable when IPC itself was temporarily lost.
+    } catch (reason) {
+      setAnswerError({ claimId, reason: reason instanceof Error ? reason.message : String(reason) });
     } finally {
       answeringRef.current = false;
       setAnswering(false);
@@ -124,6 +127,7 @@ export function RemoteClaimPrompt() {
       <p id="remote-claim-description">
         {t("It is asking to use this desktop. Approve it only if you just opened Mixdog there.")}
       </p>
+      {answerError?.claimId === claim.claimId && <ErrorNotice error={answerError.reason} />}
       <footer>
         <button type="button" disabled={answering}
           onClick={() => { void answer(false); }}>{t("Deny")}</button>

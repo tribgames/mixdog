@@ -17,7 +17,7 @@ import { getModelMetadataSync } from '../../agent/orchestrator/providers/model-c
 // count *including* the cached portion (inclusive). Anthropic reports the
 // uncached remainder only and bills cached_read / cached_write as separate
 // additive slots (additive). Cost and prompt-total math has to branch on this.
-// OpenAI-compatible direct providers (deepseek / ollama / lmstudio)
+// OpenAI-compatible direct providers (deepseek / mixdog-local)
 // go through the OpenAI SDK and likewise report an inclusive prompt_tokens
 // with a separate cached-tokens detail — so they are inclusive too. Omitting
 // them bills the cached portion at the full input rate AND re-adds it as a
@@ -31,7 +31,7 @@ export function isInclusiveProvider(provider) {
     // usage rows — without it, cached tokens would be double-billed in the
     // cost fallback and prompt totals.
     return p.includes('openai') || p.includes('codex') || p.includes('gemini') || p.includes('google') || p.includes('xai') || p.includes('grok')
-        || p.includes('deepseek') || p.includes('ollama') || p.includes('lmstudio') || p.includes('groq') || p.includes('openrouter')
+        || p.includes('deepseek') || p.includes('mixdog-local') || p.includes('groq') || p.includes('openrouter')
         || p.includes('opencode-go');
 }
 

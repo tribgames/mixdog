@@ -1,23 +1,18 @@
 import { statSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import { createHash } from 'crypto';
 import { isAbsolute, resolve } from 'path';
-import { trueCasePath } from './path-utils.mjs';
 import { expandAbsoluteGlobs } from './lib/absolute-glob-expand.mjs';
 import { buildGlobPatternGroups } from './lib/glob-static-prefix.mjs';
 import {
-    canonicalizeGlobSlashes,
-    coerceReadFamilyPathArg,
-    coerceShapeFlex,
-    extractGlobBaseDirectory,
-    GREP_AUTO_CONTEXT_LINES,
-    hasGlobMagic,
-    normalizeGlobArgs,
-    normalizeGrepArgs,
-    normalizeInputPath,
-    normalizeOutputPath,
-    normalizeSearchPattern,
-    resolveAgainstCwd,
+  canonicalizeGlobSlashes,
+  coerceReadFamilyPathArg,
+  coerceShapeFlex,
+  extractGlobBaseDirectory,
+  hasGlobMagic,
+  normalizeGlobArgs,
+  normalizeInputPath,
+  normalizeOutputPath,
+  resolveAgainstCwd,
 } from './path-utils.mjs';
 import {
     _suggestIndexedPaths,
@@ -46,18 +41,12 @@ export {
     uncRefusalMessage,
 } from './search-path-diagnostics.mjs';
 import {
-    buildGlobCacheKey,
-    buildGrepCacheKey,
-    buildGrepRgArgs,
-    DEFAULT_IGNORE_GLOBS,
-    rootScanIgnoreGlobs,
+  buildGlobCacheKey,
+  DEFAULT_IGNORE_GLOBS,
+  rootScanIgnoreGlobs,
 } from './search-builders.mjs';
-import { runRg, runRgWindowedLines, rgSupportsPcre2 } from './native-search-runner.mjs';
+import { runRg, runRgWindowedLines } from './native-search-runner.mjs';
 import { markScopedCacheIncomplete } from '../../session/cache/scoped-cache-outcome.mjs';
-import {
-    normalizeGrepLine,
-    splitGrepCountPrefix,
-} from './grep-formatting.mjs';
 import {
     cacheGet,
     cacheSet,
@@ -66,27 +55,12 @@ import {
     visitPathsForMtime,
 } from './cache-layers.mjs';
 import { recordLocalSearchCacheHit } from './local-search-telemetry.mjs';
-import { applyGrepContextLeadPolicy, GREP_CONTEXT_MAX, hasUnsupportedRipgrepRegex } from './arg-guard.mjs';
 import {
-    buildGrepChunkMergePrefix,
-    chunkPatternList,
-    computeGrepChunkAggregateBudget,
-    extractGrepChunkResultLines,
-    mergeGrepChunkLines,
-} from './lib/search-grep-chunks.mjs';
-import {
-    expandLegacyEscapedAlternationPattern,
-    relativeGrepLine,
-    uniqueStrings,
-    isRgRegexParseError,
-    regexPatternToFixedTerms,
-    coerceNonNegInt,
-    globMtimeTiePath,
-    splitGlobString,
-    isRedundantAllFilesGlob,
-    parseGrepCountLine,
+  uniqueStrings,
+  coerceNonNegInt,
+  globMtimeTiePath,
 } from './lib/search-input-helpers.mjs';
-import { assertPathReachable } from './fs-reachability.mjs';
+import { statReachable } from './fs-reachability.mjs';
 
 // A single glob string may pack multiple filters
 // separated by whitespace or commas, e.g. "*.ts,*.tsx" or "*.ts *.tsx". Split
@@ -95,30 +69,7 @@ import { assertPathReachable } from './fs-reachability.mjs';
 
 // Grep output rendering (context-block windowing, fan-out dedupe, notices)
 // lives in lib/grep-output.mjs.
-import {
-    dedupeFanoutMatchLines,
-    formatGrepContextOutput,
-    formatGrepOutput,
-    globMissingPatternMessage,
-    grepMissingPatternMessage,
-} from './lib/grep-output.mjs';
-import {
-    expandGrepAnchorContextOutput,
-    GREP_CONTEXT_CHAR_BUDGET_DEFAULT,
-} from './lib/grep-context-expander.mjs';
 
-async function statReachable(path) {
-    const reachable = await assertPathReachable(path);
-    return reachable || await stat(path);
-}
-
-// Default grep result cap when head_limit is unspecified. 250 is the common
-// harness default; the tool-result offload layer still bounds oversized
-// results. MIXDOG_GREP_DEFAULT_HEAD_LIMIT overrides for A/B runs.
-function _grepDefaultHeadLimit() {
-    const parsed = parseInt(process.env.MIXDOG_GREP_DEFAULT_HEAD_LIMIT ?? '', 10);
-    return parsed > 0 ? parsed : 250;
-}
 // Same A/B override surface for glob (stock default 100).
 function _globDefaultHeadLimit() {
     const parsed = parseInt(process.env.MIXDOG_GLOB_DEFAULT_HEAD_LIMIT ?? '', 10);
@@ -175,15 +126,6 @@ export function _createGlobMtimeTopK(limit) {
             return [...statted, ...unstatted].slice(0, cap);
         },
     };
-}
-
-function _grepContextCharBudget(options = {}) {
-    const explicit = Number(options?._grepContextCharBudget);
-    if (Number.isFinite(explicit) && explicit > 0) return Math.floor(explicit);
-    const configured = Number(process.env.MIXDOG_GREP_CONTEXT_CHAR_BUDGET);
-    return Number.isFinite(configured) && configured > 0
-        ? Math.floor(configured)
-        : GREP_CONTEXT_CHAR_BUDGET_DEFAULT;
 }
 
 export async function executeGlobTool(args, workDir, options = {}) {

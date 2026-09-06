@@ -26,6 +26,7 @@ const CHECKS = [
   ['balance', 3, 'pixel weight balance of the rendered pages'],
   ['rhythm', 2, 'density varying across the sequence instead of flatlining'],
   ['carriers', 2, 'slides carrying something besides text'],
+  ['presence', 2, 'the largest carrier on a content slide at a readable share of the canvas'],
   ['alignment', 1, 'text boxes whose right edge aligns with nothing'],
 ];
 const WEIGHT = new Map(CHECKS.map(([id, weight]) => [id, weight]));
@@ -71,6 +72,11 @@ export function scoreDeck({ receipt, issues = [] } = {}) {
   }
 
   if (slides.length) add('carriers', 1 - Number(receipt?.deck?.textOnly || 0) / slides.length, Number(receipt?.deck?.textOnly || 0));
+
+  // A quarter of the canvas is where a chart's labels and a picture's subject still read from the back of the
+  // room; content slides (those with a body under a title) are read, anchors carry a statement on purpose.
+  const carriers = observed.filter((o) => typeof o.bodyTop === 'number' && typeof o.presence === 'number').map((o) => o.presence);
+  if (carriers.length) add('presence', mean(carriers.map((v) => clamp01(v / 0.25))), Number(mean(carriers).toFixed(2)));
 
   const strays = observed.map((o) => o.textColumns?.rightStray).filter((v) => typeof v === 'number');
   if (strays.length) add('alignment', band(mean(strays), 1, 4), Number(mean(strays).toFixed(1)));

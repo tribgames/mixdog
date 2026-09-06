@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { performance } from 'node:perf_hooks';
+import { createBootProfiler } from './runtime/shared/boot-profile.mjs';
 import { ensureProcessListenerHeadroom } from './runtime/shared/process-listener-headroom.mjs';
 import {
   classifyCliInvocation,
@@ -9,8 +9,7 @@ import {
 } from './headless-command.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
-const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
+const bootProfile = createBootProfiler('app');
 
 // Many independent singletons self-register a process 'exit' drain (session
 // store, bash sessions, search/memory state, bridge trace, channel worker, …),
@@ -18,17 +17,6 @@ const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart || (globalThis.__
 // fully-loaded runtime. Raise the cap once at the CLI entry so a benign
 // MaxListenersExceededWarning never leaks into the user's terminal.
 ensureProcessListenerHeadroom(64);
-
-function bootProfile(event, fields = {}) {
-  if (!BOOT_PROFILE_ENABLED) return;
-  const elapsedMs = performance.now() - BOOT_PROFILE_START;
-  const parts = [`[mixdog-boot] +${elapsedMs.toFixed(1)}ms`, `app:${event}`];
-  for (const [key, value] of Object.entries(fields || {})) {
-    if (value === undefined || value === null || value === '') continue;
-    parts.push(`${key}=${String(value).replace(/\s+/g, '_')}`);
-  }
-  try { process.stderr.write(`${parts.join(' ')}\n`); } catch {}
-}
 
 export { parseHeadlessExecCommand };
 

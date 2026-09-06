@@ -13,14 +13,14 @@ export function _normalizeAbs(path, cwd) {
  * Normalise a path string to a stable cache key:
  *   - Forward-slashes only (Windows backslash → /)
  *   - Strip trailing slash (except lone root "/")
- *   - Lowercase the drive letter on Windows ("C:/" → "c:/")
+ *   - Fold Windows path casing; preserve case on case-sensitive platforms
  * No realpath — symlinks are intentionally treated as distinct keys.
  */
 export function _normalizeCacheKey(p) {
     if (typeof p !== 'string' || p.length === 0) return p;
     let s = p.replace(/\\/g, '/');
-    // Lowercase Windows drive letter (e.g. "C:/" → "c:/")
-    if (/^[A-Z]:\//.test(s)) s = s[0].toLowerCase() + s.slice(1);
+    if (process.platform === 'win32') s = s.toLowerCase();
+    else if (/^[A-Z]:\//.test(s)) s = s[0].toLowerCase() + s.slice(1);
     // Strip trailing slash unless it is the root itself
     if (s.length > 1 && s.endsWith('/')) s = s.slice(0, -1);
     return s;

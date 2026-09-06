@@ -1,4 +1,5 @@
 import { ExternalLink } from "lucide-react";
+import { ErrorNotice } from "./ErrorNotice";
 import { type ReactNode, type RefObject } from "react";
 import { type EditorFileLoad } from "./editor-file-loader";
 import { type EditorRecovery, type FilePreview } from "./editor-pane-model";
@@ -37,7 +38,7 @@ export function EditorPaneFileFallback({
   onOpen(): void;
 }) {
   return <EditorPaneNoticeSurface breadcrumbs={breadcrumbs}>
-    {note && <p>{note}</p>}
+    {note && <ErrorNotice error={note} role="status" />}
     <p>{load.binary
       ? "Binary file — in-app editing is unavailable."
       : "File exceeds the 1 MB in-app editing cap."}</p>
@@ -94,12 +95,11 @@ export function EditorPanePreviewSurface({
               src={mediaForeground ? preview.url : undefined}
               controls={mediaForeground} preload={mediaForeground ? "metadata" : "none"}
               onLoadedMetadata={onComplete} onError={onFail} />}
-      {error && <div className="editor-pane-preview-error" role="alert">
-        <p>{error}</p>
+      {error && <ErrorNotice error={error} className="editor-pane-preview-error" action={
         <button type="button" onClick={onOpen}>
           <ExternalLink size={14} aria-hidden="true" /> Open in default app
         </button>
-      </div>}
+      } />}
     </div>
   </div>;
 }
@@ -139,18 +139,11 @@ export function EditorPaneAlerts({
           </>
         : null}
     </div>}
-    {diskChanged && <div className="editor-pane-conflict" role="alert">
-      <span>{saveError || error || "File changed on disk."}</span>
+    {diskChanged && <ErrorNotice error={saveError || error || "File changed on disk."} action={<>
       <button type="button" onClick={onReload}>Reload</button>
       <button type="button" onClick={onKeepEdits}>Keep my edits</button>
-    </div>}
-    {revertError && <div className="editor-pane-conflict" role="alert">
-      <span>Revert failed: {revertError}</span>
-      <button type="button" onClick={onReload}>Retry</button>
-    </div>}
-    {!diskChanged && saveError && <div className="editor-pane-conflict" role="alert">
-      <span>Save failed: {saveError}</span>
-      <button type="button" onClick={onRetrySave}>Retry</button>
-    </div>}
+    </>} />}
+    <ErrorNotice errors={[revertError, !diskChanged ? saveError : ""]}
+      onRetry={saveError && !diskChanged ? onRetrySave : revertError ? onReload : undefined} />
   </>;
 }

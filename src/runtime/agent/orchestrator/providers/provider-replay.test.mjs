@@ -3,6 +3,7 @@ import { test } from 'node:test';
 
 import {
     createProviderReplay,
+    cloneProviderReplay,
     providerReplayItems,
 } from './lib/provider-replay.mjs';
 import { toAnthropicMessages } from './lib/anthropic-request-utils.mjs';
@@ -89,6 +90,12 @@ test('provider replay is detached and scoped to its originating provider', () =>
     assert.equal(replay.items[0].signature, 'sig');
     assert.deepEqual(providerReplayItems({ providerReplay: replay }, 'anthropic'), replay.items);
     assert.equal(providerReplayItems({ providerReplay: replay }, 'gemini'), undefined);
+
+    replay.requestContext = { example: { version: 1, ids: ['original'] } };
+    const cloned = cloneProviderReplay(replay);
+    replay.requestContext.example.ids.push('later');
+    assert.deepEqual(cloned.requestContext, { example: { version: 1, ids: ['original'] } });
+    assert.deepEqual(providerReplayItems(cloned, 'anthropic'), cloned.items);
 });
 
 test('Anthropic keeps interleaved thinking at content[11]', () => {
@@ -176,7 +183,12 @@ test('Anthropic SSE parse to next-request replay keeps content[11] unchanged', a
 test('Gemini keeps signed thought Parts interleaved with function calls', () => {
     const parts = [{ text: 'plan-a', thought: true, thoughtSignature: 'sig-a' }];
     for (let index = 1; index <= 10; index += 1) {
-        parts.push({ functionCall: { id: `call_${index}`, name: 'read', args: { index } } });
+        parts.push({
+            functionCall: { id: `call_${index}`, name: 'read', args: { index } },
+            // The first functionCall of a native Gemini 3 response is signed;
+            // later parallel siblings may remain unsigned.
+            ...(index === 1 ? { thoughtSignature: 'sig-call-1' } : {}),
+        });
     }
     parts.push({ text: 'plan-b', thought: true, thoughtSignature: 'sig-b' });
     parts.push({ functionCall: { id: 'call_11', name: 'read', args: { index: 11 } } });

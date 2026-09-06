@@ -750,7 +750,7 @@ const TRACE_QUEUE_FLUSH_MS  = 100
 const TRACE_QUEUE_MAX_ROWS  = 500
 // Twenty normal flush batches leaves ample room for ordinary DB jitter while
 // bounding producer memory across repeated flush failures.
-export const TRACE_QUEUE_MAX_PENDING_EVENTS = 10_000
+const TRACE_QUEUE_MAX_PENDING_EVENTS = 10_000
 
 // Per-db queue state (keyed by db object identity via WeakMap).
 const _traceQueues = new WeakMap()
@@ -794,15 +794,6 @@ function _dropWrittenEvents(wrappers, count) {
       wrapper.events.splice(0, count)
       count = 0
     }
-  }
-}
-
-/** Observable queue depth and overflow count for a trace database. */
-export function getTraceQueueStats(db) {
-  const q = _traceQueues.get(db)
-  return {
-    pendingEvents: q ? _pendingEventCount(q) : 0,
-    droppedEvents: q?.droppedEvents ?? 0,
   }
 }
 

@@ -3,10 +3,12 @@
 // toggles (recap, secondary mode, cycle kill-switches) take effect without a
 // daemon restart. No module-level mutable state; safe to import anywhere.
 import path from 'node:path'
-import fs from 'node:fs'
 import { readSection } from '../../shared/config.mjs'
 import { readServiceAdvert } from '../../shared/service-discovery.mjs'
-import { resolveRuntimeRoot } from '../../shared/runtime-root.mjs'
+import { envFlag } from '../../shared/env.mjs'
+
+// Memory-module public name for the shared parser (re-exported by memory/index.mjs).
+export { envFlag as envFlagEnabled }
 
 export function readMainConfig() {
   return readSection('memory')
@@ -30,17 +32,11 @@ export function readRecapEnabled() {
 }
 
 export function embeddingWarmupEnabled() {
-  const raw = String(process.env.MIXDOG_EMBED_WARMUP ?? '1').trim().toLowerCase()
-  return !(raw === '0' || raw === 'false' || raw === 'off' || raw === 'no')
-}
-
-export function envFlagEnabled(name) {
-  const raw = String(process.env[name] ?? '').trim().toLowerCase()
-  return raw === '1' || raw === 'true' || raw === 'on' || raw === 'yes'
+  return envFlag('MIXDOG_EMBED_WARMUP', true)
 }
 
 export function memorySecondaryMode() {
-  return envFlagEnabled('MIXDOG_MEMORY_SECONDARY')
+  return envFlag('MIXDOG_MEMORY_SECONDARY')
 }
 
 export function embeddingWarmupCanStart() {
@@ -58,7 +54,7 @@ export function embeddingOnDemandCanStart() {
 }
 
 export function memoryLlmWorkerEnabled() {
-  return !memorySecondaryMode() && !envFlagEnabled('MIXDOG_MEMORY_DISABLE_LLM_WORKER')
+  return !memorySecondaryMode() && !envFlag('MIXDOG_MEMORY_DISABLE_LLM_WORKER')
 }
 
 export function memoryCyclesEnabled() {
@@ -68,7 +64,7 @@ export function memoryCyclesEnabled() {
   // daemon restart (checkCycles polls this each tick). The env override stays a
   // hard kill switch regardless of recap.
   return !memorySecondaryMode()
-    && !envFlagEnabled('MIXDOG_MEMORY_DISABLE_CYCLES')
+    && !envFlag('MIXDOG_MEMORY_DISABLE_CYCLES')
     && readRecapEnabled()
 }
 

@@ -1,8 +1,12 @@
+import { ComputerCleanupBarrier } from './cleanup-barrier';
+import { isComputerRecoveryRead } from '../host/recovery-reads';
+
 export type ComputerUseActivityPhase =
   | 'active_background'
   | 'active_foreground'
   | 'queued_foreground'
   | 'queued_target'
+  | 'queued'
   | 'awaiting_recapture'
   | 'thinking'
   | 'paused_user_takeover';
@@ -49,7 +53,12 @@ export interface ComputerUseAttention {
 export interface ComputerUseSnapshot {
   revision: number;
   userControlActive: boolean;
+  takeoverGeneration?: number;
+  pausedSessionIds?: string[];
+  cleanupState?: 'pending' | 'failed' | 'ready';
   takeoverReason?: string;
+  idleResumeSeconds?: number;
+  idleResumeRemaining?: number;
   attentionRequired?: ComputerUseAttention;
   activities: ComputerUseActivity[];
   cursors: ComputerUseCursor[];
@@ -146,6 +155,7 @@ export function computerResultHasCode(text: string, expectedCode: string): boole
 }
 
 export class ComputerUseCoordinator {
+  private readonly cleanup = new ComputerCleanupBarrier();
   private readonly now: () => number;
   private readonly targetLeaseGraceMs: number;
   private readonly targetLeaseWaitMs: number;
@@ -160,7 +170,11 @@ export class ComputerUseCoordinator {
   private revision = 0;
   private leaseExpiryTimer: NodeJS.Timeout | null = null;
   private userControlActive = false;
+  private takeoverGeneration = 0;
+  private readonly pausedSessionIds = new Set<string>();
   private takeoverReason = '';
+  private idleResumeSeconds = 5;
+  private idleResumeRemaining: number | undefined;
   private attentionRequired: ComputerUseAttention | null = null;
 
   constructor(options: ComputerUseCoordinatorOptions = {}) {
@@ -174,6 +188,11 @@ export class ComputerUseCoordinator {
     return {
       revision: this.revision,
       userControlActive: this.userControlActive,
+      takeoverGeneration: this.takeoverGeneration,
+      idleResumeSeconds: this.idleResumeSeconds,
+      idleResumeRemaining: this.idleResumeRemaining,
+      pausedSessionIds: [...this.pausedSessionIds],
+      cleanupState: this.cleanup.state,
       ...(this.takeoverReason ? { takeoverReason: this.takeoverReason } : {}),
       ...(this.attentionRequired ? { attentionRequired: { ...this.attentionRequired } } : {}),
       activities: [...this.activities.values()]
@@ -196,10 +215,23 @@ export class ComputerUseCoordinator {
     return () => this.listeners.delete(listener);
   }
 
+  setIdleResume(seconds: number, remaining?: number): void {
+    if (seconds === this.idleResumeSeconds && remaining === this.idleResumeRemaining) return;
+    this.idleResumeSeconds = seconds;
+    this.idleResumeRemaining = remaining;
+    this.changed();
+  }
+
   assertAutomationAllowed(): void {
+    this.cleanup.assertClear();
     if (this.userControlActive) {
       throw new Error('computer_user_control_active: Computer Use is paused while the user has control');
     }
+  }
+
+  assertOperationAllowed(action: string): void {
+    if (this.userControlActive && isComputerRecoveryRead(action)) return;
+    this.assertAutomationAllowed();
   }
 
   beginCommand(input: {
@@ -208,7 +240,8 @@ export class ComputerUseCoordinator {
     target?: string;
     mode: 'background' | 'foreground';
   }): void {
-    this.assertAutomationAllowed();
+    this.assertOperationAllowed(input.action);
+    if (this.userControlActive && isComputerRecoveryRead(input.action)) return;
     const now = this.now();
     if (!this.attentionRequired?.sessionId
       || this.attentionRequired.sessionId === input.sessionId) {
@@ -229,6 +262,18 @@ export class ComputerUseCoordinator {
       startedAt: existing?.startedAt || now,
       updatedAt: now,
     });
+    this.changed();
+  }
+
+  queueCommand(input: { sessionId: string; action: string; target: string; mode: 'foreground' | 'background' }): void {
+    if (this.userControlActive) this.pausedSessionIds.add(input.sessionId);
+    if (!this.activities.has(input.sessionId)) {
+      const now = this.now();
+      this.activities.set(input.sessionId, {
+        ...input, phase: this.userControlActive ? 'paused_user_takeover' : 'queued',
+        startedAt: now, updatedAt: now,
+      });
+    }
     this.changed();
   }
 
@@ -324,7 +369,7 @@ export class ComputerUseCoordinator {
     this.activities.delete(sessionId);
     this.cursors.delete(sessionId);
     if (this.attentionRequired?.sessionId === sessionId) this.attentionRequired = null;
-    if (this.activities.size === 0) {
+    if (this.activities.size === 0 && !this.cleanup.blocked && !this.userControlActive) {
       this.userControlActive = false;
       this.takeoverReason = '';
     }
@@ -449,7 +494,7 @@ export class ComputerUseCoordinator {
     this.cursors.delete(sessionId);
     if (this.attentionRequired?.sessionId === sessionId) this.attentionRequired = null;
     this.releaseTargets(sessionId);
-    if (this.activities.size === 0) {
+    if (this.activities.size === 0 && !this.cleanup.blocked && !this.userControlActive) {
       this.userControlActive = false;
       this.takeoverReason = '';
     }
@@ -460,14 +505,18 @@ export class ComputerUseCoordinator {
     additionalSessionIds: Iterable<string> = [],
   ): string[] {
     const sessionIds = new Set<string>([
+      ...this.pausedSessionIds,
       ...this.activities.keys(),
       ...[...this.targetLeases.values()].map((lease) => lease.sessionId),
       ...this.pendingTargetLeases.map((request) => request.sessionId),
       ...additionalSessionIds,
     ]);
     if (sessionIds.size === 0) return [];
+    this.takeoverGeneration += 1;
+    for (const sessionId of sessionIds) this.pausedSessionIds.add(sessionId);
     this.userControlActive = true;
     this.takeoverReason = reason;
+    this.idleResumeRemaining = undefined;
     const now = this.now();
     for (const sessionId of sessionIds) {
       const existing = this.activities.get(sessionId);
@@ -498,8 +547,14 @@ export class ComputerUseCoordinator {
     return [...sessionIds];
   }
 
-  resumeAfterUserTakeover(): void {
+  resumeAfterUserTakeover(expectedGeneration?: number): void {
+    this.cleanup.assertClear();
+    if (expectedGeneration !== undefined && (!Number.isSafeInteger(expectedGeneration)
+      || expectedGeneration !== this.takeoverGeneration)) {
+      throw new Error('computer_resume_stale: user control changed; use the current resume control');
+    }
     this.userControlActive = false;
+    this.pausedSessionIds.clear();
     this.takeoverReason = '';
     for (const [sessionId, activity] of this.activities) {
       if (activity.phase !== 'paused_user_takeover') continue;
@@ -514,6 +569,7 @@ export class ComputerUseCoordinator {
   }
 
   reset(): void {
+    if (this.cleanup.blocked) return;
     for (const request of this.pendingTargetLeases.splice(0)) {
       if (request.timer) clearTimeout(request.timer);
       request.resolve({
@@ -531,6 +587,7 @@ export class ComputerUseCoordinator {
     this.activeCounts.clear();
     this.targetLeases.clear();
     this.userControlActive = false;
+    this.pausedSessionIds.clear();
     this.takeoverReason = '';
     this.attentionRequired = null;
     this.changed();
@@ -548,6 +605,18 @@ export class ComputerUseCoordinator {
       updatedAt: this.now(),
     });
     this.changed();
+  }
+
+  hasPendingCleanup(sessionId: string): boolean { return this.cleanup.has(sessionId); }
+
+  beginCleanup(sessionId: string): (confirmed: boolean) => void {
+    const finish = this.cleanup.begin(sessionId);
+    this.changed();
+    return (confirmed) => {
+      finish(confirmed);
+      if (!this.cleanup.blocked && !this.userControlActive) this.drainTargetQueue();
+      this.changed();
+    };
   }
 
   private targetsAvailableTo(sessionId: string, windowIds: string[]): boolean {
@@ -601,6 +670,7 @@ export class ComputerUseCoordinator {
   }
 
   private drainTargetQueue(): void {
+    if (this.cleanup.blocked || this.userControlActive) return;
     this.pruneExpiredLeases(false);
     let granted = false;
     for (const request of [...this.pendingTargetLeases]) {

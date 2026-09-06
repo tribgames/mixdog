@@ -8,19 +8,7 @@ import {
   fetchApiUsageSnapshot,
   readCachedApiUsageSnapshot,
 } from '../runtime/agent/orchestrator/providers/api-usage.mjs';
-
-function num(value, fallback = null) {
-  if (value === null || value === undefined || value === '') return fallback;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function round(value, digits = 4) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return null;
-  const scale = 10 ** digits;
-  return Math.round(n * scale) / scale;
-}
+import { num, round } from '../runtime/agent/orchestrator/providers/lib/usage-primitives.mjs';
 
 function clean(value) {
   const s = typeof value === 'string' ? value.trim() : '';
@@ -199,8 +187,7 @@ function providerDescription(id, group) {
     case 'deepseek': return 'DeepSeek API billing';
     case 'gemini': return 'Gemini API billing';
     case 'xai': return 'xAI API billing';
-    case 'ollama': return 'Local Ollama server';
-    case 'lmstudio': return 'Local LM Studio server';
+    case 'mixdog-local': return 'Mixdog Local Provider';
     default: return group === 'local' ? 'Local provider' : group === 'oauth' ? 'Subscription quota' : 'API billing';
   }
 }
@@ -331,8 +318,7 @@ function providerRank(row) {
     deepseek: 70,
     gemini: 80,
     xai: 90,
-    lmstudio: 100,
-    ollama: 110,
+    'mixdog-local': 100,
   };
   return ranks[id] ?? 900;
 }
@@ -632,19 +618,6 @@ export async function createUsageDashboard(config = {}, options = {}) {
     emit(true);
     return row;
   });
-
-  for (const item of setup.local || []) {
-    if (item.id === 'lmstudio') continue;
-    const row = baseRow(item, 'local', providers[item.id] || {});
-    row.status = item.enabled || item.detected ? 'local' : 'missing';
-    row.source = 'local-provider';
-    row.sourceLabel = item.enabled || item.detected ? 'local' : 'off';
-    row.primary = item.enabled || item.detected ? 'local provider' : 'disabled';
-    row.detail = item.enabled || item.detected ? 'No billing quota' : 'Not running';
-    row.tone = rowTone(row);
-    rows.push(row);
-    emit(true);
-  }
 
   await Promise.all([...apiTasks, ...oauthTasks]);
 

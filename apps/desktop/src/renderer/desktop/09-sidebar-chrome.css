@@ -170,6 +170,8 @@
 }
 .session-panel-action:hover:not(:disabled),
 .session-panel-action:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
+.session-panel-action:focus-visible { box-shadow: var(--mx-list-focus-ring); }
+.session-panel-action { transition: color var(--mx-motion-ink), background-color var(--mx-motion-ink); }
 .session-panel-action:disabled { opacity: var(--mx-op-disabled); cursor: default; }
 /* Collapse clips a fixed inner layout instead of reflowing every label at
    each intermediate width. This keeps font rasterization and row identity

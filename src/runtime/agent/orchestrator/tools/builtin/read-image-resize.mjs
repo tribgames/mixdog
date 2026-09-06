@@ -15,23 +15,23 @@ import { createHash } from 'node:crypto';
 // that stays under that cap after the 4/3 base64 inflation.
 export const API_IMAGE_MAX_BASE64_SIZE = 5 * 1024 * 1024; // 5 MB
 export const IMAGE_TARGET_RAW_SIZE = (API_IMAGE_MAX_BASE64_SIZE * 3) / 4; // 3.75 MB
-const IMAGE_MAX_WIDTH = 2000;
-const IMAGE_MAX_HEIGHT = 2000;
+export const IMAGE_MAX_WIDTH = 2000;
+export const IMAGE_MAX_HEIGHT = 2000;
 // Token budget for a single image. est tokens = base64.length * 0.125 (the
 // common per-image heuristic). Default aligns to the 5MB base64 API ceiling so the
 // dimension/raw-size resize governs the common case and the token gate only
 // fires on pathologically dense images.
 const DEFAULT_IMAGE_MAX_TOKENS = Math.ceil(API_IMAGE_MAX_BASE64_SIZE * 0.125);
-export const OPENAI_IMAGE_MAX_DIMENSION = 2048;
-export const OPENAI_IMAGE_PATCH_SIZE = 32;
-export const OPENAI_IMAGE_MAX_PATCHES = 1536;
+const OPENAI_IMAGE_MAX_DIMENSION = 2048;
+const OPENAI_IMAGE_PATCH_SIZE = 32;
+const OPENAI_IMAGE_MAX_PATCHES = 1536;
 const IMAGE_RESIZE_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 const imageResizeCache = new Map();
 let imageResizeCacheBytes = 0;
 let imageResizeCacheHits = 0;
 let imageResizeCacheMisses = 0;
 
-export class InvalidImageDataError extends Error {
+class InvalidImageDataError extends Error {
     constructor(cause = null) {
         const detail = cause instanceof Error && cause.message ? `: ${cause.message}` : '';
         super(`invalid or corrupt image data${detail}`);
@@ -43,7 +43,7 @@ export class InvalidImageDataError extends Error {
 
 export function imageProfileForProvider(provider) {
     const value = String(provider || '').trim().toLowerCase();
-    return /^(?:openai|xai|grok|deepseek|opencode-go|ollama|lmstudio)(?:-|$)/.test(value)
+    return /^(?:openai|xai|grok|deepseek|opencode-go|mixdog-local)(?:-|$)/.test(value)
         ? 'openai'
         : 'anthropic';
 }
@@ -117,15 +117,6 @@ async function loadSharp() {
         })();
     }
     return _sharpPromise;
-}
-
-export function prewarmImageResizer() {
-    return loadSharp();
-}
-
-// True when sharp resolved; used for the per-file change summary / fallback note.
-async function sharpAvailable() {
-    return (await loadSharp()) !== null;
 }
 
 function estTokens(base64) {

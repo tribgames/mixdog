@@ -220,7 +220,7 @@ export function ScmPathText({ path, name, title }: {
   const { directoryText, fileText } = splitScmPath(shownText, directory);
   // The tooltip appears once anything was dropped.
   const tooltip = title ?? (shownText === fullText ? "" : fullText);
-  return <span ref={hostRef} className="dock-scm-file-copy"
+  return <span ref={hostRef} className="dock-scm-file-copy" data-i18n-skip
     {...(tooltip ? { title: tooltip } : {})}>
     {directoryText ? <small className="dock-scm-file-path">{directoryText}</small> : null}
     <b className="dock-scm-file-name">{fileText}</b>

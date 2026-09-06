@@ -32,6 +32,7 @@ import {
 import { MEDIA_SCHEME, registerMediaProtocol, registerMediaScheme } from './media-protocol';
 import { desktopPermissionAllowed } from './permission-policy';
 import { installNativeMenu } from './menu';
+import { nativeT, refreshNativeUiLanguage } from './native-i18n';
 import { DesktopSettingsStore } from './settings-store';
 import { desktopUpdater, startAutoUpdater } from './updater';
 import { gcSupersededNativeToolCaches } from './native-runtime-cache-gc.mjs';
@@ -748,10 +749,10 @@ function handleGpuChildCrash(reason: string, exitCode: number): void {
   gpuFallbackPromptOpen = true;
   const options = {
     type: 'warning' as const,
-    title: 'Restart Mixdog?',
-    message: "Mixdog's graphics process has crashed repeatedly.",
-    detail: 'Restart with software rendering to keep Mixdog from disrupting video playback in other apps.',
-    buttons: ['Restart with software rendering', 'Keep running'],
+    title: nativeT('Restart Mixdog?'),
+    message: nativeT("Mixdog's graphics process has crashed repeatedly."),
+    detail: nativeT('Restart with software rendering to keep Mixdog from disrupting video playback in other apps.'),
+    buttons: [nativeT('Restart with software rendering'), nativeT('Keep running')],
     defaultId: 0,
     cancelId: 1,
     noLink: true,
@@ -864,11 +865,15 @@ async function createWindow(): Promise<void> {
   if (process.platform === 'win32' && computerHost && !computerUseOverlay) {
     const overlayComputerHost = computerHost;
     computerUseOverlay = createComputerUseOverlay({
+      resume: (generation, signal) => overlayComputerHost.resumeAfterTakeover(generation, signal),
+      pause: async () => overlayComputerHost.takeOver('user_pause'),
+      configureIdleResume: (seconds) => overlayComputerHost.configureIdleResume(seconds),
       // Stop = end the owning agent turns. The runtime's abort path releases
       // the computer session itself; the host-side stop is the fallback for
       // sessions the desktop cannot address (e.g. subagents) and clears any
       // takeover pause so the next turn starts clean.
       async stop(sessionIds) {
+        overlayComputerHost.takeOver('user_stop');
         await Promise.allSettled(
           sessionIds.map((sessionId) => host.abortSession(sessionId)),
         );
@@ -939,6 +944,7 @@ async function createWindow(): Promise<void> {
     powerMonitor,
     onDesktopSettingsChanged: applyDesktopSettings,
     browserHost,
+    computerHost: computerHost ?? undefined,
     updater: desktopUpdater,
     terminals: serviceTerminalManager,
     remoteAccessInfo,
@@ -1007,6 +1013,9 @@ async function createWindow(): Promise<void> {
     });
   });
   window.webContents.on('dom-ready', () => {
+    void refreshNativeUiLanguage(window).then(() => {
+      if (!window.isDestroyed()) installDesktopMenu();
+    });
     diagnostics?.write('renderer-dom-ready', {
       totalMs: Date.now() - startupStartedAt,
     });
@@ -1045,10 +1054,10 @@ async function createWindow(): Promise<void> {
     rendererRecoveryPromptOpen = true;
     void dialog.showMessageBox(window, {
       type: 'error',
-      title: 'Mixdog needs to recover',
-      message: 'The interface stopped repeatedly.',
-      detail: 'Your active task remains in the desktop host. Reload the interface to continue.',
-      buttons: ['Reload interface', 'Close window'],
+      title: nativeT('Mixdog needs to recover'),
+      message: nativeT('The interface stopped repeatedly.'),
+      detail: nativeT('Your active task remains in the desktop host. Reload the interface to continue.'),
+      buttons: [nativeT('Reload interface'), nativeT('Close window')],
       defaultId: 0,
       cancelId: 1,
       noLink: true,

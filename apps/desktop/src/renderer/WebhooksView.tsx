@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
+import { ErrorNotice } from './ErrorNotice';
 import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
 import {
@@ -357,7 +358,7 @@ function WebhookEditor({
               onCopy={() => copyField('secret', editing ? rotated : secret)} />}
         </div>
         <footer>
-          {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
+          {(formError || error) && <ErrorNotice error={formError || error} />}
           {editing && onDelete && <button type="button"
             className={`danger${confirmDelete ? ' confirming' : ''}`} disabled={busy}
             onClick={() => {
@@ -434,7 +435,7 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
       return result?.value ?? true;
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason);
-      if (errorMode === 'toast') showDesktopToast(message, 'error');
+      if (errorMode === 'toast') showDesktopToast(message, 'error', { scope: `webhook:${capability}` });
       else setError(message);
       return undefined;
     } finally {

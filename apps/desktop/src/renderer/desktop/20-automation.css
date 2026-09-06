@@ -80,7 +80,7 @@
      under the header's own 12px so the title never floats away from field
      one (user: 정렬이 마음에 들지 않는다). */
   gap: 16px;
-  padding: 4px 20px 20px;
+  padding: 4px var(--mx-dialog-inset) var(--mx-dialog-inset);
 }
 .schedules-field { display: grid; gap: 8px; color: var(--mx-text-muted); font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); }
 /* A field title and its note are ONE block: they close to 4px, and only the
@@ -109,11 +109,15 @@
 .schedules-dialog input:disabled:focus { box-shadow: var(--mx-button); }
 .schedules-composer {
   display: grid;
-  border-radius: var(--mx-radius-xl);
+  border-radius: var(--mx-radius-md);
+  outline: 1px solid transparent;
+  outline-offset: 0;
   background: var(--mx-bg-base);
   box-shadow: var(--mx-button);
 }
-.schedules-composer:focus-within { box-shadow: var(--mx-button-contrast); }
+/* Same quiet focus as every dialog field: one hairline ring, no halo. */
+.schedules-composer:hover:not(:focus-within) { box-shadow: var(--mx-button-contrast); }
+.schedules-composer:focus-within { outline-color: var(--mx-focus); box-shadow: var(--mx-button); }
 .schedules-composer textarea {
   min-height: 140px;
   /* Same 8px text axis as the field plates and the Markdown editors, so every
@@ -203,9 +207,13 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 10px 12px;
+  padding: 12px;
   border-radius: var(--mx-radius-md);
-  background: var(--mx-bg-layer-1);
+  /* ONE grouping box in the dialog system: the card's base plate under a
+     muted hairline — the memory viewport and the skill preview wear the
+     same — instead of a lighter layer-1 slab with no edge. */
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
 }
 .webhook-connection-row { gap: 2px; }
 .webhook-connection-row > span { font-size: var(--mx-font-minor); color: var(--mx-text-muted); }
@@ -243,15 +251,18 @@
      inline inset stays the form's 20px, so Save closes on the fields' right
      edge. */
   position: sticky;
-  bottom: -20px;
+  bottom: calc(-1 * var(--mx-dialog-inset));
   z-index: 1;
-  margin: 0 -20px -20px;
-  padding: 12px 20px 20px;
+  margin: 0 calc(-1 * var(--mx-dialog-inset)) calc(-1 * var(--mx-dialog-inset));
+  padding: 12px var(--mx-dialog-inset) var(--mx-dialog-inset);
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
-  background: var(--mx-bg-layer-1);
+  /* The CARD's plate, not a raised layer: layer-1 painted a lighter band under
+     the form so the floor read as a separate, empty strip (user: 배경도 한 색이
+     아니라 아래가 비어 보인다). */
+  background: var(--mx-popup-bg);
 }
 /* Save-time errors sit inline with Cancel/Save, pushing the buttons right. */
 .schedules-dialog footer .schedules-form-error { flex: 1; min-width: 0; text-align: left; }
@@ -335,35 +346,19 @@
 .row-overflow-trigger[aria-expanded="true"] { color: var(--mx-text); background: transparent; }
 .row-overflow-menu {
   position: fixed;
-  z-index: 420;
+  /* Body portals must clear the mobile drawer as well as dialog cards. */
+  z-index: var(--mx-menu-z-index);
   display: grid;
   gap: 0;
   max-height: calc(100vh - 16px);
   overflow-y: auto;
-  padding: 4px;
+  padding: var(--mx-menu-inset);
   box-sizing: border-box;
   border: var(--mx-popup-border);
   border-radius: var(--mx-popup-radius);
   color: var(--mx-text);
   background: var(--mx-popup-bg);
   box-shadow: var(--mx-popup-shadow);
-}
-.row-overflow-menu button {
-  width: 100%;
-  height: 36px;
-  min-height: 36px;
-  display: flex;
-  align-items: center;
-  padding: 0 10px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: inherit;
-  background: transparent;
-  text-align: left;
-  font: inherit;
-  font-size: var(--mx-font-ui);
-  cursor: pointer;
-  gap: 6px;
 }
 .row-overflow-menu button.menu-separator { margin-top: 4px; box-shadow: inset 0 1px var(--mx-border-muted); }
 /* Menu metrics (2em check gutter, 1em solid glyph):
@@ -378,10 +373,7 @@
 .row-overflow-submenu { flex: 0 0 auto; color: var(--mx-text-muted); }
 .row-overflow-menu .row-overflow-back { color: var(--mx-text-muted); }
 .row-overflow-menu .row-overflow-back > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row-overflow-menu button:hover:not(:disabled),
-.row-overflow-menu button:focus-visible { background: var(--mx-hover); outline: 0; }
 .row-overflow-menu button.danger { color: var(--mx-danger); }
-.row-overflow-menu button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
 .schedules-empty {
   flex: 1;
   display: grid;
@@ -421,17 +413,22 @@
   padding: 10px 8px;
   border: 0;
   border-radius: var(--mx-radius-md);
-  outline: none;
+  outline: 1px solid transparent;
+  outline-offset: 0;
   color: var(--mx-text);
   background: var(--mx-bg-base);
   box-shadow: var(--mx-button);
   font-family: var(--mx-font-mono);
-  font-size: var(--mx-font-meta);
+  /* Mono runs on the code size, the token that optically matches the 14px
+     control text every sans field uses. */
+  font-size: var(--mx-font-code);
   font-weight: var(--mx-weight-regular);
   line-height: 1.55;
   resize: vertical;
 }
-.workflows-md-field textarea:focus { box-shadow: var(--mx-button-contrast); }
+.workflows-md-field textarea:hover:not(:disabled):not(:focus) { box-shadow: var(--mx-button-contrast); }
+.workflows-md-field textarea:focus { outline-color: var(--mx-focus); box-shadow: var(--mx-button); }
+.workflows-md-field textarea::placeholder { color: var(--mx-text-faint); }
 .workflows-agent-list { display: grid; gap: 6px; }
 .workflows-agent-row {
   display: flex;
@@ -486,19 +483,43 @@
 /* A built-in model row is two read-only lines and one route — it does not
    need the Markdown editors' 800px card. */
 .workflows-route-dialog { --mx-editor-width: 560px; }
-/* The Model control stays FRAMELESS (user: 모델은 들여쓰기만): it keeps the
-   composer's quiet trigger, and only its indent and row height join the
-   fields above it — first glyph 8px inside the field, on both edges, in a
-   32px row so the label ladder keeps one rhythm. */
+/* The Model control is a FIELD, not the composer's quiet pill (user: 텍스트
+   박스랑 배경 분리): it wears the dialog input skin from 30-dialogs.css —
+   32px plate on --mx-bg-base, hairline at rest, one-pixel ring on focus —
+   and its plate starts on the label edge like every other
+   field, so the old bare 8px indent is gone and the glyph sits 8px inside
+   the plate exactly as the inputs above it. Width stays content-sized: the
+   open pill morphs to the sheet width (RouteEditor), and a full-width plate
+   would visibly shrink on open. */
 .workflows-dialog-route { min-height: 32px; display: flex; align-items: center; }
 .workflows-dialog-route .workflows-route-controls { margin-left: 0; justify-content: flex-start; }
-/* Symmetric 8px: the trigger's composer geometry closes its right edge at
-   4px, which reads as a tilt once it stands under full-width field plates. */
-.workflows-dialog-route .route-editor > .model-trigger { padding-inline: 8px; }
-.workflows-delete-dialog-body { padding: 16px 20px 4px; color: var(--mx-text-muted); font-size: var(--mx-font-ui); }
-.workflows-delete-dialog-body p { margin: 0 0 10px; line-height: var(--mx-line-ui); }
-.workflows-delete-dialog-body b { color: var(--mx-text); font-weight: var(--mx-weight-semibold); }
-.workflows-delete-dialog-body ul { margin: 0; padding-left: 20px; color: var(--mx-text); }
+.workflows-dialog-route .route-editor > .model-trigger {
+  box-sizing: border-box;
+  height: 32px;
+  padding: 0 6px 0 8px;
+  border-radius: var(--mx-radius-md);
+  outline: 1px solid transparent;
+  outline-offset: 0;
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+}
+/* Hover/open answer like the dialog's other dropdowns (.mx-select-trigger in
+   Project/Frequency/Applies-to): a wash over the plate, hairline unchanged. */
+.workflows-dialog-route .route-editor > .model-trigger:hover:not(:disabled),
+.workflows-dialog-route .route-editor > .model-trigger[aria-expanded="true"] {
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+}
+.workflows-dialog-route .route-editor > .model-trigger:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 0;
+  box-shadow: var(--mx-button);
+}
+.workflows-dialog-route .route-editor > .model-trigger:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
 /* The destructive action sits alone on the footer's left edge; its ink and
    plate come from the shared danger variant. */
 .schedules-dialog footer button.danger { margin-right: auto; }
@@ -667,6 +688,30 @@
 .projects-memory-editor .projects-memory-edit-fields,
 .projects-memory-editor .core-memory-copy { grid-column: 1; }
 .projects-memory-editor .core-memory-actions { grid-column: 2; }
+/* Memory row actions speak the popup's own button ladder (the usage card's
+   quiet plate) instead of the Settings page's base-plate buttons, which
+   vanished against the card. */
+.projects-memory-editor .core-memory-actions button {
+  min-height: 28px;
+  padding: 0 11px;
+  background: var(--mx-popup-action-bg);
+  box-shadow: var(--mx-popup-action-ring);
+}
+.projects-memory-editor .core-memory-actions button:hover:not(:disabled) {
+  background: var(--mx-hover);
+  box-shadow: var(--mx-popup-action-ring-hover);
+}
+.projects-memory-editor .core-memory-actions button.danger {
+  color: var(--mx-danger);
+  background: var(--mx-danger-bg);
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-danger) 28%, transparent);
+}
+.projects-memory-editor .core-memory-actions button.danger:hover:not(:disabled) {
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-danger-bg);
+}
+/* Memory rows part on the usage card's hairline, not a heavier border. */
+.projects-memory-add-row,
+.projects-memory-editor .core-memory-edit { border-bottom-color: var(--mx-border-muted); }
 .projects-folder-row { display: flex; align-items: center; gap: 8px; }
 /* The chosen path is a read-only FIELD, so it wears the field plate: same
    32px box, same 8px text axis and same tone as the Name input above it
@@ -790,9 +835,11 @@
   background: var(--mx-bg-deep);
   box-shadow: inset 0 0 0 .5px var(--mx-border);
   font-family: var(--mx-font-mono);
-  font-size: var(--mx-font-micro);
+  /* Code size like every other mono field; 11px made this the one text box
+     that read smaller than its neighbours. */
+  font-size: var(--mx-font-code);
   font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-meta);
+  line-height: var(--mx-line-minor);
   resize: none;
 }
 .settings-oauth-code {
@@ -999,4 +1046,14 @@
 .settings-confirm-dialog > footer button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
 .settings-confirm-dialog > footer button:focus-visible,
 .settings-confirm-dialog > header button:focus-visible { outline: 2px solid var(--mx-focus); outline-offset: 2px; }
+
+/* Built-in agent editor: the fixed "when to use" reads as a sentence under its
+   label, on the field's text ink, instead of a greyed-out input. */
+.workflows-route-dialog .workflows-route-usage {
+  margin: 0;
+  color: var(--mx-text-soft);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-minor);
+  overflow-wrap: anywhere;
+}
 

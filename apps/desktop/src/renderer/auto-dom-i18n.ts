@@ -1,4 +1,5 @@
-import { t } from "./i18n";
+import { activeUiTranslationKeys, t } from "./i18n";
+import { uiTranslationTemplates } from "./auto-i18n-templates";
 
 const ATTRIBUTES = ["aria-label", "placeholder", "title", "data-tooltip"] as const;
 const SKIP = [
@@ -22,40 +23,6 @@ const SKIP = [
   ".dock-scm-commit-info",
 ].join(",");
 
-type TemplateMatch = {
-  key: string;
-  names: string[];
-  expression: RegExp;
-};
-
-const templateCache = new Map<string, TemplateMatch | null>();
-
-function escapeExpression(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function templateMatch(key: string): TemplateMatch | null {
-  const cached = templateCache.get(key);
-  if (cached !== undefined) return cached;
-  const names: string[] = [];
-  let cursor = 0;
-  let expressionSource = "^";
-  for (const match of key.matchAll(/\{\{([^}]+)\}\}/g)) {
-    expressionSource += escapeExpression(key.slice(cursor, match.index));
-    expressionSource += "(.+?)";
-    names.push(match[1]);
-    cursor = (match.index || 0) + match[0].length;
-  }
-  if (!names.length) {
-    templateCache.set(key, null);
-    return null;
-  }
-  expressionSource += `${escapeExpression(key.slice(cursor))}$`;
-  const compiled = { key, names, expression: new RegExp(expressionSource) };
-  templateCache.set(key, compiled);
-  return compiled;
-}
-
 function translatedText(value: string): string {
   const leading = value.match(/^\s*/)?.[0] || "";
   const trailing = value.match(/\s*$/)?.[0] || "";
@@ -67,15 +34,12 @@ function translatedText(value: string): string {
 
   // Interpolated hardcoded strings (for example "Filter files") cannot call
   // t() at their JSX source. Match them against catalog templates here.
-  const catalog = (t as unknown as { autoKeys?: string[] }).autoKeys || [];
-  for (const key of catalog) {
-    const template = templateMatch(key);
-    if (!template) continue;
+  for (const template of uiTranslationTemplates(activeUiTranslationKeys())) {
     const match = template.expression.exec(source);
     if (!match) continue;
     const options = Object.fromEntries(template.names.map((name, index) => [name, match[index + 1]]));
-    const translated = t(key, options);
-    if (translated !== key) return `${leading}${translated}${trailing}`;
+    const translated = t(template.key, options);
+    if (translated !== template.key && translated !== source) return `${leading}${translated}${trailing}`;
   }
   return value;
 }
@@ -96,7 +60,7 @@ function localize(node: Node): void {
   if (!(node instanceof Element)) return;
   // Editable/technical roots keep their content untouched, but their own
   // labels and placeholders are still UI and must be localized.
-  if (skipped(node.parentElement)) return;
+  if (node.matches("[data-i18n-skip]") || skipped(node.parentElement)) return;
   for (const attribute of ATTRIBUTES) {
     const current = node.getAttribute(attribute);
     if (!current) continue;

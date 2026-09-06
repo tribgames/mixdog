@@ -4,7 +4,7 @@ import { strings } from '../design/design-tokens.mjs';
 import { plainObject } from '../shared/values.mjs';
 
 // The five axes a slide is scored on (1-5 each); the pptx skill §6 names them.
-export const PPTX_CRITIQUE_AXES = Object.freeze(['hierarchy', 'balance', 'legibility', 'cohesion', 'evidence']);
+const PPTX_CRITIQUE_AXES = Object.freeze(['hierarchy', 'balance', 'legibility', 'cohesion', 'evidence']);
 
 // Instance-specific checks: binary questions derived from the slide's own
 // plan line ("the chart's accent bar is the category the title names"),
@@ -107,11 +107,14 @@ export function pptxVisualReviewAcknowledged({
   expectedToken = '',
   renderedVersion = null,
   snapshotVersion = 0,
+  coverageComplete = true,
   critiqueOk = false,
 } = {}) {
   return reviewed === true
     && Boolean(expectedToken)
     && String(providedToken || '') === String(expectedToken)
+    && renderedVersion != null
     && Number(renderedVersion) === Number(snapshotVersion || 0)
+    && coverageComplete === true
     && critiqueOk === true;
 }

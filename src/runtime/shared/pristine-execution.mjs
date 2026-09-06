@@ -16,6 +16,7 @@ import {
   AGENT_PROVIDER_ENV_ALIASES,
   getAgentApiKey,
 } from './provider-api-key.mjs';
+import { clean } from './clean.mjs';
 
 const contractPath = fileURLToPath(
   new URL('./pristine-execution-contract.json', import.meta.url),
@@ -24,15 +25,11 @@ const patchManifestPath = fileURLToPath(
   new URL('../agent/orchestrator/tools/patch-manifest.json', import.meta.url),
 );
 
-export const PRISTINE_EXECUTION_CONTRACT = Object.freeze(
+const PRISTINE_EXECUTION_CONTRACT = Object.freeze(
   JSON.parse(readFileSync(contractPath, 'utf8')),
 );
 
 const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
-
-function clean(value) {
-  return String(value ?? '').trim();
-}
 
 export function validateExplicitPristineRoute({ provider, model, effort, fast } = {}) {
   const selectedProvider = clean(provider);
@@ -50,7 +47,7 @@ export function validateExplicitPristineRoute({ provider, model, effort, fast } 
   return null;
 }
 
-export function buildMinimalPristineConfig({ provider, model, effort, fast } = {}) {
+function buildMinimalPristineConfig({ provider, model, effort, fast } = {}) {
   const routeError = validateExplicitPristineRoute({ provider, model, effort, fast });
   if (routeError) throw new Error(routeError);
   const selectedProvider = clean(provider);
@@ -126,7 +123,7 @@ function patchPlatformKey() {
   return `${os}-${process.arch}`;
 }
 
-export function seedVerifiedPatchBinaryCache(
+function seedVerifiedPatchBinaryCache(
   sourceDataDir,
   dataDir,
   { manifestPath = patchManifestPath } = {},

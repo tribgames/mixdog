@@ -1,6 +1,7 @@
 /**
  * Anthropic "effort" (extended-thinking budget) request parameter handling.
  */
+import { assertAnthropicManualBudgetSupported, isAnthropicAdaptiveOnlyModel } from './anthropic-thinking-contract.mjs';
 
 const EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
 
@@ -151,8 +152,10 @@ function _regexSupportsEffort(model) {
     const m = normalizeModelId(model);
     if (!m.includes('claude')) return false;
     if (isLegacyAnthropicReasoningModel(model)) return false;
+    if (isAnthropicAdaptiveOnlyModel(model)) return true;
     if (m.includes('opus-4-6') || m.includes('sonnet-4-6')) return true;
     if (m.includes('sonnet-5') || m.includes('fable-5')) return true;
+    if (/^claude-mythos-5-1(?:-\d{8})?$/.test(m)) return true;
     if (/^claude-opus-4-(6|7|8)(?:$|[-@])/.test(m)) return true;
     if (/^claude-opus-5(?:$|[-@])/.test(m)) return true;
     // Fallthrough for not-yet-enumerated modern models: only grant effort when
@@ -273,6 +276,7 @@ export function applyAnthropicEffortToBody(
 
     const thinkingBudgetTokens = Number(opts.thinkingBudgetTokens);
     if (Number.isFinite(thinkingBudgetTokens) && thinkingBudgetTokens > 0) {
+        assertAnthropicManualBudgetSupported(model);
         const budgetTokens = clampThinkingBudgetTokens(thinkingBudgetTokens, maxTokens);
         if (budgetTokens) {
             body.thinking = { type: 'enabled', budget_tokens: budgetTokens };
@@ -307,6 +311,9 @@ export function applyAnthropicEffortToBody(
     }
 
     if (normalized && LEGACY_EFFORT_BUDGET[normalized]) {
+        // Contradictory/stale catalog data must not route an adaptive-only
+        // model back to a manual request that its backend rejects.
+        assertAnthropicManualBudgetSupported(model);
         const budgetTokens = clampThinkingBudgetTokens(LEGACY_EFFORT_BUDGET[normalized], maxTokens);
         if (budgetTokens) {
             body.thinking = { type: 'enabled', budget_tokens: budgetTokens };

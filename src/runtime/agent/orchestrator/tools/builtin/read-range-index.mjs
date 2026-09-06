@@ -22,7 +22,7 @@ export function configureReadRangeIndexTelemetry({ trace, hashText } = {}) {
     if (typeof hashText === 'function') hashTextForTrace = hashText;
 }
 
-function canonicalCachePath(p) {
+export function canonicalCachePath(p) {
     const full = normalize(resolve(String(p || '')));
     return process.platform === 'win32' ? full.toLowerCase() : full;
 }

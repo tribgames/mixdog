@@ -64,7 +64,7 @@ export function _displayModel(id) {
     return `claude-${m[1].toLowerCase()}-${m[2]}${m[3] ? `.${m[3]}` : ''}`;
 }
 
-function _capabilitySupported(capability) {
+export function _capabilitySupported(capability) {
     return capability === true || capability?.supported === true;
 }
 
@@ -100,13 +100,13 @@ export function _normalizeAnthropicModel(raw) {
     };
 }
 
-function _prettyName(id, family) {
-    const v = id.match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/i);
-    const base = family[0].toUpperCase() + family.slice(1);
+export function _prettyName(id, family) {
+    const v = String(id || '').match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/i);
+    const base = family ? family[0].toUpperCase() + family.slice(1) : 'Claude';
     return v ? `${base} ${v[1]}${v[2] ? `.${v[2]}` : ''}` : base;
 }
 
-function _defaultContextForModel(id, family) {
+export function _defaultContextForModel(id, family) {
     const text = String(id || '');
     const version = text.match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/i);
     if (Number(version?.[1] || 0) >= 5) return 1000000;

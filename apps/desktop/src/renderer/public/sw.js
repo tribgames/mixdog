@@ -4,17 +4,7 @@
 // app failed to boot on its next visit (user: Importing a module script
 // failed).
 const ASSET_CACHE = "mixdog-assets-v2";
-// The app shell document. It is served `no-cache` so a fresh deploy applies on
-// the very next load, which over the relay costs a full round trip to another
-// continent BEFORE any byte of the app moves — ~450ms on every launch of an
-// otherwise fully cached app. Answering it from the last copy and refreshing
-// behind the paint applies a deploy one launch later instead, which is the
-// same bargain the content-hashed asset URLs already make. boot.js is inlined
-// into this document by the build, so the shell is exactly one request.
-const SHELL_CACHE = "mixdog-shell-v1";
-// A deploy the refresh behind the paint discovered. The page owns the moment
-// it is adopted; this worker only reports that the document changed.
-const SHELL_UPDATE_MESSAGE = "mixdog:shell-updated";
+importScripts("/sw-shell.js");
 // A few deploys' worth of chunks; the oldest entries are evicted first.
 const MAX_ASSET_ENTRIES = 400;
 // One page boot requests several hashed chunks together. Trimming after every
@@ -22,12 +12,8 @@ const MAX_ASSET_ENTRIES = 400;
 const CACHE_TRIM_DEBOUNCE_MS = 50;
 let cacheTrimMaintenance = null;
 
-// Build output under /assets/ carries a content hash, so a given URL can never
-// change meaning. Those are the only responses served from the cache: the
-// document, boot.js, the manifest and this worker stay on the network so a
-// fresh deploy is picked up on the very next load and no stale application
-// shell can strand the app. Live host traffic (/ws, /media, /client, /hook)
-// never reaches this branch.
+// Hashed assets are immutable. The document cache separately checks whether
+// its bootstrap is retained; live host traffic never enters the asset cache.
 const HASHED_ASSET = /^\/assets\/.+-[A-Za-z0-9_-]{8,}\.[^./]+$/;
 
 // Web Share Target. The share sheet POSTs the shared payload into this scope,
@@ -160,51 +146,6 @@ async function cacheFirst(request) {
       .catch(() => undefined);
   }
   return { response, maintenance };
-}
-
-/** Every window of this app, including one still controlled by the worker a
- *  deploy replaced. */
-async function announceShellUpdate() {
-  const windows = await self.clients.matchAll({
-    type: "window",
-    includeUncontrolled: true,
-  });
-  for (const client of windows) client.postMessage({ type: SHELL_UPDATE_MESSAGE });
-}
-
-/** The document: last copy now, fresh copy for the next launch. A cache miss
- *  falls through to the network, so the first launch after install is
- *  unchanged.
- *
- *  Serving the previous document also serves the previous BUNDLE: its asset
- *  URLs are the content-hashed ones from that deploy, so a launch right after
- *  a deploy is the old app end to end (user: 코드가 적용이 안 된 것 같다) and
- *  the new one appeared only on the launch after. The refresh therefore
- *  reports a document that actually changed, and the page reloads itself once
- *  that costs nothing — the deploy lands within the same launch while the
- *  first paint keeps its cached round trip. */
-async function shellFirst(request) {
-  const cache = await caches.open(SHELL_CACHE);
-  const hit = await cache.match(request, { ignoreVary: true });
-  // Read the retained copy BEFORE it is handed out: the response answering the
-  // navigation owns its own stream.
-  const cached = hit ? hit.clone().text().catch(() => null) : null;
-  const refresh = fetch(request).then(async (response) => {
-    if (!response.ok || response.type !== "basic") return response;
-    const copy = storableCopy(response);
-    // The shell is a single small document, so the same bytes can be both
-    // stored and compared; assets stay streamed.
-    const body = await copy.text();
-    await cache.put(request, new Response(body, {
-      status: copy.status,
-      statusText: copy.statusText,
-      headers: copy.headers,
-    }));
-    if (cached !== null && (await cached) !== body) await announceShellUpdate();
-    return response;
-  });
-  if (hit) return { response: hit, maintenance: refresh.catch(() => undefined) };
-  return { response: await refresh, maintenance: null };
 }
 
 function sharedEntryUrl(token, name) {
@@ -378,7 +319,15 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(fetch(request));
     return;
   }
-  const operation = cacheFirst(request);
+  const operation = cacheFirst(request).then((result) => {
+    if (result.response.status === 404 || result.response.status === 410) {
+      return {
+        ...result,
+        maintenance: recoverMissingAsset(event.clientId).catch(() => undefined),
+      };
+    }
+    return result;
+  });
   event.respondWith(operation
     .then((result) => result.response)
     .catch(() => fetch(request)));

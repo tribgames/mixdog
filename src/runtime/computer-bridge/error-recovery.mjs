@@ -44,11 +44,23 @@ function recoveryForCode(code, args) {
           : `The target lease is now available. Capture ${target} again before issuing any input.`,
     };
   }
-  if (code === 'computer_user_control_active' || code === 'computer_user_takeover') {
+  if (code === 'computer_user_control_active' || code === 'computer_user_takeover' || code === 'user_input_active') {
     return {
       code,
-      next: 'user',
-      guidance: 'The user has taken control. Do not issue more Computer Use commands until they explicitly resume automation.',
+      next: 'wait_for_user',
+      guidance: 'Computer Use yielded to the user. Call wait_for_user for bounded waiting. Ordinary physical input may resume after the host-configured quiet interval (default 5 seconds); explicit stops and uncertain cleanup/observation require the user. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input. Manual Resume is also available on the overlay.',
+    };
+  }
+  if (code === 'input_observation_unavailable' || code === 'input_recovery_unconfirmed') {
+    return {
+      code, next: 'diagnose',
+      guidance: 'Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active.',
+    };
+  }
+  if (code === 'computer_cleanup_pending' || code === 'computer_abort_cleanup_unconfirmed') {
+    return {
+      code, next: 'user',
+      guidance: 'Worker exit and input release are not confirmed. Do not resume or reset the guard; wait for cleanup. Failed cleanup requires an explicitly approved host restart.',
     };
   }
   if (code.startsWith('menu_') || code === 'computer_command_timeout') {

@@ -4,7 +4,7 @@ import { clamp, plainObject } from '../shared/values.mjs';
 // LibreOffice preview used for visual QA. Anything outside this list either
 // substitutes with different metrics (so overflow checks lie) or is missing on
 // older installs; both silently degrade the deck.
-export const SAFE_FONT_FAMILIES = Object.freeze([
+const SAFE_FONT_FAMILIES = Object.freeze([
   'Arial',
   'Calibri',
   'Cambria',
@@ -51,20 +51,20 @@ export const SAFE_FONT_FAMILIES = Object.freeze([
 
 const SAFE_FONT_KEYS = new Set(SAFE_FONT_FAMILIES.map((name) => fontFamilyKey(name)));
 
-export const TYPOGRAPHY_ROLES = Object.freeze(['display', 'body', 'data']);
+const TYPOGRAPHY_ROLES = Object.freeze(['display', 'body', 'data']);
 // Motif shapes are named so structural review can tell deliberate decoration
 // (a ghosted numeral, a halo) from content that must stay legible.
-export const MOTIF_SHAPE_PREFIX = 'Mixdog Motif';
+const MOTIF_SHAPE_PREFIX = 'Mixdog Motif';
 
 export function isMotifShape(shape) {
   return String(shape?.name || '').startsWith(MOTIF_SHAPE_PREFIX);
 }
 export const MAX_FONT_FAMILIES_PER_SLIDE = 3;
 export const MAX_ACCENT_HUE_FAMILIES = 2;
-export const TEXT_CONTRAST_MINIMUM = 4.5;
-export const LARGE_TEXT_CONTRAST_MINIMUM = 3;
-export const LARGE_TEXT_POINT_SIZE = 24;
-export const LARGE_BOLD_TEXT_POINT_SIZE = 18.66;
+const TEXT_CONTRAST_MINIMUM = 4.5;
+const LARGE_TEXT_CONTRAST_MINIMUM = 3;
+const LARGE_TEXT_POINT_SIZE = 24;
+const LARGE_BOLD_TEXT_POINT_SIZE = 18.66;
 
 export function fontFamilyKey(name) {
   return String(name || '')
@@ -77,11 +77,6 @@ export function fontFamilyKey(name) {
 export function isSafeFontFamily(name) {
   const key = fontFamilyKey(name);
   return Boolean(key) && SAFE_FONT_KEYS.has(key);
-}
-
-export function isLargeText({ fontSize = 0, bold = false } = {}) {
-  const size = Number(fontSize) || 0;
-  return size >= LARGE_TEXT_POINT_SIZE || (bold === true && size >= LARGE_BOLD_TEXT_POINT_SIZE);
 }
 
 export function normalizeTypographyTokens(requested, fallback) {
@@ -102,20 +97,20 @@ export function normalizeTypographyTokens(requested, fallback) {
   return { typography, replaced, familyCount: families.size };
 }
 
-export function hexToRgb(value) {
+function hexToRgb(value) {
   const normalized = String(value || '').replace(/^#/, '').toUpperCase();
   if (!/^[0-9A-F]{6}$/.test(normalized)) return null;
   return [0, 2, 4].map((offset) => Number.parseInt(normalized.slice(offset, offset + 2), 16));
 }
 
-export function rgbToHex([red, green, blue]) {
+function rgbToHex([red, green, blue]) {
   return [red, green, blue]
     .map((channel) => Math.round(clamp(channel, 0, 255)).toString(16).padStart(2, '0'))
     .join('')
     .toUpperCase();
 }
 
-export function hexToHsl(value) {
+function hexToHsl(value) {
   const rgb = hexToRgb(value);
   if (!rgb) return null;
   const [red, green, blue] = rgb.map((channel) => channel / 255);
@@ -173,11 +168,6 @@ export function contrastRatio(foreground, background) {
   const lighter = Math.max(front, back);
   const darker = Math.min(front, back);
   return Math.round(((lighter + 0.05) / (darker + 0.05)) * 100) / 100;
-}
-
-export function isDarkColor(value) {
-  const luminance = relativeLuminance(value);
-  return luminance != null && luminance < 0.35;
 }
 
 function adjustLightnessForContrast(color, against, minimum, direction) {
@@ -268,7 +258,7 @@ export function normalizePaletteTokens(source) {
   return { colors, adjustments };
 }
 
-export function paletteSlots(colors) {
+function paletteSlots(colors) {
   const source = plainObject(colors) ? colors : {};
   return {
     dominant: source.accent || '',
@@ -280,7 +270,7 @@ export function paletteSlots(colors) {
   };
 }
 
-export function hueFamily(value) {
+function hueFamily(value) {
   const hsl = hexToHsl(value);
   if (!hsl) return null;
   if (hsl.saturation < 35 || hsl.lightness < 18 || hsl.lightness > 88) return null;
@@ -294,10 +284,6 @@ export function saturatedHueFamilies(values) {
     if (family != null) families.add(family);
   }
   return [...families];
-}
-
-export function requiredContrast(style = {}) {
-  return isLargeText(style) ? LARGE_TEXT_CONTRAST_MINIMUM : TEXT_CONTRAST_MINIMUM;
 }
 
 export function designDisciplineBrief(tokens) {

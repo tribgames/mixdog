@@ -1,7 +1,8 @@
 import { readFileSync, readdirSync, statSync, writeFileSync } from "fs";
 import { execFileSync } from "child_process";
 import { basename, join } from "path";
-import { ensureDir, readJsonFile, removeFileIfExists, writeJsonFile } from "./state-file.mjs";
+import { ensureDir, readJsonFile, removeFileIfExists } from "./state-file.mjs";
+import { isPidAlive } from "../../shared/pid-liveness.mjs";
 import { updateJsonAtomicSync, withFileLockSync } from "../../shared/atomic-file.mjs";
 import { resolvePluginData, mixdogRoot } from "../../shared/plugin-paths.mjs";
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from "../../shared/runtime-root.mjs";
@@ -62,16 +63,6 @@ function getActiveOwnerPid(state) {
     ?? parsePositivePid(state?.terminalLeadPid)
     ?? parsePositivePid(state?.supervisor_pid)
     ?? parsePositivePid(state?.instanceId);
-}
-function isPidAlive(pid) {
-  const n = parsePositivePid(pid);
-  if (!n) return false;
-  try {
-    process.kill(n, 0);
-    return true;
-  } catch (e) {
-    return e?.code === "EPERM";
-  }
 }
 function activeInstanceStaleReason(state) {
   const ownerPid = getActiveOwnerPid(state);
@@ -136,10 +127,6 @@ function readActiveInstance() {
   // its leftover advert is harmless and refreshActiveInstance's own
   // preservation logic decides which fields to carry forward.
   return state;
-}
-function writeActiveInstance(state) {
-  ensureRuntimeDirs();
-  writeJsonFile(ACTIVE_INSTANCE_FILE, state);
 }
 // Non-blocking ownership probe for the periodic refresh/heartbeat tick. Reads
 // active-instance WITHOUT taking the lock (never blocks). Distinguishes:

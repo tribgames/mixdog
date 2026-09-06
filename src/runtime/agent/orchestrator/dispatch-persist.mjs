@@ -332,7 +332,7 @@ function removePending(dataDir, handle) {
  * Notifications fire asynchronously; the return value is the number of
  * handles queued for recovery (callers use it as bootstrap telemetry).
  */
-export function recoverPending(dataDir, notifyFn, { sessionId, priorSessionId, clientHostPid } = {}) {
+function recoverPending(dataDir, notifyFn, { sessionId, priorSessionId, clientHostPid } = {}) {
   if (!dataDir || typeof notifyFn !== 'function') return 0;
   const { map: snapshot } = gc(readAllSync(dataDir));
   const filterSid = sessionId != null && String(sessionId) ? String(sessionId) : null;

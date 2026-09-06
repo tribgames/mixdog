@@ -121,32 +121,7 @@ export const observationActions = defineBrowserActions({
     );
     const offset = Math.max(0, Number.isFinite(command.offset) ? Math.trunc(command.offset as number) : 0);
     const query = String(command.query || '').trim().toLowerCase();
-    const page = await services.cdp.evaluate<{
-      url: string; title: string; text: string; total: number; offset: number;
-    }>(guest, `(() => {
-      let text = (document.body ? (document.body.innerText || document.body.textContent || '') : '')
-        .replace(/\\n{3,}/g, '\\n\\n').trim();
-      const query = ${JSON.stringify(query)};
-      if (query) {
-        const lines = text.split('\\n');
-        const matched = new Set();
-        lines.forEach((line, index) => {
-          if (!line.toLowerCase().includes(query)) return;
-          for (let cursor = Math.max(0, index - 2); cursor <= Math.min(lines.length - 1, index + 2); cursor += 1) {
-            matched.add(cursor);
-          }
-        });
-        text = [...matched].sort((a, b) => a - b).map((index) => lines[index]).join('\\n');
-      }
-      const offset = Math.min(text.length, ${offset});
-      return {
-        url: String(location.href),
-        title: String(document.title || ''),
-        text: text.slice(offset, offset + ${maxChars}),
-        total: text.length,
-        offset,
-      };
-    })()`, signal);
+    const page = await services.documents.readPage(guest, query, maxChars, offset, signal);
     const shownThrough = Math.min(page.total, page.offset + page.text.length);
     const truncated = shownThrough < page.total
       ? `\n\n[truncated: showing ${page.offset.toLocaleString()}–${shownThrough.toLocaleString()} of ${page.total.toLocaleString()} characters; continue with offset:${shownThrough}]`
@@ -154,7 +129,7 @@ export const observationActions = defineBrowserActions({
     return {
       text: UNTRUSTED_CONTENT_BANNER
         + `Page: ${redactBrowserText(page.title)}\nURL: ${redactBrowserUrl(page.url)}\n\n`
-        + `${redactBrowserText(page.text)}${truncated}`,
+        + `${services.state.redactText(guest, page.text)}${truncated}`,
     };
   },
 
@@ -166,41 +141,7 @@ export const observationActions = defineBrowserActions({
     const attributes = (Array.isArray(command.attributes) ? command.attributes : [])
       .filter((name): name is string => typeof name === 'string' && Boolean(name.trim()))
       .slice(0, 12);
-    const payload = await services.cdp.evaluate<{
-      error?: string;
-      total?: number;
-      rows?: Array<{ text: string; name: string; attributes: Record<string, string> }>;
-    }>(guest, `(() => {
-      let nodes;
-      try {
-        nodes = document.querySelectorAll(${JSON.stringify(selector)});
-      } catch {
-        return { error: 'invalid' };
-      }
-      const wanted = ${JSON.stringify(attributes)};
-      const compact = (value, max) => String(value == null ? '' : value)
-        .replace(/\\s+/g, ' ').trim().slice(0, max);
-      const rows = [];
-      for (const node of nodes) {
-        if (rows.length >= ${limit}) break;
-        const attributes = {};
-        for (const name of wanted) {
-          const raw = name === 'href' && node instanceof HTMLAnchorElement
-            ? node.href
-            : node.getAttribute?.(name);
-          if (raw != null && raw !== '') attributes[name] = compact(raw, 300);
-        }
-        rows.push({
-          text: compact(node.innerText || node.textContent, 400),
-          name: compact(node.getAttribute?.('aria-label') || node.getAttribute?.('title'), 120),
-          attributes,
-        });
-      }
-      return { total: nodes.length, rows };
-    })()`, signal);
-    if (payload?.error === 'invalid') {
-      throw new Error(`extract selector ${JSON.stringify(selector)} is not a valid CSS selector`);
-    }
+    const payload = await services.documents.extractPage(guest, selector, attributes, limit, signal);
     const rows = payload?.rows || [];
     const total = Number(payload?.total || 0);
     if (!rows.length) {

@@ -1011,3 +1011,65 @@ test('a new task stays out of the session catalog until its first prompt is acce
     await rm(userDataPath, { recursive: true, force: true });
   }
 });
+
+test('Local Provider asset installs carry a daemon deadline beyond the download budget', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-local-provider-timeout-'));
+  const calls = [];
+  let host = null;
+  const unsupported = async () => { throw new Error('unexpected session client call'); };
+  const client = {
+    list: unsupported,
+    async create() {
+      return {
+        sessionId: 'control_local_provider',
+        revision: 0,
+        full: { sessionId: 'control_local_provider', items: [], queued: [] },
+      };
+    },
+    read: unsupported,
+    subscribe: unsupported,
+    unsubscribe: unsupported,
+    submit: unsupported,
+    abort: unsupported,
+    approve: unsupported,
+    async configure({ sessionId, action }, callOptions) {
+      calls.push({ action, callOptions });
+      return {
+        sessionId,
+        revision: calls.length,
+        value: { ok: true },
+        full: { sessionId, items: [], queued: [] },
+      };
+    },
+    async close() {},
+  };
+  try {
+    host = await SessionHost.create({
+      userDataPath,
+      packaged: false,
+      resourcesPath: userDataPath,
+      appPath: userDataPath,
+    }, {
+      async attachSessionClient() { return client; },
+      loadProjects: unsupported,
+      loadSessionStore: unsupported,
+      loadStatuslineSegments: unsupported,
+      executeCodeGraphTool: unsupported,
+    });
+
+    await host.invokeCapability('setAutoUpdate', [true]);
+    await host.invokeCapability('installBuiltinFeature', ['localProvider']);
+    await host.invokeCapability('installLocalProviderModel', ['qwen3.8-27b-q4-k-m']);
+
+    assert.equal(calls[0].callOptions.timeoutMs, undefined);
+    for (const call of calls.slice(1)) {
+      assert.ok(
+        call.callOptions.timeoutMs > 6 * 60 * 60_000,
+        `${call.action} must outlive the six-hour asset download budget`,
+      );
+    }
+  } finally {
+    await host?.dispose();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});

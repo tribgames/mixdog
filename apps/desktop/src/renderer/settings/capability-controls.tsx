@@ -12,6 +12,7 @@ import { record } from '../record-utils';
 // call site wrapping literals. Dynamic values (model names, provider labels)
 // simply miss the catalog and pass through unchanged.
 import { t } from '../i18n';
+import { ErrorNotice } from '../ErrorNotice';
 import { acquireTitleBarDim } from '../titlebar-dim';
 
 import { count, providerLabel, rows, type SettingsConfirmation } from "./capability-data";
@@ -207,7 +208,7 @@ export function ContextStatusView({ value }: { value: unknown }) {
   const messages = record(context.messages);
   const request = record(context.request);
   const usage = record(context.usage);
-  if (context.error) return <Empty text={String(context.error)} />;
+  if (context.error) return <ErrorNotice error={context.error} role="status" />;
   const used = Number(context.usedTokens || context.currentEstimatedTokens || 0);
   const window = Number(context.contextWindow || 0);
   const percent = window > 0 ? Math.min(100, Math.max(0, Math.round((used / window) * 100))) : 0;
@@ -233,7 +234,7 @@ export function UsageDashboard({ value }: { value: unknown }) {
   const dashboard = record(value);
   const total = record(dashboard.total);
   const providers = rows(dashboard, 'rows');
-  if (dashboard.error) return <Empty text={String(dashboard.error)} />;
+  if (dashboard.error) return <ErrorNotice error={dashboard.error} role="status" />;
   return <div className="settings-status-stack">
     <MetricGrid items={[
       { label: 'Providers', value: count(total.providerCount ?? providers.length) },

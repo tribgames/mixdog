@@ -17,32 +17,13 @@ import {
   WEB_SEARCH_DEFAULT_MODEL,
 } from './workflow.mjs';
 import { writeStatuslineRoute } from './statusline-route.mjs';
-import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
 import {
-  hasUserConversationMessage,
-} from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
+  sessionHasRouteHistory,
+  sessionUsesRoute,
+  shouldRecreateEmptySessionForRouteChange,
+} from './session-route-policy.mjs';
 import { rebuildDeferredToolSurfaceForProvider } from './tool-catalog.mjs';
-
-function isSummaryAnchorMessage(message) {
-  return message?.role === 'user'
-    && typeof message.content === 'string'
-    && message.content.startsWith(SUMMARY_PREFIX);
-}
-
-function hasRouteHistoryMessage(messages) {
-  const list = Array.isArray(messages) ? messages : [];
-  return hasUserConversationMessage(list) || list.some(isSummaryAnchorMessage);
-}
-
-export function shouldRecreateEmptySessionForRouteChange(
-  session,
-  applyToCurrentSession = false,
-) {
-  return applyToCurrentSession !== true
-    && !!session
-    && !hasRouteHistoryMessage(session.messages)
-    && !hasRouteHistoryMessage(session.liveTurnMessages);
-}
+export { shouldRecreateEmptySessionForRouteChange } from './session-route-policy.mjs';
 
 // Model/route/web-search-route selection + mutation surface. Extracted verbatim from
 // the runtime API object; stateless helpers are imported directly and the
@@ -70,6 +51,16 @@ export function createModelRouteApi(deps) {
     const leadRoute = persistLeadRoute(route);
     if (!leadRoute) saveConfigAndAdopt(getConfig());
     return leadRoute;
+  }
+  function applySessionTuning() {
+    const session = getSession();
+    const route = getRoute();
+    // A selection for the heir must not leak its tuning into the source model.
+    if (!sessionUsesRoute(session, route)) return;
+    session.fast = route.fast === true;
+    session.effort = route.effectiveEffort || null;
+    writeStatuslineRoute(statusRoutes, session, route);
+    invalidateContextStatusCache();
   }
   return {
     getWebSearchRoute() {
@@ -147,9 +138,9 @@ export function createModelRouteApi(deps) {
       return webSearchRoute;
     },
     async setRoute(next, options = {}) {
-      // Model/provider changes take effect on the NEXT session only — never
-      // rewrite a running session's provider/model in place (provider-keyed
-      // prompt cache). `route` still updates immediately for the next session.
+      // Selection is for a new/inherited session. An explicit durable address
+      // permits initializing an EMPTY session, never rewriting an existing
+      // conversation's model, context boundary or provider cache.
       const applyToCurrentSession = options?.applyToCurrentSession === true;
       const requested = { ...(next || {}) };
       validateRequestedModelSelector(getConfig(), requested);
@@ -190,11 +181,11 @@ export function createModelRouteApi(deps) {
       // an EMPTY current session — no committed route history and no in-flight
       // first-turn prompt — has no cache to protect, so /model before the first
       // chat takes effect live: route + statusline update immediately.
-      const currentSessionEmpty = !!session
-        && !hasRouteHistoryMessage(session.messages)
-        && !hasRouteHistoryMessage(session.liveTurnMessages);
-      const applyLive = applyToCurrentSession || currentSessionEmpty;
-      if (!applyLive) {
+      const currentSessionEmpty = !!session && !sessionHasRouteHistory(session);
+      if (!currentSessionEmpty) {
+        // Some desktop effort changes travel as a same-model route update.
+        // Only effort/Fast may affect the source, starting with its next turn.
+        if (applyToCurrentSession) applySessionTuning();
         return getRoute();
       }
       if (shouldRecreateEmptySessionForRouteChange(session, applyToCurrentSession)
@@ -206,9 +197,7 @@ export function createModelRouteApi(deps) {
         // session, racing the intended rebuild for the new provider.
         await createCurrentSession('model-switch-empty-drain');
         const emptySession = getSession();
-        if (!emptySession?.id
-          || hasRouteHistoryMessage(emptySession.messages)
-          || hasRouteHistoryMessage(emptySession.liveTurnMessages)) {
+        if (!emptySession?.id || sessionHasRouteHistory(emptySession)) {
           invalidateContextStatusCache();
           return getRoute();
         }
@@ -274,14 +263,7 @@ export function createModelRouteApi(deps) {
       const leadRoute = persistAdoptedModelSettings(getRoute());
       if (leadRoute) setRouteState(resolveRoute(getConfig(), { model: workflowPresetId('lead') }));
       await refreshRouteEffort(modelMeta);
-      const session = getSession();
-      if (session) {
-        const route = getRoute();
-        session.fast = route.fast === true;
-        session.effort = route.effectiveEffort || null;
-        writeStatuslineRoute(statusRoutes, session, route);
-        invalidateContextStatusCache();
-      }
+      applySessionTuning();
       return getRoute().fast === true;
     },
     async toggleFast() {
@@ -303,14 +285,7 @@ export function createModelRouteApi(deps) {
         setRouteState(resolveRoute(getConfig(), { model: workflowPresetId('lead') }));
       }
       await refreshRouteEffort(modelMeta);
-      const session = getSession();
-      if (session) {
-        const route = getRoute();
-        session.fast = route.fast === true;
-        session.effort = route.effectiveEffort || null;
-        writeStatuslineRoute(statusRoutes, session, route);
-        invalidateContextStatusCache();
-      }
+      applySessionTuning();
       return getRoute();
     },
   };

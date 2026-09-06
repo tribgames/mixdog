@@ -4,7 +4,7 @@
 // in-flight controller, tears down runtime/bash/dedup/offload/pending state,
 // and defers the runtime-map clear. abortSessionTurn cancels the current turn
 // without tombstoning.
-import { loadSession, markSessionClosed, bumpSessionGeneration, getSessionLifecycleCommitError } from '../store.mjs';
+import { markSessionClosed, bumpSessionGeneration, getSessionLifecycleCommitError } from '../store.mjs';
 import { clearReadDedupSession } from '../read-dedup.mjs';
 import { SessionClosedError } from './session-errors.mjs';
 import { _dropPendingMessageState } from './pending-messages.mjs';

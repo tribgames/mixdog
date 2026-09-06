@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type { DesktopModelOption } from '../shared/contract';
 import { t } from './i18n';
+import { ErrorNotice } from './ErrorNotice';
 import { PaneSurfaceGate } from './PaneSurfaceGate';
 import { record } from './record-utils';
 import {
@@ -267,9 +268,7 @@ export function ModelCatalog({
               onClick={onOpenProviders}><Plus size={16} aria-hidden="true" /></button>}
           </div>
           <div ref={modelList} className="model-list" role="listbox" aria-label={t('Available models')}>
-            {catalogError && <p className="model-notice model-notice--error" role="alert">
-              {t('Model catalog unavailable: {{error}}', { error: catalogError })}
-            </p>}
+            {catalogError && <ErrorNotice error={catalogError} role="status" />}
             {providerSetupError && <p className="model-notice" role="status">
               {t('Provider status is temporarily unavailable. Try again.')}
             </p>}

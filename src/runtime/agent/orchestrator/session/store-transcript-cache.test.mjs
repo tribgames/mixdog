@@ -134,3 +134,38 @@ test('a stored transcript read is served from cache until the record changes', a
 test('projection stamps are unique within a process', () => {
     assert.notEqual(nextProjectionStamp(), nextProjectionStamp());
 });
+
+test('clear and forget fence pending projections without cancelling their readers', async () => {
+    for (const invalidate of [cache => cache.clear(), cache => cache.forget('s|')]) {
+        const cache = createStoredTranscriptCache();
+        let release;
+        const pending = cache.read({
+            key: 's|512', fingerprint: '', loadText: text('old'),
+            produce: () => new Promise(resolve => { release = resolve; }),
+        });
+        invalidate(cache);
+        release({ items: ['old'] });
+        assert.deepEqual((await pending).value.items, ['old']);
+        assert.equal(cache.stats().entries, 0);
+        assert.equal(cache.stats().inFlight, 0);
+    }
+});
+
+test('old projections cannot replace a newer completed projection', async () => {
+    const cache = createStoredTranscriptCache();
+    let release;
+    const old = cache.read({
+        key: 's', fingerprint: '', loadText: text('old'),
+        produce: () => new Promise(resolve => { release = resolve; }),
+    });
+    const current = await cache.read({
+        key: 's', fingerprint: '', loadText: text('new'), produce: () => ({ items: ['new'] }),
+    });
+    release({ items: ['old'] });
+    await old;
+    const again = await cache.read({
+        key: 's', fingerprint: '', loadText: text('new'),
+        produce: () => { throw new Error('new projection was lost'); },
+    });
+    assert.equal(again.value, current.value);
+});

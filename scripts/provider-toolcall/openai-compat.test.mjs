@@ -362,7 +362,7 @@ test('openai-compat/xai store=false second tool round retains original system/us
     );
 });
 
-test('openai-compat/xai Responses: model switch drops prior tool transcript history', () => {
+test('openai-compat/xai Responses: model switch retains the tool trajectory without the server anchor', () => {
     const { input, previousResponseId, continuationResetReason } = _toXaiResponsesInputForTest([
         { role: 'system', content: 'sys' },
         { role: 'user', content: 'before switch' },
@@ -384,12 +384,12 @@ test('openai-compat/xai Responses: model switch drops prior tool transcript hist
     assert.equal(continuationResetReason, 'model_changed');
     const serialized = JSON.stringify(input);
     assert.equal(serialized.includes('tool_search'), false);
-    assert.equal(serialized.includes('function_call'), false);
-    assert.equal(serialized.includes('function_call_output'), false);
-    assert.deepEqual(input.map((item) => item.role), ['system', 'user', 'user']);
+    assert.equal(input.find((item) => item.type === 'function_call')?.name, 'load_tool');
+    assert.equal(input.find((item) => item.type === 'function_call_output')?.output, '{"loaded":["read"]}');
+    assert.equal(input.at(-1).content[0].text, 'after switch');
 });
 
-test('openai-compat/xai Responses: first Grok request after provider switch drops prior tool transcript history', () => {
+test('openai-compat/xai Responses: first Grok request retains foreign tool calls as functions', () => {
     const { input, previousResponseId, continuationResetReason } = _toXaiResponsesInputForTest([
         { role: 'system', content: 'sys' },
         { role: 'user', content: 'before switch' },
@@ -403,10 +403,9 @@ test('openai-compat/xai Responses: first Grok request after provider switch drop
     ], {}, { model: 'grok-4.5' });
     assert.equal(previousResponseId, null);
     assert.equal(continuationResetReason, null);
-    const serialized = JSON.stringify(input);
-    assert.equal(serialized.includes('function_call'), false);
-    assert.equal(serialized.includes('function_call_output'), false);
-    assert.deepEqual(input.map((item) => item.role), ['system', 'user', 'user']);
+    assert.equal(input.find((item) => item.type === 'function_call')?.name, 'apply_patch');
+    assert.equal(input.find((item) => item.type === 'function_call_output')?.output, 'OK');
+    assert.equal(input.at(-1).content[0].text, 'after switch');
 });
 
 test('openai-compat/xai Responses: custom_tool_call history replays as function_call', () => {

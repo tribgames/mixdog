@@ -7,7 +7,7 @@ import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 // requests. This floor ships with Mixdog, while a newer server-advertised
 // minimum is learned and persisted so future model launches do not require a
 // source release just to advance the user-agent version.
-export const DEFAULT_CLI_VERSION = '2.1.251';
+const DEFAULT_CLI_VERSION = '2.1.251';
 
 const CACHE_SCHEMA_VERSION = 1;
 const CACHE_FILE_NAME = 'anthropic-oauth-cli-version.json';

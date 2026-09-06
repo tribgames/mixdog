@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   decideDeployPlan,
@@ -64,6 +67,28 @@ test('desktop command edits do not invalidate the live renderer', () => {
 });
 
 test('the live renderer fingerprint includes the renderer source tree', async () => {
-  const result = await fingerprint(rendererInputs);
+  const result = await fingerprint(rendererInputs, { followImports: true });
   assert.ok(result.fileCount > 200, `expected renderer sources, got ${result.fileCount}`);
+});
+
+test('transitive local codec changes invalidate the renderer, but unrelated tests do not', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-renderer-inputs-'));
+  try {
+    const rendererDir = join(root, 'renderer');
+    await mkdir(rendererDir);
+    await writeFile(join(rendererDir, 'entry.ts'), 'export { codec } from "../bridge";');
+    await writeFile(join(root, 'bridge.ts'), 'export { codec } from "./codec.mjs";');
+    const codec = join(root, 'codec.mjs');
+    await writeFile(codec, 'export const codec = 1;');
+    const measure = () => fingerprint([rendererDir], { followImports: true });
+    const before = await measure();
+    await writeFile(codec, 'export const codec = 2;');
+    const after = await measure();
+    assert.notEqual(before.hash, after.hash);
+    assert.equal(after.fileCount, 3);
+    await writeFile(join(rendererDir, 'unused.test.mjs'), 'throw new Error("test only");');
+    assert.equal((await measure()).hash, after.hash);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

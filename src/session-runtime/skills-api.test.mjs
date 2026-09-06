@@ -117,13 +117,17 @@ test('creates new global skills with all three standard fields', () => {
     const created = api.addGlobalSkill({
       name: 'new-skill',
       description: 'Use when creating a standard skill.',
+      whenToUse: '"새 스킬", "new skill"; not for editing one.',
       instructions: '# Instructions\n\nDo the work.',
     });
     const parsed = parseSkillDocument(readFileSync(created.filePath, 'utf8'));
 
     assert.equal(parsed.name, 'new-skill');
     assert.equal(parsed.description, 'Use when creating a standard skill.');
+    assert.equal(parsed.whenToUse, '"새 스킬", "new skill"; not for editing one.');
     assert.equal(parsed.body, '# Instructions\n\nDo the work.\n');
+    assert.equal(api.skillsStatus().skills.find((skill) => skill.name === 'new-skill')?.whenToUse,
+      '"새 스킬", "new skill"; not for editing one.');
     assert.equal(created.filePath, join(process.env.MIXDOG_DATA_DIR, 'skills', 'new-skill', 'SKILL.md'));
     assert.throws(() => api.addGlobalSkill({
       name: 'Invalid_Name',

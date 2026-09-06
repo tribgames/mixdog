@@ -1,14 +1,6 @@
 // Budget math, tool-output pruning, cycle1 draining, and preserved-fact
 // extraction. Extracted verbatim from compact.mjs (behavior-preserving).
-import {
-    sanitizeToolPairs,
-    dedupToolResultBodies,
-    reconcileDedupStubs,
-    estimateMessagesTokens,
-    estimateMessageTokens,
-    DEFAULT_COMPACTION_KEEP_TOKENS,
-} from '../context-utils.mjs';
-import { extractText, summarizeToolCall, redactRawSecretString, TOOL_CALL_FACT_ARGS_MAX_CHARS } from './text-utils.mjs';
+import { sanitizeToolPairs, dedupToolResultBodies, reconcileDedupStubs, estimateMessagesTokens, estimateMessageTokens } from '../context-utils.mjs';
 import { compactOffloadedToolResultText } from '../tool-result-offload.mjs';
 
 // Floor for the reserve-adjusted compact budget. When the tool-schema/request
@@ -35,93 +27,6 @@ export function effectiveBudget(budgetTokens, opts) {
 
 const PRUNE_TOOL_OUTPUT_MAX_CHARS = 2_000;
 const PRUNE_TAIL_TURNS = 2;
-const MIN_PRESERVE_RECENT_TOKENS = 2_000;
-const PRESERVED_FACTS_MAX_CHARS = 600;
-
-function preservedFactHints() {
-    return String(process.env.MIXDOG_COMPACT_FACT_HINTS || '')
-        .split(/[\n,;]+/u)
-        .map(s => s.trim())
-        .filter(Boolean)
-        .map(s => s.toLocaleLowerCase());
-}
-
-const PRESERVED_FACT_HINTS = preservedFactHints();
-
-function hasConfiguredPreservedFactHint(text) {
-    const lower = String(text || '').toLocaleLowerCase();
-    return PRESERVED_FACT_HINTS.some(hint => hint && lower.includes(hint));
-}
-
-export function extractPreservedFacts(messages) {
-    if (!messages || messages.length === 0) return '';
-    const candidates = [];
-    const seenSignatures = new Set();
-    const add = (prefix, text, score, messageIndex, lineIndex = 0) => {
-        const clean = text.replace(/`/g, '').trim();
-        if (clean.length < 10) return;
-        const sig = clean.slice(0, 80).toLowerCase().replace(/\s+/g, ' ');
-        if (seenSignatures.has(sig)) return;
-        seenSignatures.add(sig);
-        candidates.push({ prefix, text: clean, score, messageIndex, lineIndex });
-    };
-    const classifyLine = (t) => {
-        // Language-neutral structural cues: exact assignments, paths, URLs,
-        // symbolic error/constant identifiers, and optional user-configured
-        // locale/domain hints. Do not bake human-language keyword lists here.
-        if (/[\p{L}\p{N}_$./:-]{2,}\s*=\s*\S+/u.test(t)) return { prefix: '•', score: 100 };
-        if (/(?:^|[\s('"`])https?:\/\/[^\s'"`<>]+/iu.test(t)) return { prefix: '•', score: 95 };
-        if (/(?:^|[\s('"`])(?:[A-Za-z]:[\\/]|\.{1,2}[\\/]|~?[\\/][^\s'"`<>]+|[\p{L}\p{N}_$.-]+[\\/][^\s'"`<>]+|[\p{L}\p{N}_$.-]+\.(?:mjs|cjs|js|jsx|ts|tsx|json|md|rs|go|py|java|kt|cs|cpp|c|h|hpp|css|html|yml|yaml|toml|lock|sh|ps1)\b)/iu.test(t)) return { prefix: '•', score: 95 };
-        if (/\b[A-Z][A-Z0-9_:-]{2,}\b/.test(t)) return { prefix: '•', score: 90 };
-        if (hasConfiguredPreservedFactHint(t)) return { prefix: '!', score: 70 };
-        return null;
-    };
-    for (let mi = 0; mi < messages.length; mi += 1) {
-        const m = messages[mi];
-        const text = extractText(m);
-        if (!text) continue;
-        const lines = text.split('\n');
-        for (let li = 0; li < lines.length; li += 1) {
-            const line = lines[li];
-            const t = line.trim();
-            if (t.length < 10 || t.length > 250) continue;
-            const cls = classifyLine(t);
-            if (cls) add(cls.prefix, redactRawSecretString(t), cls.score, mi, li);
-        }
-        if (m?.role === 'assistant' && Array.isArray(m.toolCalls)) {
-            for (const tc of m.toolCalls) {
-                const name = tc?.function?.name || tc?.name || '';
-                if (name) {
-                    const summary = summarizeToolCall(tc, TOOL_CALL_FACT_ARGS_MAX_CHARS);
-                    const sig = `tool:${summary.slice(0, 160).toLowerCase()}`;
-                    if (seenSignatures.has(sig)) continue;
-                    seenSignatures.add(sig);
-                    candidates.push({ prefix: '•', text: `Tool: ${summary}`, score: 50, messageIndex: mi, lineIndex: Number.MAX_SAFE_INTEGER });
-                }
-            }
-        }
-    }
-    if (candidates.length === 0) return '';
-    candidates.sort((a, b) =>
-        (b.score - a.score)
-        || (b.messageIndex - a.messageIndex)
-        || (b.lineIndex - a.lineIndex)
-    );
-    let result = '## Preserved Facts\n';
-    let kept = 0;
-    for (const c of candidates) {
-        if (kept >= 25) break;
-        let line = `- ${c.prefix} ${c.text}\n`;
-        if (result.length + line.length > PRESERVED_FACTS_MAX_CHARS) {
-            const room = PRESERVED_FACTS_MAX_CHARS - result.length - 8;
-            if (kept === 0 && room > 32) line = `- ${c.prefix} ${c.text.slice(0, room)}…\n`;
-            else continue;
-        }
-        result += line;
-        kept += 1;
-    }
-    return kept > 0 ? result : '';
-}
 
 function protectedTailStart(messages, tailTurns = PRUNE_TAIL_TURNS) {
     let seenUsers = 0;
@@ -209,20 +114,4 @@ export function pruneToolOutputsUnanchored(messages, budgetTokens, opts = {}) {
         if (total <= budget) break;
     }
     return reconcileDedupStubs(result);
-}
-
-export function preserveRecentBudget(budget, opts = {}) {
-    const maxForBudget = Math.max(1, Math.floor(Number(budget || 0) * 0.8));
-    const explicit = Number(opts.preserveRecentTokens ?? opts.keepTokens);
-    if (Number.isFinite(explicit) && explicit > 0) {
-        return Math.max(1, Math.min(Math.floor(explicit), maxForBudget));
-    }
-    return Math.max(
-        1,
-        Math.min(
-            DEFAULT_COMPACTION_KEEP_TOKENS,
-            Math.max(MIN_PRESERVE_RECENT_TOKENS, Math.floor(budget * 0.25)),
-            maxForBudget,
-        ),
-    );
 }

@@ -69,6 +69,16 @@ test('an unfinished non-active Goal still renders so it survives compaction', ()
   assert.match(snapshot.content, /Status: paused/);
 });
 
+test('a paused Goal reply reminder couples resume to work, not questions alone', () => {
+  const session = { id: 'sess_goal_reply' };
+  markPendingGoalReminder(session, 'paused');
+  const snapshot = snapshotPendingGoalReminder(session, {
+    readGoal: () => goal({ status: 'paused' }),
+  });
+  assert.match(snapshot.content, /Call resume alongside resumed work, not for questions alone/);
+  assert.match(snapshot.content, /abandon only if the user redirected away from this objective/);
+});
+
 test('post-compact Goal state is prepended to the current user turn and leaves no next-turn reminder', () => {
   const session = { id: 'sess_goal_inline' };
   markPendingGoalReminder(session);

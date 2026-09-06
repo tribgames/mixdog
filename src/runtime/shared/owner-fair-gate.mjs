@@ -1,10 +1,6 @@
 import { createFairCallScheduler } from '../../standalone/fair-call-scheduler.mjs';
+import { positiveInt } from './numbers.mjs';
 import { currentToolExecutionOwner } from './tool-execution-owner.mjs';
-
-function positiveInt(value, fallback) {
-  const parsed = Math.floor(Number(value));
-  return Number.isFinite(parsed) && parsed >= 1 ? parsed : fallback;
-}
 
 function waitTimeoutError(name, waitTimeoutMs) {
   const error = new Error(`${name} admission wait exceeded ${waitTimeoutMs}ms; retry after running work completes`);

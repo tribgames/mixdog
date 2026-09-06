@@ -24,7 +24,7 @@ function nearest(name, names) {
   return scored.slice(0, 8).map((entry) => entry.candidate);
 }
 
-export function iconMarkup(name) {
+function iconMarkup(name) {
   const { icons: table } = icons();
   const key = String(name || '').trim().toLowerCase();
   const markup = table[key];
@@ -35,7 +35,7 @@ export function iconMarkup(name) {
 }
 
 // Whole SVG at a pixel size: stroke icons take the color as stroke.
-export function iconSvg(name, { color = '000000', size = 96, strokeWidth = 2 } = {}) {
+function iconSvg(name, { color = '000000', size = 96, strokeWidth = 2 } = {}) {
   const hex = String(color).replace(/^#/, '');
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="${icons().viewBox}" fill="none" stroke="#${hex}" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round">${iconMarkup(name)}</svg>`;
 }

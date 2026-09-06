@@ -2,7 +2,7 @@
 // utilities with no module state — no db, _traceDb, or timer dependencies.
 // index.mjs imports these; behavior and signatures are unchanged.
 
-export const MAX_HTTP_BODY_BYTES = 1024 * 1024
+const MAX_HTTP_BODY_BYTES = 1024 * 1024
 
 // /api/tool carries whole-session transcripts (ingest_session hydration for
 // fresh-context Compact). A near-window transcript projects to several

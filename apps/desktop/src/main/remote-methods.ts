@@ -20,6 +20,7 @@ import {
   normalizeRemoteBrowserFrameId,
 } from '../shared/remote-browser';
 import { requiredSessionId } from './desktop-state';
+import { validateGithubRequest } from '../../../../src/runtime/github/contract.mjs';
 import type { TerminalSpawnProfile } from './terminal-contract';
 import {
   projectDisplayName,
@@ -604,6 +605,9 @@ export function createRemoteMethods(
     libreOfficeStatus: () => invokeDesktopOperation('libreOfficeStatus', []),
     installLibreOffice: () => invokeDesktopOperation('installLibreOffice', []),
     githubCliStatus: () => invokeDesktopOperation('githubCliStatus', []),
+    githubRequest: ([cwd, input]) => invokeDesktopOperation(
+      'githubRequest', [requiredRepositoryCwd(cwd), validateGithubRequest(input)],
+    ),
     installGithubCli: () => invokeDesktopOperation('installGithubCli', []),
     githubCliLoginStart: () => invokeDesktopOperation('githubCliLoginStart', []),
     githubCliLoginStatus: ([flowId]) => invokeDesktopOperation(

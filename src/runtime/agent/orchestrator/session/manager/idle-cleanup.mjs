@@ -9,12 +9,12 @@ import {
     _clearSessionRuntime,
     _sweepTerminalSessionRuntimes,
 } from './runtime-liveness.mjs';
-import { nonNegativeIntEnv } from './env-utils.mjs';
+import { envNonNegativeInt } from '../../../../shared/env.mjs';
 
 // --- Periodic idle session cleanup ---
-const CLEANUP_INTERVAL_MS = nonNegativeIntEnv('MIXDOG_SESSION_CLEANUP_INTERVAL_MS', 5 * 60 * 1000); // check every 5 minutes
-const CLEANUP_INITIAL_DELAY_MS = nonNegativeIntEnv('MIXDOG_SESSION_CLEANUP_INITIAL_DELAY_MS', CLEANUP_INTERVAL_MS > 0 ? CLEANUP_INTERVAL_MS : 0);
-const CLEANUP_SLOW_LOG_MS = nonNegativeIntEnv('MIXDOG_SESSION_CLEANUP_SLOW_LOG_MS', 250);
+const CLEANUP_INTERVAL_MS = envNonNegativeInt('MIXDOG_SESSION_CLEANUP_INTERVAL_MS', 5 * 60 * 1000); // check every 5 minutes
+const CLEANUP_INITIAL_DELAY_MS = envNonNegativeInt('MIXDOG_SESSION_CLEANUP_INITIAL_DELAY_MS', CLEANUP_INTERVAL_MS > 0 ? CLEANUP_INTERVAL_MS : 0);
+const CLEANUP_SLOW_LOG_MS = envNonNegativeInt('MIXDOG_SESSION_CLEANUP_SLOW_LOG_MS', 250);
 // Tombstone unlink TTL. The guarded resurrection race (temp-write→rename inside
 // _doSave) resolves in microseconds, so 1h is still vastly longer than any
 // realistic in-flight ask race — while short enough that matured tombstones are
@@ -41,7 +41,7 @@ function _previewIds(items, limit = 5) {
 
 const IN_FLIGHT_STAGES = new Set(['connecting', 'requesting', 'streaming', 'tool_running', 'cancelling']);
 
-export function _finalizeSweptSessionRuntime(detail) {
+function _finalizeSweptSessionRuntime(detail) {
     if (!detail?.id) return false;
     const rtEntry = _getRuntimeEntry(detail.id);
     // The store scan and this runtime cleanup are not atomic. If the session
@@ -140,7 +140,7 @@ export function sweepTombstones() {
     }
 }
 
-export function _runCleanupCycle() {
+function _runCleanupCycle() {
     if (_cleanupRun) return _cleanupRun;
     const run = (async () => {
         // Drain every settled runtime entry on each pass, not just the one or two

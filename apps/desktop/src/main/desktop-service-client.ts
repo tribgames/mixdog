@@ -27,6 +27,7 @@ import type {
   DesktopServiceInbound,
   DesktopServiceOutbound,
 } from './desktop-service-protocol';
+import { localProviderInstallRequestTimeout } from './local-provider-install-timeout';
 import { createSnapshotDeltaDecoder, releaseHiddenSessionStateEntries } from './state-delta';
 
 export interface DesktopTransport {
@@ -518,15 +519,20 @@ export class DesktopServiceClient implements DesktopService {
         {
           id: PROCESS_FAILURE_TOAST_ID,
           tone: 'error',
+          lifetime: 'state',
           text: 'The service connection stopped. Retrying automatically.',
         },
       ].slice(-8),
     } as SessionSnapshot;
   }
 
-  private async invoke<T>(method: DesktopServiceMethod, args: unknown[] = []): Promise<T> {
+  private async invoke<T>(
+    method: DesktopServiceMethod,
+    args: unknown[] = [],
+    timeoutMs?: number,
+  ): Promise<T> {
     await this.start();
-    return await this.sendRequest<T>(method, args);
+    return await this.sendRequest<T>(method, args, timeoutMs);
   }
 
   private async invokeRead<T>(method: DesktopServiceMethod, args: unknown[] = []): Promise<T> {
@@ -762,7 +768,7 @@ export class DesktopServiceClient implements DesktopService {
       capability,
       args,
       sessionId,
-    ]);
+    ], localProviderInstallRequestTimeout(capability, args));
   }
   readCapabilities(
     requests: ReadonlyArray<DesktopCapabilityReadRequest>,

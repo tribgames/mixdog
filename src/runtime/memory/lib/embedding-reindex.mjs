@@ -1,8 +1,6 @@
-const DEFAULT_PASS_PAUSE_MS = 1_000
+import { throwIfAborted } from './memory-cycle2-shared.mjs'
 
-function throwIfAborted(signal) {
-  if (signal?.aborted) throw signal.reason ?? new Error('aborted')
-}
+const DEFAULT_PASS_PAUSE_MS = 1_000
 
 function waitForNextPass(ms, signal) {
   throwIfAborted(signal)

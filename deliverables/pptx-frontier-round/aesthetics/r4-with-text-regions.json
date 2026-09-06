@@ -1,0 +1,648 @@
+{
+  "num_slides": 9,
+  "slides": [
+    {
+      "figure_ground_contrast": {
+        "min": 0.49894761148726535,
+        "max": 0.9419355790310867,
+        "mean": 0.6771849876062684
+      },
+      "color_harmony": {
+        "best_template": "X",
+        "best_distance": 0.1693987079034713,
+        "template_distances": {
+          "i": 8.34786701772968,
+          "V": 3.8627281488537104,
+          "L": 2.0269898093168917,
+          "mirror_L": 1.6705484954130392,
+          "I": 1.8822424368314254,
+          "T": 0.2130016823328848,
+          "Y": 0.43864966743204387,
+          "X": 0.1693987079034713
+        }
+      },
+      "colorfulness": 17.74265171558904,
+      "subband_entropy": {
+        "subband_entropy": 4.289305223064072,
+        "luminance_entropy": 4.4054344417879046,
+        "chrom_a_entropy": 3.417489620227918,
+        "chrom_b_entropy": 3.941764029299979,
+        "luminance_entropy_total": 61.676082185030666,
+        "chrom_a_entropy_total": 47.84485468319085,
+        "chrom_b_entropy_total": 55.184696410199706,
+        "n_subbands": {
+          "L": 14,
+          "a": 14,
+          "b": 14
+        }
+      },
+      "_timing": {
+        "figure_ground_contrast": 0.04302477836608887,
+        "color_harmony": 4.800747394561768,
+        "colorfulness": 0.033509254455566406,
+        "subband_entropy": 1.1261966228485107
+      },
+      "_metrics_requested": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "_metrics_selected": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "slide_index": 0,
+      "slide_path": "C:\\Project\\mixdog\\.tmp\\aesthetics\\slidesgen-brief-r4-staged\\slide_images\\slide_0001.png"
+    },
+    {
+      "figure_ground_contrast": {
+        "min": 0.0022131800560198436,
+        "max": 0.7180029999085216,
+        "mean": 0.2635810098456951
+      },
+      "color_harmony": {
+        "best_template": "X",
+        "best_distance": 0.006253437662663341,
+        "template_distances": {
+          "i": 36.08838770723443,
+          "V": 15.875541543824001,
+          "L": 3.7589073659232475,
+          "mirror_L": 3.893603892751247,
+          "I": 3.202411684997356,
+          "T": 0.032769749832990185,
+          "Y": 0.02540530174512089,
+          "X": 0.006253437662663341
+        }
+      },
+      "colorfulness": 12.036401256659994,
+      "subband_entropy": {
+        "subband_entropy": 1.6165728150675303,
+        "luminance_entropy": 1.704337788774578,
+        "chrom_a_entropy": 0.9997261583790564,
+        "chrom_b_entropy": 1.311887247832003,
+        "luminance_entropy_total": 23.860729042844092,
+        "chrom_a_entropy_total": 13.99616621730679,
+        "chrom_b_entropy_total": 18.366421469648042,
+        "n_subbands": {
+          "L": 14,
+          "a": 14,
+          "b": 14
+        }
+      },
+      "_timing": {
+        "figure_ground_contrast": 0.0345149040222168,
+        "color_harmony": 4.817629337310791,
+        "colorfulness": 0.035506486892700195,
+        "subband_entropy": 0.8839385509490967
+      },
+      "_metrics_requested": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "_metrics_selected": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "slide_index": 1,
+      "slide_path": "C:\\Project\\mixdog\\.tmp\\aesthetics\\slidesgen-brief-r4-staged\\slide_images\\slide_0002.png"
+    },
+    {
+      "figure_ground_contrast": {
+        "min": 0.002122624229414893,
+        "max": 0.9021657424561828,
+        "mean": 0.5511195018254215
+      },
+      "color_harmony": {
+        "best_template": "T",
+        "best_distance": 0.0009372816103742422,
+        "template_distances": {
+          "i": 7.025168520022304,
+          "V": 3.0435732787636067,
+          "L": 0.6926614261853589,
+          "mirror_L": 0.6938066357932395,
+          "I": 0.9900455474708048,
+          "T": 0.0009372816103742422,
+          "Y": 0.029699503903065343,
+          "X": 0.007387464992431495
+        }
+      },
+      "colorfulness": 14.963239101899866,
+      "subband_entropy": {
+        "subband_entropy": 3.0834722253727476,
+        "luminance_entropy": 3.2648438801250648,
+        "chrom_a_entropy": 1.6127954295242595,
+        "chrom_b_entropy": 2.649746646321906,
+        "luminance_entropy_total": 45.70781432175091,
+        "chrom_a_entropy_total": 22.57913601333963,
+        "chrom_b_entropy_total": 37.09645304850669,
+        "n_subbands": {
+          "L": 14,
+          "a": 14,
+          "b": 14
+        }
+      },
+      "_timing": {
+        "figure_ground_contrast": 0.027002811431884766,
+        "color_harmony": 4.799342393875122,
+        "colorfulness": 0.0319974422454834,
+        "subband_entropy": 0.8962106704711914
+      },
+      "_metrics_requested": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "_metrics_selected": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "slide_index": 2,
+      "slide_path": "C:\\Project\\mixdog\\.tmp\\aesthetics\\slidesgen-brief-r4-staged\\slide_images\\slide_0003.png"
+    },
+    {
+      "figure_ground_contrast": {
+        "min": 0.0019665900293382274,
+        "max": 0.8570752875015528,
+        "mean": 0.4154174788076328
+      },
+      "color_harmony": {
+        "best_template": "X",
+        "best_distance": 0.0033817459655513557,
+        "template_distances": {
+          "i": 59.551820602005805,
+          "V": 25.879566833552357,
+          "L": 5.849914904072648,
+          "mirror_L": 5.856693273702318,
+          "I": 5.623470245729989,
+          "T": 0.01394671529720457,
+          "Y": 0.03424846207426676,
+          "X": 0.0033817459655513557
+        }
+      },
+      "colorfulness": 20.95199064414613,
+      "subband_entropy": {
+        "subband_entropy": 3.0738816086472878,
+        "luminance_entropy": 3.2575197774496343,
+        "chrom_a_entropy": 1.6162297213482641,
+        "chrom_b_entropy": 2.6033327235216706,
+        "luminance_entropy_total": 45.60527688429488,
+        "chrom_a_entropy_total": 22.6272160988757,
+        "chrom_b_entropy_total": 36.44665812930339,
+        "n_subbands": {
+          "L": 14,
+          "a": 14,
+          "b": 14
+        }
+      },
+      "_timing": {
+        "figure_ground_contrast": 0.036512136459350586,
+        "color_harmony": 4.769260406494141,
+        "colorfulness": 0.033017635345458984,
+        "subband_entropy": 0.8936572074890137
+      },
+      "_metrics_requested": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "_metrics_selected": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "slide_index": 3,
+      "slide_path": "C:\\Project\\mixdog\\.tmp\\aesthetics\\slidesgen-brief-r4-staged\\slide_images\\slide_0004.png"
+    },
+    {
+      "figure_ground_contrast": {
+        "min": 0.0021490192605636243,
+        "max": 0.7098645379696095,
+        "mean": 0.3615222508268256
+      },
+      "color_harmony": {
+        "best_template": "X",
+        "best_distance": 0.005505499196392497,
+        "template_distances": {
+          "i": 47.847366144202425,
+          "V": 20.968298042406396,
+          "L": 5.001332470040187,
+          "mirror_L": 5.0079902363837965,
+          "I": 4.603378875866277,
+          "T": 0.02951144675133432,
+          "Y": 0.021672477660857566,
+          "X": 0.005505499196392497
+        }
+      },
+      "colorfulness": 16.73400417971948,
+      "subband_entropy": {
+        "subband_entropy": 2.760624060236035,
+        "luminance_entropy": 2.930321241122042,
+        "chrom_a_entropy": 1.4587825581863132,
+        "chrom_b_entropy": 2.2806451629826814,
+        "luminance_entropy_total": 41.02449737570859,
+        "chrom_a_entropy_total": 20.422955814608386,
+        "chrom_b_entropy_total": 31.92903228175754,
+        "n_subbands": {
+          "L": 14,
+          "a": 14,
+          "b": 14
+        }
+      },
+      "_timing": {
+        "figure_ground_contrast": 0.036512136459350586,
+        "color_harmony": 4.947728157043457,
+        "colorfulness": 0.0425105094909668,
+        "subband_entropy": 0.8786418437957764
+      },
+      "_metrics_requested": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "_metrics_selected": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "slide_index": 4,
+      "slide_path": "C:\\Project\\mixdog\\.tmp\\aesthetics\\slidesgen-brief-r4-staged\\slide_images\\slide_0005.png"
+    },
+    {
+      "figure_ground_contrast": {
+        "min": 0.002455796357530559,
+        "max": 0.8007261395953144,
+        "mean": 0.2745278646217541
+      },
+      "color_harmony": {
+        "best_template": "T",
+        "best_distance": 0.008981411242239714,
+        "template_distances": {
+          "i": 51.83144240082796,
+          "V": 22.084175996971183,
+          "L": 5.127788900910154,
+          "mirror_L": 5.099209773986242,
+          "I": 6.5385585802185116,
+          "T": 0.008981411242239714,
+          "Y": 0.9456331687662439,
+          "X": 0.3666703974067209
+        }
+      },
+      "colorfulness": 9.236436508763228,
+      "subband_entropy": {
+        "subband_entropy": 3.47053551984301,
+        "luminance_entropy": 3.6116427710784333,
+        "chrom_a_entropy": 2.084761142691788,
+        "chrom_b_entropy": 3.3746837590222865,
+        "luminance_entropy_total": 50.56299879509807,
+        "chrom_a_entropy_total": 29.186655997685033,
+        "chrom_b_entropy_total": 47.24557262631201,
+        "n_subbands": {
+          "L": 14,
+          "a": 14,
+          "b": 14
+        }
+      },
+      "_timing": {
+        "figure_ground_contrast": 0.04473376274108887,
+        "color_harmony": 4.862702131271362,
+        "colorfulness": 0.04200887680053711,
+        "subband_entropy": 0.8959400653839111
+      },
+      "_metrics_requested": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "_metrics_selected": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "slide_index": 5,
+      "slide_path": "C:\\Project\\mixdog\\.tmp\\aesthetics\\slidesgen-brief-r4-staged\\slide_images\\slide_0006.png"
+    },
+    {
+      "figure_ground_contrast": {
+        "min": 0.0014320041458580643,
+        "max": 0.9003469981659108,
+        "mean": 0.3807243660256989
+      },
+      "color_harmony": {
+        "best_template": "X",
+        "best_distance": 0.0011292810604265147,
+        "template_distances": {
+          "i": 64.10814654043334,
+          "V": 27.739902165009738,
+          "L": 6.0964863808537695,
+          "mirror_L": 6.097072642376316,
+          "I": 5.9195033824379335,
+          "T": 0.017781187241951376,
+          "Y": 0.006320190264732416,
+          "X": 0.0011292810604265147
+        }
+      },
+      "colorfulness": 22.508707438332813,
+      "subband_entropy": {
+        "subband_entropy": 2.7418044775735693,
+        "luminance_entropy": 2.916145645852738,
+        "chrom_a_entropy": 1.3805603582881247,
+        "chrom_b_entropy": 2.2724663299277426,
+        "luminance_entropy_total": 40.82603904193834,
+        "chrom_a_entropy_total": 19.327845016033745,
+        "chrom_b_entropy_total": 31.814528618988398,
+        "n_subbands": {
+          "L": 14,
+          "a": 14,
+          "b": 14
+        }
+      },
+      "_timing": {
+        "figure_ground_contrast": 0.03950619697570801,
+        "color_harmony": 4.777918815612793,
+        "colorfulness": 0.03200674057006836,
+        "subband_entropy": 0.8794922828674316
+      },
+      "_metrics_requested": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "_metrics_selected": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "slide_index": 6,
+      "slide_path": "C:\\Project\\mixdog\\.tmp\\aesthetics\\slidesgen-brief-r4-staged\\slide_images\\slide_0007.png"
+    },
+    {
+      "figure_ground_contrast": {
+        "min": 0.002481178709521499,
+        "max": 0.9055496244980872,
+        "mean": 0.5869940649689557
+      },
+      "color_harmony": {
+        "best_template": "T",
+        "best_distance": 0.023654974410186,
+        "template_distances": {
+          "i": 44.02810624028325,
+          "V": 18.87639836134406,
+          "L": 4.4155442516539685,
+          "mirror_L": 4.4074596293732515,
+          "I": 5.542118223805905,
+          "T": 0.023654974410186,
+          "Y": 0.5918782129117913,
+          "X": 0.23588304717377231
+        }
+      },
+      "colorfulness": 10.89567972730219,
+      "subband_entropy": {
+        "subband_entropy": 3.0553428578576822,
+        "luminance_entropy": 3.2399918594587023,
+        "chrom_a_entropy": 1.6223317862305933,
+        "chrom_b_entropy": 2.54953941267406,
+        "luminance_entropy_total": 45.359886032421834,
+        "chrom_a_entropy_total": 22.712645007228307,
+        "chrom_b_entropy_total": 35.69355177743684,
+        "n_subbands": {
+          "L": 14,
+          "a": 14,
+          "b": 14
+        }
+      },
+      "_timing": {
+        "figure_ground_contrast": 0.039519548416137695,
+        "color_harmony": 4.799665689468384,
+        "colorfulness": 0.0320737361907959,
+        "subband_entropy": 0.8987853527069092
+      },
+      "_metrics_requested": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "_metrics_selected": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "slide_index": 7,
+      "slide_path": "C:\\Project\\mixdog\\.tmp\\aesthetics\\slidesgen-brief-r4-staged\\slide_images\\slide_0008.png"
+    },
+    {
+      "figure_ground_contrast": {
+        "min": 0.13305146107598195,
+        "max": 0.8027243021024114,
+        "mean": 0.5183649938515565
+      },
+      "color_harmony": {
+        "best_template": "T",
+        "best_distance": 1.6204997852837786e-05,
+        "template_distances": {
+          "i": 2.8268160304468766,
+          "V": 1.056491587098198,
+          "L": 0.3193067309001911,
+          "mirror_L": 0.19452876830827162,
+          "I": 1.0039464957270892,
+          "T": 1.6204997852837786e-05,
+          "Y": 0.2661026362830672,
+          "X": 0.04347083274011464
+        }
+      },
+      "colorfulness": 18.248793910033243,
+      "subband_entropy": {
+        "subband_entropy": 3.308735621321046,
+        "luminance_entropy": 3.328677784822612,
+        "chrom_a_entropy": 3.1409325697124504,
+        "chrom_b_entropy": 3.2671459561631986,
+        "luminance_entropy_total": 46.60148898751657,
+        "chrom_a_entropy_total": 43.973055975974304,
+        "chrom_b_entropy_total": 45.74004338628478,
+        "n_subbands": {
+          "L": 14,
+          "a": 14,
+          "b": 14
+        }
+      },
+      "_timing": {
+        "figure_ground_contrast": 0.04465317726135254,
+        "color_harmony": 4.854751110076904,
+        "colorfulness": 0.038008689880371094,
+        "subband_entropy": 0.8975751399993896
+      },
+      "_metrics_requested": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "_metrics_selected": [
+        "color_harmony",
+        "colorfulness",
+        "figure_ground_contrast",
+        "subband_entropy"
+      ],
+      "slide_index": 8,
+      "slide_path": "C:\\Project\\mixdog\\.tmp\\aesthetics\\slidesgen-brief-r4-staged\\slide_images\\slide_0009.png"
+    }
+  ],
+  "aggregated": {
+    "figure_ground_contrast": {
+      "mean": 0.44771516870886763,
+      "std": 0.13523568763685964,
+      "min": 0.2635810098456951,
+      "max": 0.6771849876062684,
+      "slide_min_mean": 0.07186882948349933,
+      "slide_max_mean": 0.837599023469853
+    },
+    "color_harmony": {
+      "mean_distance": 0.024362060449906422,
+      "std_distance": 0.05172315422005107,
+      "min_distance": 1.6204997852837786e-05,
+      "max_distance": 0.1693987079034713,
+      "deck_metrics": {
+        "mean_score": 0.13889738083498368,
+        "deck_consistency": 0.30933365180284095,
+        "final_score": -17.043627096785727
+      },
+      "raw_distances": [
+        0.1693987079034713,
+        0.006253437662663341,
+        0.0009372816103742422,
+        0.0033817459655513557,
+        0.005505499196392497,
+        0.008981411242239714,
+        0.0011292810604265147,
+        0.023654974410186,
+        1.6204997852837786e-05
+      ]
+    },
+    "colorfulness": {
+      "mean": 15.924211609160665,
+      "std": 4.269417405319943,
+      "min": 9.236436508763228,
+      "max": 22.508707438332813,
+      "pacing_score": 0.7570356522315056,
+      "pacing_normalization": {
+        "method": "gaussian",
+        "formula": "S_norm = exp(-((σ - μ_target)^2) / (2*w^2))",
+        "mu_target": 8.0,
+        "w": 5.0,
+        "sigma_pacing": 4.269417405319943
+      }
+    },
+    "subband_entropy": {
+      "mean": 3.0444749343314417,
+      "std": 0.6678782840077814,
+      "min": 1.6165728150675303,
+      "max": 4.289305223064072,
+      "mean_luminance": 3.184323910052412
+    },
+    "visual_hrv": {
+      "rmssd": 0.2983470755547291,
+      "overload_count": 5,
+      "overload_window": 3,
+      "overload_threshold": 0.75,
+      "overload_window_start_indices": [
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "deltas": [
+        0.6376123962581602,
+        0.48758578250262663,
+        0.0021893088150534146,
+        0.08238565041324108,
+        0.1572599177071129,
+        0.16286928835860204,
+        0.08370713471481983,
+        0.05236599181483437
+      ],
+      "final_score": 30.66116977810836,
+      "interpretation": "healthy_pulse",
+      "n_slides_used": 9,
+      "normalization": {
+        "method": "sigmoid",
+        "formula": "S(x) = 1 / (1 + exp(-k * (x - mu)))",
+        "mu": 2.1,
+        "k": 1.5,
+        "raw_scores": [
+          4.289305223064072,
+          1.6165728150675303,
+          3.0834722253727476,
+          3.0738816086472878,
+          2.760624060236035,
+          3.47053551984301,
+          2.7418044775735693,
+          3.0553428578576822,
+          3.308735621321046
+        ],
+        "normalized_scores": [
+          0.9638743510500085,
+          0.3262619547918483,
+          0.8138477372944749,
+          0.8116584284794215,
+          0.7292727780661804,
+          0.8865326957732933,
+          0.7236634074146913,
+          0.8073705421295111,
+          0.8597365339443455
+        ]
+      }
+    }
+  },
+  "aesthetics_score": {
+    "total": 9.982383737446245,
+    "components": {
+      "contrast": 3.134006180962073,
+      "colorfulness": 6.33849711700473,
+      "harmony": -2.1968744527527604,
+      "entropy": 2.7067548922322024,
+      "rmssd": 0.0
+    },
+    "parameters_used": {
+      "weight_contrast": 7,
+      "weight_colorfulness": 10,
+      "weight_colorfulness_score": 0.55,
+      "w_colorfulness_mean": 26,
+      "w_colorfulness_std": 40,
+      "weight_colorfulness_pacing": 0.5,
+      "w_colorfulness_target": 15,
+      "w_colorfulness_target_std": 6,
+      "weight_harmony": 0.4,
+      "weight_harmony_mean": 5,
+      "weight_harmony_deck": 20,
+      "harmony_sigma": 0.0005,
+      "weight_subband_entropy": 0.08,
+      "weight_subband_entropy_score": 100,
+      "w_subband_entropy_mean": 5.4,
+      "w_subband_entropy_std": 1.6,
+      "weight_target_rmssd": 0.03,
+      "weight_target_halfwidth": 0.21,
+      "se_k": 1.5,
+      "se_mu": 2.1
+    }
+  }
+}

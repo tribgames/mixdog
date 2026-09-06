@@ -1,0 +1,663 @@
+{
+  "startedAt": "2026-09-05T11:35:51.747Z",
+  "pid": 57564,
+  "model": "qwen3.8-27b-q4-k-m",
+  "durationSeconds": 600,
+  "targetCycles": 34,
+  "selectedCase": "tool-roundtrip",
+  "busySkips": 0,
+  "cases": [
+    {
+      "name": "tool-roundtrip-1",
+      "ok": true,
+      "elapsedMs": 4911,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:35:56.661Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 198,
+        "durationMs": 2221,
+        "outputTokens": 66,
+        "inputTokens": 386,
+        "tokensPerSecond": 32.1,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-2",
+      "ok": true,
+      "elapsedMs": 3996,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:36:00.662Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 221,
+        "durationMs": 1868,
+        "outputTokens": 52,
+        "inputTokens": 386,
+        "tokensPerSecond": 31,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-3",
+      "ok": true,
+      "elapsedMs": 3860,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:36:04.527Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 204,
+        "durationMs": 1762,
+        "outputTokens": 51,
+        "inputTokens": 386,
+        "tokensPerSecond": 32.1,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-4",
+      "ok": true,
+      "elapsedMs": 3759,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:36:08.289Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 220,
+        "durationMs": 1839,
+        "outputTokens": 53,
+        "inputTokens": 386,
+        "tokensPerSecond": 32.1,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-5",
+      "ok": true,
+      "elapsedMs": 4075,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:36:12.367Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 209,
+        "durationMs": 1807,
+        "outputTokens": 51,
+        "inputTokens": 386,
+        "tokensPerSecond": 31.3,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-6",
+      "ok": true,
+      "elapsedMs": 3197,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:36:15.566Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 224,
+        "durationMs": 1313,
+        "outputTokens": 35,
+        "inputTokens": 386,
+        "tokensPerSecond": 31.2,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-7",
+      "ok": true,
+      "elapsedMs": 3157,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:36:18.725Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 213,
+        "durationMs": 1350,
+        "outputTokens": 37,
+        "inputTokens": 386,
+        "tokensPerSecond": 31.7,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-8",
+      "ok": true,
+      "elapsedMs": 4706,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:36:23.434Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 200,
+        "durationMs": 1668,
+        "outputTokens": 48,
+        "inputTokens": 386,
+        "tokensPerSecond": 32,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-9",
+      "ok": true,
+      "elapsedMs": 3860,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:36:27.296Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 203,
+        "durationMs": 1791,
+        "outputTokens": 50,
+        "inputTokens": 386,
+        "tokensPerSecond": 30.9,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-10",
+      "ok": true,
+      "elapsedMs": 3364,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:36:30.663Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 204,
+        "durationMs": 1432,
+        "outputTokens": 39,
+        "inputTokens": 387,
+        "tokensPerSecond": 31,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-11",
+      "ok": true,
+      "elapsedMs": 3753,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:36:34.419Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 214,
+        "durationMs": 1559,
+        "outputTokens": 44,
+        "inputTokens": 387,
+        "tokensPerSecond": 32,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-12",
+      "ok": true,
+      "elapsedMs": 3519,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:36:37.941Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 224,
+        "durationMs": 1523,
+        "outputTokens": 41,
+        "inputTokens": 387,
+        "tokensPerSecond": 30.8,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-13",
+      "ok": true,
+      "elapsedMs": 3919,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:36:41.862Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 229,
+        "durationMs": 1428,
+        "outputTokens": 39,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.7,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-14",
+      "ok": true,
+      "elapsedMs": 3677,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:36:45.542Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 200,
+        "durationMs": 1896,
+        "outputTokens": 55,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.8,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-15",
+      "ok": true,
+      "elapsedMs": 4207,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:36:49.751Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 226,
+        "durationMs": 2069,
+        "outputTokens": 58,
+        "inputTokens": 387,
+        "tokensPerSecond": 30.9,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-16",
+      "ok": true,
+      "elapsedMs": 8729,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:36:58.482Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 218,
+        "durationMs": 2474,
+        "outputTokens": 73,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.9,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-17",
+      "ok": true,
+      "elapsedMs": 3417,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:37:01.901Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 234,
+        "durationMs": 1460,
+        "outputTokens": 39,
+        "inputTokens": 387,
+        "tokensPerSecond": 31,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-18",
+      "ok": true,
+      "elapsedMs": 3599,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:37:05.502Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 212,
+        "durationMs": 1487,
+        "outputTokens": 42,
+        "inputTokens": 387,
+        "tokensPerSecond": 32.2,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-19",
+      "ok": true,
+      "elapsedMs": 3287,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:37:08.791Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 230,
+        "durationMs": 1343,
+        "outputTokens": 36,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.5,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-20",
+      "ok": true,
+      "elapsedMs": 3676,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:37:12.470Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 214,
+        "durationMs": 1807,
+        "outputTokens": 51,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.4,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-21",
+      "ok": true,
+      "elapsedMs": 4078,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:37:16.550Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 219,
+        "durationMs": 2166,
+        "outputTokens": 63,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.8,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-22",
+      "ok": true,
+      "elapsedMs": 3071,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:37:19.623Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 217,
+        "durationMs": 1343,
+        "outputTokens": 37,
+        "inputTokens": 387,
+        "tokensPerSecond": 32,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-23",
+      "ok": true,
+      "elapsedMs": 3392,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:37:23.018Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 212,
+        "durationMs": 1621,
+        "outputTokens": 46,
+        "inputTokens": 387,
+        "tokensPerSecond": 32,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-24",
+      "ok": true,
+      "elapsedMs": 4102,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:37:27.122Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 219,
+        "durationMs": 2085,
+        "outputTokens": 58,
+        "inputTokens": 387,
+        "tokensPerSecond": 30.5,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-25",
+      "ok": true,
+      "elapsedMs": 4846,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:37:31.971Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 219,
+        "durationMs": 1698,
+        "outputTokens": 48,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.8,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-26",
+      "ok": true,
+      "elapsedMs": 4282,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:37:36.256Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 224,
+        "durationMs": 2218,
+        "outputTokens": 63,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.1,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-27",
+      "ok": true,
+      "elapsedMs": 3969,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:37:40.228Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 223,
+        "durationMs": 1883,
+        "outputTokens": 53,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.3,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-28",
+      "ok": true,
+      "elapsedMs": 4107,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:37:44.338Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 225,
+        "durationMs": 2171,
+        "outputTokens": 63,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.9,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-29",
+      "ok": true,
+      "elapsedMs": 3591,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:37:47.931Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 214,
+        "durationMs": 1843,
+        "outputTokens": 52,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.3,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-30",
+      "ok": true,
+      "elapsedMs": 3678,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:37:51.612Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 237,
+        "durationMs": 1759,
+        "outputTokens": 48,
+        "inputTokens": 387,
+        "tokensPerSecond": 30.9,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-31",
+      "ok": true,
+      "elapsedMs": 3627,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:37:55.241Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 213,
+        "durationMs": 1834,
+        "outputTokens": 52,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.5,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-32",
+      "ok": true,
+      "elapsedMs": 3353,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:37:58.596Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 213,
+        "durationMs": 1475,
+        "outputTokens": 41,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.7,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-33",
+      "ok": true,
+      "elapsedMs": 6461,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:38:05.059Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 219,
+        "durationMs": 2092,
+        "outputTokens": 60,
+        "inputTokens": 387,
+        "tokensPerSecond": 31.5,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    },
+    {
+      "name": "tool-roundtrip-34",
+      "ok": true,
+      "elapsedMs": 3296,
+      "metrics": {
+        "state": "complete",
+        "at": "2026-09-05T11:38:08.357Z",
+        "queueWaitMs": 0,
+        "firstResponseMs": 223,
+        "durationMs": 1513,
+        "outputTokens": 41,
+        "inputTokens": 387,
+        "tokensPerSecond": 31,
+        "error": null
+      },
+      "detail": {
+        "toolSteps": 1
+      }
+    }
+  ],
+  "failures": [],
+  "finishedAt": "2026-09-05T11:38:08.357Z",
+  "elapsedMs": 136609,
+  "cycles": 34,
+  "passed": true,
+  "scope": "Existing model process; long-running multi-turn/tool/queue/cancel recovery. No OS sleep, app restart, model reload or new model installation."
+}

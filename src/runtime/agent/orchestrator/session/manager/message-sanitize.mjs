@@ -63,7 +63,7 @@ function messageSnapshotPresent(messages, wanted) {
     });
 }
 
-export function compactedOutgoingPromptRetained(activeMessages, outgoingMessages) {
+function compactedOutgoingPromptRetained(activeMessages, outgoingMessages) {
     const outgoing = filterModelVisibleSessionMessages(outgoingMessages);
     const prompt = [...outgoing].reverse().find((message) => message?.role === 'user');
     return Boolean(prompt) && messageSnapshotPresent(filterModelVisibleSessionMessages(activeMessages), prompt);

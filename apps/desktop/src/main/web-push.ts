@@ -140,7 +140,7 @@ export function vapidAuthorizationHeader(input: {
   const signingInput = Buffer.from(`${header}.${payload}`);
   // JWS wants the raw r‖s pair; Node's default DER encoding is rejected by
   // every push service with a bare 401.
-  const signature = cryptoSign(null, signingInput, {
+  const signature = cryptoSign('sha256', signingInput, {
     key: privateKeyObject(input.keys),
     dsaEncoding: 'ieee-p1363',
   });

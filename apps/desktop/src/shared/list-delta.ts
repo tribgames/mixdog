@@ -8,6 +8,11 @@ export interface KeyedListDeltaDecoder<T> {
   reset(): void;
 }
 
+const NO_LIST_DELTA = Symbol("mixdog.no-list-delta");
+export function isNoListDelta(value: unknown): boolean {
+  return value === NO_LIST_DELTA;
+}
+
 /** One upsert entry. `[key, item]` replaces the whole row; the 3- and
  *  4-element forms carry ONLY the fields that changed, the 4th listing keys the
  *  row no longer has. Older decoders require length 2 and answer `ok: false` to
@@ -52,7 +57,7 @@ export function createKeyedListDeltaEncoder<T>(
 ): KeyedListDeltaEncoder<T> {
   let revision = 0;
   let order: string[] | null = null;
-  let previous = new Map<string, { item: T; signature: string }>();
+  let previous = new Map<string, { signature: string }>();
   return {
     reset(): void {
       order = null;
@@ -61,10 +66,10 @@ export function createKeyedListDeltaEncoder<T>(
     encode(items): unknown {
       revision += 1;
       const nextOrder = items.map((item, index) => keyOf(item, index));
-      const next = new Map<string, { item: T; signature: string }>();
+      const next = new Map<string, { signature: string }>();
       const rows = items.map((item, index) => {
         const key = nextOrder[index];
-        next.set(key, { item, signature: JSON.stringify(item) });
+        next.set(key, { signature: JSON.stringify(item) });
         return [key, item] as [string, T];
       });
       if (!order) {
@@ -80,7 +85,9 @@ export function createKeyedListDeltaEncoder<T>(
       for (const [key, item] of rows) {
         const before = previous.get(key);
         if (before && before.signature === next.get(key)?.signature) continue;
-        const delta = before ? rowFieldDelta(before.item, item) : null;
+        // The caller may reuse a row object. Its retained JSON signature is
+        // the last transmitted value even if that object changed in place.
+        const delta = before ? rowFieldDelta(JSON.parse(before.signature), item) : null;
         if (delta) {
           const entry: ListUpsert<T> = delta.dropped.length > 0
             ? [key, delta.changed as Partial<T>, 1, delta.dropped]
@@ -95,6 +102,11 @@ export function createKeyedListDeltaEncoder<T>(
       const removed = order.filter((key) => !next.has(key));
       const orderChanged = order.length !== nextOrder.length
         || order.some((key, index) => key !== nextOrder[index]);
+      if (upsert.length === 0 && removed.length === 0 && !orderChanged) {
+        revision -= 1;
+        previous = next;
+        return NO_LIST_DELTA;
+      }
       const wire = {
         __listPatch: {
           base: revision - 1,

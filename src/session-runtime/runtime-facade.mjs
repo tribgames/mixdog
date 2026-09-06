@@ -64,7 +64,8 @@ export function createRuntimeFacade({
       return state.session?.contextWindow || null;
     },
     get contextPercent() {
-      return state.session?.contextPercent ?? state.route?.contextPercent ?? null;
+      // Picker preference for a new/inherited session, not the live gauge.
+      return state.route?.contextPercent ?? state.session?.contextPercent ?? null;
     },
     get rawContextWindow() {
       return state.session?.rawContextWindow || state.session?.contextWindow || null;

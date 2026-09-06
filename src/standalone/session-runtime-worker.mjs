@@ -41,6 +41,7 @@ import {
 const SHARD_INDEX = Math.max(0, Math.floor(Number(process.env.MIXDOG_SESSION_RUNTIME_SHARD) || 0));
 
 const records = new Map();
+const agentDispatchRuns = new Map(); // dispatchId -> AbortController
 let sessionModulePromise = null;
 let stopping = false;
 let unhealthyDetail = null;
@@ -71,12 +72,21 @@ process.on('warning', (warning) => {
   const target = warning?.target;
   if ((!target || (typeof target !== 'object' && typeof target !== 'function'))
     || pendingAbortPressureChecks.has(target)) return;
+  const context = {
+    shard: SHARD_INDEX,
+    runtimesAtWarning: records.size,
+    agentDispatchesAtWarning: agentDispatchRuns.size,
+  };
   pendingAbortPressureChecks.add(target);
   const timer = setTimeout(() => {
     pendingAbortPressureChecks.delete(target);
     let retained = 0;
     try { retained = getEventListeners(target, 'abort').length; } catch {}
-    reportRuntimeAbortListenerPressure(warning, Date.now(), retained);
+    reportRuntimeAbortListenerPressure(warning, Date.now(), retained, {
+      ...context,
+      runtimesAfterDelay: records.size,
+      agentDispatchesAfterDelay: agentDispatchRuns.size,
+    });
   }, ABORT_PRESSURE_RETENTION_CHECK_MS);
   timer.unref?.();
 });
@@ -326,7 +336,6 @@ function agentGraph() {
   return agentGraphPromise;
 }
 const agentDispatchers = new Map();
-const agentDispatchRuns = new Map(); // dispatchId -> AbortController
 
 async function deliverDistributedAgentNotification(message) {
   const ownerSessionId = String(message.ownerSessionId || '');

@@ -1,8 +1,7 @@
 import { readFileSync, existsSync, readdirSync } from 'fs';
-import { homedir } from 'os';
 import { basename, dirname, join } from 'path';
 import { maxMtimeRecursive } from '../cache-mtime.mjs';
-import { resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
+import { mixdogHome, resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
 import { pluginSkillsRoots } from '../../../shared/plugin-manifest.mjs';
 import { readMarkdownDocument } from '../../../shared/markdown-frontmatter.mjs';
 import { parseSkillDocument } from '../../../shared/skill-document.mjs';
@@ -17,10 +16,6 @@ function skillsDisabled() {
 // --- mixdog asset roots (standalone CLI owns its own paths; never .claude) ---
 // Skills are machine-global under <mixdogData>/skills. Project-local skill
 // directories are intentionally outside the runtime resolution chain.
-function mixdogHome() {
-    return process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
-}
-
 function mixdogGlobalDir(kind) {
     try {
         return join(resolvePluginData(), kind);
@@ -92,7 +87,7 @@ function pluginSkillDirs() {
 }
 /**
  * Collect available skills (frontmatter only — token efficient).
- * Full content loaded on demand via loadSkillContent().
+ * Full content is read on demand when a skill is loaded.
  */
 export function collectSkills(cwd) {
     if (skillsDisabled()) return [];
@@ -135,6 +130,7 @@ export function collectSkills(cwd) {
                 skills.push({
                     name: skill.name,
                     description: skill.description,
+                    whenToUse: skill.whenToUse,
                     filePath,
                     source,
                     plugin,
@@ -267,22 +263,6 @@ export function invalidateSkillsCache(cwd) {
 export function invalidateSkillsMtimeGate() {
     _mtimeCache.clear();
 }
-/**
- * Load full skill content by name.
- */
-function loadSkillContent(name, cwd) {
-    const skills = collectSkillsCached(cwd);
-    const skill = skills.find(s => s.name === name);
-    if (!skill)
-        return null;
-    const content = readSafe(skill.filePath);
-    if (content == null) return null;
-    try {
-        return parseSkillDocument(content).body;
-    } catch {
-        return null;
-    }
-}
 
 /**
  * Load full skill content plus its on-disk directory (for base-dir + ${MIXDOG_SKILL_DIR}).
@@ -364,13 +344,15 @@ export function buildSkillToolEnvelope(name, content, skillDir, { source = 'glob
     };
 }
 
-// Listing entries are for MATCHING only (full SKILL.md arrives via Skill()),
-// but a mid-word cut at 100 chars ("...gamerscroll.c...") destroyed the very
-// trigger phrase the model matches on. Skill descriptions lead with their
-// trigger phrase, so a 150-char word-boundary cap keeps the matching core
-// while trimming workflow detail the Skill() load supplies anyway.
-const SKILL_MANIFEST_DESC_MAX = 150;
+// Listing entries are for MATCHING only (full SKILL.md arrives via Skill()).
+// Each entry is `description — when_to_use`: a short capability sentence plus
+// the trigger phrases and boundary. The cap is a word-boundary cut generous
+// enough to keep both halves for a well-formed skill (the authoring rule is
+// description ≤ 100, combined ≤ 250) while trimming anything past that,
+// which the Skill() load supplies anyway.
+const SKILL_MANIFEST_DESC_MAX = 250;
 const SKILL_MANIFEST_DESC_MIN = 60;
+const SKILL_MANIFEST_TRIGGER_SEPARATOR = ' — ';
 // Whole-manifest ceiling (~1% of a 200k-token window at 4 chars/token).
 const SKILL_MANIFEST_CHAR_BUDGET = 8_000;
 
@@ -384,6 +366,13 @@ function compactSkillManifestText(value, max = SKILL_MANIFEST_DESC_MAX) {
     return `${cut.replace(/[\s,.;:!?/\-]+$/, '')}...`;
 }
 
+/** `description — when_to_use`, or the description alone when no trigger line exists. */
+function skillManifestText(skill) {
+    const description = String(skill?.description || '').trim();
+    const whenToUse = String(skill?.whenToUse || '').trim();
+    return whenToUse ? `${description}${SKILL_MANIFEST_TRIGGER_SEPARATOR}${whenToUse}` : description;
+}
+
 /**
  * Build the compact skill manifest shown to the model.
  * Full SKILL.md content is still loaded only through Skill(name).
@@ -393,7 +382,7 @@ export function buildSkillManifest(skills, { limit = 80, charBudget = SKILL_MANI
     const list = (Array.isArray(skills) ? skills : [])
         .map((skill) => ({
             name: String(skill?.name || '').trim(),
-            description: String(skill?.description || ''),
+            description: skillManifestText(skill),
         }))
         .filter((skill) => skill.name)
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -636,9 +625,6 @@ export function applyInitialDeferredToolManifestToBp2(session, poolNames, option
     return true;
 }
 
-// Compatibility for external callers compiled against the old layer name.
-export const applyInitialDeferredToolManifestToBp1 = applyInitialDeferredToolManifestToBp2;
-
 /**
  * Build the fixed skill loader meta-tool.
  * A tiny stable schema keeps provider cache keys steady; concrete skill
@@ -705,11 +691,7 @@ export function buildSkillToolDefs(skills, { ownerIsAgentSession = false } = {})
 //
 // Classification is dynamic — hidden retrieval/maintenance sets come from the
 // `kind` field in internal-agents.mjs. Any other non-null agent is public/custom.
-import {
-    listHiddenAgentsByKind,
-    isHiddenAgent,
-    getAgentCatalogShareAgents,
-} from '../internal-agents.mjs';
+import { listHiddenAgentsByKind, getAgentCatalogShareAgents } from '../internal-agents.mjs';
 
 function loadAgentClassification() {
     // Not cached — called only on instruction rebuild (mtime-busted), and

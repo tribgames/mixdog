@@ -386,7 +386,7 @@ export function cacheMediaThumbnail(id, input = {}) {
   };
 }
 
-export function mediaAssetPath(id) {
+function mediaAssetPath(id) {
   const entry = getMediaAsset(id);
   return entry ? storedAssetPath(entry.file) : null;
 }

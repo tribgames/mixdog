@@ -578,14 +578,12 @@ test('computer observation variants are replay-safe but clipboard writes are not
 test('computer runtime manifest stays in parity with host command handlers', async () => {
   // Handlers live in both halves of the host: the TypeScript decisions and the
   // PowerShell program they dispatch into.
-  // Both halves are split by capability, so every module in the host and
-  // backend directories counts as host source: a handler is present wherever
-  // its dispatch case lives. Directories, not file names, so a module split
-  // or rename inside either half cannot silently retire this check.
-  const hostSource = (await Promise.all(['host', 'backend'].map(async (half) => {
+  // Both halves are split by capability. Include native originals as well as
+  // their TypeScript adapters so bundling does not hide a dispatch case.
+  const hostSource = (await Promise.all(['host', 'backend', 'backend/sources'].map(async (half) => {
     const dir = new URL(`../../apps/desktop/src/main/computer/${half}/`, import.meta.url);
-    const names = (await readdir(dir)).filter((name) => name.endsWith('.ts')).sort();
-    assert.ok(names.length > 0, `computer ${half} directory has no TypeScript modules`);
+    const names = (await readdir(dir)).filter((name) => /\.(?:ts|ps1)$/.test(name)).sort();
+    assert.ok(names.length > 0, `computer ${half} directory has no command sources`);
     return Promise.all(names.map((name) => readFile(new URL(name, dir), 'utf8')));
   }))).flat().join('\n');
   // Every schema action, including the button/operation/kind variants that
@@ -1948,6 +1946,65 @@ test('computer client retries once against a republished bridge endpoint', {
       server.closeAllConnections?.();
       await new Promise((resolve) => server.close(resolve));
     }
+    await releaseAllComputerSessions(1_000);
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('computer client skips the deferred release for sessions that never reached the host', {
+  timeout: 10_000,
+}, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-computer-idle-release-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = directory;
+  const seen = [];
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on('data', (chunk) => chunks.push(chunk));
+    request.on('end', () => {
+      seen.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      const payload = JSON.stringify({ ok: true, value: { text: 'ok' } });
+      response.writeHead(200, {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(payload),
+      });
+      response.end(payload);
+    });
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    await writeFile(join(directory, 'computer-bridge.json'), `${JSON.stringify({
+      version: 1,
+      port: address.port,
+      token: 'computer-token',
+    })}\n`);
+    // Every turn settles through the deferred release; a session that never
+    // called the tool must not wake the desktop host.
+    assert.equal(deferComputerSessionRelease('idle-session', 20), false);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.deepEqual(seen, []);
+    // Once a host-bound session has been released, its later idle turns stay
+    // quiet as well.
+    await executeComputerTool(
+      { action: 'list', input: { kind: 'windows' } },
+      { sessionId: 'used-once-session' },
+    );
+    assert.equal(deferComputerSessionRelease('used-once-session', 20), true);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.deepEqual(seen.map((body) => body.action), ['list_windows', 'session_release']);
+    assert.equal(deferComputerSessionRelease('used-once-session', 20), false);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(seen.length, 2);
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
     await releaseAllComputerSessions(1_000);
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previousDataDir;

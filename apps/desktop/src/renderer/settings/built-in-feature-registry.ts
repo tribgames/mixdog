@@ -4,6 +4,7 @@ export type BuiltInFeatureId =
   | 'browser'
   | 'computer'
   | 'office'
+  | 'localProvider'
   | 'voice';
 
 export interface BuiltInFeatureDefinition {
@@ -18,8 +19,8 @@ export interface BuiltInFeatureDefinition {
 export const BUILT_IN_FEATURES: ReadonlyArray<BuiltInFeatureDefinition> = [
   {
     id: 'git',
-    title: 'Git',
-    description: 'Review project changes and safely sync them with online repositories.',
+    title: 'Git & GitHub',
+    description: 'Manage changes, repositories, issues, pull requests, Actions, releases, and notifications.',
     group: 'agent',
     managedInstall: true,
   },
@@ -47,6 +48,14 @@ export const BUILT_IN_FEATURES: ReadonlyArray<BuiltInFeatureDefinition> = [
     title: 'Office',
     description: 'Create, review, and edit documents, spreadsheets, and presentations.',
     group: 'agent',
+  },
+  {
+    id: 'localProvider',
+    title: 'Local Provider',
+    description: 'Run recommended models on this PC without installing another model app.',
+    group: 'agent',
+    platform: 'windows',
+    managedInstall: true,
   },
   {
     id: 'voice',

@@ -3,7 +3,6 @@ import { executeSingleReadTool } from './read-single-tool.mjs';
 import { imageMimeForPath, readImageAsContent } from './read-image.mjs';
 import { readEntryCoalescedDiskWindow } from './read-batch.mjs';
 import { readPathStringGuardError } from './read-open.mjs';
-import { parseReadLineNumberArg } from './read-args.mjs';
 import { assertPathsReachable } from './fs-reachability.mjs';
 import { existsSync } from 'fs';
 import { coerceReadFamilyPathArg, hasGlobMagic } from './path-utils.mjs';

@@ -1,0 +1,66 @@
+{
+  "source": "pptx-snapshot",
+  "image": "slide_0007.png",
+  "boxes": [
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        107,
+        1041,
+        186
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        63,
+        149,
+        95
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        617,
+        235,
+        798,
+        269
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        977,
+        233,
+        1347,
+        669
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        706,
+        806,
+        737
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        1232,
+        735,
+        1258,
+        767
+      ]
+    }
+  ]
+}

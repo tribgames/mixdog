@@ -18,8 +18,7 @@ const PROVIDER_LABELS: Readonly<Record<string, string>> = {
   "grok-oauth": "Grok OAuth",
   "antigravity-oauth": "Antigravity OAuth",
   "cursor-oauth": "Cursor OAuth",
-  lmstudio: "LM Studio",
-  ollama: "Ollama",
+  "mixdog-local": "Local Provider",
   openai: "OpenAI API",
   "openai-api": "OpenAI API",
   "openai-oauth": "OpenAI OAuth",
@@ -48,8 +47,7 @@ const PROVIDER_RANKS: Readonly<Record<string, number>> = {
   "xai-api": 70,
   deepseek: 90,
   "deepseek-api": 90,
-  ollama: 100,
-  lmstudio: 110,
+  "mixdog-local": 100,
 };
 
 export function providerDisplayName(provider: string | null | undefined) {

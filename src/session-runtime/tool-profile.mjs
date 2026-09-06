@@ -12,6 +12,7 @@ export const HEADLESS_MODEL_TOOL_NAMES = Object.freeze([
   'apply_patch',
   'git',
   'git_stage',
+  'github',
   'shell',
   'task',
   'load_tool',

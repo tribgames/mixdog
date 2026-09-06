@@ -12,6 +12,9 @@ globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 globalThis.HTMLElement = dom.window.HTMLElement;
 globalThis.Node = dom.window.Node;
+globalThis.HTMLElement.prototype.scrollIntoView = () => {};
+globalThis.HTMLElement.prototype.attachEvent = () => {};
+globalThis.HTMLElement.prototype.detachEvent = () => {};
 Object.defineProperty(globalThis, "navigator", {
   configurable: true,
   value: dom.window.navigator,
@@ -29,7 +32,7 @@ const model = {
   provider: "openai",
   model: "gpt-fast-handoff-test",
   display: "Fast handoff test",
-  effortOptions: [{ value: "high", label: "High" }],
+  effortOptions: [{ value: "high", label: "High" }, { value: "low", label: "Low" }],
   fastCapable: true,
   fastEfforts: ["high"],
   fastPreferred: false,
@@ -55,13 +58,15 @@ function option(label) {
 }
 
 const requests = [];
+let availableModels = [model];
+let providerSetup = { api: [{ id: "openai", authenticated: true }] };
 window.mixdogDesktop = {
   rendererDiagnostic() {},
-  listProviderModels: async () => [model],
+  listProviderModels: async () => availableModels,
   invokeCapability: async ({ capability }) => {
     assert.equal(capability, "getProviderSetup");
     return {
-      value: { api: [{ id: "openai", authenticated: true }] },
+      value: providerSetup,
       snapshot: null,
     };
   },
@@ -73,6 +78,15 @@ window.mixdogDesktop = {
 };
 
 const { ModelSelector } = await import("./model-controls.tsx");
+const { invalidateSharedModelCatalogRequest } = await import("./model-catalog-cache.ts");
+
+test.beforeEach(() => {
+  requests.length = 0;
+  availableModels = [model];
+  providerSetup = { api: [{ id: "openai", authenticated: true }] };
+  window.localStorage.clear();
+  invalidateSharedModelCatalogRequest();
+});
 
 test("fast mode stays optimistic until the authoritative snapshot paints", async () => {
   const host = document.createElement("main");
@@ -151,3 +165,167 @@ test("fast mode stays optimistic until the authoritative snapshot paints", async
     host.remove();
   }
 });
+
+test("an installed Local Provider model appears without remounting the picker", async () => {
+  const host = document.createElement("main");
+  document.body.append(host);
+  const root = createRoot(host);
+  const localModel = {
+    provider: "mixdog-local",
+    model: "qwen3.8-27b-q4-k-m",
+    display: "Qwen3.8 27B Q4_K_M",
+    effortOptions: [],
+    fastCapable: false,
+    modelParameterOptions: [],
+    parameterVariants: [],
+    defaultModelParameters: {},
+    savedModelParameters: {},
+  };
+
+  try {
+    await act(async () => root.render(React.createElement(ModelSelector, {
+      provider: model.provider,
+      model: model.model,
+      effort: "high",
+      fast: false,
+      fastCapable: true,
+      modelParameters: {},
+      contextPercent: 100,
+      modelDisabled: false,
+      tuningDisabled: false,
+      sessionId: "session-local-provider-refresh",
+      invokeResult: async (action) => await action(),
+      applySnapshot() {},
+      onOpenSettings() {},
+      onRoutePreferenceApplied() {},
+    })));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    availableModels = [model, localModel];
+    providerSetup = {
+      api: [{ id: "openai", authenticated: true }],
+      local: [{ id: "mixdog-local", detected: true, enabled: true }],
+    };
+    await act(async () => {
+      invalidateSharedModelCatalogRequest();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    await act(async () => document.querySelector(".model-trigger").click());
+    const modelRow = [...document.querySelectorAll(".route-sheet-row")]
+      .find((button) => button.textContent.includes("Model"));
+    assert.ok(modelRow);
+    await act(async () => modelRow.click());
+    const localOption = [...document.querySelectorAll('[role="option"]')]
+      .find((button) => button.textContent.includes("Qwen3.8 27B"));
+    assert.ok(localOption);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+for (const field of ["model", "effort"]) {
+  test(`${field} selection survives busy snapshots and delayed acknowledgement, but rolls back on failure`, async () => {
+    const secondModel = { ...model, model: "gpt-second-handoff-test", display: "Second handoff test" };
+    availableModels = [model, secondModel];
+    const host = document.createElement("main");
+    document.body.append(host);
+    const root = createRoot(host);
+    const oldInvoke = window.mixdogDesktop.invokeCapability;
+    const oldSetRoute = window.mixdogDesktop.setModelRoute;
+    let request;
+    let requestedSelection;
+    let pendingSnapshot;
+    let paint;
+    const initial = {
+      provider: model.provider, model: model.model, effort: "high", fast: false,
+      modelParameters: {}, contextPercent: 100,
+    };
+    window.mixdogDesktop.setModelRoute = (selection) => {
+      requestedSelection = selection;
+      request = deferred();
+      return request.promise;
+    };
+    window.mixdogDesktop.invokeCapability = (input) => {
+      if (input.capability !== "setEffort") return oldInvoke(input);
+      requestedSelection = { effort: input.args[0] };
+      request = deferred();
+      return request.promise;
+    };
+    function Harness() {
+      const [snapshot, setSnapshot] = useState(initial);
+      paint = setSnapshot;
+      return React.createElement(ModelSelector, {
+        ...snapshot, fastCapable: true,
+        sessionId: "session-busy-selection", modelDisabled: false, tuningDisabled: false,
+        invokeResult: async (action) => {
+          try { return await action(); } catch { return undefined; }
+        },
+        applySnapshot: (next) => { pendingSnapshot = next; },
+        onOpenSettings() {}, onRoutePreferenceApplied() {},
+      });
+    }
+    const openModelPane = async () => {
+      if (document.querySelector(".model-trigger").getAttribute("aria-expanded") !== "true") {
+        await act(async () => document.querySelector(".model-trigger").click());
+      }
+      const row = [...document.querySelectorAll(".route-sheet-row")]
+        .find((button) => button.textContent.includes("Model"));
+      await act(async () => row.click());
+    };
+    const choose = async (next) => {
+      if (field === "model") {
+        await openModelPane();
+        const label = next ? secondModel.display : model.display;
+        const entry = [...document.querySelectorAll('[role="option"]')]
+          .find((button) => button.textContent.includes(label));
+        assert.ok(entry);
+        await act(async () => entry.click());
+      } else {
+        await act(async () => option(next ? "Low" : "High").click());
+      }
+    };
+    const assertChosen = () => {
+      if (field === "model") {
+        assert.ok(document.querySelector(".model-trigger").textContent.includes(secondModel.display));
+      } else {
+        assert.equal(option("Low").getAttribute("aria-checked"), "true");
+      }
+    };
+    try {
+      await act(async () => root.render(React.createElement(Harness)));
+      await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+      if (field === "effort") {
+        await act(async () => document.querySelector(".model-trigger").click());
+        const row = [...document.querySelectorAll(".route-sheet-row")]
+          .find((button) => button.textContent.includes("Reasoning effort"));
+        await act(async () => row.click());
+      }
+      await choose(true);
+      assertChosen();
+      await act(async () => paint({ ...initial, busy: true }));
+      assertChosen();
+      const resolved = { ...initial, ...requestedSelection };
+      await act(async () => request.resolve(field === "effort"
+        ? { value: "low", snapshot: resolved }
+        : resolved));
+      assertChosen();
+      await act(async () => paint({ ...initial, busy: true, spinner: { text: "working" } }));
+      assertChosen();
+      await act(async () => paint(pendingSnapshot));
+      assertChosen();
+      await choose(false);
+      await act(async () => request.reject(new Error("route update failed")));
+      assertChosen();
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      window.mixdogDesktop.invokeCapability = oldInvoke;
+      window.mixdogDesktop.setModelRoute = oldSetRoute;
+    }
+  });
+}

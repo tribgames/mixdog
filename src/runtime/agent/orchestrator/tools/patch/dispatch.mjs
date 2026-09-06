@@ -23,7 +23,6 @@ import {
   stripDiffPrefix,
   resolveEntryPath,
   parsedEntryResolvedPath,
-  isResolvedPathOutsideBase,
   countHunkChanges,
 } from './paths.mjs';
 import {

@@ -33,16 +33,16 @@ function hex(value) {
   return '';
 }
 
-export function resolveChartFamily(chartType) {
+function resolveChartFamily(chartType) {
   const key = String(chartType || 'column').trim().toLowerCase().replace(/[\s-]+/g, '_');
   return CHART_FAMILIES[key] ? { key, ...CHART_FAMILIES[key] } : null;
 }
 
-export function supportedChartTypes() {
+function supportedChartTypes() {
   return Object.keys(CHART_FAMILIES);
 }
 
-export function columnLetter(index) {
+function columnLetter(index) {
   let value = Math.max(1, Math.trunc(index));
   let label = '';
   while (value > 0) {

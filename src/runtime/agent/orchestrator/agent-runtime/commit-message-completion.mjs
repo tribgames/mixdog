@@ -1,27 +1,16 @@
 import { loadConfig } from '../config.mjs';
 import { getProvider, initProviders } from '../providers/registry.mjs';
 import { resolveMaintenanceRoute } from './maintenance-route.mjs';
+import { resultText } from './completion-text.mjs';
 
-export const COMMIT_MESSAGE_SYSTEM_PROMPT = 'You are generating one git commit message from the provided diff. First line: imperative mood, at most 72 characters, no trailing period. Optionally add a blank line and a short body (wrapped at 72 characters) explaining WHY. Output ONLY the commit message - no preamble, no code fences, no quotes.';
+const COMMIT_MESSAGE_SYSTEM_PROMPT = 'You are generating one git commit message from the provided diff. First line: imperative mood, at most 72 characters, no trailing period. Optionally add a blank line and a short body (wrapped at 72 characters) explaining WHY. Output ONLY the commit message - no preamble, no code fences, no quotes.';
 
-export function commitMessageSystemPrompt(style = '') {
+function commitMessageSystemPrompt(style = '') {
     const hint = String(style || '').trim();
     return hint ? `${COMMIT_MESSAGE_SYSTEM_PROMPT}\n${hint}` : COMMIT_MESSAGE_SYSTEM_PROMPT;
 }
 
-function resultText(result) {
-    if (typeof result === 'string') return result;
-    if (typeof result?.content === 'string') return result.content;
-    if (Array.isArray(result?.content)) {
-        return result.content
-            .map((part) => part?.type === 'text' ? String(part.text || '') : '')
-            .filter(Boolean)
-            .join('\n');
-    }
-    return '';
-}
-
-export function createCommitMessageCompletion(deps = {}) {
+function createCommitMessageCompletion(deps = {}) {
     const load = deps.loadConfig || loadConfig;
     const resolveRoute = deps.resolveMaintenanceRoute || resolveMaintenanceRoute;
     const initialize = deps.initProviders || initProviders;

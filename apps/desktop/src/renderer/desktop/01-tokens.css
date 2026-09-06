@@ -299,15 +299,29 @@
      that hangs off a control keeps the compact radius. */
   --mx-popup-bg: var(--mx-bg-base);
   --mx-popup-border: .5px solid var(--mx-border-strong);
-  --mx-popup-shadow: var(--mx-floating);
-  --mx-popup-radius: var(--mx-radius-md);
-  --mx-popup-radius-card: var(--mx-radius-lg);
+  /* The border owns the edge; elevation must not draw a second bright ring. */
+  --mx-popup-shadow: 0 12px 28px rgb(0 0 0 / 18%), 0 2px 6px rgb(0 0 0 / 12%);
+  --mx-popup-radius: var(--mx-radius-lg);
+  --mx-popup-radius-card: var(--mx-radius-xl);
+  --mx-menu-inset: 6px;
+  --mx-menu-row-height: 32px;
+  --mx-menu-z-index: 10010;
+  --mx-dialog-inset: 20px;
+  --mx-list-focus-ring: inset 0 0 0 1px var(--mx-border-strong);
   /* Quiet pressable plate inside a popup (the context card's Compact button):
      a 4% ink tint under a muted hairline, so it reads as a button on the same
      base plate without a filled block. */
   --mx-popup-action-bg: color-mix(in srgb, var(--mx-text) 4%, transparent);
   --mx-popup-action-ring: inset 0 0 0 .5px var(--mx-border-muted);
   --mx-popup-action-ring-hover: inset 0 0 0 .5px var(--mx-border-strong);
+  /* Hover bridge geometry — the transparent frame that JOINS a card to the
+     control it hangs off (user: 투명으로 중간에 이어주는 프레임). Reach clears
+     the card's 6px offset and still overlaps the control, so no hairline of
+     unhovered ground survives a zoom rounding; spread runs the frame past both
+     card edges, so an approach that drifts sideways lands on it too. Both stay
+     inside the card, which is inside the slot: the pointer never leaves. */
+  --mx-popup-bridge-reach: 8px;
+  --mx-popup-bridge-spread: 12px;
 
   /* ── Base typography, metrics, motion ── */
   color: var(--mx-text);

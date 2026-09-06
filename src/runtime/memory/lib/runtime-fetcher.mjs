@@ -15,18 +15,25 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
 //
 // Public API: ensureRuntime(dataDir) → { runtimeDir, pgBinDir, libDir, sharePath, version }
 
-import { createHash } from 'crypto'
 import {
-  chmodSync, closeSync, createWriteStream, existsSync, mkdirSync, openSync,
-  readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync,
-} from 'fs'
-import { readFile } from 'fs/promises'
+  chmodSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from 'fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { fileURLToPath } from 'url'
-import { pipeline } from 'stream/promises'
 import { spawnSync } from 'child_process'
 import { renameWithRetrySync, writeFileAtomicSync, writeJsonAtomicSync } from '../../shared/atomic-file.mjs'
 import { downloadToFileWithRetry } from '../../shared/bounded-download.mjs'
+import { platformKey, verifySha256File } from '../../shared/native-asset.mjs'
 
 // Bundled fallback manifest shipped alongside Mixdog. fileURLToPath required
 // for cross-platform path resolution (URL.pathname returns /C:/... on Windows).
@@ -38,11 +45,6 @@ const MANIFEST_URL = 'https://raw.githubusercontent.com/tribgames/mixdog/main/sr
 // ---------------------------------------------------------------------------
 // Platform key
 // ---------------------------------------------------------------------------
-
-function platformKey() {
-  const os = process.platform === 'win32' ? 'win32' : process.platform
-  return `${os}-${process.arch}`
-}
 
 function platformKeyCandidates() {
   const primary = platformKey()
@@ -95,16 +97,8 @@ async function loadManifest(dataDir) {
 // SHA-256 verification
 // ---------------------------------------------------------------------------
 
-async function sha256File(filePath) {
-  const data = await readFile(filePath)
-  return createHash('sha256').update(data).digest('hex')
-}
-
-async function verifySha256(filePath, expected) {
-  const actual = await sha256File(filePath)
-  if (actual !== expected) {
-    throw new Error(`[runtime-fetcher] sha256 mismatch for ${filePath}: expected ${expected}, got ${actual}`)
-  }
+function verifySha256(filePath, expected) {
+  return verifySha256File(filePath, expected, '[runtime-fetcher]')
 }
 
 // ---------------------------------------------------------------------------

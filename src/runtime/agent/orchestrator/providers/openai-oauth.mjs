@@ -16,6 +16,7 @@ import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { makeModelCache } from './model-cache.mjs';
+import { modelSupportsServiceTier } from './model-service-tiers.mjs';
 
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
 import { _combineUsageWithWarmup } from './openai-ws-events.mjs';
@@ -33,36 +34,9 @@ import {
     resolveProviderCacheKey,
 } from '../agent-runtime/cache-strategy.mjs';
 import {
-    appendAgentTrace,
-    traceAgentFetch,
-    traceAgentSse,
-    traceAgentUsage,
+  appendAgentTrace,
 } from '../agent-trace.mjs';
-import {
-    PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
-    PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
-    PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
-    streamStalledError,
-    createTimeoutSignal,
-    createPassthroughSignal,
-} from '../stall-policy.mjs';
-import { shouldFallbackTransport } from './retry-classifier.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
-import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
-import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './anthropic-leaked-toolcall.mjs';
-import {
-    normalizeContentForOpenAIResponses,
-    splitToolContentForOpenAIResponses,
-} from './media-normalization.mjs';
-import {
-    customToolCallFromResponseItem,
-    customToolInputFromArguments,
-    isCustomToolCallRecord,
-    isResponsesFreeformTool,
-    nativeToolSearchCallInput,
-    nativeToolSearchOutputInput,
-    toResponsesCustomTool,
-} from './custom-tool-wire.mjs';
 import {
     sendViaHttpSse,
     _envFlag,
@@ -72,12 +46,11 @@ import { createOpenAIOAuthLogin } from './openai-oauth-login.mjs';
 import { warmCodexClientVersion } from './codex-client-meta.mjs';
 import { decodeJwtPayload, expiryFromAccessToken } from './lib/oauth-token-utils.mjs';
 import {
-    _displayCodexModel,
-    _codexFamily,
-    _normalizeCodexModel,
-    _compareVersion,
-    _isMainCodexFamily,
-    _markLatestCodex,
+  _displayCodexModel,
+  _normalizeCodexModel,
+  _compareVersion,
+  _isMainCodexFamily,
+  _markLatestCodex,
 } from './openai-codex-model.mjs';
 export { _displayCodexModel };
 
@@ -151,23 +124,8 @@ export function _findCachedCodexModel(id) {
     return _inMemoryCodexCatalog.find(m => m?.id === id) || null;
 }
 
-function _codexServiceTiers(modelInfo) {
-    return Array.isArray(modelInfo?.serviceTiers) ? modelInfo.serviceTiers : [];
-}
-
-function _codexModelBlocksServiceTier(id, serviceTier) {
-    if (serviceTier !== 'priority') return false;
-    const family = _codexFamily(id);
-    return family === 'gpt-mini' || family === 'gpt-nano' || family === 'gpt-codex';
-}
-
 export function codexModelSupportsServiceTier(id, serviceTier) {
-    if (_codexModelBlocksServiceTier(id, serviceTier)) return false;
-    const info = _findCachedCodexModel(id);
-    if (!info) return true;
-    const tiers = _codexServiceTiers(info);
-    if (!tiers.length) return false;
-    return tiers.some(t => t?.id === serviceTier);
+    return modelSupportsServiceTier(_findCachedCodexModel(id), serviceTier);
 }
 
 // Newest MAIN gpt-5 chat model by version, read from the SYNC in-memory
@@ -365,6 +323,26 @@ function _codexStartupPrefixHash(body) {
         tools: prewarm?.tools ?? null,
         input: prewarm?.input ?? [],
     })).digest('hex').slice(0, 24);
+}
+
+function openAiOAuthHandshakeErrorPolicy({ status }) {
+    if (Number(status) === 404) {
+        return { retry: false, httpFallback: true };
+    }
+    return null;
+}
+
+function isOpenAiOAuthHandshakeHttpFallback(err, externalSignal) {
+    if (externalSignal?.aborted
+        || err?.liveTextEmitted === true
+        || err?.emittedToolCall === true
+        || err?.toolCallEmitted === true
+        || err?.unsafeToRetry === true) {
+        return false;
+    }
+    return Number(err?.httpStatus || err?.status || 0) === 404
+        && err?.wsFailurePhase === 'handshake'
+        && err?.wsHttpFallbackEligible === true;
 }
 
 // --- Build Responses API request ---
@@ -577,6 +555,13 @@ export class OpenAIOAuthProvider {
         const transportPolicy = resolveOpenAiTransportPolicy();
         const httpFallbackEnabled = transportPolicy.allowHttpFallback
             && _envFlag('MIXDOG_OPENAI_HTTP_FALLBACK', true);
+        const shouldUseHttpFallback = (error) => {
+            if (!httpFallbackEnabled) return false;
+            if (isOpenAiOAuthHandshakeHttpFallback(error, externalSignal)) return true;
+            const status = Number(error?.httpStatus || error?.status || 0);
+            return (status === 426 || error?.wsRetriesExhausted === true)
+                && _shouldUseOpenAIHttpFallback(error, externalSignal);
+        };
         const _t1 = Date.now();
         const recordLiveModel = (result) => {
             if (result?.model && !_codexCatalogHas(result.model)) {
@@ -598,7 +583,7 @@ export class OpenAIOAuthProvider {
         const markStickyHttpFallback = () => {
             if (!poolKey) return;
             // Codex disables WebSockets for the remainder of this session after
-            // stream retry exhaustion (or an explicit 426 upgrade rejection).
+            // stream retry exhaustion or a typed unsupported upgrade (404/426).
             this._httpFallbackUntilByPoolKey.set(poolKey, Number.POSITIVE_INFINITY);
         };
         const traceWsError = (err, stage = 'primary') => {
@@ -691,6 +676,7 @@ export class OpenAIOAuthProvider {
                 useModel,
                 displayModel: _displayCodexModel,
                 forceFresh,
+                handshakeErrorPolicy: openAiOAuthHandshakeErrorPolicy,
             // Default refs-style recovery: keep using WS first. A transient
             // first-byte / mid-stream stall closes the bad socket and retries on
             // a fresh WS entry; only after the bounded WS retry budget is
@@ -782,9 +768,7 @@ export class OpenAIOAuthProvider {
                     return recordLiveModel(result);
                 } catch (retryErr) {
                     traceWsError(retryErr, 'auth_retry');
-                    if (httpFallbackEnabled
-                        && (retryErr?.httpStatus === 426 || retryErr?.wsRetriesExhausted === true)
-                        && _shouldUseOpenAIHttpFallback(retryErr, externalSignal)) {
+                    if (shouldUseHttpFallback(retryErr)) {
                         try {
                             return await dispatchHttp(
                                 retryErr?.retryClassifier || retryErr?.code || retryErr?.message || 'ws_auth_retry_failed',
@@ -808,8 +792,11 @@ export class OpenAIOAuthProvider {
                 throw err;
             }
             const msg = err?.message || '';
-            const isUnknownModel = status === 404
-                || /unknown[_\s-]?model|model[_\s-]?not[_\s-]?found/i.test(msg);
+            const handshakeHttpFallback = isOpenAiOAuthHandshakeHttpFallback(err, externalSignal);
+            const isUnknownModel = !handshakeHttpFallback && (
+                status === 404
+                || /unknown[_\s-]?model|model[_\s-]?not[_\s-]?found/i.test(msg)
+            );
             // Catalog recovery reissues the full turn. Once any text/tool
             // output has escaped, that replay can duplicate rendered output or
             // a dispatched side effect, so honor the same unsafe gate as auth
@@ -819,9 +806,7 @@ export class OpenAIOAuthProvider {
                 await this._refreshModelCache();
                 return this.send(messages, model, tools, { ...opts, _modelRetry: true });
             }
-            if (httpFallbackEnabled
-                && (status === 426 || err?.wsRetriesExhausted === true)
-                && _shouldUseOpenAIHttpFallback(err, externalSignal)) {
+            if (shouldUseHttpFallback(err)) {
                 try {
                     return await dispatchHttp(
                         err?.retryClassifier || err?.midstreamClassifier || err?.code || err?.message || 'ws_failed',

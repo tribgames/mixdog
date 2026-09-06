@@ -167,8 +167,7 @@ export const providerDisplayName = (provider) => {
   if (key === 'deepseek' || key === 'deepseek-api') return 'DeepSeek API';
   if (key === 'opencode-go') return 'OpenCode Go API';
   if (key === 'openrouter') return 'OpenRouter';
-  if (key === 'ollama') return 'Ollama';
-  if (key === 'lmstudio') return 'LM Studio';
+  if (key === 'mixdog-local') return 'Local Provider';
   if (key === 'default') return 'Default';
   return provider || 'Provider';
 };
@@ -194,8 +193,7 @@ export const providerDisplayRank = (provider) => {
     'xai-api': 70,
     deepseek: 90,
     'deepseek-api': 90,
-    ollama: 100,
-    lmstudio: 110,
+    'mixdog-local': 100,
   };
   return ranks[key] ?? 900;
 };

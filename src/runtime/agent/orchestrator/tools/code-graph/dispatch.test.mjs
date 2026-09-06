@@ -6,24 +6,28 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { _resolveBoundedSentinelFreeAggregateRootForTest } from './dispatch.mjs';
-import { _spawnCodeGraphWorker } from './build.mjs';
+import {
+  _retryCodeGraphBuildAfterInvalidation,
+  _runDiskCodeGraphFastPath,
+  _spawnCodeGraphWorker,
+} from './build.mjs';
+
+class FakeWorker extends EventEmitter {
+  constructor() {
+    super();
+    this.stdout = new EventEmitter();
+    this.stderr = new EventEmitter();
+    this.terminations = 0;
+  }
+  terminate() {
+    this.terminations += 1;
+    return Promise.resolve(0);
+  }
+}
 
 test('successful code-graph build terminates its worker and releases the spawn slot', async () => {
   let worker = null;
   let releases = 0;
-  class FakeWorker extends EventEmitter {
-    constructor() {
-      super();
-      this.stdout = new EventEmitter();
-      this.stderr = new EventEmitter();
-      this.terminations = 0;
-    }
-    terminate() {
-      this.terminations += 1;
-      return Promise.resolve(0);
-    }
-  }
-
   const pending = _spawnCodeGraphWorker(
     process.cwd(),
     process.cwd(),
@@ -48,6 +52,70 @@ test('successful code-graph build terminates its worker and releases the spawn s
   assert.deepEqual(await pending, { files: [] });
   assert.equal(worker.terminations, 1);
   assert.equal(releases, 1);
+});
+
+test('code-graph retries one stale worker result with the latest generation', async () => {
+  const workers = [];
+  let starts = 0;
+  let releases = 0;
+  const graph = await _retryCodeGraphBuildAfterInvalidation(async () => {
+    const attempt = starts++;
+    return _spawnCodeGraphWorker(
+      process.cwd(),
+      process.cwd(),
+      attempt,
+      null,
+      () => { releases += 1; },
+      null,
+      null,
+      {
+        createWorker() {
+          const worker = new FakeWorker();
+          workers.push(worker);
+          queueMicrotask(() => worker.emit('message', {
+            ok: true,
+            graph: { attempt },
+            signature: `sig-${attempt}`,
+          }));
+          return worker;
+        },
+        getGeneration: () => attempt === 0 ? 1 : attempt,
+        setMemoryCache: () => {},
+        setDiskCache: () => {},
+      },
+    );
+  });
+
+  assert.deepEqual(graph, { attempt: 1 });
+  assert.equal(starts, 2);
+  assert.equal(releases, 2);
+  assert.deepEqual(workers.map((worker) => worker.terminations), [1, 1]);
+});
+
+test('code-graph disk invalidation retries only once and releases both slots', async () => {
+  let validations = 0;
+  let releases = 0;
+  await assert.rejects(
+    _retryCodeGraphBuildAfterInvalidation(() => _runDiskCodeGraphFastPath({
+      graphCwd: process.cwd(),
+      diskProbe: { isFastPathEligible: true, maxFiles: 7 },
+      genAtStart: 0,
+      loadDiskEntry: () => ({ maxFiles: 7 }),
+      acquireSlot: async () => () => { releases += 1; },
+      validateDiskHit: async () => {
+        validations += 1;
+        return { invalidated: true };
+      },
+      spawnWorker: () => {
+        throw new Error('worker must not start for an invalidated disk hit');
+      },
+      maxFiles: 7,
+    })),
+    { code: 'ERR_CODE_GRAPH_BUILD_INVALIDATED' },
+  );
+
+  assert.equal(validations, 2);
+  assert.equal(releases, 2);
 });
 
 test('sentinel-free aggregate anchors adopt only their explicit bounded cwd', () => {

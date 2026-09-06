@@ -8,6 +8,7 @@ import {
   type EditorOutlineItem,
 } from "./editor-language-store";
 import { t } from "./i18n";
+import { ErrorNotice } from "./ErrorNotice";
 import { acquireModalLayer } from "./modal-layer";
 import { acquireTitleBarDim } from "./titlebar-dim";
 
@@ -514,7 +515,7 @@ export function UnsavedChangesDialog({
         <p id="workbench-unsaved-description">
           {t("Your changes will be lost if you don’t save them.")}
         </p>
-        {error && <p className="workbench-unsaved-error" role="alert">{error}</p>}
+        {error && <ErrorNotice error={error} />}
         <footer>
           <button type="button" disabled={busy} onClick={onCancel}>{t("Cancel")}</button>
           <button type="button" disabled={busy} onClick={onDiscard}>{t("Don’t Save")}</button>

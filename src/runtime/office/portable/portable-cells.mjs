@@ -94,16 +94,25 @@ export function cellRecords(xml, strings, options = null) {
     if (type === 'inlineStr') value = paragraphTexts(body, 't').join('');
     else {
       raw = xmlDecode(/<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/.exec(body)?.[1] || '');
-      value = type === 's' ? strings[Number(raw)] ?? raw : raw;
+      // A boolean cell reads as Excel reports it, so a Checks tie-out shows
+      // true or false on both backends rather than '1' on one of them.
+      value = type === 's' ? strings[Number(raw)] ?? raw : type === 'b' && raw !== '' ? raw === '1' : raw;
     }
+    // Style index 0 is the workbook default; only an explicit style is reported.
+    const styleIndex = Number(/\bs="(\d+)"/.exec(attrs)?.[1] ?? 0);
+    const style = styleIndex > 0 ? options?.styles?.[styleIndex] : undefined;
     const record = {
       ref,
       value,
+      // Numbers and text both read as strings here; the flag is what tells a
+      // reader that '1,234' is text Excel will not sum.
+      ...(type === 's' || type === 'str' || type === 'inlineStr' ? { dataType: 'text' } : {}),
       ...(formula ? {
         formula,
         cachedValue: raw === '' ? null : value,
         cacheState: raw === '' ? 'missing' : 'present',
       } : {}),
+      ...(style ? { style } : {}),
     };
     if (formula) {
       formulaCount += 1;

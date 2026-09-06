@@ -12,14 +12,12 @@ import type {
   PowerShellResponse,
 } from '../shared/types';
 import type { ComputerWindowTransition } from '../shared/window-transition';
-import { electronWindowForNativeId } from '../observation/window-handles';
 import { persistFrameImage } from '../../frame-files';
 import {
   assertSafeComputerInput,
   assertSafeComputerSessionId,
   assertSafeComputerTargetTokens,
 } from '../input/guards';
-import { normalizeComputerKeySequence } from '../input/keyboard';
 import { assertExactWindowCommandTarget } from '../input/targeting';
 import type { createWindowTargeting } from '../input/targeting';
 import {
@@ -29,9 +27,6 @@ import {
 } from '../observation/recapture';
 import {
   assertCaptureAfterOptions,
-  captureAfterImageIsRedundant,
-  recommendedRecovery,
-  transitionConfirmsSemanticAction,
 } from '../observation/analysis';
 import type { createCaptureEngine } from '../observation/capture';
 import type { createInspection } from '../observation/inspect';
@@ -53,8 +48,10 @@ import type { InputResolution } from './input-resolution';
 import type { SessionLifecycle } from './session-lifecycle';
 import type { WindowReads } from './window-reads';
 import { captureAfterSuppressed, isTrustedSequenceContinuation } from './sequence-runner';
+import { createComputerExecutionPolicy, type ComputerExecutionPolicy } from './execution-policy';
+import { createInputDispatch } from './input-dispatch';
+import { buildActionReply } from './action-reply';
 
-const MENU_ACTION_TIMEOUT_MS = 3_000;
 const POINTER_ACTIONS = [
   'click', 'double_click', 'right_click', 'middle_click', 'triple_click',
   'mouse_move', 'drag', 'scroll', 'type',
@@ -81,20 +78,21 @@ export interface CommandRouterHost extends
     | 'rememberElementTargets'
     | 'resolveElementAliases'>,
   Pick<ExecutionState, 'executionContext' | 'sessionRecoveryBySession' | 'assertExecutionNotAborted'>,
-  Pick<SessionLifecycle, 'claimComputerTargets' | 'releaseComputerSession'>,
+  Pick<SessionLifecycle, 'claimComputerTargets' | 'releaseComputerSession' | 'takeOverComputer'>,
   Pick<Inspection, 'diagnoseComputer' | 'verifyWindowState'>,
   Pick<WindowTargeting, 'resolveAppWindowId' | 'resolveRecaptureWindowTarget' | 'listComputerApps'>,
   Pick<CaptureEngine, 'captureScreenshot' | 'captureZoom' | 'captureComputer' | 'captureAfterAction'>,
   WindowReads,
   InputResolution {
   isObserveOnly(): boolean;
+  policy?: ComputerExecutionPolicy;
   runBoundedSequence(command: ComputerCommand): Promise<ComputerCommandResult>;
 }
 
 export function createCommandRouter(host: CommandRouterHost) {
+  const policy = host.policy || createComputerExecutionPolicy();
+  const dispatchInput = createInputDispatch(host, policy);
   const {
-    callPowerShell,
-    callPowerShellElevated,
     sessionIdFor,
     framesBySession,
     elementTargetsBySession,
@@ -120,7 +118,6 @@ export function createCommandRouter(host: CommandRouterHost) {
     captureZoom,
     captureComputer,
     captureAfterAction,
-    readWindowIntegrity,
     readComputerWindows,
     readInputRecovery,
     resolveInputTarget,
@@ -225,6 +222,13 @@ export function createCommandRouter(host: CommandRouterHost) {
     }
     if (action === 'session_release') return await releaseComputerSession(command);
     assertSafeComputerInput(command);
+    if (sessionIdFor(command) !== CHROME_SETUP_SESSION_ID) {
+      policy.assertAction(command);
+      if (policy.restricted && command.window_id) {
+        policy.assertWindow(command, await readComputerWindows(command));
+        assertExecutionNotAborted();
+      }
+    }
     if (action === 'diagnose') return await diagnoseComputer(command);
     if (command.app?.trim() && !['launch', 'list_apps', 'capture'].includes(action)) {
       command = {
@@ -294,20 +298,20 @@ export function createCommandRouter(host: CommandRouterHost) {
       if (!zoom.image || !zoom.frameId) throw new Error('zoom capture returned incomplete state');
       return frameReply(command, zoom.description, zoom.image, zoom.frameId);
     }
+    const inputTarget = await resolveInputTarget(command, action, trustedSequenceContinuation);
     const {
-      physicalX,
-      physicalY,
-      physicalToX,
-      physicalToY,
       cursorX,
       cursorY,
       cursorToX,
       cursorToY,
       targetWindowId,
-      allowedWindowIds,
       observedScope,
-    } = await resolveInputTarget(command, action, trustedSequenceContinuation);
+    } = inputTarget;
     const logicalTargetWindowId = observedScope?.primaryWindowId || targetWindowId;
+    if (policy.restricted && targetWindowId && sessionIdFor(command) !== CHROME_SETUP_SESSION_ID) {
+      policy.assertWindow({ ...command, window_id: targetWindowId }, await readComputerWindows(command));
+      assertExecutionNotAborted();
+    }
     if (isMutation) await claimComputerTargets(command, [logicalTargetWindowId, targetWindowId]);
     let inputRecovery: InputRecoveryState | undefined;
     if (action === 'focus_window' || command.delivery === 'foreground') {
@@ -352,114 +356,7 @@ export function createCommandRouter(host: CommandRouterHost) {
     let response: PowerShellResponse;
     const deliveryStartedAt = performance.now();
     try {
-      const electronTextTarget = action === 'type'
-        && command.delivery !== 'foreground'
-        && !command.ref
-        ? electronWindowForNativeId(targetWindowId)
-        : null;
-      if (electronTextTarget && !electronTextTarget.webContents.isDestroyed()) {
-        const text = String(command.text ?? '');
-        if (physicalX !== undefined && physicalY !== undefined) {
-          const focused = await callPowerShell({
-            action: 'click',
-            window_id: targetWindowId ?? null,
-            x: physicalX,
-            y: physicalY,
-            allowed_window_ids: allowedWindowIds,
-            delivery: 'background',
-            session_id: sessionIdFor(command),
-          });
-          if (!focused.ok
-            || focused.result?.code
-            || focused.result?.delivery_accepted !== true) {
-            throw new Error(
-              focused.error
-                || String(focused.result?.text || '')
-                || 'element-targeted type could not focus the point',
-            );
-          }
-          await new Promise((resolve) => setTimeout(resolve, 80));
-        }
-        await electronTextTarget.webContents.insertText(text);
-        response = {
-          id: 0,
-          ok: true,
-          result: {
-            action: 'type',
-            text: `typed ${text.length} literal characters into app-owned Electron renderer`,
-            path: physicalX !== undefined && physicalY !== undefined
-              ? 'electron_point_focus_insert_text'
-              : 'electron_insert_text',
-            effect: 'unverifiable',
-            verified: false,
-            delivery_accepted: true,
-            goal_verified: false,
-            delivery: 'background',
-            window_id: targetWindowId,
-            pid: electronTextTarget.webContents.getOSProcessId(),
-          },
-        };
-      } else {
-        const powerShellRequest = {
-          action,
-          window: command.window ?? null,
-          window_id: targetWindowId ?? null,
-          ref: command.ref ?? null,
-          to: command.to ?? null,
-          text: command.text ?? null,
-          keys: action === 'key'
-            ? normalizeComputerKeySequence(String(command.keys || ''))
-            : command.keys ?? null,
-          dy: command.dy ?? null,
-          amount: command.amount ?? null,
-          direction: command.direction ?? null,
-          app: command.app ?? null,
-          x: physicalX ?? null,
-          y: physicalY ?? null,
-          to_x: physicalToX ?? null,
-          to_y: physicalToY ?? null,
-          allowed_window_ids: allowedWindowIds,
-          width: command.width ?? null,
-          height: command.height ?? null,
-          state: command.state ?? null,
-          path: command.path ?? null,
-          modifiers: command.modifiers ?? null,
-          duration: command.duration ?? null,
-          delivery: command.delivery ?? 'background',
-          read_only: command.read_only ?? false,
-          query: command.query ?? null,
-          role: command.role ?? null,
-          visible_only: command.visible_only ?? null,
-          include_noninteractive: command.include_noninteractive ?? null,
-          max_elements: command.max_elements ?? null,
-          continuation: command.continuation ?? null,
-          known_injection_tick: command.known_injection_tick ?? null,
-          session_id: sessionIdFor(command),
-        };
-        const integrity = command.delivery === 'foreground'
-          ? await readWindowIntegrity(targetWindowId, sessionIdFor(command))
-          : { known: false, higher: false, ownName: 'Unknown', targetName: 'Unknown' };
-        if (command.delivery === 'foreground' && !integrity.known) {
-          throw new Error(
-            'target_integrity_unknown: foreground input was not sent because the target integrity could not be verified',
-          );
-        }
-        const usePrivilegedWorker = integrity.known && integrity.higher;
-        response = usePrivilegedWorker
-          ? await callPowerShellElevated(powerShellRequest)
-          : await callPowerShell(
-              powerShellRequest,
-              action === 'invoke_menu' ? MENU_ACTION_TIMEOUT_MS : undefined,
-            );
-        if (usePrivilegedWorker && response.result) {
-          response.result.path = `uac_elevated_${String(response.result.path || 'foreground_input')}`;
-          response.result.privilege = {
-            source_integrity: integrity.ownName,
-            target_integrity: integrity.targetName,
-            worker: 'one_shot',
-          };
-        }
-      }
+      response = await dispatchInput(command, action, inputTarget);
     } finally {
       if (isMutation) {
         framesBySession.delete(sessionIdFor(command));
@@ -481,6 +378,18 @@ export function createCommandRouter(host: CommandRouterHost) {
     const inputRecoveryVerification = inputRecovery
       ? await verifyInputRecovery(command, targetWindowId, inputRecovery, actionTimings)
       : undefined;
+    if (inputRecoveryVerification?.ok === false) {
+      const reason = inputRecoveryVerification.user_control === true ? 'user_input_active'
+        : String(inputRecoveryVerification.code || 'input_recovery_unconfirmed');
+      host.takeOverComputer(reason);
+      return { text: JSON.stringify({
+        ok: false, action, window_id: targetWindowId, code: reason,
+        effect: 'unverifiable', verified: false,
+        input_recovery: inputRecoveryVerification,
+        verdict: { decision: 'escalate', recommended: 'user_resume' },
+        capture_skipped: 'user_control_active',
+      }) };
+    }
     if (action === 'snapshot' || action === 'find') {
       rememberElementTargets(command, normalizeElementRecords(result.elements));
       const observedWindowId = String(result.window_id || command.window_id || '');
@@ -504,202 +413,22 @@ export function createCommandRouter(host: CommandRouterHost) {
       settleDelayMs = settled.settleDelayMs;
     }
     if (isMutation && windowTransition?.next_target?.id) {
+      if (policy.restricted && sessionIdFor(command) !== CHROME_SETUP_SESSION_ID) {
+        policy.assertWindow(
+          { ...command, window_id: windowTransition.next_target.id },
+          await readComputerWindows(command),
+        );
+      }
       await claimComputerTargets(command, [windowTransition.next_target.id]);
     }
     if (action === 'focus_window' && inputRecovery && result.verified === true && !result.code) {
       sessionRecoveryBySession.set(sessionIdFor(command), inputRecovery);
     }
-    if (result.action) {
-      const transitionVerified = transitionConfirmsSemanticAction(
-        action,
-        result,
-        windowTransition,
-        String(logicalTargetWindowId || result.window_id || ''),
-        String(command.app || ''),
-      );
-      const effect = transitionVerified
-        ? 'confirmed'
-        : typeof result.effect === 'string' ? result.effect : 'unverifiable';
-      const verified = result.verified === true || transitionVerified;
-      const code = typeof result.code === 'string' && result.code ? result.code : undefined;
-      const delivery = String(result.delivery || command.delivery || 'background');
-      const recommendation = recommendedRecovery(
-        action,
-        effect,
-        code,
-        delivery,
-        windowTransition,
-        targetWindowBefore,
-      );
-      const escalation = inputRecoveryVerification?.ok === false
-        ? 'input_recovery'
-        : recommendation;
-      const verdict: Record<string, unknown> = result.goal_verified === true || verified
-        ? { decision: 'done' }
-        : effect === 'suspected_noop' || code
-          ? { decision: 'escalate' }
-          : { decision: 'verify_fresh_state' };
-      if (escalation) verdict.recommended = escalation;
-      if (inputRecoveryVerification?.ok === false) verdict.decision = 'escalate';
-      const payload: Record<string, unknown> = {
-        ok: !code,
-        action: result.action,
-        message: String(result.text || ''),
-        effect,
-        verified,
-        delivery_accepted: result.delivery_accepted === true,
-        goal_verified: result.goal_verified === true || verified,
-        path: result.path || 'unknown',
-        delivery,
-        ...(transitionVerified ? { verification_source: 'window_transition' } : {}),
-        ...(typeof result.state_changed === 'boolean' ? { state_changed: result.state_changed } : {}),
-        ...(logicalTargetWindowId || result.window_id
-          ? { window_id: String(logicalTargetWindowId || result.window_id) }
-          : {}),
-        ...(result.window_id
-          && logicalTargetWindowId
-          && result.window_id !== logicalTargetWindowId
-          ? { input_surface_window_id: result.window_id }
-          : {}),
-        ...(Number.isInteger(Number(result.pid)) ? { pid: Number(result.pid) } : {}),
-        ...(result.app_hint ? { app_hint: String(result.app_hint) } : {}),
-        ...(code ? { code } : {}),
-        ...(windowTransition ? { window_transition: windowTransition } : {}),
-        ...(inputRecoveryVerification ? { input_recovery: inputRecoveryVerification } : {}),
-        ...(escalation ? { escalation } : {}),
-        verdict,
-      };
-      let image: { mimeType: string; data: string } | undefined;
-      if (command.capture_after) {
-        const originalWindowId = String(logicalTargetWindowId || result.window_id || '');
-        const targetClosed = action === 'close_window'
-          && result.verified === true
-          && windowTransition?.closed_windows.some((window) => window.id === originalWindowId);
-        if (targetClosed) {
-          payload.capture_after = {
-            ok: true,
-            action: 'capture',
-            skipped: true,
-            window_id: originalWindowId,
-            target_reason: 'target_closed',
-          };
-        } else {
-          const captureWindowId = windowTransition?.next_target?.id || originalWindowId;
-          const postCaptureStartedAt = performance.now();
-          const capture = await captureAfterAction(
-            command,
-            captureWindowId,
-            0,
-            settleDelayMs,
-          );
-          actionTimings.post_capture_ms = elapsedMs(postCaptureStartedAt);
-          payload.capture_after = {
-            ...capture.metadata,
-            target_reason: capture.metadata.capture_target_reason
-              || windowTransition?.next_target_reason
-              || 'original_target',
-            ...(originalWindowId && captureWindowId !== originalWindowId
-              ? { previous_window_id: originalWindowId }
-              : {}),
-          };
-          if (capture.metadata.pixel_status === 'unavailable') {
-            verdict.decision = 'escalate';
-            verdict.recommended = 'recapture';
-            payload.escalation = 'recapture';
-          }
-          if (capture.image && captureAfterImageIsRedundant(
-            command,
-            capture.metadata,
-            semanticTargetIdentity,
-          )) {
-            (payload.capture_after as Record<string, unknown>).image_omitted =
-              'semantic_change_reported';
-          } else {
-            image = capture.image;
-          }
-        }
-      }
-      actionTimings.total_ms = elapsedMs(commandStartedAt);
-      payload.timings_ms = actionTimings;
-      return {
-        text: JSON.stringify(payload),
-        ...(image ? { image } : {}),
-      };
-    }
-    const text = String(result.text || 'OK');
-    if (command.capture_after) {
-      const originalWindowId = String(targetWindowId || '');
-      const captureWindowId = windowTransition?.next_target?.id || originalWindowId;
-      const postCaptureStartedAt = performance.now();
-      const capture = await captureAfterAction(command, captureWindowId, 0, settleDelayMs);
-      actionTimings.post_capture_ms = elapsedMs(postCaptureStartedAt);
-      const recommendation = recommendedRecovery(
-        action,
-        'unverifiable',
-        undefined,
-        command.delivery || 'background',
-        windowTransition,
-        targetWindowBefore,
-      );
-      const escalation = capture.metadata.pixel_status === 'unavailable'
-        ? 'recapture'
-        : recommendation;
-      return {
-        text: JSON.stringify({
-          ok: true,
-          action,
-          message: text,
-          goal_verified: false,
-          ...(windowTransition ? { window_transition: windowTransition } : {}),
-          verdict: {
-            decision: 'verify_fresh_state',
-            ...(escalation ? { recommended: escalation } : {}),
-          },
-          ...(escalation ? { escalation } : {}),
-          timings_ms: {
-            ...actionTimings,
-            total_ms: elapsedMs(commandStartedAt),
-          },
-          capture_after: {
-            ...capture.metadata,
-            target_reason: windowTransition?.next_target_reason || 'original_target',
-            ...(originalWindowId && captureWindowId !== originalWindowId
-              ? { previous_window_id: originalWindowId }
-              : {}),
-          },
-        }),
-        ...(capture.image ? { image: capture.image } : {}),
-      };
-    }
-    if (isMutation) {
-      const recommendation = recommendedRecovery(
-        action,
-        'unverifiable',
-        undefined,
-        command.delivery || 'background',
-        windowTransition,
-        targetWindowBefore,
-      );
-      return {
-        text: JSON.stringify({
-          ok: true,
-          action,
-          message: text,
-          goal_verified: false,
-          ...(windowTransition ? { window_transition: windowTransition } : {}),
-          verdict: {
-            decision: 'verify_fresh_state',
-            ...(recommendation ? { recommended: recommendation } : {}),
-          },
-          ...(recommendation ? { escalation: recommendation } : {}),
-          timings_ms: {
-            ...actionTimings,
-            total_ms: elapsedMs(commandStartedAt),
-          },
-        }),
-      };
-    }
-    return { text };
+    return await buildActionReply(captureAfterAction, {
+      command, action, result, isMutation, targetWindowId, logicalTargetWindowId,
+      targetWindowBefore, windowTransition, inputRecoveryVerification, semanticTargetIdentity,
+      settleDelayMs, commandStartedAt, actionTimings,
+    });
   }
 
   return { runCommand, recaptureRequiredReply };

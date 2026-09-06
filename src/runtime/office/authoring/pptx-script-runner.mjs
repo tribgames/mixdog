@@ -6,6 +6,8 @@ import { PPTX_SCRIPT_CONTRACT } from './pptx-script-contract.mjs';
 import { normalizeAuthoredPptx } from './pptx-script-normalize.mjs';
 import { measureTextBlock } from '../portable/text-metrics.mjs';
 import { iconGlobal } from './pptx-icons.mjs';
+import { kitPrelude, scriptCarriesKit } from './pptx-kit.mjs';
+import { relationOptions } from '../portable/pptx-relations.mjs';
 
 // Text measurement for the script, in inches, with the metrics the review
 // reads the saved file with; a box sized here does not overflow there.
@@ -52,13 +54,17 @@ function safeString(value) {
   }
 }
 
-function scriptError(error, script) {
+function scriptError(error, script, preludeLines = 0) {
   const message = error?.message || String(error);
   const stack = String(error?.stack || '');
   const match = stack.match(/<anonymous>:(\d+):(\d+)/);
   // The generated wrapper places three lines (signature, brace, strict
-  // pragma) before the script body.
-  const line = match ? Math.max(1, Number(match[1]) - 3) : null;
+  // pragma) before the body, and the kit prelude sits before the script.
+  const raw = match ? Number(match[1]) - 3 : null;
+  if (raw !== null && preludeLines && raw <= preludeLines) {
+    return { message: `${message} (inside the kit prelude, line ${raw} of the kit.md/charts.md/pictures.md code blocks — usually an argument the script passed)`, line: null, excerpt: '' };
+  }
+  const line = raw === null ? null : Math.max(1, raw - preludeLines);
   const lines = script.split('\n');
   return {
     message,
@@ -84,11 +90,14 @@ export async function runPptxAuthoringScript(script, output, { timeoutMs = PPTX_
   const logs = [];
   const module = { exports: {} };
   const startedAt = performance.now();
+  // The kit runs before the script unless the script brings its own presentation or toolbox.
+  const kit = scriptCarriesKit(source) ? null : kitPrelude();
+  const preludeLines = kit ? kit.lines : 0;
   let body;
   try {
-    body = new AsyncFunction('require', 'module', 'exports', 'OUTPUT', 'console', 'process', 'MEASURE', 'ICON', `"use strict";\n${source}\n`);
+    body = new AsyncFunction('require', 'module', 'exports', 'OUTPUT', 'console', 'process', 'MEASURE', 'ICON', 'RELATE', `"use strict";\n${kit ? `${kit.source}\n` : ''}${source}\n`);
   } catch (error) {
-    return { ok: false, error: scriptError(error, source), logs, elapsedMs: 0 };
+    return { ok: false, error: scriptError(error, source, preludeLines), logs, elapsedMs: 0 };
   }
   const scopedProcess = { env: { ...process.env }, cwd: () => dirname(output), platform: process.platform };
   let timer = null;
@@ -97,7 +106,7 @@ export async function runPptxAuthoringScript(script, output, { timeoutMs = PPTX_
   });
   try {
     await Promise.race([
-      body(scriptRequire, module, module.exports, output, captureConsole(logs), scopedProcess, measureForScript, iconGlobal()),
+      body(scriptRequire, module, module.exports, output, captureConsole(logs), scopedProcess, measureForScript, iconGlobal(), relationOptions),
       timeout,
     ]);
     if (!await pathExists(output)) {
@@ -111,7 +120,7 @@ export async function runPptxAuthoringScript(script, output, { timeoutMs = PPTX_
   } catch (error) {
     return {
       ok: false,
-      error: scriptError(error, source),
+      error: scriptError(error, source, preludeLines),
       logs,
       elapsedMs: Math.round(performance.now() - startedAt),
     };
@@ -125,7 +134,9 @@ export async function runPptxAuthoringScript(script, output, { timeoutMs = PPTX_
     output,
     bytes: info.size,
     logs,
+    kit: kit ? 'runtime' : 'script',
     normalizedParagraphs: normalized.removed,
+    ...(normalized.gradients ? { nativeGradients: normalized.gradients } : {}),
     elapsedMs: Math.round(performance.now() - startedAt),
   };
 }

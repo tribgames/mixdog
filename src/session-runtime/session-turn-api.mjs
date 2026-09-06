@@ -1,5 +1,4 @@
 import { clean } from './session-text.mjs';
-import { envFlag } from './env.mjs';
 import { normalizeToolMode } from './effort.mjs';
 import {
   toolRow,

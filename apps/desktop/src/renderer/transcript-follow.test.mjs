@@ -4,6 +4,8 @@ import test from "node:test";
 import { nextTranscriptHistoryLimit } from "./transcript-history.ts";
 import { shouldDeferTranscriptScrollAdjustment } from "./TranscriptList.tsx";
 import {
+  clampTranscriptSelectionPoint,
+  nearestTranscriptSelectionRow,
   transcriptSelectionPrimaryButtonDown,
   transcriptSelectionPointerRegion,
 } from "./transcript-selection-drag.ts";
@@ -147,6 +149,38 @@ test("selection outside the transcript stays on one stable boundary", () => {
   assert.equal(region(99, 300), "side");
   assert.equal(region(501, 300), "side");
   assert.equal(region(300, 300), "inside");
+});
+
+test("a pointer outside the transcript extends to the caret at the nearest edge", () => {
+  const clamp = (x, y) => clampTranscriptSelectionPoint(x, y, 100, 100, 500, 500);
+  // Below (through the composer): keep the column, land on the last visible line.
+  assert.deepEqual(clamp(300, 900), { x: 300, y: 498 });
+  // Above the window: keep the column, land on the first visible line.
+  assert.deepEqual(clamp(300, -160), { x: 300, y: 102 });
+  // Beside the window: keep the line, land on the row's near edge — the
+  // range must not flip to the first mounted row (user: 드래그가 뒤집힘).
+  assert.deepEqual(clamp(-160, 300), { x: 102, y: 300 });
+  assert.deepEqual(clamp(2_000, 300), { x: 498, y: 300 });
+  // Inside stays where it is.
+  assert.deepEqual(clamp(300, 300), { x: 300, y: 300 });
+});
+
+test("a pointer off any row extends into the nearest row, never a boundary row", () => {
+  const rows = [
+    { id: "first", top: 100, bottom: 140 },
+    { id: "middle", top: 156, bottom: 300 },
+    { id: "last", top: 316, bottom: 360 },
+  ];
+  const nearest = (y) => nearestTranscriptSelectionRow(rows, y)?.id;
+  // Over a row: that row.
+  assert.equal(nearest(200), "middle");
+  // In the gap between rows: the closer one on either side.
+  assert.equal(nearest(146), "first");
+  assert.equal(nearest(152), "middle");
+  // In the scroller's padding past the last row, or clamped above the first.
+  assert.equal(nearest(420), "last");
+  assert.equal(nearest(90), "first");
+  assert.equal(nearestTranscriptSelectionRow([], 200), null);
 });
 
 test("only a chrome-pointer upward move counts as a reader scroll release", () => {

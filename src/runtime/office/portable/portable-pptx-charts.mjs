@@ -1,7 +1,7 @@
-import { dirname, join, posix } from 'node:path';
+import { posix } from 'node:path';
 import { chartWorkbookRows, chartXml } from './portable-chart.mjs';
-import { addPackageRelationship, partRelationshipPath, relationshipMap, zipText } from './portable-opc.mjs';
-import { OFFICE_RELATIONSHIP_BASE, containerInner, tagPattern, topLevelElements, upsertOrderedChild, xmlEncode } from './portable-xml.mjs';
+import { addPackageRelationship, partRelationshipPath, relationshipTarget, zipText } from './portable-opc.mjs';
+import { OFFICE_RELATIONSHIP_BASE, tagPattern, upsertOrderedChild, xmlEncode } from './portable-xml.mjs';
 import { CHART_AXIS_ORDER, LABEL_POSITION_CODES, chartCategories, chartFrameXml, chartTitleText, detectChartType, resolveSlideChart, writePresentationChart } from './portable-pptx-chart.mjs';
 import { slidePath } from './portable-pptx-package.mjs';
 import { appendSlideShape, nextShapeId } from './portable-pptx-core.mjs';
@@ -55,28 +55,14 @@ export async function handleAddChart(context, op) {
 
 export async function handleSetChartData(context, op) {
   const { zip } = context;
-  const slides = context.slides;
-  const path = slidePath(slides, op.slide);
-  const current = await zipText(zip, path);
-  const tree = containerInner(current, 'p:spTree');
-  if (!tree) throw new Error('PPTX slide shape tree is missing');
-  const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
-  const shape = shapes[Number(op.shape) - 1];
-  if (!shape) throw new Error(`PPTX shape ${op.shape} not found on slide ${op.slide}`);
-  const reference = /<c:chart\b[^>]*\br:id="([^"]+)"/.exec(shape.xml)?.[1];
-  if (!reference) throw new Error(`PPTX shape ${op.shape} on slide ${op.slide} is not a chart`);
-  const target = relationshipMap(await zipText(zip, partRelationshipPath(path))).get(reference);
-  if (!target) throw new Error(`PPTX chart relationship ${reference} is missing on slide ${op.slide}`);
-  const chartPart = posix.normalize(posix.join('ppt/slides', target));
-  const existing = await zipText(zip, chartPart);
-  if (!existing) throw new Error(`PPTX chart part is missing: ${chartPart}`);
+  const { part: chartPart, xml: existing } = await resolveSlideChart(zip, context.slides, op);
   const series = Array.isArray(op.series) ? op.series : [];
   if (!series.length) throw new Error('set_chart_data requires series');
   const categories = Array.isArray(op.categories) ? op.categories : chartCategories(existing);
   const chartRelationships = await zipText(zip, partRelationshipPath(chartPart));
   const embedded = /<Relationship\b[^>]*\bType="[^"]*\/package"[^>]*\bTarget="([^"]+)"/.exec(chartRelationships)?.[1];
   const embeddingPart = embedded
-    ? posix.normalize(posix.join(posix.dirname(chartPart), embedded))
+    ? relationshipTarget(partRelationshipPath(chartPart), embedded)
     : `ppt/embeddings/chartData${Number(/chart(\d+)\.xml$/.exec(chartPart)?.[1]) || 1}.xlsx`;
   await writePresentationChart(zip, {
     chartPart,

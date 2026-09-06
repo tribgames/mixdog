@@ -191,7 +191,7 @@ function mergeToolCallDelta(accByIndex, deltaCalls, bucketState) {
     }
 }
 
-export function toolCallsFromStreamAcc(accByIndex, parseToolCalls, label, finishReason) {
+function toolCallsFromStreamAcc(accByIndex, parseToolCalls, label, finishReason) {
     if (!accByIndex.size) return undefined;
     const choice = {
         // Carry the observed finish_reason onto the synthetic choice so the
@@ -296,6 +296,7 @@ export async function consumeCompatChatCompletionStream(stream, {
     let sawFirstEvent = false;
     let content = '';
     let reasoningContent = '';
+    let sawReasoningContent = false;
     const reasoningDetails = [];
     // Invariant flag for the gateway live-text relay: set once a non-empty
     // text chunk has been forwarded to the client. A failure after this point
@@ -448,6 +449,7 @@ export async function consumeCompatChatCompletionStream(stream, {
                         ? choice.delta.thinking
                         : null;
             if (reasoningDelta !== null) {
+                sawReasoningContent = true;
                 reasoningContent += reasoningDelta;
                 if (reasoningDelta) {
                     emittedReasoning = true;
@@ -517,7 +519,7 @@ export async function consumeCompatChatCompletionStream(stream, {
     }
     const message = {
         content: content || null,
-        ...(reasoningContent ? { reasoning_content: reasoningContent } : {}),
+        ...(sawReasoningContent ? { reasoning_content: reasoningContent } : {}),
         ...(reasoningDetails.length ? { reasoning_details: reasoningDetails } : {}),
     };
     const rawToolCalls = [...toolAcc.values()]
@@ -562,7 +564,7 @@ export async function consumeCompatChatCompletionStream(stream, {
         content,
         toolCalls,
         stopReason,
-        reasoningContent: reasoningContent || null,
+        reasoningContent: sawReasoningContent ? reasoningContent : null,
         reasoningDetails: reasoningDetails.length ? reasoningDetails : null,
         rawUsage,
     };

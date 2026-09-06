@@ -260,9 +260,11 @@ export function createExtensionPickers({
     // paint — nothing async precedes it, and the claim proves it anyway.
     const own = surface.claim();
     const disabled = getDisabledSkills().has(skill.name);
+    // Same two halves the model's listing shows: capability, then trigger.
+    const summary = [clean(skill.description), clean(skill.whenToUse)].filter(Boolean).join(' — ');
     own.paint({
       title: `Skill · ${skill.name}`,
-      description: clean(skill.description) || 'Enable, disable, or run this skill.',
+      description: summary || 'Enable, disable, or run this skill.',
       items: [
         {
           value: 'use',

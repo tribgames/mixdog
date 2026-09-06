@@ -17,6 +17,7 @@ import { performance } from 'node:perf_hooks';
 import { packageNativeToolPath } from '../../../../shared/native-tool-paths.mjs';
 import { getPluginData } from '../../config.mjs';
 import { ensurePatchBinary, findCachedPatchBinary } from '../patch-binary-fetcher.mjs';
+import { envFlag } from '../../../../shared/env.mjs';
 
 const PLUGIN_ROOT = process.env.MIXDOG_ROOT
   // This module lives at src/runtime/agent/orchestrator/tools/patch/, so the
@@ -51,7 +52,7 @@ export function nativePatchTraceEnabled() {
 }
 
 function ioTraceEnabled() {
-  return /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_IO_TRACE || ''));
+  return envFlag('MIXDOG_IO_TRACE');
 }
 
 export function ioTrace(event, fields = {}) {

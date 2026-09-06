@@ -158,7 +158,12 @@ export function createRuntimeLagTracker(overrides = {}) {
   };
 }
 
-export function reportRuntimeAbortListenerPressure(warning, now = Date.now(), retainedListeners = 0) {
+export function reportRuntimeAbortListenerPressure(
+  warning,
+  now = Date.now(),
+  retainedListeners = 0,
+  context = {},
+) {
   if (!isCurrentSessionRuntimeWorker()) return false;
   if (!Number.isFinite(Number(retainedListeners)) || Number(retainedListeners) <= 50) {
     return false;
@@ -175,6 +180,15 @@ export function reportRuntimeAbortListenerPressure(warning, now = Date.now(), re
     code: 'ABORT_LISTENER_PRESSURE',
     count,
     retainedListeners: Number(retainedListeners),
+    observedListeners: Number(warning?.count) || null,
+    listenerType: String(warning?.type || 'abort'),
+    targetType: String(warning?.target?.constructor?.name || 'AbortSignal'),
+    shard: Number.isFinite(Number(context?.shard)) ? Number(context.shard) : null,
+    runtimesAtWarning: Math.max(0, Number(context?.runtimesAtWarning) || 0),
+    agentDispatchesAtWarning: Math.max(0, Number(context?.agentDispatchesAtWarning) || 0),
+    runtimesAfterDelay: Math.max(0, Number(context?.runtimesAfterDelay) || 0),
+    agentDispatchesAfterDelay: Math.max(0, Number(context?.agentDispatchesAfterDelay) || 0),
     warning: String(warning?.message || warning || ''),
+    warningStack: String(warning?.stack || '').slice(0, 4_000),
   });
 }

@@ -1,0 +1,46 @@
+{
+  "deck": "deliverables/pptx-frontier-round/slidesgen-brief.pptx",
+  "session": "office_ec11795a96094b90",
+  "authored": {
+    "kit": "runtime",
+    "nativeGradients": 3,
+    "bytes": 5344859
+  },
+  "issues": [
+    {
+      "severity": "info",
+      "code": "fact_without_locator",
+      "path": "/",
+      "message": "The brief names 1 source but F13 cites no locator. Point each fact where a reader can open it (F1 38건 — 운영 리포트 p.12, Sheet1!B4, §3, or a URL).",
+      "source": "design-review"
+    },
+    {
+      "severity": "warning",
+      "code": "text_spacing_tight",
+      "path": "/slide[8]",
+      "message": "Text shapes 5 and 6 have less than 6 pt vertical spacing.",
+      "source": "format-review"
+    },
+    {
+      "severity": "warning",
+      "code": "text_spacing_tight",
+      "path": "/slide[8]",
+      "message": "Text shapes 9 and 10 have less than 6 pt vertical spacing.",
+      "source": "format-review"
+    },
+    {
+      "severity": "warning",
+      "code": "text_spacing_tight",
+      "path": "/slide[8]",
+      "message": "Text shapes 13 and 14 have less than 6 pt vertical spacing.",
+      "source": "format-review"
+    },
+    {
+      "severity": "warning",
+      "code": "text_spacing_tight",
+      "path": "/slide[8]",
+      "message": "Text shapes 17 and 18 have less than 6 pt vertical spacing.",
+      "source": "format-review"
+    }
+  ]
+}

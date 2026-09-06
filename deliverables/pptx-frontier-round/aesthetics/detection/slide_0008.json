@@ -1,0 +1,126 @@
+{
+  "source": "pptx-snapshot",
+  "image": "slide_0008.png",
+  "boxes": [
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        107,
+        866,
+        186
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        63,
+        230,
+        95
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        393,
+        257,
+        437
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        63,
+        450,
+        336,
+        584
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        378,
+        393,
+        618,
+        437
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        378,
+        450,
+        651,
+        584
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        710,
+        393,
+        923,
+        437
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        710,
+        450,
+        965,
+        584
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        1014,
+        393,
+        1281,
+        437
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        1014,
+        450,
+        1329,
+        584
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        89,
+        646,
+        1187,
+        720
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        1232,
+        735,
+        1258,
+        767
+      ]
+    }
+  ]
+}

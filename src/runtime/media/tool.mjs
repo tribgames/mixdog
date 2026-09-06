@@ -5,6 +5,7 @@
 import { copyFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname, extname, isAbsolute, resolve } from 'node:path';
 import { MEDIA_ACTIONS, MEDIA_KINDS } from './tool-defs.mjs';
+import { clean } from '../shared/clean.mjs';
 
 const POLL_MS = 750;
 const TIMEOUT_MS = Object.freeze({ image: 180_000, video: 900_000 });
@@ -36,10 +37,6 @@ class MediaToolError extends Error {
     super(message);
     this.extra = extra;
   }
-}
-
-function clean(value) {
-  return String(value ?? '').trim();
 }
 
 function fullPath(path, cwd) {

@@ -81,7 +81,7 @@ export class ProviderPrefixMutationError extends Error {
     }
 }
 
-export function isCompactionPrefixReset(intent) {
+function isCompactionPrefixReset(intent) {
     return COMPACTION_INTENTS.has(String(intent || ''));
 }
 

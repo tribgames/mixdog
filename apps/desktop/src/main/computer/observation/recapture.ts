@@ -1,4 +1,5 @@
 const RECAPTURE_REQUIRED_CODES = [
+  'computer_resume_recapture_required',
   'computer_foreground_available_recapture_required',
   'computer_target_available_recapture_required',
 ] as const;

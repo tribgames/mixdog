@@ -1,4 +1,5 @@
 import { splitBridgeToolArgs } from '../shared/bridge-tool-args.mjs';
+import { hasOwn } from '../shared/object.mjs';
 import {
   COMPUTER_CORE_ACTION_SCHEMA,
   validateComputerCoreActions,
@@ -8,7 +9,7 @@ import {
  *  a caller repeat one without wondering whether it moved anything; the host
  *  enforces the same split when it decides which session owns a write. */
 export const COMPUTER_OBSERVATION_ACTIONS = Object.freeze([
-  'list', 'diagnose', 'capture', 'verify',
+  'list', 'diagnose', 'capture', 'verify', 'wait_for_user',
 ]);
 
 const MAX_CLIPBOARD_TEXT_LENGTH = 50_000;
@@ -23,7 +24,7 @@ const ocrLanguage = {
 };
 
 const ACTIONS = [
-  'list', 'diagnose', 'capture', 'verify',
+  'list', 'diagnose', 'capture', 'verify', 'wait_for_user',
   'act', 'window', 'menu', 'clipboard', 'launch',
 ];
 
@@ -162,6 +163,10 @@ export const COMPUTER_INPUT_SCHEMA = {
   required: ['action'],
   additionalProperties: false,
   oneOf: [
+    branch('wait_for_user', input({
+      timeout_ms: { type: 'integer', minimum: 0, maximum: 120000,
+        description: 'Wait for manual or host-configured idle resume. Default 60000. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input.' },
+    }), false),
     branch('list', input({
       kind: { type: 'string', enum: ['windows', 'apps'] },
     }, ['kind'])),
@@ -278,9 +283,6 @@ const WINDOW_TARGET_ACTIONS = new Set([
   'act', 'window', 'menu', 'verify',
 ]);
 
-function hasOwn(value, key) {
-  return Object.prototype.hasOwnProperty.call(value, key);
-}
 
 function schemaValueError(value, schema, path) {
   if (schema.enum && !schema.enum.includes(value)) {

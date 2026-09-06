@@ -2,7 +2,7 @@
 // out of runtime-core so the facade reads as wiring instead of a wall of
 // knobs. Values are read ONCE per runtime construction: a mid-session env
 // change must not retune a schedule that is already armed.
-import { envDelayMs, envFlag, envPresent } from './env.mjs';
+import { envDelayMs, envFlag, envPresent } from '../runtime/shared/env.mjs';
 
 export function readRuntimeTunables() {
   const codeGraphPrewarmEager = envFlag('MIXDOG_CODE_GRAPH_PREWARM_EAGER');

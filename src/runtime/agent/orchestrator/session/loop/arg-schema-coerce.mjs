@@ -66,7 +66,7 @@ export function coerceArgsToSchema(args, schema) {
     return args;
 }
 
-export function toolInputSchemaForSession(sessionRef, name) {
+function toolInputSchemaForSession(sessionRef, name) {
     const key = clean(name);
     if (!key) return null;
     // Built-in runtime tools such as office live in the internal registry,

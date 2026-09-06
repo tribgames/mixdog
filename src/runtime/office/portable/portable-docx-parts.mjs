@@ -177,6 +177,103 @@ export async function ensureCommentsPart(zip) {
 
 
 
+const WORD_2016_CID_NS = 'http://schemas.microsoft.com/office/word/2016/wordml/cid';
+const WORD_2018_CEX_NS = 'http://schemas.microsoft.com/office/word/2018/wordml/cex';
+const MARKUP_COMPATIBILITY_NS = 'http://schemas.openxmlformats.org/markup-compatibility/2006';
+const COMMENT_SIDECARS = Object.freeze({
+  ids: {
+    part: 'word/commentsIds.xml',
+    root: 'w16cid:commentsIds',
+    ns: WORD_2016_CID_NS,
+    prefix: 'w16cid',
+    contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsIds+xml',
+    relationship: 'http://schemas.microsoft.com/office/2016/09/relationships/commentsIds',
+  },
+  extensible: {
+    part: 'word/commentsExtensible.xml',
+    root: 'w16cex:commentsExtensible',
+    ns: WORD_2018_CEX_NS,
+    prefix: 'w16cex',
+    contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.commentsExtensible+xml',
+    relationship: 'http://schemas.microsoft.com/office/2018/08/relationships/commentsExtensible',
+  },
+});
+
+async function ensureCommentSidecar(zip, sidecar) {
+  const existing = await zipText(zip, sidecar.part);
+  if (existing) return { part: sidecar.part, xml: existing };
+  const xml = `${XML_HEADER}<${sidecar.root} xmlns:${sidecar.prefix}="${sidecar.ns}" xmlns:mc="${MARKUP_COMPATIBILITY_NS}" mc:Ignorable="${sidecar.prefix}"></${sidecar.root}>`;
+  zip.file(sidecar.part, xml);
+  await ensureContentTypeOverride(zip, `/${sidecar.part}`, sidecar.contentType);
+  await addPackageRelationship(
+    zip,
+    partRelationshipPath('word/document.xml'),
+    sidecar.relationship,
+    sidecar.part.replace(/^word\//, ''),
+  );
+  return { part: sidecar.part, xml };
+}
+
+function commentDurableId(commentId) {
+  // Eight hex digits below 0x7FFFFFFF, spread so neighbouring ids differ.
+  const value = 0x10000000 + ((Number(commentId) * 2654435761) % 0x6FFFFFFF);
+  return value.toString(16).toUpperCase().padStart(8, '0');
+}
+
+/** A comment Word treats as its own is cross-linked through four parts: the
+ *  comment, its thread entry (`commentsExtended`), the paragraph-id to
+ *  durable-id map (`commentsIds`), and the durable-id timestamp
+ *  (`commentsExtensible`). This writes the last two for one comment. */
+export async function registerCommentIdentity(zip, { commentId, date }) {
+  const paraId = commentParagraphId(commentId);
+  const durableId = commentDurableId(commentId);
+  const ids = await ensureCommentSidecar(zip, COMMENT_SIDECARS.ids);
+  if (!ids.xml.includes(`w16cid:paraId="${paraId}"`)) {
+    zip.file(ids.part, ids.xml.replace(
+      `</${COMMENT_SIDECARS.ids.root}>`,
+      `<w16cid:commentId w16cid:paraId="${paraId}" w16cid:durableId="${durableId}"/></${COMMENT_SIDECARS.ids.root}>`,
+    ));
+  }
+  const extensible = await ensureCommentSidecar(zip, COMMENT_SIDECARS.extensible);
+  if (!extensible.xml.includes(`w16cex:durableId="${durableId}"`)) {
+    zip.file(extensible.part, extensible.xml.replace(
+      `</${COMMENT_SIDECARS.extensible.root}>`,
+      `<w16cex:commentExtensible w16cex:durableId="${durableId}" w16cex:dateUtc="${xmlEncode(date)}"/></${COMMENT_SIDECARS.extensible.root}>`,
+    ));
+  }
+  return { paraId, durableId };
+}
+
+/** Removes a deleted comment's thread, id map, and timestamp entries, found
+ *  through the paragraph id the comment itself carries so comments Word
+ *  authored are cleaned the same way. */
+export async function forgetCommentIdentity(zip, commentXml) {
+  const paraId = /\bw14:paraId="([0-9A-Fa-f]+)"/.exec(commentXml)?.[1] || '';
+  const removed = [];
+  if (!paraId) return { removed };
+  const extended = await zipText(zip, 'word/commentsExtended.xml');
+  const extendedNext = extended.replace(new RegExp(`<w15:commentEx\\b[^>]*\\bw15:paraId="${paraId}"[^>]*\\/>`), '');
+  if (extendedNext !== extended) {
+    zip.file('word/commentsExtended.xml', extendedNext);
+    removed.push('word/commentsExtended.xml');
+  }
+  const ids = await zipText(zip, COMMENT_SIDECARS.ids.part);
+  const idEntry = new RegExp(`<w16cid:commentId\\b[^>]*\\bw16cid:paraId="${paraId}"[^>]*\\/>`).exec(ids);
+  if (!idEntry) return { removed };
+  zip.file(COMMENT_SIDECARS.ids.part, ids.replace(idEntry[0], ''));
+  removed.push(COMMENT_SIDECARS.ids.part);
+  const durableId = /\bw16cid:durableId="([0-9A-Fa-f]+)"/.exec(idEntry[0])?.[1] || '';
+  if (!durableId) return { removed };
+  const extensible = await zipText(zip, COMMENT_SIDECARS.extensible.part);
+  const extensibleNext = extensible.replace(new RegExp(`<w16cex:commentExtensible\\b[^>]*\\bw16cex:durableId="${durableId}"[^>]*\\/>`), '');
+  if (extensibleNext !== extensible) {
+    zip.file(COMMENT_SIDECARS.extensible.part, extensibleNext);
+    removed.push(COMMENT_SIDECARS.extensible.part);
+  }
+  return { removed };
+}
+
+
 export function anchorDocxComment(paragraphXml, id) {
   const opening = /^<w:p(?:\s[^>]*)?>(?:<w:pPr(?:\s[^>]*)?>[\s\S]*?<\/w:pPr>)?/.exec(paragraphXml)?.[0] || '<w:p>';
   const body = paragraphXml.slice(opening.length);

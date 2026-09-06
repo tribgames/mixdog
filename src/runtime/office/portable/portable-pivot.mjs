@@ -86,7 +86,7 @@ function axisEntriesXml(count) {
   )).join('');
 }
 
-export function pivotTableXml({
+function pivotTableXml({
   name,
   cacheId,
   fields,

@@ -13,6 +13,7 @@ import {
     exchangeCursorToken,
     resolveCursorOAuthAccessToken,
 } from './cursor-auth.mjs';
+import { isCursorEffortParameterId } from './cursor-wire-normalization.mjs';
 
 let runtimePromise = null;
 const CURSOR_EFFORT_ORDER = Object.freeze(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
@@ -165,11 +166,6 @@ function cursorVariantDisplay(entry, variant) {
 function variantPreference(variant) {
     const effortRank = CURSOR_DEFAULT_EFFORT_ORDER.indexOf(variant.effort);
     return (variant.fast ? 100 : 0) + (effortRank < 0 ? 50 : effortRank);
-}
-
-function isCursorEffortParameterId(id) {
-    const key = String(id || '').trim().toLowerCase();
-    return key === 'effort' || key === 'reasoning' || key.endsWith('_effort') || key.endsWith('-effort');
 }
 
 function normalizeCursorParameterValue(id, value) {

@@ -66,7 +66,7 @@
 .activity-rail > nav > button.is-active,
 .activity-rail > button.is-active,
 .activity-rail > nav > button.selected,
-.activity-rail > button.selected { color: var(--mx-text); }
+.activity-rail > button.selected { color: var(--mx-text); background: var(--mx-hover); }
 .activity-rail > nav > button::before,
 .activity-rail > button::before {
   content: "";
@@ -137,6 +137,11 @@
   inset: 0 auto 0 0;
   width: 2px;
   background: var(--mx-text);
+}
+/* Keyboard focus is a quiet inset, distinct from the persistent active bar. */
+.activity-rail > nav > button:focus-visible,
+.activity-rail > button:focus-visible {
+  box-shadow: var(--mx-list-focus-ring);
 }
 .workbench-side-icon-bar.is-vertical > button[data-drop-position="before"] {
   box-shadow: inset 0 2px 0 var(--mx-focus);

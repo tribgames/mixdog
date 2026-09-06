@@ -305,7 +305,7 @@ export function storedAgentWorkerIndexPath() {
     return join(dataDir(), 'agent-workers.json');
 }
 
-export function storedLeadWorkerIndexPath() {
+function storedLeadWorkerIndexPath() {
     return join(dataDir(), 'lead-workers.json');
 }
 
@@ -1038,7 +1038,7 @@ async function projectStoredTranscript(sessionId, doc, options) {
     const messages = Array.isArray(session.messages) ? session.messages : [];
     const hasConversationActivity = messages.some((message) => message?.role === 'user');
     let currentEstimatedContextTokens = 0;
-    if (hasConversationActivity) {
+    if (hasConversationActivity && !preparedContextProjection) {
         try {
             const { estimateTranscriptContextUsage } = await import('./context-utils.mjs');
             currentEstimatedContextTokens = estimateTranscriptContextUsage(
@@ -1093,105 +1093,5 @@ async function projectStoredTranscript(sessionId, doc, options) {
         // externally owned child: that runtime can only return the detached
         // Task row and masks this checkpoint projection.
         readOnlyDetachedAgent: liveDetachedAgent,
-    };
-}
-
-/**
- * Lightweight desktop background viewer. It reuses the owner's existing
- * live-share pipe without creating a second engine/runtime or claiming session
- * ownership. The caller has already published the cold disk snapshot; the
- * owner's first full frame atomically replaces it, then deltas keep the pane
- * current while it remains visible.
- */
-export async function createStoredSessionLiveViewer(id, options = {}) {
-    const sessionId = String(id || '').trim();
-    if (!/^[A-Za-z0-9_-]+$/.test(sessionId)
-        || typeof options.onSnapshot !== 'function') return null;
-    const initial = options.initialSnapshot && typeof options.initialSnapshot === 'object'
-        ? options.initialSnapshot
-        : {};
-    let state = {
-        ...initial,
-        sessionId,
-        items: Array.isArray(initial.items) ? initial.items : [],
-        queued: Array.isArray(initial.queued) ? initial.queued : [],
-        streamingTail: initial.streamingTail || null,
-        spinner: initial.spinner || null,
-    };
-    let disposed = false;
-    let publishQueued = false;
-    const publish = () => {
-        if (disposed || publishQueued) return;
-        publishQueued = true;
-        queueMicrotask(() => {
-            publishQueued = false;
-            if (disposed) return;
-            try { options.onSnapshot(state); } catch { /* host lane isolation */ }
-        });
-    };
-    const commit = (patch) => {
-        state = { ...state, ...patch, sessionId };
-        publish();
-    };
-    const viewerApply = {
-        getState: () => state,
-        set: (patch) => commit(patch && typeof patch === 'object' ? patch : {}),
-        replaceItems: (items, replaceOptions = {}) => commit({
-            items: Array.isArray(items) ? [...items] : [],
-            ...(replaceOptions.preserveStreamingTail === true
-                ? {}
-                : { streamingTail: null }),
-        }),
-        patchItem: (itemId, patch) => {
-            const index = state.items.findIndex((item) => item?.id === itemId);
-            if (index < 0) return false;
-            const items = [...state.items];
-            items[index] = { ...items[index], ...patch };
-            commit({ items });
-            return true;
-        },
-        appendItems: (items) => {
-            if (!Array.isArray(items) || items.length === 0) return;
-            commit({ items: [...state.items, ...items] });
-        },
-        updateStreamingTail: (itemId, patch, _unused = {}, updateOptions = {}) => {
-            const current = updateOptions.resetText !== true
-                && state.streamingTail?.id === itemId
-                ? state.streamingTail
-                : { id: itemId, text: '' };
-            commit({ streamingTail: { ...current, ...patch, id: itemId } });
-        },
-        clearStreamingTail: () => commit({ streamingTail: null }),
-    };
-    const { createLiveShare, liveSharePipePath } = await import(
-        '../../../../tui/session/live-share.mjs'
-    );
-    const share = createLiveShare({
-        ownerSessionId: () => '',
-        viewerSessionId: () => disposed ? '' : sessionId,
-        socketPathFor: (targetId) => liveSharePipePath(
-            targetId,
-            join(dataDir(), 'sessions', `${targetId}.json`),
-        ),
-        getPublishedState: () => state,
-        listeners: new Set(),
-        onRemoteSubmit: () => {},
-        onRemoteAbort: () => {},
-        onOwnerClosed: () => {
-            if (!disposed) options.onOwnerClosed?.();
-        },
-        viewerApply,
-        // A visible desktop pane may remain open before its external owner
-        // starts. Keep one bounded retry per pane instead of the TUI's
-        // latency-first 160ms retry ceiling.
-        viewerRetryMaxMs: 1_000,
-    });
-    share.ensure();
-    return {
-        dispose() {
-            if (disposed) return;
-            disposed = true;
-            share.dispose();
-        },
     };
 }

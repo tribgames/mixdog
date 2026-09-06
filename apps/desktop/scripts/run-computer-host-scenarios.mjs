@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import electron from 'electron';
 import { build } from 'esbuild';
+import { computerSourceEsbuildPlugin } from './computer-source-assets.mjs';
 
 const argument = (name) => {
   const prefix = `--${name}=`;
@@ -31,6 +32,7 @@ try {
     entryPoints: [fileURLToPath(new URL('../src/main/computer/harness/scenarios.ts', import.meta.url))],
     outfile: output,
     bundle: true,
+    plugins: [computerSourceEsbuildPlugin()],
     platform: 'node',
     format: 'esm',
     target: 'node22',

@@ -9,98 +9,37 @@
  * The singleton daemon and explicit parity tests are the only callers.
  */
 import { performance } from 'node:perf_hooks';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
-import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
-import { Worker } from 'node:worker_threads';
-import {
-  aggregateToolCategoryEntry,
-  classifyToolCategory,
-  formatAggregateDetail,
-  summarizeToolResult,
-} from '../runtime/shared/tool-surface.mjs';
+import { statSync, watch } from 'node:fs';
+import { basename, dirname } from 'node:path';
 import {
   isInternalTranscriptDisplayText,
   isModelVisibleToolCompletionWrapper,
 } from '../runtime/shared/tool-execution-contract.mjs';
 import { isLateToolAnnouncement } from '../session-runtime/session-text.mjs';
-import { presentErrorText } from '../runtime/shared/err-text.mjs';
 import { sessionPath } from '../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs';
-import { listThemes, getThemeSetting, setThemeSetting } from './theme.mjs';
-import { resetAllStreamingMarkdownStablePrefixes } from './markdown/streaming-markdown.mjs';
 import { bootProfile } from './session/boot-profile.mjs';
-import { createSessionStats, applyUsageDelta } from './session/session-stats.mjs';
+import { createSessionStats } from './session/session-stats.mjs';
 import { createGoalContinuation } from './session/goal-continuation.mjs';
-import {
-  pickVerb,
-  pickDoneVerb,
-  formatElapsedSeconds,
-  compactEventLabel,
-  compactEventDetail,
-  projectNameFromPath,
-} from './session/labels.mjs';
 import { polishNoticeText } from './session/notice-text.mjs';
-import {
-  toolResultText,
-  toolAggregateDetailFallback,
-  toolGroupedDisplayFallback,
-  toolErrorDisplay,
-} from './session/tool-result-text.mjs';
-import {
-  toolCallId,
-  toolResultCallId,
-  toolCallName,
-  toolCallArgs,
-} from './session/tool-call-fields.mjs';
 import {
   buildExecutionResponseToolItem,
   completionCardFromExecution,
   parseBackgroundTaskEnvelope,
   parseModelVisibleCompletionWrapper,
   parseSyntheticAgentMessage,
-  toolResultStatus,
-  isErrorToolStatus,
 } from './session/agent-envelope.mjs';
 import {
-  queuePriorityValue,
-  defaultQueuePriority,
-  isQueuedEntryEditable,
-  isQueuedEntryVisible,
-  isSlashQueuedEntry,
-  notificationDisplayText,
-  sessionActivityTimestamp,
   promptDisplayText,
-  mergePromptContents,
-  mergePastedImages,
-  mergePastedTexts,
-  callCommitCallbacks,
 } from './session/queue-helpers.mjs';
-import {
-  resolveTuiRuntimeNotificationDelivery,
-} from './session/notification-plan.mjs';
 import {
   TUI_FRAME_MS,
   cancelRenderAlignedStoreFlush,
   scheduleRenderAlignedStoreFlush,
-  yieldToRenderer,
 } from './session/render-timing.mjs';
-import {
-  aggregateRawResult,
-  aggregateBucketForCategory,
-  aggregateSummaries,
-  assignAggregateSummaryOrder,
-} from './session/tool-result-status.mjs';
 import { createToolApproval } from './session/tool-approval.mjs';
 import { createToolCardResults } from './session/tool-card-results.mjs';
 import { createAgentJobFeed } from './session/agent-job-feed.mjs';
 import { appendAgentResponseTail } from './session/agent-response-tail.mjs';
-import {
-  appendTuiSteeringPersist,
-  dropTuiSteeringPersist,
-  drainTuiSteeringPersist,
-  flushTuiSteeringPersist,
-} from './session/tui-steering-persist.mjs';
 import { createContextState } from './session/context-state.mjs';
 import { recomputePromptHistory } from './session/prompt-history.mjs';
 import {
@@ -554,12 +493,13 @@ export async function createLocalSessionRuntime({
   };
   const transcriptRouteMetadata = (at = Date.now()) => {
     const route = routeState();
-    const modelName = displayModelName(route.model, route.provider);
+    const provider = runtime.session?.provider || route.provider;
+    const modelName = displayModelName(runtime.session?.model || route.model, provider);
     const workflowLabel = String(route.workflow?.name || route.workflow?.id || '').trim();
     return {
       at,
       ...(modelName ? { model: modelName } : {}),
-      ...(route.provider ? { provider: String(route.provider) } : {}),
+      ...(provider ? { provider: String(provider) } : {}),
       ...(workflowLabel ? { agent: workflowLabel } : {}),
     };
   };
@@ -764,11 +704,13 @@ export async function createLocalSessionRuntime({
     pushItem(responseItem);
     return true;
   };
-  const pushToast = (text, tone = 'info', ttlMs = 3000) => {
+  const pushToast = (text, tone = 'info', ttlMs = 3000, options = {}) => {
     const id = nextId();
     const value = String(text ?? '').trim();
     if (!value) return null;
-    set({ toasts: [...state.toasts.filter((toast) => toast.id !== id), { id, text: value, tone }] });
+    set({ toasts: [...state.toasts.filter((toast) => toast.id !== id), {
+      id, text: value, tone, ...(options.owner ? { owner: options.owner } : {}),
+    }] });
     const timer = setTimeout(() => {
       toastTimers.delete(timer);
       if (flags.disposed) return;
@@ -782,7 +724,7 @@ export async function createLocalSessionRuntime({
     const value = polishNoticeText(text);
     if (!value) return null;
     const forceTranscript = options.transcript === true;
-    if (!forceTranscript) return pushToast(value, tone, options.ttlMs);
+    if (!forceTranscript) return pushToast(value, tone, options.ttlMs, options);
     const id = nextId();
     pushItem({ kind: 'notice', id, text: value, tone });
     return id;

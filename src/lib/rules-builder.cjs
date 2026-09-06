@@ -42,21 +42,6 @@ const {
   sortOutputStyles,
 } = require('./output-style-meta.cjs');
 
-/**
- * Read a single section from mixdog-config.json (unified config).
- *
- * @param {string} dataDir  — DATA_DIR passed into build* functions
- * @param {string} section  — top-level key ('memory' | 'search' | …)
- * @returns {object}
- */
-function readConfigSection(dataDir, section) {
-  try {
-    const unified = JSON.parse(fs.readFileSync(path.join(dataDir, 'mixdog-config.json'), 'utf8'));
-    if (unified && typeof unified === 'object') return unified[section] || {};
-  } catch {}
-  return {};
-}
-
 function readOptional(filePath) {
   try { return fs.readFileSync(filePath, 'utf8').trim(); } catch { return ''; }
 }

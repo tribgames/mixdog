@@ -6,7 +6,7 @@ export function resultValue(result) {
   return JSON.parse(text);
 }
 
-export function toolValue(result, label) {
+function toolValue(result, label) {
   const text = result?.content?.find((entry) => entry.type === 'text')?.text || '';
   if (result?.isError) throw new Error(`${label}: ${text}`);
   return JSON.parse(text);

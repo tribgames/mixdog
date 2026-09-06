@@ -3,7 +3,7 @@
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { clean } from './session-text.mjs';
-import { envFlag } from './env.mjs';
+import { envFlag } from '../runtime/shared/env.mjs';
 
 export function createMcpGlue({
   mcpClient,

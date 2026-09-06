@@ -15,6 +15,7 @@ import type {
   DesktopBrowserImportSource,
 } from "../shared/contract";
 import { t } from "./i18n";
+import { ErrorNotice } from "./ErrorNotice";
 
 interface BrowserImportDialogProps {
   open: boolean;
@@ -296,7 +297,7 @@ export function BrowserImportDialog({
           {t("I understand the app requests administrator approval to import Chrome data")}
         </span>
       </label>}
-      {error && <div className="browser-import-error" role="alert">{error}</div>}
+      {error && <ErrorNotice error={error} />}
       <footer>
         <button type="button" className="browser-import-secondary"
           disabled={busy} onClick={requestClose}>

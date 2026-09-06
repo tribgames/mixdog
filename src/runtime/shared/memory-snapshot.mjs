@@ -303,8 +303,4 @@ function armMemoryPressureSampling() {
   return true;
 }
 
-function memoryPressureSnapshotPath() {
-  return snapshotPaths().snapshot;
-}
-
 armMemoryPressureSampling();

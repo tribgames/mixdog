@@ -23,18 +23,26 @@ import { computerUseCoordinator } from '../session/coordinator';
 import type { createWorkerPool } from '../backend/worker-pool';
 import { HOST_WARMUP_SESSION_ID, isComputerLifecycleControl } from './action-sets';
 import type { SessionLifecycle } from './session-lifecycle';
+import { assertPublicComputerRequest } from './request-policy';
+import {
+  MAX_COMPUTER_REQUEST_BYTES,
+  MAX_COMPUTER_RESPONSE_BYTES,
+  validateComputerReply,
+} from '../../../../../../src/runtime/computer-bridge/limits.mjs';
 
 const HEARTBEAT_MS = 60_000;
 
 type WorkerPool = ReturnType<typeof createWorkerPool>;
 
 export interface BridgeServerHost extends
-  Pick<WorkerPool, 'callPowerShell' | 'adoptWarmedWorker' | 'releaseSpareWorker' | 'powerShellBySession'>,
+  Pick<WorkerPool, 'callPowerShell' | 'adoptWarmedWorker' | 'releaseSpareWorker' | 'powerShellBySession' | 'elevatedSessionIds'>,
   Pick<SessionLifecycle, 'abortComputerSession' | 'executeSerialized' | 'reapIdleSessionWorkers'> {
   dataDirectory(): string;
   isBridgeWanted(): boolean;
   isDisposed(): boolean;
   diagnose(event: string, data?: Record<string, unknown>): void;
+  waitForCleanup?(): Promise<boolean>;
+  waitForUser?(command: ComputerCommand, signal: AbortSignal): Promise<ComputerCommandResult>;
 }
 
 export function createBridgeServer(host: BridgeServerHost) {
@@ -43,6 +51,7 @@ export function createBridgeServer(host: BridgeServerHost) {
     adoptWarmedWorker,
     releaseSpareWorker,
     powerShellBySession,
+    elevatedSessionIds,
     abortComputerSession,
     executeSerialized,
     reapIdleSessionWorkers,
@@ -52,7 +61,6 @@ export function createBridgeServer(host: BridgeServerHost) {
     diagnose,
   } = host;
   const {
-    readRequestBody,
     respond,
     writeDiscovery,
     heartbeatDiscovery,
@@ -64,6 +72,19 @@ export function createBridgeServer(host: BridgeServerHost) {
   let bridgeStopPromise: Promise<void> | null = null;
   let bridgeGeneration = 0;
   let bridgeDiscoveryRecord: BridgeDiscoveryRecord | null = null;
+  let activeRequests = 0;
+
+  async function readRequestBody(request: IncomingMessage): Promise<string> {
+    const chunks: Buffer[] = [];
+    let bytes = 0;
+    for await (const chunk of request) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      bytes += buffer.length;
+      if (bytes > MAX_COMPUTER_REQUEST_BYTES) throw new Error('computer request exceeds byte limit');
+      chunks.push(buffer);
+    }
+    return Buffer.concat(chunks, bytes).toString('utf8');
+  }
 
   async function stopBridge(): Promise<void> {
     if (bridgeStopPromise) return await bridgeStopPromise;
@@ -84,15 +105,17 @@ export function createBridgeServer(host: BridgeServerHost) {
         });
       }
       releaseSpareWorker();
-      await Promise.allSettled(
-        [...powerShellBySession.keys()]
+      const stopped = await Promise.allSettled(
+        [...new Set([...powerShellBySession.keys(), ...elevatedSessionIds()])]
           .filter((sessionId) => sessionId !== CHROME_SETUP_SESSION_ID)
           .map((sessionId) => abortComputerSession({
             action: 'session_abort',
             session_id: sessionId,
           })),
       );
-      computerUseCoordinator.reset();
+      const cleanupConfirmed = await host.waitForCleanup?.() ?? true;
+      if (cleanupConfirmed && stopped.every((result) => result.status === 'fulfilled')) computerUseCoordinator.reset();
+      else computerUseCoordinator.pauseForUser('input_cleanup_unconfirmed');
     })();
     try {
       await bridgeStopPromise;
@@ -136,7 +159,9 @@ export function createBridgeServer(host: BridgeServerHost) {
         }
         let command: ComputerCommand;
         try {
-          command = JSON.parse(await readRequestBody(request)) as ComputerCommand;
+          const value: unknown = JSON.parse(await readRequestBody(request));
+          assertPublicComputerRequest(value);
+          command = value;
         } catch (error) {
           respond(response, 400, { ok: false, error: `invalid request: ${(error as Error).message}` });
           return;
@@ -144,10 +169,18 @@ export function createBridgeServer(host: BridgeServerHost) {
         // A dropped connection is the only cancellation signal left when the
         // runtime dies before it can send session_abort. Without this the queued
         // input keeps driving the user's desktop until the command timeout.
+        if (activeRequests >= (isComputerLifecycleControl(command) ? 40 : 32)) {
+          respond(response, 429, { ok: false, error: 'computer_capacity_exhausted: too many active requests' });
+          return;
+        }
+        activeRequests++;
         let clientGone = false;
+        const requestAbort = new AbortController();
         const abortOnDisconnect = (): void => {
           if (clientGone) return;
           clientGone = true;
+          requestAbort.abort();
+          if (command.action === 'wait_for_user') return;
           if (isComputerLifecycleControl(command)) return;
           void abortComputerSession(command).catch(() => { /* host already idle */ });
         };
@@ -156,15 +189,22 @@ export function createBridgeServer(host: BridgeServerHost) {
           if (!response.writableEnded) abortOnDisconnect();
         });
         try {
-          const value: ComputerCommandResult = command.action === 'session_abort'
+          const value: ComputerCommandResult = command.action === 'wait_for_user' && host.waitForUser
+            ? await host.waitForUser(command, requestAbort.signal)
+            : command.action === 'session_abort'
             ? await abortComputerSession(command)
             : await executeSerialized(command);
+          validateComputerReply(value);
+          if (Buffer.byteLength(JSON.stringify(value)) > MAX_COMPUTER_RESPONSE_BYTES) {
+            throw new Error('computer response exceeds byte limit; input may have executed and was not replayed');
+          }
           if (!clientGone) respond(response, 200, { ok: true, value });
         } catch (error) {
           if (!clientGone) {
             respond(response, 200, { ok: false, error: (error as Error).message || String(error) });
           }
         } finally {
+          activeRequests--;
           request.removeListener('aborted', abortOnDisconnect);
         }
       })().catch(() => {
@@ -180,6 +220,10 @@ export function createBridgeServer(host: BridgeServerHost) {
     const startedAt = Date.now();
     diagnose('computer-bridge-start', { generation });
     const created = createServer(handleRequest(activeToken, generation));
+    created.maxConnections = 64;
+    created.headersTimeout = 10_000;
+    created.requestTimeout = 30_000;
+    created.keepAliveTimeout = 5_000;
     server = created;
     const stillCurrent = (): boolean =>
       !isDisposed() && isBridgeWanted() && server === created && bridgeGeneration === generation;

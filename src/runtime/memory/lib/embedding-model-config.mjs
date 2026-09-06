@@ -1,3 +1,5 @@
+import { clean } from '../../shared/clean.mjs'
+
 const DEFAULT_MODEL_ID = 'Xenova/multilingual-e5-small'
 
 const MODEL_PROFILES = Object.freeze({
@@ -33,10 +35,6 @@ const MODEL_PROFILES = Object.freeze({
     supportedDtypes: Object.freeze(['fp32', 'fp16', 'q8', 'q4']),
   }),
 })
-
-function clean(value) {
-  return String(value ?? '').trim()
-}
 
 export function getConfiguredEmbeddingModelId() {
   return clean(process.env.MIXDOG_EMBED_MODEL) || DEFAULT_MODEL_ID

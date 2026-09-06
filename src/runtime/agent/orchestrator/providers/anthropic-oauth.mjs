@@ -5,7 +5,6 @@
  * Raw HTTP + SSE streaming, reuses message/tool conversion patterns
  * from anthropic.mjs. agent-trace instrumented.
  */
-import { randomBytes } from 'crypto';
 import {
     traceAgentFetch,
     traceAgentSse,
@@ -13,16 +12,16 @@ import {
 } from '../agent-trace.mjs';
 import { createAbortController } from '../../../shared/abort-controller.mjs';
 import { resolveAnthropicMaxTokens } from './anthropic-max-tokens.mjs';
+import { prepareAnthropicImages } from './lib/anthropic-image-input.mjs';
 import {
-    _loadModelCache,
-    _setInMemoryCatalog,
-    _catalogHas,
-    _displayModel,
-    _catalogOutputTokens,
-    normalizeAndSaveCatalog,
-    resolveLatestAnthropicModel,
-    resolveAnthropicModelAfter404,
-    ensureLatestAnthropicModel,
+  _loadModelCache,
+  _setInMemoryCatalog,
+  _catalogHas,
+  _displayModel,
+  _catalogOutputTokens,
+  normalizeAndSaveCatalog,
+  resolveAnthropicModelAfter404,
+  ensureLatestAnthropicModel,
 } from './anthropic-model-resolve.mjs';
 import { sanitizeToolPairs } from '../session/context-utils.mjs';
 import {
@@ -43,10 +42,9 @@ import {
     resolveCliVersion,
 } from './anthropic-oauth-client-version.mjs';
 import {
-    PROVIDER_FIRST_BYTE_TIMEOUT_MS,
-    PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS,
-    createTimeoutSignal,
-    createPassthroughSignal,
+  PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS,
+  createTimeoutSignal,
+  createPassthroughSignal,
 } from '../stall-policy.mjs';
 import {
     ANTHROPIC_RETRY_BACKOFF_MS,
@@ -85,25 +83,22 @@ function _anthropicReqGzipDisabled() {
 }
 function _disableAnthropicReqGzip() { _anthropicReqGzipLatch = true; }
 import {
-    applyAnthropicEffortToBody,
-    effortValuesForModel,
-    shouldIncludeEffortBeta,
+  applyAnthropicEffortToBody,
+  shouldIncludeEffortBeta,
 } from './anthropic-effort.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { notifyCurrentAnthropicRateLimit } from './admission-scheduler.mjs';
 import {
-    ANTHROPIC_CACHE_TTL_STABLE as CACHE_TTL_STABLE,
-    ANTHROPIC_CACHE_TTL_VOLATILE as CACHE_TTL_VOLATILE,
-    applyAnthropicCacheMarkers,
-    clampAnthropicThinkingBudget as clampThinkingBudgetTokens,
-    deferredAnthropicTools as sharedDeferredAnthropicTools,
-    requestAnthropicTools as sharedRequestAnthropicTools,
-    normalizeAnthropicNonStreamingResponse,
-    resolveAnthropicCacheTtls as resolveCacheTtls,
-    resolveAnthropicMessageCacheSlots,
-    sanitizeAnthropicInputSchema,
-    toAnthropicMessages,
-    toAnthropicToolChoice,
+  applyAnthropicCacheMarkers,
+  clampAnthropicThinkingBudget as clampThinkingBudgetTokens,
+  deferredAnthropicTools as sharedDeferredAnthropicTools,
+  requestAnthropicTools as sharedRequestAnthropicTools,
+  normalizeAnthropicNonStreamingResponse,
+  resolveAnthropicCacheTtls as resolveCacheTtls,
+  resolveAnthropicMessageCacheSlots,
+  sanitizeAnthropicInputSchema,
+  toAnthropicMessages,
+  toAnthropicToolChoice,
 } from './lib/anthropic-request-utils.mjs';
 
 // SSE progress emits (per-request "Response …" and "Done:" lines). Off by default.
@@ -157,7 +152,19 @@ const ANTHROPIC_VERSION = '2023-06-01';
 // gated and ignores this prefix.
 const CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude.";
 const OAUTH_BETA_HEADERS = 'oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,extended-cache-ttl-2025-04-11';
-const FABLE_51_BATCHING_GUIDANCE = 'Privately identify all independent next actions, then request them together in this response.';
+import {
+    usesFable51PromptBundle,
+    appendFable51BatchingGuidance,
+    withFable51BatchingContext,
+} from './anthropic-fable-history.mjs';
+import {
+    EFFORT_CONFIGURATION_BETA,
+    projectEffortConfiguration,
+    lowerAnthropicEffortHistory,
+    markAnthropicEffortBody,
+    usesAnthropicEffortBody,
+    cloneAnthropicEffortBody,
+} from './effort-configuration.mjs';
 
 function requiresSystemPrefix(model) {
     // High-tier Claude OAuth models require the first-party system prefix for
@@ -167,24 +174,6 @@ function requiresSystemPrefix(model) {
     return /^claude-/.test(id) && !/^claude-haiku(?:-|$)/.test(id);
 }
 
-function usesFable51PromptBundle(model) {
-    const id = String(model || '').toLowerCase().replace(/\./g, '-');
-    return /^claude-fable-5-1(?:$|[-@])/.test(id);
-}
-
-function appendFable51BatchingGuidance(messages, model) {
-    if (!usesFable51PromptBundle(model) || !Array.isArray(messages) || messages.length === 0) {
-        return false;
-    }
-    const tail = messages[messages.length - 1];
-    const followsToolResult = tail?.role === 'user'
-        && Array.isArray(tail.content)
-        && tail.content.some(block => block?.type === 'tool_result');
-    if (!followsToolResult) return false;
-    messages.push({ role: 'system', content: FABLE_51_BATCHING_GUIDANCE });
-    return true;
-}
-
 function buildOAuthBetaHeaders(body, {
     fastMode = false,
     toolSearch = false,
@@ -192,10 +181,17 @@ function buildOAuthBetaHeaders(body, {
     opts = {},
 } = {}) {
     return buildAnthropicBetaHeaders({
-        base: OAUTH_BETA_HEADERS,
+        base: usesAnthropicEffortBody(body)
+            ? `${OAUTH_BETA_HEADERS},${EFFORT_CONFIGURATION_BETA}`
+            : OAUTH_BETA_HEADERS,
         fastMode,
         toolSearch,
-        midConversationSystem: body?.messages?.some((message) => message?.role === 'system'),
+        // Effort controls use their own beta, enabled from the first turn.
+        // Do not add another cache-key header only when effort first changes.
+        midConversationSystem: body?.messages?.some((message) =>
+            message?.role === 'system' && !message.output_config?.effort),
+        turnScopedSystem: body?.messages?.some((message) =>
+            message?.role === 'system' && message.clear_at === 'next_user_message'),
         effort: shouldIncludeEffortBeta(model, opts),
         serverFallback: body?.fallbacks === 'default',
     });
@@ -330,6 +326,7 @@ function buildRequestBody(messages, model, tools, sendOpts) {
     const chatMsgs = messages.filter(m => m.role !== 'system');
     const maxTokens = resolveMaxTokens(model);
     const opts = sendOpts || {};
+    const effortProjection = projectEffortConfiguration(messages, 'anthropic-oauth', model, opts);
     const ttls = resolveCacheTtls(opts);
     // Each system message becomes its own Anthropic content block with its own
     // breakpoint: BP1 baseRules + BP2 stableSystem at ttls.system, BP3
@@ -348,16 +345,13 @@ function buildRequestBody(messages, model, tools, sendOpts) {
     // inserts / reorders performed by the sanitizer can never move or delete a
     // marked block. NEVER sanitize again after this (see send path).
     const anthropicMessages = applyAnthropicCacheMarkers(
-        toAnthropicMessages(chatMsgs, requestTools),
+        lowerAnthropicEffortHistory(chatMsgs, (segment) => toAnthropicMessages(segment, requestTools), effortProjection),
         messageCacheSlots,
     );
-    // Fable 5.1's first-party prompt bundle adds one request-scoped system
-    // boundary after a tool result. It asks the model to collect independent
-    // next actions into the same assistant turn, which avoids narrating each
-    // routine continuation. This is provider projection only: it is never
-    // written back to session history, and a later steering user turn remains
-    // the tail so the guidance is not added.
-    appendFable51BatchingGuidance(anthropicMessages, model);
+    // Keep historical prompt-bundle boundaries in place before replaying
+    // signed responses. A newer tool result adds a boundary rather than moving
+    // the old one. User interjections remain distinct and take precedence.
+    appendFable51BatchingGuidance(anthropicMessages, model, chatMsgs);
 
     const body = {
         model,
@@ -388,7 +382,7 @@ function buildRequestBody(messages, model, tools, sendOpts) {
 
     applyAnthropicEffortToBody(body, {
         model,
-        opts,
+        opts: effortProjection ? { ...opts, effort: effortProjection.initialEffort } : opts,
         maxTokens,
         clampThinkingBudgetTokens,
         logTag: 'anthropic-oauth',
@@ -400,7 +394,7 @@ function buildRequestBody(messages, model, tools, sendOpts) {
         body.speed = 'fast';
     }
 
-    return body;
+    return markAnthropicEffortBody(body, effortProjection);
 }
 
 export function _buildRequestBodyForCacheSmoke(messages, model, tools = [], sendOpts = {}) {
@@ -555,6 +549,7 @@ export class AnthropicOAuthProvider {
         // model from the live catalog (one warmup round-trip if cache is cold).
         const useModel = model || await ensureLatestAnthropicModel(this);
         const body = buildRequestBody(messages, useModel, tools, sendOpts);
+        body.messages = await prepareAnthropicImages(body.messages, { signal: externalSignal });
         if (body.speed === 'fast') {
             this.fastModeBetaHeaderLatched = true;
         }
@@ -631,7 +626,7 @@ export class AnthropicOAuthProvider {
                 // after marking could drop/reorder a marked block and move the
                 // provider-visible cache breakpoint off the cached one — the
                 // exact COLD-turn bug this change fixes. Order is fixed:
-                // build → sanitize (once) → mark → JSON.stringify.
+                // build → sanitize (once) → mark → prepare image bytes → JSON.stringify.
                 // Request-body gzip (probe-verified 2026-08-04: /v1/messages
                 // returns 200 for Content-Encoding: gzip, 400 for zstd). Large
                 // turn bodies (system prompt + history, typically 50-100KB+)
@@ -832,7 +827,7 @@ export class AnthropicOAuthProvider {
             const requestFallback = async (accessToken) => {
                 const result = await requestWithRetry(
                     accessToken,
-                    { ...body, stream: false },
+                    cloneAnthropicEffortBody(body, { stream: false }),
                     lifetime.signal,
                 );
                 fallback = result;
@@ -864,7 +859,9 @@ export class AnthropicOAuthProvider {
                     throw fallbackError;
                 }
                 const message = await fallback.response.json();
-                return normalizeAnthropicNonStreamingResponse(message, useModel);
+                const result = normalizeAnthropicNonStreamingResponse(message, useModel);
+                result.providerReplay = withFable51BatchingContext(result.providerReplay, body);
+                return result;
             } catch (err) {
                 const failure = lifetime.signal.aborted && lifetime.signal.reason instanceof Error
                     ? lifetime.signal.reason
@@ -879,10 +876,16 @@ export class AnthropicOAuthProvider {
             }
         };
 
+        // Exposed text AND exposed thinking are both retractable: the owner
+        // truncates its live tail / collapses the thinking segment and acks,
+        // after which the full request is repeated non-streaming. Only a
+        // dispatched or partially streamed tool call is a hard replay
+        // boundary (re-running would duplicate a side effect).
         const recoverNonStreaming = async (midState, streamingError, controller) => {
             const exposedChars = Number(midState?.emittedTextChars) || 0;
-            if (!onTextReset || exposedChars <= 0
-                || midState.emittedToolCall || midState.partialToolCall || midState.emittedThinking) {
+            const exposedReasoning = midState?.emittedThinking === true;
+            if (!onTextReset || (exposedChars <= 0 && !exposedReasoning)
+                || midState.emittedToolCall || midState.partialToolCall) {
                 try { streamingError.liveTextEmitted = true; streamingError.unsafeToRetry = true; } catch {}
                 throw streamingError;
             }
@@ -890,6 +893,7 @@ export class AnthropicOAuthProvider {
             try {
                 resetAccepted = await onTextReset({
                     chars: exposedChars,
+                    reasoning: exposedReasoning,
                     reason: 'anthropic-streaming-fallback',
                 }) === true;
             } catch {}
@@ -1017,6 +1021,7 @@ export class AnthropicOAuthProvider {
                     onTextDelta,
                     knownToolNames,
                 );
+                result.providerReplay = withFable51BatchingContext(result.providerReplay, body);
                 try { controller?.abort?.('Anthropic SSE complete'); } catch {}
 
                 const ttftMs = midState.ttftAt ? midState.ttftAt - sseStartedAt : null;
@@ -1084,6 +1089,9 @@ export class AnthropicOAuthProvider {
                 // is authoritative — coarse midState.partialToolCall must not
                 // overwrite an idempotent pending-input truncation — while
                 // genuinely new wrapper-observed exposure is still merged.
+                if (err?.partialProviderReplay) {
+                    err.partialProviderReplay = withFable51BatchingContext(err.partialProviderReplay, body);
+                }
                 let _outcome = null;
                 try {
                     _outcome = stampAnthropicStreamOutcome(err, midState, { provider: 'anthropic-oauth' });
@@ -1092,7 +1100,7 @@ export class AnthropicOAuthProvider {
                 // attempt before the full request is restarted non-streaming.
                 // Without that acknowledgement, recoverNonStreaming stamps
                 // the error unsafe and preserves the no-concatenation rule.
-                if (midState.emittedText) {
+                if (midState.emittedText || midState.emittedThinking) {
                     return await recoverNonStreaming(midState, err, controller);
                 }
                 // Dispatched tools and exposed thinking are replay boundaries;

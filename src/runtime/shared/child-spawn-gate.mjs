@@ -22,13 +22,13 @@ import { acquireRemoteSpawnLease, remoteSpawnLeasesEnabled } from './child-spawn
 // on any tool JSON schema / tool parameter surface. Operators may set the
 // shared MIXDOG_CHILD_SPAWN_MAX_INFLIGHT fallback or a lane-specific override.
 
-export function resolveDefaultChildSpawnMaxInflight(env = process.env, platform = process.platform) {
+function resolveDefaultChildSpawnMaxInflight(env = process.env, platform = process.platform) {
   const override = Number(env.MIXDOG_CHILD_SPAWN_MAX_INFLIGHT);
   if (Number.isFinite(override) && override >= 1) return Math.floor(override);
   return platform === 'win32' ? 1 : Infinity;
 }
 
-export function resolveDefaultChildSpawnLaneMaxInflight(
+function resolveDefaultChildSpawnLaneMaxInflight(
   laneName,
   env = process.env,
   platform = process.platform,

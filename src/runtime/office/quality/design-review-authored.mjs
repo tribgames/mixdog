@@ -62,9 +62,11 @@ export function isOrnamentalStripe(shape, shapes, size) {
   }
   if (top < EDGE_ZONE || top + height > size.height - EDGE_ZONE) return true;
   if (width >= size.width * 0.95) return true;
+  // An underline shares the title's columns; a level line in a diagram beside a hero numeral does not.
   return shapes.some((other) => {
     if (other === shape || !String(other.text || '').trim()) return false;
     if (num(other.font?.size) < TITLE_SIZE) return false;
+    if (num(other.left) >= left + width || num(other.left) + num(other.width) <= left) return false;
     const bottom = num(other.top) + num(other.height);
     return top >= bottom - 4 && top <= bottom + UNDER_TITLE_GAP;
   });

@@ -232,3 +232,73 @@ export function applyCellStyle(stylesXml, baseIndex, properties = {}) {
   const index = register(sections.cellXfs, buildXf(next));
   return { xml: serialize(stylesXml, sections), index };
 }
+
+// Implicit number formats (ECMA-376 §18.8.30); a workbook never writes these
+// into numFmts, so a cell carrying one reads back as its id alone.
+const BUILT_IN_NUMBER_FORMATS = Object.freeze({
+  0: 'General', 1: '0', 2: '0.00', 3: '#,##0', 4: '#,##0.00',
+  9: '0%', 10: '0.00%', 11: '0.00E+00', 12: '# ?/?', 13: '# ??/??',
+  14: 'mm-dd-yy', 15: 'd-mmm-yy', 16: 'd-mmm', 17: 'mmm-yy', 18: 'h:mm AM/PM',
+  19: 'h:mm:ss AM/PM', 20: 'h:mm', 21: 'h:mm:ss', 22: 'm/d/yy h:mm',
+  37: '#,##0 ;(#,##0)', 38: '#,##0 ;[Red](#,##0)', 39: '#,##0.00;(#,##0.00)', 40: '#,##0.00;[Red](#,##0.00)',
+  45: 'mm:ss', 46: '[h]:mm:ss', 47: 'mmss.0', 48: '##0.0E+0', 49: '@',
+});
+
+// Excel reports a cell's colors as BGR integers (black font 0, no fill
+// 16777215) and its number format as General on every cell; the portable
+// snapshot reports RRGGBB and omits defaults. One shape for both readers.
+export function normalizeExcelCellStyle(style) {
+  if (!style || typeof style !== 'object') return style;
+  const hex = (value, blank) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return normalizeColor(value).slice(-6) || '';
+    const number = Math.max(0, Math.round(value));
+    if (number === blank) return '';
+    return [number & 0xff, (number >> 8) & 0xff, (number >> 16) & 0xff]
+      .map((channel) => channel.toString(16).padStart(2, '0'))
+      .join('')
+      .toUpperCase();
+  };
+  const color = hex(style.color, 0);
+  const fillColor = hex(style.fillColor, 16777215);
+  const numberFormat = String(style.numberFormat || '').trim();
+  // A localized Excel reports the General format in its own language
+  // (Korean G/표준, Japanese G/標準, German Standard); none is a format.
+  const general = /^(?:general|g\/표준|g\/標準|standard|standaard|général|generale|estándar|padrão|общий|常规|通用格式)$/i.test(numberFormat);
+  const { color: _color, fillColor: _fill, numberFormat: _format, bold, italic, ...rest } = style;
+  return {
+    ...rest,
+    ...(bold === true ? { bold: true } : {}),
+    ...(italic === true ? { italic: true } : {}),
+    ...(numberFormat && !general ? { numberFormat } : {}),
+    ...(color && color !== '000000' ? { color } : {}),
+    ...(fillColor && fillColor !== 'FFFFFF' ? { fillColor } : {}),
+  };
+}
+
+// The cell-style table (cellXfs index → resolved style) a snapshot attaches to
+// each styled cell, so a reader can see number formats, input colors, and
+// fills without Excel. Colors are RRGGBB; theme colors are not resolved.
+export function resolveCellStyles(stylesXml) {
+  if (!stylesXml) return [];
+  const sections = parseStyleSheet(stylesXml);
+  const numberFormats = new Map();
+  for (const entry of sections.numFmts) {
+    numberFormats.set(Number(attribute(entry, 'numFmtId')) || 0, decode(attribute(entry, 'formatCode')));
+  }
+  return sections.cellXfs.map((xfXml) => {
+    const xf = parseXf(xfXml);
+    const font = parseFont(sections.fonts[xf.fontId] || sections.fonts[0]);
+    const fill = parseFill(sections.fills[xf.fillId] || '');
+    const numberFormat = numberFormats.get(xf.numFmtId) ?? BUILT_IN_NUMBER_FORMATS[xf.numFmtId] ?? 'General';
+    return {
+      ...(numberFormat !== 'General' ? { numberFormat } : {}),
+      fontName: font.name,
+      fontSize: font.size,
+      ...(font.bold ? { bold: true } : {}),
+      ...(font.italic ? { italic: true } : {}),
+      ...(font.color ? { color: font.color.slice(-6) } : {}),
+      ...(fill ? { fillColor: fill.slice(-6) } : {}),
+      ...(xf.horizontal ? { horizontalAlignment: xf.horizontal } : {}),
+    };
+  });
+}

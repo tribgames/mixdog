@@ -26,11 +26,10 @@ import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
 import { crossTurnSignature } from './loop/completion-guards.mjs';
 import {
-    getToolKind,
-    isEagerDispatchable,
-    isParallelDispatchable,
-    isSingleCallPerTurnTool,
-    isToolCallDedupEligible,
+  getToolKind,
+  isParallelDispatchable,
+  isSingleCallPerTurnTool,
+  isToolCallDedupEligible,
 } from './loop/tool-helpers.mjs';
 
 function eagerSettlementFailed(settled) {

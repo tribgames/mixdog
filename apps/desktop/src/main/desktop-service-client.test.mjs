@@ -33,6 +33,32 @@ class TestTransport extends EventEmitter {
   async close() {}
 }
 
+class ControlledTransport extends EventEmitter {
+  constructor() {
+    super();
+    this.requests = [];
+  }
+
+  postMessage(message) {
+    if (message.kind === 'init') {
+      queueMicrotask(() => this.emit('message', { kind: 'ready' }));
+      return;
+    }
+    if (message.kind === 'request') this.requests.push(message);
+  }
+
+  respond(request, value) {
+    this.emit('message', {
+      kind: 'response',
+      id: request.id,
+      ok: true,
+      value,
+    });
+  }
+
+  async close() {}
+}
+
 test('an immediate mutation stays queued across a pre-ready daemon handoff', async () => {
   const transports = [];
   const client = new DesktopServiceClient({
@@ -154,6 +180,45 @@ test('a daemon replaced behind a live transport counts as a new attachment', asy
     );
   } finally {
     clearTimeout(keepAlive);
+    await client.dispose();
+  }
+});
+
+test('Local Provider asset installs outlive the ordinary desktop request deadline', async () => {
+  const transport = new ControlledTransport();
+  const client = new DesktopServiceClient({
+    connect: () => transport,
+    sessionOptions: () => ({
+      userDataPath: 'C:/tmp/mixdog',
+      packaged: true,
+      resourcesPath: 'C:/tmp/resources',
+      appPath: 'C:/tmp/resources/app.asar',
+    }),
+    requestTimeoutMs: 20,
+    startupTimeoutMs: 1_000,
+    failureNoticeDelayMs: 1_000,
+  });
+  try {
+    await client.start();
+    await assert.rejects(client.addProject('C:/tmp/project'), /request timed out/);
+
+    for (const [capability, args] of [
+      ['installBuiltinFeature', ['localProvider']],
+      ['installLocalProviderModel', ['qwen3.8-27b-q4-k-m']],
+    ]) {
+      const pending = client.invokeCapability(capability, args);
+      let settled = false;
+      void pending.then(
+        () => { settled = true; },
+        () => { settled = true; },
+      );
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      assert.equal(settled, false, `${capability} must not inherit the 20ms ordinary deadline`);
+      const request = transport.requests.at(-1);
+      transport.respond(request, { value: { ok: true }, snapshot: null });
+      assert.deepEqual((await pending).value, { ok: true });
+    }
+  } finally {
     await client.dispose();
   }
 });

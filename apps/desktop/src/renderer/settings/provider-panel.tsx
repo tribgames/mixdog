@@ -1,13 +1,14 @@
 import { X } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { DesktopApi } from '../../shared/contract';
 import { t } from '../i18n';
+import { ErrorNotice } from '../ErrorNotice';
 import { registerMobileBack } from '../mobile-back';
 import { record } from '../record-utils';
+import { useOAuthUsageRefresh } from './use-oauth-usage-refresh';
 import {
   ActionButton,
-  FormRow,
   Group,
   ListEmpty,
   ResourceRow,
@@ -21,13 +22,12 @@ import {
   type RecordValue,
 } from './capability-data';
 
-export function ProvidersPanel({ data, pending, run, confirm }: PanelContext) {
+export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContext) {
   const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
   const openKeyConsole = (url: string) => void host?.openExternal?.(url).catch(() => undefined);
   const setup = record(data.providerSetup);
   const apiProviders = rows(setup.api);
   const oauthProviders = rows(setup.oauth);
-  const localProviders = rows(setup.local);
   const busy = Boolean(pending);
   const loading = !sectionLoaded(data, 'providerSetup');
   const secretsPending = setup.pendingSecrets === true;
@@ -42,7 +42,7 @@ export function ProvidersPanel({ data, pending, run, confirm }: PanelContext) {
     <Group title="OAuth providers">{oauthProviders.length ? oauthProviders.map((provider) => <ResourceRow key={String(provider.id)} title={providerLabel(provider)}
       description={String(provider.detail || '')}
       status={providerStatus(provider)}
-      actions={<><OAuthControl provider={provider} disabled={busy} run={run} />
+      actions={<><OAuthControl api={api} provider={provider} disabled={busy} run={run} />
         {(provider.authenticated || provider.reauthRequired) && <ActionButton danger disabled={busy} onClick={() => {
           confirm({ title: 'Forget provider authentication?', description: t('Remove the saved authentication for {{name}}.', { name: providerLabel(provider) }),
             confirmLabel: 'Forget', danger: true, onConfirm: () => void run('forgetProviderAuth', [provider.id]) });
@@ -70,26 +70,11 @@ export function ProvidersPanel({ data, pending, run, confirm }: PanelContext) {
         confirm({ title: 'Forget provider authentication?', description: t('Remove the saved authentication for {{name}}.', { name: providerLabel(provider) }),
           confirmLabel: 'Forget', danger: true, onConfirm: () => void run('forgetProviderAuth', [provider.id]) });
         }}>Forget</ActionButton>}</>} />) : <ListEmpty text={loading ? 'Loading providers…' : 'No API-key providers available.'} />}</Group>
-    <Group title="Local providers">{localProviders.length ? localProviders.map((provider) => <React.Fragment key={String(provider.id)}>
-      <ResourceRow title={providerLabel(provider)} description={String(provider.baseURL || provider.detail || '')}
-        status={String(provider.status || (provider.detected ? 'Detected' : 'Off'))}
-        actions={<ActionButton disabled={busy} onClick={() => void run('setLocalProvider', [provider.id, {
-          enabled: provider.enabled !== true, baseURL: provider.baseURL,
-        }])}>{provider.enabled ? 'Disable' : 'Enable'}</ActionButton>} />
-      <FormRow title={`${providerLabel(provider)} endpoint`} description="Update the OpenAI-compatible base URL."
-        onSubmit={(form) => void run('setLocalProvider', [provider.id, {
-          enabled: provider.enabled === true, baseURL: form.get('baseURL'),
-        }], `local-${provider.id}`)}>
-        <input name="baseURL" type="url" defaultValue={String(provider.baseURL || provider.defaultURL || '')}
-          aria-label={`${providerLabel(provider)} endpoint`}
-          placeholder={String(provider.defaultURL || 'http://127.0.0.1:11434/v1')} required />
-        <button disabled={busy}>Save</button>
-      </FormRow>
-    </React.Fragment>) : <ListEmpty text={loading ? 'Loading providers…' : 'No local providers available.'} />}</Group>
   </>;
 }
 
-export function OAuthControl({ provider, disabled, run, onComplete }: {
+export function OAuthControl({ api, provider, disabled, run, onComplete }: {
+  api: PanelContext['api'];
   provider: RecordValue;
   disabled: boolean;
   run: PanelContext['run'];
@@ -104,6 +89,7 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
   const flowId = String(flow?.flowId || '');
   const flowOpen = Boolean(flow);
   const flowState = String(flow?.state || '');
+  useOAuthUsageRefresh(api, flowId, flowState);
   const manualCodeFlow = providerId === 'anthropic-oauth';
   const loginLabel = providerId === 'cursor-oauth' ? 'Cursor OAuth' : `${providerLabel(provider)} OAuth`;
   const status = settingsStatus(flowState || 'pending');
@@ -148,6 +134,7 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
       [{ force: true }],
       `oauth-refresh-${providerId}`,
       true,
+      true,
     ).then((next) => {
       if (completedFlowRef.current !== flowId) return;
       if (!next) {
@@ -162,8 +149,12 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
   const start = async () => {
     setError('');
     completedFlowRef.current = '';
-    const next = await run<RecordValue>('beginOAuthProviderLogin', [providerId], `oauth-begin-${providerId}`, false);
-    if (next) setFlow(record(next));
+    try {
+      const next = await run<RecordValue>('beginOAuthProviderLogin', [providerId], `oauth-begin-${providerId}`, false, false, 'throw');
+      if (next) setFlow(record(next));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    }
   };
   const close = () => {
     const currentFlowId = String(flow?.flowId || '');
@@ -182,6 +173,7 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
   }, [flowOpen]);
   return <>
     <ActionButton disabled={disabled} onClick={() => void start()}>{provider.authenticated || provider.reauthRequired ? 'Reconnect' : 'Connect'}</ActionButton>
+    {!flow && error && <ErrorNotice error={error} />}
     {flow && <div className="settings-oauth-layer" onMouseDown={(event) => {
       if (event.target === event.currentTarget) close();
     }}><section className="settings-oauth-dialog" role="dialog" aria-modal="true" data-settings-nested-dialog
@@ -196,7 +188,6 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
       <div className="settings-oauth-body">
         <div className="settings-oauth-status" role="status"><span>{t('Status')}</span>
           <b className={`tone-${status.tone}`}>{t(status.label)}</b></div>
-        {String(flow.error || '') && <p className="settings-oauth-error" role="alert">{String(flow.error)}</p>}
         {manualCodeFlow && Boolean(flow.manualUrl || flow.url) && <label className="settings-oauth-url">{t('Manual login URL')}
           <textarea readOnly value={String(flow.manualUrl || flow.url)} /></label>}
         {manualCodeFlow && Boolean(flow.manualCodeSupported) && flow.state !== 'complete' && <form className="settings-oauth-code" onSubmit={(event) => {
@@ -204,14 +195,15 @@ export function OAuthControl({ provider, disabled, run, onComplete }: {
         const form = event.currentTarget;
         const code = new FormData(form).get('code');
         form.reset();
-        void run<RecordValue>('completeOAuthProviderLogin', [flow.flowId, code], `oauth-complete-${providerId}`, false)
+        setError('');
+        void run<RecordValue>('completeOAuthProviderLogin', [flow.flowId, code], `oauth-complete-${providerId}`, false, false, 'throw')
           .then((next) => {
             if (next) setFlow(record(next));
             else setError('The authorization code could not be completed.');
-          });
+          }).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
       }}><input name="code" placeholder={t('Authorization code or code#state')} aria-label={t('Anthropic authorization code')} required />
           <button type="submit" className="primary" disabled={disabled}>{t('Complete')}</button></form>}
-        {error && <p className="settings-oauth-error" role="alert">{error}</p>}
+        <ErrorNotice errors={[flow.error, error]} />
       </div>
       <footer><button type="button" disabled={disabled} onClick={close}>
         {flow.state === 'pending' ? t('Cancel') : t('Close')}

@@ -10,26 +10,15 @@
  * home moved. The env-tunable constants and their comments are preserved.
  */
 import {
-  measureMarkdownRenderedRows,
   measureStreamingMarkdownRenderedRows,
 } from '../markdown/measure-rendered-rows.mjs';
 import { streamingLayoutText } from '../markdown/streaming-markdown.mjs';
-import { displayWidth } from '../display-width.mjs';
-import { formatToolSurface, normalizeToolName, parseToolArgs, summarizeAgentSurfaceBrief } from '../../runtime/shared/tool-surface.mjs';
-import { isBackgroundErrorOnlyBody } from '../../runtime/shared/err-text.mjs';
-import { formatExpandedResult, wrapExpandedResultLines } from '../components/tool-output-format.mjs';
+import { normalizeToolName } from '../../runtime/shared/tool-surface.mjs';
 import {
-  formatHookDenialDetail,
-  isHookApprovalDenialToolItem,
   shouldSuppressFullyFailedToolItem,
-  toolItemResultText,
 } from '../transcript-tool-failures.mjs';
 import { backgroundArgsForRows, estimateTranscriptItemRows } from './transcript-row-estimate.mjs';
-
-function positiveIntEnv(name, fallback) {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
-}
+import { envPositiveInt as positiveIntEnv } from '../../runtime/shared/env.mjs';
 
 // Per-keystroke render cost is proportional to the number of MOUNTED transcript
 // items: ink's renderNodeToOutput still serializes (squashTextNodes/wrapText/

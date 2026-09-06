@@ -238,7 +238,7 @@ function _redactLogText(text) {
 }
 
 const GREP_COVERAGE_MAX = 512;
-export function parseGrepCoverage(resultText, toolName, toolArgs, resultKind) {
+function parseGrepCoverage(resultText, toolName, toolArgs, resultKind) {
     if (toolName !== 'grep' || resultKind === 'error' || (toolArgs?.output_mode && toolArgs.output_mode !== 'content_with_context')) return null;
     const out = [];
     const seen = new Set();

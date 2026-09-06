@@ -73,10 +73,6 @@ function _runAdaptiveFileIo(run) {
   });
 }
 
-export function adaptiveFileIoSnapshot() {
-  return { active: _ioActive, queued: _ioQueue.length, limit: _ioLimit, ceiling: _ioCeiling };
-}
-
 const RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST']);
 const LOCK_WAIT_CODES = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY']);
 const DEFAULT_BACKOFFS_MS = Object.freeze([25, 50, 100, 200, 400, 800, 1200, 1600]);
@@ -169,7 +165,7 @@ export function renameWithRetrySync(src, dst, opts = {}) {
   throw lastErr;
 }
 
-export async function renameWithRetry(src, dst, opts = {}) {
+async function renameWithRetry(src, dst, opts = {}) {
   const backoffs = Array.isArray(opts.backoffs) && opts.backoffs.length > 0
     ? opts.backoffs
     : DEFAULT_BACKOFFS_MS;
@@ -772,7 +768,7 @@ export function updateJsonAtomicSync(filePath, mutator, opts = {}) {
 // The truncate renameFallback branch is intentionally omitted: it only ever
 // applied to non-secret writes (opts.secret !== true), and every async caller
 // here is a secret config write, so behavior is identical.
-export async function writeFileAtomicAsync(filePath, data, opts = {}) {
+async function writeFileAtomicAsync(filePath, data, opts = {}) {
   const run = async () => {
     const dir = dirname(filePath);
     await mkdirAsync(dir, { recursive: true });

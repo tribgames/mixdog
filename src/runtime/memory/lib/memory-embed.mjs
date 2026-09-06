@@ -7,6 +7,7 @@ import {
   pruneEmbeddingCache,
   resolveEmbeddingCacheMaxRows,
 } from './embedding-cache-retention.mjs'
+import { throwIfAborted } from './memory-cycle2-shared.mjs'
 
 // Restart-survivable embedding dedup cache (DDL created on first flush).
 // Keyed per-db handle so a second DB instance in the same process re-runs the
@@ -108,10 +109,6 @@ const RAW_EMBED_SQL_ALWAYS_EXCLUDE_CONTENT_RE =
   '^\\s*(\\[tool_call(?:\\s|\\]|$)|\\[tool_result(?:\\s|\\]|$)|\\[mixdog-runtime\\]|Async .+ finished\\.|background task(\\s|$))'
 const RAW_EMBED_SQL_NON_CONVERSATION_EXCLUDE_CONTENT_RE =
   '^\\s*\\[(system|log|offload|debug|trace|info|warn|warning|error|fatal)\\]'
-
-function throwIfAborted(signal) {
-  if (signal?.aborted) throw signal.reason ?? new Error('aborted')
-}
 
 async function ensureEmbCacheTable(db) {
   if (_embCacheReady.has(db)) return

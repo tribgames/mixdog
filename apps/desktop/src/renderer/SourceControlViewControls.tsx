@@ -1,4 +1,5 @@
 import { Search, X } from "lucide-react";
+import { t } from "./i18n";
 
 export type SourceControlView = "changes" | "history";
 
@@ -20,8 +21,8 @@ export function SourceControlViewControls({
   onViewChange(view: SourceControlView): void;
 }) {
   const options = [
-    { id: "changes" as const, label: "Changes" },
-    { id: "history" as const, label: "History" },
+    { id: "changes" as const, label: t("Changes") },
+    { id: "history" as const, label: t("History") },
   ];
 
   return <div className="dock-scm-view-controls">
@@ -29,19 +30,19 @@ export function SourceControlViewControls({
       <Search size={14} aria-hidden="true" />
       {view === "changes" ? <>
         <input type="search" value={fileFilter}
-          aria-label="Filter changed files" placeholder="Filter"
+          aria-label={t("Filter changed files")} placeholder={t("Filter")}
           onInput={(event) => onFileFilterChange(event.currentTarget.value)} />
-        {fileFilter && <button type="button" aria-label="Clear the file filter"
+        {fileFilter && <button type="button" aria-label={t("Clear the file filter")}
           onClick={() => onFileFilterChange("")}><X size={14} aria-hidden="true" /></button>}
       </> : <>
-        <input type="search" value={historyQuery} placeholder="Search commits"
-          aria-label="Search commits"
+        <input type="search" value={historyQuery} placeholder={t("Search commits")}
+          aria-label={t("Search commits")}
           onInput={(event) => onHistoryQueryChange(event.currentTarget.value)} />
-        {historyQuery && <button type="button" aria-label="Clear the commit search"
+        {historyQuery && <button type="button" aria-label={t("Clear the commit search")}
           onClick={() => onHistoryQueryChange("")}><X size={14} aria-hidden="true" /></button>}
       </>}
     </label>
-    <div className="dock-scm-tab-bar" role="radiogroup" aria-label="Changes or history">
+    <div className="dock-scm-tab-bar" role="radiogroup" aria-label={t("Changes or history")}>
       {options.map((option, index) => <button type="button" role="radio" key={option.id}
         className="dock-scm-tab"
         data-review-option={option.id}

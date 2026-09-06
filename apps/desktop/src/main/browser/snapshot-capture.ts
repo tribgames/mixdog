@@ -55,6 +55,8 @@ export interface BrowserSnapshotCaptureHost {
   visualGrounding: GuestSlot<unknown>;
   snapshotTextLimit(command: BrowserCommand): number;
   nextSnapshotId(guest: WebContents): string;
+  documentGeneration?(guest: WebContents): number;
+  revision?(guest: WebContents, signal?: AbortSignal): Promise<string>;
   accessibilityRefs: GuestSlot<AccessibilityRefSnapshot>;
   refSets: GuestSlot<BrowserRefSet>;
   maxElements: number;
@@ -282,6 +284,7 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
     guest: WebContents,
     initialSessionId: string | undefined,
     signal?: AbortSignal,
+    localPoint?: { x: number; y: number },
   ): Promise<{ x: number; y: number }> {
     let sessionId = initialSessionId;
     let x = 0;
@@ -314,6 +317,39 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
       if (quad.length < 8) break;
       x += quad[0];
       y += quad[1];
+      if (localPoint) {
+        const resolved = await cdp.call<{ object?: { objectId?: string } }>(
+          guest, 'DOM.resolveNode', { backendNodeId: owner.backendNodeId }, signal, parent,
+        );
+        const objectId = resolved.object?.objectId;
+        if (!objectId) throw new Error('parent frame could not be verified before input');
+        try {
+          const checked = await cdp.call<{ result?: { value?: boolean }; exceptionDetails?: unknown }>(
+            guest, 'Runtime.callFunctionOn', {
+              objectId,
+              functionDeclaration: `function(x, y) {
+                for (let node = this; node; node = node.parentElement) {
+                  if (this.ownerDocument.defaultView.getComputedStyle(node).transform !== 'none') return false;
+                }
+                let hit = this.ownerDocument.elementFromPoint(x, y);
+                while (hit?.shadowRoot) {
+                  const next = hit.shadowRoot.elementFromPoint(x, y);
+                  if (!next || next === hit) break;
+                  hit = next;
+                }
+                return hit === this;
+              }`,
+              arguments: [{ value: x + localPoint.x }, { value: y + localPoint.y }],
+              returnByValue: true,
+            }, signal, parent,
+          );
+          if (checked.exceptionDetails || checked.result?.value !== true) {
+            throw new Error('parent frame is covered or transformed; input was not dispatched');
+          }
+        } finally {
+          void cdp.call(guest, 'Runtime.releaseObject', { objectId }, undefined, parent).catch(() => undefined);
+        }
+      }
       sessionId = target.parentSessionId;
     }
     return { x, y };
@@ -325,6 +361,8 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
     signal?: AbortSignal,
   ): Promise<SnapshotPayload> {
     const diagnostics = diagnosticsFor(guest);
+    const generation = host.documentGeneration?.(guest);
+    const revision = await host.revision?.(guest, signal);
     const snapshotTextChars = snapshotTextLimit(command);
     if (diagnostics.fault) {
       throw new Error(`${diagnostics.fault}; navigate to reload this page or choose another tab`);
@@ -350,7 +388,11 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
         `CDP accessibility unavailable; using DOM fallback: ${redactBrowserText((error as Error).message || String(error))}`,
       ];
     }
-    latestRefSetsByGuest.set(guest, createBrowserRefSet(payload));
+    if (host.documentGeneration?.(guest) !== generation) {
+      accessibilityRefsByGuest.delete(guest);
+      throw new Error('document changed during observation; take a fresh snapshot');
+    }
+    latestRefSetsByGuest.set(guest, { ...createBrowserRefSet(payload), revision });
     visualGroundingByGuest.delete(guest);
     return payload;
   }

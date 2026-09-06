@@ -24,11 +24,11 @@ import {
 } from './openai-compat-wire.mjs';
 import { normalizeOpencodeGoReasoningEffort } from './openai-compat-xai.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
+import { applyCompatToolChoice, compatResponsesReplayProvider } from './compat-request-policy.mjs';
 
 // providerState slot + providerReplay tag. Distinct from the xAI slot so a
 // provider switch never replays foreign encrypted items into this gateway.
 const COMPAT_RESPONSES_STATE_KEY = 'compatResponses';
-const COMPAT_RESPONSES_REPLAY_PROVIDER = 'openai-responses';
 
 function encryptedReasoningItems(output) {
     if (!Array.isArray(output)) return [];
@@ -49,6 +49,7 @@ function resolveReasoningEffort(provider, useModel, opts) {
  * the chat/completions path so the agent loop stays wire-agnostic.
  */
 export async function sendCompatResponses(provider, messages, useModel, tools, opts = {}) {
+    const replayProvider = compatResponsesReplayProvider(provider.name);
     const signal = opts.signal || null;
     if (signal?.aborted) {
         const reason = signal.reason;
@@ -61,7 +62,7 @@ export async function sendCompatResponses(provider, messages, useModel, tools, o
         {
             model: useModel,
             stateKey: COMPAT_RESPONSES_STATE_KEY,
-            replayProvider: COMPAT_RESPONSES_REPLAY_PROVIDER,
+            replayProvider,
         },
     );
     const params = {
@@ -78,6 +79,7 @@ export async function sendCompatResponses(provider, messages, useModel, tools, o
         params.tools = toResponsesTools(tools, { provider: provider.name });
         params.parallel_tool_calls = true;
     }
+    applyCompatToolChoice(params, opts);
     const reasoningEffort = resolveReasoningEffort(provider, useModel, opts);
     if (reasoningEffort) params.reasoning = { effort: reasoningEffort };
 
@@ -177,7 +179,7 @@ export async function sendCompatResponses(provider, messages, useModel, tools, o
         ...(streamed.stopReason === 'length' && (streamed.content || '').length > 0 ? { truncated: true } : {}),
         citations: searchSources.citations.length ? searchSources.citations : undefined,
         webSearchCalls: searchSources.webSearchCalls.length ? searchSources.webSearchCalls : undefined,
-        providerReplay: createProviderReplay(COMPAT_RESPONSES_REPLAY_PROVIDER, response?.output),
+        providerReplay: createProviderReplay(replayProvider, response?.output),
         providerState: {
             ...(opts.providerState || {}),
             [COMPAT_RESPONSES_STATE_KEY]: {

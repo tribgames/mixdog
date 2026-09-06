@@ -40,20 +40,28 @@ html[data-mixdog-mobile-tabs] .transcript {
   overscroll-behavior: contain;
 }
 
-/* iOS auto-zooms focused form controls below 16 CSS px. Keep visible editors
-   at that floor; Monaco/xterm helper textareas are geometry probes, not fields. */
-html[data-mixdog-mobile-tabs] :is(
+/* A stale cached boot can still project a phone into 1040 layout pixels.
+   Multiplying the main typing surface by its projection factor keeps the
+   composer at its native body size in that recovery case. */
+html[data-mixdog-mobile-tabs] .composer textarea,
+html[data-mixdog-mobile-tabs] .studio-composer textarea {
+  font-size: calc(var(--mx-font-body) * var(--mx-device-scale, 1));
+}
+
+/* iOS auto-zooms focused form controls below 16 CSS px, so iOS ALONE keeps
+   visible editors at that floor; Monaco/xterm helper textareas are geometry
+   probes, not fields. Android has no such zoom and keeps the design sizes —
+   the floor used to apply to every phone and made each text box one size
+   larger than the labels around it (user: 텍스트 박스마다 폰트 사이즈가 다르다).
+   mobile-surface.ts sets `data-mixdog-ios-web` next to the phone marker. */
+html[data-mixdog-ios-web] :is(
   input:not([type="hidden"]),
   select,
   textarea:not(.inputarea):not(.xterm-helper-textarea)
 ) {
   font-size: max(16px, 1em) !important;
 }
-
-/* A stale cached boot can still project a phone into 1040 layout pixels.
-   Multiplying the main typing surface by its projection factor preserves the
-   same 16 device-pixel floor in that recovery case. */
-html[data-mixdog-mobile-tabs] .composer textarea,
-html[data-mixdog-mobile-tabs] .studio-composer textarea {
+html[data-mixdog-ios-web] .composer textarea,
+html[data-mixdog-ios-web] .studio-composer textarea {
   font-size: max(16px, calc(16px * var(--mx-device-scale, 1))) !important;
 }

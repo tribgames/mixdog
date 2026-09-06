@@ -10,7 +10,7 @@
 // Each advert is stamped with the owner pid and updatedAt. Readers prefer the
 // discovery file (validating the owner pid is still alive) and callers may fall
 // back to the legacy active-instance fields for cross-version compat.
-import { readFileSync, unlinkSync } from 'node:fs'
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path'
 import { writeJsonAtomicSync } from './atomic-file.mjs'
 import { isPidAlive } from './pid-liveness.mjs'
@@ -127,25 +127,4 @@ export function writeServiceAdvert(service, fields = {}) {
     { compact: true, fsyncDir: true, renameFallback: 'truncate' },
   )
   return file
-}
-
-// Single-writer merge patch: read current advert, apply fields (null/undefined
-// value ⇒ delete key), re-stamp updatedAt. When the merged result no longer
-// advertises a port, the file is removed (clean shutdown). Read-modify-write is
-// race-free enough for a genuine single owner (only the service's supervisor
-// writes its own file).
-function patchServiceAdvert(service, fields = {}) {
-  const cur = readServiceAdvert(service) ?? {}
-  const merged = { ...cur }
-  for (const [k, v] of Object.entries(fields)) {
-    if (v == null) delete merged[k]
-    else merged[k] = v
-  }
-  const port = Number(merged.port)
-  if (!Number.isInteger(port) || port <= 0) {
-    // No live port left → drop the advert entirely rather than leaving a husk.
-    try { unlinkSync(discoveryPath(service)) } catch {}
-    return null
-  }
-  return writeServiceAdvert(service, merged)
 }

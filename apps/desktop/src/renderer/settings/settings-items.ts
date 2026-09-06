@@ -69,14 +69,6 @@ export const SETTINGS_CATEGORIES = [
     group: 'Integrations',
     items: ['providers'],
   },
-  // Desktop-only surface: GitHub CLI integration, the commit message
-  // template, and the global git identity (Settings → Git).
-  {
-    value: 'git',
-    label: 'Git',
-    group: 'Integrations',
-    items: [],
-  },
   {
     value: 'skills',
     label: 'Skills',
@@ -135,6 +127,7 @@ const REMOTE_HIDDEN_SETTINGS_CATEGORIES = new Set<SettingsCategory>([
   'providers',
 ]);
 const MOVED_EXTENSION_CATEGORIES = new Set<SettingsCategory>([
+  'git',
   'skills',
   'mcp',
   'plugins',

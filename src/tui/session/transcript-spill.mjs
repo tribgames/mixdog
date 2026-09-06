@@ -11,103 +11,22 @@
  * queue-helpers) and are re-exported here so the public surface is unchanged.
  * This file keeps the stateful session store + notification plan.
  */
-import { performance } from 'node:perf_hooks';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import {
-  aggregateToolCategoryEntry,
-  classifyToolCategory,
-  formatAggregateDetail,
-  summarizeToolResult,
-} from '../../runtime/shared/tool-surface.mjs';
-import {
-  isModelVisibleToolCompletionWrapper,
-  isLikelyToolCompletionWrapper,
-} from '../../runtime/shared/tool-execution-contract.mjs';
-import { isLateToolAnnouncement } from '../../session-runtime/session-text.mjs';
-import { presentErrorText } from '../../runtime/shared/err-text.mjs';
-import { sessionPath } from '../../runtime/agent/orchestrator/session/store/paths-heartbeat.mjs';
-import { listThemes, getThemeSetting, setThemeSetting } from '../theme.mjs';
-import { resetAllStreamingMarkdownStablePrefixes } from '../markdown/streaming-markdown.mjs';
-import { bootProfile } from '../session/boot-profile.mjs';
-import { createSessionStats, applyUsageDelta } from '../session/session-stats.mjs';
-import {
-  pickVerb,
-  pickDoneVerb,
-  formatElapsedSeconds,
-  compactEventLabel,
-  compactEventDetail,
-  projectNameFromPath,
-} from '../session/labels.mjs';
-import { polishNoticeText } from '../session/notice-text.mjs';
 import {
   toolResultText,
   toolAggregateDetailFallback,
   toolGroupedDisplayFallback,
-  toolErrorDisplay,
 } from '../session/tool-result-text.mjs';
 import {
-  toolCallId,
-  toolResultCallId,
-  toolCallName,
-  toolCallArgs,
-} from '../session/tool-call-fields.mjs';
-import {
   parseBackgroundTaskEnvelope,
-  parseSyntheticAgentMessage,
-  toolResultStatus,
-  isErrorToolStatus,
 } from '../session/agent-envelope.mjs';
-import {
-  queuePriorityValue,
-  defaultQueuePriority,
-  isQueuedEntryEditable,
-  isQueuedEntryVisible,
-  isSlashQueuedEntry,
-  notificationDisplayText,
-  sessionActivityTimestamp,
-  promptDisplayText,
-  mergePromptContents,
-  mergePastedImages,
-  mergePastedTexts,
-  callCommitCallbacks,
-} from '../session/queue-helpers.mjs';
 import {
   resolveTuiRuntimeNotificationDelivery,
 } from '../session/notification-plan.mjs';
-import { yieldToRenderer } from '../session/render-timing.mjs';
-import {
-  aggregateRawResult,
-  aggregateBucketForCategory,
-  aggregateSummaries,
-  assignAggregateSummaryOrder,
-} from '../session/tool-result-status.mjs';
-import { createToolApproval } from '../session/tool-approval.mjs';
-import { createToolCardResults } from '../session/tool-card-results.mjs';
-import { createAgentJobFeed } from '../session/agent-job-feed.mjs';
-import { appendAgentResponseTail } from '../session/agent-response-tail.mjs';
-import {
-  appendTuiSteeringPersist,
-  dropTuiSteeringPersist,
-  drainTuiSteeringPersist,
-  flushTuiSteeringPersist,
-} from '../session/tui-steering-persist.mjs';
-import { createContextState } from '../session/context-state.mjs';
-import { recomputePromptHistory } from '../session/prompt-history.mjs';
-import {
-  appendPromptHistory,
-  buildMergedPromptHistory,
-  loadPromptHistory,
-} from '../prompt-history-store.mjs';
-import { createSessionFlow } from '../session/session-flow.mjs';
-import { createRunTurn } from '../session/turn.mjs';
-import { createSessionApi } from '../session/session-api.mjs';
-import { createFrameBatchedStorePublisher } from '../session/frame-batched-store.mjs';
-import { createLiveShare, liveSharePipePath } from '../session/live-share.mjs';
-import { displayModelName } from '../../ui/model-display.mjs';
 
 export const TUI_DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_TUI_DEBUG || ''));
 export const tuiDebug = (msg) => {

@@ -6,8 +6,16 @@ import { join, resolve as _pathResolve, isAbsolute as _pathIsAbs, normalize as _
 import { writeJsonAtomicSync } from '../../../../shared/atomic-file.mjs';
 import { _normalizeCacheKey } from './util.mjs';
 import { GREP_AUTO_CONTEXT_LINES } from '../../tools/builtin/path-utils.mjs';
+import { registerCacheInvalidationListener } from '../../tools/builtin/cache-layers.mjs';
 
 const MAX_PER_SESSION = 100;
+export const SCOPED_CACHE_TTL_MS = 30_000;
+let mutationGeneration = 0;
+
+// A result started before invalidation must not repopulate the session cache.
+export function scopedCacheGeneration() {
+    return mutationGeneration;
+}
 
 // sessionId -> Map<key, { content, ts, firstToolUseId, depRoots }>
 const _scopedBySession = new Map();
@@ -201,7 +209,19 @@ function _scopedDependencyRoots(toolName, args, cwd) {
 
 function _pathTouchesRoot(absPath, root) {
     if (!absPath || !root) return false;
-    return absPath === root || absPath.startsWith(`${root}/`);
+    return absPath === root
+        || absPath.startsWith(root.endsWith('/') ? root : `${root}/`)
+        || root.startsWith(absPath.endsWith('/') ? absPath : `${absPath}/`);
+}
+
+function _dropScopedEntry(sessionId, key) {
+    _scopedBySession.get(sessionId)?.delete(key);
+    const index = _scopedReverseIdx.get(sessionId);
+    if (!index) return;
+    for (const [path, keys] of index) {
+        keys.delete(key);
+        if (keys.size === 0) index.delete(path);
+    }
 }
 
 function _bumpCounter(sessionId, field) {
@@ -228,7 +248,8 @@ export function tryScopedToolCached({ sessionId, toolName, args, cwd, countStats
     }
     const key = _scopedKey(toolName, args, cwd);
     const entry = map.get(key);
-    if (!entry) {
+    if (!entry || Date.now() - entry.ts >= SCOPED_CACHE_TTL_MS) {
+        if (entry) _dropScopedEntry(sessionId, key);
         if (countStats) _bumpCounter(sessionId, 'misses');
         return null;
     }
@@ -245,8 +266,9 @@ export function tryScopedToolCached({ sessionId, toolName, args, cwd, countStats
  * `toolUseId` lets cache hits reference back to the first call that
  * populated the entry so the body need not be re-delivered.
  */
-export function setScopedToolCached({ sessionId, toolName, args, cwd, content, toolUseId, complete = true }) {
+export function setScopedToolCached({ sessionId, toolName, args, cwd, content, toolUseId, complete = true, generation = mutationGeneration }) {
     if (!sessionId || !toolName) return;
+    if (generation !== mutationGeneration) return;
     if (complete === false) return;
     if (typeof content !== 'string' || content.length === 0) return;
     const key = _scopedKey(toolName, args, cwd);
@@ -289,6 +311,7 @@ export function setScopedToolCached({ sessionId, toolName, args, cwd, content, t
  */
 export function clearScopedToolsForSession(sessionId) {
     if (!sessionId) return;
+    mutationGeneration += 1;
     _scopedBySession.delete(sessionId);
     _scopedReverseIdx.delete(sessionId);
     _bumpCounter(sessionId, 'clears');
@@ -303,6 +326,7 @@ export function clearScopedToolsForSession(sessionId) {
  */
 export function clearScopedToolsForSessionPaths(sessionId, touchedPaths, cwd) {
     if (!sessionId || !Array.isArray(touchedPaths) || touchedPaths.length === 0) return;
+    mutationGeneration += 1;
     const map = _scopedBySession.get(sessionId);
     if (!map) return;
     const base = (cwd && typeof cwd === 'string') ? cwd : process.cwd();
@@ -356,18 +380,21 @@ export function clearScopedToolsForSessionPaths(sessionId, touchedPaths, cwd) {
     if (evictedKeys.size > 0) _bumpCounter(sessionId, 'clears');
 }
 
+// Builtin writes and watcher invalidations must reach every session, not only
+// the one that happened to execute the mutation. TTL covers external changes
+// that no watcher reports.
+registerCacheInvalidationListener((paths) => {
+    mutationGeneration += 1;
+    for (const sessionId of _scopedBySession.keys()) {
+        if (paths?.length) clearScopedToolsForSessionPaths(sessionId, paths);
+        else clearScopedToolsForSession(sessionId);
+    }
+});
+
 /** Drop scoped counters for a session on close. */
 export function clearScopedCounters(sessionId) {
     if (!sessionId) return;
     _scopedCounters.delete(sessionId);
-}
-
-/**
- * Configure the data directory for snapshot writes. Must be called once at
- * startup. Safe to call repeatedly.
- */
-function configureCacheStatsSnapshot(dataDir) {
-    _snapshotDataDir = typeof dataDir === 'string' && dataDir.length > 0 ? dataDir : null;
 }
 
 /**

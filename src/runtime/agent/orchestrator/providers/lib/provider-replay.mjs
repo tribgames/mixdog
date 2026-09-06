@@ -4,7 +4,7 @@
  * agent loop, but provider adapters prefer this envelope when rebuilding wire
  * history for the same provider family.
  */
-export const PROVIDER_REPLAY_VERSION = 1;
+const PROVIDER_REPLAY_VERSION = 1;
 
 function cloneReplayValue(value) {
     try { return structuredClone(value); }
@@ -31,7 +31,14 @@ export function cloneProviderReplay(replay) {
         || !Array.isArray(replay.items) || replay.items.length === 0) {
         return undefined;
     }
-    return createProviderReplay(replay.provider, replay.items);
+    const cloned = createProviderReplay(replay.provider, replay.items);
+    // Adapter-owned request context is persisted with the original response,
+    // but is never part of the provider-visible output items.
+    if (replay.requestContext && typeof replay.requestContext === 'object'
+        && !Array.isArray(replay.requestContext)) {
+        cloned.requestContext = cloneReplayValue(replay.requestContext);
+    }
+    return cloned;
 }
 
 export function providerReplayItems(messageOrReplay, acceptedProviders) {
@@ -43,8 +50,4 @@ export function providerReplayItems(messageOrReplay, acceptedProviders) {
         : new Set([acceptedProviders]);
     if (!accepted.has(cloned.provider)) return undefined;
     return cloned.items;
-}
-
-export function hasProviderReplay(message) {
-    return cloneProviderReplay(message?.providerReplay) !== undefined;
 }

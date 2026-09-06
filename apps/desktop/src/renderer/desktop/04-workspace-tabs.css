@@ -91,7 +91,8 @@
   max-width: var(--workspace-tab-current-width, 160px);
   flex: 1 1 var(--workspace-tab-current-width, 160px);
   transition: min-width var(--mx-motion-chrome), max-width var(--mx-motion-chrome),
-    flex-basis var(--mx-motion-chrome);
+    flex-basis var(--mx-motion-chrome), padding-left var(--mx-motion-chrome),
+    padding-right var(--mx-motion-chrome), opacity var(--mx-motion-chrome);
   gap: 2px;
   padding: 0 6px 0 10px;
   border: 0;
@@ -111,8 +112,35 @@
    fits favicon+close (the close button stays on the active tab at
    EVERY size); inactive cells keep giving width down to the sliver. */
 .workspace-tab.active { min-width: var(--workspace-tab-current-width, 56px); }
+/* Add and close share the run's own clock. A tab the strip has just gained
+   starts at nothing and grows to its cell while its neighbours shrink, so the
+   run's total never exceeds the strip and the leading tab is never clipped
+   and scrolled back (the old add landed at full width, overflowed, and slid).
+   A closing tab keeps its node for one beat and collapses to nothing while
+   its neighbours grow into the space, instead of vanishing and leaving the
+   right-hand tabs to jump left before they glide. The contents fade with the
+   width, so nothing spills out of a cell narrower than its glyph. */
+@starting-style {
+  .workspace-tab.entering {
+    min-width: 0;
+    max-width: 0;
+    flex-basis: 0;
+    padding-left: 0;
+    padding-right: 0;
+    opacity: 0;
+  }
+}
+.workspace-tab.closing {
+  min-width: 0;
+  max-width: 0;
+  flex-basis: 0;
+  padding-left: 0;
+  padding-right: 0;
+  opacity: 0;
+  pointer-events: none;
+}
 @media (prefers-reduced-motion: reduce) {
-  .workspace-tab { transition: none; }
+  .workspace-tab, .workspace-tab-main { transition: none; }
 }
 /* Visibility ladder:
    1) inactive tabs drop the close button once contents fall under
@@ -260,7 +288,9 @@
   outline-offset: 2px;
 }
 .workspace-tab-main:focus-visible, .workspace-tab-close:focus-visible { outline: 0; }
-.workspace-tab-main { gap: 4px; padding: 0; }
+/* The first-cell inset steps when the leading tab closes; it glides on the
+   same clock as the widths instead of snapping once the ghost unmounts. */
+.workspace-tab-main { gap: 4px; padding: 0; transition: padding-left var(--mx-motion-chrome); }
 .workspace-tab:not(:first-child) > .workspace-tab-main { padding-left: 4px; }
 /* Glyph, spinner, X and + all sit on the cell centre line — no optical lift
    (user: 라벨 안의 아이콘이랑 스피너도 같은 선상에). */

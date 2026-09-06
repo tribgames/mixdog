@@ -1,24 +1,10 @@
 import { classifyResultKind } from './result-classification.mjs';
-import { canonicalizeBuiltinToolName, executeBuiltinTool, isBuiltinTool } from '../tools/builtin.mjs';
-import { takeApplyPatchUiDiff } from '../tools/patch.mjs';
-import { executeInternalTool, isInternalTool } from '../internal-tools.mjs';
-import { normalizeToolEnvelope } from './tool-envelope.mjs';
-import { traceAgentLoop, traceAgentTool, traceAgentToolFailure, traceAgentCompact, estimateProviderPayloadBytes, messagePrefixHash, appendAgentTrace } from '../agent-trace.mjs';
+import { traceAgentLoop, estimateProviderPayloadBytes, appendAgentTrace } from '../agent-trace.mjs';
 import { resolveSessionMaxLoopIterations } from '../agent-runtime/agent-loop-policy.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
-import { markSessionToolCall, updateSessionStage, SessionClosedError, bumpUsageMetricsEpoch } from './manager.mjs';
-import { isContextOverflowError } from '../providers/retry-classifier.mjs';
-import { tryReadCached, setReadCached, invalidatePathForSession, clearReadDedupSession, extractTouchedPathsFromPatch, tryScopedToolCached, setScopedToolCached, clearScopedToolsForSession, clearScopedToolsForSessionPaths, invalidatePrefetchCache } from './read-dedup.mjs';
-import { isInvalidToolArgsMarker, formatInvalidToolArgsResult } from '../providers/openai-compat-stream.mjs';
+import { updateSessionStage, SessionClosedError } from './manager.mjs';
 import { cloneProviderReplay } from '../providers/lib/provider-replay.mjs';
 
-import {
-    _stripMcpPrefix,
-    _isReadTool,
-    _isScopedCacheableTool,
-    _isShellTool,
-    _intraTurnSig,
-} from './loop/tool-classify.mjs';
 import { preDispatchDenyForSession } from './loop/pre-dispatch-deny.mjs';
 import { executeTool, _scopedCacheOutcomeForCall, resolveLiveToolCwd } from './loop/tool-exec.mjs';
 
@@ -31,47 +17,23 @@ import { prepareProviderPrefixGuard } from './provider-prefix-guard.mjs';
 import { traceCacheBreak } from '../cache-break-trace.mjs';
 
 
-import { resolve as resolvePath, isAbsolute } from 'path';
-import {
-    estimateMessagesTokensSafe,
-    compactDiagnosticError,
-    compactByteLength,
-    compactDebugLog,
-} from './loop/compact-debug.mjs';
 import { mergeSteeringEntries, steeringContentText } from './loop/steering.mjs';
 import {
-    crossTurnSignature,
-    crossTurnDedupStub,
-    ITERATION_CAP_REFUSAL_STUB,
+  ITERATION_CAP_REFUSAL_STUB,
 } from './loop/completion-guards.mjs';
-import { isEditProgressTool } from './loop/completion-guards.mjs';
-import { agentContextOverflowError } from './loop/context-overflow.mjs';
-import { positiveTokenInt } from './loop/env.mjs';
-import { normalizeUsage, addUsage } from './loop/usage.mjs';
+import { addUsage } from './loop/usage.mjs';
 import { HIDDEN_AGENT_NAMES } from './loop/hidden-agents.mjs';
 import {
-    resolveWorkerCompactPolicy,
-    compactionTelemetryPressureTokens,
-    compactTargetBudget,
-    shouldCompactForSession,
-    rememberCompactTelemetry,
-    emitCompactEvent,
-} from './loop/compact-policy.mjs';
-import {
-    isEagerDispatchable,
-    messagesArrayChanged,
-    getToolKind,
-    normalizeHookUpdatedToolOutput,
-    resolveToolResultAfterHook,
-    parseNativeToolSearchPayload,
-    formatMissingToolApprovalUiDenial,
-    resolvePreToolAskApproval,
-    approvalGranted,
-    approvalReason,
+  isEagerDispatchable,
+  normalizeHookUpdatedToolOutput,
+  resolveToolResultAfterHook,
+  formatMissingToolApprovalUiDenial,
+  resolvePreToolAskApproval,
+  approvalGranted,
+  approvalReason,
 } from './loop/tool-helpers.mjs';
 import {
-    compactToolCallsForHistory,
-    restoreToolCallBodyForId,
+  compactToolCallsForHistory,
 } from './loop/stored-tool-args.mjs';
 import { repairTranscriptBeforeProviderSend } from './loop/transcript-repair.mjs';
 import {
@@ -146,7 +108,7 @@ const MAX_OUTPUT_EXHAUSTED_NOTICE = '[mixdog-runtime] Output remained truncated 
 // was not done — re-prompt instead of accepting empty as final.
 // Covers Anthropic (pause_turn, max_tokens), OpenAI (length), Gemini
 // (MAX_TOKENS, OTHER), and case variants.
-export function attachAssistantTranscriptMetadata(message, opts = {}) {
+function attachAssistantTranscriptMetadata(message, opts = {}) {
     const transcript = typeof opts.takeAssistantTranscriptMetadata === 'function'
         ? opts.takeAssistantTranscriptMetadata()
         : null;
@@ -337,9 +299,9 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     const pushIntermediateAssistantResponse = (resp) => {
         if (!resp) return false;
         const content = typeof resp.content === 'string' ? resp.content : (resp.content == null ? '' : String(resp.content));
-        const reasoningContent = typeof resp.reasoningContent === 'string' && resp.reasoningContent
+        const reasoningContent = typeof resp.reasoningContent === 'string'
             ? resp.reasoningContent
-            : '';
+            : undefined;
         const reasoningItems = Array.isArray(resp.reasoningItems) && resp.reasoningItems.length
             ? resp.reasoningItems
             : null;
@@ -382,7 +344,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // before the continuation turn, just like tool-call trajectories.
             ...(thinkingBlocks && !assistantBlocks && !providerReplay ? { thinkingBlocks } : {}),
             ...(reasoningItems && !providerReplay ? { reasoningItems } : {}),
-            ...(reasoningContent ? { reasoningContent } : {}),
+            ...(reasoningContent !== undefined ? { reasoningContent } : {}),
             ...(providerMetadata ? { providerMetadata } : {}),
             ...(stopReason ? { stopReason } : {}),
             ...(terminationReason ? { terminationReason } : {}),
@@ -1159,7 +1121,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 && !_providerReplay
                 ? { reasoningItems: response.reasoningItems }
                 : {}),
-            ...(typeof response.reasoningContent === 'string' && response.reasoningContent
+            ...(typeof response.reasoningContent === 'string'
                 ? { reasoningContent: response.reasoningContent }
                 : {}),
             ...(response.providerMetadata && typeof response.providerMetadata === 'object'

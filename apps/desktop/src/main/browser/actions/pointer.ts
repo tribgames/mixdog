@@ -7,6 +7,7 @@ import type { WebContents } from 'electron';
 
 import { OFFSCREEN_VIEWPORT } from '../command';
 import { normalizeModifierMask, normalizeMouseButton } from '../input';
+import { mutateRef } from './ref-mutation';
 import { type BrowserActionContext, defineBrowserActions } from './types';
 
 function pointerKind(command: BrowserActionContext['command'], action: string): 'mouse' | 'touch' {
@@ -50,7 +51,12 @@ export const pointerActions = defineBrowserActions({
     const point = await targetPoint(context, command.ref, command.x, command.y, 'click');
     const button = normalizeMouseButton(command.button);
     const modifiers = normalizeModifierMask(command.modifiers);
+    const effectiveRef = command.ref && (context.refRecovery.replacements.get(command.ref) || command.ref);
+    const finishGuard = effectiveRef
+      ? await services.refPoints.guardRef(guest, effectiveRef, signal)
+      : undefined;
     services.state.invalidateInteraction(guest);
+    try {
     if (pointer === 'touch') {
       if (command.doubleClick || command.button !== undefined || command.modifiers !== undefined) {
         throw new Error('click pointer=touch does not accept button, modifiers, or doubleClick');
@@ -66,6 +72,9 @@ export const pointerActions = defineBrowserActions({
         modifiers,
         signal,
       );
+    }
+    } finally {
+      await finishGuard?.();
     }
     return finish(context, semantic);
   },
@@ -138,9 +147,8 @@ export const pointerActions = defineBrowserActions({
       throw new Error('scroll coordinate target requires snapshotId, x, and y');
     }
     if (semantic) {
-      await reply.withRefRecovery(
-        guest,
-        refRecovery,
+      await mutateRef(
+        context,
         command.ref as string,
         (ref) => snapshots.evaluateRefScript(
           guest,
@@ -149,7 +157,6 @@ export const pointerActions = defineBrowserActions({
           signal,
           5_000,
         ),
-        signal,
       );
       state.invalidateInteraction(guest);
       return reply.decorateRecovery(await actionSnapshot(), refRecovery);

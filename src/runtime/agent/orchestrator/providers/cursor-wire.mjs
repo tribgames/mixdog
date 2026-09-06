@@ -445,7 +445,7 @@ function closeActiveRun(key, active, error) {
 // connection belongs to the session that opened it, so a session close / turn
 // abort must reclaim it instead of leaving it connected until MEMORY_TTL_MS
 // (30 minutes) expires.
-export function closeCursorRunsForSession(sessionId, reason = 'session_closed') {
+function closeCursorRunsForSession(sessionId, reason = 'session_closed') {
     const scope = String(sessionId || '').trim();
     if (!scope) return 0;
     let closed = 0;
@@ -458,7 +458,7 @@ export function closeCursorRunsForSession(sessionId, reason = 'session_closed') 
 
 // Process-wide drain (shutdown / exit): no run may keep the daemon's Cursor
 // sockets and heartbeat intervals alive past teardown.
-export function drainCursorRuns(reason = 'shutdown') {
+function drainCursorRuns(reason = 'shutdown') {
     let closed = 0;
     for (const [key, active] of [...activeRuns]) {
         if (closeActiveRun(key, active, new Error(`Cursor run drained (${reason})`))) closed += 1;

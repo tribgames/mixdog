@@ -11,6 +11,18 @@ import {
   builtinInstalled,
   setBuiltinInstalledInConfig,
 } from './builtin-features.mjs';
+import { LOCAL_PROVIDER_ID } from '../runtime/local-provider/managed-runtime.mjs';
+import { createLocalProviderSettings } from './local-provider-settings.mjs';
+
+function setLocalProviderEnabledInConfig(configLike, enabled) {
+  const next = { ...(configLike || {}) };
+  next.providers = { ...(next.providers || {}) };
+  next.providers[LOCAL_PROVIDER_ID] = {
+    ...(next.providers[LOCAL_PROVIDER_ID] || {}),
+    enabled: enabled !== false,
+  };
+  return next;
+}
 
 export function createSettingsApi({
   // config accessors / mutable state
@@ -38,6 +50,13 @@ export function createSettingsApi({
   // Built-in install adapter: feature-specific preparation (model
   // pre-download, component verification) before the installed marker lands.
   prepareBuiltinFeature,
+  prepareLocalProviderModel,
+  getLocalProviderStatus = () => ({}),
+  stopLocalProviderServer,
+  cancelLocalProviderInstallation,
+  configureLocalProviderIdleTtl,
+  syncLocalProviderRegistry,
+  refreshLocalProviderCatalog,
   summarizeWorkflowRoutes,
   parseDurationMs,
   formatDurationMs,
@@ -47,6 +66,7 @@ export function createSettingsApi({
   memoryToolsEnabledFn,
   gitToolsEnabledFn,
   officeToolsEnabledFn,
+  localProviderEnabledFn = () => false,
   webSearchEnabled,
   channelsEnabled,
   autoUpdateEnabled,
@@ -64,7 +84,12 @@ export function createSettingsApi({
   reloadChannelsSoon,
   ONBOARDING_VERSION,
 }) {
+  const localSettings = createLocalProviderSettings({
+    getConfig, saveConfigAndAdopt, getLocalProviderStatus, prepareLocalProviderModel,
+    refreshLocalProviderCatalog, cancelLocalProviderInstallation, configureLocalProviderIdleTtl,
+  });
   return {
+    ...localSettings.methods,
     getOnboardingStatus() {
       const nextConfig = getConfig();
       return {
@@ -238,11 +263,19 @@ export function createSettingsApi({
     },
     getToolModuleSettings() {
       const config = getConfig();
+      const localProvider = getLocalProviderStatus?.() || {};
+      const localProviderRuntimeInstalled = localProvider?.runtime?.installed === true;
       return {
         webSearch: { enabled: webSearchEnabled() },
         memory: { enabled: memoryToolsEnabledFn(), installed: builtinInstalled(config, 'memory') },
         git: { enabled: gitToolsEnabledFn(), installed: builtinInstalled(config, 'git') },
         office: { enabled: officeToolsEnabledFn(), installed: builtinInstalled(config, 'office') },
+        localProvider: {
+          ...localProvider,
+          ...localSettings.status(),
+          enabled: localProviderEnabledFn(),
+          installed: builtinInstalled(config, 'localProvider') && localProviderRuntimeInstalled,
+        },
       };
     },
     async setWebSearchEnabled(enabled) {
@@ -271,14 +304,28 @@ export function createSettingsApi({
       return this.getToolModuleSettings();
     },
     async setBuiltinToolEnabled(name, enabled) {
-      if (name !== 'git' && name !== 'office') {
-        throw new TypeError('Built-in tool must be git or office.');
+      if (name !== 'git' && name !== 'office' && name !== 'localProvider') {
+        throw new TypeError('Built-in tool must be git, office, or localProvider.');
+      }
+      if (name === 'localProvider'
+          && enabled !== false
+          && getLocalProviderStatus?.()?.runtime?.installed !== true) {
+        await prepareBuiltinFeature?.(name);
       }
       const config = getConfig();
       let nextConfig = setModuleEnabledInConfig({ ...config }, name, enabled !== false);
+      if (name === 'localProvider') {
+        nextConfig = setLocalProviderEnabledInConfig(nextConfig, enabled);
+      }
       // Enabling IS activation (see setMemoryToolsEnabled).
       if (enabled !== false) nextConfig = setBuiltinInstalledInConfig(nextConfig, name, true);
       saveConfigAndAdopt(nextConfig);
+      if (name === 'localProvider' && enabled === false) {
+        await stopLocalProviderServer?.();
+      }
+      if (name === 'localProvider') {
+        await syncLocalProviderRegistry?.(enabled !== false);
+      }
       await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();
     },
@@ -287,7 +334,7 @@ export function createSettingsApi({
      *  and enabled in one step. New sessions pick up the tool surface. */
     async installBuiltinFeature(name) {
       if (!INSTALLABLE_BUILTIN_IDS.includes(name)) {
-        throw new TypeError('Built-in feature must be git, memory, or office.');
+        throw new TypeError('Built-in feature must be git, memory, office, or localProvider.');
       }
       await prepareBuiltinFeature?.(name);
       const config = getConfig();
@@ -295,7 +342,13 @@ export function createSettingsApi({
       nextConfig = name === 'memory'
         ? setRecapEnabledInConfig(setMemoryToolsEnabledInConfig(nextConfig, true), true)
         : setModuleEnabledInConfig(nextConfig, name, true);
+      if (name === 'localProvider') {
+        nextConfig = setLocalProviderEnabledInConfig(nextConfig, true);
+      }
       saveConfigAndAdopt(nextConfig);
+      if (name === 'localProvider') {
+        await syncLocalProviderRegistry?.(true);
+      }
       if (name === 'memory') invalidateContextStatusCache();
       await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();

@@ -433,20 +433,6 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
 }
 
 
-export function metricDisplayValue(metric) {
-  const value = metric?.display ?? metric?.value;
-  if (typeof value !== 'number' || !Number.isFinite(value)) return String(value ?? '');
-  const format = String(metric?.numberFormat || '');
-  const decimals = Math.max(0, (format.match(/0\.(0+)/)?.[1] || '').length);
-  if (format.includes('%')) return `${(value * 100).toFixed(decimals)}%`;
-  if (!format || format === 'General') return String(value);
-  return new Intl.NumberFormat('en-US', {
-    useGrouping: format.includes(','),
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  }).format(value);
-}
-
 
 export function provenanceText(source) {
   if (!source) return '';

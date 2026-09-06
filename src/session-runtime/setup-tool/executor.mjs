@@ -154,6 +154,7 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
       case 'autoclear': return rt.getAutoClear?.() || {};
       case 'compaction': return rt.getCompactionSettings?.() || {};
       case 'memory': return { ...(rt.getToolModuleSettings?.()?.memory || {}), recap: rt.getRecapSettings?.() || null };
+      case 'local-provider': return rt.getToolModuleSettings().localProvider;
       case 'features': {
         const config = getConfig?.() || {};
         return {
@@ -234,23 +235,43 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
       case 'set_recap_enabled': return rt.setRecapEnabled(requireBoolean(args.enabled));
       case 'set_web_search_enabled': return await rt.setWebSearchEnabled(requireBoolean(args.enabled));
       case 'set_builtin_enabled': {
-        const name = requireEnum(args.name, ['git', 'office'], 'name');
+        const name = requireEnum(args.name, ['git', 'office', 'localProvider'], 'name');
         return await rt.setBuiltinToolEnabled(name, requireBoolean(args.enabled));
       }
       case 'install_builtin': {
-        const name = requireEnum(args.name, ['git', 'memory', 'office'], 'name');
+        const name = requireEnum(args.name, ['git', 'memory', 'office', 'localProvider'], 'name');
         return await rt.installBuiltinFeature(name);
       }
+      case 'install_local_model': {
+        const result = await rt.installLocalProviderModel(requireText(args.modelId, 'modelId'));
+        return result.localProvider;
+      }
+      case 'start_local_installation': {
+        const phase = requireEnum(args.phase, ['runtime', 'model'], 'phase');
+        const result = await rt.startLocalProviderInstallation(phase,
+          phase === 'model' ? requireText(args.modelId, 'modelId') : args.modelId);
+        return { background: true, ...result.localProvider };
+      }
+      case 'cancel_local_installation': {
+        const result = await rt.cancelLocalProviderInstallation(requireText(args.jobId, 'jobId'));
+        return result.localProvider;
+      }
+      case 'set_local_idle_ttl': {
+        const result = await rt.setLocalProviderIdleTtl(args.idleTtlSeconds);
+        return result.localProvider;
+      }
+      case 'search_local_models': return await rt.searchLocalProviderModels(requireText(args.query, 'query'));
+      case 'inspect_hf_model': return await rt.inspectHuggingFaceModel({
+        repository: requireText(args.repository, 'repository'), filename: args.filename, contextWindow: args.contextWindow,
+      });
+      case 'register_hf_model': return await rt.registerHuggingFaceModel(
+        requireText(args.previewId, 'previewId'), requireBoolean(args.licenseAccepted, 'licenseAccepted'));
+      case 'local_model_details': return await rt.getLocalProviderModelDetails(requireText(args.modelId, 'modelId'));
+      case 'maintain_local_model': return await rt.startLocalProviderModelMaintenance(
+        requireText(args.modelId, 'modelId'), requireEnum(args.operation, ['verify', 'repair'], 'operation'));
+      case 'delete_local_model': return await rt.deleteLocalProviderModel(requireText(args.confirmationToken, 'confirmationToken'));
       case 'set_system_shell': return rt.setSystemShell({ command: clean(args.command) });
       case 'set_auto_update': return rt.setAutoUpdate(requireBoolean(args.enabled));
-      case 'set_local_provider': {
-        const name = requireText(args.name, 'name');
-        const opts = {};
-        if (typeof args.enabled === 'boolean') opts.enabled = args.enabled;
-        if (clean(args.baseURL)) opts.baseURL = clean(args.baseURL);
-        if (!Object.keys(opts).length) throw new Error('enabled and/or baseURL is required');
-        return rt.setLocalProvider(name, opts);
-      }
       case 'forget_provider_auth': return rt.forgetProviderAuth(requireText(args.name, 'name'));
       case 'add_mcp_server': {
         const server = args.server && typeof args.server === 'object' ? args.server : null;

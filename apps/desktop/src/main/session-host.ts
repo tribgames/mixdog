@@ -43,6 +43,7 @@ import {
 } from './desktop-support';
 import { DesktopProjectRegistry } from './desktop-project-registry';
 import { DesktopSessionMetadata } from './desktop-session-metadata';
+import { localProviderInstallRequestTimeout } from './local-provider-install-timeout';
 import { createShellJobsPoller } from './shell-jobs-poller';
 import { reconcileSessionProjection } from './state-delta';
 import { searchProjectDirectory } from './project-file-search';
@@ -59,16 +60,21 @@ import {
   writeProjectTextFileIn,
 } from './project-files';
 
+interface SessionCallOptions {
+  callId?: string;
+  timeoutMs?: number;
+}
+
 export interface SessionClient {
-  list(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
-  create(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
-  read(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
-  subscribe(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
-  unsubscribe(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
-  submit(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
-  abort(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
-  approve(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
-  configure(args?: Record<string, unknown>, options?: { callId?: string }): Promise<Record<string, unknown>>;
+  list(args?: Record<string, unknown>, options?: SessionCallOptions): Promise<Record<string, unknown>>;
+  create(args?: Record<string, unknown>, options?: SessionCallOptions): Promise<Record<string, unknown>>;
+  read(args?: Record<string, unknown>, options?: SessionCallOptions): Promise<Record<string, unknown>>;
+  subscribe(args?: Record<string, unknown>, options?: SessionCallOptions): Promise<Record<string, unknown>>;
+  unsubscribe(args?: Record<string, unknown>, options?: SessionCallOptions): Promise<Record<string, unknown>>;
+  submit(args?: Record<string, unknown>, options?: SessionCallOptions): Promise<Record<string, unknown>>;
+  abort(args?: Record<string, unknown>, options?: SessionCallOptions): Promise<Record<string, unknown>>;
+  approve(args?: Record<string, unknown>, options?: SessionCallOptions): Promise<Record<string, unknown>>;
+  configure(args?: Record<string, unknown>, options?: SessionCallOptions): Promise<Record<string, unknown>>;
   close(reason?: string): Promise<void>;
 }
 
@@ -413,6 +419,12 @@ export class SessionHost implements DesktopService {
     const id = sessionIdOf(value?.sessionId || sessionId);
     const prior = this.sessionProjections.get(id);
     const revision = Number(value?.revision);
+    // Configure replies and live frames can cross in flight. Revisions are
+    // daemon-epoch based; cold disk projections use 0. Never roll a live
+    // selection (or its transcript) back to an older reply.
+    if (prior && Number.isFinite(revision) && revision < prior.revision) {
+      return this.snapshotWithRemoteSession(prior.snapshot);
+    }
     let snapshot = prior?.snapshot ?? null;
     if (value && Object.prototype.hasOwnProperty.call(value, 'full')) {
       const full = value.full;
@@ -428,8 +440,12 @@ export class SessionHost implements DesktopService {
           ? reconcileSessionProjection(prior.snapshot, rebuilt)
           : rebuilt;
       }
-    } else if (value?.patch && typeof value.patch === 'object'
-      && prior && Number(value.baseRevision) === prior.revision) {
+    } else if (value?.patch && typeof value.patch === 'object') {
+      if (!prior || Number(value.baseRevision) !== prior.revision) {
+        this.recoverMissingSessionBaseline(id);
+        return this.snapshotWithRemoteSession(prior?.snapshot
+          ?? { sessionId: id, items: [], queued: [] } as SessionSnapshot);
+      }
       snapshot = statePatch(prior.snapshot, value.patch as Record<string, unknown>);
     }
     if (!snapshot) {
@@ -518,6 +534,7 @@ export class SessionHost implements DesktopService {
     }
     if (frame.type !== 'session-state') return;
     const prior = this.sessionProjections.get(sessionId);
+    if (prior && Number(frame.revision) < prior.revision) return;
     if (frame.resyncRequired === true
       || (frame.patch && (!prior || Number(frame.baseRevision) !== prior.revision))) {
       void this.readSession(sessionId).catch(() => undefined);
@@ -540,9 +557,9 @@ export class SessionHost implements DesktopService {
     }
   }
 
-  private callOptions(callId: string = randomUUID()): { callId: string } {
+  private callOptions(callId: string = randomUUID(), timeoutMs?: number): SessionCallOptions {
     if (this.disposed) throw new Error('Mixdog service host is disposed.');
-    return { callId };
+    return { callId, ...(timeoutMs ? { timeoutMs } : {}) };
   }
 
   private async taskWorkspace(): Promise<string> {
@@ -571,14 +588,14 @@ export class SessionHost implements DesktopService {
     };
   }
 
-  private async readSession(sessionId: string): Promise<SessionSnapshot> {
+  private async readSession(sessionId: string, forceFull = false): Promise<SessionSnapshot> {
     const id = sessionIdOf(sessionId);
     const prior = this.sessionProjections.get(id);
     const result = await this.sessionClient.read({
       sessionId: id,
       open: this.openHints(id),
-      baseRevision: prior?.revision ?? null,
-      ...(prior?.projectionStamp ? { baseProjectionStamp: prior.projectionStamp } : {}),
+      baseRevision: forceFull ? null : prior?.revision ?? null,
+      ...(!forceFull && prior?.projectionStamp ? { baseProjectionStamp: prior.projectionStamp } : {}),
     }, this.callOptions());
     return this.applySessionResult(id, result);
   }
@@ -597,12 +614,23 @@ export class SessionHost implements DesktopService {
       open: this.openHints(id),
       baseRevision: prior?.revision ?? null,
     };
+    const callOptions = this.callOptions(
+      randomUUID(),
+      localProviderInstallRequestTimeout(method, args),
+    );
     const result = READ_CAPABILITIES.has(method)
-      ? await this.sessionClient.read(params, this.callOptions())
-      : await this.sessionClient.configure(params, this.callOptions());
+      ? await this.sessionClient.read(params, callOptions)
+      : await this.sessionClient.configure(params, callOptions);
+    const current = this.sessionProjections.get(id);
+    // A stream publication may have advanced the baseline while configure
+    // awaited its reply. Recover the resulting state, never replay the command
+    // or acknowledge a successful selection with the old cached values.
+    const needsFull = result.patch && !Object.prototype.hasOwnProperty.call(result, 'full')
+      && (!current || (Number(result.revision) > current.revision
+        && Number(result.baseRevision) !== current.revision));
     return {
       value: result.value,
-      snapshot: this.applySessionResult(id, result),
+      snapshot: needsFull ? await this.readSession(id, true) : this.applySessionResult(id, result),
       result,
     };
   }
@@ -643,9 +671,13 @@ export class SessionHost implements DesktopService {
           open: { cwd: await this.taskWorkspace(), desktopSession: null },
           baseRevision: this.sessionProjections.get(sessionId)?.revision ?? null,
         };
+        const callOptions = this.callOptions(
+          randomUUID(),
+          localProviderInstallRequestTimeout(method, args),
+        );
         const result = READ_CAPABILITIES.has(method)
-          ? await this.sessionClient.read(params, this.callOptions())
-          : await this.sessionClient.configure(params, this.callOptions());
+          ? await this.sessionClient.read(params, callOptions)
+          : await this.sessionClient.configure(params, callOptions);
         return {
           value: result.value,
           snapshot: this.applySessionResult(sessionId, result, false),

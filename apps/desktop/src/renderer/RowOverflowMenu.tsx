@@ -6,6 +6,7 @@ import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immedia
 import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
 import { useSurfaceActive } from './surface-activity';
+import { captureRowMenuAnchor, positionRowMenu } from './row-menu-geometry';
 
 export type RowOverflowMenuItem = {
   /** Stable semantic action identity; labels may change while the menu stays open. */
@@ -33,7 +34,7 @@ export function RowOverflowMenu({
   const [path, setPath] = useState<number[]>([]);
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
-  const anchorBounds = useRef<DOMRect | null>(null);
+  const anchorBounds = useRef<ReturnType<typeof captureRowMenuAnchor> | null>(null);
   const clickGuard = useImmediateOverlayClickGuard();
   // A retained Dock tab keeps this row mounted while inert. The panel lives on
   // document.body, where inert cannot reach it, so the owning surface's active
@@ -85,17 +86,14 @@ export function RowOverflowMenu({
   // geometry while rendering the portal forced Chromium to synchronously lay
   // out the whole workbench and made a tiny options menu feel conspicuously
   // late on dense panels.
-  const bounds = menuOpen ? anchorBounds.current : null;
-  const itemHeight = 36;
-  const height = itemHeight * (menuItems.length + (path.length ? 1 : 0)) + 8;
-  const left = Math.max(8, Math.min(
-    (bounds?.right || width + 8) - width,
-    window.innerWidth - width - 8,
-  ));
-  const below = (bounds?.bottom || 8) + 4;
-  const top = below + height <= window.innerHeight - 8
-    ? below
-    : Math.max(8, (bounds?.top || height + 12) - height - 4);
+  const placement = positionRowMenu(
+    menuOpen ? anchorBounds.current : null,
+    width,
+    menuItems.length + (path.length ? 1 : 0),
+    menuItems.filter((item) => item.separatorBefore).length,
+    window.innerWidth,
+    window.innerHeight,
+  );
   const onMenuKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const entries = [...(panel.current
       ?.querySelectorAll<HTMLButtonElement>("[role='menuitem']:not(:disabled)") || [])];
@@ -123,7 +121,7 @@ export function RowOverflowMenu({
     entries[next]?.focus();
   };
   const rememberAnchor = (element: HTMLButtonElement) => {
-    anchorBounds.current = element.getBoundingClientRect();
+    anchorBounds.current = captureRowMenuAnchor(element);
   };
   const toggleMenu = (element: HTMLButtonElement) => {
     if (!open && !anchorBounds.current) rememberAnchor(element);
@@ -153,7 +151,7 @@ export function RowOverflowMenu({
     </button>
     {menuOpen && createPortal(<div ref={panel} className="row-overflow-menu" role="menu"
       aria-label={t("{{label}} menu", { label: t(label) })} onKeyDown={onMenuKeyDown}
-      style={{ left, top, width }}>
+      style={placement}>
       {path.length > 0 && <button type="button" role="menuitem" className="row-overflow-back"
         onClick={() => setPath((current) => current.slice(0, -1))}>
         <ChevronLeft size={14} aria-hidden="true" />

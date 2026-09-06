@@ -21,7 +21,7 @@ import { displayShellCommand } from '../../../../../shared/shell-display.mjs';
 // A record whose owner process is gone is garbage. Age alone never deletes a
 // live owner's job, so an unlimited long-running shell keeps its record.
 const ORPHAN_GRACE_MS = 60 * 60 * 1000;
-export const COMPLETED_SHELL_JOB_TTL_MS = 30 * 60 * 1000;
+const COMPLETED_SHELL_JOB_TTL_MS = 30 * 60 * 1000;
 
 const publishing = new Map();
 const paths = new Map();

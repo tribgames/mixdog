@@ -1,17 +1,14 @@
-import { copyFile, mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
-import { callMicrosoftOffice } from '../com/com-adapter.mjs';
-import { renderPortableOoxml } from '../portable/portable-ooxml.mjs';
 import { renderPdfPages } from '../pdf/pdf-render.mjs';
 import { compareRenderedPages } from '../quality/visual-diff.mjs';
 import { evaluateOfficeChecklist, reviewRenderedOfficePages } from '../quality/assurance.mjs';
 import {
   buildOfficePolishPlan,
   normalizeOfficeReviewIssues,
-  resolveOfficeRenderOutput,
 } from '../quality/quality-pipeline.mjs';
 import { scoreOfficeReleaseQuality } from '../quality/quality-score.mjs';
-import { defaultRenderOutput, exists, fullPath, snapshot } from './office-sessions.mjs';
+import { exists, snapshot } from './office-sessions.mjs';
+import { cachedOfficePreview, renderOfficePreview } from './office-render-preview.mjs';
+import { pptxReviewArtifacts } from '../authoring/pptx-review-artifacts.mjs';
 import { persistOfficeTransaction } from './office-transactions.mjs';
 import { inferPptxSlideRoles, reviewOfficeDesign } from '../quality/design-review.mjs';
 import { applyBatch } from './office-actions-batch.mjs';
@@ -64,8 +61,9 @@ async function renderTransactionBaseline(session, args, cwd, currentOutput) {
     target: transaction.checkpoint,
     mode: session.backend === 'microsoft-office-com' ? 'background' : 'portable',
     transaction: null,
+    designState: structuredClone(session.designState || {}),
   };
-  const rendered = await render(baselineSession, { ...args, output: baselineOutput }, cwd);
+  const rendered = await renderOfficePreview(baselineSession, { ...args, output: baselineOutput }, cwd);
   return {
     available: true,
     output: rendered.output,
@@ -74,18 +72,21 @@ async function renderTransactionBaseline(session, args, cwd, currentOutput) {
   };
 }
 
-export async function qa(session, args, cwd) {
+export async function qa(session, args, cwd, { reuseRender = false } = {}) {
   const before = await issues(session, args);
   const fixes = args.autoFix === true ? qaFixOperations(session, before.issues) : [];
   let fixed = null;
-  if (fixes.length) fixed = await applyBatch(session, { operations: fixes });
+  if (fixes.length) fixed = await applyBatch(session, { operations: fixes, audit: false });
   const after = fixes.length ? await issues(session, args) : before;
   const structuralReview = session.backend === 'mixdog-tabular';
   // The measure pass of the authoring loop: fit, bounds, contrast, and the fact sheet are read from the
   // document, not from pixels, so `render: false` skips the preview and the loop costs a few seconds
   // instead of a render each turn. What only the rendered page can show is left to the pass that follows.
   const measureOnly = args.render === false && !structuralReview;
-  const preview = structuralReview || measureOnly
+  const priorPreview = reuseRender && !structuralReview
+    ? await cachedOfficePreview(session, args, cwd, { reuseLatest: true })
+    : null;
+  const preview = priorPreview || (structuralReview || measureOnly
     ? {
         output: session.target,
         pageCount: 0,
@@ -103,7 +104,7 @@ export async function qa(session, args, cwd) {
         images: [],
         _images: [],
       }
-    : await render(session, args, cwd);
+    : await renderOfficePreview(session, args, cwd));
   let baseline = {
     available: false,
     reason: structuralReview
@@ -112,7 +113,7 @@ export async function qa(session, args, cwd) {
   };
   let visualDiff = { available: false, pages: [], changedPercent: 0 };
   let diffImages = [];
-  if (!structuralReview) {
+  if (!structuralReview && !measureOnly) {
     try {
       baseline = await renderTransactionBaseline(session, args, cwd, preview.output);
       if (baseline.available) {
@@ -287,6 +288,9 @@ export async function qa(session, args, cwd) {
       pageCount: preview.pageCount,
       visualCoverage: preview.visualCoverage,
       images: preview.images,
+      reviewToken: preview.reviewToken,
+      reused: preview.reused === true,
+      exportAvailable: preview.exportAvailable,
     },
     baseline: {
       available: baseline.available,
@@ -298,65 +302,6 @@ export async function qa(session, args, cwd) {
 }
 
 export async function render(session, args, cwd) {
-  const requestedOutput = args.output ? fullPath(args.output, cwd) : defaultRenderOutput(session.target);
-  const output = resolveOfficeRenderOutput(requestedOutput);
-  await mkdir(dirname(output), { recursive: true });
-  // A render is an export plus a rasterize per page, and one authoring cycle asks for it more than once:
-  // qa renders, then finalize's review renders the same untouched document again. The pages stay true while
-  // the snapshot version holds, so the previous pass is handed back instead of redone.
-  const cacheKey = `${session.target}|${session.snapshotVersion || 0}|${output}|${JSON.stringify(args.pages || null)}|${Number(args.maxWidth) || 0}`;
-  if (session.renderCache?.key === cacheKey && await exists(session.renderCache.result.output)) {
-    return { ...session.renderCache.result, reused: true };
-  }
-  if (session.format === 'pdf') {
-    if (output !== session.target) await copyFile(session.target, output);
-    const rendered = await renderPdfPages(output, { pages: args.pages, maxWidth: args.maxWidth });
-    const result = {
-      session: session.id,
-      backend: session.backend,
-      output,
-      format: 'pdf',
-      pageCount: rendered.pageCount,
-      visualCoverage: rendered.visualCoverage,
-      images: rendered.images.map(({ data, pageImages, ...image }) => image),
-      _images: rendered.images,
-    };
-    session.designState ||= { renderedVersion: null, semanticCount: 0, requiresVisualReview: false };
-    session.designState.renderedVersion = Number(session.snapshotVersion || 0);
-    result.reviewToken = `${session.id}:${session.designState.renderedVersion}`;
-    session.renderCache = { key: cacheKey, result };
-    return result;
-  }
-  if (session.backend === 'microsoft-office-com') {
-    const result = await callMicrosoftOffice({
-      action: 'render',
-      session: session.id,
-      format: session.format,
-      mode: session.mode,
-      path: session.target,
-      output,
-    }, {
-      signal: session.activeSignal || null,
-      timeoutMs: 300_000,
-    });
-    if (!result.ok) throw new Error(result.error || 'Microsoft Office render failed');
-  } else {
-    await renderPortableOoxml(session.target, output);
-  }
-  const rendered = await renderPdfPages(output, { pages: args.pages, maxWidth: args.maxWidth });
-  const result = {
-    session: session.id,
-    backend: session.backend,
-    output,
-    format: 'pdf',
-    pageCount: rendered.pageCount,
-    visualCoverage: rendered.visualCoverage,
-    images: rendered.images.map(({ data, pageImages, ...image }) => image),
-    _images: rendered.images,
-  };
-  session.designState ||= { renderedVersion: null, semanticCount: 0, requiresVisualReview: false };
-  session.designState.renderedVersion = Number(session.snapshotVersion || 0);
-  result.reviewToken = `${session.id}:${session.designState.renderedVersion}`;
-  session.renderCache = { key: cacheKey, result };
-  return result;
+  const preview = await renderOfficePreview(session, args, cwd);
+  return session.format === 'pptx' ? pptxReviewArtifacts(session, preview) : preview;
 }

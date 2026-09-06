@@ -2,8 +2,74 @@ import { join } from 'node:path';
 import { PIXELS_TO_POINTS, addPackageRelationship, ensureContentTypeOverride, fillTemplateParts, partRelationshipPath, provenanceCitation, zipText } from './portable-opc.mjs';
 import { appendDocxBlock, docxBodyModel } from './portable-snapshot.mjs';
 import { OFFICE_RELATIONSHIP_BASE, XML_HEADER, paragraphTexts, rebuildTextNodes, replaceAcrossRuns, textNodes, upsertOrderedChild, xmlEncode } from './portable-xml.mjs';
-import { SETTINGS_CONTENT_TYPE, SETTINGS_ORDER, WORD_2010_NS, WORD_MAIN_NS, addDocumentImage, anchorDocxComment, commentParagraphId, documentTracksChanges, ensureCommentsPart, ensureNumbering, markRunsDeleted, nextRevisionId, registerCommentThread, revisionAttributes, trailingSectionProperties, upsertSectionChild, upsertSectionReference, wordDrawingXml, writeHeaderFooterPart, writeSectionProperties } from './portable-docx-parts.mjs';
+import { SETTINGS_CONTENT_TYPE, SETTINGS_ORDER, WORD_2010_NS, WORD_MAIN_NS, addDocumentImage, anchorDocxComment, commentParagraphId, documentTracksChanges, ensureCommentsPart, ensureNumbering, forgetCommentIdentity, markRunsDeleted, nextRevisionId, registerCommentIdentity, registerCommentThread, revisionAttributes, trailingSectionProperties, upsertSectionChild, upsertSectionReference, wordDrawingXml, writeHeaderFooterPart, writeSectionProperties } from './portable-docx-parts.mjs';
 import { blankTableCells, docxStyleId, docxTable, insertDocxBlockAt, paragraphFormatXml, replaceDocxTable, replaceWordProperties, rewriteTableColumns, rowCellMatches, tableRowMatches, wordCellProperties, wordParagraph, wordRunProperties, wordTableProperties, wordTableXml } from './portable-docx-xml.mjs';
+import { docxRevisionTree, flattenDocxRevisions } from './docx-revisions.mjs';
+import { normalizeDocxRuns, settleDocxStory } from './docx-runs.mjs';
+import { anchorPhraseInParagraph, trackedParagraphReplace, trackedParagraphRewrite } from './docx-tracked-edits.mjs';
+
+/** Tracked find-and-replace cuts only the matched characters out of their
+ *  runs (deletion plus insertion in the run's own formatting). A match that
+ *  crosses a run carrying a tab, break, field, or drawing falls back to
+ *  rewriting that paragraph as one deletion plus one insertion, so every
+ *  changed character still sits inside a wrapper for the redlining audit. */
+function replaceTrackedParagraphs(xml, find, replacement, author) {
+  if (!find) throw new Error('replace_text requires non-empty find');
+  let id = nextRevisionId(xml);
+  let count = 0;
+  let paragraphRewrites = 0;
+  const next = xml.replace(/<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g, (paragraph) => {
+    const joined = textNodes(paragraph, 'w:t').map((node) => node.text).join('');
+    if (!joined.includes(find)) return paragraph;
+    const cut = trackedParagraphReplace(paragraph, find, replacement, id, author);
+    if (cut.count) {
+      count += cut.count;
+      id = cut.nextId;
+      return cut.xml;
+    }
+    count += joined.split(find).length - 1;
+    paragraphRewrites += 1;
+    const runCount = (paragraph.match(/<w:r(?:\s[^>]*)?>/g) || []).length;
+    const rewritten = trackedParagraphRewrite(paragraph, joined.split(find).join(replacement), id, author);
+    id += runCount + 1;
+    return rewritten;
+  });
+  return { xml: next, count, paragraphRewrites };
+}
+
+/** Word drops a comment together with the text it marked; after accepting a
+ *  deletion that carried the whole anchor, the comment has no reference left
+ *  in any story and is removed with its thread, id map, and timestamp. */
+async function pruneOrphanComments(zip, parts) {
+  const comments = await zipText(zip, 'word/comments.xml');
+  if (!comments) return 0;
+  const referenced = new Set();
+  for (const part of parts.filter((name) => !/\/comments\.xml$/i.test(name))) {
+    const xml = await zipText(zip, part);
+    for (const match of xml.matchAll(/<w:commentReference\b[^>]*\bw:id="([^"]*)"/g)) referenced.add(match[1]);
+  }
+  let next = comments;
+  const removedIds = [];
+  for (const match of comments.matchAll(/<w:comment\b[^>]*\bw:id="([^"]*)"[^>]*>[\s\S]*?<\/w:comment>/g)) {
+    if (referenced.has(match[1])) continue;
+    next = next.replace(match[0], '');
+    await forgetCommentIdentity(zip, match[0]);
+    removedIds.push(match[1]);
+  }
+  if (!removedIds.length) return 0;
+  zip.file('word/comments.xml', next);
+  // The range markers are not runs, so a deletion never carried them away;
+  // without their comment they would read as a marker mismatch.
+  for (const part of parts.filter((name) => !/\/comments\.xml$/i.test(name))) {
+    const xml = await zipText(zip, part);
+    const stripped = removedIds.reduce((value, id) => value.replace(
+      new RegExp(`<w:commentRange(?:Start|End)\\b[^>]*\\bw:id="${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*\\/>`, 'g'),
+      '',
+    ), xml);
+    if (stripped !== xml) zip.file(part, stripped);
+  }
+  return removedIds.length;
+}
 
 export async function applyDocx(zip, operations) {
   const parts = Object.keys(zip.files).filter((name) => /^word\/(document|header\d+|footer\d+|footnotes|endnotes|comments)\.xml$/i.test(name));
@@ -35,18 +101,39 @@ export async function applyDocx(zip, operations) {
       continue;
     }
     if (op.op === 'fill_template') {
-      results.push(await fillTemplateParts(zip, parts, 'w:t', op));
+      // Under track changes each token becomes a tracked deletion plus the
+      // inserted value, so a filled template still passes the redlining audit.
+      const filled = await fillTemplateParts(zip, parts, 'w:t', op, tracking
+        ? { replace: (xml, _tag, find, replacement) => replaceTrackedParagraphs(xml, find, replacement, op.author) }
+        : {});
+      results.push(tracking ? { ...filled, tracked: true } : filled);
       continue;
     }
     if (op.op === 'replace_text') {
       let count = 0;
+      let paragraphRewrites = 0;
       for (const part of parts) {
         const current = await zipText(zip, part);
-        const replaced = replaceAcrossRuns(current, 'w:t', String(op.find || ''), String(op.replace ?? ''));
+        const replaced = tracking
+          ? replaceTrackedParagraphs(current, String(op.find || ''), String(op.replace ?? ''), op.author)
+          : replaceAcrossRuns(current, 'w:t', String(op.find || ''), String(op.replace ?? ''));
         if (replaced.count) zip.file(part, replaced.xml);
         count += replaced.count;
+        paragraphRewrites += replaced.paragraphRewrites || 0;
       }
-      results.push({ op: op.op, changed: count > 0, count });
+      results.push({
+        op: op.op,
+        changed: count > 0,
+        count,
+        ...(tracking ? {
+          tracked: true,
+          granularity: paragraphRewrites ? 'paragraph' : 'run',
+          ...(paragraphRewrites ? {
+            paragraphRewrites,
+            note: `${paragraphRewrites} paragraph(s) held the match across a tab, break, field, or drawing and were rewritten whole: their runs are marked deleted and one inserted run carries the new text.`,
+          } : {}),
+        } : {}),
+      });
       continue;
     }
     if (op.op === 'append_text') {
@@ -122,6 +209,9 @@ export async function applyDocx(zip, operations) {
           const adjustedStart = anchor.start > paragraph.start ? anchor.start - paragraph.xml.length : anchor.start;
           nextInner = `${without.slice(0, adjustedStart)}${paragraph.xml}${without.slice(adjustedStart)}`;
         }
+      } else if (tracking && op.op === 'set_paragraph_text') {
+        const nextParagraph = trackedParagraphRewrite(paragraph.xml, String(op.text ?? ''), nextRevisionId(current), op.author);
+        nextInner = `${nextInner.slice(0, paragraph.start)}${nextParagraph}${nextInner.slice(paragraph.end)}`;
       } else {
         const nodes = textNodes(paragraph.xml, 'w:t');
         let nextParagraph;
@@ -149,7 +239,11 @@ export async function applyDocx(zip, operations) {
       }
       current = `${current.slice(0, model.body.start)}${nextInner}${current.slice(model.body.end)}`;
       zip.file('word/document.xml', current);
-      results.push({ op: op.op, changed: true });
+      results.push({
+        op: op.op,
+        changed: true,
+        ...(tracking && ['set_paragraph_text', 'remove_paragraph'].includes(op.op) ? { tracked: true } : {}),
+      });
       continue;
     }
     if (op.op === 'set_paragraph_style') {
@@ -185,7 +279,28 @@ export async function applyDocx(zip, operations) {
       if (!cell) throw new Error(`DOCX table cell ${op.col} not found`);
       const nodes = textNodes(cell[0], 'w:t');
       let nextCell;
-      if (nodes.length) {
+      if (tracking) {
+        // The first paragraph takes the new text as a tracked rewrite; any
+        // further paragraph in the cell is marked deleted.
+        let id = nextRevisionId(current);
+        let first = true;
+        nextCell = cell[0].replace(/<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g, (paragraph) => {
+          const runCount = (paragraph.match(/<w:r(?:\s[^>]*)?>/g) || []).length;
+          if (first) {
+            first = false;
+            const rewritten = trackedParagraphRewrite(paragraph, String(op.text ?? ''), id, op.author);
+            id += runCount + 1;
+            return rewritten;
+          }
+          const deleted = markRunsDeleted(paragraph, id, op.author);
+          id += runCount;
+          return deleted;
+        });
+        if (first) {
+          nextCell = cell[0].replace('</w:tc>', `<w:p><w:ins ${revisionAttributes(id, op.author)}><w:r>`
+            + `<w:t xml:space="preserve">${xmlEncode(op.text ?? '')}</w:t></w:r></w:ins></w:p></w:tc>`);
+        }
+      } else if (nodes.length) {
         nodes[0].text = String(op.text ?? '');
         for (let index = 1; index < nodes.length; index += 1) nodes[index].text = '';
         nextCell = rebuildTextNodes(cell[0], 'w:t', nodes);
@@ -196,7 +311,7 @@ export async function applyDocx(zip, operations) {
       const nextTable = table[0].replace(row[0], nextRow);
       current = `${current.slice(0, table.index)}${nextTable}${current.slice(table.index + table[0].length)}`;
       zip.file('word/document.xml', current);
-      results.push({ op: op.op, changed: true });
+      results.push({ op: op.op, changed: true, ...(tracking ? { tracked: true } : {}) });
       continue;
     }
     if (op.op === 'set_table_style') {
@@ -486,7 +601,13 @@ export async function applyDocx(zip, operations) {
         + `<w:r><w:t${/^\s|\s$/.test(text) ? ' xml:space="preserve"' : ''}>${xmlEncode(text)}</w:t></w:r></w:p></w:comment>`;
       zip.file(comments.part, comments.xml.replace('</w:comments>', `${entry}</w:comments>`));
       await registerCommentThread(zip, { commentId: id });
-      const anchored = anchorDocxComment(paragraph.xml, id);
+      await registerCommentIdentity(zip, { commentId: id, date: stamp });
+      // A comment marks the phrase it was asked about; the paragraph only when
+      // the phrase cannot be cut out of its runs.
+      const phrase = op.op === 'add_comment'
+        ? anchorPhraseInParagraph(paragraph.xml, String(op.find || ''), id)
+        : null;
+      const anchored = phrase || anchorDocxComment(paragraph.xml, id);
       const nextInner = `${model.body.inner.slice(0, paragraph.start)}${anchored}${model.body.inner.slice(paragraph.end)}`;
       current = `${current.slice(0, model.body.start)}${nextInner}${current.slice(model.body.end)}`;
       zip.file('word/document.xml', current);
@@ -494,6 +615,7 @@ export async function applyDocx(zip, operations) {
         op: op.op,
         changed: true,
         comment: id,
+        anchor: phrase ? 'phrase' : 'paragraph',
         ...(op.op === 'add_provenance' ? { target: `/body/p[${Number(op.paragraph)}]`, citation: text } : {}),
       });
       continue;
@@ -521,6 +643,7 @@ export async function applyDocx(zip, operations) {
         + `<w:r><w:t${/^\s|\s$/.test(text) ? ' xml:space="preserve"' : ''}>${xmlEncode(text)}</w:t></w:r></w:p></w:comment>`;
       zip.file(comments.part, comments.xml.replace('</w:comments>', `${reply}</w:comments>`));
       await registerCommentThread(zip, { commentId: id, parentId: parent });
+      await registerCommentIdentity(zip, { commentId: id, date: stamp });
       const current = await zipText(zip, 'word/document.xml');
       const anchor = new RegExp(`<w:commentRangeEnd\\b[^>]*\\bw:id="${parent}"[^>]*\\/>`).exec(current);
       if (anchor) {
@@ -537,8 +660,10 @@ export async function applyDocx(zip, operations) {
       if (!Number.isInteger(id) || id < 1) throw new Error('delete_comment requires a positive comment id');
       const comments = await ensureCommentsPart(zip);
       const pattern = new RegExp(`<w:comment\\b[^>]*\\bw:id="${id}"[^>]*>[\\s\\S]*?<\\/w:comment>`);
-      if (!pattern.test(comments.xml)) throw new Error(`DOCX comment ${id} not found`);
+      const entry = pattern.exec(comments.xml);
+      if (!entry) throw new Error(`DOCX comment ${id} not found`);
       zip.file(comments.part, comments.xml.replace(pattern, ''));
+      await forgetCommentIdentity(zip, entry[0]);
       const current = await zipText(zip, 'word/document.xml');
       const next = current
         .replace(new RegExp(`<w:commentRangeStart\\b[^>]*\\bw:id="${id}"[^>]*\\/>`, 'g'), '')
@@ -553,36 +678,70 @@ export async function applyDocx(zip, operations) {
       if (!['accept', 'reject'].includes(resolution)) {
         throw new Error(`${op.op} resolution must be accept or reject`);
       }
-      const target = op.op === 'resolve_revision' ? Math.max(1, Number(op.revision) || 1) : 0;
-      let resolved = 0;
-      let index = 0;
-      let paragraphMarks = 0;
-      let current = await zipText(zip, 'word/document.xml');
-      const next = current.replace(/<w:(ins|del)\b[^>]*>[\s\S]*?<\/w:\1>/g, (block, tag) => {
-        index += 1;
-        if (target && index !== target) return block;
-        resolved += 1;
-        const inner = block.slice(block.indexOf('>') + 1, block.lastIndexOf(`</w:${tag}>`));
-        if (tag === 'ins') return resolution === 'accept' ? inner : '';
-        return resolution === 'accept'
-          ? ''
-          : inner.replace(/<w:delText/g, '<w:t').replace(/<\/w:delText>/g, '</w:t>');
-      });
-      current = next.replace(/<w:rPr>(?:(?!<\/w:rPr>)[\s\S])*?<w:del\b[^>]*\/>[\s\S]*?<\/w:rPr>/g, (block) => {
-        if (target) return block;
-        paragraphMarks += 1;
-        return block.replace(/<w:del\b[^>]*\/>/, '');
-      });
-      if (!resolved && target) throw new Error(`DOCX revision ${target} not found`);
-      zip.file('word/document.xml', current);
+      // One revision is addressed by the snapshot ordinal or, portable only,
+      // by its w:id; either way the paragraph marks and formatting records
+      // stay untouched because they carry no ordinal.
+      const revisionId = op.op === 'resolve_revision' && op.id != null && op.id !== '' ? String(op.id) : '';
+      const target = op.op === 'resolve_revision' && !revisionId ? Math.max(1, Number(op.revision) || 1) : 0;
+      // resolve_revisions may settle one reviewer only; the other reviewers'
+      // wrappers, paragraph marks, rows, and formatting records stay tracked.
+      const author = op.op === 'resolve_revisions' && op.author != null && op.author !== '' ? String(op.author) : '';
+      const single = Boolean(target || revisionId);
+      // Headers, footers, and notes carry tracked changes of their own, and
+      // Word's accept-all settles them too. Snapshot ordinals run through the
+      // story parts in name order, which is the order walked here.
+      const stories = parts.filter((name) => !/\/comments\.xml$/i.test(name)).sort();
+      const totals = { resolved: 0, merged: 0, cleared: 0, unmerged: 0, rowsRemoved: 0, rowsCleared: 0, propertyChanges: 0 };
+      const reviewers = new Set();
+      let ordinalOffset = 0;
+      let settled = false;
+      for (const part of stories) {
+        const current = await zipText(zip, part);
+        if (!current) continue;
+        const spans = target || author ? flattenDocxRevisions(docxRevisionTree(current)) : [];
+        for (const span of spans) reviewers.add(span.author);
+        let partTarget = 0;
+        if (target) {
+          const first = ordinalOffset + 1;
+          ordinalOffset += spans.length;
+          if (target < first || target > ordinalOffset) continue;
+          partTarget = target - first + 1;
+        }
+        const story = settleDocxStory(current, { resolution, target: partTarget, id: revisionId, author });
+        if (story.xml !== current) zip.file(part, story.xml);
+        for (const key of Object.keys(totals)) totals[key] += story[key];
+        if (single && story.resolved) {
+          settled = true;
+          break;
+        }
+      }
+      if (single && !settled) {
+        throw new Error(revisionId ? `DOCX revision id ${revisionId} not found` : `DOCX revision ${target} not found`);
+      }
+      const commentsRemoved = single ? 0 : await pruneOrphanComments(zip, parts);
+      const paragraphMarks = totals.merged + totals.cleared + totals.unmerged;
+      const tableRows = totals.rowsRemoved + totals.rowsCleared;
+      const changed = totals.resolved > 0 || paragraphMarks > 0 || tableRows > 0 || totals.propertyChanges > 0 || commentsRemoved > 0;
       results.push({
         op: op.op,
-        changed: resolved > 0 || paragraphMarks > 0,
+        changed,
         resolution,
-        resolved,
-        ...(paragraphMarks ? {
-          paragraphMarks,
-          note: 'Deleted paragraph marks were cleared without merging the paragraphs; review the layout.',
+        resolved: totals.resolved,
+        ...(revisionId ? { id: revisionId } : {}),
+        ...(author ? { author } : {}),
+        // A label that matches nobody is most often a misspelt reviewer; the
+        // names actually present let the caller correct it.
+        ...(author && !changed ? {
+          note: reviewers.size
+            ? `No revision by "${author}"; the tracked changes are by ${[...reviewers].map((name) => `"${name}"`).join(', ')}.`
+            : `No revision by "${author}"; the document carries no tracked change.`,
+        } : {}),
+        ...(paragraphMarks ? { paragraphMarks, mergedParagraphs: totals.merged } : {}),
+        ...(tableRows ? { tableRows: { removed: totals.rowsRemoved, cleared: totals.rowsCleared } } : {}),
+        ...(totals.propertyChanges ? { propertyChanges: totals.propertyChanges } : {}),
+        ...(commentsRemoved ? { commentsRemoved } : {}),
+        ...(totals.unmerged ? {
+          note: `${totals.unmerged} paragraph mark(s) could not join the next block (a table or the end of the body); the mark was cleared instead.`,
         } : {}),
       });
       continue;
@@ -747,6 +906,22 @@ export async function applyDocx(zip, operations) {
       const block = `<w:p><w:r><w:br w:type="${kind}"/></w:r></w:p>`;
       zip.file('word/document.xml', insertDocxBlockAt(current, block, op.paragraph));
       results.push({ op: op.op, changed: true, kind });
+      continue;
+    }
+    if (op.op === 'normalize_runs') {
+      const summary = { merged: 0, textMerged: 0, proofErrRemoved: 0, rsidStripped: 0, parts: [] };
+      for (const part of parts) {
+        const current = await zipText(zip, part);
+        const normalized = normalizeDocxRuns(current);
+        if (!(normalized.merged + normalized.proofErrRemoved + normalized.rsidStripped)) continue;
+        zip.file(part, normalized.xml);
+        summary.merged += normalized.merged;
+        summary.textMerged += normalized.textMerged;
+        summary.proofErrRemoved += normalized.proofErrRemoved;
+        summary.rsidStripped += normalized.rsidStripped;
+        summary.parts.push(part);
+      }
+      results.push({ op: op.op, changed: summary.parts.length > 0, ...summary });
       continue;
     }
     throw new Error(`Portable DOCX backend does not support operation: ${op.op}`);

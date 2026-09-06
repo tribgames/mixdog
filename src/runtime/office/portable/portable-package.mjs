@@ -385,7 +385,7 @@ export function portableCreateSupported(fileKind) {
   return Object.hasOwn(FILE_KIND_FAMILIES, String(fileKind || '').toLowerCase());
 }
 
-export function portableCreateFileKinds() {
+function portableCreateFileKinds() {
   return Object.keys(FILE_KIND_FAMILIES);
 }
 

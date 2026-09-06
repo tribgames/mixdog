@@ -141,20 +141,20 @@ test('user takeover cancels target waiters, clears leases, and blocks automation
   }
 });
 
-test('overlay model keeps one simple state and lists every session to stop', () => {
+test('overlay model distinguishes user control and confirmation while listing every session to stop', () => {
   const coordinator = new ComputerUseCoordinator();
   try {
     begin(coordinator, 'session-foreground', 'foreground', 'type');
     const active = computerUseOverlayPresentation(coordinator.snapshot(), 'en');
     assert.equal(active.visible, true);
-    assert.equal(active.title, 'Computer in use');
+    assert.equal(active.title, 'Mixdog using');
     assert.deepEqual(active.sessionIds, ['session-foreground']);
 
     coordinator.finishCommand('session-foreground');
     begin(coordinator, 'session-second');
     const thinking = computerUseOverlayPresentation(coordinator.snapshot(), 'ko-KR');
     assert.equal(thinking.visible, true);
-    assert.equal(thinking.title, '컴퓨터 사용 중');
+    assert.equal(thinking.title, 'Mixdog 사용 중');
     assert.deepEqual(thinking.sessionIds, ['session-foreground', 'session-second']);
 
     coordinator.requestAttention({
@@ -163,13 +163,15 @@ test('overlay model keeps one simple state and lists every session to stop', () 
     });
     const attention = computerUseOverlayPresentation(coordinator.snapshot(), 'en');
     assert.equal(attention.visible, true);
-    assert.equal(attention.title, 'Computer in use');
+    assert.equal(attention.title, 'Confirmation needed');
+    assert.equal(attention.attention, true);
     coordinator.clearAttention('session-foreground');
 
     coordinator.pauseForUser('emergency_shortcut');
     const paused = computerUseOverlayPresentation(coordinator.snapshot(), 'ko-KR');
     assert.equal(paused.visible, true);
-    assert.equal(paused.title, '컴퓨터 사용 중');
+    assert.equal(paused.title, '사용자 조작 중');
+    assert.equal(paused.paused, true);
   } finally {
     coordinator.reset();
   }
@@ -189,6 +191,26 @@ test('execution stays visible between commands and disappears only on explicit e
     assert.equal(ended.activities.length, 0);
     assert.equal(ended.cursors.length, 0);
     assert.equal(computerUseOverlayPresentation(ended, 'ko-KR').visible, false);
+  } finally {
+    coordinator.reset();
+  }
+});
+
+test('a cleanup with no session, pause, or failure behind it stays hidden', () => {
+  const coordinator = new ComputerUseCoordinator();
+  try {
+    const finish = coordinator.beginCleanup('session-idle-release');
+    const pending = coordinator.snapshot();
+    assert.equal(pending.cleanupState, 'pending');
+    assert.equal(computerUseOverlayPresentation(pending, 'ko-KR').visible, false);
+    finish(true);
+    assert.equal(computerUseOverlayPresentation(coordinator.snapshot(), 'ko-KR').visible, false);
+
+    const failing = coordinator.beginCleanup('session-idle-failure');
+    failing(false);
+    const failed = computerUseOverlayPresentation(coordinator.snapshot(), 'ko-KR');
+    assert.equal(failed.visible, true);
+    assert.equal(failed.attention, true);
   } finally {
     coordinator.reset();
   }

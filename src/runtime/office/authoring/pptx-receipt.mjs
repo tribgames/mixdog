@@ -5,6 +5,7 @@
 // reason or a fix (pptx skill §2 step 7). Counts are not quotas.
 
 import { plannedCarrierGaps } from './pptx-brief.mjs';
+import { rectangleGap } from '../portable/pptx-relations.mjs';
 
 // Rectangles and lines are furniture; every other preset is a contour the
 // author reached for on purpose (a chevron, a brace, an arc, a trapezoid).
@@ -54,6 +55,13 @@ const CELL = 5;
 function footprint(shape) {
   const left = Number(shape?.left), top = Number(shape?.top), width = Number(shape?.width), height = Number(shape?.height);
   if (![left, top, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return null;
+  return { left, top, width, height };
+}
+
+// A hairline or a rule has no area (cx or cy = 0) and still bounds the labels beside it.
+function extent(shape) {
+  const left = Number(shape?.left), top = Number(shape?.top), width = Number(shape?.width), height = Number(shape?.height);
+  if (![left, top, width, height].every(Number.isFinite) || width < 0 || height < 0 || (width === 0 && height === 0)) return null;
   return { left, top, width, height };
 }
 
@@ -199,7 +207,7 @@ function fieldFillOf(surfaces, grid) {
     .slice(0, 3);
 }
 
-function observe(shapes, { textBoxes, visuals, content, blocks, surfaces = [], fills, titleBox }) {
+function observe(shapes, { textBoxes, visuals, content, blocks, surfaces = [], constructs = [], labels = [], fills, titleBox }) {
   const boxes = shapes.map(footprint).filter(Boolean);
   if (!boxes.length) return null;
   const authored = shapes.filter((shape) => !isChrome(shape));
@@ -214,6 +222,17 @@ function observe(shapes, { textBoxes, visuals, content, blocks, surfaces = [], f
   const canvas = CANVAS_W * CANVAS_H;
   const fillShares = [...fills.entries()].map(([color, area]) => ({ color, share: Number((area / canvas).toFixed(2)) }))
     .filter((entry) => entry.share > 0).sort((a, b) => b.share - a.share).slice(0, 3);
+  // Presence: the share of the canvas the largest carrier takes — a chart, table, picture, group, or a drawn
+  // construction (three or more contours and connectors read as one object by their extent), never a text
+  // box or a tinted plane. Under a quarter of the canvas is what the reader sees as "a small chart beside a
+  // lot of copy"; 0 means the page carries type alone.
+  const carriers = content.filter((box) => !textBoxes.includes(box));
+  const largest = carriers.length ? Math.max(...carriers.map((box) => box.width * box.height)) : 0;
+  const extent = constructs.length >= 3
+    ? (Math.max(...constructs.map((b) => b.left + b.width)) - Math.min(...constructs.map((b) => b.left)))
+      * (Math.max(...constructs.map((b) => b.top + b.height)) - Math.min(...constructs.map((b) => b.top)))
+    : 0;
+  const presence = Number((Math.min(1, Math.max(largest, extent) / canvas)).toFixed(2));
   return {
     air: airOf(all),
     quadrantAir: [airOf(all, 0, 0, midX, midY), airOf(all, midX, 0, all.cols, midY), airOf(all, 0, midY, midX, all.rows), airOf(all, midX, midY, all.cols, all.rows)],
@@ -221,13 +240,14 @@ function observe(shapes, { textBoxes, visuals, content, blocks, surfaces = [], f
     fieldFill: fieldFillOf(surfaces, inner),
     largestShare: Number((Math.max(...boxes.map((box) => box.width * box.height)) / canvas).toFixed(2)),
     visualShare: visuals.length ? Number((1 - airOf(raster(visuals))).toFixed(2)) : 0,
-    textColumns: leftEdges(textBoxes),
+    presence,
+    textColumns: { ...leftEdges(textBoxes.filter((box) => !labels.includes(box))), labels: labels.length },
     fills: fillShares,
     largestTextTop: titleBox ? Number((titleBox.top / 72).toFixed(2)) : null,
     bodyTop,
     bodyFill,
     ...(centroid || {}),
-    gaps: verticalGaps(blocks),
+    gaps: verticalGaps(blocks.filter((box) => !labels.includes(box))),
     typeSet,
     textColors,
   };
@@ -251,6 +271,7 @@ export function slideReceipt(slide) {
   const content = [];   // what the reader reads as content: text, data, pictures, contours — not fields, lines, or chrome
   const blocks = [];    // the spacing vocabulary's units: text and data blocks (a contour is part of a device, not a block)
   const surfaces = [];  // tinted planes and cards: the zones a reader expects to hold something
+  const constructs = [];   // contours and connectors: the parts of a drawn construction (a diagram reads by its extent)
   const fills = new Map();
   let titleBox = null;
   const seen = [];
@@ -277,13 +298,18 @@ export function slideReceipt(slide) {
     receipt.drawn += 1;
     if (box) visuals.push(box);
     const geometry = String(shape.geometry || '');
-    if (geometry === 'line' || geometry.includes('Connector')) receipt.lines += 1;
+    if (geometry === 'line' || geometry.includes('Connector')) { receipt.lines += 1; const span = box || extent(shape); if (span) constructs.push(span); }
     else if (geometry === 'rect' || geometry === 'roundRect') { receipt.fields += 1; covered += area; if (box && fill) surfaces.push(box); }
-    else if (geometry) { presets.add(geometry); covered += area; if (box) content.push(box); }
+    else if (geometry) { presets.add(geometry); covered += area; if (box) { content.push(box); constructs.push(box); } }
   }
   receipt.presets = [...presets];
   receipt.coverage = Math.min(1, Number((covered / CANVAS_AREA).toFixed(2)));
-  const observed = observe(seen, { textBoxes, visuals, content, blocks, surfaces, fills, titleBox });
+  // Diagram labels — small text bound to a contour or connector (a node's name, an axis tick, a dumbbell value,
+  // a legend entry) — belong to their device, not to the page's columns and spacing steps: they leave the
+  // alignment and gap readings and are counted instead.
+  const labels = textBoxes.filter((box) => box.width <= 2.5 * 72 && box.height <= 0.4 * 72
+    && constructs.some((construct) => rectangleGap(box, construct) <= 0.3 * 72));
+  const observed = observe(seen, { textBoxes, visuals, content, blocks, surfaces, constructs, labels, fills, titleBox });
   if (observed) receipt.observe = observed;
   return receipt;
 }
@@ -315,6 +341,7 @@ export function compositionReceipt(document, brief = null) {
       bodyTops: observed.map((s) => s.observe.bodyTop ?? null),
       bodyFills: observed.map((s) => s.observe.bodyFill ?? null),
       fieldFills: observed.map((s) => s.observe.fieldFill?.[0] ?? null),
+      presence: observed.map((s) => s.observe.presence ?? null),
       gapSet: [...new Set(observed.flatMap((s) => s.observe.gaps || []))].sort((a, b) => a - b),
       typeSet: [...new Set(observed.flatMap((s) => s.observe.typeSet || []))].sort((a, b) => a - b),
       textColors: [...new Set(observed.flatMap((s) => s.observe.textColors || []))],
@@ -330,10 +357,13 @@ export function compositionReceipt(document, brief = null) {
     slides,
     deck,
     absent,
-    note: (absent.length || gaps.length
-      ? 'Information, not a verdict: a family the whole deck never uses, or a plan line whose carrier the saved slide does not show, gets one line of reason or a fix in the script.'
-      : 'Every plan line\'s carriers are visible on its slide.')
-      + ' observe: air = canvas share with no shape footprint; quadrantAir = [top-left, top-right, bottom-left, bottom-right]; contentAir = the same four quadrants read from content alone (text, data, pictures, contours), so a tinted plane that covers a quadrant without holding anything shows the hollow its own footprint hides; fieldFill = for every surface field of 6% of the canvas or more, the share of it that content covers, lowest first (a plane at 0.2 is an empty box, deck.rhythm.fieldFills reads the emptiest field per slide); largestShare = the biggest object; visualShare = non-text footprint; textColumns = distinct text left edges and stray boxes; fills = surface colors by area; largestTextTop = inches from the top to the biggest type (the title, or a hero numeral); centroid = [x, y] of the area-weighted visual center in canvas units (0.5, 0.5 is dead center), centroidOffset = its distance from center with a 0.05 horizontal / 0.15 vertical tolerance (1 = at the tolerance edge); bodyTop = inches from the top to the first element under the largest type (content slides of one deck share it unless the plan says otherwise); bodyFill = the share of the zone under the title (to the lower safe margin) that the content spans (a dense page near 1, a breathing page low on purpose); renderAir (after a render) = share of the rendered page with no local pixel variation, which counts the flat part of a picture or a field as air where the shape footprint cannot; renderBalance (after a render) = the visual-weight balance of the pixels — centered (1 = weight at dead center), leftRight and topBottom (1 = even, lower = one side carries the weight; a low topBottom with the content below is an empty head), score = their mean; gaps = the distinct vertical gaps (inches, 0.05 steps) between stacked neighbors, the slide\'s spacing vocabulary; typeSet = the distinct type sizes; textColors = the distinct text colors; textColumns.rightStray = text boxes whose right edge aligns with no other. deck.rhythm reads them in sequence and unions gapSet, typeSet, and textColors across the deck: a deck built on two spacing steps, one type scale, and one ladder shows short sets.',
+    note: 'Observations, not design targets. absent lists unused families, not required objects. Inspect any inferred missing carrier against the intended message; a faithful alternative may already carry it.'
+      + ' air = canvas share without shape footprints; quadrantAir = [top-left, top-right, bottom-left, bottom-right]; contentAir = those quadrants using content only; fieldFill = content coverage inside fields occupying at least 6% of the canvas, lowest first.'
+      + ' largestShare = largest object share; visualShare = non-text footprint; presence = the largest carrier\'s share (chart, table, picture, group, or contour; 0 = type alone); fills = surface colors by area; textColumns = alignment groups and unmatched edges (labels = small text bound to a contour or connector, read as part of its device and left out of the columns and the gaps).'
+      + ' largestTextTop and bodyTop are positions in inches, not mandatory shared baselines; bodyFill = the vertical span of content below the largest type relative to the lower safe margin.'
+      + ' centroid = area-weighted [x, y] in canvas fractions; centroidOffset normalizes distance from center by 0.05 horizontally and 0.15 vertically.'
+      + ' renderAir = pixels without local variation; renderBalance reports centered, leftRight, topBottom and their mean score (higher means more centered or even, not necessarily better design).'
+      + ' gaps = vertical gaps in 0.05-inch steps; typeSet and textColors = observed sizes and colors; deck.rhythm sequences these observations. Relevance, legibility, grouping, and visual emphasis must be judged from the rendered pages, not from balanced ratios or short token sets.',
   };
 }
 

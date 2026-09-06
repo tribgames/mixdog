@@ -20,6 +20,7 @@
 // changes what any host API is called with.
 
 import type { Snapshot, TranscriptItem } from "./desktop-types";
+import { alignedRow, findTranscriptAlignment, hasOwnId, sameRowId } from "./transcript-alignment";
 
 // Must cover every concurrently visible pane lane (8) plus the focused
 // pipeline with headroom: evicting a still-visible session's baseline would
@@ -29,118 +30,6 @@ const IDENTITY_SESSION_LIMIT = 12;
 export interface SessionTranscriptIdentity {
   items: readonly TranscriptItem[];
   tail: TranscriptItem | null;
-}
-
-function itemText(item: TranscriptItem): string {
-  return typeof item.text === "string" ? item.text : item.text == null ? "" : String(item.text);
-}
-
-function hasOwnId(item: TranscriptItem): boolean {
-  return item.id !== undefined && item.id !== null;
-}
-
-function sameRowId(a: TranscriptItem, b: TranscriptItem): boolean {
-  return hasOwnId(a) && hasOwnId(b) && String(a.id) === String(b.id);
-}
-
-/** Strict content match — locates the alignment offset of a tail-truncated
- * transcript window (DESKTOP_TRANSCRIPT_ITEM_LIMIT) inside the previously
- * displayed items. */
-function sameRowContent(a: TranscriptItem, b: TranscriptItem): boolean {
-  return a.kind === b.kind
-    && itemText(a) === itemText(b)
-    && String(a.name ?? "") === String(b.name ?? "");
-}
-
-/** Loose same-logical-row match for the positional walk. Texts may differ by
- * streaming growth (one a prefix of the other) and tool rows by result
- * detail; kind (plus tool name) anchors the row. This is COMPATIBILITY only:
- * an assistant/user prefix or a same-name tool row admits a candidate but is
- * never on its own evidence that this is the right offset. */
-function alignedRow(a: TranscriptItem, b: TranscriptItem): boolean {
-  if (a.kind !== b.kind) return false;
-  if (a.kind === "tool") return String(a.name ?? "") === String(b.name ?? "");
-  if (a.kind === "user" || a.kind === "assistant") {
-    const at = itemText(a);
-    const bt = itemText(b);
-    return at === bt || (at.length > 0 && bt.length > 0 && (at.startsWith(bt) || bt.startsWith(at)));
-  }
-  return true;
-}
-
-/** The activity/completion fields a status-like row is actually identified by
- * (core completion outcome, not a parallel desktop status model). */
-function statusSignature(item: TranscriptItem): string {
-  return [
-    item.kind, item.status, item.label, item.tone, item.verb,
-    item.count, item.completedCount, item.detail,
-  ].map((value) => String(value ?? "")).join("\u0001");
-}
-
-type AlignmentCandidate = {
-  offset: number;
-  /** Contiguous aligned rows from the start of the incoming window. */
-  overlap: number;
-  idMatches: number;
-  strongMatches: number;
-  endsAtBaselineTail: boolean;
-};
-
-/** Rank one candidate against the best so far. Repeated rows (a debugger
- * session emits many identical "status done" lines) made the old
- * first-content-equal offset land on the WRONG occurrence: the window was
- * adopted onto history it never belonged to and the recovery frame then
- * remounted the real rows. Candidates are therefore scored on evidence. */
-function betterCandidate(
-  candidate: AlignmentCandidate,
-  best: AlignmentCandidate | null,
-  incomingShorter: boolean,
-): boolean {
-  if (!best) return true;
-  if (candidate.overlap !== best.overlap) return candidate.overlap > best.overlap;
-  if (candidate.idMatches !== best.idMatches) return candidate.idMatches > best.idMatches;
-  if (candidate.strongMatches !== best.strongMatches) {
-    return candidate.strongMatches > best.strongMatches;
-  }
-  if (candidate.endsAtBaselineTail !== best.endsAtBaselineTail) {
-    return candidate.endsAtBaselineTail;
-  }
-  // Exact tie: a shorter incoming list is a tail WINDOW, so the rightmost
-  // occurrence is the one it was cut from; otherwise the transcript starts
-  // where the baseline starts.
-  return incomingShorter ? candidate.offset > best.offset : candidate.offset < best.offset;
-}
-
-function alignmentCandidateAt(
-  prevItems: readonly TranscriptItem[],
-  incomingItems: readonly TranscriptItem[],
-  offset: number,
-): AlignmentCandidate | null {
-  const span = Math.min(prevItems.length - offset, incomingItems.length);
-  let overlap = 0;
-  let idMatches = 0;
-  let strongMatches = 0;
-  for (; overlap < span; overlap += 1) {
-    const prev = prevItems[offset + overlap] as TranscriptItem;
-    const inc = incomingItems[overlap] as TranscriptItem;
-    if (prev !== inc && !alignedRow(prev, inc)) break;
-    if (sameRowId(prev, inc)) idMatches += 1;
-    if (prev === inc
-      || (sameRowContent(prev, inc) && statusSignature(prev) === statusSignature(inc))) {
-      strongMatches += 1;
-    }
-  }
-  // A mismatch inside the shared span is a different history, not a shorter
-  // alignment. Adopting even the compatible prefix corrupts one or more row
-  // ids before the walk aborts, and the following full frame then remounts.
-  if (overlap === 0 || overlap !== span) return null;
-  return {
-    offset,
-    overlap,
-    idMatches,
-    strongMatches,
-    endsAtBaselineTail: offset + overlap === prevItems.length,
-  };
 }
 
 export function adoptTranscriptIdentity(
@@ -160,14 +49,7 @@ export function adoptTranscriptIdentity(
   let alignedOffset = 0;
   if (incomingItems && prevItems && incomingItems.length > 0 && prevItems.length > 0
     && incomingItems !== prevItems) {
-    // Evaluate EVERY offset the window could sit at (bounded by the host's
-    // transcript item limit on both sides) and keep the best-evidenced one.
-    const incomingShorter = incomingItems.length < prevItems.length;
-    let best: AlignmentCandidate | null = null;
-    for (let index = 0; index < prevItems.length; index += 1) {
-      const candidate = alignmentCandidateAt(prevItems, incomingItems, index);
-      if (candidate && betterCandidate(candidate, best, incomingShorter)) best = candidate;
-    }
+    const best = findTranscriptAlignment(prevItems, incomingItems);
     acceptedAlignment = best !== null;
     // No candidate at all: the incoming transcript is a different history.
     // It keeps its own ids and replaces the baseline.

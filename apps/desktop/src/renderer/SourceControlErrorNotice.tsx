@@ -1,6 +1,7 @@
 import { AlertTriangle } from "lucide-react";
 
 import { t } from "./i18n";
+import { safeErrorDetails } from "./ErrorNotice";
 
 export type SourceControlErrorKind =
   | "authentication"
@@ -24,7 +25,7 @@ function errorText(reason: unknown): string {
 }
 
 function cleanErrorDetails(reason: unknown): string {
-  let details = errorText(reason).replace(/\r\n?/g, "\n").trim();
+  let details = safeErrorDetails(errorText(reason)).replace(/\r\n?/g, "\n").trim();
   for (let pass = 0; pass < 4; pass += 1) {
     const cleaned = details
       .replace(IPC_ERROR_PREFIX, "")

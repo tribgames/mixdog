@@ -1,55 +1,22 @@
 // Anthropic model catalog + message conversion helpers, extracted from anthropic.mjs.
 import { createRequire } from 'node:module';
-import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
 import {
-    ANTHROPIC_RETRY_BACKOFF_MS,
-    ANTHROPIC_RETRY_JITTER_RATIO,
-    AnthropicFallbackTriggeredError,
-    anthropicMaxAttempts,
-    anthropicRequestTimeoutMs,
-    classifyError,
-    midstreamBackoffFor,
-    sleepWithAbort,
-    withRetry,
-    retryAfterMsFromError,
+  sleepWithAbort,
 } from './retry-classifier.mjs';
-import { traceAgentUsage } from '../agent-trace.mjs';
 import {
-    PROVIDER_FIRST_BYTE_TIMEOUT_MS,
-    createTimeoutSignal,
-    createPassthroughSignal,
-} from '../stall-policy.mjs';
-import { createAbortController } from '../../../shared/abort-controller.mjs';
-import {
-    ANTHROPIC_MAX_MIDSTREAM_RETRIES,
-    parseSSEStream,
-    _classifyMidstreamError,
-} from './anthropic-sse.mjs';
-import { buildAnthropicBetaHeaders, supportsAnthropicFastMode } from './anthropic-betas.mjs';
-import {
-    applyAnthropicEffortToBody,
-    effortValuesForModel,
-    shouldIncludeEffortBeta,
+  effortValuesForModel,
 } from './anthropic-effort.mjs';
-import { enrichModels } from './model-catalog.mjs';
-import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { makeModelCache } from './model-cache.mjs';
 import { resolveAnthropicMaxTokens } from './anthropic-max-tokens.mjs';
-import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
-import { notifyCurrentAnthropicRateLimit } from './admission-scheduler.mjs';
 import {
-    ANTHROPIC_CACHE_TTL_STABLE as CACHE_TTL_STABLE,
-    ANTHROPIC_CACHE_TTL_VOLATILE as CACHE_TTL_VOLATILE,
-    applyAnthropicCacheMarkers,
-    clampAnthropicThinkingBudget as clampThinkingBudgetTokens,
-    deferredAnthropicTools as sharedDeferredAnthropicTools,
-    requestAnthropicTools as sharedRequestAnthropicTools,
-    normalizeAnthropicNonStreamingResponse,
-    resolveAnthropicCacheTtls as resolveCacheTtls,
-    sanitizeAnthropicInputSchema,
-    toAnthropicMessages,
-    toAnthropicToolChoice,
+  deferredAnthropicTools as sharedDeferredAnthropicTools,
+  requestAnthropicTools as sharedRequestAnthropicTools,
+  sanitizeAnthropicInputSchema,
+  toAnthropicMessages,
 } from './lib/anthropic-request-utils.mjs';
+import { _capabilitySupported, _defaultContextForModel, _prettyName } from './anthropic-model-resolve.mjs';
+
+export { _capabilitySupported, _defaultContextForModel, _prettyName };
 // Message lowering lives in the shared request-utils lib (one implementation
 // for both Anthropic providers); re-exported here for existing importers.
 export { toAnthropicMessages };
@@ -127,25 +94,6 @@ export const MODELS = [
     { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5', provider: 'anthropic', family: 'haiku', contextWindow: 200000 },
 ];
 export const ANTHROPIC_VERSION = '2023-06-01';
-
-export function _prettyName(id, family) {
-    const v = String(id || '').match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/i);
-    const base = family ? family[0].toUpperCase() + family.slice(1) : 'Claude';
-    return v ? `${base} ${v[1]}${v[2] ? `.${v[2]}` : ''}` : base;
-}
-
-export function _defaultContextForModel(id, family) {
-    const text = String(id || '');
-    const version = text.match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/i);
-    if (Number(version?.[1] || 0) >= 5) return 1000000;
-    if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/i.test(text)) return 1000000;
-    if (family && family !== 'other') return 200000;
-    return 200000;
-}
-
-export function _capabilitySupported(capability) {
-    return capability === true || capability?.supported === true;
-}
 
 export function _normalizeAnthropicModel(raw, provider = 'anthropic') {
     const id = raw?.id || raw?.name || raw?.model;

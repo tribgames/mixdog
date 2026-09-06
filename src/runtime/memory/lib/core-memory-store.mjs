@@ -16,6 +16,7 @@ import { cachedEmbedTextBatch } from './memory-embed.mjs'
 import { callAgentDispatch } from './agent-ipc.mjs'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
 import { checkedConnect } from './pg/adapter.mjs'
+import { throwIfAborted } from './memory-cycle2-shared.mjs'
 
 const VALID_CAT = new Set([
   'rule', 'constraint', 'decision', 'fact', 'goal', 'preference', 'task', 'issue',
@@ -86,9 +87,7 @@ async function _embedFor(db, element, summary) {
 // Lazy repair of NULL embeddings on existing rows. Runs once per boot or
 // whenever a NULL slips back in via direct SQL. SELECT WHERE embedding IS NULL
 // returns 0 rows on a fully-populated table, so this is a fast no-op.
-export function throwIfAborted(signal) {
-  if (signal?.aborted) throw signal.reason ?? new Error('aborted')
-}
+export { throwIfAborted }
 
 async function _backfillNullEmbeddings(db, options = {}) {
   const signal = options?.signal

@@ -78,12 +78,13 @@ export function createBrowserCommandQueue(host: BrowserCommandQueueHost) {
     return `${prefix}foreground`;
   }
 
-  function executeSerialized(
+  function executeSerialized<T = BrowserCommandResult>(
     command: BrowserCommand,
     requestSignal?: AbortSignal,
-  ): Promise<BrowserCommandResult> {
+    operation?: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
     const key = commandQueueKey(command);
-    const readOnly = READ_ONLY_ACTIONS.has(String(command.action || '').trim().toLowerCase());
+    const readOnly = !operation && READ_ONLY_ACTIONS.has(String(command.action || '').trim().toLowerCase());
     const previous = commandChains.get(key) || Promise.resolve();
     const reads = pendingReads.get(key);
     const barrier = readOnly || !reads?.size
@@ -96,7 +97,7 @@ export function createBrowserCommandQueue(host: BrowserCommandQueueHost) {
     const run = waitForBarrier(barrier, signal).then(async () => {
       if (signal.aborted) throw signal.reason || new Error('browser command cancelled');
       return await bounded(
-        runCommand(command, signal),
+        operation ? operation(signal) : runCommand(command, signal) as Promise<T>,
         COMMAND_TIMEOUT_MS,
         `browser ${String(command.action || 'command')}`,
         signal,

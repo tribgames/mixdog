@@ -130,7 +130,7 @@ test('the VAPID header is scoped to the push service and verifiable with the pub
   );
   const raw = Buffer.from(keys.publicKey, 'base64url');
   const verified = cryptoVerify(
-    null,
+    'sha256',
     Buffer.from(`${encodedHeader}.${encodedPayload}`),
     {
       key: createPublicKey({

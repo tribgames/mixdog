@@ -29,6 +29,7 @@ import {
 } from "./desktop-feature-config";
 import { FilesRootPane, SetiFileIcon } from "./ExplorerTree";
 import { t } from "./i18n";
+import { ErrorNotice } from "./ErrorNotice";
 import { createGitRefreshScheduler } from "./git-refresh-scheduler";
 import { scheduleEditorPanePrefetch } from "./lazy-widgets";
 import { subscribeProjectFileChanges } from "./project-file-changes";
@@ -300,7 +301,7 @@ const SearchPane = memo(function SearchPane({
       searchLoading
         ? <p className="utility-dock-empty">{t("Searching…")}</p>
         : searchError
-          ? <p className="utility-dock-empty">{searchError}</p>
+          ? <ErrorNotice error={searchError} role="status" />
           : !contentsMode
             ? (totalNameHits === 0
               ? <p className="utility-dock-empty">{t("No matching files.")}</p>
@@ -691,10 +692,10 @@ export const UtilityDock = memo(function UtilityDock({
   }, [committedTabs, mountedTabs]);
   const paneMounted = (pane: UtilityDockTab) => contentReady && mountedTabs.has(pane);
   const paneActive = (pane: UtilityDockTab) => open && presentedGroup.includes(pane);
-  const dockTitle = title || (presentedTab === "agents" ? "Agents"
-    : presentedTab === "search" ? "Search"
-    : presentedTab === "pull-requests" ? "Pull Requests"
-        : "Source Control");
+  const dockTitle = title || (presentedTab === "agents" ? t("Agents")
+    : presentedTab === "search" ? t("Search")
+    : presentedTab === "pull-requests" ? t("Pull Requests")
+        : t("Source Control"));
   if (!desktopUtilityDockTabEnabled(tab)) return null;
   return <aside
     className="utility-dock"

@@ -353,8 +353,8 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
           const target = menu.file;
           setMenu(null);
           const warning = target.untracked
-            ? `Delete untracked file "${target.path}"? This cannot be undone.`
-            : `Discard uncommitted changes to "${target.path}"? This cannot be undone.`;
+            ? t('Delete untracked file "{{file}}"? This cannot be undone.', { file: target.path })
+            : t('Discard uncommitted changes to "{{file}}"? This cannot be undone.', { file: target.path });
           if (!window.confirm(warning)) return;
           if (openFile === target.path) setOpenFile("");
           void act(() => window.mixdogDesktop.gitRevert?.(cwd, target.path, target.untracked, "all"));

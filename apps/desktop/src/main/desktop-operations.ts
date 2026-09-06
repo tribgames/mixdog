@@ -8,12 +8,13 @@ import * as editorBackups from './editor-backups';
 import * as gh from './gh-cli';
 import * as git from './git-cli';
 import * as github from './github-cli';
+import { createGithubService } from './github-service';
 import { LanguageServerManager } from './language-server-manager';
 import * as localFiles from './local-files';
 import * as libreoffice from './libreoffice';
 import * as projectFiles from './project-files';
 import { listShellProfiles, resolveShellProfileSpawn } from './shell-profiles';
-import { DesktopSettingsStore } from './settings-store';
+import { DesktopSettingsStore, settingsConfigModuleUrl } from './settings-store';
 import type { MixdogConfigModule } from './settings-store';
 import { TerminalManager } from './terminal-manager';
 import * as workspaceConfig from './workspace-config';
@@ -86,7 +87,6 @@ const STATIC_OPERATIONS = {
   installGitCli: github.installGitCli,
   installGithubCli: github.installGithubCli,
   setGitGlobalConfig: github.setGitGlobalConfig,
-  installLibreOffice: libreoffice.installLibreOffice,
   libreOfficeStatus: libreoffice.libreOfficeStatus,
   gitAbortOperation: git.gitAbortOperation,
   gitAmend: git.gitAmend,
@@ -162,6 +162,9 @@ export function createDesktopOperations({
     appPath,
     loadConfig,
   });
+  const executeGithub = createGithubService(loadConfig ?? (async () => import(
+    /* @vite-ignore */ settingsConfigModuleUrl(packaged, resourcesPath, appPath)
+  ) as Promise<MixdogConfigModule>));
   const generateCommitMessage = createCommitMessageGenerator({
     packaged,
     resourcesPath,
@@ -219,6 +222,7 @@ export function createDesktopOperations({
   });
 
   async function invoke(name: string, args: unknown[] = []): Promise<unknown> {
+    if (name === 'githubRequest') return executeGithub(args[0], args[1]);
     const staticOperation = STATIC_OPERATIONS[name as keyof typeof STATIC_OPERATIONS] as
       | ((...values: unknown[]) => unknown)
       | undefined;
@@ -250,6 +254,9 @@ export function createDesktopOperations({
     if (name === 'updateZoom') return settingsStore.updateZoom(Number(args[0]));
     if (name === 'githubStarStatus') return githubStarStatus();
     if (name === 'starGithub') return starGithub();
+    if (name === 'installLibreOffice') {
+      return libreoffice.installLibreOffice({ packaged, resourcesPath, appPath });
+    }
     if (name === 'gitGenerateCommitMessage') {
       return generateCommitMessage(
         String(args[0] || ''),

@@ -45,6 +45,9 @@ interface ProbeDeps {
     live: Record<string, unknown>,
   ): void;
   prepareColdResume(snapshot: Record<string, unknown>): void;
+  /** Host publish path (state + per-session channels); the select pass
+   *  pushes its fixture through it so the session lane accepts the frame. */
+  publish?(snapshot: Record<string, unknown>): void;
   outPath: string;
 }
 
@@ -54,6 +57,7 @@ export async function runJitterProbe({
   baseSnapshot,
   prepareRemoteResume,
   prepareColdResume,
+  publish,
   outPath,
 }: ProbeDeps): Promise<{ reversals: number }> {
   const send = (state: Record<string, unknown>) => {
@@ -106,6 +110,15 @@ export async function runJitterProbe({
     await new Promise((resolve) => setTimeout(resolve, 300));
     return Boolean(document.querySelector('.composer'));
   })()`);
+
+  // MIXDOG_JITTER_PROBE=select drives a REAL selection drag out of the
+  // transcript (composer, window edges) and reports Selection/focus state.
+  if (process.env.MIXDOG_JITTER_PROBE === 'select') {
+    const { runSelectionProbe } = await import('./jitter-probe-selection');
+    return runSelectionProbe({
+      window, baseSnapshot, prepareColdResume, send: publish ?? send, outPath,
+    });
+  }
 
   if (widthMode) {
     // Enter through the real resume path: a snapshot pushed for a session the

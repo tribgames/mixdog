@@ -14,9 +14,9 @@ const readFilesByScope = new Map(); // scope → Map(fullPath → { mtimeMs, siz
 // apply_patch call may reuse a path correction proven by a read in the live
 // session, but must never inherit a guessed redirect from another process.
 const readRedirectsByScope = new Map(); // scope → Map(requestedPathKey → targetPath)
-export const READ_SNAPSHOT_SCOPE_CACHE_LIMIT = 32;
-export const READ_SNAPSHOT_FILES_PER_SCOPE_LIMIT = 1024;
-export const READ_SNAPSHOT_REDIRECTS_PER_SCOPE_LIMIT = 256;
+const READ_SNAPSHOT_SCOPE_CACHE_LIMIT = 32;
+const READ_SNAPSHOT_FILES_PER_SCOPE_LIMIT = 1024;
+const READ_SNAPSHOT_REDIRECTS_PER_SCOPE_LIMIT = 256;
 
 function snapshotPathKey(fullPath) {
     const value = String(fullPath || '');
@@ -356,26 +356,4 @@ export function readFilesForScope(scope) {
         readFilesByScope.set(key, readFiles);
     }
     return readFiles;
-}
-
-export function _readSnapshotStoreStatsForTest(scope = null) {
-    const key = readScopeKey(scope);
-    const readFiles = key === null ? null : readFilesByScope.get(key);
-    return {
-        scopeCount: readFilesByScope.size,
-        hydratedScopeCount: scopeHydrated.size,
-        fileCount: readFiles?.size || 0,
-        redirectCount: key === null ? 0 : (readRedirectsByScope.get(key)?.size || 0),
-        pendingPersistCount: persistPending.size,
-    };
-}
-
-export function _resetReadSnapshotStoreForTest() {
-    for (const timer of persistPending.values()) {
-        try { clearTimeout(timer); } catch {}
-    }
-    persistPending.clear();
-    readFilesByScope.clear();
-    readRedirectsByScope.clear();
-    scopeHydrated.clear();
 }

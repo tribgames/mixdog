@@ -268,15 +268,15 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 }
 /* Hover bridge: the card hangs 6px below its slot, and crossing that gap left
    the slot's subtree — the card closed before the pointer could reach a Stop
-   button inside it. The bridge belongs to the CARD, so the pointer stays
-   inside the slot for the whole trip. */
+   button inside it. ONE frame geometry with the context card, overlapping the
+   slot and running past both card edges rather than meeting them flush. */
 .session-work-indicator .live-work-popover::before {
   content: "";
   position: absolute;
-  top: -6px;
-  right: 0;
-  left: 0;
-  height: 6px;
+  top: calc(-1 * var(--mx-popup-bridge-reach));
+  right: calc(-1 * var(--mx-popup-bridge-spread));
+  left: calc(-1 * var(--mx-popup-bridge-spread));
+  height: var(--mx-popup-bridge-reach);
 }
 .session-work-indicator .live-work-popover {
   /* ONE measure ladder for the header and its rows (user: 인덱스표기가 아래랑

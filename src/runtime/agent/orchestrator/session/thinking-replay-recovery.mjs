@@ -16,10 +16,7 @@ import {
     isAnthropicThinkingBlock,
     isEmptyAnthropicTextBlock,
 } from '../providers/lib/anthropic-replay-blocks.mjs';
-
-function errorStatus(err) {
-    return Number(err?.httpStatus || err?.status || err?.response?.status || 0) || 0;
-}
+import { errorHttpStatus as errorStatus } from '../../../shared/err-text.mjs';
 
 function errorText(err) {
     const detail = err?.providerError || err?.responseFailed?.response?.error || null;

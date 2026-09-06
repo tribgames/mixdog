@@ -25,11 +25,29 @@ export function validateSkillName(value) {
 
 export function validateSkillDescription(value) {
   const description = String(value || '').trim();
-  if (!description) throw new Error('Skill trigger is required.');
+  if (!description) throw new Error('Skill description is required.');
   if (description.length > 1024) {
-    throw new Error('Skill trigger must be 1024 characters or fewer.');
+    throw new Error('Skill description must be 1024 characters or fewer.');
   }
   return description;
+}
+
+/**
+ * `when_to_use` is the optional trigger line shown beside the description in
+ * the model's skill listing: trigger phrases and the boundary against a
+ * neighbouring skill. Empty means the description alone routes the skill.
+ */
+export function validateSkillWhenToUse(value) {
+  const whenToUse = String(value || '').trim();
+  if (whenToUse.length > 1024) {
+    throw new Error('Skill trigger must be 1024 characters or fewer.');
+  }
+  return whenToUse;
+}
+
+function optionalScalarText(value, field) {
+  if (value == null) return '';
+  return scalarText(value, field);
 }
 
 function parseFrontmatterDocument(markdown) {
@@ -57,12 +75,24 @@ export function parseSkillDocument(markdown) {
   const description = validateSkillDescription(
     scalarText(parsed.frontmatter.description, 'description'),
   );
+  const whenToUse = validateSkillWhenToUse(
+    optionalScalarText(parsed.frontmatter.when_to_use, 'when_to_use'),
+  );
   return {
     name,
     description,
+    whenToUse,
     body: parsed.source.slice(parsed.match[0].length).replace(/^\r?\n/, ''),
     frontmatter: parsed.frontmatter,
   };
+}
+
+function setSkillFields(document, { name, description, whenToUse }) {
+  document.set('name', validateSkillName(name));
+  document.set('description', validateSkillDescription(description));
+  const trigger = validateSkillWhenToUse(whenToUse);
+  if (trigger) document.set('when_to_use', trigger);
+  else if (document.has('when_to_use')) document.delete('when_to_use');
 }
 
 function renderSkillDocument(document, body) {
@@ -71,16 +101,14 @@ function renderSkillDocument(document, body) {
   return `---\n${String(document).trimEnd()}\n---\n\n${instructions}\n`;
 }
 
-export function createSkillDocument({ name, description, body }) {
+export function createSkillDocument({ name, description, whenToUse, body }) {
   const document = parseDocument('');
-  document.set('name', validateSkillName(name));
-  document.set('description', validateSkillDescription(description));
+  setSkillFields(document, { name, description, whenToUse });
   return renderSkillDocument(document, body);
 }
 
-export function updateSkillDocument(markdown, { name, description, body }) {
+export function updateSkillDocument(markdown, { name, description, whenToUse, body }) {
   const parsed = parseFrontmatterDocument(markdown);
-  parsed.document.set('name', validateSkillName(name));
-  parsed.document.set('description', validateSkillDescription(description));
+  setSkillFields(parsed.document, { name, description, whenToUse });
   return renderSkillDocument(parsed.document, body);
 }

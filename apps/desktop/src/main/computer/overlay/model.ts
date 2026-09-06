@@ -3,6 +3,7 @@ import type {
   ComputerUseCursor,
   ComputerUseSnapshot,
 } from '../session/coordinator';
+import type { ComputerOverlayControlError } from './controls';
 
 export interface ComputerUseOverlayPresentation {
   visible: boolean;
@@ -10,6 +11,13 @@ export interface ComputerUseOverlayPresentation {
   sessionIds: string[];
   title: string;
   accent: string;
+  paused: boolean;
+  canResume: boolean;
+  generation: number;
+  detail: string;
+  busy: boolean;
+  idleResumeSeconds: number;
+  attention: boolean;
 }
 
 export interface ComputerUseCursorPresentation extends ComputerUseCursor {
@@ -53,21 +61,50 @@ function visibleTarget(target: string): string {
 export function computerUseOverlayPresentation(
   snapshot: ComputerUseSnapshot,
   locale = 'en',
+  control: { busy?: boolean; error?: ComputerOverlayControlError | string } = {},
 ): ComputerUseOverlayPresentation {
   const ko = locale.toLowerCase().startsWith('ko');
   const activity = primaryActivity(snapshot.activities);
   const sessionIds = [...new Set([
+    ...(snapshot.pausedSessionIds ?? []),
     ...snapshot.activities.map((entry) => entry.sessionId),
     snapshot.attentionRequired?.sessionId || '',
   ])].filter(Boolean);
-  if (sessionIds.length === 0) {
-    return { visible: false, sessionIds: [], title: '', accent: SESSION_COLORS[0] };
-  }
+  const paused = snapshot.userControlActive;
+  const pending = snapshot.cleanupState === 'pending';
+  const failed = snapshot.cleanupState === 'failed' || control.error === 'cleanup';
+  const confirmation = failed || Boolean(snapshot.attentionRequired) || Boolean(control.error)
+    || ['input_observation_unavailable', 'input_recovery_unconfirmed', 'input_cleanup_unconfirmed'].includes(snapshot.takeoverReason || '');
+  const detail = failed
+    ? (ko ? '입력 정리를 확인하지 못했습니다. 재개할 수 없습니다.' : 'Input cleanup is unconfirmed. Resume is blocked.')
+    : control.error === 'stale'
+      ? (ko ? '상태가 바뀌었습니다. 현재 재개 버튼을 사용해 주세요.' : 'State changed. Use the current Resume button.')
+      : control.error
+        ? (ko ? '요청을 완료하지 못했습니다.' : 'The request could not be completed.')
+        : pending
+          ? (ko ? '입력 해제와 작업 종료를 확인하고 있습니다.' : 'Waiting for input release and worker exit.')
+          : control.busy
+            ? (ko ? '재개 요청을 처리하고 있습니다. 중단은 언제든 가능합니다.' : 'Processing resume. Stop remains available.')
+          : paused && snapshot.takeoverReason === 'user_input_active' && (snapshot.idleResumeSeconds ?? 5) > 0
+            ? (ko ? `입력이 멈춘 뒤 ${snapshot.idleResumeRemaining ?? snapshot.idleResumeSeconds ?? 5}초 후 재개합니다.`
+              : `Resuming after ${snapshot.idleResumeRemaining ?? snapshot.idleResumeSeconds ?? 5}s without input.`)
+          : paused
+            ? (ko ? '일시중지했습니다. 재개하면 새 화면을 확인하고 대기 작업을 이어갑니다.' : 'Paused. Resume checks fresh state before continuing queued work.')
+            : '';
   return {
-    visible: true,
+    // A pending cleanup with no session, pause, or failure behind it is a
+    // no-op release (idle worker reap, deferred session release) and stays
+    // hidden; a failed cleanup always surfaces.
+    visible: sessionIds.length > 0 || paused || failed,
     sessionIds,
-    title: ko ? '컴퓨터 사용 중' : 'Computer in use',
+    title: confirmation ? (ko ? '확인 필요' : 'Confirmation needed')
+      : paused ? (ko ? '사용자 조작 중' : 'User controlling')
+      : (ko ? 'Mixdog 사용 중' : 'Mixdog using'),
     accent: activity ? sessionColor(activity.sessionId) : SESSION_COLORS[0],
+    paused, canResume: paused && !pending && !failed,
+    generation: snapshot.takeoverGeneration ?? 0, detail, busy: control.busy === true,
+    idleResumeSeconds: snapshot.idleResumeSeconds ?? 5,
+    attention: confirmation,
   };
 }
 

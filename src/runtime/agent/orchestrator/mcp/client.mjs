@@ -13,6 +13,7 @@ import { createKeyedSingleflight } from './reconnect-singleflight.mjs';
 import { createOwnerFairGate } from '../../../shared/owner-fair-gate.mjs';
 import { currentToolExecutionOwner } from '../../../shared/tool-execution-owner.mjs';
 import { resolveRuntimeRoot } from '../../../shared/runtime-root.mjs';
+import { positiveInt } from '../../../shared/numbers.mjs';
 // --- Types ---
 /** Known auto-detect targets: port file path relative to tmpdir.
  *  Note: `mixdog` used to self-loopback via active-instance.json's
@@ -376,39 +377,6 @@ export function getMcpServerStatus(scopeId = DEFAULT_MCP_SCOPE_ID) {
     }));
 }
 
-function requireMcpServer(name, options = {}) {
-    const serverName = String(name || '').trim();
-    const server = scopedServer(normalizeMcpScopeId(options), serverName);
-    if (!server) throw new Error(`MCP server "${serverName}" not connected`);
-    return server;
-}
-
-export async function listMcpResources(name, request = {}, options = {}) {
-    return requireMcpServer(name, options).client.listResources(request || {});
-}
-
-export async function listMcpResourceTemplates(name, request = {}, options = {}) {
-    return requireMcpServer(name, options).client.listResourceTemplates(request || {});
-}
-
-export async function readMcpResource(name, uri, options = {}) {
-    return requireMcpServer(name, options).client.readResource({ uri: String(uri || '') });
-}
-
-export async function listMcpPrompts(name, request = {}, options = {}) {
-    return requireMcpServer(name, options).client.listPrompts(request || {});
-}
-
-export async function getMcpPrompt(name, promptName, args = {}, options = {}) {
-    return requireMcpServer(name, options).client.getPrompt({
-        name: String(promptName || ''),
-        arguments: args && typeof args === 'object' && !Array.isArray(args) ? args : {},
-    });
-}
-function positiveInt(value, fallback) {
-    const parsed = Math.floor(Number(value));
-    return Number.isFinite(parsed) && parsed >= 1 ? parsed : fallback;
-}
 function callAdmissionFor(server) {
     const registryKey = server.registryKey || mcpServerRegistryKey(server.scopeId, server.name);
     let gate = callAdmissions.get(registryKey);
@@ -627,7 +595,7 @@ async function _callMcpFeatureWithTimeout(server, operation, args, signal = null
 
 // Preserve MCP failure metadata across the object→string boundary. The
 // session loop classifies the canonical Error: prefix as toolKind:error.
-export function normalizeMcpToolResult(result) {
+function normalizeMcpToolResult(result) {
     const content = result.content;
     let text;
     if (Array.isArray(content)) {

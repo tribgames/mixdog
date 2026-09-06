@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ErrorNotice } from '../ErrorNotice';
 
 import type {
   DesktopApi,
@@ -12,7 +13,6 @@ import { AboutPanel } from './about-panel';
 import { BuiltInFeaturesPanel } from './built-in-features-panel';
 import { ConnectionPanel } from './connection-panel';
 import { GeneralPanel } from './general-panel';
-import { GitPanel } from './git-panel';
 
 import { ActionButton, AutoSaveRow, Group, ListEmpty, ResourceRow, ToggleRow } from "./capability-controls";
 import { durationTextInput, formatDuration, label, rows, sectionError, sectionLoaded, type CapabilityCategory, type PanelContext, type RecordValue } from "./capability-data";
@@ -28,7 +28,7 @@ export function CategoryPanel({ category, context }: {
   if (category === 'builtins') return <BuiltInFeaturesPanel {...context} />;
   if (category === 'output-style') return <OutputStylePanel {...context} />;
   if (category === 'providers') return <ProvidersPanel {...context} />;
-  if (category === 'git') return <GitPanel />;
+  if (category === 'git') return <BuiltInFeaturesPanel {...context} initialFeature="git" />;
   if (category === 'mcp') return <McpPanel {...context} />;
   if (category === 'plugins') return <PluginExtensionsPanel {...context} />;
   if (category === 'skills') return <SkillExtensionsPanel {...context} />;
@@ -105,11 +105,12 @@ function ChoicePanel({ title, values, active, pending, emptyText, onChoose }: {
 function OutputStylePanel({ data, pending, run }: PanelContext) {
   const output = record(data.outputStyles);
   const failure = sectionError(data, 'outputStyles');
+  if (failure) return <ErrorNotice error={failure} role="status" />;
   return <ChoicePanel title="" values={rows(output, 'styles')}
     active={String(record(output.current).id || output.configured || 'default')} pending={pending}
     emptyText={sectionLoaded(data, 'outputStyles')
       ? 'No output styles available.'
-      : (failure ? `Output styles unavailable: ${failure}` : 'Loading output styles…')}
+      : 'Loading output styles…'}
     onChoose={(id) => void run('setOutputStyle', [id])} />;
 }
 

@@ -17,12 +17,14 @@ import {
   formatComputerToolError,
 } from './error-recovery.mjs';
 import { readBridgeDiscovery } from '../bridge-discovery.mjs';
+import { MAX_COMPUTER_REQUEST_BYTES, readComputerBridgeJson, validateComputerReply } from './limits.mjs';
+import { computerActionHas } from './actions.mjs';
 
 const DISCOVERY_FILE = 'computer-bridge.json';
 // Desktop UI Automation queries and input dispatch can be slow; sit above the
 // bridge's own per-action timeouts so its specific error wins over a bare abort.
 const REQUEST_TIMEOUT_MS = 150_000;
-const SESSION_ABORT_TIMEOUT_MS = 8_000;
+const SESSION_ABORT_TIMEOUT_MS = 15_000;
 const EXECUTION_END_TIMEOUT_MS = 3_000;
 const SESSION_RELEASE_TIMEOUT_MS = 60_000;
 const DEFERRED_SESSION_RELEASE_MS = 2 * 60_000;
@@ -32,13 +34,8 @@ const SHUTDOWN_SESSION_RELEASE_TIMEOUT_MS = 5_000;
 // Host-level action names, matching what toComputerHostCommand emits: the tool
 // schema can produce no other observation action, and anything unlisted is
 // treated as a mutation that owns a write-active session.
-const READ_ONLY_ACTIONS = new Set([
-  'list_windows', 'list_apps', 'diagnose', 'capture', 'clipboard_read', 'wait', 'zoom',
-  'verify',
-]);
-
 export function isReplaySafeComputerCommand(command) {
-  return READ_ONLY_ACTIONS.has(String(command?.action || ''));
+  return computerActionHas(String(command?.action || ''), 'replaySafe');
 }
 const activeComputerSessions = new Set();
 const deferredComputerSessionReleases = new Map();
@@ -139,6 +136,10 @@ export async function executeComputerTool(rawArgs, context = {}) {
   let response;
   const command = toComputerHostCommand(args);
   const sessionId = context?.sessionId ? String(context.sessionId) : '';
+  const encoded = JSON.stringify({ ...command, ...(sessionId ? { session_id: sessionId } : {}) });
+  if (Buffer.byteLength(encoded) > MAX_COMPUTER_REQUEST_BYTES) {
+    return { content: [{ type: 'text', text: 'Error: computer request exceeds byte limit; no input was dispatched' }], isError: true };
+  }
   cancelDeferredComputerSessionRelease(sessionId);
   const action = String(command?.action || '');
   if (sessionId) hostBoundComputerSessions.add(sessionId);
@@ -159,17 +160,14 @@ export async function executeComputerTool(rawArgs, context = {}) {
           'content-type': 'application/json',
           authorization: `Bearer ${bridge.token}`,
         },
-        body: JSON.stringify({
-          ...command,
-          ...(context?.sessionId ? { session_id: String(context.sessionId) } : {}),
-        }),
+        body: encoded,
         signal: requestSignal,
       });
       if (response.status === 401 && attempt === 0 && isReplaySafeComputerCommand(command)) {
         const replacement = readDiscovery();
         if (replacement
           && (replacement.port !== bridge.port || replacement.token !== bridge.token)) {
-          await response.arrayBuffer().catch(() => undefined);
+          await response.body?.cancel().catch(() => undefined);
           bridge = replacement;
           continue;
         }
@@ -231,7 +229,7 @@ export async function executeComputerTool(rawArgs, context = {}) {
   }
   let body;
   try {
-    body = await response.json();
+    body = await readComputerBridgeJson(response);
   } catch {
     const message = !isReplaySafeComputerCommand(command) && command?.read_only !== true
       ? 'computer command may have executed but the bridge returned an invalid response; inspect fresh state before retrying'
@@ -243,6 +241,10 @@ export async function executeComputerTool(rawArgs, context = {}) {
     return { content: [{ type: 'text', text: formatComputerToolError(message, args) }], isError: true };
   }
   const value = body.value || {};
+  try { validateComputerReply(value); }
+  catch (error) {
+    return { content: [{ type: 'text', text: `Error: ${error.message}; input may have executed and was not replayed` }], isError: true };
+  }
   const text = canonicalComputerResultText(String(value.text || 'OK'), args);
   const content = [{
     type: 'text',
@@ -280,7 +282,7 @@ async function sendComputerSessionControl(sessionId, action, timeoutMs) {
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    const body = await response.json();
+    const body = await readComputerBridgeJson(response);
     return response.ok && body?.ok === true;
   } catch {
     return false;
@@ -326,6 +328,9 @@ export function deferComputerSessionRelease(sessionId, delayMs = DEFERRED_SESSIO
   const id = String(sessionId || '').trim();
   if (!id) return false;
   cancelDeferredComputerSessionRelease(id);
+  // A session that never reached the host owns nothing there. Releasing it
+  // anyway would only raise a no-op cleanup on the desktop every turn.
+  if (!hostBoundComputerSessions.has(id) && !activeComputerSessions.has(id)) return false;
   const delay = Math.max(1, Number(delayMs) || DEFERRED_SESSION_RELEASE_MS);
   const timer = setTimeout(() => {
     deferredComputerSessionReleases.delete(id);

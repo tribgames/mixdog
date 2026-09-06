@@ -184,15 +184,14 @@
 }
 .dock-scm-remote-label { display: inline-flex; }
 .dock-scm-remote-verb, .dock-scm-remote-target { white-space: pre; }
-/* Narrow steps, in order (user: all three labels stay). The section is a
-   THIRD of the dock, so the remote NAME goes first and early (it is the only
-   piece the verb does not need); then the badge's direction ARROWS, which are
-   decoration on top of counts the verb already explains; below the 300px floor
-   the buttons keep BOTH icon and text at full size on tighter gaps —
-   nothing hides, nothing overlaps. */
+/* Narrow steps (user: all three labels stay). The section is a THIRD of the
+   dock, so the remote NAME goes first and early (it is the only piece the verb
+   does not need). The badge's tiny direction arrows stay visible: without
+   them two counts collapse into an ambiguous pair of bare numbers. Below the
+   300px floor the buttons keep BOTH icon and text at full size on tighter
+   gaps — nothing hides, nothing overlaps. */
 @container (max-width: 420px) { .dock-scm-remote-target { display: none; } }
 @container (max-width: 340px) {
-  .dock-scm-ahead-behind > span > svg { display: none; }
   .dock-scm-branch-button, .dock-scm-remote-button { gap: 4px; padding: 0 5px; }
 }
 /* Labels never go, and neither do the icons (user: both stay at 14px): below
@@ -211,31 +210,20 @@
   .dock-scm-toolbar-push, .dock-scm-toolbar-fetch { min-width: 56px; }
 }
 /* Ahead/behind is an OVERLAY on the Push section's top-right corner, not a
-   flex sibling inside the clipped button: a third-width section cannot hold
-   icon + label + badge inline and the badge was what got cut. The 1px ring in
-   the sheet colour separates it from the button's hover fill. */
+   flex sibling inside the clipped button. It uses the Changes tab's counter
+   bubble, with a 1px sheet-colour ring where it crosses the button edge. */
 .dock-scm-ahead-behind {
   position: absolute;
-  top: -3px;
-  right: 0;
+  top: -2px;
+  right: 2px;
   z-index: 1;
   display: flex;
   align-items: center;
-  gap: 3px;
-  /* Same bubble as .dock-review-count on the Changes tab (user: 캡슐형,
-     같은 폰트): 2/5 padding, 20px radius, full ink, semibold micro. */
-  padding: 2px 5px;
-  border-radius: 20px;
-  color: var(--mx-text);
-  background: var(--mx-pressed);
+  gap: 4px;
   box-shadow: 0 0 0 1px var(--mx-window-band);
-  font-size: var(--mx-font-micro);
-  font-weight: var(--mx-weight-semibold);
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   pointer-events: none;
 }
-.dock-scm-ahead-behind > span { display: inline-flex; align-items: center; gap: 1px; }
 /* Push and Fetch are independent fixed actions; neither owns a dropdown. */
 .dock-scm-branch-new { height: 24px; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 0 8px; border: 0; border-radius: var(--mx-radius-md); color: var(--mx-text); background: var(--mx-hover); font-size: var(--mx-font-minor); cursor: pointer; }
 .dock-scm-branch-new:disabled { opacity: var(--mx-op-disabled); cursor: default; }
@@ -458,9 +446,11 @@
   background: var(--mx-workspace-sheet);
   caret-color: var(--mx-text);
   font-family: inherit;
-  font-size: var(--mx-font-code);
+  /* Control size (14), not the code size: the field holds prose and sits
+     beside 14px rows (user: 텍스트 박스마다 폰트 사이즈가 다르다). */
+  font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-minor);
+  line-height: var(--mx-line-ui);
   outline: 0;
 }
 .dock-scm-commit-summary:focus,
@@ -499,10 +489,10 @@
   min-width: 0;
   /* The reference's description field is the tall one; three visible text
      lines keep it distinct from Summary while it still autosizes from there. */
-  min-height: 62px;
+  min-height: calc(3 * var(--mx-line-ui) + 10px);
   /* Same Chromium-native autosize as .composer textarea, dock scale. */
   field-sizing: content;
-  max-height: 108px;
+  max-height: calc(6 * var(--mx-line-ui) + 10px);
   overflow-y: auto;
   resize: none;
   /* Inside its own focus container now, so the padding is the field's own. */
@@ -512,8 +502,8 @@
   background: transparent;
   caret-color: var(--mx-text);
   font-family: inherit;
-  font-size: var(--mx-font-code);
-  line-height: var(--mx-line-minor);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
   outline: 0;
 }
 .dock-scm-commit textarea:focus,
@@ -618,8 +608,9 @@
 /* The rows a window does not mount are represented by these two spacers, so
    the scroll container keeps the whole list's height. */
 .dock-scm-row-spacer { flex: 0 0 auto; width: 100%; pointer-events: none; }
-/* Tab counter bubble. */
-.dock-review-count { flex: 0 0 auto; margin-left: 4px; padding: 2px 5px; border-radius: 20px; color: var(--mx-text); background: var(--mx-pressed); font-size: var(--mx-font-micro); font-weight: var(--mx-weight-semibold); line-height: 1; font-variant-numeric: tabular-nums; }
+/* Shared compact counter bubble: Changes tab and Push overlay. */
+.dock-review-count, .dock-scm-ahead-behind { flex: 0 0 auto; padding: 2px 5px; border-radius: 20px; color: var(--mx-text); background: var(--mx-pressed); font-size: var(--mx-font-micro); font-weight: var(--mx-weight-semibold); line-height: 1; font-variant-numeric: tabular-nums; }
+.dock-review-count { margin-left: 4px; }
 .dock-scm-file:hover, .dock-scm-file:focus-within { background: var(--mx-hover); }
 .dock-scm-file[data-selected="true"] { background: var(--mx-pressed); box-shadow: inset 0 0 0 .5px var(--mx-border-muted); }
 /* Changed-file status glyphs, painted with
@@ -735,17 +726,16 @@
 .dock-scm-unpushed:focus-visible { outline: 0; box-shadow: 0 0 0 2px var(--mx-focus); }
 .dock-scm-unpushed:disabled { cursor: default; opacity: var(--mx-op-disabled); }
 /* Commit detail header, ONE row on the dock gutter like the Changes list's
-   toolbar: the subject (up to two lines) over an `author · date · sha`
-   byline takes the width, the 22px back button trails on the right at the
-   same x as the Changes toolbar's action buttons. No totals, no SHA chip. */
-.dock-scm-commit-header { box-sizing: border-box; margin-inline: var(--dock-scm-gutter); display: flex; align-items: center; gap: 6px; padding: 4px 2px 6px var(--dock-scm-row-inset); border-bottom: 1px solid var(--mx-border-muted); }
-.dock-scm-commit-back { width: 22px; height: 22px; flex: 0 0 22px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
-.dock-scm-commit-back:hover, .dock-scm-commit-back:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
-/* The SHA IS the copy control: a text button in the byline, monospace with
-   the copy/check glyph trailing. */
-.dock-scm-commit-ref { min-width: 0; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 3px; margin: -2px 0; padding: 1px 3px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; font: inherit; line-height: var(--mx-line-meta); cursor: pointer; }
-.dock-scm-commit-ref:hover, .dock-scm-commit-ref:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
-.dock-scm-commit-ref code { font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); line-height: 1; }
+   toolbar: the subject (up to two lines) over a plain `author · date · sha`
+   byline takes the width; the action cluster (copy SHA, back — 22px each)
+   is pinned to the TOP so it sits on the subject's first line, at the same
+   x as the Changes toolbar's action buttons. No totals, no SHA chip. */
+.dock-scm-commit-header { box-sizing: border-box; margin-inline: var(--dock-scm-gutter); display: flex; align-items: flex-start; gap: 6px; padding: 4px 2px 6px var(--dock-scm-row-inset); border-bottom: 1px solid var(--mx-border-muted); }
+.dock-scm-commit-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 2px; margin-top: -3px; }
+.dock-scm-commit-action { width: 22px; height: 22px; flex: 0 0 22px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
+.dock-scm-commit-action:hover, .dock-scm-commit-action:focus-visible { color: var(--mx-text); background: var(--mx-hover); outline: 0; }
+/* The byline SHA is plain monospace text; copying lives in the action cluster. */
+.dock-scm-commit-sha code { font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); line-height: 1; }
 .dock-scm-commit-headline { min-width: 0; flex: 1; display: grid; gap: 2px; padding: 0 0 0 2px; }
 .dock-scm-commit-headline > b { min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; font-size: var(--mx-font-code); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); letter-spacing: 0; }
 /* ONE byline, dot-separated like the History rows; the author takes the
@@ -852,7 +842,7 @@
 .dock-pr-create > header b { color: var(--mx-text); font-size: var(--mx-font-code); font-weight: var(--mx-weight-semibold); line-height: var(--mx-line-minor); }
 .dock-pr-create > header small { overflow: hidden; color: var(--mx-text-faint); font-family: var(--mx-font-mono); font-size: var(--mx-font-micro); line-height: var(--mx-line-micro); text-overflow: ellipsis; white-space: nowrap; }
 .dock-pr-create > label:not(.dock-pr-create-draft) { min-width: 0; display: grid; gap: 4px; color: var(--mx-text-muted); font-size: var(--mx-font-meta); }
-.dock-pr-create input[type="text"], .dock-pr-create textarea { width: 100%; min-width: 0; border: 1px solid var(--mx-border); border-radius: var(--mx-radius-sm); outline: 0; color: var(--mx-text); background: var(--mx-workspace-sheet); font-size: var(--mx-font-meta); line-height: var(--mx-line-minor); }
+.dock-pr-create input[type="text"], .dock-pr-create textarea { width: 100%; min-width: 0; border: 1px solid var(--mx-border); border-radius: var(--mx-radius-sm); outline: 0; color: var(--mx-text); background: var(--mx-workspace-sheet); font-size: var(--mx-font-ui); line-height: var(--mx-line-ui); }
 .dock-pr-create input[type="text"] { height: 30px; padding: 0 8px; font-weight: var(--mx-weight-regular); }
 .dock-pr-create textarea { min-height: 108px; padding: 6px 8px; resize: vertical; }
 .dock-pr-create input[type="text"]:focus, .dock-pr-create textarea:focus { border-color: var(--mx-focus); }

@@ -12,6 +12,7 @@ import { SchemaType } from '@google/generative-ai';
 import { traceHash, stableTraceStringify } from './trace-utils.mjs';
 import { normalizeContentForGeminiParts, splitToolContentForGemini } from './media-normalization.mjs';
 import { providerReplayItems } from './lib/provider-replay.mjs';
+import { ensureGeminiToolCallSignatures } from './gemini-history-signatures.mjs';
 
 function explicitGeminiMediaPart(part) {
     if (!part || typeof part !== 'object') return null;
@@ -34,7 +35,7 @@ function explicitGeminiMediaPart(part) {
 // The shared normalizer intentionally defaults unknown media to image/png for
 // image-oriented providers. Gemini accepts audio/video/document MIME types too,
 // so preserve explicit Gemini wire parts before using the shared fallback.
-export function normalizeGeminiParts(content) {
+function normalizeGeminiParts(content) {
     if (typeof content === 'string') return normalizeContentForGeminiParts(content);
     const parts = Array.isArray(content)
         ? content
@@ -364,7 +365,7 @@ function flattenAllOf(input) {
     return { schema, hadAllOf };
 }
 
-export function convertSchema(schema) {
+function convertSchema(schema) {
     if (!schema || typeof schema !== 'object') return schema;
     const flattened = flattenAllOf(schema);
     if (flattened.conflict) return schemaFallback(flattened.conflict);
@@ -700,7 +701,7 @@ function geminiThoughtPartsFromMetadata(message) {
     return normalized;
 }
 
-export function toGeminiContents(messages, model = '') {
+export function toGeminiContents(messages, model = '', { repairToolSignatures = true } = {}) {
     const contents = [];
     const capabilities = geminiFunctionCapabilities(model);
     // Map synthetic toolCallId -> function name from prior assistant
@@ -742,7 +743,7 @@ export function toGeminiContents(messages, model = '') {
         if (content) contents.push(content);
     }
     flushToolMedia();
-    return contents;
+    return repairToolSignatures ? ensureGeminiToolCallSignatures(contents, model) : contents;
 }
 
 export function parseGeminiThinkingParts(parts) {

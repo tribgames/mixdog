@@ -1,9 +1,5 @@
 import { createOwnerFairGate } from './owner-fair-gate.mjs';
-
-function positiveInt(value, fallback) {
-  const parsed = Math.floor(Number(value));
-  return Number.isFinite(parsed) && parsed >= 1 ? parsed : fallback;
-}
+import { positiveInt } from './numbers.mjs';
 
 export const readIoAdmission = createOwnerFairGate({
   name: 'read I/O',

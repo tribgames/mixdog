@@ -1,3 +1,6 @@
+import type { GithubRequest, GithubResult } from '../../../../src/runtime/github/contract.mjs';
+export type { GithubRequest, GithubResult } from '../../../../src/runtime/github/contract.mjs';
+
 export const DESKTOP_IPC = {
   chooseProject: 'mixdog:choose-project',
   chooseFile: 'mixdog:choose-file',
@@ -69,6 +72,10 @@ export const DESKTOP_IPC = {
   setModelRoute: 'mixdog:set-model-route',
   setFast: 'mixdog:set-fast',
   readSettings: 'mixdog:read-settings',
+  computerReadAuthorization: 'mixdog:computer-read-authorization',
+  computerUpdateAuthorization: 'mixdog:computer-update-authorization',
+  computerAuthorizationWindows: 'mixdog:computer-authorization-windows',
+  computerFailureDiagnostics: 'mixdog:computer-failure-diagnostics',
   updateSetting: 'mixdog:update-setting',
   getZoomFactor: 'mixdog:get-zoom-factor',
   setZoomFactor: 'mixdog:set-zoom-factor',
@@ -132,6 +139,7 @@ export const DESKTOP_IPC = {
   gitStashApply: 'mixdog:git-stash-apply',
   gitStashDrop: 'mixdog:git-stash-drop',
   ghPrList: 'mixdog:gh-pr-list',
+  githubRequest: 'mixdog:github-request',
   ghPrDefaultBranch: 'mixdog:gh-pr-default-branch',
   ghPrCreate: 'mixdog:gh-pr-create',
   ghPrView: 'mixdog:gh-pr-view',
@@ -298,6 +306,8 @@ export interface DesktopGoalTask extends Readonly<Record<string, unknown>> {
 
 export interface DesktopGoalState extends Readonly<Record<string, unknown>> {
   id?: string;
+  revision?: number;
+  needsTaskReview?: boolean;
   sessionId?: string;
   objective?: string;
   title?: string;
@@ -589,6 +599,13 @@ export const DESKTOP_CAPABILITIES = [
   'setMemoryToolsEnabled',
   'setBuiltinToolEnabled',
   'installBuiltinFeature',
+  'installLocalProviderModel',
+  'startLocalProviderInstallation',
+  'cancelLocalProviderInstallation',
+  'setLocalProviderIdleTtl',
+  'getLocalProviderModelDetails',
+  'startLocalProviderModelMaintenance',
+  'deleteLocalProviderModel',
   'getVoiceStatus',
   'toggleVoice',
   'agentControl',
@@ -670,7 +687,6 @@ export const DESKTOP_CAPABILITIES = [
   'saveOpenCodeGoUsageAuth',
   'loginOpenCodeGoUsage',
   'saveOpenAIUsageSessionKey',
-  'setLocalProvider',
   'authenticateProvider',
   'forgetProviderAuth',
   'getChannelSetup',
@@ -700,6 +716,7 @@ export const DESKTOP_CAPABILITIES = [
 export type DesktopCapability = typeof DESKTOP_CAPABILITIES[number];
 
 export const DESKTOP_READ_CAPABILITIES = [
+  'getLocalProviderModelDetails',
   'getAutoClear',
   'getUpdateSettings',
   'getUpdateStatus',
@@ -1844,6 +1861,7 @@ export interface DesktopApi {
   gitStashApply?(cwd: string, ref: string): Promise<string>;
   gitStashDrop?(cwd: string, ref: string): Promise<string>;
   ghPrList?(cwd: string): Promise<DesktopPullRequestCategory[]>;
+  githubRequest?(cwd: string, input: GithubRequest): Promise<GithubResult>;
   ghPrDefaultBranch?(cwd: string): Promise<string>;
   ghPrCreate?(cwd: string, input: DesktopPullRequestCreateInput): Promise<DesktopPullRequestEntry>;
   ghPrView?(cwd: string, number: number): Promise<DesktopPullRequestDetail>;
@@ -1928,6 +1946,11 @@ export interface DesktopApi {
   setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<SessionSnapshot>;
   setFast(enabled: boolean, sessionId?: string): Promise<SessionSnapshot>;
   readSettings(): Promise<DesktopSettings>;
+  /** Local trusted settings surface only; never forwarded by the remote shim. */
+  computerReadAuthorization?(): Promise<import('./computer-settings').ComputerAuthorizationStatus>;
+  computerUpdateAuthorization?(value: import('./computer-settings').ComputerAuthorization): Promise<import('./computer-settings').ComputerAuthorizationStatus>;
+  computerAuthorizationWindows?(): Promise<import('./computer-settings').ComputerAuthorizationWindow[]>;
+  computerFailureDiagnostics?(): Promise<unknown[]>;
   updateSetting(key: DesktopSettingKey, enabled: boolean): Promise<DesktopSettings>;
   getZoomFactor(): Promise<number>;
   setZoomFactor(factor: number): Promise<number>;

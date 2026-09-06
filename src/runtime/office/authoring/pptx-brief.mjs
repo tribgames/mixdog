@@ -87,14 +87,25 @@ function parseSources(text) {
   return String(text || '').split(/\s*·\s*/).map((token) => token.trim()).filter(Boolean);
 }
 
+// `facts: sample — <why>` declares every figure illustrative: no fact sheet
+// exists, the author gate lets the deck land, and the delivery says the
+// numbers are examples.
+const SAMPLE_FACTS = /^\s*(?:sample|illustrative|example)\b\s*[—–:-]?\s*/i;
+
+export const FACTS_SAMPLE_DISCLOSURE = 'The brief declares facts: sample — every figure on this deck is illustrative. Tell the user so in the delivery and never present the numbers as measured.';
+
 export function parseAuthoringBrief(script) {
   const plan = parseSlidePlan(briefLine(script, 'slide plan'));
-  const facts = parseFacts(briefLine(script, 'facts'));
+  const factsLine = briefLine(script, 'facts');
+  const sample = SAMPLE_FACTS.test(factsLine);
+  const facts = sample ? [] : parseFacts(factsLine);
+  const factsMode = sample ? 'sample' : facts.length ? 'sourced' : 'none';
+  const factsNote = sample ? factsLine.replace(SAMPLE_FACTS, '').trim() : '';
   const style = /^\s*([a-z-]+)/i.exec(briefLine(script, 'style') || briefLine(script, 'family'))?.[1] || '';
   const directions = parseDirections(briefLine(script, 'directions'));
   const present = /\/\/\s*BRIEF\b/.test(String(script || ''));
   const sources = parseSources(briefLine(script, 'sources'));
-  return { present, plan, facts, style, family: style, directions, sources };
+  return { present, plan, facts, factsMode, factsNote, style, family: style, directions, sources };
 }
 
 // What each named carrier promises on the saved slide. Read back as information
@@ -202,14 +213,16 @@ export function reviewSourceGrounding(brief) {
   )];
 }
 
-export function reviewFactCoverage(document, brief) {
-  const issues = [];
+// Figures the slides show that no fact covers, per slide, and whether any
+// figure appears at all; the review and the author gate read the same list.
+function unlistedFigures(document, brief) {
   const slides = Array.isArray(document?.slides) ? document.slides : [];
   const facts = Array.isArray(brief?.facts) ? brief.facts : [];
   const known = facts.map((fact) => normalizedNumber(fact.value));
   let anyNumber = false;
+  const missing = [];
   for (const slide of slides) {
-    const missing = new Set();
+    const figures = new Set();
     for (const shape of slide.shapes || []) {
       if (shape.placeholder) continue;
       for (const raw of String(shape.text || '').match(NUMBER) || []) {
@@ -219,15 +232,39 @@ export function reviewFactCoverage(document, brief) {
         if (DATE.test(token) || digits.length < 2 || (digits.length === 2 && /^\d{1,2}$/.test(value) && Number(value) <= 12)) continue;
         anyNumber = true;
         const bare = value.replace('%', '');
-        if (!known.some((fact) => fact.includes(bare) || bare.includes(fact.replace('%', '')))) missing.add(token);
+        if (!known.some((fact) => fact.includes(bare) || bare.includes(fact.replace('%', '')))) figures.add(token);
       }
     }
-    if (missing.size && facts.length) {
-      issues.push(issue('number_without_fact', `/slide[${slide.index}]`, `Figures with no fact behind them: ${[...missing].join(', ')}. Add them to the brief's facts line with a source, or remove them.`));
+    if (figures.size) missing.push({ slide: slide.index, figures: [...figures] });
+  }
+  return { anyNumber, slides: missing };
+}
+
+export function reviewFactCoverage(document, brief) {
+  if (brief?.factsMode === 'sample') {
+    return [issue('facts_illustrative', '/', 'The brief declares facts: sample, so every figure on the deck is illustrative; the delivery says so.', 'info')];
+  }
+  const issues = [];
+  const facts = Array.isArray(brief?.facts) ? brief.facts : [];
+  const { anyNumber, slides } = unlistedFigures(document, brief);
+  if (facts.length) {
+    for (const entry of slides) {
+      issues.push(issue('number_without_fact', `/slide[${entry.slide}]`, `Figures with no fact behind them: ${entry.figures.join(', ')}. Add them to the brief's facts line with a source, or remove them.`));
     }
   }
   if (anyNumber && !facts.length && brief?.present) {
     issues.push(issue('facts_missing', '/', 'The deck shows figures but the brief has no facts line; list each figure with its source (F1 <value> — <source>).'));
   }
   return issues;
+}
+
+// The author gate: the same reading, but a refusal instead of a report. A
+// script without a brief is not gated (the brief is the contract that names
+// the facts), and a sample declaration passes with its disclosure.
+export function factsGate(document, brief) {
+  if (!brief?.present || brief.factsMode === 'sample') return { blocked: false };
+  const facts = Array.isArray(brief.facts) ? brief.facts : [];
+  const { anyNumber, slides } = unlistedFigures(document, brief);
+  if (!facts.length) return anyNumber ? { blocked: true, code: 'facts_missing', slides } : { blocked: false };
+  return slides.length ? { blocked: true, code: 'number_without_fact', slides } : { blocked: false };
 }

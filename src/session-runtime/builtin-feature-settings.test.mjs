@@ -12,6 +12,12 @@ import { createSettingsApi } from './settings-api.mjs';
 function fixture() {
   let config = {};
   let refreshes = 0;
+  let catalogRefreshes = 0;
+  let runtimeInstalled = false;
+  let stopped = 0;
+  const prepared = [];
+  const installedModels = [];
+  const registrySyncs = [];
   const api = createSettingsApi({
     getConfig: () => config,
     saveConfigAndAdopt: (next) => { config = next; },
@@ -23,12 +29,32 @@ function fixture() {
     memoryToolsEnabledFn: () => true,
     gitToolsEnabledFn: () => moduleEnabled(config, 'git', true),
     officeToolsEnabledFn: () => moduleEnabled(config, 'office', true),
+    localProviderEnabledFn: () => config.builtins?.localProvider?.installed === true
+      && moduleEnabled(config, 'localProvider', true),
+    getLocalProviderStatus: () => ({
+      available: true,
+      runtime: { installed: runtimeInstalled, version: 'test' },
+      models: [],
+    }),
+    prepareBuiltinFeature: async (name) => {
+      prepared.push(name);
+      if (name === 'localProvider') runtimeInstalled = true;
+    },
+    prepareLocalProviderModel: async (modelId) => { installedModels.push(modelId); },
+    refreshLocalProviderCatalog: async () => { catalogRefreshes += 1; },
+    stopLocalProviderServer: async () => { stopped += 1; },
+    syncLocalProviderRegistry: async (enabled) => { registrySyncs.push(enabled); },
     refreshEmptySessionToolPolicy: async () => { refreshes += 1; },
   });
   return {
     api,
     config: () => config,
     refreshes: () => refreshes,
+    catalogRefreshes: () => catalogRefreshes,
+    prepared,
+    installedModels,
+    stopped: () => stopped,
+    registrySyncs,
   };
 }
 
@@ -52,16 +78,46 @@ test('enabling a built-in tool marks it installed; install runs the adapter', as
   const installed = await state.api.installBuiltinFeature('git');
   assert.deepEqual(installed.git, { enabled: true, installed: true });
   assert.equal(state.config().modules.git.enabled, true);
-  await assert.rejects(state.api.installBuiltinFeature('shell'), /git, memory, or office/);
+  await assert.rejects(state.api.installBuiltinFeature('shell'), /git, memory, office, or localProvider/);
 });
 
 test('built-in tool setting rejects names outside the first-party registry', async () => {
   const state = fixture();
   await assert.rejects(
     state.api.setBuiltinToolEnabled('shell', false),
-    /git or office/,
+    /git, office, or localProvider/,
   );
   assert.deepEqual(state.config(), {});
+});
+
+test('Local Provider prepares its runtime, persists provider activation, and refreshes models', async () => {
+  const state = fixture();
+  assert.deepEqual(state.api.getToolModuleSettings().localProvider, {
+    installationCommandError: null,
+    available: true,
+    runtime: { installed: false, version: 'test' },
+    models: [],
+    enabled: false,
+    installed: false,
+  });
+
+  const enabled = await state.api.setBuiltinToolEnabled('localProvider', true);
+  assert.equal(enabled.localProvider.installed, true);
+  assert.equal(enabled.localProvider.enabled, true);
+  assert.deepEqual(state.prepared, ['localProvider']);
+  assert.equal(state.config().providers['mixdog-local'].enabled, true);
+  assert.deepEqual(state.registrySyncs, [true]);
+
+  await state.api.installLocalProviderModel('recommended-model');
+  assert.deepEqual(state.installedModels, ['recommended-model']);
+  assert.equal(state.catalogRefreshes(), 1);
+
+  const disabled = await state.api.setBuiltinToolEnabled('localProvider', false);
+  assert.equal(disabled.localProvider.enabled, false);
+  assert.equal(disabled.localProvider.installed, true);
+  assert.equal(state.config().providers['mixdog-local'].enabled, false);
+  assert.equal(state.stopped(), 1);
+  assert.deepEqual(state.registrySyncs, [true, false]);
 });
 
 test('disabling installed runtime built-ins preserves every install marker', async () => {
@@ -79,4 +135,27 @@ test('disabling installed runtime built-ins preserves every install marker', asy
   assert.equal(state.config().builtins.git.installed, true);
   assert.equal(state.config().builtins.memory.installed, true);
   assert.equal(state.config().builtins.office.installed, true);
+});
+
+test('local runtime activation preserves settings changed while preparation was pending', async () => {
+  let config = { profile: { title: 'before' } };
+  let finishInstall;
+  const pending = new Promise((resolve) => { finishInstall = resolve; });
+  const api = createSettingsApi({
+    getConfig: () => config,
+    saveConfigAndAdopt: (next) => { config = next; },
+    setModuleEnabledInConfig,
+    getLocalProviderStatus: () => ({ runtime: { installed: false } }),
+    prepareBuiltinFeature: () => pending,
+    webSearchEnabled: () => true,
+    memoryToolsEnabledFn: () => true,
+    gitToolsEnabledFn: () => true,
+    officeToolsEnabledFn: () => true,
+  });
+  const activating = api.setBuiltinToolEnabled('localProvider', true);
+  config = { ...config, profile: { title: 'updated during preparation' } };
+  finishInstall();
+  await activating;
+  assert.equal(config.profile.title, 'updated during preparation');
+  assert.equal(config.providers['mixdog-local'].enabled, true);
 });

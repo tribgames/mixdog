@@ -1,10 +1,9 @@
-// Prompt-layer rules builders + mtime-invalidated caches, extracted verbatim
-// from manager.mjs. Behavior-preserving: same createRequire lookup, same cache
-// semantics, same error messages.
+// Prompt-layer rules builders. Source revision tracking lives separately so
+// every layer observes deletions, replacements and timestamp rollbacks alike.
 import { createRequire } from 'module';
 import { join } from 'path';
 import { resolvePluginData, mixdogRoot } from '../../../../shared/plugin-paths.mjs';
-import { maxMtimeRecursive } from '../../cache-mtime.mjs';
+import { createRulesSourceCache } from './rules-source-cache.mjs';
 
 // Phase B: Pool B Tier 2 content builder (common rules only).
 // Loaded once per process via createRequire so the CJS module reaches us.
@@ -20,18 +19,23 @@ const _rulesBuilder = (() => {
     try { return _require('../../../../../lib/rules-builder.cjs'); } catch { return null; }
 })();
 
-// BP1/BP2/BP3 prompt-layer caches — invalidated by source file mtime, not a
-// timer. Cheap: O(sentinel-count) stat calls on each session creation, no file
-// I/O when warm.
-let _sharedRulesCache = null;
-let _sharedRulesMtime = 0;
-const _sharedRulesCacheByOmit = new Map();
-const _agentRulesCacheByProfile = new Map();
-const _leadRulesCacheByDelegation = new Map();
-let _leadMetaCache = null;
-let _leadMetaMtime = 0;
-let _leadLanguageCache = null;
-let _leadLanguageMtime = 0;
+const _ruleCaches = new Map();
+
+function buildCachedRules(method, label, sources, options, variant = '') {
+    if (!_rulesBuilder || typeof _rulesBuilder[method] !== 'function') return '';
+    let cache = _ruleCaches.get(method);
+    if (!cache) {
+        cache = createRulesSourceCache();
+        _ruleCaches.set(method, cache);
+    }
+    return cache(sources, variant, () => {
+        try {
+            return _rulesBuilder[method](options);
+        } catch (e) {
+            throw new Error(`[session] ${label} build failed: ${e.message}`);
+        }
+    });
+}
 
 function omitToolsKey(omitTools) {
     return [...new Set((Array.isArray(omitTools) ? omitTools : [])
@@ -40,123 +44,54 @@ function omitToolsKey(omitTools) {
 }
 
 export function _buildSharedRules({ omitTools = [] } = {}) {
-    if (!_rulesBuilder || typeof _rulesBuilder.buildSharedToolContent !== 'function') return '';
     const PLUGIN_ROOT = mixdogRoot();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
-    const mtime = maxMtimeRecursive([
+    return buildCachedRules('buildSharedToolContent', 'shared tool rules', [
         join(RULES_DIR, 'shared'),
-    ]);
-    if (mtime > _sharedRulesMtime) {
-        _sharedRulesCacheByOmit.clear();
-        _sharedRulesCache = null;
-        _sharedRulesMtime = mtime;
-    }
-    const key = omitToolsKey(omitTools);
-    if (_sharedRulesCacheByOmit.has(key)) return _sharedRulesCacheByOmit.get(key);
-    try {
-        const built = _rulesBuilder.buildSharedToolContent({
-            PLUGIN_ROOT,
-            DATA_DIR: resolvePluginData(),
-            omitTools,
-        });
-        _sharedRulesCacheByOmit.set(key, built);
-        if (!key) _sharedRulesCache = built;
-        return built;
-    } catch (e) {
-        throw new Error(`[session] shared tool rules build failed: ${e.message}`);
-    }
+    ], { PLUGIN_ROOT, DATA_DIR: resolvePluginData(), omitTools }, omitToolsKey(omitTools));
 }
 
 export function _buildAgentRules(profile = 'full') {
-    if (!_rulesBuilder || typeof _rulesBuilder.buildAgentRoleContent !== 'function') return '';
     const key = String(profile || 'full');
     const PLUGIN_ROOT = mixdogRoot();
     const DATA_DIR = resolvePluginData();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
-    const mtime = maxMtimeRecursive([
+    return buildCachedRules('buildAgentRoleContent', 'agent role rules', [
         join(RULES_DIR, 'agent'),
         join(DATA_DIR, 'mixdog-config.json'),
-    ]);
-    const cached = _agentRulesCacheByProfile.get(key);
-    if (cached && mtime <= cached.mtime) {
-        return cached.value;
-    }
-    try {
-        const built = _rulesBuilder.buildAgentRoleContent({ PLUGIN_ROOT, DATA_DIR, profile: key });
-        _agentRulesCacheByProfile.set(key, { mtime, value: built });
-        return built;
-    } catch (e) {
-        throw new Error(`[session] agent role rules build failed: ${e.message}`);
-    }
+    ], { PLUGIN_ROOT, DATA_DIR, profile: key }, key);
 }
 
 export function _buildLeadRules({ includeLeadBrief = true } = {}) {
-    if (!_rulesBuilder || typeof _rulesBuilder.buildLeadRoleContent !== 'function') return '';
     const PLUGIN_ROOT = mixdogRoot();
     const DATA_DIR = resolvePluginData();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
-    const mtime = maxMtimeRecursive([
+    return buildCachedRules('buildLeadRoleContent', 'lead role rules', [
         join(RULES_DIR, 'lead'),
         join(DATA_DIR, 'mixdog-config.json'),
-    ]);
-    const key = includeLeadBrief ? 'delegating' : 'delegation-free';
-    const cached = _leadRulesCacheByDelegation.get(key);
-    if (cached && mtime <= cached.mtime) {
-        return cached.value;
-    }
-    try {
-        const built = _rulesBuilder.buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR, includeLeadBrief });
-        _leadRulesCacheByDelegation.set(key, { mtime, value: built });
-        return built;
-    } catch (e) {
-        throw new Error(`[session] lead role rules build failed: ${e.message}`);
-    }
+    ], { PLUGIN_ROOT, DATA_DIR, includeLeadBrief }, includeLeadBrief ? 'delegating' : 'delegation-free');
 }
 
 export function _buildLeadMetaContext() {
-    if (!_rulesBuilder || typeof _rulesBuilder.buildLeadMetaContent !== 'function') return '';
     const PLUGIN_ROOT = mixdogRoot();
     const DATA_DIR = resolvePluginData();
     const RULES_DIR = join(PLUGIN_ROOT, 'rules');
-    const mtime = maxMtimeRecursive([
+    return buildCachedRules('buildLeadMetaContent', 'lead meta context', [
         join(RULES_DIR, 'lead'),
         join(DATA_DIR, 'mixdog-config.json'),
         join(DATA_DIR, 'instructions.md'),
         join(DATA_DIR, 'user-workflow.md'),
         join(PLUGIN_ROOT, 'output-styles'),
         join(DATA_DIR, 'output-styles'),
-    ]);
-    if (_leadMetaCache !== null && mtime <= _leadMetaMtime) {
-        return _leadMetaCache;
-    }
-    try {
-        const built = _rulesBuilder.buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR });
-        _leadMetaCache = built;
-        _leadMetaMtime = mtime;
-        return built;
-    } catch (e) {
-        throw new Error(`[session] lead meta context build failed: ${e.message}`);
-    }
+    ], { PLUGIN_ROOT, DATA_DIR });
 }
 
 // Trailing BP3 block: the configured response language. Kept out of BP2 so
 // it is the last instruction before the conversation (see
 // rules-builder.cjs buildLeadLanguageContent).
 export function _buildLeadLanguageContext() {
-    if (!_rulesBuilder || typeof _rulesBuilder.buildLeadLanguageContent !== 'function') return '';
     const DATA_DIR = resolvePluginData();
-    const mtime = maxMtimeRecursive([
+    return buildCachedRules('buildLeadLanguageContent', 'lead language context', [
         join(DATA_DIR, 'mixdog-config.json'),
-    ]);
-    if (_leadLanguageCache !== null && mtime <= _leadLanguageMtime) {
-        return _leadLanguageCache;
-    }
-    try {
-        const built = _rulesBuilder.buildLeadLanguageContent({ DATA_DIR });
-        _leadLanguageCache = built;
-        _leadLanguageMtime = mtime;
-        return built;
-    } catch (e) {
-        throw new Error(`[session] lead language context build failed: ${e.message}`);
-    }
+    ], { DATA_DIR });
 }

@@ -6,7 +6,7 @@
 
 import { embedText } from './embedding-provider.mjs'
 
-export function normalizeComparable(value) {
+function normalizeComparable(value) {
   return String(value ?? '')
     .toLowerCase()
     .replace(/[|`"'“”‘’()[\]{}<>]/g, ' ')
@@ -14,7 +14,7 @@ export function normalizeComparable(value) {
     .trim()
 }
 
-export function compactComparable(value) {
+function compactComparable(value) {
   return normalizeComparable(value).replace(/\s+/g, '')
 }
 
@@ -41,11 +41,11 @@ export function charDice(a, b) {
   return total > 0 ? (2 * overlap) / total : 0
 }
 
-export function coreText(core) {
+function coreText(core) {
   return `${core?.element || ''}\n${core?.summary || ''}`
 }
 
-export function hasSubstantialNonLatinScript(value) {
+function hasSubstantialNonLatinScript(value) {
   const text = String(value ?? '')
   const letters = text.match(/\p{L}/gu) || []
   const latinLetters = letters.filter((letter) => /\p{Script=Latin}/u.test(letter))
@@ -53,7 +53,7 @@ export function hasSubstantialNonLatinScript(value) {
   return nonLatinLetters >= 3 && nonLatinLetters >= letters.length * 0.3
 }
 
-export function cosineSimilarity(a, b) {
+function cosineSimilarity(a, b) {
   if (!Array.isArray(a) || !Array.isArray(b) || a.length === 0 || a.length !== b.length) return null
   let dot = 0
   let aNorm = 0
@@ -179,7 +179,7 @@ export function isSafeConsolidation(target, sources, element, summary) {
 // Whitelisted delete reasons that conservative mode may auto-apply: a copy of
 // a built-in/default rule, a bare restatement, an obsolete/already-implemented
 // decision, or a past-event log. Anything else stays held for APPLY CYCLE3.
-export const SAFE_DELETE_REASONS = new Set([
+const SAFE_DELETE_REASONS = new Set([
   'duplicate', 'dup', 'duplicate_of_default', 'default', 'redundant',
   'restatement', 'restate', 'restates_default',
   'obsolete', 'implemented', 'done', 'completed', 'resolved',
@@ -187,12 +187,12 @@ export const SAFE_DELETE_REASONS = new Set([
 ])
 // Reasons that claim redundancy with a built-in rule demand corroboration —
 // the core text must actually echo the current rules digest.
-export const DEFAULT_ECHO_REASONS = new Set([
+const DEFAULT_ECHO_REASONS = new Set([
   'duplicate', 'dup', 'duplicate_of_default', 'default', 'redundant',
   'restatement', 'restate', 'restates_default',
 ])
 
-export function normalizeDeleteReason(reason) {
+function normalizeDeleteReason(reason) {
   return String(reason ?? '')
     .toLowerCase()
     .trim()

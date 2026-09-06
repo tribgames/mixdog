@@ -14,9 +14,7 @@ import {
 import {
   _unicodeBoundaryPattern,
   _lookupCandidateNodes,
-  _getTokenSymbolsForNode,
   _collectCheapSymbols,
-  _capGraphList,
 } from './symbol-index.mjs';
 import { CODE_GRAPH_MAX_FILES } from './constants.mjs';
 import {
@@ -756,7 +754,7 @@ const _CALLEES_JS_BUILTINS = new Set([
   'require',
 ]);
 
-export function _pickCalleeDeclHit(hits, preferRel) {
+function _pickCalleeDeclHit(hits, preferRel) {
   if (!hits?.length) return null;
   const sameFileDecl = preferRel ? hits.find((h) => h.rel === preferRel && h.declarationLike) : null;
   if (sameFileDecl) return sameFileDecl;
@@ -796,7 +794,7 @@ function _nativeSymbolHit(node, sym) {
 
 // A file/directory anchor is a SCOPE for every symbol mode, symbol_search
 // included — it used to scan the whole graph and ignore the anchor entirely.
-export function _nodeInGraphScope(node, fileRel, scopeRelPrefix) {
+function _nodeInGraphScope(node, fileRel, scopeRelPrefix) {
   if (fileRel) return node?.rel === fileRel;
   if (scopeRelPrefix) {
     const rel = String(node?.rel || '');

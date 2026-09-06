@@ -1,13 +1,14 @@
 import { freemem, totalmem } from 'node:os';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { requestMemoryPressureSnapshot } from './memory-snapshot.mjs';
+import { positiveInt } from './numbers.mjs';
 
 const MB = 1024 * 1024;
 
 // The unified daemon queues bursts instead of starting an unbounded number of
 // agent/provider/shell tasks in one process. Environment overrides remain
 // available for larger hosts; memory thresholds are diagnostic only.
-export const RESOURCE_ADMISSION_DEFAULTS = Object.freeze({
+const RESOURCE_ADMISSION_DEFAULTS = Object.freeze({
   maxAgents: 8,
   maxShells: 8,
   maxHighLoad: 12,
@@ -16,21 +17,17 @@ export const RESOURCE_ADMISSION_DEFAULTS = Object.freeze({
   maxRssMb: 0,
 });
 
-const PRIORITY_RANK = Object.freeze({
+export const PRIORITY_RANK = Object.freeze({
   'user-blocking': 0,
   'user-visible': 1,
   'best-effort': 2,
 });
 
-function normalizePriority(value) {
+export function normalizePriority(value) {
   const key = String(value || 'user-visible').toLowerCase();
   return Object.hasOwn(PRIORITY_RANK, key) ? key : 'user-visible';
 }
 
-function positiveInt(value, fallback) {
-  const parsed = Math.floor(Number(value));
-  return Number.isFinite(parsed) && parsed >= 1 ? parsed : fallback;
-}
 
 function nonNegativeInt(value, fallback) {
   const parsed = Math.floor(Number(value));

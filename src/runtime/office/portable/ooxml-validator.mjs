@@ -4,7 +4,6 @@ import {
   access,
   chmod,
   mkdir,
-  readFile,
   rename,
   rm,
   stat,

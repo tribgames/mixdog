@@ -90,19 +90,19 @@ export function toOpenAIMessages(messages, providerName, options = {}) {
                     function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
                 })),
             };
-            if (replaysReasoningContent && m.reasoningContent) msg.reasoning_content = m.reasoningContent;
+            if (replaysReasoningContent && typeof m.reasoningContent === 'string') msg.reasoning_content = m.reasoningContent;
             const reasoningDetails = openRouterReasoningDetails(m);
             if (reasoningDetails) msg.reasoning_details = reasoningDetails;
             out.push(msg);
             continue;
         }
         const reasoningDetails = m.role === 'assistant' ? openRouterReasoningDetails(m) : null;
-        if (m.role === 'assistant' && ((replaysReasoningContent && m.reasoningContent) || reasoningDetails)) {
+        if (m.role === 'assistant' && ((replaysReasoningContent && typeof m.reasoningContent === 'string') || reasoningDetails)) {
             const msg = {
                 role: m.role,
                 content: normalizeContentForOpenAIChat(m.content, { role: 'assistant' }),
             };
-            if (replaysReasoningContent && m.reasoningContent) msg.reasoning_content = m.reasoningContent;
+            if (replaysReasoningContent && typeof m.reasoningContent === 'string') msg.reasoning_content = m.reasoningContent;
             if (reasoningDetails) msg.reasoning_details = reasoningDetails;
             out.push(msg);
             continue;
@@ -384,9 +384,6 @@ export function toXaiResponsesInput(messages, providerState, options = {}) {
         // encrypted reasoning item like stored server-side continuation.
         startIndex = 0;
     }
-    const dropToolHistory = !previousResponseId
-        && !statelessContinuation
-        && (resetReason !== null || !state?.previousResponseId);
     const input = [];
     const reasoningByMessageIndex = new Map();
     if (statelessContinuation) {
@@ -422,11 +419,9 @@ export function toXaiResponsesInput(messages, providerState, options = {}) {
         }
         const reasoningItems = reasoningByMessageIndex.get(messageIndex);
         if (reasoningItems) input.push(...reasoningItems);
-        if (dropToolHistory && m.role === 'tool') continue;
-        if (dropToolHistory && m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length > 0) {
-            if (m.content) input.push({ role: 'assistant', content: normalizeContentForOpenAIResponses(m.content, { role: 'assistant' }) });
-            continue;
-        }
+        // A missing/reset server anchor requires the full tool trajectory.
+        // The converter lowers foreign native calls to ordinary functions;
+        // discarding their results here would turn completed work into stubs.
         const converted = toResponsesInputMessage(m, pendingToolMedia, customToolCallNameById);
         if (Array.isArray(converted)) input.push(...converted);
         else input.push(converted);

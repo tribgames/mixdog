@@ -9,6 +9,7 @@ import {
 } from './design/design-discipline.mjs';
 import { resolveOfficeDesign } from './design/design-system.mjs';
 import { reviewOfficeDesign } from './quality/design-review.mjs';
+import { normalizeOfficeReviewIssues } from './quality/quality-pipeline.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
 

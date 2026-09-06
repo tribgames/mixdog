@@ -2,6 +2,7 @@ import { Check, ShieldAlert, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type Approval } from "./desktop-types";
 import { t } from "./i18n";
+import { ErrorNotice } from "./ErrorNotice";
 import { isApprovalDismissKey } from "./renderer-logic.mjs";
 import { asRecord, textOf } from "./text-format";
 
@@ -139,9 +140,7 @@ export function ApprovalCard({ approval, resolve }: {
           <figcaption>{image.kind === "visual-diff" ? t("Visual diff") : t("Preview")}</figcaption>
         </figure>)}
       </div>}
-      {approvalError && <p className="approval-error" role="alert" aria-live="assertive">
-        {approvalError}
-      </p>}
+      {approvalError && <ErrorNotice error={approvalError} />}
       <div className="approval-actions">
         <button disabled={resolving} onClick={() => void decide(false)}><X size={16} /> {
           officeTransaction ? t("Keep editing") : t("Deny")

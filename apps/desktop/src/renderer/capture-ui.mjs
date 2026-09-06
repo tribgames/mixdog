@@ -28,8 +28,11 @@ const jitterSwitchMode = process.env.MIXDOG_JITTER_PROBE === "switch";
 // Diagnosis pass: measure transcript stability across a real window-width
 // drag. Reports only — the metrics are read by a human while chasing a jump.
 const jitterWidthMode = process.env.MIXDOG_JITTER_PROBE === "width";
+// Diagnosis pass: a real selection drag out of the transcript. Reports only.
+const jitterSelectMode = process.env.MIXDOG_JITTER_PROBE === "select";
 const jitterProbeMode = process.env.MIXDOG_JITTER_PROBE === "1"
-  || jitterEntryMode || jitterKeysMode || jitterSwitchMode || jitterWidthMode;
+  || jitterEntryMode || jitterKeysMode || jitterSwitchMode || jitterWidthMode
+  || jitterSelectMode;
 const timeoutMs = Number.parseInt(process.env.MIXDOG_CAPTURE_TIMEOUT_MS || "30000", 10);
 const captureOwnerFile = "capture-owner.json";
 const captureHeartbeatMs = 5_000;
@@ -307,7 +310,7 @@ try {
     console.log(`JITTER_PROBE_SUMMARY=${JSON.stringify(summary)}`);
     assert.ok(reportStat.mtimeMs >= startedAt && reportStat.mtimeMs <= Date.now(),
       "Jitter probe output mtime is outside the current run window.");
-    if (jitterWidthMode) {
+    if (jitterWidthMode || jitterSelectMode) {
       // Reporting pass only.
     } else if (jitterKeysMode) {
       // Keyboard paging: every press must move the transcript and hold the

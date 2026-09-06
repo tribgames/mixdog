@@ -584,8 +584,8 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   assert.match(release, /vars\.RELAY_DOMAIN/);
   assert.match(release, /release-timings:[\s\S]*Record timing and warn on material regressions/);
   assert.match(release, /release-timing-report\.mjs/);
-  assert.match(relayDeploy, /mv "\$INSTALL_DIR" "\$BACKUP_DIR"/);
-  assert.match(relayDeploy, /trap rollback ERR/);
+  // Rename failures, signals and failed recovery are exercised against the
+  // actual shell transaction by apps/relay/deploy/release-transaction.test.mjs.
   assert.match(relayDeploy, /sha256sum "\$INSTALL_DIR\/renderer\/index\.html"/);
   assert.match(relayDeploy, /package-lock\.json/);
   assert.match(relayDeploy, /npm ci --omit=dev/);

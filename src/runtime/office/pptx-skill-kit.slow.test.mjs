@@ -13,12 +13,9 @@ import sharp from 'sharp';
 import { executeOfficeTool } from './index.mjs';
 import { isAdvisoryOfficeIssue } from './quality/quality-pipeline.mjs';
 
-const SKILL = fileURLToPath(new URL('../../defaults/skills/pptx/references/', import.meta.url));
+import { kitBlocks } from './authoring/pptx-kit.mjs';
 
-async function kitBlocks(file) {
-  const text = await readFile(join(SKILL, file), 'utf8');
-  return [...text.matchAll(/```js\n([\s\S]*?)```/g)].map((match) => match[1]).join('\n');
-}
+const SKILL = fileURLToPath(new URL('../../defaults/skills/pptx/references/', import.meta.url));
 
 const value = (result) => JSON.parse(result.content[0].text);
 const measured = (qa) => (qa.issuesAfter || qa.issues || []).filter((issue) => !isAdvisoryOfficeIssue(issue)).map((issue) => `${issue.code} ${issue.path}: ${issue.message}`);
@@ -86,19 +83,25 @@ test('kit layout by weight: equal weights divide equally, unequal weights do not
 
 test('kit palette derives a contrast-safe ladder from one seed hue', async () => {
   const kit = await kitBlocks('kit.md');
-  const source = ['hsl', 'contrast', 'darkenUntil', 'palette'].map((name) => {
+  const source = ['hsl', 'contrast', 'darkenUntil', 'counterHue', 'palette'].map((name) => {
     const match = new RegExp(`function ${name}\\([\\s\\S]*?\\n\\}\\n`).exec(kit);
     assert.ok(match, `${name} is in the kit`);
     return match[0];
   }).join('\n');
-  const { palette } = new Function(`${source}\nreturn { palette };`)();
+  const { palette, counterHue } = new Function(`${source}\nreturn { palette, counterHue };`)();
+  // The default accent sits on the counter hue — warm beside cool, cool beside warm — and differs from the single-hue accent.
+  assert.equal(counterHue(225), 15);
+  assert.equal(counterHue(125), 25);
+  assert.equal(counterHue(335), 40);
+  assert.equal(counterHue(8), 198);
+  assert.notEqual(palette({ hue: 205 }).accent, palette({ hue: 205, accentHue: 205 }).accent);
   const luminance = (hex) => {
     const c = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
     return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
   };
   const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + 0.05) / (Math.min(luminance(a), luminance(b)) + 0.05);
-  for (const hue of [8, 60, 125, 185, 205, 260, 335]) {
-    const T = palette({ hue });
+  for (const [hue, accentHue] of [8, 60, 125, 185, 205, 260, 335].flatMap((h) => [[h, undefined], [h, h]])) {
+    const T = palette({ hue, accentHue });
     assert.match(T.accent, /^[0-9A-F]{6}$/);
     assert.ok(contrast(T.body, T.paperAlt) >= 4.5, `${hue}: body on paperAlt`);
     assert.ok(contrast(T.muted, T.paperAlt) >= 4.5, `${hue}: muted on paperAlt`);
@@ -111,8 +114,69 @@ test('kit palette derives a contrast-safe ladder from one seed hue', async () =>
   }
 });
 
+// The measured-text block of the kit, run against a stand-in MEASURE (Hangul 1 em, Latin 0.55 em, a space 0.3 em)
+// so the wrapping and shrinking logic is tested without fonts: a Hangul line never splits an eojeol, an author's
+// break survives, Latin passes through, a closing mark never opens a line, inline runs keep their paragraph options
+// on the piece that carried them, and a shrinking box lands on a scale step.
+test('kit wraps Hangul by the eojeol and shrinks type along the scale', async () => {
+  const kit = await kitBlocks('kit.md');
+  const start = kit.indexOf('const HANGUL');
+  const end = kit.indexOf('\n}\n', kit.indexOf('function fitSize(', start)) + 3;
+  assert.ok(start > 0 && end > start, 'the measured-text block is in the kit');
+  const em = (ch) => (/[\uAC00-\uD7A3]/.test(ch) ? 1 : ch === ' ' ? 0.3 : 0.55);
+  const widthOf = (text, size) => [...text].reduce((sum, ch) => sum + em(ch) * size / 72, 0);
+  const MEASURE = (text, { size = 18, width = 0, lineHeight = 1 } = {}) => {
+    const lines = String(text).split('\n').flatMap((para) => {
+      if (!width) return [para];
+      const out = []; let current = '';
+      for (const ch of para) { if (current && widthOf(current + ch, size) > width) { out.push(current); current = ch; } else current += ch; }
+      out.push(current);
+      return out;
+    });
+    return { lines: lines.length, height: lines.length * size / 72 * 1.2 * lineHeight, width: Math.max(...lines.map((line) => widthOf(line, size))) };
+  };
+  const T = { sans: 'Noto Sans KR', light: 'Noto Sans KR' };
+  const TYPE = { body: 18, lead: 22, caption: 13, kicker: 11, section: 27, title: 36, cover: 47, hero: 65, poster: 99 };
+  const DIAG = { label: 14, note: 11.5 };
+  const fitH = (text, w, size, font, { bold = false, lh = 1 } = {}) => MEASURE(text, { font, size, bold, width: w, lineHeight: lh }).height + 0.06;
+  const { wrapKo, runsOf, wrapRuns, fitSize } = new Function('MEASURE', 'T', 'TYPE', 'DIAG', 'fitH', `${kit.slice(start, end)}\nreturn { wrapKo, runsOf, wrapRuns, fitSize };`)(MEASURE, T, TYPE, DIAG, fitH);
+
+  const sentence = '원문에서 낸 QuizBank 10 문항으로 슬라이드만 보고 답한 정답률';
+  const wrapped = wrapKo(sentence, 3.4, 18, T.sans);
+  const lines = wrapped.split('\n');
+  assert.ok(lines.length >= 2, `a 3.4 in column wraps the sentence: ${wrapped}`);
+  assert.ok(lines.every((line) => widthOf(line, 18) <= 3.4 * 0.98 + 1e-9), 'every line fits the zone with the margin');
+  assert.equal(lines.join(' '), sentence, 'the break falls only at a space — no eojeol is split');
+  assert.deepEqual(wrapKo('좋은 슬라이드는\n이제 측정된다', 10, 47, T.sans).split('\n'), ['좋은 슬라이드는', '이제 측정된다'], 'an author\'s break stays');
+  assert.equal(wrapKo('The quick brown fox jumps', 1, 18, T.sans), 'The quick brown fox jumps', 'Latin passes through untouched');
+  assert.equal(wrapKo('미학 .', 0.3, 18, T.sans), '미학 .', 'a closing mark never opens a line');
+  assert.equal(runsOf('한 줄'), '한 줄', 'a single line stays a string');
+  assert.deepEqual(runsOf('a\nb'), [{ text: 'a' }, { text: 'b', options: { softBreakBefore: true } }], 'a broken string becomes one paragraph with a soft break');
+
+  const runs = [
+    { text: '미학 상위는 편집이 안 되고, ', options: { paraSpaceAfter: 17 } },
+    { text: '편집 가능한 쪽은 미학이 낮다', options: { bold: true, color: 'AF3A1D', fontFace: T.sans } },
+    { text: '. 두 축을 동시에 잡은 시스템은 하나도 없다.', options: { breakLine: true } },
+  ];
+  const pieces = wrapRuns(runs, 3.6, 27, T.light);
+  assert.ok(pieces.some((piece) => piece.options.softBreakBefore), 'the paragraph is broken with soft breaks');
+  assert.equal(pieces.filter((piece) => piece.options.paraSpaceAfter).length, 1, 'paragraph spacing stays on the one piece that carried it');
+  assert.equal(pieces[0].options.paraSpaceAfter, 17);
+  assert.equal(pieces.at(-1).options.breakLine, true, 'the paragraph still ends where the author ended it');
+  assert.ok(pieces.filter((piece) => piece.options.bold).every((piece) => piece.options.color === 'AF3A1D'), 'a run\'s later pieces keep its type');
+  assert.equal(pieces.map((piece) => piece.text).join('').replace(/ /g, ''), runs.map((run) => run.text).join('').replace(/ /g, ''), 'no character is lost or duplicated');
+  assert.ok(!pieces.some((piece) => /^\./.test(piece.text) && piece.options.softBreakBefore), 'a line never opens with a full stop');
+
+  const short = '짧은 문장';
+  assert.equal(fitSize(short, 8, 1, 22, T.sans, { min: 13 }), 22, 'text that fits keeps its size');
+  const long = '이 문장은 한 줄에 들어가지 않을 만큼 길어서 작은 크기로 내려가야 한다 그리고 계속 이어진다';
+  const shrunk = fitSize(long, 6, fitH(long, 6, 18, T.sans) , 22, T.sans, { min: 13 });
+  assert.equal(shrunk, 18, 'a box sized for the body step lands on 18, never on 21 or 19');
+  assert.ok([22, 18, 14, 13].includes(fitSize(long, 4, 0.5, 22, T.sans, { min: 13 })), 'nothing off the scale');
+});
+
 test('every hard rule in the skill names a runtime code that exists, or is marked manual', async () => {
-  const files = ['direction.md', 'composition.md', 'kit.md', 'pictures.md'].map((file) => join(SKILL, file));
+  const files = ['direction.md', 'composition.md', 'kit.md', 'charts.md', 'pictures.md'].map((file) => join(SKILL, file));
   files.push(join(SKILL, '..', 'SKILL.md'));
   const runtime = await Promise.all(['quality', 'authoring', 'portable', 'core'].map(async (dir) => {
     const base = fileURLToPath(new URL(`./${dir}/`, import.meta.url));
@@ -138,7 +202,7 @@ test('every hard rule in the skill names a runtime code that exists, or is marke
 });
 
 test('the skill never ships a whole-slide function: no reference defines an archetype', async () => {
-  for (const file of ['direction.md', 'composition.md', 'kit.md', 'pictures.md']) {
+  for (const file of ['direction.md', 'composition.md', 'kit.md', 'charts.md', 'pictures.md']) {
     const kit = await kitBlocks(file);
     assert.doesNotMatch(kit, /function (?:S|E|R|P)\d+\(/, `${file} defines a skeleton function`);
     assert.doesNotMatch(kit, /function (?:cover|section|closing|archNode|phaseRoadmap|benchmarkBarChart|statWell|pairRow)\(/, `${file} defines a whole-slide or card-grid generator`);
@@ -148,10 +212,12 @@ test('the skill never ships a whole-slide function: no reference defines an arch
 test('a deck composed from the kit primitives authors, validates, and passes the measured review', { timeout: 180_000 }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-pptx-kit-'));
   t.after(() => rm(cwd, { recursive: true, force: true }));
-  const script = `${await kitBlocks('kit.md')}\n${DECK}`;
+  // The runner adds the kit: the script is the brief and the slides alone.
   const path = join(cwd, 'kit.pptx');
-  const authored = value(await executeOfficeTool({ action: 'author', path, script, mode: 'portable', overwrite: true, render: true }, { cwd }));
+  const authored = value(await executeOfficeTool({ action: 'author', path, script: DECK, mode: 'portable', overwrite: true, render: true }, { cwd }));
   assert.equal(authored.ok, true, `${authored.error?.message}\n${authored.error?.excerpt || ''}`);
+  assert.equal(authored.kit, 'runtime');
+  assert.ok(authored.nativeGradients >= 2, `the cover and closing fields are native gradients: ${authored.nativeGradients}`);
   assert.equal(authored.render?.pageCount, 12);
   assert.equal(authored.receipt?.slides?.length, 12, 'the author result carries a composition receipt per slide');
   assert.ok(authored.receipt.slides[2].charts >= 1, 'the receipt sees the native chart on slide 3');
@@ -167,13 +233,9 @@ test('a deck composed from the kit primitives authors, validates, and passes the
 test('the kit deck holds at presentation scale with the safe Korean pairing', { timeout: 180_000 }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-pptx-presentation-'));
   t.after(() => rm(cwd, { recursive: true, force: true }));
-  const kit = (await kitBlocks('kit.md'))
-    .replace("const MODE = 'balanced';", "const MODE = 'presentation';")
-    .replace("typography({ script: 'ko', pairing: 'weight', fonts: 'noto' });", "typography({ script: 'ko', pairing: 'serif', fonts: 'safe' });");
-  assert.match(kit, /MODE = 'presentation'/);
-  assert.match(kit, /fonts: 'safe' \}\);/);
+  const script = `deck({ hue: 205, accentHue: 205, mode: 'presentation', script: 'ko', pairing: 'serif', fonts: 'safe' });\n${DECK}`;
   const path = join(cwd, 'presentation.pptx');
-  const authored = value(await executeOfficeTool({ action: 'author', path, script: `${kit}\n${DECK}`, mode: 'portable', overwrite: true, render: true }, { cwd }));
+  const authored = value(await executeOfficeTool({ action: 'author', path, script, mode: 'portable', overwrite: true, render: true }, { cwd }));
   assert.equal(authored.ok, true, `${authored.error?.message}\n${authored.error?.excerpt || ''}`);
   assert.equal(authored.render?.pageCount, 12);
   const qa = value(await executeOfficeTool({ action: 'qa', session: authored.session }, { cwd }));
@@ -220,11 +282,11 @@ test('pictures composed through the picture kit author without measured review w
   t.after(() => rm(cwd, { recursive: true, force: true }));
   const paths = await writeSamplePictures(cwd);
   const P = Object.fromEntries(Object.entries(paths).map(([name, path]) => [name, JSON.stringify(path)]));
-  const script = `${await kitBlocks('kit.md')}\n${await kitBlocks('pictures.md')}\n${pictureDeck(P)}`;
   const path = join(cwd, 'pictures.pptx');
-  const authored = value(await executeOfficeTool({ action: 'author', path, script, mode: 'portable', overwrite: true, render: true }, { cwd }));
+  const authored = value(await executeOfficeTool({ action: 'author', path, script: pictureDeck(P), mode: 'portable', overwrite: true, render: true }, { cwd }));
   assert.equal(authored.ok, true, `${authored.error?.message}\n${authored.error?.excerpt || ''}`);
   assert.equal(authored.render?.pageCount, 5);
+  assert.ok(authored.nativeGradients >= 2, `scrims are native gradients over the pictures: ${authored.nativeGradients}`);
   assert.ok(authored.receipt?.slides?.every((slide) => slide.pictures >= 1), 'every slide of the picture deck carries a picture in the receipt');
   const qa = value(await executeOfficeTool({ action: 'qa', session: authored.session }, { cwd }));
   assert.deepEqual(measured(qa), []);

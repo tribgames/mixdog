@@ -8,7 +8,7 @@ import { executeBuiltinTool, formatUnknownBuiltinToolMessage, isBuiltinTool, isE
 import { executePatchTool } from '../../tools/patch.mjs';
 import { executeInternalTool, isInternalTool } from '../../internal-tools.mjs';
 import { normalizeToolEnvelope, makeToolEnvelope } from '../tool-envelope.mjs';
-import { getSessionAbortSignal, enqueuePendingMessage, markCompletionEntry, markSessionToolOutputTail } from '../manager.mjs';
+import { enqueuePendingMessage, markCompletionEntry, markSessionToolOutputTail } from '../manager.mjs';
 import { createScopedCacheOutcome } from '../cache/scoped-cache-outcome.mjs';
 import { modelVisibleToolCompletionMessage } from '../../../../shared/tool-execution-contract.mjs';
 import { _isScopedCacheableTool } from './tool-classify.mjs';

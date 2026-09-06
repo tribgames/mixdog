@@ -169,7 +169,7 @@ export async function exchangeCursorToken(token, { fetchFn = fetch, signal } = {
     };
 }
 
-export async function pollCursorOAuth(uuid, verifier, {
+async function pollCursorOAuth(uuid, verifier, {
     fetchFn = fetch,
     signal,
     delayFn = (ms) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms)),

@@ -9,11 +9,11 @@
 // this module stays a pure factory with no import-time side effects.
 import fs from 'node:fs'
 import path from 'node:path'
-import { normalizeIngestRole, sessionMessageContentForIngest, shouldExcludeIngestMessage } from './session-ingest.mjs'
+import { sessionMessageContentForIngest, shouldExcludeIngestMessage } from './session-ingest.mjs'
 
 // Pure: coerce a transcript timestamp (seconds, ms, or ISO string) to ms and
 // preserve whether it came from the source or was synthesized at collection.
-export function parseTsWithSource(value, fallbackMs = Date.now()) {
+function parseTsWithSource(value, fallbackMs = Date.now()) {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return { tsMs: value < 1e12 ? value * 1000 : value, timeSource: 'recorded' }
   }

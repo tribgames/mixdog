@@ -1,7 +1,7 @@
 import { statSync } from 'fs';
 import * as fsPromises from 'fs/promises';
-import { isAbsolute, normalize, resolve, sep } from 'path';
-import { deleteReadRangeIndexForPath } from './read-range-index.mjs';
+import { isAbsolute, resolve, sep } from 'path';
+import { canonicalCachePath, deleteReadRangeIndexForPath } from './read-range-index.mjs';
 import { resolveAgainstCwd } from './path-utils.mjs';
 
 const RESULT_CACHE = new Map(); // key → { ts, value, paths, scopes, readSnapshotMeta, contentPrefixHash, bytes }
@@ -52,11 +52,6 @@ const RAW_CONTENT_CACHE_MAX_BYTES = (() => {
     return 64 * 1024 * 1024;
 })();
 let RAW_CONTENT_CACHE_BYTES = 0;
-
-function canonicalCachePath(p) {
-    const full = normalize(resolve(String(p || '')));
-    return process.platform === 'win32' ? full.toLowerCase() : full;
-}
 
 function normalizeCacheMetaPaths(values) {
     if (!Array.isArray(values)) return [];

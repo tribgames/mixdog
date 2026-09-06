@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 
 import { resetOfficeSessionsForTest } from '../index.mjs';
-import { evaluatePowerPointCategorySpacing, extractPdfTextLayout } from '../pdf/pdf-analysis.mjs';
 import { office } from './bench-support.mjs';
 
 async function persistRenderImages(raw, value, directory, prefix) {

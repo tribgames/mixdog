@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { SessionSnapshot } from "../shared/contract";
 import type { Snapshot } from "./desktop-types";
 import type { DesktopSnapshotStore } from "./desktop-snapshot-store";
+import { RendererLruCache } from "./renderer-lru-cache";
 
 const SESSION_SNAPSHOT_CACHE_LIMIT = 6;
 const SESSION_SNAPSHOT_CACHE_BYTE_LIMIT = 16 * 1024 * 1024;
@@ -50,71 +51,57 @@ export function estimateSessionSnapshotBytes(snapshot: Snapshot): number {
   );
 }
 
-interface SnapshotCacheEntry {
-  snapshot: Snapshot;
-  bytes: number;
-}
+let snapshotCacheSequence = 0;
 
 export interface SessionSnapshotCache {
   remember(snapshot: SessionSnapshot | Snapshot | null | undefined): void;
   get(sessionId: string): Snapshot | null;
   forget(sessionId: string): void;
+  registerBudget(): void;
+  dispose(): void;
 }
 
 export function createSessionSnapshotCache({
   maxEntries = SESSION_SNAPSHOT_CACHE_LIMIT,
   maxBytes = SESSION_SNAPSHOT_CACHE_BYTE_LIMIT,
+  registerBudget = true,
 }: {
   maxEntries?: number;
   maxBytes?: number;
+  registerBudget?: boolean;
 } = {}): SessionSnapshotCache {
-  const entries = new Map<string, SnapshotCacheEntry>();
-  let retainedBytes = 0;
+  const entries = new RendererLruCache<string, Snapshot>({
+    name: `session-snapshots-${++snapshotCacheSequence}`,
+    maxEntries,
+    maxChars: maxBytes / 2,
+    measure: (snapshot) => estimateSessionSnapshotBytes(snapshot) / 2,
+    register: registerBudget,
+  });
   return {
     remember(next) {
       const value = next && typeof next === "object" ? next as Snapshot : null;
       if (!value) return;
       const sessionId = String(value.sessionId || "");
       if (!sessionId) return;
-      const prior = entries.get(sessionId);
-      if (prior) {
-        entries.delete(sessionId);
-        retainedBytes -= prior.bytes;
-      }
-      const bytes = estimateSessionSnapshotBytes(value);
       // The live snapshot store already owns the current frame. Keeping a
       // second reference to an individually oversized transcript buys no safe
       // instant-resume benefit, so leave it uncached.
-      if (bytes > maxBytes) return;
-      entries.set(sessionId, { snapshot: value, bytes });
-      retainedBytes += bytes;
-      while (entries.size > maxEntries || retainedBytes > maxBytes) {
-        const oldestId = entries.keys().next().value;
-        if (oldestId === undefined) break;
-        const oldest = entries.get(oldestId);
-        entries.delete(oldestId);
-        retainedBytes -= oldest?.bytes || 0;
-      }
+      entries.set(sessionId, value);
     },
     get(sessionId) {
-      const entry = entries.get(sessionId) || null;
-      if (!entry) return null;
-      entries.delete(sessionId);
-      entries.set(sessionId, entry);
-      return entry.snapshot;
+      return entries.get(sessionId) || null;
     },
     forget(sessionId) {
-      const entry = entries.get(sessionId);
-      if (!entry) return;
       entries.delete(sessionId);
-      retainedBytes -= entry.bytes;
     },
+    registerBudget() { entries.register(); },
+    dispose() { entries.dispose(); },
   };
 }
 
 export function useSessionSnapshotCache(snapshotStore: DesktopSnapshotStore) {
   const cacheRef = useRef<SessionSnapshotCache | null>(null);
-  cacheRef.current ||= createSessionSnapshotCache();
+  cacheRef.current ||= createSessionSnapshotCache({ registerBudget: false });
 
   const rememberSessionSnapshot = useCallback((next: SessionSnapshot | Snapshot | null | undefined) => {
     cacheRef.current?.remember(next);
@@ -126,9 +113,15 @@ export function useSessionSnapshotCache(snapshotStore: DesktopSnapshotStore) {
 
   // Every published snapshot updates the entry for its own session.
   useEffect(() => {
+    const cache = cacheRef.current!;
+    cache.registerBudget();
     const rememberCurrent = () => rememberSessionSnapshot(snapshotStore.getSnapshot());
     rememberCurrent();
-    return snapshotStore.subscribe(rememberCurrent);
+    const unsubscribe = snapshotStore.subscribe(rememberCurrent);
+    return () => {
+      unsubscribe();
+      cache.dispose();
+    };
   }, [rememberSessionSnapshot, snapshotStore]);
 
   /** Deleting a session drops its cached frame so a reused id cannot resurrect

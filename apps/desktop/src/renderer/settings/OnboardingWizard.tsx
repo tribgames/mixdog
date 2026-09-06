@@ -25,6 +25,7 @@ import {
   type DesktopThemePreference,
 } from '../desktop-theme';
 import { t } from '../i18n';
+import { ErrorNotice } from '../ErrorNotice';
 import { OpenSelect } from '../OpenSelect';
 import { PaneSurfaceGate } from '../PaneSurfaceGate';
 import { modelOptionLabel, providerDisplayName } from '../provider-display';
@@ -507,7 +508,7 @@ export function OnboardingWizard({ api, onDone }: {
           <div className="onboarding-step-view" key={meta.id}>
           {meta.id === 'profile' && <ProfileStep profile={profile} pending={pending} run={run}
             onProfile={setProfile} />}
-          {meta.id === 'providers' && <ProviderStep setup={providerSetup} pending={pending} run={run}
+          {meta.id === 'providers' && <ProviderStep api={api} setup={providerSetup} pending={pending} run={run}
             onSaveApiKey={(event, provider) => void saveApiKey(event, provider)}
             onReload={() => void load(true)} />}
           {meta.id === 'models' && <ModelStep models={models} webSearchModels={webSearchOptions} agents={agents}
@@ -535,7 +536,7 @@ export function OnboardingWizard({ api, onDone }: {
           {meta.id === 'connection' && <PairStep api={api} />}
           {meta.id === 'star' && <StarStep api={api} />}
           </div>
-          {error && <p className="onboarding-error" role="alert">{error}</p>}
+          {error && <ErrorNotice error={error} />}
           </div>
         </PaneSurfaceGate>
       </div>
@@ -581,7 +582,8 @@ function OnboardingSkipConfirmation({ onCancel, onConfirm }: {
   </div>;
 }
 
-function ProviderStep({ setup, pending, run, onSaveApiKey, onReload }: {
+function ProviderStep({ api, setup, pending, run, onSaveApiKey, onReload }: {
+  api: DesktopApi;
   setup: RecordValue;
   pending: string;
   run<T = unknown>(
@@ -598,7 +600,6 @@ function ProviderStep({ setup, pending, run, onSaveApiKey, onReload }: {
   const apiProviders = [...rows(setup.api)]
     .sort((left, right) => Number(String(right.id) === 'opencode-go') - Number(String(left.id) === 'opencode-go'));
   const oauthProviders = rows(setup.oauth);
-  const localProviders = rows(setup.local);
   return <>
     {oauthProviders.length > 0 && <div className="onboarding-model-section"><h3>{t('OAuth')}</h3>
     <div className="onboarding-provider-list">
@@ -612,7 +613,7 @@ function ProviderStep({ setup, pending, run, onSaveApiKey, onReload }: {
             : provider.authenticated && /^(valid|set|access only)$/i.test(String(provider.status || '')) ? 'Connected'
               : String(provider.status || (provider.authenticated ? 'Connected' : 'Not connected')))}</small></div>
         <span className="onboarding-provider-action">
-          <OAuthControl provider={{ ...provider, label: providerTitle(provider) }} disabled={Boolean(pending)} run={run} onComplete={onReload} />
+          <OAuthControl api={api} provider={{ ...provider, label: providerTitle(provider) }} disabled={Boolean(pending)} run={run} onComplete={onReload} />
         </span>
         {Boolean(provider.authenticated || provider.reauthRequired) && <button type="button" className="ghost" disabled={Boolean(pending)} onClick={() => {
           void run('forgetProviderAuth', [provider.id], `forget-${provider.id}`).then((result) => {
@@ -644,21 +645,6 @@ function ProviderStep({ setup, pending, run, onSaveApiKey, onReload }: {
           });
         }}>{t('Forget')}</button>}
       </form>)}
-    </div></div>}
-    {localProviders.length > 0 && <div className="onboarding-model-section"><h3>{t('Local')}</h3>
-    <div className="onboarding-provider-list">
-      {localProviders.map((provider) => <form key={String(provider.id)} onSubmit={(event) => {
-        event.preventDefault();
-        const baseURL = new FormData(event.currentTarget).get('baseURL');
-        void run('setLocalProvider', [provider.id, { enabled: true, baseURL }], `local-${provider.id}`)
-          .then((result) => { if (result !== undefined) onReload(); });
-      }}><div><b>{providerTitle(provider)}</b><small>{t(String(provider.status || 'Local OpenAI-compatible endpoint'))}</small></div>
-        <input name="baseURL" type="url" defaultValue={String(provider.baseURL || provider.defaultURL || '')} required />
-        <button disabled={Boolean(pending)}>{provider.enabled ? t('Update') : t('Enable')}</button>
-        {Boolean(provider.enabled) && <button type="button" className="ghost" disabled={Boolean(pending)} onClick={() => {
-          void run('setLocalProvider', [provider.id, { enabled: false, baseURL: provider.baseURL }], `local-disable-${provider.id}`)
-            .then((result) => { if (result !== undefined) onReload(); });
-        }}>{t('Disable')}</button>}</form>)}
     </div></div>}
   </>;
 }
@@ -877,10 +863,7 @@ function GitStep({ api }: { api: DesktopApi }) {
             onClick={() => open(flow.url || 'https://github.com/login/device')}>{t('Open github.com ↗')}</button></>
         : t('Starting GitHub sign-in…')}
     </p>}
-    {flowState === 'error' && <p className="onboarding-error" role="alert">
-      {t('Sign-in failed: {{message}}', { message: flow?.message || t('unknown error') })}
-    </p>}
-    {gitError && <p className="onboarding-error" role="alert">{gitError}</p>}
+    <ErrorNotice errors={[flowState === 'error' ? flow?.message || t('unknown error') : '', gitError]} />
   </div>;
 }
 

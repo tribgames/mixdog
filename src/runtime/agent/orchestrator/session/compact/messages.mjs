@@ -114,7 +114,7 @@ export function isProtectedContextAckMessage(m) {
         && !Array.isArray(m.toolCalls);
 }
 
-export function referenceFilesManifestMessage(message) {
+function referenceFilesManifestMessage(message) {
     if (message?.role !== 'user' || typeof message.content !== 'string') return null;
     const text = message.content.trimStart();
     if (!/^Reference files:\s*/i.test(text)) return null;

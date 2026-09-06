@@ -15,11 +15,21 @@ import { buildGatewayLimits } from '../runtime/agent/orchestrator/providers/stat
 import { compactBoundaryForStatus, formatGatewayLimitSegments, loadGatewayStatus } from '../vendor/statusline/bin/statusline-route.mjs';
 import { createSessionStats } from './session-stats.mjs';
 import {
-  FALLBACK_CONTEXT_WINDOW, statusSubtle,
-  R, B, D, GRN, YLW, RED,
-  terminalColumns, modelContextWindow, formatModelSegment,
-  formatContextSegment, colourPct, epochMsToHHMM,
-  num, formatElapsed,
+  statusSubtle,
+  R,
+  B,
+  D,
+  GRN,
+  YLW,
+  RED,
+  terminalColumns,
+  modelContextWindow,
+  formatModelSegment,
+  formatContextSegment,
+  colourPct,
+  epochMsToHHMM,
+  num,
+  formatElapsed,
 } from './statusline-format.mjs';
 import { shellJobsStatus, memoryCycleStatus } from './statusline-segments.mjs';
 import {
@@ -592,7 +602,7 @@ function providerKindForQuota(provider) {
   const p = String(provider || '').toLowerCase();
   if (p === 'opencode-go') return 'quota-api';
   if (p.includes('oauth')) return 'oauth';
-  if (p === 'ollama' || p === 'lmstudio') return 'local';
+  if (p === 'mixdog-local') return 'local';
   return 'api';
 }
 

@@ -11,9 +11,7 @@ import {
     memoryHandoffTimeoutMs,
     runFreshContextCompact,
 } from '../loop/fresh-context.mjs';
-import {
-    positiveContextWindow,
-} from './context-meta.mjs';
+import { positiveInt } from '../../../../shared/numbers.mjs';
 import { resolveHandoffSummaryModel } from '../loop/compact-policy.mjs';
 import { traceAgentCompact, messagePrefixHash } from '../../agent-trace.mjs';
 import { uncachedInputTokensForProvider } from './usage-metrics.mjs';
@@ -107,7 +105,7 @@ function withoutLegacyCompactFields(value) {
 // large (~100k-token) transcript no longer dies on a fixed 30s bound.
 // session.compaction.timeoutMs still overrides.
 function handoffSummaryTimeoutMs(session, messageTokens) {
-    const override = positiveContextWindow(session?.compaction?.timeoutMs);
+    const override = positiveInt(session?.compaction?.timeoutMs);
     if (override) return override;
     const scaled = Math.ceil((messageTokens || 0) / 25_000) * 10_000;
     return Math.min(120_000, Math.max(30_000, scaled));
@@ -120,9 +118,9 @@ export async function runSessionCompaction(session, opts = {}) {
     if (mode === 'auto' && session.compaction?.auto === false) return null;
     const messages = Array.isArray(session.messages) ? session.messages : [];
     if (messages.length < 3 && !force) return null;
-    const boundary = positiveContextWindow(session.compactBoundaryTokens)
-        || positiveContextWindow(session.autoCompactTokenLimit)
-        || positiveContextWindow(session.contextWindow);
+    const boundary = positiveInt(session.compactBoundaryTokens)
+        || positiveInt(session.autoCompactTokenLimit)
+        || positiveInt(session.contextWindow);
     if (!boundary) {
         if (force) throw new Error('compact: no context window is available for this session');
         return null;
@@ -136,8 +134,8 @@ export async function runSessionCompaction(session, opts = {}) {
     const requestReserveTokens = alignedPolicy?.requestReserveTokens
         ?? estimateRequestReserveTokens(session.tools || []);
     const configuredReserveTokens = alignedPolicy?.configuredReserveTokens
-        ?? positiveContextWindow(session.compaction?.reservedTokens)
-        ?? positiveContextWindow(process.env.MIXDOG_AGENT_COMPACT_RESERVED_TOKENS)
+        ?? positiveInt(session.compaction?.reservedTokens)
+        ?? positiveInt(process.env.MIXDOG_AGENT_COMPACT_RESERVED_TOKENS)
         ?? 0;
     const reserveTokens = alignedPolicy?.reserveTokens ?? (requestReserveTokens + configuredReserveTokens);
     const beforeMessageTokens = estimateMessagesTokens(messages);
@@ -186,7 +184,7 @@ export async function runSessionCompaction(session, opts = {}) {
     let freshContextError = null;
     {
         try {
-            const contextWindow = positiveContextWindow(session.contextWindow) || boundary;
+            const contextWindow = positiveInt(session.contextWindow) || boundary;
             const memoryTimeoutMs = memoryHandoffTimeoutMs(session);
             const executeMemory = typeof opts.executeInternalToolFn === 'function'
                 ? opts.executeInternalToolFn
@@ -199,8 +197,8 @@ export async function runSessionCompaction(session, opts = {}) {
                     reserveTokens,
                     contextWindow,
                     boundaryTokens: boundary,
-                    keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
-                    preserveRecentTokens: positiveContextWindow(session.compaction?.preserveRecentTokens),
+                    keepTokens: positiveInt(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
+                    preserveRecentTokens: positiveInt(session.compaction?.preserveRecentTokens),
                     handoffTimeoutMs: handoffSummaryTimeoutMs(session, beforeMessageTokens),
                 },
                 sessionId: resolvedSessionId,
@@ -260,7 +258,7 @@ export async function runSessionCompaction(session, opts = {}) {
             compact_changed: false,
             before_count: messages.length,
             after_count: messages.length,
-            context_window: positiveContextWindow(session.contextWindow) || null,
+            context_window: positiveInt(session.contextWindow) || null,
             budget_tokens: boundary,
             boundary_tokens: boundary,
             target_budget_tokens: budget,
@@ -388,7 +386,7 @@ export async function runSessionCompaction(session, opts = {}) {
         after_count: compacted.length,
         before_bytes: beforeEncoded ? Buffer.byteLength(beforeEncoded, 'utf8') : null,
         after_bytes: afterEncoded ? Buffer.byteLength(afterEncoded, 'utf8') : null,
-        context_window: positiveContextWindow(session.contextWindow) || null,
+        context_window: positiveInt(session.contextWindow) || null,
         budget_tokens: boundary,
         boundary_tokens: boundary,
         target_budget_tokens: budget,

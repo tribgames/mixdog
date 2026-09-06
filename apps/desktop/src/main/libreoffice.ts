@@ -4,10 +4,33 @@
 // card brings it in as part of its Install step. Desktop-only surface executed
 // by the singleton daemon.
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { run } from './cli-run';
+import { packagedRuntimeSourceRoot } from './runtime-layout';
 import type { DesktopLibreOfficeStatus } from '../shared/contract';
+
+export interface InstallLibreOfficeOptions {
+  packaged?: boolean;
+  resourcesPath?: string;
+  appPath?: string;
+}
+
+/** The Office runtime's font provisioner (Noto faces for LibreOffice renders).
+ *  Resolved through the runtime layout like every other runtime module: a
+ *  literal relative import would make the daemon bundle swallow the module and
+ *  its native canvas binding, which esbuild cannot load. */
+export function fontProvisionerModuleUrl(
+  packaged = false,
+  resourcesPath = process.resourcesPath,
+  appPath = process.cwd(),
+): string {
+  const modulePath = packaged
+    ? join(packagedRuntimeSourceRoot(resourcesPath), 'runtime', 'office', 'portable', 'font-provisioner.mjs')
+    : resolve(appPath, '../../src/runtime/office/portable/font-provisioner.mjs');
+  return pathToFileURL(modulePath).href;
+}
 
 // LibreOffice is a ~350MB download; winget/brew on a slow link can outlive the
 // 10-minute budget the small CLIs use.
@@ -67,7 +90,9 @@ export async function libreOfficeStatus(refresh = false): Promise<DesktopLibreOf
     : { installed: false };
 }
 
-export async function installLibreOffice(): Promise<DesktopLibreOfficeStatus> {
+export async function installLibreOffice(
+  { packaged, resourcesPath, appPath }: InstallLibreOfficeOptions = {},
+): Promise<DesktopLibreOfficeStatus> {
   // The install click may race a probe that never ran (or ran before a manual
   // install), and winget treats "already installed" as a failure — so a fresh
   // probe answers first.
@@ -101,6 +126,16 @@ export async function installLibreOffice(): Promise<DesktopLibreOfficeStatus> {
   const status = await libreOfficeStatus(true);
   if (!status.installed) {
     throw new Error('LibreOffice installed, but the executable was not found yet. Restart Mixdog Desktop to pick it up.');
+  }
+  try {
+    // The Noto faces LibreOffice renders with come in alongside it; a missing
+    // or offline provisioner never fails the install itself.
+    const provisioner = await import(
+      /* @vite-ignore */ fontProvisionerModuleUrl(packaged, resourcesPath, appPath)
+    ) as { prepareOfficeFonts(): Promise<unknown> };
+    await provisioner.prepareOfficeFonts();
+  } catch {
+    // Non-fatal: fonts can be prepared on the next Office render.
   }
   return status;
 }

@@ -2,6 +2,8 @@
 // slide instead of a slide. Both checks run on the inspected shape geometry
 // (points) that the text-fit review already collects.
 
+import { independentTextUnit, relationIndex } from './pptx-relations.mjs';
+
 const near = (a, b, tolerance) => Math.abs(a - b) <= tolerance;
 
 function bySlide(entries) {
@@ -31,7 +33,9 @@ function singleLineText(box) {
 export function reviewTextFragmentation(boxes = [], { minimumRun = 3 } = {}) {
   const issues = [];
   for (const [slide, shapes] of bySlide(boxes)) {
+    const relations = relationIndex(shapes);
     const lines = shapes
+      .filter((box) => !independentTextUnit(box, shapes, relations))
       .map((box) => ({ box, line: singleLineText(box) }))
       .filter((entry) => entry.line)
       .sort((first, second) => first.box.top - second.box.top || first.box.left - second.box.left);
@@ -57,8 +61,10 @@ export function reviewTextFragmentation(boxes = [], { minimumRun = 3 } = {}) {
       run.forEach((entry) => used.add(entry));
       issues.push({
         code: 'text_fragmentation',
+        severity: 'info',
+        confidence: 'inferred',
         path: `/slide[${slide}]/shape[${start.box.shape}]`,
-        message: `${run.length} single-line text boxes are stacked as one paragraph (shapes ${run.map((entry) => entry.box.shape).join(', ')}); author them as one text box with paragraphs so the text reflows and edits as a unit.`,
+        message: `${run.length} single-line text boxes may form one paragraph (shapes ${run.map((entry) => entry.box.shape).join(', ')}). Their relationship is unknown; inspect whether they should reflow together before merging.`,
         shapes: run.map((entry) => entry.box.shape),
       });
     }

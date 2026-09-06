@@ -19,7 +19,7 @@ import { getModelsDevProviderModelsSync, getModelsDevRowSync } from './model-cat
 const CODING_UNFIT_ID_RE = /-search(-preview)?(\b|-|$)|-(audio|realtime)-preview/i;
 
 // Known hosted providers get the full id-heuristic + legacy + dedupe
-// treatment. Anything else (ollama/lmstudio/llamacpp/local, or any unknown
+// treatment. Anything else (the managed Local Provider or any unknown
 // custom provider name openai-compat forwards) is treated as CUSTOM: only the
 // enriched-mode drop applies — no id regex, no legacy filter, no dedupe.
 const HOSTED_PROVIDERS = new Set([
@@ -294,7 +294,7 @@ export function sanitizeModelList(models, opts = {}) {
   const provider = String(opts?.provider || '').trim().toLowerCase();
   const hosted = HOSTED_PROVIDERS.has(provider);
 
-  // CUSTOM/local providers (ollama, lmstudio, unknown names): apply ONLY the
+  // CUSTOM/local providers (including mixdog-local): apply ONLY the
   // enriched-mode drop. No id heuristics, no legacy filter, no dedupe.
   if (!hosted) {
     return models.filter((row) => row?.id && !_isNonChatMode(row));

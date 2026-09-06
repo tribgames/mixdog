@@ -79,7 +79,7 @@ async function postJson(url, body, accessToken, { fetchFn = fetch, signal = null
     });
 }
 
-export async function fetchAccountEmail(accessToken, { fetchFn = fetch } = {}) {
+async function fetchAccountEmail(accessToken, { fetchFn = fetch } = {}) {
     try {
         const res = await fetchFn(USERINFO_URL, {
             headers: { Authorization: `Bearer ${accessToken}` },
@@ -96,7 +96,7 @@ export async function fetchAccountEmail(accessToken, { fetchFn = fetch } = {}) {
  * account has none. Endpoints are tried in order because only production
  * answers `loadCodeAssist` reliably for managed accounts.
  */
-export async function discoverProject(accessToken, { fetchFn = fetch, onProgress = null } = {}) {
+async function discoverProject(accessToken, { fetchFn = fetch, onProgress = null } = {}) {
     let tierId = 'free-tier';
     let loaded = false;
     let lastError = '';

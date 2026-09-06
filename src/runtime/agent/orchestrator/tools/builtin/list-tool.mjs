@@ -52,7 +52,6 @@ function positiveTimeoutEnv(name, fallback) {
     const value = Number(process.env[name]);
     return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
-const FIND_WALK_TIMEOUT_MS = 20_000;
 // Fuzzy find is a locate-the-path probe, not an inventory: it must answer in
 // about a second even when the caller points it at `/`. The old 20s walk hit
 // the read-only deadline first and returned NOTHING (observed live: six

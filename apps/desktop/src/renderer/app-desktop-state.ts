@@ -49,11 +49,14 @@ export function useDesktopState() {
       if (live) {
         applyReceivedSnapshot(next);
         setHydrated(true);
+        setError((current) => current === initialReadError ? "" : current);
       }
     };
+    let initialReadError = "";
     Promise.resolve(host.getSnapshot()).then(update).catch((reason) => {
       if (live) {
-        setError(reason instanceof Error ? reason.message : String(reason));
+        initialReadError = reason instanceof Error ? reason.message : String(reason);
+        setError(initialReadError);
         setHydrated(true);
       }
     });

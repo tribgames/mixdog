@@ -3,17 +3,13 @@ import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
 import { canFallbackNonStreaming, withRetry } from './retry-classifier.mjs';
 import { traceAgentUsage, appendAgentTrace } from '../agent-trace.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
+import { geminiThinkingConfig } from './gemini-thinking.mjs';
 import {
-    PROVIDER_FIRST_BYTE_TIMEOUT_MS,
-    PROVIDER_MAX_BEFORE_WARN_MS,
-    PROVIDER_SSE_IDLE_TIMEOUT_MS,
-    PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
-    PROVIDER_CACHE_CREATE_TIMEOUT_MS,
-    PROVIDER_CACHE_CREATE_TOTAL_TIMEOUT_MS,
-    providerTimeoutError,
-    resolveTimeoutMs,
-    createTimeoutSignal,
-    createPassthroughSignal,
+  PROVIDER_CACHE_CREATE_TIMEOUT_MS,
+  PROVIDER_CACHE_CREATE_TOTAL_TIMEOUT_MS,
+  providerTimeoutError,
+  createTimeoutSignal,
+  createPassthroughSignal,
 } from '../stall-policy.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import {
@@ -25,15 +21,14 @@ import {
     stampGeminiRpcError,
 } from './gemini-stream.mjs';
 import {
-    toGeminiTools,
-    toGeminiNativeTools,
-    toGeminiToolConfig,
-    toGeminiContents,
-    parseToolCalls,
-    emitGeminiToolCalls,
-    collectGeminiGroundingSources,
-    parseGeminiThinkingParts,
-    parseGeminiTextPartMetadata,
+  toGeminiTools,
+  toGeminiNativeTools,
+  toGeminiToolConfig,
+  toGeminiContents,
+  parseToolCalls,
+  emitGeminiToolCalls,
+  collectGeminiGroundingSources,
+  parseGeminiTextPartMetadata,
 } from './gemini-schema.mjs';
 import {
     _estimateGeminiCacheTokens,
@@ -55,13 +50,11 @@ import {
     _invalidateGeminiCacheName,
 } from './gemini-cache.mjs';
 import {
-    GEMINI_MODELS as MODELS,
-    DEFAULT_GEMINI_MODEL as DEFAULT_MODEL,
-    geminiModelCache as _modelCache,
-    fetchGeminiModelPages,
-    resolveLatestGeminiModel,
-    ensureLatestGeminiModel,
-    fetchAndCacheGeminiModels,
+  GEMINI_MODELS as MODELS,
+  DEFAULT_GEMINI_MODEL as DEFAULT_MODEL,
+  geminiModelCache as _modelCache,
+  ensureLatestGeminiModel,
+  fetchAndCacheGeminiModels,
 } from './lib/gemini-model-catalog.mjs';
 
 // De-dupes concurrent force-refreshes so they share one HTTP round-trip,
@@ -624,6 +617,8 @@ export class GeminiProvider {
         }
 
         const useModel = model || await ensureLatestGeminiModel(this);
+        const thinkingConfig = geminiThinkingConfig(useModel, opts);
+        const generationConfig = thinkingConfig ? { thinkingConfig } : undefined;
         const systemInstruction = messages
             .filter(m => m.role === 'system')
             .map(m => m.content)
@@ -686,6 +681,7 @@ export class GeminiProvider {
             const body = {
                 contents: deltaContents.length ? deltaContents : contents.slice(-1),
                 cachedContent,
+                ...(generationConfig ? { generationConfig } : {}),
             };
             // cachedContent owns tools + toolConfig. The API rejects a
             // generateContent request that repeats either field.
@@ -785,6 +781,7 @@ export class GeminiProvider {
                 systemInstruction,
                 tools: geminiTools,
                 ...(toolConfig ? { toolConfig } : {}),
+                ...(generationConfig ? { generationConfig } : {}),
             });
             // Option A (mirror anthropic-oauth): pure pass-through of the external
             // signal, no absolute streaming total cap. See the REST branch above.

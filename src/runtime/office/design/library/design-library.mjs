@@ -154,7 +154,7 @@ function bindingPath(paths, documentPath) {
 }
 
 
-export async function readOfficeDesignBinding(dataDir, documentPath) {
+async function readOfficeDesignBinding(dataDir, documentPath) {
   const paths = libraryPaths(dataDir);
   const binding = await readJson(bindingPath(paths, documentPath));
   if (!binding || canonicalPath(binding.documentPath) !== canonicalPath(documentPath)) return null;

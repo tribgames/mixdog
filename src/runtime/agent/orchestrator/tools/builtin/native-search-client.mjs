@@ -441,26 +441,6 @@ async function _readyServer(timeoutMs = SERVER_READY_TIMEOUT_MS) {
   return null;
 }
 
-/** Fast Windows process table snapshot served by the resident native helper.
- *  Returns [{pid,parentPid,identity}] or null; callers stay conservative when
- *  the binary is unavailable or the request misses its short deadline. */
-export async function tryNativeProcessSnapshot({ timeoutMs = 750 } = {}) {
-  if (process.platform !== 'win32' || process.env.MIXDOG_SEARCH_SERVER === '0') return null;
-  const deadlineMs = Math.max(1, Number(timeoutMs) || 750);
-  let response;
-  try {
-    response = await requestNativeWithRestart(
-      (server) => ({ id: ++server.sequence, processSnapshot: true }),
-      {},
-      deadlineMs,
-    );
-  } catch {
-    return null;
-  }
-  if (!response || response.error || !Array.isArray(response.rows)) return null;
-  return response.rows;
-}
-
 async function requestNative(server, request, execOptions, deadlineMs) {
   _setServerReferenced(server, true);
   const response = await new Promise((resolve, reject) => {

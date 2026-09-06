@@ -41,6 +41,7 @@ import {
   hasAntigravityOAuthCredentials,
   loginOAuth as loginAntigravityOAuth,
 } from '../runtime/agent/orchestrator/providers/antigravity-oauth.mjs';
+import { localProviderStatus } from '../runtime/local-provider/managed-runtime.mjs';
 
 const API_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'opencode-go', name: 'OpenCode Go API', env: 'OPENCODE_API_KEY', url: 'https://opencode.ai' }),
@@ -60,38 +61,22 @@ const OAUTH_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'antigravity-oauth', name: 'Antigravity OAuth', desc: 'Sign in with Google (Gemini + Claude)', has: hasAntigravityOAuthCredentials, describe: describeAntigravityOAuthCredentials, forget: forgetAntigravityOAuthCredentials, begin: beginAntigravityOAuthLogin, login: loginAntigravityOAuth }),
 ]);
 
-export const LOCAL_PROVIDERS = Object.freeze([
-  Object.freeze({ id: 'ollama', name: 'Ollama', url: 'http://localhost:11434/v1' }),
-  Object.freeze({ id: 'lmstudio', name: 'LM Studio', url: 'http://localhost:1234/v1' }),
-]);
+export const LOCAL_PROVIDERS = Object.freeze([]);
+const BUILTIN_PROVIDER_IDS = new Set(['mixdog-local']);
 
 const API_PROVIDER_IDS = new Set(API_PROVIDERS.map((p) => p.id));
 const OAUTH_BY_ID = new Map(OAUTH_PROVIDERS.map((p) => [p.id, p]));
-const LOCAL_BY_ID = new Map(LOCAL_PROVIDERS.map((p) => [p.id, p]));
 
 const ALL_PROVIDER_IDS = new Set([
   ...API_PROVIDERS.map((p) => p.id),
   ...OAUTH_PROVIDERS.map((p) => p.id),
   ...LOCAL_PROVIDERS.map((p) => p.id),
+  ...BUILTIN_PROVIDER_IDS,
 ]);
 
 export function isKnownProvider(provider) {
   const id = String(provider || '').trim();
   return id !== '' && ALL_PROVIDER_IDS.has(id);
-}
-
-async function detectLocalProvider(baseURL) {
-  const url = String(baseURL || '').replace(/\/+$/, '') + '/models';
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 650);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    return res.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 function updateConfigProvider(cfgMod, providerId, patch) {
@@ -102,9 +87,43 @@ function updateConfigProvider(cfgMod, providerId, patch) {
   return cfgMod.loadConfig();
 }
 
+function builtInLocalProviderSetup(config, options) {
+  const provider = config.providers?.['mixdog-local'] || {};
+  const installed = config.builtins?.localProvider?.installed === true;
+  const enabled = provider.enabled === true
+    && installed
+    && config.modules?.localProvider?.enabled !== false;
+  let runtime = null;
+  if (options?.detectLocal !== false) {
+    try {
+      runtime = (options?.getLocalProviderStatus || localProviderStatus)();
+    } catch {
+      runtime = null;
+    }
+  }
+  const installedModels = Array.isArray(runtime?.models)
+    ? runtime.models.filter((model) => model?.installed === true)
+    : [];
+  const detected = runtime?.runtime?.installed === true && installedModels.length > 0;
+  return {
+    id: 'mixdog-local',
+    name: 'Local Provider',
+    desc: 'Models managed on this PC by Mixdog',
+    group: 'local',
+    type: 'local',
+    enabled,
+    detected,
+    authenticated: detected,
+    usable: detected && enabled,
+    status: detected ? (enabled ? 'Ready' : 'Off') : installed ? 'No Model' : 'Not Installed',
+    detail: detected
+      ? `${installedModels.length} installed model${installedModels.length === 1 ? '' : 's'}`
+      : 'Install a recommended model from Built-in',
+  };
+}
+
 export async function providerSetup(config = {}, options = {}) {
   const providers = config.providers || {};
-  const detectLocal = options?.detectLocal !== false;
   const checkSecrets = options?.checkSecrets !== false;
   const api = API_PROVIDERS.map((p) => {
     const configured = providers[p.id] || {};
@@ -156,27 +175,7 @@ export async function providerSetup(config = {}, options = {}) {
     };
   });
 
-  const local = await Promise.all(LOCAL_PROVIDERS.map(async (p) => {
-    const configured = providers[p.id] || {};
-    const baseURL = configured.baseURL || p.url;
-    const detected = detectLocal ? await detectLocalProvider(baseURL) : false;
-    const enabled = configured.enabled === true;
-    return {
-      id: p.id,
-      name: p.name,
-      group: 'local',
-      type: 'local',
-      enabled,
-      detected,
-      baseURL,
-      defaultURL: p.url,
-      authenticated: detected,
-      status: enabled && detected ? 'Enabled' : enabled ? 'Enabled' : detected ? 'Disabled' : 'Off',
-      detail: baseURL,
-    };
-  }));
-
-  return { api, oauth, local };
+  return { api, oauth, local: [builtInLocalProviderSetup(config, options)] };
 }
 
 export function providerStatus(config = {}) {
@@ -354,18 +353,6 @@ export async function loginOpenCodeGoUsage(cfgMod) {
   const { loginOpenCodeGoConsoleWithBrowser } = await import('./opencode-go-login.mjs');
   const { workspaceId, authCookie } = await loginOpenCodeGoConsoleWithBrowser();
   return saveOpenCodeGoUsageAuth(cfgMod, { workspaceId, authCookie });
-}
-
-export function setLocalProvider(cfgMod, provider, { enabled, baseURL } = {}) {
-  const id = String(provider || '').trim();
-  const local = LOCAL_BY_ID.get(id);
-  if (!local) throw new Error(`unknown local provider "${id}"`);
-  const nextBaseURL = String(baseURL || local.url).trim() || local.url;
-  updateConfigProvider(cfgMod, id, {
-    enabled: enabled === true,
-    baseURL: nextBaseURL,
-  });
-  return { provider: id, type: 'local', enabled: enabled === true, baseURL: nextBaseURL };
 }
 
 export function forgetProviderAuth(cfgModOrProvider, maybeProvider) {

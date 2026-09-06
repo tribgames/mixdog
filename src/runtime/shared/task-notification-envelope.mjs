@@ -95,28 +95,3 @@ export function shellCompletionInstruction({ jobId, status, exitCode = null } = 
     detail: `exit ${exitCode === null ? 'n/a' : exitCode}`,
   });
 }
-
-// Render the bracketed shell *prompt-stall* progress envelope body.
-// Byte-compatible with the historical inline assembly in maybeNotifyPromptStall.
-export function renderShellPromptStallEnvelope({
-  jobId,
-  stalledMs,
-  elapsedMs = null,
-  command = null,
-  tailText = null,
-} = {}) {
-  return [
-    `[task_id: ${jobId}]`,
-    '[status: running]',
-    `[stalled: no output growth for ${stalledMs} ms]`,
-    (elapsedMs !== null && elapsedMs >= 0) ? `[elapsed: ${elapsedMs} ms]` : null,
-    command ? `[command: ${compactCommand(command)}]` : null,
-    '',
-    'This background shell task appears to be waiting for interactive input. Background tasks cannot answer prompts automatically; cancel it or rerun with non-interactive flags/input.',
-    tailText ? `\n${tailText}` : null,
-  ].filter((line) => line !== null && line !== '').join('\n');
-}
-
-export function shellPromptStallInstruction({ jobId } = {}) {
-  return `The background shell task ${jobId} appears to be waiting for interactive input; inspect the prompt, then cancel or rerun it non-interactively.`;
-}

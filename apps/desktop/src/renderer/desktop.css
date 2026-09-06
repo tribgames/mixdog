@@ -40,6 +40,7 @@
 @import "./desktop/27-search-review.css";
 @import "./desktop/28-usage-explorer.css";
 @import "./desktop/30-dialogs.css";
+@import "./desktop/error-notice.css";
 /* Layer 31 (Extensions rail) is imported by ExtensionsView.tsx for the same
    reason as layer 29: the pane is a lazy chunk whose stylesheet Vite resolves
    before it renders, and it still lands after every layer listed here. */

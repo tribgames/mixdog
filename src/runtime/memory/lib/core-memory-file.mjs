@@ -3,8 +3,8 @@ import { join } from 'node:path'
 import { updateJsonAtomic } from '../../shared/atomic-file.mjs'
 import { resolveProjectScope } from './project-id-resolver.mjs'
 
-export const CORE_MEMORY_FILE_VERSION = 1
-export const CORE_MEMORY_FILE_NAME = 'core-memory.json'
+const CORE_MEMORY_FILE_VERSION = 1
+const CORE_MEMORY_FILE_NAME = 'core-memory.json'
 
 const reservedRevisions = new Map()
 

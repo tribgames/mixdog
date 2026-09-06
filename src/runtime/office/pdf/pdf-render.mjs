@@ -13,7 +13,7 @@ import {
   createCanvas,
   loadImage,
 } from '@napi-rs/canvas';
-import { resolvedPdfJs } from '../../attachments/pdfjs-runtime.mjs';
+import { pdfjsStandardFontDataUrl, resolvedPdfJs } from '../../attachments/pdfjs-runtime.mjs';
 
 function installPdfJsCanvasGlobals() {
   globalThis.DOMMatrix ??= DOMMatrix;
@@ -88,6 +88,7 @@ async function renderPdfPageDirect(path, pageNumber, targetWidth, minimumScale =
     data: new Uint8Array(await readFile(path)),
     disableWorker: true,
     useSystemFonts: false,
+    standardFontDataUrl: pdfjsStandardFontDataUrl(),
     isEvalSupported: false,
     verbosity: VerbosityLevel.ERRORS,
   });
@@ -167,6 +168,7 @@ async function renderPdfPagesDirect(path, {
       data: Uint8Array.from(pdfData),
       disableWorker: true,
       useSystemFonts: false,
+      standardFontDataUrl: pdfjsStandardFontDataUrl(),
       isEvalSupported: false,
       verbosity: VerbosityLevel.ERRORS,
     });

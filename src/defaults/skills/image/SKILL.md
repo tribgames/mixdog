@@ -1,6 +1,7 @@
 ---
 name: image
-description: Use when an image is to be made or edited — a product shot, a hero or social image, an illustration, an icon, a texture, a figure for a document or deck, a background swap, an object removal, a cutout, a style transfer — through the media tool (Mixdog Media Studio). Carries the list → generate → inspect call order, the labeled prompt form, the edit brief, reference roles, text inside images, aspect and size, saving, and provenance. Load before the first media call for an image; a video clip is the video skill.
+description: Make or edit an image through the media tool (Mixdog Media Studio).
+when_to_use: '"이미지 만들어", "그림 생성", "배경 바꿔", "누끼", "아이콘", "썸네일", product shot, illustration, figure; load before the first media call; a video clip is the video skill.'
 metadata:
   requires: media
 ---

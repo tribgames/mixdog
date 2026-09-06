@@ -1,5 +1,6 @@
 import {
   Brain,
+  Cpu,
   FileSpreadsheet,
   GitBranch,
   Globe2,
@@ -16,11 +17,13 @@ import type {
   DesktopSettings,
 } from '../../shared/contract';
 import { t } from '../i18n';
+import { ErrorNotice } from '../ErrorNotice';
 import { record } from '../record-utils';
 import { CompactSwitch, Group } from './capability-controls';
 import { sectionLoaded, type PanelContext, type RecordValue } from './capability-data';
 import {
   ExtensionDetailDialog,
+  ExtensionFacts,
   ExtensionHero,
   ExtensionItemRow,
   ExtensionRow,
@@ -31,6 +34,13 @@ import {
   type BuiltInFeatureDefinition,
   type BuiltInFeatureId,
 } from './built-in-feature-registry';
+import { SlotProgress } from './built-in-install-progress';
+import { LocalProviderModels, localProviderFileSize as fileSize } from './local-provider-models';
+import { installationPercent, localProviderInstallation, useLocalProviderStatus } from './local-provider-status';
+import { useLocalProviderActions } from './local-provider-actions';
+import type { LocalProviderActions } from './local-provider-operations';
+import { ComputerAuthorizationPanel } from './computer-authorization-panel';
+import { GitPanel } from './git-panel';
 
 const FEATURE_ICONS: Readonly<Record<BuiltInFeatureId, LucideIcon>> = {
   git: GitBranch,
@@ -38,6 +48,7 @@ const FEATURE_ICONS: Readonly<Record<BuiltInFeatureId, LucideIcon>> = {
   browser: Globe2,
   computer: Monitor,
   office: FileSpreadsheet,
+  localProvider: Cpu,
   voice: Mic,
 };
 
@@ -65,19 +76,6 @@ function voiceProgress(snapshot: unknown): { text: string; percent: number | nul
   };
 }
 
-// Install progress lives IN the control slot, where the toggle will appear
-// once the install lands — the card never grows a second progress band.
-function SlotProgress({ percent, label }: { percent: number | null; label: string }) {
-  return <span className="built-in-feature-slot-progress" role="progressbar"
-    aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined}
-    aria-valuetext={label}>
-    {percent !== null && <small aria-hidden="true">{percent}%</small>}
-    <span className={`built-in-feature-progress-bar${percent === null ? ' is-indeterminate' : ''}`}>
-      <span style={percent === null ? undefined : { width: `${percent}%` }} />
-    </span>
-  </span>;
-}
-
 type FeatureState = {
   feature: BuiltInFeatureDefinition;
   /** Built-in skills that install and toggle with this feature. */
@@ -91,6 +89,7 @@ type FeatureState = {
   busy: boolean;
   action: FeatureAction | null;
   progressPercent: number | null;
+  localProvider: RecordValue;
 };
 
 /** Short list badge for the state the row cannot show as a switch. */
@@ -120,6 +119,8 @@ function FeatureControl({ state, onInstall, onToggle }: {
       ? <span className="built-in-feature-control-placeholder" aria-hidden="true" />
       : installing
       ? <SlotProgress percent={progressPercent} label={t('Installing {{name}}…', { name: t(feature.title) })} />
+      : !installed && feature.id === 'localProvider'
+      ? <span>{t('Install through chat')}</span>
       : !installed
       ? <button type="button" disabled={!available || busy}
           aria-label={t('Install {{name}}', { name: t(feature.title) })} onClick={onInstall}>
@@ -130,30 +131,80 @@ function FeatureControl({ state, onInstall, onToggle }: {
   </span>;
 }
 
-/** Detail for one built-in feature: the same dialog grammar as plugins, with
- *  its install/enable control in the header and each bundled skill switching
- *  on its own under Contents. */
-function FeatureDetailDialog({ state, disabledSkills, onInstall, onToggle, onSkillToggle, onClose }: {
+/** External component a feature's Install step brings in; '' when none. */
+function featureRequirement(id: BuiltInFeatureId): string {
+  if (id === 'git') return 'Git CLI · GitHub CLI';
+  if (id === 'office') return 'LibreOffice';
+  if (id === 'localProvider') return t('NVIDIA RTX GPU · 24 GB VRAM');
+  return '';
+}
+
+/** One-line status for the Info list — the same states the header control
+ *  cycles through, spelled out so the dialog reads even without a switch. */
+function featureStatus({ ready, installed, enabled, available, action }: FeatureState): string {
+  if (!available) return t('Windows only');
+  if (!ready) return '';
+  if (action?.status === 'installing') return t('Installing…');
+  if (action?.status === 'failed') return t('Failed');
+  if (!installed) return t('Not installed');
+  return enabled ? t('Installed · On') : t('Installed · Off');
+}
+
+/** Detail for one built-in feature: the same dialog grammar as plugins —
+ *  icon and title on the header line with the install/enable control, the
+ *  tagline, then Contents (each bundled skill switching on its own) only when
+ *  the feature ships skills, and an Info list in every case. */
+function FeatureDetailDialog({ state, disabledSkills, onInstall, onToggle, onSkillToggle, onClose, localActions, api }: {
+  api: PanelContext['api'];
   state: FeatureState;
   disabledSkills: ReadonlySet<string>;
   onInstall(): void;
   onToggle(enabled: boolean): void;
   onSkillToggle(name: string, enabled: boolean): void;
   onClose(): void;
+  localActions: LocalProviderActions;
 }) {
   const { feature, bundledSkills, busy, action } = state;
   const Icon = FEATURE_ICONS[feature.id];
   const title = t(feature.title);
+  const requirement = featureRequirement(feature.id);
+  const infoFacts: Array<readonly [string, string]> = [
+    ['Status', featureStatus(state)],
+    ['Platform', feature.platform === 'windows' ? t('Windows only') : t('All platforms')],
+    ['Requires', requirement],
+  ];
+  if (feature.id === 'localProvider') {
+    const runtime = record(state.localProvider.runtime);
+    infoFacts.push(
+      ['Runtime', [
+        String(runtime.version || ''),
+        fileSize(runtime.downloadBytes),
+      ].filter(Boolean).join(' · ')],
+      ['GPU', String(record(state.localProvider.gpu).name
+        || record(record(state.localProvider.hardware).gpu).name || t('Not detected'))],
+      ['Server', state.localProvider.starting ? t('Loading model…')
+        : state.localProvider.running ? t('Running') : t('Stopped')],
+    );
+  }
   return <ExtensionDetailDialog title={title} onClose={onClose}
+    icon={<Icon size={16} aria-hidden="true" />}
     dataAttributes={{ 'data-feature-id': feature.id }}
     headerControl={<FeatureControl state={state} onInstall={onInstall} onToggle={onToggle} />}>
-    <ExtensionHero icon={<Icon size={22} aria-hidden="true" />}
-      tagline={t(feature.description)} />
-    {action?.status === 'failed' && action.message
-      ? <div className="built-in-feature-error" role="alert">{action.message}</div>
+    <ExtensionHero tagline={t(feature.description)} />
+    {feature.id === 'git' && <GitPanel api={api} />}
+    {feature.id === 'computer' && <ComputerAuthorizationPanel api={api} enabled={state.enabled && !busy} />}
+    <ErrorNotice errors={[
+      action?.status === 'failed' ? action.message : '',
+      feature.id === 'localProvider' && !state.localProvider.running ? state.localProvider.lastError : '',
+      feature.id === 'localProvider' ? record(state.localProvider.hardware).error : '',
+    ]} />
+    {feature.id === 'localProvider'
+      ? <>
+        <LocalProviderModels status={state.localProvider} actions={localActions} />
+      </>
       : null}
-    <ExtensionSection title={t('Contents')} count={bundledSkills.length}>
-      {bundledSkills.length ? <div className="extensions-item-list">
+    {bundledSkills.length > 0 && <ExtensionSection title={t('Skills')} count={bundledSkills.length}>
+      <div className="extensions-item-list">
         {bundledSkills.map((skill) => {
           const name = String(skill.name);
           const off = disabledSkills.has(name);
@@ -163,12 +214,18 @@ function FeatureDetailDialog({ state, disabledSkills, onInstall, onToggle, onSki
             control={<CompactSwitch label={`${name} · ${t('Enabled')}`} checked={!off}
               disabled={busy} onChange={(next) => onSkillToggle(name, next)} />} />;
         })}
-      </div> : <p className="extensions-mcp-note">{t('This feature ships no skills.')}</p>}
+      </div>
+    </ExtensionSection>}
+    <ExtensionSection title={t('Info')}>
+      <ExtensionFacts facts={infoFacts} />
     </ExtensionSection>
   </ExtensionDetailDialog>;
 }
 
-export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api }: PanelContext) {
+export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api, initialFeature = null }: PanelContext & {
+  initialFeature?: BuiltInFeatureId | null;
+}) {
+  const localActions = useLocalProviderActions(run, pending);
   const [settings, setSettings] = useState<DesktopSettings | null>(
     () => desktopSettingsCache.get(api as object) ?? null,
   );
@@ -179,7 +236,10 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api }: Pane
   // the round trip fails, instead of sitting still until the daemon answers.
   const [optimistic, setOptimistic] = useState<{ id: BuiltInFeatureId; value: boolean } | null>(null);
   const [voiceInstalled, setVoiceInstalled] = useState(false);
+  const [openId, setOpenId] = useState<BuiltInFeatureId | null>(initialFeature);
   const toolModules = record(data.toolModules);
+  const localProvider = useLocalProviderStatus(api, toolModules.localProvider,
+    openId === 'localProvider' || action?.id === 'localProvider');
   const voice = record(data.voice);
   const progress = voiceProgress(snapshot);
   const windows = navigator.userAgent.includes('Windows');
@@ -203,8 +263,6 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api }: Pane
     if (next) nextSet.delete(name); else nextSet.add(name);
     void run('setDisabledSkills', [[...nextSet]]);
   };
-  const [openId, setOpenId] = useState<BuiltInFeatureId | null>(null);
-
   useEffect(() => {
     if (voice.installed === true) setVoiceInstalled(true);
   }, [voice.installed]);
@@ -233,16 +291,18 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api }: Pane
     browser: settings?.browserInstalled === true,
     computer: settings?.computerInstalled === true,
     office: record(toolModules.office).installed === true,
+    localProvider: localProvider.installed === true,
     voice: voiceInstalled || voice.installed === true,
-  }), [gitStatus?.installed, settings, toolModules, voice.installed, voiceInstalled]);
+  }), [gitStatus?.installed, settings, toolModules, localProvider, voice.installed, voiceInstalled]);
   const enabled = useMemo<Record<BuiltInFeatureId, boolean>>(() => ({
     git: record(toolModules.git).enabled !== false,
     memory: record(toolModules.memory).enabled !== false,
     browser: settings?.browserControl === true,
     computer: settings?.computerControl === true,
     office: record(toolModules.office).enabled !== false,
+    localProvider: localProvider.enabled === true,
     voice: voice.enabled === true && installed.voice,
-  }), [installed.voice, settings, toolModules, voice.enabled]);
+  }), [installed.voice, settings, toolModules, localProvider, voice.enabled]);
 
   const updateDesktopSetting = async (
     key: 'browserControl' | 'computerControl' | 'browserInstalled' | 'computerInstalled',
@@ -263,7 +323,7 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api }: Pane
       const result = record(await run('setMemoryToolsEnabled', [next], `built-in-${id}`));
       return record(result.memory).enabled === next;
     }
-    if (id === 'git' || id === 'office') {
+    if (id === 'git' || id === 'office' || id === 'localProvider') {
       const result = record(await run('setBuiltinToolEnabled', [id, next], `built-in-${id}`));
       return record(result[id]).enabled === next;
     }
@@ -288,6 +348,7 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api }: Pane
       .finally(() => setOptimistic(null));
   };
   const install = (id: BuiltInFeatureId) => {
+    if (id === 'localProvider') return;
     if ((action && action.status !== 'failed') || pending) return;
     setAction({ id, status: 'installing' });
     void (async () => {
@@ -331,10 +392,13 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api }: Pane
       setAction(null);
     })().catch((error: unknown) => setAction({ id, status: 'failed', message: reason(error) }));
   };
-
-  const busy = Boolean(pending) || (action !== null && action.status !== 'failed');
+  const localInstalling = Array.isArray(localProvider.installations)
+    && localProvider.installations.some((entry) => ['running', 'cancelling'].includes(String(record(entry).state)));
+  const busy = Boolean(pending) || (action !== null && action.status !== 'failed') || localInstalling;
   const stateOf = (feature: BuiltInFeatureDefinition): FeatureState => {
-    const available = feature.platform !== 'windows' || windows;
+    const available = feature.id === 'localProvider'
+      ? windows && localProvider.available !== false
+      : feature.platform !== 'windows' || windows;
     // Every entry waits for its own status source before painting a control,
     // so an Install pill never flashes into a toggle (or back).
     const ready = feature.id === 'git'
@@ -351,7 +415,10 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api }: Pane
       available,
       busy,
       action: action?.id === feature.id ? action : null,
-      progressPercent: feature.id === 'voice' || feature.id === 'memory' ? progress.percent : null,
+      progressPercent: feature.id === 'localProvider'
+        ? installationPercent(localProviderInstallation(localProvider, 'runtime'))
+        : feature.id === 'voice' || feature.id === 'memory' ? progress.percent : null,
+      localProvider,
     };
   };
   const open = openId ? BUILT_IN_FEATURES.find((feature) => feature.id === openId) : undefined;
@@ -367,6 +434,8 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api }: Pane
         dataAttributes={{ 'data-built-in-feature': feature.id }} />;
     })}
     {open && <FeatureDetailDialog key={open.id} state={stateOf(open)}
+      api={api}
+      localActions={localActions}
       disabledSkills={disabledSkills}
       onInstall={() => install(open.id)}
       onToggle={(next) => toggle(open.id, next)}

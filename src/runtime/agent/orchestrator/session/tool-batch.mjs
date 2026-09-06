@@ -44,6 +44,7 @@ import {
     parseNativeToolSearchPayload,
 } from './loop/tool-helpers.mjs';
 import { restoreToolCallBodyForId } from './loop/stored-tool-args.mjs';
+import { scopedCacheGeneration } from './cache/scoped-cache.mjs';
 
 function classifyToolReturn(value, toolName = '') {
     const normalized = normalizeToolEnvelope(value);
@@ -304,6 +305,7 @@ export async function processToolBatch(ctx) {
             // tools evict entries whose root contains the touched path.
             let _readCacheHit = null;
             let _scopedCacheHit = null;
+            const _scopedGeneration = scopedCacheGeneration();
             let _executeOk = false;
             let _resultKind = 'normal';
             // Invalid-args guard (native convergence): the provider parser tags
@@ -656,6 +658,7 @@ export async function processToolBatch(ctx) {
                 executeOk: _executeOk,
                 readCacheHit: _readCacheHit,
                 scopedCacheHit: _scopedCacheHit,
+                scopedGeneration: _scopedGeneration,
                 localSearchTelemetry: _localSearchTelemetry,
                 resultTelemetry: _resultTelemetry,
                 crossTurnSig: _ctSig,
@@ -773,6 +776,7 @@ export async function processToolBatch(ctx) {
                             content: result,
                             toolUseId: call.id,
                             complete: _outcome ? _outcome.complete : true,
+                            generation: completed.scopedGeneration,
                         });
                     }
                     if (_readCacheHit === null && _isReadTool(call.name)) {

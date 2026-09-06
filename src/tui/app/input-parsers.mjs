@@ -20,9 +20,9 @@ export function parseMcpServerInput(text) {
 
 export function parseSkillInput(text) {
   const parts = String(text || '').split('|').map((part) => part.trim());
-  const [name, description = 'Project skill.'] = parts;
-  if (!name) return { error: 'usage: name | description(optional)' };
-  return { skill: { name, description } };
+  const [name, description = 'Project skill.', whenToUse = ''] = parts;
+  if (!name) return { error: 'usage: name | description(optional) | trigger(optional)' };
+  return { skill: { name, description, ...(whenToUse ? { whenToUse } : {}) } };
 }
 
 export function parseMemoryCommand(text) {
@@ -37,24 +37,6 @@ export function parseMemoryCommand(text) {
     out[key] = Number.isFinite(num) && raw.trim() !== '' ? num : raw;
   }
   return out;
-}
-
-function parseMemoryStatusRows(text) {
-  return String(text || '')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line, index) => {
-      const sep = line.indexOf(':');
-      const label = sep === -1 ? line : line.slice(0, sep);
-      const description = sep === -1 ? '' : line.slice(sep + 1).trim();
-      return {
-        value: `status-${index}`,
-        label,
-        description,
-        _line: line,
-      };
-    });
 }
 
 export function parseMemoryCoreRows(text) {

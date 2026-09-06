@@ -5,12 +5,14 @@ Owns everything that exists only when the deck carries pictures — supplied by 
 ## 0. Generated pictures (when the user supplied none)
 The `image` skill makes the picture; this file only decides where it goes. Load `image`, follow its call order (`list` → `generate kind:'image'` → inspect), and pass what the deck knows: `path:<beside the deck>.png` and `aspect:<the frame ratio from §2>`. No signed-in lane means no generated pictures, and the deck says so instead of substituting a photo library it does not have.
 
-**Default — where a generated picture earns its place**: the cover, one section anchor, and a photo-editorial style that needs one per slide. Evidence slides keep charts and tables; a generated picture never stands in for evidence.
+The cover decision — a picture of the subject when a lane is signed in or the user supplied one, a text-led cover otherwise, recorded in the brief — is `direction.md` §4; this file starts after it. Content pages take a picture only when it explains or demonstrates something the claim needs. One picture on the cover costs one generation; the deck never fills pages to reach a picture count.
+
+**Default — choose the asset by its job**: use an actual screenshot, object photograph, source figure, or document excerpt when the claim concerns that artifact. Use a native diagram for relationships and a generated illustration for a clearly identified explanation or atmosphere. A generic photograph does not become relevant by matching the palette; omit it when the subject reads better without it. Generated imagery never stands in for observed evidence.
 **Default — what the deck hands the media prompt**: the `Asset:` line ("deck cover, full-bleed background"), the style's treatment as `Style:` (editorial: muted documentary photograph, shallow depth; dark-tech: macro of a lit surface on black; swiss-minimal: single object on a plain field; soft-rounded: soft daylight, pastel), the palette temperature (`direction.md` §5) as `Mood:`, and the calm zone as `Composition:`. A cover is a field for copy, so the image skill's no-text / no-faces exclusions apply. The subject comes from the brief, never the deck's topic word.
 **Hard rule — the prompt never mentions type**: the calm zone is described as empty space ("the upper left quarter completely empty and dark"), never as where copy, a title, or "one line of type" will sit — a model reads that as text to draw and letters it in (probe 2026-09-04: "one line of type at center-left" produced a captioned picture). `Avoid:` spells the exclusion out: no text of any kind, no letters, no numbers, no labels, no signage. → manual (inspect the file before placing it)
 **Hard rule — a generated picture is treated as a picture**: it recedes under type through `scrim()` / `wash()` like any other, is named in the plan line's carriers, and its lane/model and prompt go into the slide's speaker notes so a reader knows it is synthetic. → manual
 **Default — one image language per deck**: every generated picture shares lighting, lens, material, and abstraction level; the `Style:` line is written once and reused verbatim. The exclusion list always carries text, typography, logo, watermark, QR code, page number, chart labels, and fake UI chrome — a picture never draws what the slide will draw.
-**Default — placement follows relevance**: a supplied picture goes on the slide whose claim it evidences, chosen by what it shows; a picture with no slide that needs it is left out; the same picture appears at most twice in a deck (the cover crop returning smaller on the closing is the second), never as filler.
+**Default — placement follows relevance**: name the specific detail the picture must reveal before choosing its frame. Preserve that detail in the crop, keep comparison frames at a comparable scale, and attach concise annotations to the evidence rather than a detached explanatory paragraph. Unneeded assets are left out; reuse is justified by the argument, not a filler quota. Keep real UI and document excerpts legible and distinguish explanatory reconstructions from original evidence.
 
 ## 1. Placing a picture (contract)
 **Hard rule — a picture is cropped to its frame before it is placed, never stretched**: `picture()` crops with sharp; `addImage` with a file path and a frame of another ratio is a defect. → runtime `image_aspect_distorted`
@@ -38,7 +40,7 @@ Three families; the modifiers in §3 and the lenses in `composition.md` §2 do t
 | Continuity | the same crop family across a chapter; the cover modifier repeated smaller on section and closing slides |
 
 ## 4. Kit
-Add these to the script after `kit.md` (`png`, `gradientField`, `box`, `PX`, `T` are defined there).
+The runtime loads these after `kit.md` (`gradient`, `png`, `box`, `PX`, `T` come from there); read them for the signatures. The tone treatments are native gradients with alpha stops — editable in PowerPoint, no raster.
 ```js
 // Fill a frame without distortion; round:true makes a circle. Async: `await picture(...)`.
 // pptxgenjs's sizing:'cover' writes an empty srcRect for a file path, so the crop happens here with sharp.
@@ -47,10 +49,10 @@ async function picture(slide, path, x, y, w, h, { round = false, transparency = 
   const buf = await sharp(path).resize(pw, ph, { fit: 'cover', position: 'attention' }).png().toBuffer();
   slide.addImage({ data: 'image/png;base64,' + buf.toString('base64'), ...box(x, y, w, h), rounding: round, transparency });
 }
-// Directional scrim over a picture. side: 'left' | 'right' | 'bottom'.
+// Directional scrim over a picture, darkest on the text side. side: 'left' | 'right' | 'bottom' | 'top'.
 async function scrim(slide, x, y, w, h, side = 'left', color = T.dark) {
-  const angle = side === 'bottom' ? 270 : side === 'right' ? 180 : 0;
-  await gradientField(slide, x, y, w, h, [[0, color, 0.85], [55, color, 0.30], [100, color, 0]], angle);
+  const angle = side === 'bottom' ? 270 : side === 'top' ? 90 : side === 'right' ? 180 : 0;
+  gradient(slide, x, y, w, h, [[0, color, 0.85], [55, color, 0.30], [100, color, 0]], angle);
 }
 // Clip a picture to a rounded rectangle or polygon; returns a data URL for addImage at (w, h) inches.
 async function maskImage(path, w, h, { radius = 0, points = null } = {}) {
@@ -62,15 +64,13 @@ async function maskImage(path, w, h, { radius = 0, points = null } = {}) {
   const buf = await sharp(path).resize(pw, ph, { fit: 'cover' }).composite([{ input: mask, blend: 'dest-in' }]).png().toBuffer();
   return 'image/png;base64,' + buf.toString('base64');
 }
-// Radial spotlight: clear at the focus (fx, fy in 0-1), darkening outward.
+// Radial spotlight: clear at the focus (fx, fy in 0-1), darkening outward to alpha at the edge.
 async function spotlight(slide, x, y, w, h, { fx = 0.5, fy = 0.5, color = T.dark, alpha = 0.6 } = {}) {
-  const pw = Math.round(w * PX), ph = Math.round(h * PX);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}"><defs><radialGradient id="s" cx="${fx * 100}%" cy="${fy * 100}%" r="60%"><stop offset="0%" stop-color="#${color}" stop-opacity="0"/><stop offset="100%" stop-color="#${color}" stop-opacity="${alpha}"/></radialGradient></defs><rect width="${pw}" height="${ph}" fill="url(#s)"/></svg>`;
-  slide.addImage({ data: await png(svg), ...box(x, y, w, h) });
+  gradient(slide, x, y, w, h, [[0, color, 0], [45, color, alpha * 0.35], [100, color, alpha]], 0, { radial: { fx, fy } });
 }
 const vignette = (slide, x, y, w, h, color = T.dark) => spotlight(slide, x, y, w, h, { color, alpha: 0.58 });
-// Brand wash: the deck hue over a picture.
+// Brand wash: the deck hue over a picture, strongest on the text side.
 async function wash(slide, x, y, w, h, color = T.accentDeep, angle = 0) {
-  await gradientField(slide, x, y, w, h, [[0, color, 0.8], [100, color, 0.1]], angle);
+  gradient(slide, x, y, w, h, [[0, color, 0.8], [100, color, 0.1]], angle);
 }
 ```

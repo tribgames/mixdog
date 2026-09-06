@@ -45,8 +45,12 @@ export function ExtensionRow({ icon, title, description, badge, enabled, busy, o
  *  list (user: 다른것들처럼 클릭해서 들어가서 설정하는 걸로) — the same move
  *  Workflows, Schedules and Webhooks make. Portaled for their reason too: the
  *  list lives inside the sidebar's clipped box. */
-export function ExtensionDetailDialog({ title, children, actions, enabled, busy, onToggle, headerControl, onClose, dataAttributes }: {
+export function ExtensionDetailDialog({ title, icon, children, actions, enabled, busy, onToggle, headerControl, onClose, dataAttributes }: {
   title: string;
+  /** Identity glyph on the title line — the same plate as the list row's, so
+   *  the dialog opens as a continuation of the row instead of floating a
+   *  second icon in the body. */
+  icon?: ReactNode;
   /** Body sections: hero, scope, contents, facts — composed by the caller. */
   children: ReactNode;
   actions?: ReactNode;
@@ -63,6 +67,7 @@ export function ExtensionDetailDialog({ title, children, actions, enabled, busy,
     <section className="schedules-dialog extensions-dialog" role="dialog" aria-modal="true"
       aria-labelledby="extensions-dialog-title" {...dataAttributes}>
       <header>
+        {icon ? <span className="extensions-dialog-icon" aria-hidden="true">{icon}</span> : null}
         <h2 id="extensions-dialog-title">{title}</h2>
         <div className="schedules-dialog-header-actions">
           {headerControl !== undefined ? headerControl
@@ -94,13 +99,16 @@ export type ExtensionScopeKind = 'skills' | 'mcp' | 'plugins';
 
 const PROJECT_KEYS = ['projects'] as const;
 
-/** Compact identity cue under the dialog title, without repeating that title. */
+/** Tagline under the dialog title. The identity icon belongs on the header's
+ *  title line (ExtensionDetailDialog `icon`); a hero-side icon is kept only
+ *  for callers that have no header glyph. */
 export function ExtensionHero({ icon, tagline }: {
-  icon: ReactNode;
+  icon?: ReactNode;
   tagline?: string;
 }) {
-  return <div className="extensions-hero">
-    <span className="extensions-hero-icon" aria-hidden="true">{icon}</span>
+  if (!icon && !tagline) return null;
+  return <div className="extensions-hero" data-plain={icon ? undefined : 'true'}>
+    {icon ? <span className="extensions-hero-icon" aria-hidden="true">{icon}</span> : null}
     <div className="extensions-hero-copy">
       {tagline ? <small>{tagline}</small> : null}
     </div>
@@ -168,16 +176,6 @@ function samePath(left: string, right: string): boolean {
 
 export function projectDisplayName(project: DesktopProjectSummary): string {
   return String(project.alias || project.name || project.path.split(/[\\/]/).pop() || project.path);
-}
-
-/** Short list-row badge for a scoped entry: '' when global. */
-export function extensionScopeBadge(row: RecordValue): string {
-  const scope = Array.isArray(row.scope) ? row.scope : null;
-  const inherited = Array.isArray(row.inheritedScope) ? row.inheritedScope : null;
-  if (row.activeHere === false) return t('Not in this project');
-  const count = scope ? scope.length : inherited ? inherited.length : 0;
-  if (!count) return '';
-  return count === 1 ? t('1 project') : t('{{count}} projects', { count });
 }
 
 const SHARED_SCOPE = '';

@@ -18,12 +18,11 @@
  */
 
 import {
-  PROVIDER_MAX_BEFORE_WARN_MS,
   PROVIDER_RETRY_BACKOFF_MS,
   PROVIDER_RETRY_JITTER_RATIO,
   PROVIDER_RETRY_MAX_ATTEMPTS,
   createTimeoutSignal,
-} from '../stall-policy.mjs'
+} from '../stall-policy.mjs';
 import { readStreamOutcome } from './lib/stream-outcome.mjs'
 import { recycleLlmDispatcher } from '../../../shared/llm/http-agent.mjs'
 
@@ -183,7 +182,10 @@ export function classifyError(err) {
 }
 
 const MAX_CAUSE_CHAIN_DEPTH = 8
-const BARE_FETCH_TRANSPORT_MESSAGE_RE = /^(?:fetch failed|failed to fetch|couldn'?t fetch\.?|load failed|network error)$/i
+// 'terminated' / 'other side closed' / 'socket hang up' are the body-read
+// forms of the same disconnect (undici aborts the response body when the peer
+// closes mid-stream and may not attach a cause).
+const BARE_FETCH_TRANSPORT_MESSAGE_RE = /^(?:fetch failed|failed to fetch|couldn'?t fetch\.?|load failed|network error|terminated|other side closed|socket hang up)$/i
 const TRANSIENT_ERROR_CODES = new Set([
   'ECONNRESET', 'ETIMEDOUT', 'ESOCKETTIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND',
   'EAI_NODATA', 'ECONNREFUSED', 'ENETUNREACH', 'EHOSTUNREACH', 'EPIPE',
@@ -950,7 +952,7 @@ export function createStreamSafetyStamps() {
 }
 
 const _defaultAbortSleep = (ms) => new Promise((r) => setTimeout(r, ms))
-export const MAX_SAFE_TIMEOUT_MS = 2_147_483_647
+const MAX_SAFE_TIMEOUT_MS = 2_147_483_647
 
 // D) Abort-aware sleep (single copy). Resolves after `ms`, or rejects with the
 //    signal's reason (or `abortMessage`) the moment the signal aborts. `sleepFn`
@@ -1071,11 +1073,14 @@ export function classifyHandshakeError(err, { retry429 = true } = {}) {
  * Returns whatever `fn()` resolves to. Throws the last error if every retry
  * is exhausted, or the first error if it's classified non-transient.
  */
+const providerRecoveryExhaustedErrors = new WeakSet()
+
 export function markProviderRecoveryExhausted(error, {
   owner = 'provider',
   attempts = null,
 } = {}) {
   if (!error || (typeof error !== 'object' && typeof error !== 'function')) return error
+  providerRecoveryExhaustedErrors.add(error)
   try {
     error.providerRecoveryExhausted = true
     if (owner) error.providerRecoveryOwner = String(owner)
@@ -1086,7 +1091,10 @@ export function markProviderRecoveryExhausted(error, {
 }
 
 export function isProviderRecoveryExhausted(error) {
-  return error?.providerRecoveryExhausted === true
+  if (!error || (typeof error !== 'object' && typeof error !== 'function')) return false
+  return boundedCauseChain(error).some((candidate) =>
+    candidate?.providerRecoveryExhausted === true
+      || providerRecoveryExhaustedErrors.has(candidate))
 }
 
 export async function withRetry(fn, opts = {}) {

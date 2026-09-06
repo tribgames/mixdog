@@ -111,12 +111,6 @@ export function snapshotCoversFullFile(snapshot) {
     return snapshot.ranges.some((r) => r.startLine <= 1 && r.endLine === Infinity);
 }
 
-/** Logical line count captured at read-time (wc-l compatible). Undefined if absent. */
-function snapshotFileLineCount(snapshot) {
-    const n = snapshot?.fileLineCount;
-    return Number.isFinite(n) && n >= 0 ? Math.trunc(n) : undefined;
-}
-
 // Finite full-coverage check. A single full-file read records the
 // {1, Infinity} sentinel (snapshotCoversFullFile), but a large file is
 // output-capped so isFullFileView never fires and only finite ranges are

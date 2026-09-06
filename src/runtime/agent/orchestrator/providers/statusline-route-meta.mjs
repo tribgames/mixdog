@@ -18,11 +18,6 @@ async function loadRouteMetaModule() {
   }
 }
 
-/** Await before calling the sync exports when route-meta may not be ready yet. */
-async function ensureStatuslineRouteMetaLoaded() {
-  return loadRouteMetaModule();
-}
-
 function requireRouteMeta() {
   if (!routeMeta) {
     void loadRouteMetaModule().catch(() => {});

@@ -134,14 +134,20 @@ async function mergeEmbeddedWorkbook(zip, chartPart, values) {
 // chart run gets <a:ea>/<a:cs> matching its latin face, and a chart without a
 // chart-level <c:txPr> gets one in the deck face so PowerPoint's own defaults
 // (value axes, data tables, titles the author adds later) follow the same face.
-const CHART_LATIN = /<a:latin typeface="([^"]+)"([^>]*)\/>(?!<a:ea)/g;
+const CHART_LATIN = /<a:latin typeface="([^"]+)"([^>]*)\/>((?:\s*<a:(?:ea|cs)\b[^>]*\/>)*)/g;
 export function normalizeChartFonts(xml) {
   let changed = 0;
   const faces = [];
-  let output = String(xml || '').replace(CHART_LATIN, (tag, typeface, attrs) => {
+  let output = String(xml || '').replace(CHART_LATIN, (tag, typeface, attrs, following) => {
     faces.push(typeface);
+    const eastAsian = following.match(/<a:ea\b[^>]*\/>/g) || [];
+    const complex = following.match(/<a:cs\b[^>]*\/>/g) || [];
+    if (eastAsian.length === 1 && complex.length === 1) return tag;
     changed += 1;
-    return `${tag}<a:ea typeface="${typeface}"${attrs}/><a:cs typeface="${typeface}"${attrs}/>`;
+    const latin = following ? tag.slice(0, -following.length) : tag;
+    return latin
+      + (eastAsian[0] || `<a:ea typeface="${typeface}"${attrs}/>`)
+      + (complex[0] || `<a:cs typeface="${typeface}"${attrs}/>`);
   });
   // The chart default prefers the face that carries CJK glyphs (the kit's sans over its Latin data face).
   const face = faces.find((name) => /\b(kr|sc|tc|jp|cjk)\b|malgun|yahei|jhenghei|yu gothic|meiryo/i.test(name)) || faces[0] || '';
@@ -155,15 +161,69 @@ export function normalizeChartFonts(xml) {
   return { xml: output, changed, face };
 }
 
+// The kit's gradient() draws a solid shape whose name carries the stops; the saved slide keeps the
+// gradient as a native a:gradFill (editable in PowerPoint, no raster) and the marker name is cleared.
+// stops: [[offset 0-100, hex, alpha 0-1]]; angle in degrees, 0 = left→right, 90 = top→bottom (a:lin);
+// radial: { fx, fy } puts stop 0 at that focus and stop 100 at the shape edge (a:path circle).
+const GRADIENT_PREFIX = 'mixdog-gradient:';
+const SHAPE = /<p:sp>[\s\S]*?<\/p:sp>/g;
+const SHAPE_FILL = /<a:solidFill>[\s\S]*?<\/a:solidFill>|<a:noFill\s*\/>/;
+const SHAPE_LINE = /<a:ln\b[^>]*\/>|<a:ln\b[^>]*>[\s\S]*?<\/a:ln>/;
+const unit = (value) => Math.round(Math.max(0, Math.min(1, Number(value) || 0)) * 100000);
+
+export function gradientFillXml({ stops = [], angle = 0, radial = null } = {}) {
+  const list = stops.map(([offset, color, alpha = 1]) => {
+    const hex = String(color || '').replace('#', '').toUpperCase();
+    const a = Number(alpha);
+    const pos = Math.round(Math.max(0, Math.min(100, Number(offset) || 0)) * 1000);
+    return `<a:gs pos="${pos}">${a < 1 ? `<a:srgbClr val="${hex}"><a:alpha val="${unit(a)}"/></a:srgbClr>` : `<a:srgbClr val="${hex}"/>`}</a:gs>`;
+  }).join('');
+  const path = radial
+    ? `<a:path path="circle"><a:fillToRect l="${unit(radial.fx ?? 0.5)}" t="${unit(radial.fy ?? 0.5)}" r="${unit(1 - (radial.fx ?? 0.5))}" b="${unit(1 - (radial.fy ?? 0.5))}"/></a:path>`
+    : `<a:lin ang="${Math.round(((((Number(angle) || 0) % 360) + 360) % 360) * 60000)}" scaled="0"/>`;
+  return `<a:gradFill rotWithShape="1"><a:gsLst>${list}</a:gsLst>${path}</a:gradFill>`;
+}
+
+export function nativeGradients(xml) {
+  let changed = 0;
+  const output = String(xml || '').replace(SHAPE, (shape) => {
+    const name = /<p:cNvPr\b[^>]*\bname="([^"]*)"/.exec(shape)?.[1] || '';
+    if (!name.startsWith(GRADIENT_PREFIX)) return shape;
+    let spec;
+    try { spec = JSON.parse(decodeURIComponent(name.slice(GRADIENT_PREFIX.length))); } catch { return shape; }
+    if (!Array.isArray(spec?.stops) || spec.stops.length < 2) return shape;
+    const fill = gradientFillXml(spec);
+    changed += 1;
+    return shape
+      .replace(/(<p:cNvPr\b[^>]*\bname=)"[^"]*"/, '$1"Gradient"')
+      .replace(/<p:spPr\b[^>]*>[\s\S]*?<\/p:spPr>/, (properties) => {
+        // Schema order inside spPr: xfrm, geometry, fill, ln, effects — the fill is swapped in place and the
+        // outline becomes none, so a gradient never shows a solid rim of its first stop.
+        let inner = SHAPE_FILL.test(properties) ? properties.replace(SHAPE_FILL, fill) : properties.replace(/(<\/a:prstGeom>|<a:prstGeom\b[^>]*\/>|<\/a:custGeom>)/, `$1${fill}`);
+        inner = SHAPE_LINE.test(inner) ? inner.replace(SHAPE_LINE, '<a:ln><a:noFill/></a:ln>') : inner.replace(fill, `${fill}<a:ln><a:noFill/></a:ln>`);
+        return inner;
+      });
+  });
+  return { xml: output, changed };
+}
+
 export async function normalizeAuthoredPptx(path) {
   const zip = await loadPackage(path);
   const parts = Object.keys(zip.files).filter((name) => TEXT_PARTS.test(name) || CHART_PARTS.test(name));
   let removed = 0;
   let changedParts = 0;
   let mergedCharts = 0;
+  let gradients = 0;
   for (const part of parts) {
     const xml = await zipText(zip, part);
     let result = CHART_PARTS.test(part) ? normalizeChartSeries(xml) : normalizeParagraphProperties(xml);
+    if (!CHART_PARTS.test(part)) {
+      const native = nativeGradients(result.xml);
+      if (native.changed) {
+        result = { ...result, xml: native.xml, changed: true };
+        gradients += native.changed;
+      }
+    }
     if (CHART_PARTS.test(part)) {
       const merged = mergeAccentSeries(result.xml);
       if (merged.changed) {
@@ -180,5 +240,5 @@ export async function normalizeAuthoredPptx(path) {
     changedParts += 1;
   }
   if (changedParts) await savePackage(zip, path);
-  return { removed, changedParts, mergedCharts };
+  return { removed, changedParts, mergedCharts, gradients };
 }

@@ -195,7 +195,7 @@ export function listMediaLanes() {
   }));
 }
 
-export function getMediaLane(laneId) {
+function getMediaLane(laneId) {
   return LANE_BY_ID.get(String(laneId || '').trim()) || null;
 }
 

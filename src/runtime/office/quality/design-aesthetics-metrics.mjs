@@ -6,8 +6,8 @@ import { clamp } from '../shared/values.mjs';
 
 const SAMPLE_WIDTH = 160;
 const SAMPLE_HEIGHT = 90;
-export const STRUCTURE_COLUMNS = 16;
-export const STRUCTURE_ROWS = 9;
+const STRUCTURE_COLUMNS = 16;
+const STRUCTURE_ROWS = 9;
 
 export function rounded(value, digits = 4) {
   return Number((Number(value) || 0).toFixed(digits));

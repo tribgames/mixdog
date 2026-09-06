@@ -1,5 +1,5 @@
-export const SESSION_VISIBILITY_ORDINARY = 'ordinary';
-export const SESSION_VISIBILITY_AGENT_ONLY = 'agent-only';
+const SESSION_VISIBILITY_ORDINARY = 'ordinary';
+const SESSION_VISIBILITY_AGENT_ONLY = 'agent-only';
 
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 
@@ -7,7 +7,7 @@ function clean(value) {
     return String(value || '').trim();
 }
 
-export function linkedParentSessionId(value) {
+function linkedParentSessionId(value) {
     if (!value || typeof value !== 'object') return '';
     for (const candidate of [value.ownerSessionId, value.parentSessionId]) {
         const id = clean(candidate);
@@ -28,7 +28,7 @@ export function isRootLeadSession(value) {
 /** Backward-compatible classification for child records written before the
  * durable visibility field existed. Both Agent ownership and an external,
  * valid parent link are required so ownerless/root sessions remain ordinary. */
-export function isCanonicalAgentChildSession(value) {
+function isCanonicalAgentChildSession(value) {
     if (!value || typeof value !== 'object') return false;
     const id = clean(value.id);
     const parentId = linkedParentSessionId(value);

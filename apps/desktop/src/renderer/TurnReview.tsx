@@ -1,6 +1,7 @@
 import { Check, FileDiff, Undo2, X } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t } from "./i18n";
+import { ErrorNotice } from "./ErrorNotice";
 import { GitDiffBody } from "./ReviewPane";
 import { findPatch, PATCH_CACHE_LIMIT } from "./TranscriptView";
 import {
@@ -10,6 +11,13 @@ import {
   writeDiffStyle,
 } from "./desktop-types";
 import { parseUnifiedDiff, turnReviewScope } from "./renderer-logic.mjs";
+import { RendererLruCache } from "./renderer-lru-cache";
+import { registerIdleReclaim } from "./idle-reclaim";
+import {
+  agentReviewCache, leadReviewCache, leadReviewFilesCache,
+  leadReviewSnapshotKindCache, leadReviewCheckpointIdCache, rememberAgentReviews,
+  type AgentTurnReview, type TurnReviewFile,
+} from "./turn-review-cache";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { classifyToolCategory, parseLineDelta, parseToolArgs, summarizeToolResult } from "../../../../src/runtime/shared/tool-surface.mjs";
 
@@ -18,14 +26,6 @@ import { classifyToolCategory, parseLineDelta, parseToolArgs, summarizeToolResul
 // worktree diff. Exact worker apply_patch diffs remain attribution metadata and
 // are only added to totals in the non-Git fallback.
 type TurnReviewPatchPart = ReturnType<typeof parseUnifiedDiff>[number];
-type TurnReviewFile = {
-  path: string;
-  oldPath?: string | null;
-  status?: string;
-  additions?: number | null;
-  deletions?: number | null;
-  binary?: boolean;
-};
 type TurnReviewSummary = {
   files: Map<string, {
     additions: number;
@@ -39,13 +39,9 @@ type TurnReviewSummary = {
   deletions: number;
   hasLineStats: boolean;
 };
-type AgentTurnReview = {
-  sessionId: string;
-  agent: string | null;
-  tag: string | null;
-  patch: string;
-};
-const turnReviewPatchCache = new Map<string, Array<{
+const TURN_REVIEW_PATCH_CACHE_MAX_CHARS = 4 * 1024 * 1024;
+const TURN_REVIEW_PATCH_CACHE_ENTRY_MAX_CHARS = 512 * 1024;
+const turnReviewPatchCache = new RendererLruCache<string, Array<{
   name: string;
   additions: number;
   deletions: number;
@@ -53,69 +49,17 @@ const turnReviewPatchCache = new Map<string, Array<{
   status: string;
   binary: boolean;
   part: TurnReviewPatchPart;
-}>>();
-const TURN_REVIEW_PATCH_CACHE_MAX_CHARS = 4 * 1024 * 1024;
-const TURN_REVIEW_PATCH_CACHE_ENTRY_MAX_CHARS = 512 * 1024;
-
-// Last known worker-review result per turn scope. The floating bar consumes no
-// transcript layout, while the cache still avoids repeating patch parsing and
-// lets a revisited turn show its known review immediately.
-const AGENT_REVIEW_CACHE_LIMIT = 32;
-const AGENT_REVIEW_SCOPE_MAX_CHARS = 4 * 1024 * 1024;
-const AGENT_REVIEW_CACHE_MAX_CHARS = 8 * 1024 * 1024;
-const agentReviewCache = new Map<string, AgentTurnReview[]>();
-const leadReviewCache = new Map<string, string | null>();
-const leadReviewFilesCache = new Map<string, TurnReviewFile[]>();
-const leadReviewSnapshotKindCache = new Map<string, string>();
-const leadReviewCheckpointIdCache = new Map<string, string>();
-function reviewChars(reviews: AgentTurnReview[], leadPatch: string | null): number {
-  return (leadPatch?.length || 0) + reviews.reduce((total, review) => total + review.patch.length, 0);
-}
-function retainedReviewChars(): number {
-  let total = 0;
-  for (const [scopeKey, reviews] of agentReviewCache) {
-    total += reviewChars(reviews, leadReviewCache.get(scopeKey) ?? null);
-  }
-  return total;
-}
-function rememberAgentReviews(
-  scopeKey: string,
-  reviews: AgentTurnReview[],
-  leadPatch: string | null,
-  files: TurnReviewFile[],
-  snapshotKind: string,
-  checkpointId: string,
-): void {
-  agentReviewCache.delete(scopeKey);
-  leadReviewCache.delete(scopeKey);
-  leadReviewFilesCache.delete(scopeKey);
-  leadReviewSnapshotKindCache.delete(scopeKey);
-  leadReviewCheckpointIdCache.delete(scopeKey);
-  if (reviewChars(reviews, leadPatch) > AGENT_REVIEW_SCOPE_MAX_CHARS) return;
-  agentReviewCache.set(scopeKey, reviews);
-  leadReviewCache.set(scopeKey, leadPatch);
-  leadReviewFilesCache.set(scopeKey, files);
-  leadReviewSnapshotKindCache.set(scopeKey, snapshotKind);
-  leadReviewCheckpointIdCache.set(scopeKey, checkpointId);
-  while (
-    agentReviewCache.size > AGENT_REVIEW_CACHE_LIMIT
-    || retainedReviewChars() > AGENT_REVIEW_CACHE_MAX_CHARS
-  ) {
-    const oldest = agentReviewCache.keys().next().value;
-    if (oldest === undefined) break;
-    agentReviewCache.delete(oldest);
-    leadReviewCache.delete(oldest);
-    leadReviewFilesCache.delete(oldest);
-    leadReviewSnapshotKindCache.delete(oldest);
-    leadReviewCheckpointIdCache.delete(oldest);
-  }
-}
+}>>({
+  name: "turn-review-parsed",
+  maxEntries: PATCH_CACHE_LIMIT,
+  maxChars: TURN_REVIEW_PATCH_CACHE_MAX_CHARS,
+  measure: (value, patch) => patch.length + JSON.stringify(value).length,
+});
+registerIdleReclaim(() => { turnReviewPatchCache.clear(); });
 
 function analyzeTurnReviewPatch(patch: string) {
   const cached = turnReviewPatchCache.get(patch);
   if (cached) {
-    turnReviewPatchCache.delete(patch);
-    turnReviewPatchCache.set(patch, cached);
     return cached;
   }
   const analyzed = parseUnifiedDiff(patch).flatMap((part) => {
@@ -143,17 +87,6 @@ function analyzeTurnReviewPatch(patch: string) {
   });
   if (patch.length <= TURN_REVIEW_PATCH_CACHE_ENTRY_MAX_CHARS) {
     turnReviewPatchCache.set(patch, analyzed);
-    let retainedChars = [...turnReviewPatchCache.keys()]
-      .reduce((total, value) => total + value.length, 0);
-    while (
-      turnReviewPatchCache.size > PATCH_CACHE_LIMIT
-      || retainedChars > TURN_REVIEW_PATCH_CACHE_MAX_CHARS
-    ) {
-      const oldest = turnReviewPatchCache.keys().next().value;
-      if (oldest === undefined) break;
-      retainedChars -= oldest.length;
-      turnReviewPatchCache.delete(oldest);
-    }
   }
   return analyzed;
 }
@@ -727,7 +660,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
       </div>
       {/* A refusal stays OUTSIDE the disclosure so its reason is readable
           without expanding the bar. */}
-      {revertError && <p className="turn-review-error" role="alert">{revertError}</p>}
+      {revertError && <ErrorNotice error={revertError} />}
       <div className="turn-review-collapse" inert={!expanded} aria-hidden={!expanded}>
         <div className="turn-review-collapse-inner">
           <ul className="turn-review-files">

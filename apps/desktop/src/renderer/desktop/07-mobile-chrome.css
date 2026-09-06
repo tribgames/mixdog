@@ -1181,12 +1181,10 @@ html[data-mixdog-mobile-tabs] .session-sidebar .session-row {
   height: var(--mx-touch-row);
   min-height: var(--mx-touch-row);
 }
-/* The cluster keeps its desktop box and its hover-only reveal (see the
-   exception above); the taller row only has to re-centre it vertically —
-   top + half the 24px box lands on the row's own centre, which is where the
-   dot sits (top: 50%). */
+/* The cluster keeps its desktop box and hover-only reveal. Share the desktop
+   center-and-translate rule so either row height aligns with the unread dot. */
 html[data-mixdog-mobile-tabs] .session-sidebar .session-row-actions {
-  top: calc((var(--mx-touch-row) - 24px) / 2);
+  top: 50%;
 }
 /* Desktop and phone now share one 20px trailing centerline; touch targets grow
    around that center instead of pulling their glyphs toward the edge. */

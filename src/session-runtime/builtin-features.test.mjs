@@ -22,9 +22,10 @@ test('a profile that predates the marker is grandfathered as installed', () => {
     presets: [{ id: 'main', provider: 'openai-oauth', model: 'gpt-5.6-sol' }],
     default: 'main',
   });
-  for (const id of INSTALLABLE_BUILTIN_IDS) {
+  for (const id of ['git', 'memory', 'office']) {
     assert.equal(builtinInstalled(config, id), true);
   }
+  assert.equal(builtinInstalled(config, 'localProvider'), false);
   // The pre-existing config keys stay untouched.
   assert.equal(config.default, 'main');
 });
@@ -46,7 +47,7 @@ test('structural keys alone never grandfather a profile', () => {
 test('a fresh profile keeps every gated tool family off the session surface', () => {
   const config = withGrandfatheredBuiltins({});
   assert.deepEqual(featureDisallowedToolsFor(config), [
-    'memory', 'recall', 'git', 'git_stage', 'browser', 'computer', 'office',
+    'memory', 'recall', 'git', 'git_stage', 'github', 'browser', 'computer', 'office',
   ]);
 });
 
@@ -85,7 +86,7 @@ test('MIXDOG_FEATURE_* env overrides win over stored markers in both directions'
         browserAvailable: true,
         computerAvailable: true,
       }),
-      ['git', 'git_stage'],
+      ['git', 'git_stage', 'github'],
     );
   } finally {
     delete process.env.MIXDOG_FEATURE_OFFICE;

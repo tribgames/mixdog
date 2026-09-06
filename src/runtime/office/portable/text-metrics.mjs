@@ -1,5 +1,6 @@
 import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
 import { warmupInstalledOfficeFonts } from './font-provisioner.mjs';
+import { rectangleGap, reviewDeclaredRelations } from './pptx-relations.mjs';
 
 const LINE_HEIGHT_RATIO = 1.2;
 const CJK = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/;
@@ -75,7 +76,7 @@ function installedFamilies() {
   return installedFonts;
 }
 
-export function fontAvailable(name) {
+function fontAvailable(name) {
   const family = (FONT_ALIASES[String(name || '').trim()] || String(name || '')).trim().toLowerCase();
   if (!family) return true;
   installedFamilies();
@@ -500,14 +501,15 @@ export function reviewStatLabelProximity(boxes = [], { maximumGap = 36 } = {}) {
     slides.get(box.slide).push(box);
   }
   for (const [slide, shapes] of slides) {
+    issues.push(...reviewDeclaredRelations(shapes, maximumGap));
     for (const box of shapes) {
+      if (box.relation?.role === 'value') continue;
       const paragraphs = Array.isArray(box.paragraphs) ? box.paragraphs : [];
       const text = paragraphs.map((paragraph) => String(paragraph.text ?? '')).join(' ').trim();
       const size = Math.max(...paragraphs.map((paragraph) => Number(paragraph.fontSize) || 0), 0);
       if (size < 28 || !text || text.length > 16 || !/\d/.test(text)) continue;
       const letters = (text.match(/\p{L}/gu) || []).length;
       if (letters > text.replace(/\s/g, '').length * 0.5) continue;
-      const bottom = box.top + box.height;
       const nearest = shapes
         .filter((candidate) => candidate !== box)
         .filter((candidate) => Math.max(
@@ -515,20 +517,17 @@ export function reviewStatLabelProximity(boxes = [], { maximumGap = 36 } = {}) {
             .map((paragraph) => Number(paragraph.fontSize) || 0),
           0,
         ) <= 20)
-        .filter((candidate) => candidate.top >= bottom - 2)
-        .filter((candidate) => {
-          const overlap = Math.min(box.left + box.width, candidate.left + candidate.width)
-            - Math.max(box.left, candidate.left);
-          return overlap >= Math.min(box.width, candidate.width) * 0.4;
-        })
-        .sort((first, second) => first.top - second.top)[0];
+        .filter((candidate) => candidate.paragraphs?.some((paragraph) => String(paragraph.text || '').trim()))
+        .sort((first, second) => rectangleGap(box, first) - rectangleGap(box, second))[0];
       if (!nearest) continue;
-      const gap = nearest.top - bottom;
+      const gap = rectangleGap(box, nearest);
       if (gap <= maximumGap) continue;
       issues.push({
         code: 'stat_label_detached',
+        severity: 'info',
+        confidence: 'inferred',
         path: `/slide[${slide}]/shape[${box.shape}]`,
-        message: `The stat "${text}" sits ${Math.round(gap)}pt above its nearest label; keep a value and its label within ${maximumGap}pt so they read as one unit.`,
+        message: `The stat "${text}" is ${Math.round(gap)}pt from the nearest small text. Its label is unknown; inspect the relationship before moving either element.`,
         gap: Math.round(gap),
       });
     }

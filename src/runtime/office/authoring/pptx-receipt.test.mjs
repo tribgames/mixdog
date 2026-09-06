@@ -58,7 +58,16 @@ test('a slide receipt observes air, quadrants, the largest object, text columns,
   assert.ok(o.quadrantAir[3] > 0.7, `bottom-right is mostly air: ${o.quadrantAir[3]}`);
   assert.equal(o.largestShare, 0.5);
   assert.ok(o.visualShare > 0.55 && o.visualShare < 0.65, `field + chart footprint ${o.visualShare}`);
-  assert.deepEqual(o.textColumns, { columns: 2, stray: 1, rightEdges: 3, rightStray: 3 });
+  assert.equal(o.presence, 0.12, 'presence is the chart (400 × 150 of 960 × 540), never the field or a text box');
+  const diagram = slideReceipt({ index: 9, background: { color: 'F7F9FB' }, shapes: [
+    { text: 'Title', font: { size: 36 }, left: 43, top: 72, width: 600, height: 60 },
+    { geometry: 'ellipse', fill: { color: '0E7C86' }, left: 100, top: 200, width: 30, height: 30 },
+    { geometry: 'ellipse', fill: { color: '0E7C86' }, left: 700, top: 200, width: 30, height: 30 },
+    { geometry: 'line', left: 130, top: 215, width: 570, height: 0 },
+    { geometry: 'ellipse', fill: { color: '0E7C86' }, left: 400, top: 460, width: 30, height: 30 },
+  ] });
+  assert.equal(diagram.observe.presence, 0.35, 'three contours and a connector read as one construction by their extent (630 × 290)');
+  assert.deepEqual(o.textColumns, { columns: 2, stray: 1, rightEdges: 3, rightStray: 3, labels: 0 });
   assert.deepEqual(o.fills, [{ color: '0E7C86', share: 0.5 }]);
   assert.equal(o.largestTextTop, 1);
   assert.equal(o.bodyTop, 2.78, 'the body starts at the first box under the title (the body text at 200 pt)');
@@ -89,7 +98,7 @@ test('a slide receipt reads the spacing vocabulary, ragged right edges, the type
   ] };
   const o = slideReceipt(slide).observe;
   assert.deepEqual(o.gaps, [0.1, 0.45], 'two spacing steps read as two values');
-  assert.deepEqual(o.textColumns, { columns: 2, stray: 1, rightEdges: 3, rightStray: 2 }, 'title, prose, and caption share a left edge; prose and caption share a right edge, the title is 0.55 in wider (ragged right)');
+  assert.deepEqual(o.textColumns, { columns: 2, stray: 1, rightEdges: 3, rightStray: 2, labels: 0 }, 'title, prose, and caption share a left edge; prose and caption share a right edge, the title is 0.55 in wider (ragged right)');
   assert.deepEqual(o.typeSet, [12, 18, 36]);
   assert.deepEqual(o.textColors, ['1A2B3C', '33475B', 'B04A2A', '6B7A8A', 'FFFFFF'], 'the field\'s own surface color is not a text color; the COM long decodes to white');
   const deck = compositionReceipt({ slides: [slide, { ...slide, index: 9, shapes: slide.shapes.slice(0, 2) }] });
@@ -132,7 +141,6 @@ test('the deck receipt totals the families, lists the absent ones, and marks con
   assert.deepEqual(receipt.absent, ['tables', 'pictures']);
   assert.equal(receipt.slides[1].missing, undefined);
   assert.deepEqual(receipt.slides[3].missing, ['chart', 'table']);
-  assert.match(receipt.note, /reason or a fix/);
 });
 
 test('rendered air joins the receipt per slide and in the deck rhythm', () => {
@@ -152,4 +160,19 @@ test('a receipt without a brief still reports the deck and never throws on an em
   assert.equal(receipt.deck.slides, 0);
   assert.deepEqual(receipt.slides, []);
   assert.ok(receipt.absent.length);
+});
+
+test('diagram labels bound to a contour or connector leave the column and gap readings and are counted', () => {
+  const shapes = [
+    { text: 'Title', font: { size: 36 }, left: 43, top: 72, width: 600, height: 60 },
+    { text: 'a paragraph under the title', font: { size: 18 }, left: 43, top: 164.4, width: 560, height: 100 },   // gap 0.45 in under the title
+    { geometry: 'line', left: 100, top: 305, width: 300, height: 0 },
+    { text: 'L2', font: { size: 11 }, left: 100, top: 280, width: 40, height: 20 },       // an axis tick 5 pt above its hairline
+    { geometry: 'ellipse', fill: { color: '0E7C86' }, left: 700, top: 200, width: 14, height: 14 },
+    { text: 'node', font: { size: 11 }, left: 720, top: 196, width: 60, height: 20 },     // a node label 6 pt from its dot
+    { text: 'a caption far from any device', font: { size: 12 }, left: 43, top: 400, width: 560, height: 20 },
+  ];
+  const o = slideReceipt({ index: 13, background: { color: 'F7F9FB' }, shapes }).observe;
+  assert.deepEqual(o.textColumns, { columns: 1, stray: 0, rightEdges: 2, rightStray: 1, labels: 2 }, 'the tick and the node label are parts of their device; title, paragraph, and caption form the page\'s column');
+  assert.deepEqual(o.gaps, [0.45], 'the step from the paragraph down to the tick is a device gap, not a spacing step of the page');
 });

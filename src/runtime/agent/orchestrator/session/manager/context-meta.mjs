@@ -6,7 +6,7 @@ import {
     CONTEXT_SHARE_RATIO,
     COMPACT_TARGET_MIN_TOKENS,
 } from '../compact.mjs';
-import { isAgentOwner } from '../../agent-owner.mjs';
+import { positiveInt } from '../../../../shared/numbers.mjs';
 
 // Known context windows for the current-generation models this plugin
 // routes to. Anything not listed falls through to guessContextWindow() —
@@ -39,7 +39,7 @@ const CONTEXT_WINDOWS = {
 // runtime agree on the boundary the first time a model is routed. Local models
 // (llama/mistral/phi/qwen/gemma) stay small so an unknown local id never claims
 // a giant window.
-const LOCAL_PROVIDERS = new Set(['ollama', 'lmstudio', 'llamacpp', 'llama.cpp', 'local', '']);
+const LOCAL_PROVIDERS = new Set(['mixdog-local', 'local', '']);
 function guessContextWindow(model, provider = null) {
     const m = String(model || '').toLowerCase();
     const p = String(provider || '').toLowerCase();
@@ -64,15 +64,6 @@ function guessContextWindow(model, provider = null) {
     if (m.startsWith('grok-')) return 1000000;
     if (m.startsWith('deepseek-v')) return 1000000;
     return 128000;
-}
-export function positiveContextWindow(value) {
-    const n = Number(value);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
-}
-export function envFlag(name, fallback = false) {
-    const v = process.env[name];
-    if (v === undefined) return fallback;
-    return !['0', 'false', 'off', 'no'].includes(String(v).trim().toLowerCase());
 }
 function boundedPercent(value, fallback = null) {
     const n = Number(value);
@@ -108,14 +99,14 @@ function compactTargetRatio() {
     return n > 1 ? n / 100 : n;
 }
 function compactTargetTokensForBoundary(boundaryTokens) {
-    const boundary = positiveContextWindow(boundaryTokens);
+    const boundary = positiveInt(boundaryTokens);
     if (!boundary) return null;
-    const explicit = positiveContextWindow(
+    const explicit = positiveInt(
         process.env.MIXDOG_AGENT_COMPACT_TARGET_TOKENS
             ?? process.env.MIXDOG_COMPACT_TARGET_TOKENS,
     );
     if (explicit) return Math.max(1, Math.min(boundary, explicit));
-    const minTarget = Math.min(boundary, positiveContextWindow(process.env.MIXDOG_COMPACT_TARGET_MIN_TOKENS) || COMPACT_TARGET_MIN_TOKENS);
+    const minTarget = Math.min(boundary, positiveInt(process.env.MIXDOG_COMPACT_TARGET_MIN_TOKENS) || COMPACT_TARGET_MIN_TOKENS);
     const byRatio = Math.max(1, Math.floor(boundary * compactTargetRatio()));
     return Math.max(1, Math.min(boundary, Math.max(minTarget, byRatio)));
 }
@@ -128,15 +119,15 @@ function defaultEffectiveContextWindowPercent(provider) {
 }
 function providerRawContextWindow(info, catalogInfo) {
     if (!info || typeof info !== 'object') return null;
-    const fromApiFields = positiveContextWindow(info.context_window)
-        || positiveContextWindow(info.max_context_window);
+    const fromApiFields = positiveInt(info.context_window)
+        || positiveInt(info.max_context_window);
     if (fromApiFields) return fromApiFields;
-    const fromCache = positiveContextWindow(info.contextWindow)
-        || positiveContextWindow(info.maxContextWindow);
-    const catalogWindow = positiveContextWindow(catalogInfo?.contextWindow)
-        || positiveContextWindow(catalogInfo?.maxContextWindow)
-        || positiveContextWindow(catalogInfo?.context_window)
-        || positiveContextWindow(catalogInfo?.max_context_window);
+    const fromCache = positiveInt(info.contextWindow)
+        || positiveInt(info.maxContextWindow);
+    const catalogWindow = positiveInt(catalogInfo?.contextWindow)
+        || positiveInt(catalogInfo?.maxContextWindow)
+        || positiveInt(catalogInfo?.context_window)
+        || positiveInt(catalogInfo?.max_context_window);
     // Catalog/known metadata is authoritative for models present in the
     // catalog. A stale provider cache can hold an outdated window (e.g. Opus
     // 4.8 cached at 272k after its window grew to the catalog's 1M, or a
@@ -151,16 +142,22 @@ export function resolveSessionContextMeta(provider, model, seed = {}) {
         ? provider.getCachedModelInfo(model)
         : null;
     const catalogInfo = getModelMetadataSync(model, providerNameOf(provider));
-    const rawContextWindow = positiveContextWindow(seed.selectedContextWindow)
+    const requestedContextWindow = positiveInt(seed.selectedContextWindow)
         || providerRawContextWindow(info, catalogInfo)
-        || positiveContextWindow(catalogInfo?.contextWindow)
-        || positiveContextWindow(catalogInfo?.maxContextWindow)
-        || positiveContextWindow(catalogInfo?.context_window)
-        || positiveContextWindow(catalogInfo?.max_context_window)
-        || positiveContextWindow(seed.rawContextWindow)
-        || positiveContextWindow(seed.raw_context_window)
-        || positiveContextWindow(seed.contextWindow)
+        || positiveInt(catalogInfo?.contextWindow)
+        || positiveInt(catalogInfo?.maxContextWindow)
+        || positiveInt(catalogInfo?.context_window)
+        || positiveInt(catalogInfo?.max_context_window)
+        || positiveInt(seed.rawContextWindow)
+        || positiveInt(seed.raw_context_window)
+        || positiveInt(seed.contextWindow)
         || guessContextWindow(model, providerNameOf(provider));
+    // A managed runtime's allocated capacity also bounds restored selections
+    // and catalog metadata; raising a slider cannot allocate server memory.
+    const runtimeContextWindow = positiveInt(info?.runtimeContextWindow);
+    const rawContextWindow = runtimeContextWindow
+        ? Math.min(requestedContextWindow, runtimeContextWindow)
+        : requestedContextWindow;
     const effectiveContextWindowPercent = boundedPercent(
         seed.effectiveContextWindowPercent
             ?? seed.effective_context_window_percent
@@ -173,7 +170,7 @@ export function resolveSessionContextMeta(provider, model, seed = {}) {
     const pct = boundedPercent(effectiveContextWindowPercent, 100);
     const contextWindow = Math.max(1, Math.floor(rawContextWindow * pct / 100));
     const compactBoundaryTokens = contextWindow;
-    const rawCompactLimit = positiveContextWindow(
+    const rawCompactLimit = positiveInt(
         seed.autoCompactTokenLimit
             ?? seed.auto_compact_token_limit
             ?? info?.autoCompactTokenLimit
@@ -210,14 +207,14 @@ export function resolveSessionContextMeta(provider, model, seed = {}) {
         compactBoundaryTokens,
     };
 }
-export function compactTriggerForSession(session, boundaryTokens) {
+function compactTriggerForSession(session, boundaryTokens) {
     // Delegates to the shared session-compaction policy (context-utils):
     // agent -> 90% (default buffer), main/user -> 100% (buffer 0),
     // truly-explicit sub-boundary limit wins.
     return resolveSessionCompactPolicy(session, boundaryTokens).triggerTokens;
 }
 export function compactTargetBudget(boundaryTokens, reserveTokens, _sourceTokens = null, _ratio = null) {
-    const boundary = positiveContextWindow(boundaryTokens);
+    const boundary = positiveInt(boundaryTokens);
     if (!boundary) return null;
     const reserve = Math.max(0, Number(reserveTokens) || 0);
     const targetEffective = compactTargetTokensForBoundary(boundary) || boundary;

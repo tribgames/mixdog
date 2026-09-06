@@ -57,6 +57,7 @@ const SESSION_ROUTE_TOOL_ORDER = [
     'apply_patch',
     'git',
     'git_stage',
+    'github',
     'shell',
     'task',
     'web_search',
@@ -193,7 +194,7 @@ function _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession = fa
                     addMany(ALL_BUILTIN_SESSION_TOOLS.filter(t => t.name === 'shell' || t.name === 'task'));
                     break;
                 case 'tools:git':
-                    addMany(ALL_BUILTIN_SESSION_TOOLS.filter(t => t.name === 'git' || t.name === 'git_stage' || t.name === 'shell' || t.name === 'task'));
+                    addMany(ALL_BUILTIN_SESSION_TOOLS.filter(t => t.name === 'git' || t.name === 'git_stage' || t.name === 'github' || t.name === 'shell' || t.name === 'task'));
                     break;
                 case 'tools:mcp':
                     addMany(mcp);

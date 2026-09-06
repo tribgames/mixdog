@@ -639,6 +639,7 @@ async function prepareRuntime(manifest, fingerprint) {
       '/node_modules/mixdog/src/tui/session.mjs',
       '/node_modules/mixdog/src/runtime/office/core/journal.mjs',
       '/node_modules/mixdog/src/runtime/office/quality/visual-diff.mjs',
+      '/node_modules/mixdog/src/runtime/local-provider/data/manifest.json',
       ...externalProcessArchiveEntries,
       '/node_modules/@huggingface/transformers/package.json',
       '/node_modules/@huggingface/transformers/dist/transformers.node.cjs',

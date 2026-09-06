@@ -180,7 +180,7 @@ test('the post-action image is dropped only when a semantic action has a named d
 });
 
 test('a predicate is proven, disproven, or unknown — never optimistic', () => {
-  const seen = { ok: true, exists: true, title: 'report.txt - notepad', haystack: 'saved\nfile name' };
+  const seen = { ok: true, exists: true, title: 'report.txt - notepad', haystack: 'saved\nfile name', textComplete: true };
   const gone = { ok: true, exists: false, title: '', haystack: '' };
   const providerError = { ok: false, exists: false, title: '', haystack: '' };
   assert.equal(evaluateVerifyPredicate({ present: 'saved' }, seen), 'satisfied');
@@ -196,6 +196,13 @@ test('a predicate is proven, disproven, or unknown — never optimistic', () => 
   assert.equal(evaluateVerifyPredicate({ window_exists: false }, providerError), 'unknown');
   assert.equal(evaluateVerifyPredicate({ window_exists: true }, providerError), 'unknown');
   assert.equal(evaluateVerifyPredicate({ unsupported: 'x' }, seen), 'unknown');
+  for (const textComplete of [false, undefined]) {
+    const partial = { ...seen, textComplete };
+    assert.equal(evaluateVerifyPredicate({ absent: 'saving' }, partial), 'unknown');
+    assert.equal(evaluateVerifyPredicate({ present: 'saving' }, partial), 'unknown');
+    assert.equal(evaluateVerifyPredicate({ present: 'saved' }, partial), 'satisfied');
+    assert.equal(evaluateVerifyPredicate({ absent: 'saved' }, partial), 'unsatisfied');
+  }
 });
 
 test('bounded integers report their own field and range', () => {

@@ -155,7 +155,7 @@ function annotateChanges(files) {
     return changes;
 }
 
-export function parseStageableDiff(raw) {
+function parseStageableDiff(raw) {
     const files = parseFiles(raw);
     const changes = annotateChanges(files);
     return { files, changes };
@@ -256,8 +256,4 @@ export function buildSelectedStagePatch(raw, requestedIds) {
         selected,
         missing: requested.filter((id) => !selected.includes(id)),
     };
-}
-
-export function _resetGitDiffSnapshotsForTest() {
-    snapshots.clear();
 }

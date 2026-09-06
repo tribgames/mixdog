@@ -90,6 +90,12 @@ export function createInputResolution(host: InputResolutionHost) {
       restoreOwnerWindowId: String(result.restore_owner_window_id || ''),
       cursorX: Number(result.cursor_x),
       cursorY: Number(result.cursor_y),
+      inputTick: Number(result.input_tick),
+      inputObserverReady: result.input_observer_ready === true,
+      inputMonitorId: typeof result.input_monitor_id === 'string' ? result.input_monitor_id : '',
+      inputUserSequence: Number(result.input_user_sequence),
+      syntheticInput: result.synthetic_input === true,
+      foregroundWithinTarget: result.foreground_within_target === true,
     };
     if (!recovery.targetWindowId || !Number.isFinite(recovery.cursorX) || !Number.isFinite(recovery.cursorY)) {
       throw new Error('foreground input recovery state is incomplete; no input was sent');
@@ -202,13 +208,29 @@ export function createInputResolution(host: InputResolutionHost) {
     let readbackError = '';
     const preserveFocusForFollowup = FOCUS_CONTINUATION_ACTIONS.has(
       String(command.action || ''),
-    );
+    ) || (command.delivery === 'foreground' && ['key', 'type'].includes(command.action));
     try {
       current = await readInputRecovery(command, targetWindowId, false);
     } catch (error) {
       readbackError = (error as Error).message || String(error);
     }
     try {
+      const inputKnown = current?.inputObserverReady === true && inputRecovery.inputObserverReady === true
+        && Boolean(current.inputMonitorId) && current.inputMonitorId === inputRecovery.inputMonitorId
+        && Number.isSafeInteger(current.inputUserSequence) && Number.isSafeInteger(inputRecovery.inputUserSequence);
+      if (!current || !inputKnown) {
+        return {
+          ok: false, recovery_skipped: true, code: 'input_observation_unavailable',
+          ...(readbackError ? { readback_error: readbackError } : {}),
+        };
+      }
+      if (current.inputUserSequence !== inputRecovery.inputUserSequence) {
+        return {
+          ok: false, recovery_skipped: true, user_control: true,
+          code: 'user_input_active',
+          ...(readbackError ? { readback_error: readbackError } : {}),
+        };
+      }
       const focusDrifted = !current
         || current.foregroundWindowId !== inputRecovery.restoreWindowId;
       const cursorDrifted = !current
@@ -218,11 +240,16 @@ export function createInputResolution(host: InputResolutionHost) {
         const recoveryStartedAt = performance.now();
         const restored = await callPowerShell({
           action: 'restore_input_state',
+          window_id: targetWindowId,
           restore_window_id: inputRecovery.restoreWindowId,
           restore_owner_window_id: inputRecovery.restoreOwnerWindowId,
           cursor_x: inputRecovery.cursorX,
           cursor_y: inputRecovery.cursorY,
           restore_focus: !preserveFocusForFollowup,
+          expected_input_tick: current.inputTick,
+          expected_input_monitor_id: current.inputMonitorId,
+          expected_input_user_sequence: current.inputUserSequence,
+          known_injection_tick: command.known_injection_tick,
           session_id: sessionIdFor(command),
         });
         timings.input_recovery_ms = elapsedMs(recoveryStartedAt);
@@ -235,8 +262,21 @@ export function createInputResolution(host: InputResolutionHost) {
           restoreOwnerWindowId: inputRecovery.restoreOwnerWindowId,
           cursorX: Number(restored.result?.cursor_x),
           cursorY: Number(restored.result?.cursor_y),
+          inputTick: Number(restored.result?.input_tick),
+          inputObserverReady: restored.result?.input_observer_ready === true,
+          inputMonitorId: String(restored.result?.input_monitor_id || ''),
+          inputUserSequence: Number(restored.result?.input_user_sequence),
+          syntheticInput: restored.result?.synthetic_input === true,
+          foregroundWithinTarget: restored.result?.foreground_within_target === true,
         };
         reasserted = true;
+      }
+      if (current.inputObserverReady !== true || current.inputMonitorId !== inputRecovery.inputMonitorId
+        || !Number.isSafeInteger(current.inputUserSequence)) {
+        return { ok: false, recovery_skipped: true, code: 'input_observation_unavailable' };
+      }
+      if (current.inputUserSequence !== inputRecovery.inputUserSequence) {
+        return { ok: false, recovery_skipped: true, user_control: true, code: 'user_input_active' };
       }
       // Landing on the owner is the honest outcome when the action closed the
       // window that held focus; any other destination is still a miss.
@@ -245,7 +285,7 @@ export function createInputResolution(host: InputResolutionHost) {
           && inputRecovery.restoreOwnerWindowId !== ''
           && current.foregroundWindowId === inputRecovery.restoreOwnerWindowId);
       const focusPreservedForFollowup = preserveFocusForFollowup
-        && current.foregroundWindowId !== ''
+        && (current.foregroundWindowId === targetWindowId || current.foregroundWithinTarget === true)
         && !focusRestored;
       const cursorRestored = current.cursorX === inputRecovery.cursorX
         && current.cursorY === inputRecovery.cursorY;
@@ -266,6 +306,7 @@ export function createInputResolution(host: InputResolutionHost) {
     } catch (error) {
       return {
         ok: false,
+        ...(/user_input_active/.test(String(error)) ? { user_control: true, recovery_skipped: true } : {}),
         focus_restored: false,
         cursor_restored: false,
         error: (error as Error).message || String(error),

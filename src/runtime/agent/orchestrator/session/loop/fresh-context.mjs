@@ -19,7 +19,7 @@ import {
     compactByteLength,
     compactDebugLog,
 } from './compact-debug.mjs';
-import { positiveTokenInt } from './env.mjs';
+import { positiveInt } from '../../../../shared/numbers.mjs';
 import { estimateMessagesTokens } from '../context-utils.mjs';
 
 // ── Digest injection ────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ function isAbortLikeError(err, signal) {
 // A stalled Memory call must NEVER wedge compaction. Every call is bounded
 // here — the default path included — so the protection
 // no longer depends on which caller happened to wire a bounded search in.
-export const MEMORY_HANDOFF_CALL_TIMEOUT_MS = Math.max(
+const MEMORY_HANDOFF_CALL_TIMEOUT_MS = Math.max(
     250,
     Number(process.env.MIXDOG_COMPACT_MEMORY_TIMEOUT_MS) || 4000,
 );
@@ -61,7 +61,7 @@ export const MEMORY_HANDOFF_CALL_TIMEOUT_MS = Math.max(
 // longer bound before honoring the bail contract, so a rebooting runtime
 // succeeds instead of instantly failing. 15s keeps the clear path's worst case
 // (2 retried Memory calls + 120s handoff generation) under the TUI watchdog.
-export const MEMORY_COLD_START_TIMEOUT_MS = 15_000;
+const MEMORY_COLD_START_TIMEOUT_MS = 15_000;
 
 export function memoryHandoffTimeoutMs(session) {
     const configured = Number(session?.compaction?.memoryTimeoutMs);
@@ -76,7 +76,7 @@ function isTimeoutError(err) {
     return typeof err?.message === 'string' && err.message.includes('timed out after');
 }
 
-export async function callMemoryBounded(args, callerCtx, timeoutMs, executeMemory = executeInternalTool) {
+async function callMemoryBounded(args, callerCtx, timeoutMs, executeMemory = executeInternalTool) {
     const ac = new AbortController();
     const outer = callerCtx?.signal;
     const onOuterAbort = () => { try { ac.abort(); } catch {} };
@@ -117,7 +117,7 @@ export async function callMemoryColdStart(args, callerCtx, timeoutMs, executeMem
     }
 }
 
-export function isUsableMemoryHandoffText(value) {
+function isUsableMemoryHandoffText(value) {
     const text = typeof value === 'string' ? value : String(value?.text ?? value ?? '');
     const trimmed = text.trim();
     return !!trimmed && !/^\((?:no results|no current session)\)$/i.test(trimmed);
@@ -338,10 +338,10 @@ async function runMemoryFreshContextCompact({
     const digestText = buildMemoryHandoffText(sessionId, digestBody);
     diagnostics.finalHandoffChars = digestText.length;
     diagnostics.finalHandoffBytes = compactByteLength(digestText);
-    const contextWindow = positiveTokenInt(compactPolicy?.contextWindow)
-        || positiveTokenInt(compactPolicy?.boundaryTokens)
-        || positiveTokenInt(sessionRef?.contextWindow)
-        || positiveTokenInt(sessionRef?.compactBoundaryTokens);
+    const contextWindow = positiveInt(compactPolicy?.contextWindow)
+        || positiveInt(compactPolicy?.boundaryTokens)
+        || positiveInt(sessionRef?.contextWindow)
+        || positiveInt(sessionRef?.compactBoundaryTokens);
     const handoffTokenCap = contextWindow
         ? Math.max(HANDOFF_TOKEN_CAP_FLOOR_TOKENS, Math.floor(contextWindow * CONTEXT_SHARE_RATIO))
         : null;
@@ -437,10 +437,10 @@ export async function runFreshContextCompact(args = {}) {
     if (!handoffText.trim()) {
         throw new Error('fresh-context generated an empty session-local handoff');
     }
-    const contextWindow = positiveTokenInt(compactPolicy?.contextWindow)
-        || positiveTokenInt(compactPolicy?.boundaryTokens)
-        || positiveTokenInt(sessionRef?.contextWindow)
-        || positiveTokenInt(sessionRef?.compactBoundaryTokens);
+    const contextWindow = positiveInt(compactPolicy?.contextWindow)
+        || positiveInt(compactPolicy?.boundaryTokens)
+        || positiveInt(sessionRef?.contextWindow)
+        || positiveInt(sessionRef?.compactBoundaryTokens);
     const handoffTokenCap = contextWindow
         ? Math.max(HANDOFF_TOKEN_CAP_FLOOR_TOKENS, Math.floor(contextWindow * CONTEXT_SHARE_RATIO))
         : null;

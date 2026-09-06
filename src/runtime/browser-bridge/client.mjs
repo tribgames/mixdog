@@ -220,5 +220,8 @@ export async function executeBrowserTool(args, options = {}) {
       });
     }
   }
-  return { content };
+  return {
+    content,
+    ...(value.outcome === 'blocked' || value.outcome === 'inconclusive' ? { isError: true } : {}),
+  };
 }

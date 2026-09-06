@@ -36,7 +36,7 @@ import {
   normalizeCoreInput,
   normalizeCoreOp,
 } from './core-memory-store.mjs'
-import { resolveProjectId, resolveProjectScope } from './project-id-resolver.mjs'
+import { resolveProjectScope } from './project-id-resolver.mjs'
 import { resolvePluginData } from '../../shared/plugin-paths.mjs'
 import { getMetaValue, isBootstrapComplete } from './memory.mjs'
 import { createToolCallHandler } from './tool-call-handler.mjs'

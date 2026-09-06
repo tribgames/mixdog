@@ -2,7 +2,7 @@ import { __mixdogMemoryLog } from '../memory-log.mjs';
 
 const _poolClientErrorHandlers = new WeakMap()
 
-export function isPgConnectionLossError(err) {
+function isPgConnectionLossError(err) {
   const seen = new Set()
   let cur = err
   for (let depth = 0; cur && depth < 5 && !seen.has(cur); depth++) {
@@ -35,7 +35,7 @@ function isSafePreDispatchRetryError(err) {
     || /cannot use a pool after calling end/i.test(msg)
 }
 
-export function installPoolErrorHandler(pool, label, { onConnectionLoss } = {}) {
+function installPoolErrorHandler(pool, label, { onConnectionLoss } = {}) {
   if (!pool || typeof pool.on !== 'function') return pool
   // pg-pool deliberately removes its idle error listener while a Client is
   // checked out. Long-running advisory-lock owners (cycle1/2/3) can therefore

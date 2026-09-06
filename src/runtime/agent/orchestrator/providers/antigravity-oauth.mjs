@@ -11,7 +11,7 @@
  *
  * Auth, endpoints, and headers live in antigravity-oauth-tokens.mjs.
  */
-import { randomUUID, createHash } from 'crypto';
+import { buildAntigravityRequest, isAntigravityClaude as isClaudeModel } from './antigravity-request.mjs';
 import { withRetry } from './retry-classifier.mjs';
 import { traceAgentUsage } from '../agent-trace.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
@@ -26,9 +26,6 @@ import {
     consumeGeminiRestStreamResponse,
 } from './gemini-stream.mjs';
 import {
-    toGeminiTools,
-    toGeminiToolConfig,
-    toGeminiContents,
     parseToolCalls,
     emitGeminiToolCalls,
     collectGeminiGroundingSources,
@@ -45,22 +42,7 @@ import {
     _scrubTokens,
 } from './antigravity-oauth-tokens.mjs';
 
-// Cloud Code Assist rejects a thinking part whose signature it cannot verify.
-// Replaying our own transcript can therefore fail a turn that already
-// succeeded, so signed thinking is re-stamped with the sentinel the backend
-// accepts instead of being dropped (dropping breaks Claude's thinking order).
-const THOUGHT_SIGNATURE_SENTINEL = 'skip_thought_signature_validator';
 const CLAUDE_THINKING_BETA = 'interleaved-thinking-2025-05-14';
-// Claude wire ids reject anything above this; Gemini accepts the discovered cap.
-const CLAUDE_MAX_OUTPUT_TOKENS = 64000;
-
-function isClaudeModel(model) {
-    return /^claude-/i.test(String(model || ''));
-}
-
-function isGemini3Model(model) {
-    return /^gemini-3/i.test(String(model || ''));
-}
 
 function antigravityError(res, text, endpoint) {
     let payload = null;
@@ -108,29 +90,6 @@ function antigravityFailoverEligible(err) {
     return status === 0;
 }
 
-// A signed decimal derived from the first user turn, mirroring the real client.
-function deriveSessionId(contents) {
-    const first = contents.find((c) => c?.role === 'user');
-    const text = first?.parts?.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') || '';
-    if (!text.trim()) return `-${randomUUID()}`;
-    const digest = createHash('sha256').update(text).digest();
-    return `-${digest.readBigUInt64BE(0) % 9223372036854775807n}`;
-}
-
-// Re-stamp every thinking / signed part with the sentinel the gateway accepts.
-function stampThoughtSignatures(contents) {
-    for (const content of contents) {
-        if (content?.role !== 'model' || !Array.isArray(content.parts)) continue;
-        for (const part of content.parts) {
-            if (!part || typeof part !== 'object') continue;
-            if (part.thought === true || typeof part.thoughtSignature === 'string') {
-                part.thoughtSignature = THOUGHT_SIGNATURE_SENTINEL;
-            }
-        }
-    }
-    return contents;
-}
-
 export class AntigravityOAuthProvider {
     // usageMetadata.promptTokenCount is the total, cached tokens included.
     static inputExcludesCache = false;
@@ -160,49 +119,7 @@ export class AntigravityOAuthProvider {
     }
 
     _buildBody(messages, model, tools, opts) {
-        const systemText = messages
-            .filter((m) => m.role === 'system')
-            .map((m) => m.content)
-            .join('\n\n');
-        const chatMessages = messages.filter((m) => m.role !== 'system');
-        const contents = stampThoughtSignatures(toGeminiContents(chatMessages, model));
-        if (!contents.length) throw new Error('No messages to send');
-
-        const functionTools = tools?.length ? [toGeminiTools(tools)] : [];
-        const generationConfig = {};
-        if (isClaudeModel(model)) generationConfig.maxOutputTokens = CLAUDE_MAX_OUTPUT_TOKENS;
-        // Omitting thinkingConfig lets the gateway re-apply its per-model default
-        // and bill thinking tokens silently, so it is always explicit.
-        const thinkingBudget = Number(opts?.thinkingBudget);
-        if (Number.isFinite(thinkingBudget) && thinkingBudget > 0) {
-            generationConfig.thinkingConfig = { includeThoughts: true, thinkingBudget };
-        } else if (isGemini3Model(model) || isClaudeModel(model)) {
-            generationConfig.thinkingConfig = { includeThoughts: true };
-        }
-
-        const request = { contents };
-        if (systemText) {
-            // The real client tags the system instruction with role "user".
-            request.systemInstruction = { role: 'user', parts: [{ text: systemText }] };
-        }
-        if (functionTools.length) {
-            request.tools = functionTools;
-            // VALIDATED is the client default and keeps Gemini 3 from leaking raw
-            // planning JSON instead of emitting a tool call.
-            request.toolConfig = toGeminiToolConfig(opts?.toolChoice)
-                || { functionCallingConfig: { mode: 'VALIDATED' } };
-        }
-        if (Object.keys(generationConfig).length) request.generationConfig = generationConfig;
-        request.sessionId = deriveSessionId(contents);
-
-        return {
-            project: this._projectId,
-            model,
-            request,
-            requestType: 'agent',
-            userAgent: 'antigravity',
-            requestId: `agent-${randomUUID()}`,
-        };
+        return buildAntigravityRequest(messages, model, tools, opts, this._projectId);
     }
 
     async send(messages, model, tools, sendOpts = {}) {

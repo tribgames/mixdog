@@ -1,5 +1,5 @@
 import { __mixdogMemoryLog } from './memory-log.mjs';
-import { createSemaphore } from './memory-cycle2-shared.mjs';
+import { createSemaphore, throwIfAborted } from './memory-cycle2-shared.mjs';
 
 import { cleanMemoryText } from './memory.mjs'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
@@ -265,10 +265,6 @@ const _lastCycle1LogAt = new Map()
 
 export function getInFlightCycle1(db) {
   return _runCycle1InFlight.get(db) || null
-}
-
-function throwIfAborted(signal) {
-  if (signal?.aborted) throw signal.reason ?? new Error('aborted')
 }
 
 function logCycle1Throttled(key, message, intervalMs = 60_000) {

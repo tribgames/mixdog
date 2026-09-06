@@ -1,3 +1,5 @@
+import { clean } from './clean.mjs';
+
 const FRONTMATTER_RE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
 const AGENT_PERMISSION_ALIASES = new Map([
@@ -12,10 +14,6 @@ const AGENT_PERMISSION_ALIASES = new Map([
   ['mcp', 'mcp'],
   ['full', 'full'],
 ]);
-
-function clean(value) {
-  return String(value ?? '').trim();
-}
 
 function unquote(value) {
   return clean(value).replace(/^['"]|['"]$/g, '').trim();

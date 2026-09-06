@@ -83,6 +83,10 @@ function proxyConfigured() {
  */
 export function getLlmDispatcher() {
   if (proxyConfigured()) return undefined
+  if (_agent?.destroyed || _agent?.closed) {
+    _agent = null
+    _globalInstalled = false
+  }
   if (!_agent) {
     _agent = new (undici().Agent)({
       keepAliveTimeout: envInt('MIXDOG_LLM_KEEPALIVE_MS', 60_000),
@@ -111,20 +115,28 @@ export function getLlmDispatcher() {
 }
 
 /**
- * Drop the shared keep-alive pool after a stale-socket failure (ECONNRESET /
- * EPIPE / UND_ERR_SOCKET). The next getLlmDispatcher() call opens a fresh
- * Agent so the retry does not reuse the dead connection. No-op under a proxy.
+ * Replace the global pool before retiring its old generation. SDK clients
+ * use global fetch without calling getLlmDispatcher() on every attempt.
+ * Graceful close drains unrelated in-flight requests instead of aborting
+ * every provider because one origin failed. No-op under a proxy.
  */
 export function recycleLlmDispatcher() {
   if (proxyConfigured()) return false
   const old = _agent
+  if (!old) return false
   _agent = null
   _globalInstalled = false
   _preconnectedAt.clear()
-  if (!old) return false
+  getLlmDispatcher()
+  if (undici().getGlobalDispatcher() !== _agent) {
+    const unused = _agent
+    _agent = old
+    _globalInstalled = false
+    try { unused?.close()?.catch?.(() => {}) } catch {}
+    return false
+  }
   try {
-    if (typeof old.destroy === 'function') old.destroy()
-    else if (typeof old.close === 'function') old.close()
+    old.close().catch(() => {})
   } catch { /* never let recycle throw into a retry path */ }
   return true
 }

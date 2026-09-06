@@ -2,13 +2,9 @@
 // Symbol search / callers / callees / references / impact query layer over a
 // built graph. Pure over {graph,cwd,args}; owns no cache state. Extracted
 // verbatim from code-graph.mjs.
-import { _isJsLike } from './lang-predicates.mjs';
-import { _maskNonCodeText } from './text-mask.mjs';
 import {
   _graphRel,
   _getSourceTextForNode,
-  _getSourceLinesForNode,
-  _getMaskedLinesForNode,
 } from './source-access.mjs';
 import {
   _unicodeBoundaryPattern,
@@ -21,17 +17,11 @@ import { CODE_GRAPH_MAX_FILES } from './constants.mjs';
 import { _inferSpanEndByIndent } from './span.mjs';
 import {
   _toByteColumn,
-  _byteColToCharCol,
   _nearestEnclosingSymbol,
   _symbolPathForPosition,
 } from './text-columns.mjs';
-import {
-  _keywordSymbolSortKey,
-  _tokenizeKeyword,
-  _keywordMatchesSymbolName,
-} from './keyword-match.mjs';
 
-import { _extractCallees, _formatCalleeRow, _cheapReferenceSearch, _formatSymbolHitLocation, _findSymbolHits, _augmentNoHitDiagnostic } from './search.mjs';
+import { _cheapReferenceSearch, _formatSymbolHitLocation, _findSymbolHits, _augmentNoHitDiagnostic } from './search.mjs';
 
 export function _formatFullSymbolBody(srcText, startLine, endLine) {
   const all = String(srcText || '').split('\n');

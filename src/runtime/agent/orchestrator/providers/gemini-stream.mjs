@@ -18,10 +18,9 @@ import {
 import { scanLeakedToolCalls } from './anthropic-leaked-toolcall.mjs';
 import { traceHash, stableTraceStringify } from './trace-utils.mjs';
 import {
-    parseToolCalls,
-    emitGeminiToolCalls,
-    collectGeminiGroundingSources,
-    parseGeminiTextPartMetadata,
+  parseToolCalls,
+  emitGeminiToolCalls,
+  parseGeminiTextPartMetadata,
 } from './gemini-schema.mjs';
 import { parseProviderJsonBatch } from './stream-json-pool.mjs';
 
@@ -171,7 +170,7 @@ export function geminiChunkProgressKind(chunk) {
  * (same shape as a non-streaming generateContent JSON body).
  * Mirrors @google/generative-ai aggregateResponses().
  */
-export function aggregateGeminiStreamChunks(responses) {
+function aggregateGeminiStreamChunks(responses) {
     const lastResponse = responses[responses.length - 1];
     const aggregatedResponse = {
         promptFeedback: lastResponse?.promptFeedback,
@@ -226,7 +225,7 @@ function assertGeminiStreamCompleted({ sawStreamChunk, finishReason, promptBlock
 // the gateway live-text relay (onTextDelta) with the incremental text payload
 // as each SSE/SDK chunk arrives. Returns '' for tool-call / thought-only /
 // malformed chunks so the caller can skip empty emits.
-export function geminiChunkText(chunk) {
+function geminiChunkText(chunk) {
     const parts = chunk?.candidates?.[0]?.content?.parts;
     if (!Array.isArray(parts)) return '';
     let text = '';

@@ -147,7 +147,7 @@ function _abortableDelay(ms, signal) {
 // SessionClosedError's `reason` field; a bare string / message fallback keeps
 // non-session callers working. Anything unrecognized is treated as a real
 // cancellation, so the kill path stays the default.
-export function _abortReasonIsInterrupt(abortSignal) {
+function _abortReasonIsInterrupt(abortSignal) {
   const raw = abortSignal?.reason;
   if (!raw) return false;
   if (typeof raw === 'string') return raw === 'interrupt';
@@ -181,7 +181,7 @@ export function _shellFamilyForSpawn({ shell = '', shellArg: _shellArg = '', she
   return null;
 }
 
-export async function acquireShellLeaseBounded(admission, {
+async function acquireShellLeaseBounded(admission, {
   abortSignal, label, dependency = 'scoped', ownerKey = null,
 } = {}) {
   if (!(SHELL_ADMISSION_WAIT_MS > 0)) {

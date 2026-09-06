@@ -207,19 +207,6 @@ function flushPromptHistory() {
 process.once('exit', flushPromptHistory);
 
 /**
- * In-memory session list (newest first). Dedupes by promptHistoryKey.
- */
-function pushSessionPromptHistory(sessionTexts, value, limit = PROMPT_HISTORY_LIMIT) {
-  const text = String(value || '').trim();
-  const key = promptHistoryKey(text);
-  if (!key) return Array.isArray(sessionTexts) ? sessionTexts : [];
-  const base = Array.isArray(sessionTexts) ? sessionTexts : [];
-  const next = base.filter((entry) => promptHistoryKey(entry) !== key);
-  next.unshift(text);
-  return next.length > limit ? next.slice(0, limit) : next;
-}
-
-/**
  * Merge session-derived prompts (newest first) with persisted prompts from
  * older sessions. Dedupes by promptHistoryKey; session wins ordering.
  */

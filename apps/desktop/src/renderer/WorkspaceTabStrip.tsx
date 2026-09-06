@@ -9,6 +9,7 @@ import React, {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useReducer,
   useRef,
   useState,
 } from "react";
@@ -113,6 +114,10 @@ const TAB_MIN_INACTIVE_WIDTH = 28;
  * giving width down to this floor so the strip never overflows and
  * reveal-active never has to scroll a tab half out of view. */
 const TAB_HARD_MIN_WIDTH = 20;
+/* One motion beat (--mx-motion-base, 120ms) plus slack: the ghost of a closed
+ * tab unmounts and the entering mark drops once the width transition has
+ * settled. */
+const TAB_MOTION_SETTLE_MS = 180;
 
 function calculateChromeTabWidths(
   count: number,
@@ -286,9 +291,42 @@ export function WorkspaceTabStrip({
   useLayoutEffect(() => { clampOverlayIntoView(tabMenuNode.current); }, [tabMenu]);
   // Survivor widths follow the recalculated run immediately; the CSS width
   // transition glides them instead of holding then jumping.
-  const [fixedTabWidths, setFixedTabWidths] =
-    useState<ReadonlyMap<string, number>>(() => new Map());
-  const previousTabKeys = useRef(tabs.map((tab) => tab.key));
+  // A tab the strip has just lost stays mounted as a ghost for one motion beat,
+  // collapsing to nothing so its neighbours slide into the released space
+  // instead of jumping across it; a tab the strip has just gained grows in
+  // from nothing over the same beat (CSS @starting-style), so the run never
+  // overflows the strip and the leading tab is never clipped and scrolled
+  // back. Both are derived during render from the previous tab list: the
+  // closing element is the very node that was open (its width transition
+  // starts from where it stands), and the entering mark is on the node when
+  // it is inserted. A same-length change (a draft promoted to its session)
+  // animates nothing — that is a replacement, not an add or a close.
+  const previousTabs = useRef(tabs);
+  const closingTabs = useRef(new Map<string, { tab: WorkspaceTab; index: number }>());
+  const enteringKeys = useRef(new Set<string>());
+  const [, settleTabMotion] = useReducer((count: number) => count + 1, 0);
+  {
+    const previous = previousTabs.current;
+    if (tabs.length < previous.length) {
+      previous.forEach((tab, index) => {
+        if (!tabs.some((entry) => entry.key === tab.key)) {
+          closingTabs.current.set(tab.key, { tab, index });
+        }
+      });
+    } else if (tabs.length > previous.length) {
+      const known = new Set(previous.map((tab) => tab.key));
+      for (const tab of tabs) if (!known.has(tab.key)) enteringKeys.current.add(tab.key);
+    }
+  }
+  const displayTabs = tabs.map((tab) => ({ tab, closing: false }));
+  for (const ghost of [...closingTabs.current.values()].sort((left, right) => left.index - right.index)) {
+    // A key that came back inside the beat is a live tab again, never a ghost.
+    if (tabs.some((tab) => tab.key === ghost.tab.key)) {
+      closingTabs.current.delete(ghost.tab.key);
+      continue;
+    }
+    displayTabs.splice(Math.min(ghost.index, displayTabs.length), 0, { tab: ghost.tab, closing: true });
+  }
   const revealActiveTab = useCallback(() => {
     const strip = tabStrip.current;
     const node = tabNodes.current.get(activeKey);
@@ -310,16 +348,25 @@ export function WorkspaceTabStrip({
     }
   }, [activeKey]);
   useLayoutEffect(() => {
-    const previousKeys = previousTabKeys.current;
-    const appended = tabs.length > previousKeys.length
-      && previousKeys.every((key, index) => tabs[index]?.key === key);
-    previousTabKeys.current = tabs.map((tab) => tab.key);
+    const previous = previousTabs.current;
+    const appended = tabs.length > previous.length
+      && previous.every((tab, index) => tabs[index]?.key === tab.key);
+    previousTabs.current = tabs;
     if (!appended) return;
-
-    setFixedTabWidths(new Map());
     // Reveal a newly appended active
     // tab and the attached add-tab control are revealed before paint.
     if (tabStrip.current) tabStrip.current.scrollLeft = tabStrip.current.scrollWidth;
+  }, [tabs]);
+  // One beat after the last change the ghosts unmount and the entering marks
+  // drop; a change inside the beat restarts it so every tab settles together.
+  useEffect(() => {
+    if (!closingTabs.current.size && !enteringKeys.current.size) return undefined;
+    const timer = window.setTimeout(() => {
+      closingTabs.current.clear();
+      enteringKeys.current.clear();
+      settleTabMotion();
+    }, TAB_MOTION_SETTLE_MS);
+    return () => window.clearTimeout(timer);
   }, [tabs]);
   // Reveal-active-tab: switching tabs scrolls the strip MINIMALLY so
   // the active tab is always fully visible — overflow scrolls, it never
@@ -335,8 +382,8 @@ export function WorkspaceTabStrip({
   }, [activeKey, revealActiveTab, tabSignature]);
   // Parent layout calls are implicit in React/CSS, with no explicit
   // title-control layout pass. Observe this strip's OWN width so sash,
-  // dock, sidebar and window changes all release mouse-close sizing and reveal
-  // the active label without coupling pane labels to viewport breakpoints.
+  // dock, sidebar and window changes all reveal the active label without
+  // coupling pane labels to viewport breakpoints.
   useLayoutEffect(() => {
     const strip = tabStrip.current;
     if (!strip || typeof ResizeObserver === "undefined") return undefined;
@@ -345,16 +392,11 @@ export function WorkspaceTabStrip({
       const nextWidth = strip.clientWidth;
       if (nextWidth === previousWidth) return;
       previousWidth = nextWidth;
-      setFixedTabWidths((current) => current.size > 0 ? new Map() : current);
       revealActiveTab();
     });
     observer.observe(strip);
     return () => observer.disconnect();
   }, [revealActiveTab]);
-  const closeTab = useCallback((tab: WorkspaceTab) => {
-    setFixedTabWidths(new Map());
-    onCloseTab(tab);
-  }, [onCloseTab]);
   const setTabNode = useCallback((key: string, node: HTMLDivElement | null) => {
     if (node) tabNodes.current.set(key, node);
     else tabNodes.current.delete(key);
@@ -363,7 +405,7 @@ export function WorkspaceTabStrip({
     tabs,
     activeKey,
     onSelectTab: selectTab,
-    onCloseTab: closeTab,
+    onCloseTab,
   });
 
   // Global Ctrl+W close shortcut (App owns the key handler). Keep this path
@@ -567,11 +609,25 @@ export function WorkspaceTabStrip({
             setDropIndex(null);
           }}
           onDrop={handleNativeDrop}
-          onDragEnd={finishNativeDrag}
-          onPointerLeave={() => {
-            setFixedTabWidths(new Map());
-          }}>
-          {tabs.map((tab, index) => {
+          onDragEnd={finishNativeDrag}>
+          {displayTabs.map(({ tab, closing }) => {
+            if (closing) {
+              // The same node the open tab had, stripped of its handlers and
+              // its width: it collapses and fades while the neighbours glide.
+              return (
+                <div key={tab.key} className="workspace-tab closing" aria-hidden="true"
+                  data-tab-key={tab.key} data-closing="true">
+                  <button type="button" className="workspace-tab-main" tabIndex={-1}>
+                    {tabGlyph(tab)}
+                    <span>{tab.title}</span>
+                  </button>
+                  <button type="button" className="workspace-tab-close" tabIndex={-1}>
+                    <X size={18} strokeWidth={2} aria-hidden="true" />
+                  </button>
+                </div>
+              );
+            }
+            const index = tabs.indexOf(tab);
             const active = tab.key === activeKey;
             const dropLeft = draggingKey && dropIndex !== null
               && tabs[dropIndex - 1]?.key === tab.key;
@@ -580,12 +636,11 @@ export function WorkspaceTabStrip({
             const working = tabIsWorking(tab, active, activeBusy, workingSessionIds);
             const unread = tab.selection.kind === "session" &&
               unreadSessionIds?.has(tab.selection.id) === true;
-            const fixedTabWidth = fixedTabWidths.get(tab.key);
-            const pinnedTabWidth = fixedTabWidth ?? chromeWidths?.[index];
+            const pinnedTabWidth = chromeWidths?.[index];
             return (
                 <div key={tab.key}
                   ref={(node) => setTabNode(tab.key, node)}
-                  className={`workspace-tab ${active ? "active" : ""} ${tab.preview ? "preview" : ""} ${tab.dirty ? "dirty" : ""} ${draggingKey === tab.key ? "dragging" : ""} ${dropLeft ? "drop-target-left" : ""} ${dropRight ? "drop-target-right" : ""}`}
+                  className={`workspace-tab ${active ? "active" : ""} ${tab.preview ? "preview" : ""} ${tab.dirty ? "dirty" : ""} ${draggingKey === tab.key ? "dragging" : ""} ${dropLeft ? "drop-target-left" : ""} ${dropRight ? "drop-target-right" : ""} ${enteringKeys.current.has(tab.key) ? "entering" : ""}`}
                   data-tab-key={tab.key}
                   data-active={active}
                   data-working={working || undefined}
@@ -608,7 +663,7 @@ export function WorkspaceTabStrip({
                   onMouseDown={(event) => {
                     if (event.button !== 1) return;
                     event.preventDefault();
-                    closeTab(tab);
+                    onCloseTab(tab);
                   }}
                   onDoubleClick={() => onPinTab?.(tab)}
                   onContextMenu={(event) => {
@@ -662,7 +717,7 @@ export function WorkspaceTabStrip({
                     className="workspace-tab-close"
                     onClick={(event) => {
                       event.stopPropagation();
-                      closeTab(tab);
+                      onCloseTab(tab);
                     }}
                     aria-label={t("Close {{title}}", { title: tab.title })}
                     data-tooltip={t("Close tab")}
@@ -709,7 +764,7 @@ export function WorkspaceTabStrip({
                 }
               : null;
           const items: Array<{ label: string; disabled?: boolean; run: () => void }> = [
-            { label: "Close", run: () => closeTab(menuTab) },
+            { label: "Close", run: () => onCloseTab(menuTab) },
             {
               label: "Close Others",
               disabled: !others.length,

@@ -1,4 +1,4 @@
-import { Check, ChevronLeft, Copy } from "lucide-react";
+import { ArrowLeft, Check, Copy } from "lucide-react";
 import type {
   DesktopGitCommitDetails,
   DesktopGitCommitFile,
@@ -56,9 +56,10 @@ export function SourceControlCommitDetail({
   const copyState = detail && shaCopy?.hash === detail.hash ? shaCopy : null;
 
   return <div className="dock-scm-history dock-scm-commit-detail">
-    {/* ONE header block: the subject over an `author · date · sha` byline
-        (the SHA is the copy control), with the back button trailing on the
-        right — the same one-row grammar as the Changes list's toolbar. */}
+    {/* ONE header block: the subject over a plain `author · date · sha`
+        byline, with the action cluster (copy SHA, back) pinned to the
+        subject's FIRST line on the right — two distinct glyphs side by side,
+        never a lone chevron floating between the lines. */}
     <header className="dock-scm-commit-header">
       <div className="dock-scm-commit-headline">
         <b title={headline}
@@ -70,16 +71,8 @@ export function SourceControlCommitDetail({
           <time dateTime={detail.authoredAt} title={new Date(detail.authoredAt).toLocaleString()}>
             {formatCommitDate(detail.authoredAt)}
           </time>
-          <span className="dock-scm-commit-sha">
-            <button type="button" className="dock-scm-commit-ref"
-              aria-label="Copy the full SHA"
-              title={copyState ? copyState.ok ? "Copied" : "Copy failed" : "Copy the full SHA"}
-              onClick={() => void onCopySha(detail.hash)}>
-              <code>{detail.shortHash}</code>
-              {copyState?.ok
-                ? <Check size={11} aria-hidden="true" />
-                : <Copy size={11} aria-hidden="true" />}
-            </button>
+          <span className="dock-scm-commit-sha" title={detail.hash}>
+            <code>{detail.shortHash}</code>
           </span>
         </div>}
       </div>
@@ -90,10 +83,21 @@ export function SourceControlCommitDetail({
             : "Could not copy the SHA to the clipboard"
           : ""}
       </span>
-      <button type="button" className="dock-scm-commit-back"
-        aria-label="Back to commit history" onClick={onBack}>
-        <ChevronLeft size={14} aria-hidden="true" />
-      </button>
+      <div className="dock-scm-commit-actions">
+        {detail && <button type="button" className="dock-scm-commit-action"
+          aria-label="Copy the full SHA"
+          title={copyState ? copyState.ok ? "Copied" : "Copy failed" : "Copy the full SHA"}
+          onClick={() => void onCopySha(detail.hash)}>
+          {copyState?.ok
+            ? <Check size={14} aria-hidden="true" />
+            : <Copy size={14} aria-hidden="true" />}
+        </button>}
+        <button type="button" className="dock-scm-commit-action dock-scm-commit-back"
+          aria-label="Back to commit history" title="Back to commit history"
+          onClick={onBack}>
+          <ArrowLeft size={14} aria-hidden="true" />
+        </button>
+      </div>
     </header>
     {detailFiles.map((file) => {
       const open = openCommitFile === file.path;

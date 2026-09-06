@@ -10,8 +10,7 @@ import {
 // react-markdown and the remark/unified ecosystem are heavy; they load as a
 // separate lazy chunk (MarkdownBody) so the first paint never pays for them.
 import {
-  ArrowDown,
-  X
+  ArrowDown
 } from "lucide-react";
 import type {
   DesktopAbortOptions,
@@ -23,8 +22,8 @@ import type {
   SessionSnapshot
 } from "../shared/contract";
 import { t } from "./i18n";
+import { ErrorNotice } from "./ErrorNotice";
 import { isMobileRemoteSurface } from "./mobile-surface";
-import { MxIcon } from "./MxIcon";
 import {
   approvalInstanceKey,
   transcriptTurnKeys
@@ -38,7 +37,6 @@ import { ApprovalCard } from "./ApprovalCard";
 import { Composer, ProjectContextSelector, WorkflowSelect } from "./Composer";
 import { BrandTile } from "./WorkspaceEmptyState";
 import { EMPTY_TRANSCRIPT_ITEMS, type RecordValue, type Snapshot, type TranscriptItem } from "./desktop-types";
-import { InlineErrors } from "./notifications";
 import { SessionGoalHost } from "./SessionGoalIsland";
 import { asRecord } from "./text-format";
 import { TranscriptList } from "./TranscriptList";
@@ -55,10 +53,7 @@ import {
   readTranscriptVirtualSnapshot,
   transcriptRowNamespace,
 } from "./transcript-virtual-cache";
-import {
-  nextTranscriptHistoryLimit,
-  TRANSCRIPT_HISTORY_PAGE_ITEMS,
-} from "./transcript-history";
+import { useTranscriptHistory } from "./use-transcript-history";
 import { LiveActivity, resetToolDisclosureScope, ToolActivityGroup, TranscriptRow } from "./TranscriptView";
 import { TurnReviewBar } from "./TurnReview";
 import { useTranscriptFollow } from "./use-transcript-follow";
@@ -206,7 +201,6 @@ export function Conversation({
   routeSnapshot,
   sessionAddress,
   invokeResult,
-  errors,
   submit,
   applySnapshot,
   transitioning,
@@ -430,54 +424,10 @@ export function Conversation({
   const transcriptSessionKey = draftMode
     ? 'new-task'
     : String(routeSnapshot.sessionId || 'new-task');
-  const settledItemCountRef = useRef(settledItems.length);
-  settledItemCountRef.current = settledItems.length;
-  const historyPagingRef = useRef({
-    sessionId: transcriptSessionKey,
-    limit: Math.max(TRANSCRIPT_HISTORY_PAGE_ITEMS, settledItems.length),
-    pending: false,
-    exhausted: settledItems.length < TRANSCRIPT_HISTORY_PAGE_ITEMS,
-  });
-  if (historyPagingRef.current.sessionId !== transcriptSessionKey) {
-    historyPagingRef.current = {
-      sessionId: transcriptSessionKey,
-      limit: Math.max(TRANSCRIPT_HISTORY_PAGE_ITEMS, settledItems.length),
-      pending: false,
-      exhausted: settledItems.length < TRANSCRIPT_HISTORY_PAGE_ITEMS,
-    };
-  }
-  const requestEarlierTranscript = useCallback(() => {
-    const sessionId = String(routeSnapshot.sessionId || '');
-    const prefetch = window.mixdogDesktop?.prefetchSession;
-    const paging = historyPagingRef.current;
-    if (!sessionId || typeof prefetch !== 'function' || paging.pending || paging.exhausted) return;
-    const nextLimit = nextTranscriptHistoryLimit(
-      settledItemCountRef.current,
-      paging.limit,
-    );
-    if (nextLimit == null) {
-      paging.exhausted = true;
-      return;
-    }
-    const beforeCount = settledItemCountRef.current;
-    paging.pending = true;
-    void Promise.resolve(prefetch(sessionId, nextLimit)).then((accepted) => {
-      window.requestAnimationFrame(() => {
-        const current = historyPagingRef.current;
-        if (current.sessionId !== transcriptSessionKey) return;
-        current.pending = false;
-        current.limit = Math.max(current.limit, nextLimit);
-        const afterCount = settledItemCountRef.current;
-        if (accepted !== true || afterCount <= beforeCount || afterCount < nextLimit) {
-          current.exhausted = true;
-        }
-      });
-    }).catch(() => {
-      if (historyPagingRef.current.sessionId === transcriptSessionKey) {
-        historyPagingRef.current.pending = false;
-      }
-    });
-  }, [routeSnapshot.sessionId, transcriptSessionKey]);
+  const requestEarlierTranscript = useTranscriptHistory(
+    draftMode ? "" : String(routeSnapshot.sessionId || ""),
+    settledItems.length,
+  );
   const previousTranscriptSessionKey = useRef(transcriptSessionKey);
   // A pane's OWN draft -> session promotion must NOT rebuild the timeline. The
   // virtual list AND its row keys are namespaced by this identity, which
@@ -637,20 +587,14 @@ export function Conversation({
     || activeStreamingTail
     || optimisticActivityStartedAt
   );
-  // Submit-gap batching: the optimistic user row opens the next review scope
-  // in the SAME commit it appends, so the diff bar unmounts there; the goal
-  // capsule instead follows the lane snapshot, which lands one commit later,
-  // and the composer height then steps twice (user: 엔터 치면 투툭투툭 튄다 —
-  // 한 프레임에 동시 처리). While the submit gap is open, hide the goal in
-  // that same commit — but only when this submit actually closes a
-  // file-touching scope, so persistent goals on conversation-only turns are
-  // left alone.
-  const turnTouchesFilesRef = useRef(turnTouchesFiles);
-  turnTouchesFilesRef.current = turnTouchesFiles;
-  const hideGoalForSubmitRef = useRef(false);
-  const submitGapOpen = transcriptPendingPromptItems.length > 0;
-  if (!submitGapOpen && hideGoalForSubmitRef.current) hideGoalForSubmitRef.current = false;
-  const hideGoalForSubmit = hideGoalForSubmitRef.current && submitGapOpen;
+  // Close previous-turn chrome with the optimistic row. The goal owns a
+  // separate snapshot lane, so its mask must survive transcript settlement;
+  // the island releases it only when its own goal revision changes.
+  const goalSubmitScopeRef = useRef(transcriptSessionKey);
+  goalSubmitScopeRef.current = transcriptSessionKey;
+  const goalSubmission = useRef<{ id: string; scope: string } | null>(null);
+  const goalSubmissionId = goalSubmission.current?.scope === transcriptSessionKey
+    ? goalSubmission.current.id : "";
   useEffect(() => {
     if (previousTranscriptSessionKey.current === transcriptSessionKey) return;
     previousTranscriptSessionKey.current = transcriptSessionKey;
@@ -887,11 +831,11 @@ export function Conversation({
     };
     const materializingDraft = draftModeRef.current;
     if (materializingDraft) suppressDraftSubmitPaintHandoff.current = true;
-    // Batch the goal hide into the same commit as the append + diff hide (see
-    // submit-gap batching above). Queued follow-ups ride the active turn and
-    // must not touch the current chrome.
-    if (turnTouchesFilesRef.current && !queuedBehindTurnAtSubmit.current) {
-      hideGoalForSubmitRef.current = true;
+    // Every idle submit closes completed goal chrome, even without a diff.
+    // The goal lane decides whether its goal is complete; queued follow-ups
+    // ride the active turn and must not touch the current chrome.
+    if (!queuedBehindTurnAtSubmit.current) {
+      goalSubmission.current = { id: submissionId, scope: goalSubmitScopeRef.current };
     }
     setOptimisticPrompts((current) => [
       ...current.filter((item) => item.id !== submissionId),
@@ -911,6 +855,7 @@ export function Conversation({
       );
     } catch (error) {
       if (materializingDraft) suppressDraftSubmitPaintHandoff.current = false;
+      if (goalSubmission.current?.id === submissionId) goalSubmission.current = null;
       setOptimisticPrompts((current) =>
         current.filter((item) => String(item.id) !== submissionId));
       throw error;
@@ -918,6 +863,7 @@ export function Conversation({
     if (accepted !== true && materializingDraft) {
       suppressDraftSubmitPaintHandoff.current = false;
     }
+    if (accepted !== true && goalSubmission.current?.id === submissionId) goalSubmission.current = null;
     setOptimisticPrompts((current) => current.flatMap((item) => {
       if (String(item.id) !== submissionId) return [item];
       return accepted === true ? [{ ...item, accepted: true }] : [];
@@ -985,17 +931,12 @@ export function Conversation({
       return <div className="transcript-turn-gap" aria-hidden="true" />;
     }
     if (row._tag === "Error") {
-      const failureReason = String(
-        row.item?.detail || row.item?.message || row.item?.text || row.item?.label || "",
-      ).replace(/^Error:\s*/i, "").trim();
-      return <div className="turn-status failed" role="status">
-        <X className="turn-status-icon" size={16} aria-hidden="true" />
-        <span>{t("Failed")}{failureReason && !/^failed$/i.test(failureReason) ? ` · ${failureReason}` : ""}</span>
-        {readOnly ? null : <button type="button" className="turn-retry" disabled={retryDisabled}
-          onClick={() => retryTurn(row.turnKey)} aria-label={t("Retry failed turn")}>
-          <MxIcon name="reset" size={12} />{t("Retry")}
-        </button>}
-      </div>;
+      const retryKey = [...row.failures].reverse().find((failure) =>
+        turnPromptText(settledItems, settledTurnKeys, failure.turnKey))?.turnKey;
+      return <ErrorNotice
+        errors={row.failures.map(({ item }) => item?.errorDetails || item?.detail || item?.message || item?.text || item?.label || t("Failed"))}
+        onRetry={!readOnly && retryKey ? () => retryTurn(retryKey) : undefined}
+        retryDisabled={retryDisabled} role="status" />;
     }
     if (row._tag === "Thinking") {
       return <div className="live-activity-slot" data-busy="true">
@@ -1033,7 +974,9 @@ export function Conversation({
         const target = event.target as HTMLElement | null;
         const editingHomeOrEnd = (event.key === "Home" || event.key === "End")
           && Boolean(target?.closest('textarea, input, select, [contenteditable="true"]'));
-        const paletteOpen = Boolean(event.currentTarget.querySelector('[role="listbox"]'));
+        const paletteOpen = Boolean(event.currentTarget.querySelector(
+          '[data-composer-palette-open="true"], [role="listbox"]',
+        ));
         const nestedScroller = target?.closest<HTMLElement>("[data-scrollable]");
         if (transcriptKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey
           && !editingHomeOrEnd && !paletteOpen && !nestedScroller) {
@@ -1147,7 +1090,7 @@ export function Conversation({
       </button>}
       </div>
       {!readOnly && <div className="composer-region">
-        <SessionGoalHost placement="composer">{hideGoalForSubmit ? null : goalIsland}</SessionGoalHost>
+        <SessionGoalHost placement="composer" submissionId={goalSubmissionId}>{goalIsland}</SessionGoalHost>
         {runtimeProgressSlot ?? (Boolean(asRecord(snapshot.progressHint)?.text)
           ? <div className="runtime-progress" role="status">
             {String(asRecord(snapshot.progressHint)?.text)}
@@ -1183,7 +1126,6 @@ export function Conversation({
             invokeResult={composerInvokeResult} applySnapshot={composerApplySnapshot}
             onDraftChange={onDraftWorkflow} />
         </div>}
-        <InlineErrors messages={errors} />
         {/* Review sits attached ABOVE the input (user: 채팅창 위에 붙어야 한다).
             It is not a timeline row: as scroll content it read as a detached
             card floating over the composer. */}

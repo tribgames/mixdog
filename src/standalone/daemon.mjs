@@ -30,7 +30,7 @@ await import('../runtime/shared/uv-threadpool-boot.mjs');
 
 import os from 'node:os';
 import path from 'node:path';
-import { mkdirSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { appendFile, mkdir, open, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';

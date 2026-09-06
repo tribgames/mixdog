@@ -1,4 +1,5 @@
 import { gitCommandMutates } from '../../tools/builtin/git-command-policy.mjs';
+import { githubRequestMutates } from '../../../../github/contract.mjs';
 import { isAbsolute, normalize, resolve } from 'node:path';
 
 // Tool-name classification + intra-turn signature helpers, extracted from
@@ -16,11 +17,13 @@ export function _isReadTool(name) {
 }
 export function _isMutationTool(name, args = null) {
     const n = String(_stripMcpPrefix(name) || '').toLowerCase();
-    return n === 'apply_patch' || n === 'edit' || n === 'git_stage' || (n === 'git' && gitCommandMutates(args));
+    return n === 'apply_patch' || n === 'edit' || n === 'git_stage'
+        || (n === 'git' && gitCommandMutates(args)) || (n === 'github' && githubRequestMutates(args));
 }
 export function _isGitMutationTool(name, args = null) {
     const n = String(_stripMcpPrefix(name) || '').toLowerCase();
-    return n === 'git_stage' || (n === 'git' && gitCommandMutates(args));
+    return n === 'git_stage' || (n === 'git' && gitCommandMutates(args))
+        || (n === 'github' && githubRequestMutates(args));
 }
 export function _isEditTool(name) {
     return String(_stripMcpPrefix(name) || '').toLowerCase() === 'edit';

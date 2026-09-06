@@ -16,10 +16,7 @@ import { installProcessSignalCleanup } from './runtime/shared/process-shutdown.m
 import { stopStandaloneMemoryRuntimesForProcess } from './standalone/memory-runtime-proxy.mjs';
 import { shutdownDaemonForRuntimeRoot } from './standalone/session-client.mjs';
 import { applyUsageDelta, createSessionStats } from './ui/session-stats.mjs';
-
-function clean(value) {
-  return String(value ?? '').trim();
-}
+import { clean } from './runtime/shared/clean.mjs';
 
 export async function prewarmHeadlessSearch(cwd, {
   loadNativeSearch = () => import('./runtime/agent/orchestrator/tools/builtin/native-search-client.mjs'),

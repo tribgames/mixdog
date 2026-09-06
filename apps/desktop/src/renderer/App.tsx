@@ -59,7 +59,7 @@ import {
   UnsavedChangesDialog,
   WorkbenchQuickAccess,
   type WorkbenchQuickAccessMode,
-} from "./WorkbenchOverlays";
+} from "./workbench-overlays-loader";
 import { WorkspaceEmptyState } from "./WorkspaceEmptyState";
 
 import { ActivityRail } from "./ActivityRail";
@@ -202,6 +202,7 @@ import {
   type DraftPanePrefs,
 } from "./use-draft-pane-preferences";
 import { useAppSubmitRouting } from "./use-app-submit-routing";
+import { inheritSessionInPlace } from "./app-session-inheritance";
 import { useAppSidebarSurface } from "./use-app-sidebar-surface";
 import { buildAppWorkbenchCommands } from "./app-workbench-commands";
 import type { UtilityDockTab } from "./UtilityDock";
@@ -1853,10 +1854,9 @@ export function App() {
     if (!quickAccessMode) return undefined;
     return registerMobileBack(() => setQuickAccessMode(null));
   }, [quickAccessMode]);
-  // /inherit: the heir carries this conversation onto the currently selected
-  // model under a new id, opens in its own tab, and leaves the source session
-  // untouched behind it.
-  const inheritSessionToNewTab = useCallback(async (
+  // Both inheritance entry points replace the source tab only after its heir
+  // is ready. The original transcript remains available in session history.
+  const replaceWithInheritedSession = useStableEvent(async (
     sourceSessionId: string,
     route: DesktopModelSelection,
   ) => {
@@ -1864,13 +1864,34 @@ export function App() {
     if (typeof api?.inheritSession !== "function") {
       throw new Error("Session inheritance is unavailable on this surface.");
     }
-    const result = await api.inheritSession(sourceSessionId, route);
-    const inherited = String(result?.sessionId || "").trim();
-    if (!inherited) throw new Error("The inherited session was not created.");
+    await inheritSessionInPlace(sourceSessionId, route, {
+      inherit: (id, selection) => api.inheritSession(id, selection),
+      leaves: () => paneLeavesRef.current,
+      focusedLeafId: () => focusedLeafIdRef.current,
+      sourceTitle: () => {
+        const row = sessions.find((entry) => entry.id === sourceSessionId);
+        return row ? sessionSummaryTitle(row)
+          : tabs.find((tab) => tab.key === `session:${sourceSessionId}`)?.title || "";
+      },
+      refreshSessions,
+      readSession: requestSessionRead,
+      snapshot: (id) => defaultSessionLaneStore.get(id) as SessionSnapshot,
+      prepare: applySessionLaneResult,
+      replace: (leafId, selection, title, sourceKey, focused) => {
+        if (focused) {
+          navigationEpoch.current += 1;
+          setRequestedSessionId("");
+          finishPendingConversationHandoff();
+          activateSelection(selection, title, sourceKey);
+        } else {
+          promoteSelectionInLeaf(leafId, selection, sourceKey);
+          registerWorkspaceSelection(selection, title, sourceKey);
+        }
+      },
+    });
     setCommandSurface(null);
     setCommandSurfaceSessionId("");
-    await openSession(inherited);
-  }, [openSession, setCommandSurface, setCommandSurfaceSessionId]);
+  });
   const cancelPendingTabCloseRef = useRef(cancelPendingTabClose);
   cancelPendingTabCloseRef.current = cancelPendingTabClose;
   useEffect(() => {
@@ -2164,6 +2185,9 @@ export function App() {
         onSelectProject: conversationSelectProject,
         onOpenCommandSurface: (surface) =>
           openConversationCommandSurface(surface, paneSessionId),
+        // The context card runs inheritance in place; /inherit keeps the
+        // dialog for the typed command.
+        onInheritSession: replaceWithInheritedSession,
       }} />;
   };
   const {
@@ -2819,7 +2843,7 @@ export function App() {
                 snapshot={surface === "context" || surface === "inherit"
                   ? commandSurfaceLane ?? EMPTY_SNAPSHOT
                   : snapshot}
-                onInherit={surface === "inherit" ? inheritSessionToNewTab : undefined}
+                onInherit={surface === "inherit" ? replaceWithInheritedSession : undefined}
                 onClose={() => {
                   setCommandSurface(null);
                   setCommandSurfaceSessionId("");

@@ -70,8 +70,7 @@ import {
     _buildResponseCreateFrame,
     _requestInputMismatchDiagnostics,
 } from './openai-ws-delta.mjs';
-import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
-import { envPositiveInt } from './lib/env-utils.mjs';
+import { envPositiveInt } from '../../../shared/env.mjs';
 
 // Legacy import paths for mixdog-session-runtime.mjs (drainOpenaiWsPool),
 // the scripts/provider-toolcall/ suites (parseToolSearchArgs,
@@ -369,14 +368,14 @@ export function _applyReasoningReplayPolicy(entry, body, { suppress = false } = 
  * stateful chain). Deliberately narrow: generic transport/5xx errors must not
  * trip the replay-suppression retry.
  */
-export function _isReasoningReplayRejection(err) {
+function _isReasoningReplayRejection(err) {
     const msg = String(err?.payload?.message || err?.message || '');
     if (!msg) return false;
     if (/\brs_[A-Za-z0-9]/i.test(msg) && /duplicate|already|exists|repeated/i.test(msg)) return true;
     return /reasoning/i.test(msg) && /duplicate|already exists|repeated|invalid item/i.test(msg);
 }
 
-export async function _acquireWithRetry({
+async function _acquireWithRetry({
     auth,
     poolKey,
     cacheKey,

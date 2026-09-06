@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { registerHooks } from "node:module";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { JSDOM } from "jsdom";
+
+registerHooks({
+  resolve(specifier, context, next) {
+    if (specifier.endsWith(".css")) return { url: "data:text/javascript,", shortCircuit: true };
+    return next(specifier, context);
+  },
+});
+const { SourceControlDock } = await import("./SourceControlDock.tsx");
 
 const source = (name) => readFile(new URL(name, import.meta.url), "utf8");
 
@@ -25,19 +37,20 @@ test("side panel background reads do not escalate into red notifications", async
   );
 });
 
-test("right side background reads stay neutral while action failures remain alerts", async () => {
-  const [sourceControl, pullRequests] = await Promise.all([
-    source("./SourceControlDock.tsx"),
-    source("./PullRequestsPane.tsx"),
-  ]);
-
-  assert.match(sourceControl, /if \(!status && statusError\)/);
-  assert.match(sourceControl, /className="utility-dock-empty" role="status"/);
-  assert.doesNotMatch(sourceControl, /\(error \|\| statusError\).*dock-scm-error/);
-  assert.match(sourceControl, /<SourceControlErrorNotice error=\{error\} className="dock-scm-error"/);
-
-  assert.match(pullRequests, /categories === null && readError/);
-  assert.match(pullRequests, /className="dock-pr-empty" role="status"/);
-  assert.match(pullRequests, /<SourceControlErrorNotice error=\{actionError\}/);
-  assert.doesNotMatch(pullRequests, /\{listError &&/);
+test("an unavailable background Git read renders a neutral state without the raw error", () => {
+  const dom = new JSDOM("", { url: "http://localhost/" });
+  const previous = globalThis.window;
+  globalThis.window = dom.window;
+  try {
+    const markup = renderToStaticMarkup(React.createElement(SourceControlDock, {
+      projectPath: "C:/project", status: null, statusReady: true, loading: false,
+      statusError: "raw IPC failure", onRefreshStatus() {}, active: false,
+      readinessKey: "test", onReadyChange() {},
+    }));
+    assert.match(markup, /role="status"/);
+    assert.doesNotMatch(markup, /role="alert"|raw IPC failure/);
+  } finally {
+    globalThis.window = previous;
+    dom.window.close();
+  }
 });

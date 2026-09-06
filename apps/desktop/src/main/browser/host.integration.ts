@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { appendFileSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type ServerResponse } from 'node:http';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -140,7 +140,11 @@ async function run(): Promise<void> {
     response.setHeader('content-type', 'text/html; charset=utf-8');
     response.end(`<!doctype html><title>Cross-origin frame</title>
       <p>Cross-frame evidence</p>
-      <button onclick="this.textContent = 'Frame clicked'">Frame action</button>`);
+      <button onclick="this.textContent = 'Frame clicked'">Frame action</button>
+      <div id="shadow-host"></div><script>
+        document.querySelector('#shadow-host').attachShadow({mode:'open'}).innerHTML =
+          '<span class="shadow-evidence">Shadow frame evidence</span>';
+      </script>`);
   });
   const fixture = createServer((request, response) => {
     const origin = `http://${request.headers.host}`;
@@ -310,7 +314,7 @@ async function run(): Promise<void> {
         webviewTag: true,
       },
     });
-    host = createBrowserHost(parent);
+    host = createBrowserHost(parent, { requestApproval: async () => true });
     const browserSurfaceRequests: DesktopBrowserOpenRequest[] = [];
     const parentWebContents = parent.webContents;
     const sendToRenderer = parentWebContents.send.bind(parentWebContents);
@@ -616,7 +620,7 @@ async function run(): Promise<void> {
         steps: [{ action: 'navigate', url: `${origin}/secondary` }, { action: 'press', key: 'Enter' }],
         tab: 'alpha',
       }),
-      /is not chainable/,
+      /action must be one of/,
     );
     progress('sequence chaining complete');
 
@@ -717,18 +721,21 @@ async function run(): Promise<void> {
     assert.equal(statSync(pdfPath[1]).size, Number(pdfPath[2]));
     progress('frame file output and pdf print complete');
 
-    // Read-only commands overlap: serialized, two 400ms waits could not both
-    // finish inside one 400ms window plus overhead.
+    // Each timed-out wait owns its observation; one caller must never receive
+    // the other caller's condition or ref generation.
     turnId = 33;
-    const overlapStartedAt = Date.now();
-    const overlapped = await Promise.allSettled([
-      command({ action: 'wait', text: 'never-appears-a', timeoutMs: 400, tab: 'alpha' }),
-      command({ action: 'wait', text: 'never-appears-b', timeoutMs: 400, tab: 'alpha' }),
+    const waits = await Promise.allSettled([
+      command({ action: 'wait', text: 'never-appears-a', timeoutMs: 500, tab: 'alpha' }),
+      command({ action: 'wait', text: 'never-appears-b', timeoutMs: 500, tab: 'alpha' }),
     ]);
-    const overlapElapsed = Date.now() - overlapStartedAt;
-    assert.equal(overlapped.every((entry) => entry.status === 'rejected'), true);
-    assert.ok(overlapElapsed < 800, `read-only commands did not overlap: ${overlapElapsed}ms`);
-    progress('read concurrency complete');
+    const reasons = waits.map((entry) => {
+      assert.equal(entry.status, 'rejected');
+      return entry.status === 'rejected' ? String(entry.reason) : '';
+    });
+    assert.match(reasons[0], /never-appears-a/);
+    assert.match(reasons[1], /never-appears-b/);
+    assert.notEqual(reasons[0].match(/Snapshot: (p\d+-s\d+)/)?.[1], reasons[1].match(/Snapshot: (p\d+-s\d+)/)?.[1]);
+    progress('observation generation isolation complete');
 
     // A fresh turn: the interaction block below already fills the per-turn
     // budget on its own, and the sequence checks above must not eat into it.
@@ -1005,7 +1012,8 @@ async function run(): Promise<void> {
       name: 'mixdog-fixture',
       tab: 'beta',
     });
-    assert.match(cookies.text, /cookie-ready/);
+    assert.doesNotMatch(cookies.text, /cookie-ready/);
+    assert.match(cookies.text, /\[REDACTED\]/);
     assert.match(cookies.text, /"httpOnly": true/);
     await command({
       action: 'storage',
@@ -1025,7 +1033,7 @@ async function run(): Promise<void> {
     assert.match(storage.text, /storage-ready/);
     await assert.rejects(
       command({ action: 'cookies', operation: 'clear', tab: 'beta' }),
-      /shared clear requires confirm=true/,
+      /shared clear requires (?:input\.)?confirm=true/,
     );
     await assert.rejects(
       command({
@@ -1034,7 +1042,7 @@ async function run(): Promise<void> {
         storageType: 'local',
         tab: 'beta',
       }),
-      /shared clear requires confirm=true/,
+      /shared clear requires (?:input\.)?confirm=true/,
     );
     await command({ action: 'cookies', operation: 'clear', confirm: true, tab: 'beta' });
     await command({
@@ -1211,7 +1219,7 @@ async function run(): Promise<void> {
     progress('mobile emulation and touch complete');
 
     turnId = 32;
-    await command({ action: 'performance', operation: 'start', tab: 'beta' });
+    await command({ action: 'performance', operation: 'start', saveTrace: true, tab: 'beta' });
     await command({
       action: 'evaluate',
       script: `(() => {
@@ -1224,6 +1232,11 @@ async function run(): Promise<void> {
     const trace = await command({ action: 'performance', operation: 'stop', tab: 'beta' });
     assert.match(trace.text, /Performance trace stopped/);
     assert.match(trace.text, /Events: [1-9]\d*/);
+    const tracePath = trace.text.match(/Chrome trace written to (.+) \(\d+ bytes\)/)?.[1];
+    assert.ok(tracePath);
+    const traceJson = JSON.parse(readFileSync(tracePath, 'utf8'));
+    assert.ok(traceJson.traceEvents.length > 0);
+    assert.equal(traceJson.metadata.redacted, true);
     const metrics = await command({ action: 'performance', operation: 'metrics', tab: 'beta' });
     assert.match(metrics.text, /JSHeapUsedSize|TaskDuration/);
 
@@ -1276,6 +1289,28 @@ async function run(): Promise<void> {
     const evaluatedFrameRef = refNamed(frameEvaluated.text, 'Frame action');
     const frameClicked = await command({ action: 'click', ref: evaluatedFrameRef, tab: 'frames' });
     assert.match(frameClicked.text, /Frame clicked/);
+    const frameRead = await command({ action: 'read', tab: 'frames' });
+    assert.match(frameRead.text, /Cross-frame evidence/);
+    assert.match(frameRead.text, /Shadow frame evidence/);
+    const frameExtract = await command({ action: 'extract', selector: '.shadow-evidence', tab: 'frames' });
+    assert.match(frameExtract.text, /Shadow frame evidence/);
+    await command({ action: 'wait', text: 'Shadow frame evidence', tab: 'frames' });
+    turnId = 41;
+    const coveredFrame = await command({
+      action: 'evaluate', tab: 'frames',
+      script: `(() => {
+        const overlay = document.createElement('button');
+        overlay.textContent = 'Parent blocker';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:99999';
+        overlay.onclick = () => { document.title = 'WRONG TARGET'; };
+        document.body.append(overlay);
+      })()`,
+    });
+    await assert.rejects(command({
+      action: 'click', ref: refNamed(coveredFrame.text, 'Frame clicked'), tab: 'frames',
+    }), /parent frame.*covered|covered.*parent frame|input target changed/);
+    const afterCovered = await command({ action: 'read', tab: 'frames' });
+    assert.doesNotMatch(afterCovered.text, /WRONG TARGET/);
     progress('cross-origin frame accessibility complete');
 
     turnId = 40;

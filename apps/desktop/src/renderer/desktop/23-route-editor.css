@@ -883,17 +883,19 @@
   visibility: visible;
   transform: translateY(0);
 }
-/* Hover bridge: the card hangs 6px below the gauge, and crossing that gap left
+/* Hover bridge: the card hangs 6px off the gauge, and crossing that gap left
    the slot's subtree — the card closed before the pointer could ever reach the
-   Compact button inside it. The bridge belongs to the CARD, so the pointer
-   stays inside the slot for the whole trip. */
+   Compact button inside it (user: 위로 마우스 올라가기 전에 계속 창이 닫혀버리네).
+   A 6px sliver flush with the card's own width was not enough: it met the gauge
+   without overlapping it, and a pointer drifting sideways passed beside it. The
+   frame now overlaps both ends and runs past both card edges. */
 .session-context-popover::before {
   content: "";
   position: absolute;
-  top: -6px;
-  right: 0;
-  left: 0;
-  height: 6px;
+  top: calc(-1 * var(--mx-popup-bridge-reach));
+  right: calc(-1 * var(--mx-popup-bridge-spread));
+  left: calc(-1 * var(--mx-popup-bridge-spread));
+  height: var(--mx-popup-bridge-reach);
 }
 /* The row is a grouping element only; its label/value join the popover grid so
    both columns align across rows. */

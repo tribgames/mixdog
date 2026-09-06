@@ -49,8 +49,15 @@ function isPrivateIpv4(hostname: string): boolean {
 }
 
 function mappedIpv4(hostname: string): string | null {
-  const match = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(normalizedHostname(hostname));
-  return match?.[1] || null;
+  const host = normalizedHostname(hostname);
+  if (isIP(host) !== 6) return null;
+  // URL canonicalization expands dotted IPv4 tails into two hexadecimal words.
+  const canonical = new URL(`http://[${host}]/`).hostname.slice(1, -1);
+  const match = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(canonical);
+  if (!match) return null;
+  const high = parseInt(match[1], 16);
+  const low = parseInt(match[2], 16);
+  return [high >>> 8, high & 255, low >>> 8, low & 255].join('.');
 }
 
 export function isPrivateNetworkAddress(address: string): boolean {
@@ -66,7 +73,7 @@ export function isPrivateNetworkAddress(address: string): boolean {
 }
 
 function isCloudMetadataHost(hostname: string): boolean {
-  const host = normalizedHostname(hostname);
+  const host = mappedIpv4(hostname) || normalizedHostname(hostname);
   return host === '169.254.169.254'
     || host === '169.254.170.2'
     || host === '100.100.100.200'
@@ -142,8 +149,11 @@ export function assertResolvedAddressAllowed(
   hostname: string,
   policy: BrowserUrlPolicy = {},
 ): void {
+  if (isCloudMetadataHost(address)) {
+    throw new Error(`navigation to ${hostname} resolved to a blocked cloud metadata endpoint`);
+  }
   if (policy.allowPrivateNetwork || isLoopbackHostname(hostname)) return;
-  if (isCloudMetadataHost(address) || isPrivateNetworkAddress(address)) {
+  if (isPrivateNetworkAddress(address)) {
     throw new Error(`navigation to ${hostname} resolved to blocked private or internal address ${address}`);
   }
 }

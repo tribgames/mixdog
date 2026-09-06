@@ -1,4 +1,5 @@
 import { isMotifShape } from '../design/design-discipline.mjs';
+import { auditXlsxFormulas } from '../portable/xlsx-formula-audit.mjs';
 
 export function issue(code, path, message, source = 'format-review', severity = 'warning') {
   return { severity, code, path, message, source };
@@ -101,6 +102,25 @@ function reviewDocxStructure(document) {
       ));
     }
   }
+  // Machine tells: a bullet typed as text and a newline inside a paragraph
+  // both read as authoring by string instead of by structure.
+  for (const paragraph of content) {
+    const text = String(paragraph.text || '');
+    if (/^[•·●▪◦■*-]\s/.test(text)) {
+      issues.push(issue(
+        'literal_bullet',
+        paragraph.path || '/body',
+        'Paragraph starts with a typed bullet character; a list marker comes from list formatting (listKind, set_list), never from text.',
+      ));
+    }
+    if (text.includes('\n')) {
+      issues.push(issue(
+        'newline_in_text',
+        paragraph.path || '/body',
+        'Paragraph text carries a newline character, which Word renders as a space; split it into separate paragraphs.',
+      ));
+    }
+  }
   for (const table of tables) {
     const pageStart = Number(table.pageStart);
     const pageEnd = Number(table.pageEnd);
@@ -128,7 +148,7 @@ function formulaRanges(formula) {
   return ranges;
 }
 
-function reviewXlsxStructure(document) {
+function reviewXlsxStructure(document, auditProfile = '') {
   const issues = [];
   const sheets = Array.isArray(document?.sheets) ? document.sheets : [];
   for (const sheet of sheets) {
@@ -189,6 +209,9 @@ function reviewXlsxStructure(document) {
         'Large worksheet has no one-page-wide print fit and uses an enlarged print zoom.',
       ));
     }
+  }
+  for (const finding of auditXlsxFormulas(sheets, { auditProfile })) {
+    issues.push(issue(finding.code, finding.path, finding.message, 'format-review', finding.severity));
   }
   return issues;
 }
@@ -411,7 +434,7 @@ export function reviewOfficeStructure({
 } = {}) {
   const normalized = String(format || document?.format || '').toLowerCase();
   if (normalized === 'docx') return reviewDocxStructure(document);
-  if (normalized === 'xlsx') return reviewXlsxStructure(document);
+  if (normalized === 'xlsx') return reviewXlsxStructure(document, auditProfile);
   if (normalized === 'pptx') return reviewPptxStructure(document, auditProfile);
   return [];
 }

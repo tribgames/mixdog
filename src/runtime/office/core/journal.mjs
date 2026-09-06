@@ -20,7 +20,7 @@ export function defaultOfficeDataDir() {
   );
 }
 
-export function officeJournalDirectory(dataDir = '') {
+function officeJournalDirectory(dataDir = '') {
   return join(resolve(dataDir || defaultOfficeDataDir()), 'office-transactions');
 }
 

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DesktopProjectSummary } from "../shared/contract";
 import type { Snapshot } from "./desktop-types";
 import { isMobileRemoteSurface } from "./MobileTabOverview";
+import { createProjectCatalogRequests } from "./project-catalog-requests";
+import { currentRemoteConnectionState, subscribeRemoteConnectionState } from "./remote-connection-state";
 import {
   acceptedProjectCatalog,
   readCachedProjectCatalog,
@@ -67,49 +69,59 @@ export function useAppProjectCatalog(snapshot: Snapshot) {
       preferredDraftProjectPath,
     );
   }, [preferredDraftProjectPath, projectCatalogValidated, registeredPath]);
-  const refreshProjects = useCallback(async (
-    options: { acceptEmpty?: boolean } = {},
-  ) => {
-    const listProjects = window.mixdogDesktop?.listProjects;
-    if (!listProjects) return [];
-    const next = await listProjects();
-    const accepted = acceptedProjectCatalog(
-      Array.isArray(next) ? next : [],
-      options.acceptEmpty !== false,
-    );
-    if (accepted) {
-      setProjects(accepted);
-      setProjectCatalogValidated(true);
-      writeCachedProjectCatalog(accepted);
-    }
-    return next;
-  }, []);
+  const projectRequests = useMemo(() => createProjectCatalogRequests(
+    async () => {
+      const list = window.mixdogDesktop?.listProjects;
+      if (!list) throw new Error("Project catalog is unavailable.");
+      return await list();
+    },
+    (next, acceptEmpty) => {
+      const accepted = acceptedProjectCatalog(Array.isArray(next) ? next : [], acceptEmpty);
+      if (accepted) {
+        setProjects(accepted);
+        setProjectCatalogValidated(true);
+        writeCachedProjectCatalog(accepted);
+      }
+    },
+  ), []);
+  const refreshProjects = projectRequests.refresh;
 
   useEffect(() => {
     let live = true;
     void refreshProjects({
       // An empty phone result before relay connection is not authoritative.
       acceptEmpty: !isMobileRemoteSurface(),
+      coalesce: true,
     }).catch(() => []).finally(() => {
       if (live) setProjectCatalogReady(true);
     });
-    return () => { live = false; };
-  }, [refreshProjects]);
+    return () => { live = false; projectRequests.invalidate(); };
+  }, [refreshProjects, projectRequests]);
 
   useEffect(() => {
     const retry = () => {
-      void refreshProjects({ acceptEmpty: false }).catch(() => undefined);
+      void refreshProjects({ acceptEmpty: false, coalesce: true }).catch(() => undefined);
     };
     const revalidate = () => {
-      void refreshProjects({ acceptEmpty: true }).catch(() => undefined);
+      void refreshProjects({ acceptEmpty: true, coalesce: true }).catch(() => undefined);
     };
+    let wasConnected = currentRemoteConnectionState() === "connected";
+    const unsubscribe = subscribeRemoteConnectionState(() => {
+      const connected = currentRemoteConnectionState() === "connected";
+      const lostConnection = wasConnected && !connected;
+      wasConnected = connected;
+      if (!lostConnection) return;
+      projectRequests.invalidate();
+      setProjectCatalogValidated(false);
+    });
     window.addEventListener("mixdog:remote-state-gap", retry);
     window.addEventListener("mixdog:remote-reconnected", revalidate);
     return () => {
+      unsubscribe();
       window.removeEventListener("mixdog:remote-state-gap", retry);
       window.removeEventListener("mixdog:remote-reconnected", revalidate);
     };
-  }, [refreshProjects]);
+  }, [refreshProjects, projectRequests]);
 
   return {
     projects,

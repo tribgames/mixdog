@@ -2,7 +2,7 @@ import { dirname, extname, join, posix } from 'node:path';
 import { textBodyXml } from './portable-slide-shapes.mjs';
 import { readFile } from 'node:fs/promises';
 import { IMAGE_CONTENT_TYPES, PACKAGE_RELATIONSHIP_NS, addPackageRelationship, ensureContentTypeOverride, ensureDefaultContentType, loadPackage, partRelationshipPath, relationshipMap, removeContentTypeOverride, removePackageRelationship, rewriteImportedRelationships, savePackage, zipText } from './portable-opc.mjs';
-import { OFFICE_RELATIONSHIP_BASE, XML_HEADER, paragraphTexts, tagPattern, xmlAttribute, xmlDecode, xmlEncode } from './portable-xml.mjs';
+import { OFFICE_RELATIONSHIP_BASE, XML_HEADER, blockText, tagPattern, xmlAttribute, xmlDecode, xmlEncode } from './portable-xml.mjs';
 import JSZip from 'jszip';
 
 const PRESENTATION_NAMESPACES = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"'
@@ -359,10 +359,7 @@ export async function readSlideNotes(zip, slide) {
   const xml = await zipText(zip, part);
   if (!xml) return '';
   const body = /<p:sp>[\s\S]*?<p:ph type="body"[\s\S]*?<\/p:sp>/.exec(xml)?.[0] || xml;
-  return [...body.matchAll(/<a:p>[\s\S]*?<\/a:p>/g)]
-    .map((paragraph) => paragraphTexts(paragraph[0], 'a:t').join(''))
-    .join('\n')
-    .trim();
+  return blockText(body, 'a:t').trim();
 }
 
 

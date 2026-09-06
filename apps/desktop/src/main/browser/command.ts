@@ -43,9 +43,11 @@ export const POSTCONDITION_POLL_MS = 100;
  *  desktop layouts render without a scrollbar the agent can't see. */
 export const OFFSCREEN_VIEWPORT = { width: 1280, height: 900 } as const;
 export const POSTCONDITION_ACTIONS: ReadonlySet<string> = new Set(BROWSER_POSTCONDITION_ACTIONS);
-/** Commands that only observe the page. They may overlap each other, while
- *  anything that can change the page still runs alone. */
-export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(BROWSER_OBSERVATION_ACTIONS);
+/** Pure observations can overlap. Snapshot-producing observations also write
+ *  the ref/visual generation and therefore require the page's exclusive lane. */
+export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(
+  BROWSER_OBSERVATION_ACTIONS.filter((action) => !['snapshot', 'locate', 'wait'].includes(action)),
+);
 /** Gestures a sequence may chain. The runtime schema is the authority; the
  *  host re-checks so a malformed bridge call can never drive an odd action. */
 export const SEQUENCE_STEP_ACTIONS: ReadonlySet<string> = new Set(BROWSER_SEQUENCE_STEP_ACTIONS);
@@ -116,6 +118,7 @@ export interface BrowserCommand {
   scriptId?: string;
   reset?: boolean;
   reload?: boolean;
+  saveTrace?: boolean;
   wait?: boolean;
   attach?: boolean;
   downloadId?: string;
@@ -195,6 +198,7 @@ export interface BrowserCommand {
 
 export interface BrowserCommandResult {
   text: string;
+  outcome?: 'completed' | 'blocked' | 'inconclusive';
   image?: { mimeType: string; data: string };
   file?: { mimeType: string; data: string; name: string };
 }

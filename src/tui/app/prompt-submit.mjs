@@ -169,24 +169,6 @@ export function createPromptSubmit({
           .catch((error) => failProviderSave(target, commandText, `OpenAI usage auth save failed: ${error?.message || error}`, token));
         return true;
       }
-      if (providerPrompt.kind === 'local-url') {
-        if (providerWriteInFlight()) {
-          store.pushNotice('local provider update is already running', 'warn');
-          return false;
-        }
-        const target = providerPrompt;
-        const token = beginProviderSave(target);
-        void serviceCall('setLocalProvider', target.providerId, {
-          enabled: true,
-          baseURL: commandText || target.defaultURL,
-        })
-          .then(() => {
-            clearModelCaches('all');
-            finishProviderSave(target, token);
-          })
-          .catch((error) => failProviderSave(target, commandText, `local provider update failed: ${error?.message || error}`, token));
-        return true;
-      }
       if (providerPrompt.kind === 'oauth-code') {
         if (!commandText) {
           store.pushNotice('OAuth code is required', 'warn');

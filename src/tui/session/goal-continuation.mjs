@@ -1,6 +1,4 @@
-function clean(value) {
-  return String(value ?? '').trim();
-}
+import { clean } from '../../runtime/shared/clean.mjs';
 
 function isGoalContinuation(entry) {
   return entry?.mode === 'goal-continuation';

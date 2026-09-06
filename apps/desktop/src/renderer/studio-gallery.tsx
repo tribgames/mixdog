@@ -1,4 +1,5 @@
-import { Ban, RotateCcw, Trash2 } from 'lucide-react';
+import { Ban, Trash2 } from 'lucide-react';
+import { ErrorNotice } from './ErrorNotice';
 import {
   type CSSProperties,
   type RefObject,
@@ -202,16 +203,8 @@ export function StudioGallery({
               style={tileStyle(tile, rowIndex === layoutRows.length - 1, gridWidth)}>
               {pending.status === 'failed'
                 ? <div className="studio-tile-open">
-                  <div className="studio-failed-body">
-                    <Ban size={16} aria-hidden="true" />
-                    <p>{pending.error || t('Generation failed')}</p>
-                    <div className="studio-failed-actions">
-                      <button type="button" onClick={() => onRetry(pending)}>
-                        <RotateCcw size={12} aria-hidden="true" />{t('Retry')}
-                      </button>
-                      <button type="button" onClick={() => onDismiss(pending.id)}>{t('Dismiss')}</button>
-                    </div>
-                  </div>
+                  <ErrorNotice error={pending.error || t('Generation failed')}
+                    onRetry={() => onRetry(pending)} onDismiss={() => onDismiss(pending.id)} />
                 </div>
                 : <>
                   <div className="studio-tile-open" role="img"

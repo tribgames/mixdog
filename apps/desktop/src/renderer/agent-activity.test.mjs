@@ -276,12 +276,14 @@ test("the context card offers inheritance only after the selected model changes"
   });
 
   const dom = installDom();
-  let inherited = 0;
+  const inherited = [];
   try {
     await act(async () => {
       dom.root.render(React.createElement(SessionStatusIsland, {
         snapshot: changed,
-        onInherit: () => { inherited += 1; },
+        onInherit: async (sourceSessionId, route) => {
+          inherited.push({ sourceSessionId, route });
+        },
       }));
     });
     assert.ok(document.querySelector(".context-inherit"));
@@ -289,7 +291,12 @@ test("the context card offers inheritance only after the selected model changes"
       document.querySelector(".context-inherit")
         .dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
     });
-    assert.equal(inherited, 1);
+    // No dialog stands between the button and the handover (user: 팝업 안 뜨고
+    // 바로 진행되게): one click carries the source session on its own route.
+    assert.deepEqual(inherited, [{
+      sourceSessionId: "lead-inherit",
+      route: { provider: "cursor", model: "gpt-5.6" },
+    }]);
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();

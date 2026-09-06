@@ -236,14 +236,6 @@ export async function loadSessionSnapshotRecords(sessionId) {
   }));
 }
 
-export async function deleteTurnSnapshotRecords(sessionId) {
-  const id = clean(sessionId);
-  if (!id) return;
-  await chain(id, async () => {
-    try { await rm(recordPath(id), { force: true }); } catch { /* best effort */ }
-  });
-}
-
 export function _setTurnSnapshotStoreRootForTest(directory) {
   recordRoot = clean(directory) || join(DATA_DIR, 'turn-snapshots');
   writeChains.clear();

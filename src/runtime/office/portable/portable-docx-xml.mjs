@@ -164,7 +164,7 @@ export function tableRows(tableXml) {
 }
 
 
-export function tableRowCells(rowXml) {
+function tableRowCells(rowXml) {
   const inner = containerInner(rowXml, 'w:tr');
   if (!inner) return [];
   return topLevelElements(inner.inner, ['w:tc']).map((cell) => cell.xml);
@@ -191,7 +191,7 @@ export function rowCellMatches(rowXml) {
 }
 
 
-export function mapTableRows(tableXml, transform) {
+function mapTableRows(tableXml, transform) {
   const rows = tableRows(tableXml);
   if (!rows.length) return tableXml;
   let output = '';

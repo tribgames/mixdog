@@ -9,6 +9,7 @@ import {
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 
 import { t } from '../i18n';
+import { ErrorNotice, errorSummary } from '../ErrorNotice';
 import { showDesktopToast } from '../notifications';
 import { record } from '../record-utils';
 import { SidebarDialogLayer, SidebarLoadingDialog } from '../sidebar-dialog';
@@ -34,7 +35,6 @@ import {
   ExtensionRow,
   ExtensionScopeField,
   ExtensionSection,
-  extensionScopeBadge,
   scopeOf,
 } from './extension-detail';
 
@@ -62,9 +62,10 @@ function SkillEditorDialog({
   const editing = Boolean(skill);
   const [formError, setFormError] = useState('');
   return <SidebarDialogLayer onClose={onClose}>
-    <section className="schedules-dialog workflows-dialog extensions-skill-dialog"
+    <section className="schedules-dialog workflows-dialog extensions-dialog extensions-skill-dialog"
       role="dialog" aria-modal="true" aria-labelledby="extensions-skill-dialog-title">
       <header>
+        <span className="extensions-dialog-icon" aria-hidden="true"><Sparkles size={16} /></span>
         <h2 id="extensions-skill-dialog-title">
           {editing ? String(skill?.name || '') : t('Add skill')}
         </h2>
@@ -82,7 +83,8 @@ function SkillEditorDialog({
         if (readOnly) return;
         const data = new FormData(event.currentTarget);
         const name = String(data.get('skill-name') || '').trim();
-        const description = String(data.get('skill-trigger') || '').trim();
+        const description = String(data.get('skill-description') || '').trim();
+        const whenToUse = String(data.get('skill-trigger') || '').trim();
         const body = String(data.get('skill-instructions') || '').trim();
         if (!body) {
           setFormError('SKILL.md instructions must not be empty.');
@@ -93,6 +95,7 @@ function SkillEditorDialog({
           ...(editing ? { originalName: String(skill?.name || '') } : {}),
           name,
           description,
+          whenToUse,
           instructions: body,
         });
       }}>
@@ -103,11 +106,20 @@ function SkillEditorDialog({
             required autoFocus={!editing} disabled={busy || readOnly} maxLength={64}
             pattern="[a-z0-9]+(?:-[a-z0-9]+)*" />
         </label>
+        {/* Description and trigger are the two halves of the model's skill
+            listing (`description — when_to_use`), cut at 250 characters. The
+            description names the capability; the trigger carries the phrases
+            and boundary that route the skill. */}
+        <label className="schedules-field"><span>{t('Description')}</span>
+          <small>{t('One sentence on what this skill does. Shown in the skill list.')}</small>
+          <input name="skill-description" defaultValue={String(skill?.description || '')}
+            required disabled={busy || readOnly} maxLength={1024} />
+        </label>
         <label className="schedules-field workflows-md-field extensions-trigger-field">
           <span>{t('Trigger')}</span>
-          <small>{t('When should this skill be used?')}</small>
-          <textarea name="skill-trigger" defaultValue={String(skill?.description || '')}
-            required disabled={busy || readOnly} maxLength={1024} />
+          <small>{t('Phrases and situations that should call this skill, and what it should leave to others.')}</small>
+          <textarea name="skill-trigger" defaultValue={String(skill?.whenToUse || '')}
+            disabled={busy || readOnly} maxLength={1024} />
         </label>
         <label className="schedules-field workflows-md-field extensions-instructions-field">
           <span>{t('Instructions')}</span>
@@ -117,7 +129,7 @@ function SkillEditorDialog({
             required spellCheck={false} disabled={busy || readOnly} />
         </label>
         <footer>
-          {formError && <p className="schedules-form-error" role="alert">{formError}</p>}
+          {formError && <ErrorNotice error={formError} />}
           <button type="button" className="secondary" disabled={busy} onClick={onClose}>
             {t(readOnly ? 'Close' : 'Cancel')}
           </button>
@@ -294,9 +306,10 @@ function McpEditorDialog({
   const [formError, setFormError] = useState('');
   const autoDetect = initialTransport === 'autoDetect';
   return <SidebarDialogLayer onClose={onClose}>
-    <section className="schedules-dialog extensions-skill-dialog extensions-mcp-dialog"
+    <section className="schedules-dialog extensions-dialog extensions-skill-dialog extensions-mcp-dialog"
       role="dialog" aria-modal="true" aria-labelledby="extensions-mcp-dialog-title">
       <header>
+        <span className="extensions-dialog-icon" aria-hidden="true"><Plug size={16} /></span>
         <h2 id="extensions-mcp-dialog-title">
           {editing ? String(server?.name || '') : t('Add MCP server')}
         </h2>
@@ -340,7 +353,7 @@ function McpEditorDialog({
         }
       }}>
         {editing && <p className="extensions-mcp-summary">
-          {String(server?.status || 'unknown')}{server?.error ? ` · ${String(server.error)}` : ''}
+          {String(server?.status || 'unknown')}{server?.error ? ` · ${errorSummary(server.error)}` : ''}
         </p>}
         {editing ? scopeField : null}
         <section className="extensions-mcp-card extensions-mcp-identity-card">
@@ -414,7 +427,7 @@ function McpEditorDialog({
           {t('Built-in auto-detect servers keep their managed connection settings.')}
         </p>}
         <footer>
-          {formError && <p className="schedules-form-error" role="alert">{formError}</p>}
+          {formError && <ErrorNotice error={formError} />}
           {editing && onRemove && <button type="button" className="danger"
             disabled={busy} onClick={onRemove}>{t('Remove')}</button>}
           <button type="button" className="secondary" disabled={busy} onClick={onClose}>
@@ -533,7 +546,7 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
       const name = String(server.name);
       const enabled = server.enabled !== false;
       return <ExtensionRow key={name} icon={<Plug size={16} aria-hidden="true" />} title={name}
-        description={mcpRowDescription(server)} badge={extensionScopeBadge(server)}
+        description={mcpRowDescription(server)}
         enabled={enabled} busy={busy}
         onOpen={() => openEditor(name)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'mcp')
@@ -612,7 +625,6 @@ function SkillsPanel({ api, data, pending, run, createOpen, closeCreate }: Panel
       const description = String(skill.description || '').trim() || t('Skill instructions');
       return <ExtensionRow key={name} icon={<Sparkles size={16} aria-hidden="true" />}
         title={name} description={description} enabled={!off}
-        badge={extensionScopeBadge(skill)}
         busy={busy} onOpen={() => openDetail(name)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'skills')
       ? 'No skills found.' : 'Loading skills…'} />}
@@ -656,7 +668,7 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
           .filter(Boolean).join(' · ')
         || t('Installed plugin');
       return <ExtensionRow key={id} icon={<Blocks size={16} aria-hidden="true" />} title={label(plugin)}
-        description={description} badge={extensionScopeBadge(plugin)}
+        description={description}
         enabled={enabled} busy={busy}
         onOpen={() => setOpenId(id)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'plugins')
@@ -669,6 +681,7 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
       const installedAt = formatInstallDate(open.installedAt);
       const updatedAt = formatInstallDate(open.updatedAt);
       return <ExtensionDetailDialog title={label(open)}
+        icon={<Blocks size={16} aria-hidden="true" />}
         enabled={open.enabled !== false} busy={busy}
         onToggle={(next) => void run('setPluginEnabled', [open, next])}
         actions={<>
@@ -700,7 +713,7 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
         </button>}
       </>}
       onClose={() => setOpenId('')}>
-        <ExtensionHero icon={<Blocks size={22} aria-hidden="true" />}
+        <ExtensionHero
           tagline={String(open.description || '').trim()
             || [String(open.version || '').trim(), String(open.sourceType || '').trim()].filter(Boolean).join(' · ')} />
         <ExtensionScopeField api={api} run={run} kind="plugins" name={id}

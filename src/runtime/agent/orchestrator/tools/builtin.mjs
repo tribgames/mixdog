@@ -19,6 +19,7 @@ import {
     formatShellToolFailure,
 } from './builtin/bash-tool.mjs';
 import { executeGitStageTool, executeGitTool } from './builtin/git-command-tool.mjs';
+import { executeGithubTool } from '../../../github/tool.mjs';
 import {
     executeFindFilesTool,
     executeFuzzyFindTool,
@@ -87,13 +88,12 @@ import {
     rangeHashesFromRenderedReadText as _rangeHashesFromRenderedReadText,
 } from './builtin/snapshot-helpers.mjs';
 import {
-    cacheGetEntry as _cacheGetEntry,
-    cacheSet as _cacheSet,
-    invalidateBuiltinResultCache,
-    rawContentCacheGet as _rawContentCacheGet,
-    rawContentCacheSet as _rawContentCacheSet,
-    runRawContentInFlight as _runRawContentInFlight,
-    seedRawContentCacheAfterWrite as _seedRawContentCacheAfterWrite,
+  cacheGetEntry as _cacheGetEntry,
+  cacheSet as _cacheSet,
+  invalidateBuiltinResultCache,
+  rawContentCacheGet as _rawContentCacheGet,
+  rawContentCacheSet as _rawContentCacheSet,
+  runRawContentInFlight as _runRawContentInFlight,
 } from './builtin/cache-layers.mjs';
 import {
     deleteReadSnapshotPathEverywhere as _deleteReadSnapshotPathEverywhere,
@@ -455,6 +455,8 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
             return executeGitTool(args, workDir, options);
         case 'git_stage':
             return executeGitStageTool(args, workDir, options);
+        case 'github':
+            return executeGithubTool(args, workDir, options);
         case 'task':
             return executeTaskTool(args, options);
         case 'read':

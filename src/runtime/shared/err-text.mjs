@@ -1,3 +1,11 @@
+import { transportErrorText } from './transport-error-text.mjs';
+import { describeError, safeErrorDetails } from './error-presentation.mjs';
+
+// HTTP status carried by a provider/transport error, or 0 when absent.
+export function errorHttpStatus(err) {
+  return Number(err?.httpStatus || err?.status || err?.response?.status || 0) || 0;
+}
+
 export function errText(e) {
   if (e == null) return String(e);
   if (typeof e === 'string') return e;
@@ -161,6 +169,8 @@ export function isCancelLikeError(error) {
 }
 
 export function presentErrorText(error, options = {}) {
+  const presentation = describeError(error);
+  if (['image-size', 'payload-size', 'request'].includes(presentation.kind)) return presentation.summary;
   const surface = options.surface || options.tool || '';
   const subject = subjectForSurface(surface);
   const max = options.max ?? 240;
@@ -184,10 +194,10 @@ export function presentErrorText(error, options = {}) {
   if (status === 401 || status === 403 || /\b(?:invalid|expired)\s+(?:api[ _-]?key|access token|credentials?)\b/i.test(text)) {
     return 'Provider authentication failed.';
   }
-  if (/^(?:ECONNRESET|ECONNREFUSED|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT)\b/i.test(code)
-    || /\b(?:socket hang up|connection reset|network unreachable|connection refused)\b/i.test(text)) {
-    return 'Connection to the provider was lost.';
-  }
+  // Connection-level failures (errno / undici cause chain / bare fetch
+  // messages / gateway 5xx) collapse to one sentence with the code kept.
+  const transport = transportErrorText(error);
+  if (transport) return transport;
   if (/\bAGENT_CONTEXT_OVERFLOW\b|agent context overflow|latest turn cannot fit|context budget|context window/i.test(text)) {
     return 'Context too large.';
   }
@@ -261,7 +271,7 @@ export function presentErrorText(error, options = {}) {
     .replace(/\s+/g, ' ')
     .trim();
 
-  return capText(text || 'Unknown error', max);
+  return capText(safeErrorDetails(text) || 'Unknown error', max);
 }
 
 export function providerRetryStatusText(error, options = {}) {

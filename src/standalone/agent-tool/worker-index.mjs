@@ -9,7 +9,7 @@ import { resolve } from 'node:path';
 import { updateJsonAtomicSync } from '../../runtime/shared/atomic-file.mjs';
 import { resolveAgentTerminalReapMs } from '../../session-runtime/config-helpers.mjs';
 import { WORKER_INDEX_FILE } from './tool-def.mjs';
-import { agentTagOf, clean, positiveInt, rowMatchesContext } from './helpers.mjs';
+import { agentTagOf, clean, positiveInt, registerExitFlush, rowMatchesContext, runtimeAlive } from './helpers.mjs';
 import {
   applyWorkerRowUpsert,
   isLeadPoolAgent,
@@ -21,30 +21,6 @@ import {
 const ACTIVE_WORKER_STATUS =
   /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$/i;
 const WORKER_POOL_FRESH_MS = 2 * 60 * 1000;
-const exitFlushes = new Set();
-let exitFlushInstalled = false;
-
-function registerExitFlush(flush) {
-  exitFlushes.add(flush);
-  if (exitFlushInstalled) return;
-  exitFlushInstalled = true;
-  process.on('exit', () => {
-    for (const entry of exitFlushes) {
-      try { entry(); } catch { /* exit flush is best effort */ }
-    }
-  });
-}
-
-function runtimeAlive(pid) {
-  const id = Number(pid) || 0;
-  if (id <= 0 || id === process.pid) return true;
-  try {
-    process.kill(id, 0);
-    return true;
-  } catch (error) {
-    return error?.code === 'EPERM';
-  }
-}
 
 export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCwds }) {
   const pendingMutators = [];

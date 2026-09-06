@@ -2,6 +2,7 @@ import { availableParallelism } from 'node:os';
 import { Worker } from 'node:worker_threads';
 import { currentProviderAdmissionOwner } from './admission-scheduler.mjs';
 import { frameAndParseSse } from './lib/sse-framing.mjs';
+import { positiveInt } from '../../../shared/numbers.mjs';
 
 const DEFAULT_MIN_BATCH_BYTES = 32 * 1024;
 // Soft cap on IDLE owner-affinity metadata. Owners with in-flight work are
@@ -11,11 +12,6 @@ const MAX_IDLE_OWNER_AFFINITIES = 4096;
 // trying to spawn and stays inline. This is a failure latch, not a throttle:
 // it never limits concurrent streams, it only stops re-throwing constructors.
 const MAX_SPAWN_FAILURES = 3;
-
-function positiveInt(value, fallback) {
-    const parsed = Math.floor(Number(value));
-    return Number.isFinite(parsed) && parsed >= 1 ? parsed : fallback;
-}
 
 function configuredWorkerCount(env = process.env) {
     const configured = Number(env.MIXDOG_PROVIDER_STREAM_WORKERS);
@@ -638,7 +634,7 @@ export function createStreamJsonPool({
     return { parseBatch, frameSse, retainStream, releaseStream, close, snapshot };
 }
 
-export const providerStreamJsonPool = createStreamJsonPool();
+const providerStreamJsonPool = createStreamJsonPool();
 export const parseProviderJsonBatch = (payloads, options) =>
     providerStreamJsonPool.parseBatch(payloads, options);
 export const frameProviderSseChunk = (text, options) =>

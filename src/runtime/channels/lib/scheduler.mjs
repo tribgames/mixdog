@@ -72,21 +72,6 @@ function isCronExpression(time) {
   if (tokens.length !== 5 && tokens.length !== 6) return false;
   try { return cron.validate(time); } catch { return false; }
 }
-/** Validate a cron expression and throw a descriptive error if invalid.
- *  Used by schedule_control / schedules POST before accepting input. */
-function validateCronExpression(time) {
-  if (typeof time !== "string" || !time) throw new Error(`invalid cron expression: ${JSON.stringify(time)}`);
-  if (!cron) throw new Error(`cron expression "${time}" rejected: node-cron is not available (install node-cron to use cron expressions)`);
-  const tokens = time.trim().split(/\s+/);
-  if (tokens.length !== 5 && tokens.length !== 6) {
-    throw new Error(`invalid cron expression "${time}": expected 5 or 6 fields, got ${tokens.length}. Legacy formats (HH:MM, everyNm, hourly, daily) are no longer supported — use a cron expression instead.`);
-  }
-  let valid = false;
-  try { valid = cron.validate(time); } catch (e) {
-    throw new Error(`invalid cron expression "${time}": ${e?.message || e}`);
-  }
-  if (!valid) throw new Error(`invalid cron expression "${time}": failed node-cron validation. Legacy formats (HH:MM, everyNm, hourly, daily) are no longer supported — use a cron expression instead.`);
-}
 // Scheduler teardown: stop ticking, destroy the cron jobs and release the
 // scheduler lock so a subsequent start() in the same process can re-acquire it.
 // Without the release, the wx-create in start() hits its own live lock

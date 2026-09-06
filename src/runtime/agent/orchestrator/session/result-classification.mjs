@@ -84,34 +84,6 @@ export function classifyResultKind(result, explicitSuccess = false, toolName = '
 }
 
 /**
- * Informational shell exit-1: `Error: [shell-run-failed] [exit code: 1]`
- * with a non-empty stdout body and NO stderr evidence (neither an inline
- * `[stderr]` block nor a `[stderr: path]` spill). grep-family "no match"
- * semantics inside compound probes (loops, `;`-chains, substitutions) land
- * exactly here: the run produced useful output, wrote nothing to stderr,
- * and exited 1 only because the final stage matched nothing. The static
- * single-pipeline gate (bash-tool _isBenignSearchExitOne) deliberately
- * refuses these ambiguous shapes, so the result stays toolKind 'error' —
- * consumers that must not overreact to an informational failure (the turn
- * stop hook) test this signature instead of reclassifying the result.
- * Signals, timeouts, and other exit codes carry different status markers
- * and never match; a destructive-warning prefix also disqualifies.
- *
- * @param {unknown} result
- * @returns {boolean}
- */
-export function isInformationalShellExitOne(result) {
-    if (typeof result !== 'string') return false;
-    const trimmed = result.trimStart();
-    const header = /^error:\s*\[shell-run-failed\]\s*\[exit code: 1\]\s*\n/i.exec(trimmed);
-    if (!header) return false;
-    const payload = trimmed.slice(header[0].length).trim();
-    if (!payload || payload === '(no output)') return false;
-    if (payload.startsWith('[stderr') || payload.includes('\n[stderr')) return false;
-    return true;
-}
-
-/**
  * Shell TOOL/control-plane failure test. A completed process exit is not a
  * tool failure regardless of its exit code or output. Only tool markers and
  * interrupted execution (timeout/signal/abort) count.
@@ -130,43 +102,4 @@ export function isShellFailureResult(result) {
         return true;
     }
     return /^\[(?:timeout:|signal:)/i.test(body);
-}
-
-// Evidence that a command's OUTPUT reports a real failure. Used to separate a
-// legitimate non-zero exit (a probe or report that prints its result and ends
-// with 1) from a genuine failure that happens to write only to stdout — test
-// runners, compilers and package managers all announce themselves in the text.
-// Deliberately literal: only well-known failure banners count, so an unknown
-// tool's report is never mislabelled a failure.
-const SHELL_OUTPUT_FAILURE_EVIDENCE = [
-    /^not ok \d/m,
-    /^# fail [1-9]/m,
-    /\bAssertionError\b/,
-    /\bTraceback \(most recent call last\)/,
-    /^npm ERR!/m,
-    /\berror TS\d+\b/,
-    // Indented banners count too: runners print "  FAIL <case>" under a header.
-    /^\s*FAIL(?:ED|URE)?\b/mi,
-    /\bFAILED[:!]/,
-    /^\s*✗/m,
-    /\b\d+ (?:tests? )?failed\b/i,
-    /^fatal:/m,
-    /^error:/mi,
-    /\bSyntaxError\b|\bReferenceError\b|\bTypeError\b/,
-    /\bCannot find module\b/,
-];
-export function shellOutputReportsFailure(text) {
-    const body = String(text ?? '');
-    if (!body.trim()) return false;
-    return SHELL_OUTPUT_FAILURE_EVIDENCE.some((pattern) => pattern.test(body));
-}
-
-/**
- * A process that started and completed produced a command result. Any non-zero
- * exit code is legitimate tool output; timeout/signal remains an interrupted
- * execution and tool/control-plane failures are filtered by the caller.
- */
-export function isLegitimateShellExit({ exitCode, signal, timedOut } = {}) {
-    if (signal || timedOut === true) return false;
-    return Number.isInteger(exitCode) && exitCode !== 0;
 }

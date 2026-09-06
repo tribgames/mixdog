@@ -79,7 +79,7 @@ function _normalizedExcludedPrefixes(cwd, excludedProjectRoots) {
 }
 
 // Exported for the focused pre-cap exclusion regression.
-export function _scopeCodeGraphManifest(manifest, cwd, {
+function _scopeCodeGraphManifest(manifest, cwd, {
   excludedProjectRoots = [],
   maxFiles = CODE_GRAPH_MAX_FILES,
 } = {}) {
@@ -101,7 +101,7 @@ export function _scopeCodeGraphManifest(manifest, cwd, {
   };
 }
 
-export function _isCompatibleDiskCodeGraphEntry(entry, maxFiles = CODE_GRAPH_MAX_FILES) {
+function _isCompatibleDiskCodeGraphEntry(entry, maxFiles = CODE_GRAPH_MAX_FILES) {
   return Number.isFinite(entry?.maxFiles) && entry.maxFiles === maxFiles;
 }
 
@@ -109,11 +109,33 @@ function _throwIfAborted(signal) {
   if (signal?.aborted) throw new Error('aborted');
 }
 
+function codeGraphBuildInvalidatedError() {
+  const error = new Error('code-graph build invalidated during prewarm');
+  error.code = 'ERR_CODE_GRAPH_BUILD_INVALIDATED';
+  return error;
+}
+
+function isCodeGraphBuildInvalidatedError(error) {
+  return error?.code === 'ERR_CODE_GRAPH_BUILD_INVALIDATED';
+}
+
+export async function _retryCodeGraphBuildAfterInvalidation(run, { signal = null } = {}) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await run(attempt);
+    } catch (error) {
+      if (signal?.aborted || !isCodeGraphBuildInvalidatedError(error) || attempt === 1) {
+        throw error;
+      }
+    }
+  }
+}
+
 // Validate an already-loaded disk entry before paying Worker startup. The
 // manifest process is async; its child-spawn slot is held by the caller until
 // either this returns a hit or the Worker takes over the same slot on a miss.
 // Exported for the focused deterministic cache-validation test.
-export async function _validateDiskCodeGraphHit({
+async function _validateDiskCodeGraphHit({
   graphCwd,
   diskEntry,
   genAtStart,
@@ -167,7 +189,7 @@ export async function _runDiskCodeGraphFastPath({
     _throwIfAborted(signal);
     const hit = await validateDiskHit({ graphCwd, diskEntry, genAtStart, signal });
     _throwIfAborted(signal);
-    if (hit?.invalidated) throw new Error('code-graph build invalidated during prewarm');
+    if (hit?.invalidated) throw codeGraphBuildInvalidatedError();
     if (hit?.graph) return hit.graph;
     _throwIfAborted(signal);
     const workerPromise = spawnWorker(release, hit?.manifest || null, hit?.signature || null);
@@ -178,7 +200,7 @@ export async function _runDiskCodeGraphFastPath({
   }
 }
 
-export function _prepareDiskCodeGraphFastPath({
+function _prepareDiskCodeGraphFastPath({
   graphCwd,
   ensureDiskLoaded = ensureDiskCodeGraphLoaded,
   probeDiskEntry = probeDiskCodeGraphEntry,
@@ -203,7 +225,7 @@ export function _postCodeGraphWorkerSuccess(
 
 // Structured keys avoid both separator collisions inside roots/prefixes and
 // collisions between scoped and ordinary builds.
-export function _codeGraphInflightKey(graphCwd, {
+function _codeGraphInflightKey(graphCwd, {
   scoped = false,
   maxFiles = CODE_GRAPH_MAX_FILES,
   prefixes = [],
@@ -216,7 +238,7 @@ export function _codeGraphInflightKey(graphCwd, {
 // Keep the existing binary protocol while bounding Windows command-line size.
 // Each invocation still resolves against the whole tree. Duplicate lightweight
 // reused records are merged so relationship fields survive every chunk.
-export async function _runGraphFilesChunked(
+async function _runGraphFilesChunked(
   absRoot,
   rels,
   reusedMetas,
@@ -266,13 +288,13 @@ export async function _runGraphFilesChunked(
 }
 
 // Exported for the focused worker-protocol regression test.
-export function _codeGraphWorkerFailure(message) {
+function _codeGraphWorkerFailure(message) {
   const error = typeof message?.error === 'string' ? message.error.trim() : '';
   return new Error(error || 'code-graph prewarm worker failed');
 }
 
 // Exported for the focused best-effort prewarm regression test.
-export function _prewarmCodeGraph(cwd, build = buildCodeGraphAsync) {
+function _prewarmCodeGraph(cwd, build = buildCodeGraphAsync) {
   if (!cwd) return;
   // Reuse the buildCodeGraphAsync single-flight path. Fire-and-forget, and
   // best-effort: skip a fresh worker spawn when the child-spawn gate is busy
@@ -345,14 +367,14 @@ export async function buildCodeGraphAsync(cwd, signal = null, {
   // Non-competing prewarm: the signature-validation manifest also needs a
   // child-spawn slot, so warmers skip before either it or a Worker can queue.
   if (bestEffort && !childSpawnHasSpareCapacity('code-graph')) return null;
-  const _genAtStart = _getCodeGraphGen(graphCwd);
-  const promise = (async () => {
+  const promise = _retryCodeGraphBuildAfterInvalidation(async () => {
+    const genAtStart = _getCodeGraphGen(graphCwd);
     // Loading the compact disk manifest/one candidate entry is synchronous but
     // bounded I/O. Do not run a manifest at all when no disk candidate exists:
     // cold/dirty misses remain entirely on the existing Worker path.
     if (scoped) {
       return _spawnCodeGraphWorker(
-        cwd, graphCwd, _genAtStart, signal, null, null, null,
+        cwd, graphCwd, genAtStart, signal, null, null, null,
         { buildOptions: scopeOptions, cacheResult: false },
       );
     }
@@ -361,14 +383,14 @@ export async function buildCodeGraphAsync(cwd, signal = null, {
       runFastPath: (diskProbe) => _runDiskCodeGraphFastPath({
         graphCwd,
         diskProbe,
-        genAtStart: _genAtStart,
+        genAtStart,
         signal,
         loadDiskEntry: () => getDiskCodeGraphEntry(graphCwd),
         consumeDirty: () => _consumeCodeGraphDirtyPaths(graphCwd),
         spawnWorker: (preAcquiredRelease, manifest, signature) => _spawnCodeGraphWorker(
           cwd,
           graphCwd,
-          _genAtStart,
+          genAtStart,
           signal,
           preAcquiredRelease,
           manifest,
@@ -376,7 +398,7 @@ export async function buildCodeGraphAsync(cwd, signal = null, {
         ),
       }),
     });
-  })();
+  }, { signal });
   _inflightAsyncBuilds.set(inflightKey, promise);
   try {
     return await promise;
@@ -475,7 +497,7 @@ export function _spawnCodeGraphWorker(
               // manifest lock.
               setDiskCache(graphCwd, msg.graph, { persist: false });
             }
-            settle(genStillCurrent ? msg.graph : new Error('code-graph build invalidated during prewarm'));
+            settle(genStillCurrent ? msg.graph : codeGraphBuildInvalidatedError());
           } else {
             settle(_codeGraphWorkerFailure(msg));
           }

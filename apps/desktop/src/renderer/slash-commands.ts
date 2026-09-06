@@ -1,3 +1,5 @@
+import { t } from "./i18n";
+
 export type SettingsSection =
   | 'profile' | 'autoclear' | 'autocompact' | 'output-style'
   | 'theme' | 'workflow' | 'model' | 'websearch' | 'providers' | 'mcp'
@@ -65,5 +67,5 @@ export function resolveDesktopSlashCommand(rawName: string): DesktopSlashCommand
 }
 
 export function desktopSlashCommandDescription(command: DesktopSlashCommand): string {
-  return command.desktopDescription ?? command.description;
+  return t(command.desktopDescription ?? command.description);
 }

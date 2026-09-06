@@ -6,6 +6,7 @@ import { readFileSync, statSync, mkdirSync, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { createRequire } from 'module'
 import { resolvePluginData } from './plugin-paths.mjs'
+import { hasOwn } from './object.mjs'
 import { renameWithRetrySync, writeJsonAtomicSync, writeJsonAtomicAsync, withFileLockSync, withFileLock } from './atomic-file.mjs'
 import {
   backupUserData,
@@ -117,9 +118,6 @@ function isPlainObject(value) {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-function hasOwn(value, key) {
-  return Object.prototype.hasOwnProperty.call(value || {}, key)
-}
 
 // Canonical on-disk channel shape. Provider-specific ids are durable. Schedule
 // arrays moved to the scheduler DB and prompt injection moved to runtime hooks,
@@ -186,7 +184,7 @@ export function canonicalizeUnifiedConfig(value = {}) {
   return next
 }
 
-export function stripGeneratedMarker(data) {
+function stripGeneratedMarker(data) {
   if (!isPlainObject(data) || !Object.prototype.hasOwnProperty.call(data, GENERATED_KEY)) return data
   const { [GENERATED_KEY]: _generated, ...rest } = data
   return rest
@@ -196,7 +194,7 @@ function readJsonFile(path) {
   let raw
   if (path === CONFIG_PATH) {
     // Non-RMW read path: served from the short-TTL raw-string cache. Returning
-    // {} on a read error here would let a subsequent writeSection() serialize
+    // {} on a read error here would let a subsequent updateSection() serialize
     // an empty object over an existing-but-temporarily-unreadable config and
     // erase every other section, so read errors surface (throw) uncached.
     raw = readConfigRawCached()
@@ -238,10 +236,10 @@ function writeJsonFile(path, data) {
   // restricts directory traversal in shared-home setups on POSIX.
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
   // NOTE: lock:false here — callers that perform read-modify-write
-  // (writeSection/updateSection) hold the lock at the outer RMW
-  // boundary, so the inner write must not try to re-acquire the same
-  // lock file (would self-deadlock on `openSync('wx')`). Direct
-  // whole-config writers go through `writeAllLocked` below.
+  // (updateConfig/updateSection and their async twins) hold the lock at
+  // the outer RMW boundary, so the inner write must not try to re-acquire
+  // the same lock file (would self-deadlock on `openSync('wx')`). Direct
+  // whole-config writers go through `writeAll` below.
   if (path === CONFIG_PATH) {
     try { backupUserData(DATA_DIR, 'pre-config-write') } catch {}
   }
@@ -265,7 +263,7 @@ function readAll() {
   // which callers (readSection/getCapabilities) merge with in-memory
   // defaults, dropping the user's presets/agent routes/sections. In-memory only:
   // readAll() runs OUTSIDE the config lock (unlike the RMW path), so we do
-  // not write here to avoid an unlocked-write race; the next writeSection
+  // not write here to avoid an unlocked-write race; the next updateSection
   // re-persists the file under the lock.
   if (hasUserDataInitMarker(DATA_DIR)) {
     const restored = loadLatestMixdogConfigFromBackup(DATA_DIR)
@@ -366,14 +364,6 @@ export function updateConfig(updater) {
   return saved
 }
 
-function writeSection(section, data) {
-  withConfigLock(() => {
-    const all = readAllForRmW()
-    all[section] = stripGeneratedMarker(data)
-    writeAll(all)
-  })
-}
-
 export function updateSection(section, updater) {
   withConfigLock(() => {
     const all = readAllForRmW()
@@ -455,14 +445,6 @@ export function updateConfigAsync(updater) {
   })
 }
 
-function writeSectionAsync(section, data) {
-  return trackConfigWrite(() => withConfigLockAsync(async () => {
-    const all = readAllForRmW()
-    all[section] = stripGeneratedMarker(data)
-    await writeAllAsync(all)
-  }))
-}
-
 export function updateSectionAsync(section, updater) {
   return trackConfigWrite(() => withConfigLockAsync(async () => {
     const all = readAllForRmW()
@@ -538,10 +520,6 @@ export function saveSecret(account, value) {
 
 export function deleteSecret(account) {
   _deleteSecret(account)
-}
-
-export function invalidateSecretReadCache(account) {
-  _invalidateSecretCache(account)
 }
 
 /**

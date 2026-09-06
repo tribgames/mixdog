@@ -8,12 +8,6 @@ const COMPOSE_OPERATION = Object.freeze({
   xlsx: 'compose_sheet',
 });
 
-function strings(value) {
-  if (Array.isArray(value)) return value.map((entry) => compact(entry)).filter(Boolean);
-  const normalized = compact(value);
-  return normalized ? [normalized] : [];
-}
-
 function evidenceKind(operation = {}) {
   if (operation.chart) return 'chart';
   if (Array.isArray(operation.allocations) && operation.allocations.length) return 'allocation';

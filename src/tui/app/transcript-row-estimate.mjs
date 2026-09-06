@@ -3,7 +3,6 @@ import {
   measureMarkdownRenderedRows,
   measureStreamingMarkdownRenderedRows,
 } from '../markdown/measure-rendered-rows.mjs';
-import { streamingLayoutText } from '../markdown/streaming-markdown.mjs';
 import { displayWidth } from '../display-width.mjs';
 import { formatToolSurface, normalizeToolName, parseToolArgs, summarizeAgentSurfaceBrief } from '../../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody } from '../../runtime/shared/err-text.mjs';

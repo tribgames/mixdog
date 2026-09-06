@@ -3,6 +3,7 @@
 // generation faults with images still on the request.
 
 import { createHash } from 'node:crypto';
+import { errorHttpStatus as errorStatus } from '../../../shared/err-text.mjs';
 
 export const IMAGE_STRIP_PLACEHOLDER = '[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]';
 
@@ -43,10 +44,6 @@ function imageIdentity(part) {
         .update(String(part?.mimeType || part?.mediaType || part?.source?.media_type || '')).update('\0')
         .update(String(payload))
         .digest('hex');
-}
-
-export function isImagePart(part) {
-    return partLooksLikeImage(part);
 }
 
 export function promptHasInlineImages(messages) {
@@ -102,10 +99,6 @@ export function persistenceMessagesForConfirmedImageRejection(err, messages) {
     if (!confirmedImageRejection(err) || !Array.isArray(messages)) return null;
     const tail = stripInlineImagesFromLatestTurn(messages);
     return tail.stripped > 0 && tail.uniqueImages === 1 ? tail.messages : null;
-}
-
-function errorStatus(err) {
-    return Number(err?.httpStatus || err?.status || err?.response?.status || 0) || 0;
 }
 
 function errorCode(err) {

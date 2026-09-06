@@ -1,22 +1,11 @@
 import { randomBytes } from 'node:crypto';
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, join } from 'node:path';
 import {
   canonicalizeStoredChannelsConfig,
   readSection,
   updateSection,
   updateSectionAsync,
 } from '../runtime/shared/config.mjs';
-import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
-import { readMarkdownDocument, serializeFrontmatterDoc } from '../runtime/shared/markdown-frontmatter.mjs';
 import {
   listSchedules as dbListSchedules,
   getSchedule as dbGetSchedule,
@@ -41,25 +30,6 @@ const DEFAULT_CHANNELS = Object.freeze({
   access: { dmPolicy: 'allowlist', allowFrom: [], channels: {} },
   webhook: { enabled: true, port: 3333 },
 });
-
-function dataDir() {
-  return resolvePluginData();
-}
-
-function webhooksDir() {
-  return join(dataDir(), 'webhooks');
-}
-
-function readText(path, fallback = '') {
-  try { return readFileSync(path, 'utf8'); } catch { return fallback; }
-}
-
-function writeTextAtomic(path, text) {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
-  writeFileSync(tmp, String(text ?? ''), 'utf8');
-  renameSync(tmp, path);
-}
 
 function assertName(name, kind = 'name') {
   const value = String(name || '').trim();
@@ -115,17 +85,6 @@ async function updateChannelsSectionAsync(build) {
     return normalizeChannelsConfig(next);
   });
   return next;
-}
-
-function listEntryDirs(dir) {
-  try {
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort();
-  } catch {
-    return [];
-  }
 }
 
 export function setWebhookConfig(patch = {}) {

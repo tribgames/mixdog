@@ -20,7 +20,7 @@ const TOOL_RESULT_PREVIEW_CHARS = 512;
 const TOOL_RESULT_SHELL_THRESHOLD_CHARS = 30_000;
 const TOOL_RESULT_SEARCH_THRESHOLD_CHARS = 50_000;
 const TOOL_RESULT_GREP_THRESHOLD_CHARS = 20_000;
-export const TOOL_RESULT_MESSAGE_MAX_CHARS = 200_000;
+const TOOL_RESULT_MESSAGE_MAX_CHARS = 200_000;
 const TOOL_RESULT_OFFLOAD_PREFIX = '[tool output offloaded:';
 const OFFLOAD_PRUNE_MIN_AGE_MS = 10 * 60 * 1000;
 
@@ -68,13 +68,13 @@ const AGGREGATE_OFFLOAD_EXCLUDED_TOOLS = new Set([
     'skills_list',
 ]);
 
-export function isAggregateOffloadEligible(toolName, result) {
+function isAggregateOffloadEligible(toolName, result) {
     if (typeof result !== 'string') return false;
     const key = String(toolName || '').toLowerCase();
     return !AGGREGATE_OFFLOAD_EXCLUDED_TOOLS.has(key);
 }
 
-export function rankAggregateOffloadCandidates(entries) {
+function rankAggregateOffloadCandidates(entries) {
     return entries
         .map((entry, index) => ({
             index,
@@ -293,7 +293,7 @@ export async function maybeOffloadToolResultBatch(sessionId, entries, options = 
 
 // Delete artifacts only after the durable session itself has been deleted.
 // Normal close/detach keeps the transcript resumable, so it must not call this.
-export async function clearOffloadSession(sessionId) {
+async function clearOffloadSession(sessionId) {
     if (!sessionId) return;
     const dir = join(getPluginData(), 'tool-results', safeSessionSegment(sessionId));
     if (!existsSync(dir)) return;
@@ -306,7 +306,7 @@ export async function clearOffloadSession(sessionId) {
     } catch { /* best-effort */ }
 }
 
-export function clearOffloadSessionSync(sessionId) {
+function clearOffloadSessionSync(sessionId) {
     if (!sessionId) return;
     const dir = join(getPluginData(), 'tool-results', safeSessionSegment(sessionId));
     if (!existsSync(dir)) return;

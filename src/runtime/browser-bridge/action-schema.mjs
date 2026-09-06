@@ -31,7 +31,7 @@ function contract(actions, fields = [], required = []) {
 
 const CONTRACT_ROWS = [
   contract('navigate', ['url', 'reload', ...POST_ACTION_SNAPSHOT], [['url'], ['reload']]),
-  contract('snapshot', [...PAGE_TARGET, ...SNAPSHOT_FILTERS, 'mode', ...SCREENSHOT_OPTIONS]),
+  contract('snapshot', [...PAGE_TARGET, ...SNAPSHOT_FILTERS, 'mode', ...SCREENSHOT_OPTIONS, 'settleMs']),
   contract('locate', [...PAGE_TARGET, 'query', 'limit'], ['query']),
   contract('evaluate', [...POST_ACTION_SNAPSHOT, 'script', 'ref', 'timeoutMs', 'maxChars'], ['script']),
   contract('emulate', [
@@ -46,7 +46,7 @@ const CONTRACT_ROWS = [
     'secure', 'httpOnly', 'sameSite', 'expirationDate', 'confirm',
   ]),
   contract('storage', [...PAGE_TARGET, 'operation', 'storageType', 'name', 'value', 'confirm']),
-  contract('performance', [...PAGE_TARGET, 'operation', 'reload']),
+  contract('performance', [...PAGE_TARGET, 'operation', 'reload', 'saveTrace']),
   contract(
     'click',
     [
@@ -447,6 +447,10 @@ export function validateBrowserToolArgs(args) {
   if (action === 'sequence') {
     const error = validateSequenceSteps(input.steps);
     if (error) return { ok: false, error };
+  }
+  if (Object.hasOwn(input, 'saveTrace')
+    && (typeof input.saveTrace !== 'boolean' || input.operation !== 'start')) {
+    return { ok: false, error: 'performance saveTrace requires operation=start and a boolean' };
   }
   if (action === 'extract') {
     if (typeof input.selector !== 'string' || !input.selector.trim()) {

@@ -120,7 +120,9 @@ const MUTATION_KEYS: Partial<Record<string, readonly SidebarReferenceKey[]>> = {
   forgetProviderAuth: PROVIDER_KEYS,
   completeOAuthProviderLogin: PROVIDER_KEYS,
   loginOpenCodeGoUsage: PROVIDER_KEYS,
-  setLocalProvider: PROVIDER_KEYS,
+  installBuiltinFeature: PROVIDER_KEYS,
+  installLocalProviderModel: PROVIDER_KEYS,
+  setBuiltinToolEnabled: PROVIDER_KEYS,
   // Onboarding finishes by writing Main, Web Search, and per-agent routes in one
   // capability call.
   completeOnboarding: ['webSearchRoute', 'agents', ...PROVIDER_KEYS],

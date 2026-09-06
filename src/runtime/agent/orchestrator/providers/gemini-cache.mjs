@@ -103,7 +103,7 @@ export function _geminiCachePrefixHash({ model, systemInstruction, geminiTools, 
 // Keep enough headroom for the provider's 60s first-byte window plus setup
 // overhead. This matches the default five-minute cache's per-session 25%
 // reuse threshold, so a cross-session hit cannot expire while opening.
-export const GEMINI_GLOBAL_CACHE_MIN_LIVE_MS = 75 * 1000;
+const GEMINI_GLOBAL_CACHE_MIN_LIVE_MS = 75 * 1000;
 const GEMINI_GLOBAL_CACHE_MAX_ENTRIES = 128;
 // Grace window before deleting a superseded cachedContents name (see the
 // cross-session race note at the delete call site in gemini.mjs). Long enough

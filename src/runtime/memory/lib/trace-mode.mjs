@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path'
 
 import { ensurePgInstance } from './pg/adapter.mjs'
 
-export const TRACE_ENABLE_MARKER = '.trace-enabled'
+const TRACE_ENABLE_MARKER = '.trace-enabled'
 
 const enabledValues = new Set(['1', 'true', 'on', 'yes'])
 const disabledValues = new Set(['0', 'false', 'off', 'no'])

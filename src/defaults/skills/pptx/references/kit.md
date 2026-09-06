@@ -1,6 +1,8 @@
 # Kit
 
-Owns the code: primitives that draw what `composition.md` names, sized with `MEASURE` so text never overflows. The kit is a toolbox, not a slide catalog — no function here draws a whole slide, and every position is the author's. Adapt the tokens to the brief; keep the functions; draw every repeated element through one function so the deck stays consistent. Picture helpers are in `pictures.md` §4.
+Owns the code: primitives that draw what `composition.md` names, sized with `MEASURE` so text never overflows. The kit is a toolbox, not a slide catalog — no function here draws a whole slide, and every position is the author's. Draw every repeated element through one function so the deck stays consistent. Chart and table helpers are in `charts.md`, picture helpers in `pictures.md` §4.
+
+**The runtime runs every code block of this file, `charts.md`, and `pictures.md` before the script** — the script never pastes them. A script opens with the brief, then one `deck({ hue, accentHue?, mode, script, pairing, fonts })` call that sets the palette, the faces, the type scale, the zones, and the masters, then the slides. Read the blocks for the signatures and defaults; redefine a helper in the script when a page needs a different one (a later declaration wins). A script that creates its own `pres` runs without the prelude.
 
 **Hard rule — paragraph options sit on the first run**: the runtime keeps one `a:pPr` per paragraph (the first). `bullet`, `align`, `paraSpaceAfter`, `lineSpacingMultiple` go on the text box or on a paragraph's first run; `breakLine: true` on a paragraph's last run. → runtime (absorbed: the normalizer keeps the first `pPr`; nothing to check)
 
@@ -42,9 +44,19 @@ function darkenUntil(h, s, start, against, min) {
   while (l > 0.08 && against.some((bg) => contrast(hsl(h, s, l), bg) < min)) l -= 0.01;
   return hsl(h, s, l);
 }
-// The ladder: neutrals within the hue, one saturated accent (optionally on a second hue), tinted extremes.
+// The accent hue a seed pairs with (direction.md §5): a cool seed takes a warm accent (navy 225 → coral 15, indigo 250 → gold 40),
+// a green or teal seed amber, a berry seed gold, a warm seed teal or navy. Pass accentHue: hue for a single-hue deck
+// (swiss-minimal, brutalist, blueprint, a brand that owns one color) or any hue the brief names.
+function counterHue(h) {
+  h = ((h % 360) + 360) % 360;
+  if (h >= 190 && h < 290) return (h + 150) % 360;
+  if (h >= 80 && h < 190) return Math.round(20 + (h - 80) / 10);
+  if (h >= 290 && h < 340) return (h + 65) % 360;
+  return (h + 190) % 360;
+}
+// The ladder: neutrals within the seed hue, one saturated accent on the counter hue (the only saturated color), tinted extremes.
 // Guarantees: body and muted ≥ 4.5:1 on paper and paperAlt; white ≥ 3:1 on accent; accent ≥ 4.5:1 on paper (an emphasis run stays readable).
-function palette({ hue = 205, accentHue = hue, accentSat = 0.72, accentLight = 0.42 } = {}) {
+function palette({ hue = 205, accentHue = counterHue(hue), accentSat = 0.72, accentLight = 0.42 } = {}) {
   const paper = hsl(hue, 0.25, 0.975), paperAlt = hsl(hue, 0.18, 0.92), tint = hsl(accentHue, 0.35, 0.89), dark = hsl(hue, 0.42, 0.10);
   const accent = darkenUntil(accentHue, accentSat, accentLight, ['FFFFFF', paper, tint], 4.5);
   return {
@@ -56,10 +68,10 @@ function palette({ hue = 205, accentHue = hue, accentSat = 0.72, accentLight = 0
     onAccent: 'FFFFFF',                        // type on an accent surface; the only white in the ladder — scripts never write a hex literal
   };
 }
-const T = { ...palette({ hue: 205 }), display: '', sans: '', light: '', data: '' };   // seed from the brief; faces set by typography()
+const T = { ...palette({ hue: 205 }), display: '', sans: '', light: '', data: '' };   // deck() seeds it from the brief; faces set by typography()
 
 // Type scale (direction.md §6): the reading mode sets the body anchor; every role derives from it.
-const MODE = 'balanced';                        // presentation 24 · balanced 18 · text 15 (body pt); the brief's reading mode
+let MODE = 'balanced';                          // presentation 24 · balanced 18 · text 15 (body pt); deck() sets it from the brief
 function typeScale(mode) {
   const b = { presentation: 24, balanced: 18, text: 15 }[mode] ?? 18;
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(v)));
@@ -69,9 +81,9 @@ function typeScale(mode) {
     poster: clamp(b * 5.5, 84, 132),           // the one display size past hero: a cover or closing numeral, a poster word
   };
 }
-const TYPE = typeScale(MODE);
+let TYPE = typeScale(MODE);
 // Diagram type: labels inside chevrons, nodes, tiers and the notes under them follow the mode (balanced 14 / 11.5).
-const DIAG = { label: TYPE.caption + 1, note: Math.max(9.5, TYPE.caption - 1.5) };
+let DIAG = { label: TYPE.caption + 1, note: Math.max(9.5, TYPE.caption - 1.5) };
 // Roles (direction.md §6): a role is size + face + weight + color + leading as one unit, so a caption is the same
 // caption on every slide. role('caption') resolves against the current T and TYPE; text() and flow() take a role
 // name in place of a size. A role's field may be overridden per box (color on a dark field, align) — the size never.
@@ -112,32 +124,55 @@ function typography({ script = 'ko', pairing = 'weight', fonts = 'noto' } = {}) 
 }
 typography({ script: 'ko', pairing: 'weight', fonts: 'noto' });
 
+// The one setup call a script makes right after its brief: the palette from the seed (the accent on the counter hue
+// unless accentHue is given), the faces from the script and pairing, the scale and zones from the reading mode.
+// titleLines: the deck's longest content title in lines (zones()). Returns T. The masters take these colors when the
+// first slide is added, so deck() runs before any light() / dark() / quiet().
+function deck({ hue = 205, accentHue, accentSat, accentLight, mode = 'balanced', script = 'ko', pairing = 'weight', fonts = 'noto', titleLines = 1 } = {}) {
+  Object.assign(T, palette({ hue, accentHue, accentSat, accentLight }));
+  typography({ script, pairing, fonts });
+  MODE = mode;
+  TYPE = typeScale(mode);
+  DIAG = { label: TYPE.caption + 1, note: Math.max(9.5, TYPE.caption - 1.5) };
+  Z = zones(mode, { titleLines });
+  return T;
+}
+
 // Page chrome lives on masters, not on slides: the background and, when the deck wants it, the page number.
+// The three masters are defined from the final palette when the first slide is added, never before deck() ran.
 function master(name, background, { number = true, color = T.muted } = {}) {
   pres.defineSlideMaster({ title: name, background: { color: background },
     ...(number ? { slideNumber: { x: W - M - 1, y: H - 0.5, w: 1, h: 0.3, fontFace: T.data, fontSize: 9, color, align: 'right' } } : {}) });
 }
-master('LIGHT', T.paper);
-master('DARK', T.dark, { color: T.onDarkMuted });
-master('QUIET', T.dark, { number: false });    // cover and closing
-const light = () => pres.addSlide({ masterName: 'LIGHT' });
-const dark = () => pres.addSlide({ masterName: 'DARK' });
-const quiet = () => pres.addSlide({ masterName: 'QUIET' });
+let MASTERS = false;
+function masters() {
+  if (MASTERS) return;
+  MASTERS = true;
+  master('LIGHT', T.paper);
+  master('DARK', T.dark, { color: T.onDarkMuted });
+  master('QUIET', T.dark, { number: false });    // cover and closing
+}
+const light = () => (masters(), pres.addSlide({ masterName: 'LIGHT' }));
+const dark = () => (masters(), pres.addSlide({ masterName: 'DARK' }));
+const quiet = () => (masters(), pres.addSlide({ masterName: 'QUIET' }));
 ```
 
-## 2. Raster helpers (sharp turns an SVG string into a PNG the deck can place)
+## 2. Gradients (native) and raster helpers (sharp turns an SVG string into a PNG the deck can place)
 ```js
+// Native gradient, editable in PowerPoint: a shape whose marked solid fill the runtime saves as a:gradFill — no raster.
+// stops: [[offset 0-100, hex, alpha 0-1], ...] with stop 0 on the side the type sits; angle 0 = left→right, 90 = top→bottom.
+// radial: { fx, fy } (focus in 0-1 of the box) runs stop 0 at the focus out to stop 100 at the edge. Alpha stops make a
+// scrim, a wash, or a glow (pictures.md §4); a two-stop opaque run is a cover or section field.
+function gradient(slide, x, y, w, h, stops, angle = 0, { radial = null, shape = S.rect } = {}) {
+  const spec = { stops: stops.map(([o, c, a = 1]) => [o, c, a]), angle, ...(radial ? { radial } : {}) };
+  slide.addShape(shape, { ...box(x, y, w, h), fill: { color: stops[0][1] }, line: { color: stops[0][1] },
+    objectName: 'mixdog-gradient:' + encodeURIComponent(JSON.stringify(spec)) });
+}
+// gradientField: the same gradient under its older name (scripts await it).
+async function gradientField(slide, x, y, w, h, stops, angle = 0) { gradient(slide, x, y, w, h, stops, angle); }
 async function png(svg) {
   const buf = await sharp(Buffer.from(svg)).png().toBuffer();
   return 'image/png;base64,' + buf.toString('base64');
-}
-// Linear gradient field. stops: [[offset%, hex, alpha], ...]; angle 0 = left→right, 90 = top→bottom.
-async function gradientField(slide, x, y, w, h, stops, angle = 0) {
-  const pw = Math.round(w * PX), ph = Math.round(h * PX);
-  const rad = angle * Math.PI / 180, x2 = 50 + 50 * Math.cos(rad), y2 = 50 + 50 * Math.sin(rad);
-  const s = stops.map(([o, c, a = 1]) => `<stop offset="${o}%" stop-color="#${c}" stop-opacity="${a}"/>`).join('');
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}"><defs><linearGradient id="g" x1="${100 - x2}%" y1="${100 - y2}%" x2="${x2}%" y2="${y2}%">${s}</linearGradient></defs><rect width="${pw}" height="${ph}" fill="url(#g)"/></svg>`;
-  slide.addImage({ data: await png(svg), ...box(x, y, w, h) });
 }
 // Icon by name from the offline set (ICON is injected: 256 Lucide stroke icons — ICON.names lists them; an
 // unknown name throws with the nearest), or a 24-unit fill path of your own. Optionally inside a tinted disc.
@@ -158,29 +193,91 @@ async function iconRow(slide, x, y, w, items, { d = 0.6, gap = GUTTER, label: la
     const { label, detail, icon: name } = items[i], c = cols[i];
     await icon(slide, c.x, y, d, name);
     const lb = text(slide, label, c.x, y + d + GAP.within, c.w, labelRole, { bold: true });
-    bottom = Math.max(bottom, detail ? text(slide, detail, c.x, lb + GAP.within / 2, c.w, detailRole, { color: T.body, lh: 1.35 }) : lb);
+    bottom = Math.max(bottom, detail ? text(slide, detail, c.x, lb + GAP.within, c.w, detailRole, { color: T.body, lh: 1.35 }) : lb);
   }
   return bottom;
 }
-// Soft radial glow behind a hero element (dark-tech, cover motif).
+// Soft radial glow behind a hero element (dark-tech, cover motif): a native radial gradient on an ellipse.
 async function glow(slide, cx, cy, r, color = T.accent, alpha = 0.35) {
-  const px = Math.round(r * 2 * PX);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}"><defs><radialGradient id="r"><stop offset="0%" stop-color="#${color}" stop-opacity="${alpha}"/><stop offset="100%" stop-color="#${color}" stop-opacity="0"/></radialGradient></defs><circle cx="${px / 2}" cy="${px / 2}" r="${px / 2}" fill="url(#r)"/></svg>`;
-  slide.addImage({ data: await png(svg), ...box(cx - r, cy - r, r * 2, r * 2) });
+  gradient(slide, cx - r, cy - r, r * 2, r * 2, [[0, color, alpha], [100, color, 0]], 0, { radial: { fx: 0.5, fy: 0.5 }, shape: S.ellipse });
 }
 ```
 
 ## 3. Measured text
 `MEASURE` is injected by the runtime with the review's own font metrics; every text box here is sized with it, never by guessing. `lh` is the box's `lineSpacingMultiple` (1 = single); PowerPoint lays every face out at 1.2 em per single line, Hangul and Latin alike. Leading is the author's call per box (`direction.md` §6); the helpers only default it.
+
+**Default — Hangul wraps by the eojeol**: PowerPoint breaks Korean at any character (정답/률, 그라디언/트, a one-syllable last line), so every kit text helper pre-breaks Hangul text where the last whole word fits (`wrapKo`, `wrapRuns`) and writes the break as a soft break (`a:br`) inside one paragraph. Author-written `\n` breaks are kept; a word wider than its zone is left to PowerPoint. **Default — a shrinking box lands on the scale**: `fitSize` steps down through the deck's type scale and diagram sizes (22 → 18 → 14 → 13), never to a free number 1 pt under.
 ```js
-// fitH: the height a box of width w needs for text at size; fitSize: the largest size ≤ size that fits w × h.
+// fitH: the height a box of width w needs for text at size; fitSize: the largest scale step ≤ size that fits w × h.
 const fitH = (text, w, size, font = T.sans, { bold = false, lh = 1 } = {}) => MEASURE(text, { font, size, bold, width: w, lineHeight: lh }).height + 0.06;
 const lineH = (size, font = T.sans, lh = 1) => size / 72 * 1.2 * lh;   // PowerPoint's single pitch, every face
 const textW = (text, size, font = T.sans, bold = false) => MEASURE(text, { font, size, bold }).width;
+// Hangul wraps by the eojeol (the space-delimited word), never inside one. The break goes into the text where the
+// last whole word fits, measured at 98 % of the zone against the renderer's rounding; author-written breaks stay;
+// a word wider than the zone is left to PowerPoint. Latin already wraps at spaces; Japanese and Chinese carry none.
+const HANGUL = /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/;
+const NO_BREAK_BEFORE = /^[,.:;!?%)\]}」』’”…·]/;   // a closing mark never starts a line
+const WRAP_MARGIN = 0.98;
+function wrapKo(str, w, size, font = T.sans, bold = false) {
+  const s = String(str ?? '');
+  if (!HANGUL.test(s) || !(w > 0)) return s;
+  const limit = w * WRAP_MARGIN, width = (t) => MEASURE(t, { font, size, bold }).width;
+  return s.split('\n').map((para) => {
+    const lines = [];
+    let line = '';
+    for (const word of para.split(' ').filter(Boolean)) {
+      const next = line ? `${line} ${word}` : word;
+      if (line && !NO_BREAK_BEFORE.test(word) && width(next) > limit) { lines.push(line); line = word; } else line = next;
+    }
+    lines.push(line);
+    return lines.join('\n');
+  }).join('\n');
+}
+// A pre-broken string as one paragraph with soft breaks (a:br), so paragraph spacing and bullets stay where the
+// author put them; a string without a break passes through unchanged.
+const runsOf = (str) => (String(str).includes('\n')
+  ? String(str).split('\n').map((line, i) => (i ? { text: line, options: { softBreakBefore: true } } : { text: line }))
+  : str);
+// Inline runs wrapped as one line stream: each word is measured in its own run's face, weight, and size, and the
+// break is a soft break before the first word that would cross the zone. Paragraph options (bullet, paraSpaceAfter,
+// breakLine) stay on the run that carried them; a run's later pieces carry only its type.
+function wrapRuns(runs, w, size, font = T.light) {
+  if (!runs.some((run) => HANGUL.test(String(run.text)))) return runs;
+  const limit = w * WRAP_MARGIN, out = [];
+  let used = 0, space = null;   // space: the blank waiting for the next word, and the piece it appends to when no break falls there
+  for (const run of runs) {
+    const o = run.options || {}, face = o.fontFace || font, bold = Boolean(o.bold), sz = o.fontSize || size;
+    const width = (t) => MEASURE(t, { font: face, size: sz, bold }).width;
+    const style = { ...o };
+    for (const key of ['breakLine', 'paraSpaceAfter', 'paraSpaceBefore', 'bullet', 'softBreakBefore']) delete style[key];
+    let piece = { text: '', options: { ...o, breakLine: false } };
+    out.push(piece);
+    for (const tok of String(run.text).split(/( +|\n)/).filter(Boolean)) {
+      if (tok === '\n') { piece = { text: '', options: { ...style, softBreakBefore: true } }; out.push(piece); used = 0; space = null; continue; }   // an author's break
+      if (/^ +$/.test(tok)) { space = { text: tok, width: width(tok), at: piece }; continue; }
+      const wt = width(tok);
+      if (space && used > 0 && !NO_BREAK_BEFORE.test(tok) && used + space.width + wt > limit) {
+        piece = { text: tok, options: { ...style, softBreakBefore: true } };
+        out.push(piece);
+        used = wt;
+      } else {
+        if (space) { space.at.text += space.text; used += space.width; }
+        piece.text += tok;
+        used += wt;
+      }
+      space = null;
+    }
+    if (o.breakLine) { piece.options.breakLine = true; used = 0; }
+  }
+  if (space) space.at.text += space.text;
+  return out.filter((piece) => piece.text || piece.options.breakLine);
+}
+// The sizes a shrinking box may land on: the deck's scale and the diagram sizes, largest first.
+const scaleSteps = () => [...new Set([...Object.values(TYPE), DIAG.label, DIAG.note])].sort((a, b) => b - a);
 function fitSize(text, w, h, size, font = T.sans, { bold = false, lh = 1, min = 12 } = {}) {
-  let s = size;
-  while (s > min && fitH(text, w, s, font, { bold, lh }) > h) s -= 1;
-  return s;
+  const steps = [size, ...scaleSteps().filter((s) => s < size && s >= min)];
+  for (const s of steps) if (fitH(wrapKo(text, w, s, font, bold), w, s, font, { bold, lh }) <= h) return s;
+  return steps[steps.length - 1];
 }
 // The general measured text box. Returns the bottom edge so the next element registers under it.
 // size is a number or a role name ('caption', 'label', …): a role brings its face, weight, color, and leading;
@@ -190,16 +287,18 @@ function text(slide, str, x, y, w, size, { color, font, bold, align = 'left', va
   color ??= T.body; font ??= T.light; bold ??= false;
   lh ??= h ? 1 : (size >= TYPE.lead ? 1.2 : 1.35);
   const face = bold && font === T.light ? T.sans : font;
-  const height = h ?? fitH(str, w, size, face, { bold, lh });
-  slide.addText(str, { ...box(x, y, w, height), fontFace: face, fontSize: size, bold, color, align, valign, margin: 0, lineSpacingMultiple: lh });
+  const wrapped = wrapKo(str, w, size, face, bold);
+  const height = h ?? fitH(wrapped, w, size, face, { bold, lh });
+  slide.addText(runsOf(wrapped), { ...box(x, y, w, height), fontFace: face, fontSize: size, bold, color, align, valign, margin: 0, lineSpacingMultiple: lh });
   return y + height;
 }
-// Title: display face, bold; the size steps down (to 24) when the text would need more than maxLines. Returns the bottom edge.
+// Title: display face, bold; the size steps down the scale (to 24) when the text would need more than maxLines. Returns the bottom edge.
 function title(slide, str, { x = M, y = 1.0, w = W - 2 * M, size = TYPE.title, color = T.ink, align = 'left', maxLines = 2, lh = 1.15 } = {}) {
-  let s = size;
-  while (s > 24 && MEASURE(str, { font: T.display, size: s, bold: true, width: w, lineHeight: lh }).lines > maxLines) s -= 2;
-  const h = Math.max(0.6, fitH(str, w, s, T.display, { bold: true, lh }));
-  slide.addText(str, { ...box(x, y, w, h), fontFace: T.display, fontSize: s, bold: true, color, align, margin: 0, valign: 'top', lineSpacingMultiple: lh });
+  const wrapped = (at) => wrapKo(str, w, at, T.display, true);
+  const steps = [size, ...scaleSteps().filter((v) => v < size && v >= 24)];
+  const s = steps.find((at) => MEASURE(wrapped(at), { font: T.display, size: at, bold: true, width: w, lineHeight: lh }).lines <= maxLines) ?? steps[steps.length - 1];
+  const out = wrapped(s), h = Math.max(0.6, fitH(out, w, s, T.display, { bold: true, lh }));
+  slide.addText(runsOf(out), { ...box(x, y, w, h), fontFace: T.display, fontSize: s, bold: true, color, align, margin: 0, valign: 'top', lineSpacingMultiple: lh });
   return y + h;
 }
 // Kicker: a real section or topic name above a title. Latin gets tracking (charSpacing); Hangul never does.
@@ -220,7 +319,7 @@ function emphasis(slide, paragraphs, x, y, w, h, size = TYPE.lead, color = T.bod
     ...(ri === 0 && pi < paragraphs.length - 1 ? { paraSpaceAfter: size * 0.8 } : {}),   // the step between paragraphs, never trailing space
     ...(ri === para.length - 1 && pi < paragraphs.length - 1 ? { breakLine: true } : {}),
   } })));
-  slide.addText(runs, { ...box(x, y, w + inset / 72, h), fontFace: font, fontSize: size, color, margin: [0, inset, 0, 0], valign: 'top', lineSpacingMultiple: lh });
+  slide.addText(wrapRuns(runs, w, size, font), { ...box(x, y, w + inset / 72, h), fontFace: font, fontSize: size, color, margin: [0, inset, 0, 0], valign: 'top', lineSpacingMultiple: lh });
 }
 // Hero numeral with its label bound under it (half a within step). size: TYPE.hero (default) or TYPE.poster — never a free number.
 function hero(slide, x, y, w, value, label, { color = T.accent, size = TYPE.hero, unit = '', labelColor = T.muted, labelSize = TYPE.caption } = {}) {
@@ -229,20 +328,23 @@ function hero(slide, x, y, w, value, label, { color = T.accent, size = TYPE.hero
   const h = Math.max(1.12, lineH(size, T.data) + 0.04), bind = GAP.within / 2;
   slide.addText(runs, { ...box(x, y, w, h), fontFace: T.data, bold: true, color, margin: 0, valign: 'bottom' });
   if (!label) return y + h;
-  const lh = fitH(label, w, labelSize);
-  slide.addText(label, { ...box(x, y + h + bind, w, lh), fontFace: T.sans, fontSize: labelSize, color: labelColor, margin: 0, valign: 'top' });
+  const l = wrapKo(label, w, labelSize, T.sans), lh = fitH(l, w, labelSize);
+  slide.addText(runsOf(l), { ...box(x, y + h + bind, w, lh), fontFace: T.sans, fontSize: labelSize, color: labelColor, margin: 0, valign: 'top' });
   return y + h + bind + lh;
 }
 // A genuine list: one text box, bullets on each item, a paragraph step visibly larger than the line step.
 function bullets(slide, x, y, w, h, items, size = TYPE.body, color = T.body, { lh = 1.35, font = T.light } = {}) {
   const s = fitSize(items.join('\n'), w - 0.3, h - items.length * size * 0.6 / 72, size, font, { lh, min: TYPE.caption });
-  slide.addText(items.map((str, i) => ({ text: str, options: { bullet: true, paraSpaceAfter: Math.round(s * 0.6), breakLine: i < items.length - 1 } })),
-    { ...box(x, y, w, h), fontFace: font, fontSize: s, color, valign: 'top', margin: 0, lineSpacingMultiple: lh });
+  const runs = items.flatMap((str, i) => wrapKo(str, w - 0.3, s, font).split('\n').map((line, j, lines) => ({ text: line, options: {
+    ...(j === 0 ? { bullet: true, paraSpaceAfter: Math.round(s * 0.6) } : { softBreakBefore: true }),
+    ...(j === lines.length - 1 && i < items.length - 1 ? { breakLine: true } : {}),
+  } })));
+  slide.addText(runs, { ...box(x, y, w, h), fontFace: font, fontSize: s, color, valign: 'top', margin: 0, lineSpacingMultiple: lh });
 }
-// Prose: h is the ceiling; the size steps down (to 12) until the text fits it.
+// Prose: h is the ceiling; the size steps down the scale (to 12) until the text fits it.
 function prose(slide, str, x, y, w, h, size = TYPE.body, color = T.body, { lh = 1.45, font = T.light } = {}) {
   const s = fitSize(str, w, h, size, font, { lh });
-  slide.addText(str, { ...box(x, y, w, h), fontFace: font, fontSize: s, color, valign: 'top', margin: 0, lineSpacingMultiple: lh });
+  slide.addText(runsOf(wrapKo(str, w, s, font)), { ...box(x, y, w, h), fontFace: font, fontSize: s, color, valign: 'top', margin: 0, lineSpacingMultiple: lh });
 }
 // Caption / source line under a figure or picture: caption size, muted, registered to the figure's left edge.
 function caption(slide, str, x, y, w, color = T.muted) {
@@ -252,7 +354,7 @@ function caption(slide, str, x, y, w, color = T.muted) {
 function takeaway(slide, str, y = H - M - 0.75, { x = M, w = W - 2 * M, h = 0.7, tint = T.tint, color = T.ink } = {}) {
   const c = inner({ x, w }), size = fitSize(str, c.w, h - 0.2, TYPE.lead, T.sans, { min: TYPE.caption });
   slide.addShape(S.rect, { ...box(x, y, w, h), fill: { color: tint }, line: { color: tint } });
-  slide.addText(str, { ...box(c.x, y, c.w, h), fontFace: T.sans, fontSize: size, color, margin: 0, valign: 'middle' });
+  slide.addText(runsOf(wrapKo(str, c.w, size, T.sans)), { ...box(c.x, y, c.w, h), fontFace: T.sans, fontSize: size, color, margin: 0, valign: 'middle' });
 }
 // Specimen: the subject drawn, not described. rows: [{ text, font, size, bold, label, color }] on one baseline grid.
 function specimen(slide, x, y, w, rows, { labelW = 1.6, gap = GAP.between, labelColor = T.muted } = {}) {
@@ -275,10 +377,9 @@ function ghost(slide, str, x, y, size = 240, w = 5.5, { color = T.onAccent, tran
 
 ## 4. Zones and layout by weight (composition.md §6)
 ```js
-// Deck zones: one head band, one body top, one foot line, one seam — decided once per deck, used by
-// every content slide, so the body starts at the same y whether the title takes one line or two and
-// the split falls on the same seam on every slide that splits. Anchors (cover, section, closing) keep
-// the margin and the seam but own their own vertical composition.
+// Optional header/body scaffold for related pages, not a compulsory layout for every content slide.
+// Use shared zones when the pages share a structure; compose a dominant figure or relationship directly
+// with the primitives when it needs a different title position or content field.
 // titleLines: the deck's longest content title in lines (the brief decides; default 1). A two-line band under
 // one-line titles leaves 0.7 in of dead air above every kicker — reserve two lines only when a title needs them.
 function zones(mode = MODE, { titleLines = 1 } = {}) {
@@ -297,10 +398,10 @@ let Z = zones(MODE);
 // body element sits exactly there (flow(s, x, Z.body.top, …)), never at Z.body.top + a hand offset.
 // w: the column the title shares with the body under it — pass the same w to both so their right edges register.
 function head(slide, kickerText, titleText, { size = TYPE.title, color = T.ink, kickerColor = T.accent, w = W - 2 * M, x = M } = {}) {
-  const lh = 1.15, th = fitH(titleText, w, size, T.display, { bold: true, lh });
+  const lh = 1.15, t = wrapKo(titleText, w, size, T.display, true), th = fitH(t, w, size, T.display, { bold: true, lh });
   const top = Z.head.bottom - th;
   if (top < Z.head.top - 0.01) throw new Error(`head: title needs ${(Z.head.top - top).toFixed(2)} in more than the head band — shorten it or break it in two lines`);
-  slide.addText(titleText, { ...box(x, top, w, th), fontFace: T.display, fontSize: size, bold: true, color, margin: 0, valign: 'bottom', lineSpacingMultiple: lh });
+  slide.addText(runsOf(t), { ...box(x, top, w, th), fontFace: T.display, fontSize: size, bold: true, color, margin: 0, valign: 'bottom', lineSpacingMultiple: lh });
   if (kickerText) kicker(slide, kickerText, x, top - 0.3 - GAP.within, kickerColor);
   return Z.body.top;
 }
@@ -336,9 +437,9 @@ function flow(slide, x, y, w, blocks, { gap = GAP.within, bottom = H - M } = {})
     if (typeof b === 'function') { cy = b(cy) + gap; return; }
     const r = b.role ? role(b.role) : null;
     const size = b.size || r?.size || TYPE.body, bold = b.bold ?? r?.bold ?? false, font = b.font || r?.font || (bold ? T.sans : T.light), lh = b.lh ?? (b.h ? 1 : r?.lh ?? 1.35);
-    const h = b.h ?? fitH(b.text, w, size, font, { bold, lh });
+    const t = wrapKo(b.text, w, size, font, bold), h = b.h ?? fitH(t, w, size, font, { bold, lh });
     if (cy + h > bottom + 0.01) throw new Error(`flow: block ${i + 1} of ${blocks.length} ("${String(b.text).slice(0, 24)}…") needs ${(cy + h - bottom).toFixed(2)} in past the region bottom ${bottom}`);
-    slide.addText(b.text, { ...box(x, cy, w, h), fontFace: font, fontSize: size, bold, color: b.color || r?.color || T.body, margin: 0, valign: 'top', lineSpacingMultiple: lh });
+    slide.addText(runsOf(t), { ...box(x, cy, w, h), fontFace: font, fontSize: size, bold, color: b.color || r?.color || T.body, margin: 0, valign: 'top', lineSpacingMultiple: lh });
     cy += h + (b.after ?? gap);
   });
   return cy;
@@ -355,8 +456,8 @@ function stack(slide, x, y, w, blocks, { bottom = Z.body.bottom, gap = GAP.withi
     if (b.flex) return { ...b, kind: 'flex', h: 0 };
     const r = b.role ? role(b.role) : null;
     const size = b.size || r?.size || TYPE.body, bold = b.bold ?? r?.bold ?? false, font = b.font || r?.font || (bold ? T.sans : T.light), lh = b.lh ?? (b.h ? 1 : r?.lh ?? 1.35);
-    const h = b.h ?? fitH(b.text, w, size, font, { bold, lh });
-    return { ...b, kind: b.draw ? 'draw' : 'text', h, size, bold, font, lh, color: b.color || r?.color || T.body };
+    const t = wrapKo(b.text, w, size, font, bold), h = b.h ?? fitH(t, w, size, font, { bold, lh });
+    return { ...b, text: t, kind: b.draw ? 'draw' : 'text', h, size, bold, font, lh, color: b.color || r?.color || T.body };
   });
   const fixed = items.reduce((a, b) => a + b.h, 0), between = items.slice(0, -1).reduce((a, b) => a + (b.after ?? gap), 0);
   const free = bottom - y - fixed - between, flexCount = items.filter((b) => b.kind === 'flex').length;
@@ -367,7 +468,7 @@ function stack(slide, x, y, w, blocks, { bottom = Z.body.bottom, gap = GAP.withi
     const h = b.kind === 'flex' ? free / flexCount : b.h;
     if (b.kind === 'flex') b.flex(cy, h);
     else if (b.kind === 'draw') b.draw(cy, h);
-    else slide.addText(b.text, { ...box(x, cy, w, h), fontFace: b.font, fontSize: b.size, bold: b.bold, color: b.color, margin: 0, valign: 'top', lineSpacingMultiple: b.lh });
+    else slide.addText(runsOf(b.text), { ...box(x, cy, w, h), fontFace: b.font, fontSize: b.size, bold: b.bold, color: b.color, margin: 0, valign: 'top', lineSpacingMultiple: b.lh });
     cy += h + (i < items.length - 1 ? (b.after ?? gap) + spread : 0);
   });
   return cy;
@@ -448,137 +549,3 @@ function lift(slide, x, y, w, h, tint = T.paper, { radius = RADIUS } = {}) {
 }
 ```
 Other presets: `S.round1Rect`, `S.snip1Rect`, `S.snipRoundRect`, `S.trapezoid`, `S.parallelogram`, `S.hexagon`, `S.frame`, `S.corner`, `S.pie` + `angleRange`, `S.donut`, `S.rightArrow`, `S.leftArrow`, `S.downArrow`, `S.leftRightArrow`, `S.bracePair`, `S.triangle`; `rotate` and `flipH` apply to all.
-
-## 6. Native charts and tables — editable data
-```js
-// Quiet chart: no gridlines, no legend, category labels only, values on the bars/points.
-// type: col | bar | line | area | doughnut | radar | scatter | bubble (composition.md §9 maps the relationship to the form).
-// series: [{ name, values }], labels: categories. scatter/bubble take pptxgenjs' own shape: series[0] = { name: 'X', values },
-// then { name, values[, sizes] } per set; labels unused. accent: index of the one category to color (single series bars only) —
-// drawn as two stacked series here, merged by the runtime into one series with a per-point fill, so "Edit data" shows one column.
-// overlap: true draws a bullet — series[0] the track or target (muted), series[1] the actual (accent), bars laid over each other.
-// note: { at, text } annotates one column (single-series 'col' only): the plot area is pinned (PLOT) so the bar's
-// position is known, a leader rises from above its value label to a short label at the top of the frame.
-// Stacked-bar labels must sit inside ('inEnd' | 'ctr' | 'inBase'); zero segments are hidden by the format code.
-const PLOT = { x: 0.03, y: 0.14, w: 0.94, h: 0.72 };   // plot area as fractions of the chart frame when a note pins it
-function chart(slide, x, y, w, h, { type = 'col', labels, series, accent = -1, overlap = false, max, min = 0, format = '#,##0', size = DIAG.note, note = null } = {}) {
-  const bar = type === 'col' || type === 'bar';
-  const pinned = Boolean(note) && type === 'col' && series.length === 1;
-  const top = max ?? (pinned ? Math.ceil(Math.max(...series[0].values) * 1.15) : undefined);
-  const base = { ...box(x, y, w, h), fontFace: T.sans, showLegend: false,
-    catAxisLabelColor: T.muted, catAxisLabelFontSize: size, catAxisLabelFontFace: T.sans, catAxisLineShow: false,
-    valAxisHidden: true, valAxisLineShow: false, valGridLine: { style: 'none' }, catGridLine: { style: 'none' },
-    ...(top != null ? { valAxisMaxVal: top, valAxisMinVal: min } : {}),
-    ...(pinned ? { layout: PLOT } : {}),
-    showValue: true, dataLabelColor: T.body, dataLabelFontSize: size, dataLabelFontFace: T.data, dataLabelFormatCode: format + ';;' };
-  const annotate = () => {
-    if (!pinned) return;
-    const values = series[0].values, n = values.length, i = Math.max(0, Math.min(n - 1, note.at));
-    const cx = x + PLOT.x * w + (i + 0.5) * (PLOT.w * w) / n;
-    const barTop = y + PLOT.y * h + PLOT.h * h * (1 - (values[i] - min) / ((top - min) || 1));
-    // The label sits one between step above the bar's value label (a short leader), not at the frame top — a zero
-    // bar would otherwise hang a leader the full height of the plot. Clamped to the frame.
-    const lh = 0.32, ly = Math.max(y + 0.02, barTop - 0.34 - GAP.between - lh);
-    connector(slide, cx, barTop - 0.34, cx, ly + lh + 0.04, { arrow: 'none', color: T.accent, width: 1.25 });
-    // The label sits on whichever side of the leader has room for its measured width, never wrapped.
-    const tw = textW(note.text, DIAG.label, T.sans, true) + 0.12;
-    const leftSide = x + w - cx - 0.12 < tw;
-    text(slide, note.text, leftSide ? cx - 0.12 - tw : cx + 0.12, ly, tw, DIAG.label, { color: T.accent, font: T.sans, bold: true, lh: 1.15, h: lh, valign: 'middle', align: leftSide ? 'right' : 'left' });
-  };
-  if (bar && overlap && series.length === 2) {
-    slide.addChart(pres.ChartType.bar, series.map((s) => ({ ...s, labels })), { ...base, barDir: type === 'bar' ? 'bar' : 'col',
-      barOverlapPct: 100, barGapWidthPct: 45, chartColors: [T.paperAlt, T.accent], showValue: false });
-    return;
-  }
-  if (type === 'doughnut') {
-    slide.addChart(pres.ChartType.doughnut, [{ name: series[0].name, labels, values: series[0].values }], { ...base, holeSize: 62,
-      chartColors: [T.accent, T.muted, T.line, T.paperAlt, T.tint], dataLabelPosition: 'bestFit', dataLabelColor: T.ink, showLabel: false, showPercent: false });
-    return;
-  }
-  if (type === 'radar') {
-    slide.addChart(pres.ChartType.radar, series.map((s) => ({ ...s, labels })), { ...base, radarStyle: 'marker', lineSize: 2,
-      chartColors: [T.accent, T.muted], showValue: false, ...(series.length > 1 ? { showLegend: true, legendPos: 'b', legendColor: T.body, legendFontSize: size, legendFontFace: T.sans } : {}) });
-    return;
-  }
-  if (type === 'scatter' || type === 'bubble') {
-    slide.addChart(type === 'bubble' ? pres.ChartType.bubble : pres.ChartType.scatter, series, { ...base, valAxisHidden: false, catAxisHidden: false,
-      valAxisLineShow: true, catAxisLineShow: true, valAxisLineColor: T.line, catAxisLineColor: T.line, valAxisLabelColor: T.muted, valAxisLabelFontSize: size,
-      lineSize: 0, lineDataSymbol: 'circle', lineDataSymbolSize: type === 'bubble' ? 12 : 9, chartColors: [T.accent, T.muted, T.line], showValue: false });
-    return;
-  }
-  if (bar && accent >= 0 && series.length === 1) {
-    const values = series[0].values;
-    slide.addChart(pres.ChartType.bar, [
-      { name: series[0].name, labels, values: values.map((v, i) => (i === accent ? 0 : v)) },
-      { name: series[0].name + ' ·', labels, values: values.map((v, i) => (i === accent ? v : 0)) },
-    ], { ...base, barDir: type === 'bar' ? 'bar' : 'col', barGrouping: 'stacked', barGapWidthPct: 60,
-      chartColors: [T.paperAlt, T.accent], dataLabelPosition: 'inEnd', dataLabelColor: T.ink });
-    annotate();
-    return;
-  }
-  if (bar) {
-    // One series is one color (PowerPoint would otherwise cycle a color per bar); the accent is reserved for `accent`.
-    slide.addChart(pres.ChartType.bar, series.map((s) => ({ ...s, labels })), { ...base, barDir: type === 'bar' ? 'bar' : 'col',
-      barGapWidthPct: 60, chartColors: series.length === 1 ? [T.muted] : [T.accent, T.muted, T.line], dataLabelPosition: 'outEnd', ...(series.length > 1 ? { showLegend: true, legendPos: 't', legendColor: T.body, legendFontSize: size, legendFontFace: T.sans } : {}) });
-    annotate();
-    return;
-  }
-  slide.addChart(type === 'area' ? pres.ChartType.area : pres.ChartType.line, series.map((s) => ({ ...s, labels })), { ...base, lineSize: 2.5, lineDataSymbol: 'none',
-    chartColors: [T.accent, T.muted, T.line], dataLabelPosition: 't', ...(type === 'area' ? { chartColorsOpacity: 35 } : {}) });
-}
-// Waterfall: native stacked columns — an invisible base (the surface color) carries each bar to its running start.
-// steps: [{ label, value }] with a negative value for a drop, and { label, total: true } for a closing bar at the running total.
-// Values stay editable; the closing figure is labeled by the author (a hero or a takeaway), not by the chart.
-function waterfall(slide, x, y, w, h, steps, { size = DIAG.note, surface = T.paper } = {}) {
-  let run = 0; const labels = [], base = [], rise = [], drop = [];
-  for (const s of steps) {
-    labels.push(s.label);
-    if (s.total) { base.push(0); rise.push(run); drop.push(0); continue; }
-    if (s.value >= 0) { base.push(run); rise.push(s.value); drop.push(0); run += s.value; }
-    else { run += s.value; base.push(run); rise.push(0); drop.push(-s.value); }
-  }
-  slide.addChart(pres.ChartType.bar, [
-    { name: 'base', labels, values: base }, { name: 'up', labels, values: rise }, { name: 'down', labels, values: drop },
-  ], { ...box(x, y, w, h), barDir: 'col', barGrouping: 'stacked', barGapWidthPct: 40, chartColors: [surface, T.accent, T.muted],
-    fontFace: T.sans, showLegend: false, showValue: false, catAxisLabelColor: T.muted, catAxisLabelFontSize: size, catAxisLabelFontFace: T.sans,
-    catAxisLineShow: false, valAxisHidden: true, valAxisLineShow: false, valGridLine: { style: 'none' }, catGridLine: { style: 'none' } });
-}
-// Dumbbell: two values per item joined by a rule — before/after, plan/actual, min/max. rows: [{ label, a, b }]; a muted, b accent.
-// Drawn with rules and dots (not bars), so it is a diagram of two points, never a picture of a bar chart.
-function dumbbell(slide, x, y, w, rows, { min, max, labelW = 2.2, rowH = 0.6, format = (v) => String(v), size = TYPE.caption } = {}) {
-  const values = rows.flatMap((r) => [r.a, r.b]);
-  const lo = min ?? Math.min(...values), hi = max ?? Math.max(...values);
-  const x0 = x + labelW + 1.0, span = w - labelW - 2.0, d = 0.18;
-  const at = (v) => x0 + ((v - lo) / ((hi - lo) || 1)) * span;
-  rows.forEach((r, i) => {
-    const cy = y + i * rowH + rowH / 2;
-    slide.addText(r.label, { ...box(x, cy - 0.15, labelW, 0.3), fontFace: T.sans, fontSize: size, color: T.ink, margin: 0, valign: 'middle' });
-    const xa = at(r.a), xb = at(r.b), lead = xb >= xa;
-    slide.addShape(pres.ShapeType.line, { x: Math.min(xa, xb), y: cy, w: Math.abs(xb - xa), h: 0, line: { color: T.line, width: 2 } });
-    slide.addShape(pres.ShapeType.ellipse, { x: xa - d / 2, y: cy - d / 2, w: d, h: d, fill: { color: T.muted }, line: { color: T.muted, width: 0 } });
-    slide.addShape(pres.ShapeType.ellipse, { x: xb - d / 2, y: cy - d / 2, w: d, h: d, fill: { color: T.accent }, line: { color: T.accent, width: 0 } });
-    slide.addText(format(r.a), { ...box(lead ? xa - 0.95 : xa + 0.15, cy - 0.15, 0.8, 0.3), fontFace: T.data, fontSize: DIAG.note, color: T.muted, align: lead ? 'right' : 'left', margin: 0, valign: 'middle' });
-    slide.addText(format(r.b), { ...box(lead ? xb + 0.15 : xb - 0.95, cy - 0.15, 0.8, 0.3), fontFace: T.data, fontSize: DIAG.note, color: T.ink, bold: true, align: lead ? 'left' : 'right', margin: 0, valign: 'middle' });
-  });
-  return y + rows.length * rowH;
-}
-// Small multiples: n identical charts on one row, one label above each, shared axis range.
-function smallMultiples(slide, x, y, w, h, panels, { type = 'col', max, gap = GUTTER, format = '#,##0' } = {}) {
-  const pw = (w - gap * (panels.length - 1)) / panels.length, th = lineH(DIAG.label, T.sans, 1.2), cy = y + th + GAP.within;
-  const top = max ?? Math.max(...panels.flatMap((p) => p.series.flatMap((s) => s.values))) * 1.15;
-  panels.forEach((p, i) => {
-    const px = x + i * (pw + gap);
-    text(slide, p.title, px, y, pw, 'label', { h: th });
-    chart(slide, px, cy, pw, h - (cy - y), { type, labels: p.labels, series: p.series, max: top, accent: p.accent ?? -1, format });
-  });
-}
-// Table with an optional verdict column: header in the accent, alternate rows paperAlt, the verdict bold on the tint (never color-only).
-function table(slide, x, y, w, header, rows, { colW, rowH = 0.55, verdict = -1, size = TYPE.caption } = {}) {
-  const head = (t) => ({ text: t, options: { bold: true, color: T.onAccent, fill: { color: T.accent }, fontFace: T.sans, fontSize: size } });
-  const cell = (t, i, j) => ({ text: t, options: { fontFace: T.sans, fontSize: size, color: j === 0 ? T.ink : T.body, bold: j === 0 || j === verdict,
-    fill: { color: j === verdict ? T.tint : i % 2 ? T.paperAlt : T.paper } } });
-  slide.addTable([header.map(head), ...rows.map((r, i) => r.map((t, j) => cell(t, i, j)))],
-    { x, y, w, colW: colW || header.map(() => w / header.length), rowH, border: { type: 'solid', color: T.line, pt: 0.75 }, margin: [0.06, 0.12, 0.06, 0.12], valign: 'middle' });
-  return y + rowH * (rows.length + 1);
-}
-```

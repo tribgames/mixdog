@@ -37,11 +37,12 @@
  *   - DeepSeek / OpenCode Go: automatic KV/prefix cache; observe provider
  *     cached token fields when returned
  *   - Groq: auto 50% cache (gpt-oss-120b) — no knob
- *   - Copilot / Ollama / LMStudio: no API-level cache
+ *   - Copilot / Local Provider: no API-level cache
  */
 
 import { createHash } from 'crypto';
 import { getHiddenAgent } from '../internal-agents.mjs';
+import { nonNegativeInt, positiveInt } from '../../../shared/numbers.mjs';
 
 /**
  * One-shot, tool-free maintenance hidden roles (cycle1/cycle2/cycle3-agent):
@@ -228,16 +229,6 @@ function stableStringify(value) {
 
 function shortHash(value, chars = 18) {
     return createHash('sha256').update(stableStringify(value)).digest('hex').slice(0, chars);
-}
-
-function positiveInt(value, fallback = 0) {
-    const n = Number(value);
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
-
-function nonNegativeInt(value, fallback = 0) {
-    const n = Number(value);
-    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : fallback;
 }
 
 function cleanString(value) {
@@ -486,56 +477,4 @@ export function buildProviderCacheOpts(provider, sessionId, agent, options = {})
     return {};
 }
 
-/**
- * Prefix content used to derive the cache hash for registry tracking.
- * Excludes the volatile user message — only the stable prefix (tools,
- * system) determines whether our cache is "still warm". The Pool B prefix
- * is workspace-wide, so a single hash represents every Pool B caller.
- *
- * `systemPrompt` is an array of system-role message contents in their send
- * order (BP1 / BP2 / ...), serialized deterministically as a JSON array.
- * Invariant: callers must pass an array.
- */
-function computePrefixContent(systemPrompt, tools) {
-    const systemMessages = Array.isArray(systemPrompt)
-        ? systemPrompt.map(s => s == null ? '' : String(s))
-        : [systemPrompt == null ? '' : String(systemPrompt)];
-    return {
-        systemPrompt: JSON.stringify(systemMessages),
-        tools: (tools || []).map(t => ({
-            name: t.name,
-            description: t.description,
-            inputSchema: t.inputSchema,
-        })),
-    };
-}
-
-/**
- * Longest-lived layer TTL (seconds) for registry expiry tracking.
- */
-function ttlSecondsForCache(agent) {
-    const ttls = resolveCacheStrategy(agent);
-    if (
-        ttls.tools === 'none'
-        && ttls.system === 'none'
-        && ttls.tier3 === 'none'
-        && ttls.messages === 'none'
-    ) {
-        return 0;
-    }
-    return Math.max(
-        ttlToSeconds(ttls.tools),
-        ttlToSeconds(ttls.system),
-        ttlToSeconds(ttls.tier3),
-        ttlToSeconds(ttls.messages),
-    );
-}
-
 // --- Helpers ---
-
-function ttlToSeconds(v) {
-    if (v === '24h') return 86400;
-    if (v === '1h') return 3600;
-    if (v === '5m') return 300;
-    return 0;
-}

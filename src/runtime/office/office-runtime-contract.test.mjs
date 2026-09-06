@@ -326,5 +326,6 @@ test('Office Use returns a typed cancellation result before starting work', asyn
     ok: false,
     code: 'cancelled',
     message: 'Office Use operation was cancelled',
+    detail: 'Office Use operation was cancelled',
   });
 });

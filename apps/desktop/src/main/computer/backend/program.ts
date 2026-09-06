@@ -9,11 +9,12 @@ import { PS_SESSION } from './ps-session';
 import { PS_OBSERVATION } from './ps-observation';
 import { PS_INPUT } from './ps-input';
 import { PS_RUNTIME } from './ps-runtime';
+import { PS_AUTHORIZATION } from './ps-authorization';
 
 export { RESPONSE_MARKER } from '../shared/common';
 
 export const ABORT_CLEANUP_PROGRAM = String.raw`
-$ErrorActionPreference = 'SilentlyContinue'
+$ErrorActionPreference = 'Stop'
 Add-Type @"
 using System;
 using System.Globalization;
@@ -83,6 +84,7 @@ public static class MixdogAbortCleanup {
 export function powershellHostProgram(): string {
   return [
     PS_SESSION,
+    PS_AUTHORIZATION,
     PS_OBSERVATION,
     PS_INPUT,
     PS_RUNTIME,

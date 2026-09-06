@@ -291,6 +291,27 @@ test('format-specific Office review catches orphan headings, chart totals, and s
   assert.ok(!powerpoint.some((entry) => entry.path === '/slide[1]/shape[3]'));
 });
 
+test('Word review flags typed bullets and newlines inside paragraphs as machine tells', () => {
+  const issues = reviewOfficeStructure({
+    format: 'docx',
+    document: {
+      paragraphs: [
+        { path: '/body/p[1]', index: 1, text: '• 타이핑한 글머리표', style: 'Normal', start: 1 },
+        { path: '/body/p[2]', index: 2, text: '첫 줄\n둘째 줄', style: 'Normal', start: 20 },
+        { path: '/body/p[3]', index: 3, text: '정상 문단 - 대시는 문장 안에서 허용', style: 'Normal', start: 40 },
+      ],
+      tables: [],
+      blockOrder: [
+        { type: 'paragraph', index: 1, path: '/body/p[1]', start: 1 },
+        { type: 'paragraph', index: 2, path: '/body/p[2]', start: 20 },
+        { type: 'paragraph', index: 3, path: '/body/p[3]', start: 40 },
+      ],
+    },
+  });
+  assert.deepEqual(issues.filter((entry) => entry.code === 'literal_bullet').map((entry) => entry.path), ['/body/p[1]']);
+  assert.deepEqual(issues.filter((entry) => entry.code === 'newline_in_text').map((entry) => entry.path), ['/body/p[2]']);
+});
+
 test('PowerPoint review detects text that disappears against a containing surface', () => {
   const issues = reviewOfficeStructure({
     format: 'pptx',

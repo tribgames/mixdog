@@ -13,6 +13,7 @@ import type {
   DesktopModelSelection,
 } from '../shared/contract';
 import { t } from './i18n';
+import { ErrorNotice } from './ErrorNotice';
 import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
 import { preferredModelEffort, routeOption } from './model-route-utils';
@@ -153,7 +154,9 @@ function WorkflowEditorDialog({ pack, deletable, busy, error = '', onCancel, onS
     <section className="schedules-dialog workflows-dialog" role="dialog" aria-modal="true" aria-labelledby="workflows-dialog-title">
       <header>
         <h2 id="workflows-dialog-title">{editing ? t('Edit workflow') : t('Create workflow')}</h2>
-        <button type="button" aria-label={t("Close workflow editor")} onClick={onCancel}><X size={16} aria-hidden="true" /></button>
+        <div className="schedules-dialog-header-actions">
+          <button type="button" aria-label={t("Close workflow editor")} onClick={onCancel}><X size={16} aria-hidden="true" /></button>
+        </div>
       </header>
       <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
@@ -200,7 +203,7 @@ function WorkflowEditorDialog({ pack, deletable, busy, error = '', onCancel, onS
             required spellCheck={false} disabled={busy} aria-label="WORKFLOW.md body" />
         </label>
         <footer>
-          {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
+          {(formError || error) && <ErrorNotice error={formError || error} />}
           {deletable && <button type="button"
             className={`danger${confirmDelete ? ' confirming' : ''}`} disabled={busy}
             onClick={() => {
@@ -293,7 +296,7 @@ function AgentEditorDialog({ agent, deletable, models, busy, error = '', onCance
             required spellCheck={false} disabled={busy} aria-label="AGENT.md body" />
         </label>
         <footer>
-          {(formError || error) && <p className="schedules-form-error" role="alert">{formError || error}</p>}
+          {(formError || error) && <ErrorNotice error={formError || error} />}
           {deletable && <button type="button"
             className={`danger${confirmDelete ? ' confirming' : ''}`} disabled={busy}
             onClick={() => {
@@ -327,7 +330,7 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave,
     <section className="schedules-dialog workflows-dialog workflows-route-dialog" role="dialog" aria-modal="true"
       aria-labelledby="route-dialog-title">
       <header>
-        <h2 id="route-dialog-title">{t('Edit {{name}}', { name: target.label })}</h2>
+        <h2 id="route-dialog-title">{t('Edit {{name}}', { name: t(target.label) })}</h2>
         <div className="schedules-dialog-header-actions">
           {usageEditable && <CompactSwitch label={`${target.label} · ${t('Enabled')}`}
             checked={enabled} disabled={busy} onChange={(next) => {
@@ -343,16 +346,13 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave,
         event.preventDefault();
         onSave(usageEditable && !enabled ? { disabled: true } : route);
       }}>
-        {target.readOnlyDefinition && <>
-          <label className="schedules-field"><span>{t('Name')}</span>
-            <small>{t('Built-in name. This cannot be changed.')}</small>
-            <input value={t(target.label)} readOnly disabled tabIndex={-1} />
-          </label>
-          <label className="schedules-field" title={t(target.description)}><span>{t('When to use')}</span>
-            <small>{t('When Mixdog uses this built-in agent. This cannot be changed.')}</small>
-            <input value={t(target.description)} readOnly disabled tabIndex={-1} />
-          </label>
-        </>}
+        {/* A built-in definition is read, not edited: its name is the title and
+            its usage one sentence of prose — no disabled inputs to scan past
+            (user: 팝업 레이아웃 정리). */}
+        {target.readOnlyDefinition && <div className="schedules-field">
+          <span>{t('When to use')}</span>
+          <p className="workflows-route-usage">{t(target.description)}</p>
+        </div>}
         {(!usageEditable || enabled) && <div className="schedules-field">
           <span>{t('Model')}</span>
           <small>{t('Model used when this built-in agent runs.')}</small>
@@ -362,7 +362,7 @@ function RouteEditorDialog({ target, models, busy, error = '', onCancel, onSave,
           </div>
         </div>}
         <footer>
-          {error && <p className="schedules-form-error" role="alert">{error}</p>}
+          {error && <ErrorNotice error={error} />}
           <button type="button" className="secondary" disabled={busy} onClick={onCancel}>{t('Cancel')}</button>
           <button type="submit" disabled={busy}>{t('Save')}</button>
         </footer>
@@ -442,7 +442,7 @@ export function WorkflowsPane({
       return result?.value ?? true;
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason);
-      if (errorMode === 'toast') showDesktopToast(message, 'error');
+      if (errorMode === 'toast') showDesktopToast(message, 'error', { scope: `workflow:${capability}` });
       else setError(message);
       return undefined;
     } finally {
@@ -461,7 +461,7 @@ export function WorkflowsPane({
       setEditor({ pack: record(result?.value), deletable });
     } catch (reason) {
       if (detailRequestRef.current !== requestId) return;
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', { scope: `workflow:open:${id}` });
     } finally {
       if (detailRequestRef.current === requestId) setLoadingEditor(null);
     }
@@ -528,7 +528,7 @@ export function WorkflowsPane({
       setAgentEditor({ agent: record(result?.value), deletable });
     } catch (reason) {
       if (detailRequestRef.current !== requestId) return;
-      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error');
+      showDesktopToast(reason instanceof Error ? reason.message : String(reason), 'error', { scope: `agent:open:${id}` });
     } finally {
       if (detailRequestRef.current === requestId) setLoadingEditor(null);
     }

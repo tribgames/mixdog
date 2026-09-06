@@ -13,6 +13,7 @@ import {
   hasExtensionScopes,
   mcpServerNameOfTool,
 } from '../runtime/shared/extension-scopes.mjs';
+import { clean } from '../runtime/shared/clean.mjs';
 
 export {
   EXTENSION_SCOPE_KINDS,
@@ -26,10 +27,6 @@ export {
   mcpServerNameOfTool,
   withExtensionScope,
 } from '../runtime/shared/extension-scopes.mjs';
-
-function clean(value) {
-  return String(value ?? '').trim();
-}
 
 /** Plugin id that installed MCP server `serverName`, or ''. Plugin servers are
  *  named `plugin-<name>` or `plugin-<name>--<suffix>` (plugin-mcp.mjs). */

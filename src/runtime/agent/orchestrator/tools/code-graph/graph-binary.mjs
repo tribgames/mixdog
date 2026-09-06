@@ -8,9 +8,8 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { getPluginData } from '../../config.mjs';
 import { ensureGraphBinary, findCachedGraphBinary } from '../graph-binary-fetcher.mjs';
-import { acquire as acquireChildSpawnSlot } from '../../../../shared/child-spawn-gate.mjs';
 import { packageNativeToolPath } from '../../../../shared/native-tool-paths.mjs';
-import { CODE_GRAPH_BINARY_TIMEOUT_MS, CODE_GRAPH_MAX_FILES } from './constants.mjs';
+import { CODE_GRAPH_BINARY_TIMEOUT_MS } from './constants.mjs';
 
 // ── Native graph binary (mixdog-graph) — single source of truth for
 // per-file parsing. There is NO JS parsing fallback: if the binary is

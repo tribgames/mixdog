@@ -206,7 +206,7 @@ export function resolveOfficeCompositionContext(format, input = {}, {
   };
 }
 
-export function officeContentTopology(format, operation = {}, design = {}) {
+function officeContentTopology(format, operation = {}, design = {}) {
   const sections = Array.isArray(operation.sections) ? operation.sections : [];
   const tableRows = Math.max(
     rowsOf(operation.table).length,

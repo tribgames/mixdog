@@ -5,6 +5,8 @@ import { pathToFileURL } from 'node:url';
 import JSZip from 'jszip';
 import { readFile, writeFile, mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import { zipText } from './portable-opc.mjs';
+import { iterateSheetCells, workbookSheets } from './portable-cells.mjs';
+import { xmlDecode } from './portable-xml.mjs';
 
 const SOFFICE_PROBE_TIMEOUT_MS = 20_000;
 const SOFFICE_RENDER_TIMEOUT_MS = 120_000;
@@ -63,6 +65,36 @@ async function libreOfficeProgram() {
   return '';
 }
 
+
+const MAX_ERROR_LOCATIONS = 100;
+
+// Error cells after a recalculation, tallied by error type with their
+// locations, so the caller can name what to fix instead of counting.
+export async function workbookFormulaErrors(zip) {
+  const byType = {};
+  const unparsed = [];
+  let total = 0;
+  for (const sheet of await workbookSheets(zip)) {
+    const xml = await zipText(zip, sheet.path);
+    for (const cell of iterateSheetCells(xml)) {
+      const formula = /<f(?:\s[^>]*)?>([\s\S]*?)<\/f>/.exec(cell.body)?.[1] || '';
+      // LibreOffice writes every formula it parsed back in upper case; one it
+      // could not parse keeps a lower-case function name beside its #NAME?.
+      if (formula && /(?:^|[^A-Za-z0-9_.])[a-z][a-z0-9.]*\s*\(/.test(formula.replace(/"(?:[^"]|"")*"/g, '""'))) {
+        if (unparsed.length < MAX_ERROR_LOCATIONS) unparsed.push(`${sheet.name}!${cell.ref}`);
+      }
+      if (!/\bt="e"/.test(cell.attributes)) continue;
+      const value = xmlDecode(/<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/.exec(cell.body)?.[1] || '').trim();
+      if (!value) continue;
+      total += 1;
+      const entry = byType[value] || (byType[value] = { count: 0, cells: [], truncated: 0 });
+      entry.count += 1;
+      if (entry.cells.length < MAX_ERROR_LOCATIONS) entry.cells.push(`${sheet.name}!${cell.ref}`);
+      else entry.truncated += 1;
+    }
+  }
+  return { total, byType, unparsed };
+}
 
 export async function recalculateLibreOfficeWorkbook(path, {
   force = false,
@@ -182,14 +214,21 @@ export async function recalculateLibreOfficeWorkbook(path, {
         reason: 'LibreOffice produced no recalculated workbook.',
       };
     }
-    await writeFile(path, await readFile(generated));
+    const recalculated = await readFile(generated);
+    await writeFile(path, recalculated);
+    const errors = await workbookFormulaErrors(await JSZip.loadAsync(recalculated));
     return {
       needed: true,
       available: true,
       recalculated: true,
       backend: 'libreoffice',
+      // A clean status proves the formulas evaluate, not that they are right.
+      status: errors.total ? 'errors_found' : 'success',
       formulaCount,
       missingCachedValues,
+      totalErrors: errors.total,
+      errorSummary: errors.byType,
+      ...(errors.unparsed.length ? { unparsedFormulas: errors.unparsed } : {}),
       outputBytes: details.size,
     };
   } finally {

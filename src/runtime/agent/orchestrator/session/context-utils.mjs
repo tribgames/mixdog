@@ -1,6 +1,7 @@
 import { isOffloadedToolResultText } from './tool-result-offload.mjs';
 import { createHash } from 'node:crypto';
 import { estimateTokens } from './token-estimate.mjs';
+import { createContextFingerprinter } from './context-fingerprint.mjs';
 import {
     isFinalizedProviderRequestTools,
     providerNativeToolPrefixCount,
@@ -12,7 +13,6 @@ export {
     DEFAULT_MAIN_COMPACTION_BUFFER_RATIO,
     MAX_COMPACTION_BUFFER_RATIO,
     DEFAULT_COMPACTION_KEEP_TOKENS,
-    positiveTokenInt,
     normalizeCompactionBufferRatio,
     resolveBufferRatioCandidate,
     resolveCompactBufferRatio,
@@ -60,7 +60,7 @@ export function providerTokenCalibration(provider) {
 // the conservative constant also used by the micro-compaction path. Known
 // dimensions may only RAISE the allowance via Anthropic's real vision
 // formula (w*h/750), capped at the 2000x2000 resize ceiling (5333 tokens).
-export const IMAGE_VISUAL_TOKEN_ALLOWANCE = 2_000;
+const IMAGE_VISUAL_TOKEN_ALLOWANCE = 2_000;
 const IMAGE_MAX_TOKEN_ALLOWANCE = 5_333;
 
 export { estimateTokens };
@@ -223,64 +223,15 @@ export function estimateMessagesTokens(messages) {
 const contextMessageMemo = new WeakMap();
 const contextTranscriptMemo = new WeakMap();
 
-function contextValueFingerprint(value) {
-    return {
-        value,
-        snapshot: typeof value === 'string'
-            ? value
-            : `${nativeBlocksEstimateText(value)}\0${JSON.stringify(contentImageDescriptors(value))}`,
-    };
-}
-
-function contextMessageFingerprint(message) {
-    if (!message || typeof message !== 'object') {
-        return {
-            role: undefined,
-            content: contextValueFingerprint(''),
-            toolCalls: contextValueFingerprint(null),
-            thinkingBlocks: contextValueFingerprint(null),
-            assistantBlocks: contextValueFingerprint(null),
-            reasoningItems: contextValueFingerprint(null),
-            providerMetadata: contextValueFingerprint(null),
-            providerReplay: contextValueFingerprint(null),
-            toolCallId: null,
-        };
-    }
-    return {
-        role: message.role,
-        content: contextValueFingerprint(message.content),
-        toolCalls: contextValueFingerprint(message.toolCalls),
-        thinkingBlocks: contextValueFingerprint(message.thinkingBlocks),
-        assistantBlocks: contextValueFingerprint(message.assistantBlocks),
-        reasoningItems: contextValueFingerprint(message.reasoningItems),
-        providerMetadata: contextValueFingerprint(message.providerMetadata),
-        providerReplay: contextValueFingerprint(message.providerReplay),
-        toolCallId: message?.toolCallId || null,
-    };
-}
-
-function sameContextValueFingerprint(a, b) {
-    return !!a && !!b && a.value === b.value && a.snapshot === b.snapshot;
-}
-
-function sameContextMessageFingerprint(a, b) {
-    return !!a && a.role === b.role
-        && sameContextValueFingerprint(a.content, b.content)
-        && sameContextValueFingerprint(a.toolCalls, b.toolCalls)
-        && sameContextValueFingerprint(a.thinkingBlocks, b.thinkingBlocks)
-        && sameContextValueFingerprint(a.assistantBlocks, b.assistantBlocks)
-        && sameContextValueFingerprint(a.reasoningItems, b.reasoningItems)
-        && sameContextValueFingerprint(a.providerMetadata, b.providerMetadata)
-        && sameContextValueFingerprint(a.providerReplay, b.providerReplay)
-        && a.toolCallId === b.toolCallId;
-}
+const { contextMessageFingerprint, sameContextMessageFingerprint } = createContextFingerprinter({
+    nativeBlocksEstimateText,
+    contentImageDescriptors,
+});
 
 function contextMessageContribution(message) {
-    const fingerprint = contextMessageFingerprint(message);
-    if (message && typeof message === 'object') {
-        const cached = contextMessageMemo.get(message);
-        if (cached && sameContextMessageFingerprint(cached.fingerprint, fingerprint)) return cached.contribution;
-    }
+    const cached = message && typeof message === 'object' ? contextMessageMemo.get(message) : null;
+    const fingerprint = contextMessageFingerprint(message, cached?.fingerprint);
+    if (cached && sameContextMessageFingerprint(cached.fingerprint, fingerprint)) return cached.contribution;
     const role = ['system', 'user', 'assistant', 'tool'].includes(fingerprint.role) ? fingerprint.role : 'other';
     const text = messageEstimateText(message);
     // Same meter as estimateMessageTokens: replay-aware text tokens plus the

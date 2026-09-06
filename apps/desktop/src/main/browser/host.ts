@@ -18,6 +18,8 @@
  * work invisibly while staying logged in.
  */
 import type { WebContents } from 'electron';
+import { join } from 'node:path';
+import { validateBrowserToolArgs } from '../../../../../src/runtime/browser-bridge/action-schema.mjs';
 import { app, BrowserWindow } from 'electron';
 
 import {
@@ -27,6 +29,8 @@ import {
   type DesktopRemoteBrowserFrame,
 } from '../../shared/contract';
 import { BrowserActionBudget, resolveBrowserActionsPerTurn } from './action-budget';
+import { createBrowserActionApproval, type BrowserApprovalRequest } from './action-approval';
+import { requestBrowserApproval } from './approval-dialog';
 import { browserActionHandler, type BrowserActionServices } from './actions';
 import { bridgeDiscoveryDirectory } from '../bridge/discovery-file';
 import { BrowserBridgeServer } from './bridge-server';
@@ -59,6 +63,7 @@ import {
 } from './credential-autofill';
 import { DIALOG_BRIDGE_UNINSTALL_SCRIPT } from './dialog-bridge';
 import { createBrowserDialogReport } from './dialog-report';
+import { createBrowserDocuments } from './documents';
 import { createBrowserDownloads } from './downloads';
 import { createBrowserEmulation } from './emulation';
 import { createBrowserGuestLifecycle } from './guest-lifecycle';
@@ -151,9 +156,15 @@ export function createBrowserHost(
   window: BrowserWindow,
   options: {
     onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
+    requestApproval?: (request: BrowserApprovalRequest, signal?: AbortSignal) => Promise<boolean>;
   } = {},
 ): BrowserHost {
   const state = new BrowserGuestStateStore();
+  const approvals = createBrowserActionApproval({
+    ask: options.requestApproval || ((request, signal) => requestBrowserApproval(window, request, signal)),
+    confirmActions: process.env.MIXDOG_BROWSER_CONFIRM_ACTIONS,
+    denyActions: process.env.MIXDOG_BROWSER_DENY_ACTIONS,
+  });
   const browserSessions = new BrowserSessionRegistry();
   const actionBudget = new BrowserActionBudget(
     resolveBrowserActionsPerTurn(process.env.MIXDOG_BROWSER_MAX_ACTIONS_PER_TURN),
@@ -195,9 +206,14 @@ export function createBrowserHost(
     matchInterceptRule: intercept.matchInterceptRule,
   });
   const diagnosticsFor = (guest: WebContents) => state.for(guest);
+  const documents = createBrowserDocuments({
+    cdp,
+    sessions: (guest) => state.for(guest).cdpSessions,
+  });
   const settle = createBrowserSettle({
     diagnostics: diagnosticsFor,
     evaluate: cdp.evaluate,
+    pageText: documents.pageText,
     quietMs: ACTION_SETTLE_QUIET_MS,
     domTimeoutMs: ACTION_SETTLE_DOM_TIMEOUT_MS,
     loadTimeoutMs: ACTION_SETTLE_LOAD_TIMEOUT_MS,
@@ -227,6 +243,8 @@ export function createBrowserHost(
     diagnostics: diagnosticsFor,
     snapshotTextLimit,
     nextSnapshotId: (guest) => state.nextSnapshotId(guest),
+    documentGeneration: (guest) => state.for(guest).documentGeneration,
+    revision: documents.revision,
     accessibilityRefs: state.slot('accessibilityRefs'),
     refSets: state.slot('refSet'),
     visualGrounding: state.slot('visualGrounding'),
@@ -241,6 +259,8 @@ export function createBrowserHost(
     diagnostics: diagnosticsFor,
     accessibilityRefs: state.slot('accessibilityRefs'),
     visualGrounding: state.slot('visualGrounding'),
+    revision: documents.revision,
+    frames: (guest) => state.for(guest).cdpSessions,
   });
   const reply = createBrowserReply({
     state,
@@ -254,6 +274,7 @@ export function createBrowserHost(
     ),
   });
   const refActions = createBrowserRefActions({
+    rememberSecret: (guest, value) => { state.rememberSecret(guest, value); },
     accessibilityRefs: (guest) => state.peek(guest)?.accessibilityRefs,
     callAccessibilityRef: snapshots.callAccessibilityRef,
     evaluate: cdp.evaluate,
@@ -288,6 +309,8 @@ export function createBrowserHost(
     tracesByGuest: state.slot('performanceTrace'),
     settleAfterAction: settle.settleAfterAction,
     pause,
+    traceDirectory: () => join(app.getPath('userData'), 'browser-traces'),
+    redactText: (guest, value) => state.redactText(guest, value),
   });
   const initScripts = createBrowserInitScripts({ cdp });
   const emulation = createBrowserEmulation({
@@ -352,6 +375,7 @@ export function createBrowserHost(
     noteRemoteViewer,
     captureScreenshot: screenshots.capture,
     assertResolvedUrlAllowed: urls.assertResolvedUrlAllowed,
+    revision: documents.revision,
   });
   const tabs = createBrowserTabs({
     visibleGuests: (sessionId) => browserSessions.visibleGuests(sessionId),
@@ -365,6 +389,7 @@ export function createBrowserHost(
   });
 
   const services: BrowserActionServices = {
+    documents,
     state,
     cdp,
     reply,
@@ -412,6 +437,9 @@ export function createBrowserHost(
     const background = command.background === true;
     const tab = String(command.tab || '').trim();
     // Tab-less bookkeeping actions never open or create a page.
+    if (['list_tabs', 'downloads', 'close_tab'].includes(action)) {
+      await approvals.approve(command, () => ({ url: '', identity: ownerSessionId }), signal);
+    }
     if (action === 'list_tabs') return tabs.listTabs(ownerSessionId);
     if (action === 'downloads') return downloads.listDownloads(ownerSessionId, command, signal);
     if (action === 'close_tab') return tabs.closeBackgroundTab(ownerSessionId, tab);
@@ -423,6 +451,11 @@ export function createBrowserHost(
     const guest = target?.guest ?? await lifecycle.ensureGuest(ownerSessionId);
     await lifecycle.recoverCrashedGuest(guest, signal);
     if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
+    // Explicit navigation and dialog handling can release a blocked execution.
+    // Other commands, including non-CDP storage mutations, wait for cleanup.
+    if (!['navigate', 'handle_dialog', 'status'].includes(action)) {
+      await cdp.waitForIdle(guest, signal);
+    }
     // A blocked page accepts no gesture: CDP would queue the input behind the
     // dialog and replay it after handle_dialog, which nobody asked for.
     if (!DIALOG_TOLERANT_ACTIONS.has(action)) {
@@ -444,7 +477,14 @@ export function createBrowserHost(
         settleAction: true,
         targetIsBackground,
       }));
-    return handler({
+    try {
+      if (!command.internalStep) {
+        await approvals.approve(command, () => ({
+          url: guest.getURL(),
+          identity: `${state.pageId(guest)}:${state.for(guest).documentGeneration}`,
+        }), signal);
+      }
+      const result = await handler({
       guest,
       command,
       action,
@@ -457,7 +497,11 @@ export function createBrowserHost(
       refRecovery,
       actionSnapshot,
       services,
-    });
+      });
+      return { ...result, text: state.redactText(guest, result.text) };
+    } catch (error) {
+      throw new Error(state.redactText(guest, (error as Error).message || String(error)));
+    }
   }
 
   const { executeSerialized } = createBrowserCommandQueue({
@@ -477,7 +521,13 @@ export function createBrowserHost(
   // the pane infrastructure above runs regardless of the toggle.
   const bridgeServer = new BrowserBridgeServer<BrowserCommand>({
     dataDirectory: bridgeDiscoveryDirectory,
-    execute: (command, signal) => executeSerialized(command, signal),
+    execute: (command, signal) => {
+      const { session_id, turn_id, internalStep, ...input } = command;
+      if (internalStep !== undefined) throw new Error('internalStep is not a bridge input');
+      const validated = validateBrowserToolArgs(input);
+      if (!validated.ok) throw new Error(validated.error);
+      return executeSerialized({ ...validated.input, action: validated.action, session_id, turn_id }, signal);
+    },
     redactError: redactBrowserText,
     onReady: () => {
       options.onDiagnostic?.('browser-bridge-ready', {
@@ -598,10 +648,18 @@ export function createBrowserHost(
       );
     },
     remoteBrowserFrame(sessionId: string, previousFrameId = ''): Promise<DesktopRemoteBrowserFrame> {
-      return remote.remoteBrowserFrame(browserSessionId(sessionId), previousFrameId);
+      return executeSerialized(
+        { action: 'remote_frame', session_id: browserSessionId(sessionId) },
+        undefined,
+        () => remote.remoteBrowserFrame(browserSessionId(sessionId), previousFrameId),
+      );
     },
     remoteBrowserControl(sessionId: string, control: DesktopRemoteBrowserControl): Promise<void> {
-      return remote.remoteBrowserControl(browserSessionId(sessionId), control);
+      return executeSerialized(
+        { action: 'remote_control', session_id: browserSessionId(sessionId) },
+        undefined,
+        () => remote.remoteBrowserControl(browserSessionId(sessionId), control),
+      );
     },
     async dispose(): Promise<void> {
       if (disposed) return;

@@ -42,9 +42,11 @@ export async function closeSession(session, {
   signal = null,
 } = {}) {
   if (session.transaction) throw new Error('Commit or roll back the active Office transaction before closing');
+  let cleanup = null;
   if (isMicrosoftOfficeSession(session)) {
     const closed = await closeMicrosoftOfficeSession(session.id, { save: shouldSave, signal });
     if (!closed.ok) throw new Error(closed.error || 'Microsoft Office session close failed');
+    cleanup = closed.cleanup || null;
   } else if (shouldSave) {
     await save(session);
   }
@@ -58,6 +60,7 @@ export async function closeSession(session, {
     closed: true,
     path: session.target,
     ownership: session.ownership,
+    ...(cleanup ? { cleanup } : {}),
   };
 }
 
@@ -94,24 +97,25 @@ export async function finalize(session, args, cwd, signal) {
       nextAction: recalculation.reason || 'Open the workbook in Microsoft Office background mode and finalize again.',
     };
   }
-  const reviewed = args.review === false ? null : await timedStep('review', async () => await qa(session, args, cwd));
+  const reviewed = args.review === false ? null : await timedStep('review', async () => await qa(session, args, cwd, { reuseRender: true }));
   const reviewImages = Array.isArray(reviewed?._images) ? reviewed._images : [];
   const review = reviewed ? { ...reviewed } : null;
   const visualCritique = session.format === 'pptx'
     ? reviewPptxVisualCritique({
         critique: args.design?.critique,
-        pageCount: Number(review?.preview?.pageCount || 0),
+        pageCount: Number(review?.preview?.pageCount || session.designState?.renderedPageCount || 0),
         requireChecks: session.authoredBrief?.present === true,
       })
     : null;
   if (review && visualCritique) review.visualCritique = visualCritique;
-  const reviewToken = `${session.id}:${session.designState?.renderedVersion ?? session.snapshotVersion}`;
+  const reviewToken = session.designState?.reviewToken || '';
   const visualReviewAcknowledged = pptxVisualReviewAcknowledged({
     reviewed: args.design?.reviewed === true,
     providedToken: args.design?.reviewToken,
     expectedToken: reviewToken,
     renderedVersion: session.designState?.renderedVersion,
     snapshotVersion: session.snapshotVersion,
+    coverageComplete: session.designState?.renderedCoverage?.complete === true,
     critiqueOk: visualCritique?.ok === true,
   });
   if (review) delete review._images;
@@ -133,6 +137,22 @@ export async function finalize(session, args, cwd, signal) {
       review,
       stepMetrics,
       nextAction: 'Fix the reported issues with one batch, then call finalize again.',
+      _images: reviewImages,
+    };
+  }
+  // Zero formula errors is a hard rule: a recalculation that found any holds
+  // the workbook even when the review was skipped.
+  if (Number(recalculation?.totalErrors || 0) > 0) {
+    return {
+      ok: false,
+      finalized: false,
+      session: session.id,
+      reason: 'formula_errors',
+      failOn,
+      recalculation,
+      review,
+      stepMetrics,
+      nextAction: 'Recalculation found formula errors; recalculation.errorSummary lists the cells by error type. Trace each to its inputs, fix the formula, then finalize again.',
       _images: reviewImages,
     };
   }
@@ -219,6 +239,7 @@ export async function finalize(session, args, cwd, signal) {
     saved: saved.saved === true,
     saveSkipped: saved.skipped === true,
     closed: closed.closed === true,
+    ...(closed.cleanup ? { cleanup: closed.cleanup } : {}),
     recalculation,
     review,
     validation,

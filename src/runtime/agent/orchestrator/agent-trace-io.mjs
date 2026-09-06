@@ -1,7 +1,6 @@
-import { readFileSync, existsSync, mkdirSync, appendFileSync, statSync, renameSync } from 'fs';
+import { existsSync, mkdirSync, appendFileSync, statSync, renameSync } from 'fs';
 import { appendFile } from 'fs/promises';
 import { dirname, join } from 'path';
-import os from 'os';
 import { getPluginData } from './config.mjs';
 import { readServicePort, markServiceUnreachable, isConnRefuseError } from '../../shared/service-discovery.mjs';
 import { isDiagnosticIOEnabled } from '../../../lib/mixdog-debug.cjs';

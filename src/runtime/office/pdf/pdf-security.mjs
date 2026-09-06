@@ -3,6 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { writeFile, rm, rename } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
+// qpdf on PATH, or wherever MIXDOG_QPDF_PATH points (the Windows installer
+// does not add itself to PATH).
+const QPDF = process.env.MIXDOG_QPDF_PATH || 'qpdf';
+
 function run(command, args) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -25,7 +29,7 @@ function run(command, args) {
 
 export async function qpdfAvailable() {
   try {
-    await run('qpdf', ['--version']);
+    await run(QPDF, ['--version']);
     return true;
   } catch {
     return false;
@@ -40,7 +44,7 @@ export async function securePdf({
   ownerPassword = '',
 }) {
   if (!await qpdfAvailable()) {
-    throw new Error('PDF encryption/decryption requires qpdf; it is not installed in this environment');
+    throw new Error('PDF encryption/decryption requires qpdf on PATH (or MIXDOG_QPDF_PATH) and it is not installed (Windows: winget install qpdf; macOS: brew install qpdf; Debian/Ubuntu: apt install qpdf); tell the user the file was left as is');
   }
   const samePath = input.toLowerCase() === output.toLowerCase();
   const target = samePath
@@ -53,7 +57,7 @@ export async function securePdf({
     : [`--password=${password}`, '--decrypt', input, target];
   await writeFile(responsePath, `${args.map(quote).join('\n')}\n`, { encoding: 'utf8', mode: 0o600 });
   try {
-    await run('qpdf', [`@${responsePath}`]);
+    await run(QPDF, [`@${responsePath}`]);
     if (samePath) await rename(target, output);
     return { ok: true, mode, input, output };
   } finally {

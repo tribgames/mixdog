@@ -1,4 +1,5 @@
 import { columnNumber } from './portable-cells.mjs';
+import { relativeFormulaSignature } from './xlsx-formula-audit.mjs';
 
 const ERROR_VALUE = /^(?:#REF!|#DIV\/0!|#VALUE!|#NAME\?|#N\/A|#NUM!|#NULL!)$/i;
 
@@ -80,19 +81,6 @@ function cellsForAssertion(document, assertion) {
   });
 }
 
-function normalizeFormula(formula, origin) {
-  const base = parsedCell(origin);
-  return String(formula || '')
-    .replace(/\s+/g, '')
-    .replace(/(\$?)([A-Z]{1,3})(\$?)([1-9]\d*)/gi, (_all, absoluteColumn, label, absoluteRow, row) => {
-      if (!base) return '#REF';
-      const column = columnNumber(label);
-      const rowNumber = Number(row);
-      return `${absoluteRow ? `R${rowNumber}` : `R[${rowNumber - base.row}]`}${absoluteColumn ? `C${column}` : `C[${column - base.column}]`}`;
-    })
-    .toUpperCase();
-}
-
 function issue(assertion, index, code, message, path = '/') {
   return {
     severity: 'error',
@@ -144,11 +132,11 @@ export function evaluateXlsxAssertions(document, assertions = []) {
       const formulas = cellsForAssertion(document, assertion).filter((cell) => cell.formula);
       const patterns = new Map();
       for (const cell of formulas) {
-        const pattern = normalizeFormula(cell.formula, cell.ref);
+        const pattern = relativeFormulaSignature(cell.formula, cell.ref);
         patterns.set(pattern, (patterns.get(pattern) || 0) + 1);
       }
       const expected = [...patterns.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || '';
-      const inconsistent = formulas.filter((cell) => normalizeFormula(cell.formula, cell.ref) !== expected);
+      const inconsistent = formulas.filter((cell) => relativeFormulaSignature(cell.formula, cell.ref) !== expected);
       passed = formulas.length > 0 && inconsistent.length === 0;
       if (!formulas.length) issues.push(issue(assertion, assertionIndex, 'assertion_formula_missing', 'Formula-consistency assertion found no formulas.', `/sheet[${assertion.sheet || sheet}]`));
       for (const cell of inconsistent.slice(0, 100)) issues.push(issue(assertion, assertionIndex, 'assertion_formula_inconsistent', 'Formula differs from the dominant pattern in the asserted region.', cell.path));

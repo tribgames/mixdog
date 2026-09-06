@@ -114,7 +114,7 @@ function providerKind(provider) {
   if (!p) return 'unknown';
   if (p === 'opencode-go') return 'quota-api';
   if (p.includes('oauth')) return 'oauth';
-  if (p === 'ollama' || p === 'lmstudio') return 'local';
+  if (p === 'mixdog-local') return 'local';
   return 'api';
 }
 

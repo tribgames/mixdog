@@ -136,6 +136,7 @@ async function loadProviderCtor(name, signal = null) {
     if (name === 'antigravity-oauth') return loadProviderExport('antigravity-oauth', './antigravity-oauth.mjs', 'AntigravityOAuthProvider', signal);
     if (name === 'cursor-api') return loadProviderExport('cursor-api', './cursor.mjs', 'CursorApiProvider', signal);
     if (name === 'openai') return loadProviderExport('openai', './openai-ws.mjs', 'OpenAIDirectProvider', signal);
+    if (name === 'mixdog-local') return loadProviderExport('mixdog-local', './mixdog-local.mjs', 'MixdogLocalProvider', signal);
     if (name === 'opencode-go') return loadProviderExport('opencode-go', './opencode-go.mjs', 'OpenCodeGoProvider', signal);
     if (Object.prototype.hasOwnProperty.call(OPENAI_COMPAT_PRESETS, name)) {
         return loadProviderExport('openai-compat', './openai-compat.mjs', 'OpenAICompatProvider', signal);
@@ -372,6 +373,20 @@ export function getAllProviders() {
     // stale entries across re-init (initProviders rebuilds the map in place).
     return new Map(providers);
 }
+
+export function disableProvider(name) {
+    const id = String(name || '').trim();
+    if (!id) return false;
+    _explicitlyDisabled.add(id);
+    signatures.delete(id);
+    const removed = providers.delete(id);
+    if (removed) {
+        _providerCatalogRevision += 1;
+        _lastAppliedSig = null;
+    }
+    return removed;
+}
+
 export function providerCatalogRevision() {
     return _providerCatalogRevision;
 }

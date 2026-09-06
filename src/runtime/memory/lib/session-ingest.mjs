@@ -32,7 +32,7 @@ export function firstTextContent(content) {
   return ''
 }
 
-export function allTextContent(content) {
+function allTextContent(content) {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return ''
   return content
@@ -112,7 +112,7 @@ const TOOL_ARG_MAX_CHARS = 400
 
 // Recursively redact sensitive values by key. Sensitive keys collapse to
 // [redacted] regardless of value shape so nested secrets never survive.
-export function redactToolArgValue(value, key = '', depth = 0) {
+function redactToolArgValue(value, key = '', depth = 0) {
   if (SENSITIVE_ARG_KEY_RE.test(String(key || ''))) return '[redacted]'
   if (value == null) return value
   if (typeof value === 'bigint') return String(value)
@@ -168,7 +168,7 @@ function redactRawArgString(text) {
 // Produce a readable, redacted, length-capped string for tool-call arguments.
 // Object/JSON args are walked key-by-key so nested secrets are caught; a raw
 // non-JSON string has its key:value secret pairs redacted before truncation.
-export function redactToolArgString(rawArgs) {
+function redactToolArgString(rawArgs) {
   if (rawArgs == null) return ''
   let parsed = rawArgs
   if (typeof rawArgs === 'string') {

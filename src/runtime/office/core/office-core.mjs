@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { resolveOfficeDesign } from '../design/design-system.mjs';
 import { persistOfficeDesignBinding, resolveOfficeDesignLibrary } from '../design/library/design-library.mjs';
+import { FACTS_SAMPLE_DISCLOSURE } from '../authoring/pptx-brief.mjs';
 
 export const FILE_KIND_TO_FORMAT = Object.freeze({
   docx: 'docx',
@@ -166,6 +167,12 @@ export function finalizeOfficeResult(value, {
     ...(value.metrics || {}),
     durationMs: Math.max(0, Number((performance.now() - startedAt).toFixed(2))),
   };
+  // A deck whose brief declared its figures illustrative carries that
+  // disclosure on every result the author reads, so the delivery says so.
+  if (session?.authoredBrief?.factsMode === 'sample' && ['author', 'qa', 'render', 'finalize'].includes(action)) {
+    value.factsMode = 'sample';
+    value.disclosure = FACTS_SAMPLE_DISCLOSURE;
+  }
   const operation = action === 'create' || (action === 'author' && value.output)
     ? 'create'
     : action === 'render'
@@ -220,17 +227,31 @@ export function bounded(value, maxChars) {
 }
 
 
+// The binary formats of Office 97-2003 are not packages: nothing here can
+// read them, and the fix is a conversion the user can do in one step.
+const LEGACY_BINARY_FORMATS = Object.freeze({
+  doc: 'docx', dot: 'dotx', xls: 'xlsx', xlt: 'xltx', ppt: 'pptx', pot: 'potx', pps: 'pptx',
+});
+
+function unsupportedFormatError(kind) {
+  const modern = LEGACY_BINARY_FORMATS[kind];
+  return new Error(modern
+    ? `Unsupported Office Use format: .${kind} is a legacy binary file, not an Office package. Open it in Microsoft Office (or LibreOffice) and save it as .${modern} first, then work on that file.`
+    : `Unsupported Office Use format: .${kind || '(none)'}`);
+}
+
+
 export function normalizeOfficeFormat(value) {
   const kind = String(value || '').toLowerCase();
   const format = FILE_KIND_TO_FORMAT[kind];
-  if (!format) throw new Error(`Unsupported Office Use format: .${kind || '(none)'}`);
+  if (!format) throw unsupportedFormatError(kind);
   return format;
 }
 
 
 export function documentFileKind(path) {
   const kind = extname(path).slice(1).toLowerCase();
-  if (!FILE_KIND_TO_FORMAT[kind]) throw new Error(`Unsupported Office Use format: .${kind || '(none)'}`);
+  if (!FILE_KIND_TO_FORMAT[kind]) throw unsupportedFormatError(kind);
   return kind;
 }
 

@@ -4,12 +4,8 @@
 // the same skill roots from here, so what a panel counts is what a session
 // loads.
 
-import { readFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-
-function readJsonSafe(path) {
-  try { return JSON.parse(readFileSync(path, 'utf8')); } catch { return null; }
-}
+import { readJsonSafe } from './json-file.mjs';
 
 /** `.codex-plugin/plugin.json` wins over a root-level `plugin.json`; a plugin
  *  without either is an empty manifest, never an error. */

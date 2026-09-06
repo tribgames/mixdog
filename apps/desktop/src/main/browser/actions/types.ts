@@ -9,6 +9,7 @@ import type { WebContents } from 'electron';
 import type { BrowserGuestCdp } from '../cdp';
 import type { BrowserCommand, BrowserCommandResult } from '../command';
 import type { createBrowserDialogReport } from '../dialog-report';
+import type { createBrowserDocuments } from '../documents';
 import type { TrackedBrowserDownload } from '../downloads';
 import type { createBrowserEmulation } from '../emulation';
 import type { BrowserGuestStateStore } from '../guest-state';
@@ -28,6 +29,7 @@ import type { createBrowserSnapshotCapture } from '../snapshot-capture';
 import type { createBrowserUrlAdmission } from '../url-admission';
 
 export interface BrowserActionServices {
+  documents: ReturnType<typeof createBrowserDocuments>;
   state: BrowserGuestStateStore;
   cdp: BrowserGuestCdp;
   reply: ReturnType<typeof createBrowserReply>;

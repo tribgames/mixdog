@@ -1,5 +1,4 @@
-import { isAbsolute } from 'path';
-import { canonicalizeGlobSlashes, normalizeOutputPath } from '../path-utils.mjs';
+import { canonicalizeGlobSlashes } from '../path-utils.mjs';
 import {
     relativePathPrefix,
 } from '../search-path-diagnostics.mjs';

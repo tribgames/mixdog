@@ -7,26 +7,12 @@
  * the process-exit drain fence. openai-oauth-ws.mjs imports acquire/release/
  * _sendFrame and re-exports the drain hooks for legacy import paths.
  */
-import WebSocket from 'ws';
-import { errText } from '../../../shared/err-text.mjs';
 import { createHash, randomBytes } from 'crypto';
-import { performance } from 'node:perf_hooks';
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { codexOriginator, codexUserAgent, codexVersionHeader } from './codex-client-meta.mjs';
-import {
-    PROVIDER_WS_ACQUIRE_TIMEOUT_MS,
-    PROVIDER_WS_HANDSHAKE_TIMEOUT_MS,
-    PROVIDER_WS_PING_ENABLED,
-    PROVIDER_WS_PING_INTERVAL_MS,
-    PROVIDER_WS_PONG_TIMEOUT_MS,
-    PROVIDER_WS_LIVENESS_STALE_MS,
-    resolveTimeoutMs,
-} from '../stall-policy.mjs';
 
 // Human-readable transport label for handshake/acquire error messages. Shared
 // with openai-oauth-ws.mjs (stream-side errors use the same labels).
-import { _wsPool, _sendFrame } from './openai-ws-pool.mjs';
 
 const _cfCookieJar = new Map(); // accountKey -> { name -> value }
 const _CF_COOKIE_ALLOWLIST = new Set(['__cf_bm', '_cfuvid']);
@@ -39,27 +25,6 @@ export function _envOn(name) {
 // Dashed handshake ids are derived deterministically from the cache key, so a
 // session keeps the same pair for its whole life and prefix-cache continuity
 // holds.
-
-export function _codexDashedId(value) {
-    const h = createHash('sha256').update(String(value)).digest();
-    const b = Buffer.from(h.subarray(0, 16));
-    b[6] = (b[6] & 0x0f) | 0x50; // version 5 nibble
-    b[8] = (b[8] & 0x3f) | 0x80; // RFC-4122 variant
-    const hex = b.toString('hex');
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-}
-
-// Same derivation as _codexDashedId but stamps the version-7 nibble so the
-// dashed pair reads as a Codex-shaped UUIDv7, which is the shape the reference
-// client sends. Deterministic per id, so prefix-cache continuity holds.
-export function _codexDashedIdV7(value) {
-    const h = createHash('sha256').update(String(value)).digest();
-    const b = Buffer.from(h.subarray(0, 16));
-    b[6] = (b[6] & 0x0f) | 0x70; // version 7 nibble
-    b[8] = (b[8] & 0x3f) | 0x80; // RFC-4122 variant
-    const hex = b.toString('hex');
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-}
 
 // Beta features advertised on the WS handshake. MIXDOG_CODEX_BETA_FEATURES
 // replaces the list when an operator needs to pin exactly what a known-good

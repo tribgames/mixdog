@@ -7,6 +7,9 @@
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
 import { formatToolSurface } from '../../runtime/shared/tool-surface.mjs';
+import { clean } from '../../runtime/shared/clean.mjs';
+import { projectNameFromPath } from '../session/labels.mjs';
+import { promptHistoryKey } from '../prompt-history-store.mjs';
 
 // WEB_SEARCH_DEFAULT marker — mirrors web-search defaults
 // WEB_SEARCH_DEFAULT_PROVIDER/MODEL. A web-search route of
@@ -32,14 +35,7 @@ export function terminalSize(stdout) {
   };
 }
 
-export function clean(value) {
-  return String(value ?? '').trim();
-}
-
-export function projectNameFromPath(value) {
-  const text = String(value || '').replace(/[\\/]+$/, '');
-  return text.split(/[\\/]/).pop() || text || '(current)';
-}
+export { clean, projectNameFromPath, promptHistoryKey };
 
 export function workflowDisplayName(workflow = {}) {
   return clean(workflow?.name || workflow?.id) || 'Default';
@@ -212,8 +208,4 @@ export function promptStatusColor(tone) {
   if (tone === 'warn' || tone === 'cancel') return theme.warning;
   if (tone === 'plain') return theme.subtle;
   return theme.inactive;
-}
-
-export function promptHistoryKey(value) {
-  return String(value || '').trim().replace(/\s+/g, ' ');
 }

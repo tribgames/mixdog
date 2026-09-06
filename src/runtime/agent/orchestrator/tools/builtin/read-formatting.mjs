@@ -83,12 +83,6 @@ export function appendReadContextAdvisory(out, { filePath: _filePath, lineCount:
     return out;
 }
 
-function formatPaginationHint(remaining, nextOffset) {
-    const n = Number(remaining);
-    const label = Number.isFinite(n) && n > 0 ? `${n} more entries` : 'more entries';
-    return `... [${label}; next offset: ${nextOffset}]`;
-}
-
 export function parseOffsetArg(value) {
     const n = Number(value);
     return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;

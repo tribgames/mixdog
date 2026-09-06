@@ -87,17 +87,10 @@ import {
     grepMissingPatternMessage,
 } from './lib/grep-output.mjs';
 import {
-    expandGrepAnchorContextOutput,
-    GREP_CONTEXT_CHAR_BUDGET_DEFAULT,
+  expandGrepAnchorContextOutput,
+  _grepContextCharBudget,
+  _grepDefaultHeadLimit,
 } from './lib/grep-context-expander.mjs';
-
-// Default grep result cap when head_limit is unspecified. 250 is the common
-// harness default; the tool-result offload layer still bounds oversized
-// results. MIXDOG_GREP_DEFAULT_HEAD_LIMIT overrides for A/B runs.
-function _grepDefaultHeadLimit() {
-    const parsed = parseInt(process.env.MIXDOG_GREP_DEFAULT_HEAD_LIMIT ?? '', 10);
-    return parsed > 0 ? parsed : 250;
-}
 
 // One explicit FILE is scanned directly by the native server — there is no tree
 // to walk — so a long deadline on a file scope can only ever be spent QUEUED
@@ -107,15 +100,6 @@ function _grepDefaultHeadLimit() {
 // same file answered in 7ms. Bound the file case to a fraction of the turn and
 // let the JS rescue below answer it instead of spending the turn waiting.
 const SINGLE_FILE_SEARCH_DEADLINE_MS = 2_500;
-
-function _grepContextCharBudget(options = {}) {
-    const explicit = Number(options?._grepContextCharBudget);
-    if (Number.isFinite(explicit) && explicit > 0) return Math.floor(explicit);
-    const configured = Number(process.env.MIXDOG_GREP_CONTEXT_CHAR_BUDGET);
-    return Number.isFinite(configured) && configured > 0
-        ? Math.floor(configured)
-        : GREP_CONTEXT_CHAR_BUDGET_DEFAULT;
-}
 
 export async function executeGrepTool(args, workDir, executeChildBuiltinTool, readStateScope = null, options = {}) {
     args = normalizeGrepArgs(args);

@@ -1,8 +1,46 @@
-import { basename, join } from 'node:path';
+import { basename, join, posix } from 'node:path';
 import { booleanXmlAttribute, cellRecords, formulaReferences, sharedStrings, workbookCalculation, workbookSheets } from './portable-cells.mjs';
 import { loadPackage, partRelationshipPath, relationshipTarget, zipText } from './portable-opc.mjs';
-import { containerInner, paragraphTexts, textNodes, topLevelElements, xmlDecode } from './portable-xml.mjs';
+import { blockText, containerInner, paragraphTexts, textNodes, topLevelElements, xmlDecode } from './portable-xml.mjs';
+import { presentationSlides } from './portable-pptx-package.mjs';
+import { resolveCellStyles } from './portable-sheet-styles.mjs';
+import { mergedRanges } from './portable-sheet-xml.mjs';
+import { shapeIdentity } from './pptx-relations.mjs';
+import { countDocxPropertyChanges, docxRevisionTree, flattenDocxRevisions } from './docx-revisions.mjs';
 
+const REVISION_TYPES = Object.freeze({
+  ins: 'insertion',
+  del: 'deletion',
+  moveFrom: 'moved_from',
+  moveTo: 'moved_to',
+});
+
+
+/** What a paragraph carries beyond its text: list membership (numId 0 means
+ *  "no numbering" in Word) and whether tracked changes touch it. */
+function paragraphMarkup(paragraphXml) {
+  const numbering = /<w:numPr\b[^>]*>([\s\S]*?)<\/w:numPr>/.exec(paragraphXml)?.[1] || '';
+  const numId = numbering ? Number(/<w:numId\b[^>]*\bw:val="(-?\d+)"/.exec(numbering)?.[1]) : Number.NaN;
+  const tracked = /<w:(?:ins|del|moveFrom|moveTo)\b/.test(paragraphXml);
+  // `text` is the accepted view (w:t only); the words a reviewer still sees
+  // struck through are listed beside it.
+  const deletedText = tracked ? blockText(paragraphXml, 'w:delText') : '';
+  return {
+    ...(Number.isFinite(numId) && numId > 0
+      ? { list: { numId, level: Number(/<w:ilvl\b[^>]*\bw:val="(\d+)"/.exec(numbering)?.[1]) || 0 } }
+      : {}),
+    ...(tracked ? { tracked: true } : {}),
+    ...(deletedText ? { deletedText } : {}),
+  };
+}
+
+/** Tracked changes touching a table cell, reported the way a paragraph's
+ *  are so a reviewer reads table edits alike. */
+function cellMarkup(cellXml) {
+  if (!/<w:(?:ins|del|moveFrom|moveTo)\b/.test(cellXml)) return {};
+  const deletedText = blockText(cellXml, 'w:delText');
+  return { tracked: true, ...(deletedText ? { deletedText } : {}) };
+}
 
 export function docxBodyModel(documentXml) {
   const body = containerInner(documentXml, 'w:body');
@@ -28,12 +66,13 @@ export function docxBodyModel(documentXml) {
         // Stating the scope lets a caller compare the two readings instead of
         // silently mistaking cell text for body text.
         inTable: false,
-        text: runs.map((run) => run.text).join(''),
+        text: blockText(block.xml, 'w:t'),
         // Word resolves a paragraph carrying no explicit style to Normal, and the
         // Office reader reports it that way. Answering with an empty string made
         // the same paragraph look unstyled to one backend and styled to the other.
         style: xmlDecode(/<w:pStyle\b[^>]*\bw:val="([^"]+)"/.exec(block.xml)?.[1] || 'Normal'),
         runs,
+        ...paragraphMarkup(block.xml),
       });
       block.logicalIndex = paragraphIndex;
     } else {
@@ -45,7 +84,8 @@ export function docxBodyModel(documentXml) {
         cells: topLevelElements(containerInner(row.xml, 'w:tr')?.inner || '', ['w:tc']).map((cell, cellIndex) => ({
           path: `/body/tbl[${tableIndex}]/row[${rowIndex + 1}]/cell[${cellIndex + 1}]`,
           index: cellIndex + 1,
-          text: paragraphTexts(cell.xml, 'w:t').join(''),
+          text: blockText(cell.xml, 'w:t'),
+          ...cellMarkup(cell.xml),
         })),
       }));
       tables.push({
@@ -90,10 +130,28 @@ export async function snapshotDocx(zip, options = {}) {
   const content = [];
   for (const part of parts) {
     const xml = await zipText(zip, part);
-    content.push({ part, text: paragraphTexts(xml, 'w:t').join('') });
+    content.push({ part, text: blockText(xml, 'w:t') });
   }
   const documentXml = await zipText(zip, 'word/document.xml');
   const model = docxBodyModel(documentXml);
+  // A paragraph's numId names a definition in numbering.xml; the level's
+  // number format tells a bullet from a numbered list.
+  const numbering = await zipText(zip, 'word/numbering.xml');
+  if (numbering && model.paragraphs.some((paragraph) => paragraph.list)) {
+    const abstractOf = new Map([...numbering.matchAll(/<w:num\b[^>]*\bw:numId="(\d+)"[^>]*>[\s\S]*?<w:abstractNumId\b[^>]*\bw:val="(\d+)"/g)]
+      .map((match) => [Number(match[1]), Number(match[2])]));
+    const formats = new Map();
+    for (const abstract of numbering.matchAll(/<w:abstractNum\b[^>]*\bw:abstractNumId="(\d+)"[^>]*>([\s\S]*?)<\/w:abstractNum>/g)) {
+      for (const level of abstract[2].matchAll(/<w:lvl\b[^>]*\bw:ilvl="(\d+)"[^>]*>([\s\S]*?)<\/w:lvl>/g)) {
+        formats.set(`${abstract[1]}:${level[1]}`, /<w:numFmt\b[^>]*\bw:val="([^"]+)"/.exec(level[2])?.[1] || '');
+      }
+    }
+    for (const paragraph of model.paragraphs) {
+      if (!paragraph.list) continue;
+      const format = formats.get(`${abstractOf.get(paragraph.list.numId)}:${paragraph.list.level}`);
+      if (format) paragraph.list.kind = format === 'bullet' ? 'bullet' : 'number';
+    }
+  }
   const paged = options.paged === true;
   const offset = paged ? Math.max(0, Number(options.offset) || 0) : 0;
   const limit = paged ? Math.max(1, Number(options.limit) || 200) : model.blocks.length;
@@ -125,7 +183,7 @@ export async function snapshotDocx(zip, options = {}) {
       const start = new RegExp(`<w:commentRangeStart\\b[^>]*\\bw:id="${escapedId}"[^>]*/?>`).exec(xml);
       const end = new RegExp(`<w:commentRangeEnd\\b[^>]*\\bw:id="${escapedId}"[^>]*/?>`).exec(xml);
       if (!start || !end || end.index < start.index) continue;
-      anchoredText = paragraphTexts(xml.slice(start.index + start[0].length, end.index), 'w:t').join('');
+      anchoredText = blockText(xml.slice(start.index + start[0].length, end.index), 'w:t');
       anchoredPart = part;
       break;
     }
@@ -136,27 +194,76 @@ export async function snapshotDocx(zip, options = {}) {
       author: xmlDecode(/\bw:author="([^"]*)"/.exec(attributes)?.[1] || ''),
       initials: xmlDecode(/\bw:initials="([^"]*)"/.exec(attributes)?.[1] || ''),
       date: xmlDecode(/\bw:date="([^"]*)"/.exec(attributes)?.[1] || ''),
-      text: paragraphTexts(match[2], 'w:t').join(''),
+      text: blockText(match[2], 'w:t'),
       anchoredText,
       part: anchoredPart,
     });
   }
   const revisions = [];
+  let propertyChangeCount = 0;
+  // The body block a document.xml offset falls in: a revision names the
+  // paragraph or table it sits in, and a paragraph lists its revisions.
+  const blockAt = (offset) => {
+    if (!model.body) return null;
+    const relative = offset - model.body.start;
+    return model.blocks.find((block) => block.start <= relative && relative < block.end) || null;
+  };
+  // Inside a table, the row and cell an offset (relative to the table block)
+  // falls in — the outer table's when tables nest — so the revision names
+  // the cell.
+  const cellAt = (block, offset) => {
+    const table = containerInner(block.xml, 'w:tbl');
+    if (!table) return { suffix: '' };
+    const inTable = offset - table.start;
+    const rows = topLevelElements(table.inner, ['w:tr']);
+    const rowIndex = rows.findIndex((row) => row.start <= inTable && inTable < row.end);
+    if (rowIndex < 0) return { suffix: '' };
+    const rowInner = containerInner(rows[rowIndex].xml, 'w:tr');
+    const inRow = rowInner ? inTable - rows[rowIndex].start - rowInner.start : -1;
+    const cellIndex = rowInner
+      ? topLevelElements(rowInner.inner, ['w:tc']).findIndex((cell) => cell.start <= inRow && inRow < cell.end)
+      : -1;
+    return {
+      row: rowIndex + 1,
+      cell: cellIndex + 1,
+      suffix: `/row[${rowIndex + 1}]${cellIndex < 0 ? '' : `/cell[${cellIndex + 1}]`}`,
+    };
+  };
   for (const part of storyParts) {
     const xml = await zipText(zip, part);
-    for (const match of xml.matchAll(/<w:(ins|del)\b([^>]*)>([\s\S]*?)<\/w:\1>/g)) {
-      const kind = match[1];
-      const attributes = match[2];
+    propertyChangeCount += countDocxPropertyChanges(xml);
+    const inBody = /^word\/document\.xml$/i.test(part);
+    // Wrappers in document order of their opening tags, parents before
+    // children — the ordinal resolve_revision addresses. A paragraph-mark
+    // marker (<w:del/> inside w:rPr) and a formatting record (w:rPrChange)
+    // are not wrappers and are not listed.
+    for (const span of flattenDocxRevisions(docxRevisionTree(xml))) {
+      const block = inBody ? blockAt(span.start) : null;
+      const location = block?.name === 'w:tbl' ? cellAt(block, span.start - model.body.start - block.start) : { suffix: '' };
+      const at = !block
+        ? ''
+        : block.name === 'w:p'
+          ? `/body/p[${block.logicalIndex}]`
+          : `/body/tbl[${block.logicalIndex}]${location.suffix}`;
       revisions.push({
         path: `/body/revision[${revisions.length + 1}]`,
         index: revisions.length + 1,
-        id: xmlDecode(/\bw:id="([^"]+)"/.exec(attributes)?.[1] || ''),
-        author: xmlDecode(/\bw:author="([^"]*)"/.exec(attributes)?.[1] || ''),
-        date: xmlDecode(/\bw:date="([^"]*)"/.exec(attributes)?.[1] || ''),
-        type: kind === 'ins' ? 'insertion' : 'deletion',
-        text: paragraphTexts(match[3], kind === 'ins' ? 'w:t' : 'w:delText').join(''),
+        id: xmlDecode(span.id),
+        author: span.author,
+        date: xmlDecode(span.date),
+        type: REVISION_TYPES[span.tag],
+        text: blockText(xml.slice(span.innerStart, span.innerEnd), span.kind === 'ins' ? 'w:t' : 'w:delText'),
+        ...(span.children.length ? { nested: span.children.length } : {}),
+        ...(at ? { at } : {}),
         part,
       });
+      if (block?.name === 'w:p') {
+        const paragraph = model.paragraphs[block.logicalIndex - 1];
+        paragraph.revisions = [...(paragraph.revisions || []), revisions.length];
+      } else if (location.cell) {
+        const cell = model.tables[block.logicalIndex - 1]?.rows[location.row - 1]?.cells[location.cell - 1];
+        if (cell) cell.revisions = [...(cell.revisions || []), revisions.length];
+      }
     }
   }
   const notes = [];
@@ -173,7 +280,7 @@ export async function snapshotDocx(zip, options = {}) {
         path: `/body/${kind}[${notes.filter((entry) => entry.kind === kind).length + 1}]`,
         kind,
         id,
-        text: paragraphTexts(match[2], 'w:t').join(''),
+        text: blockText(match[2], 'w:t'),
         part,
       });
     }
@@ -189,7 +296,7 @@ export async function snapshotDocx(zip, options = {}) {
         tag: xmlDecode(/<w:tag\b[^>]*\bw:val="([^"]*)"/.exec(properties)?.[1] || ''),
         title: xmlDecode(/<w:alias\b[^>]*\bw:val="([^"]*)"/.exec(properties)?.[1] || ''),
         lock: xmlDecode(/<w:lock\b[^>]*\bw:val="([^"]*)"/.exec(properties)?.[1] || ''),
-        text: paragraphTexts(match[1], 'w:t').join(''),
+        text: blockText(match[1], 'w:t'),
         part,
       });
     }
@@ -225,6 +332,15 @@ export async function snapshotDocx(zip, options = {}) {
       : content,
     commentCount: comments.length,
     revisionCount: revisions.length,
+    propertyChangeCount,
+    // Who changed what, at a glance: the redline reviewer reads this before
+    // the revision list.
+    revisionAuthors: [...revisions.reduce((authors, revision) => {
+      const entry = authors.get(revision.author) || { author: revision.author, insertions: 0, deletions: 0 };
+      if (['insertion', 'moved_to'].includes(revision.type)) entry.insertions += 1;
+      else entry.deletions += 1;
+      return authors.set(revision.author, entry);
+    }, new Map()).values()],
     comments,
     revisions,
     footnoteCount: notes.filter((entry) => entry.kind === 'footnote').length,
@@ -251,9 +367,65 @@ export async function snapshotDocx(zip, options = {}) {
 }
 
 
+// Legacy cell notes (the comments part a worksheet relates to), in the shape
+// Excel reports them: { path, cell, text, author }.
+async function worksheetNotes(zip, sheet) {
+  const rels = await zipText(zip, partRelationshipPath(sheet.path));
+  const target = /<Relationship\b[^>]*\bType="[^"]*\/comments"[^>]*\bTarget="([^"]+)"/.exec(rels || '')?.[1];
+  if (!target) return [];
+  const part = target.startsWith('/')
+    ? target.slice(1)
+    : posix.normalize(posix.join(posix.dirname(sheet.path), target));
+  const xml = await zipText(zip, part);
+  if (!xml) return [];
+  const authors = [...xml.matchAll(/<author>([\s\S]*?)<\/author>/g)].map((match) => xmlDecode(match[1]));
+  const notes = [];
+  for (const match of xml.matchAll(/<comment\b([^>]*)>([\s\S]*?)<\/comment>/g)) {
+    const cell = (/\bref="([^"]+)"/.exec(match[1])?.[1] || '').toUpperCase();
+    if (!cell) continue;
+    const authorId = Number(/\bauthorId="(\d+)"/.exec(match[1])?.[1] ?? -1);
+    notes.push({
+      path: `/sheet[${sheet.name}]/cell[${cell}]/note`,
+      cell,
+      text: paragraphTexts(match[2], 't').join(''),
+      author: authors[authorId] || '',
+    });
+  }
+  return notes;
+}
+
+// Excel tables (ListObjects) a worksheet relates to, in the shape Excel
+// reports them: { path, index, name, range, style }.
+async function worksheetTables(zip, sheet) {
+  const rels = await zipText(zip, partRelationshipPath(sheet.path));
+  const tables = [];
+  for (const match of (rels || '').matchAll(/<Relationship\b([^>]*)\/?>/g)) {
+    const attributes = match[1];
+    if (!/\bType="[^"]*\/table"/.test(attributes)) continue;
+    const target = /\bTarget="([^"]+)"/.exec(attributes)?.[1] || '';
+    if (!target) continue;
+    const part = target.startsWith('/')
+      ? target.slice(1)
+      : posix.normalize(posix.join(posix.dirname(sheet.path), target));
+    const xml = await zipText(zip, part);
+    const open = /<table\b([^>]*)>/.exec(xml || '')?.[1] || '';
+    const range = (/\bref="([^"]+)"/.exec(open)?.[1] || '').toUpperCase();
+    if (!range) continue;
+    tables.push({
+      path: `/sheet[${sheet.name}]/table[${tables.length + 1}]`,
+      index: tables.length + 1,
+      name: xmlDecode(/\bdisplayName="([^"]*)"/.exec(open)?.[1] || /\bname="([^"]*)"/.exec(open)?.[1] || ''),
+      range,
+      style: xmlDecode(/<tableStyleInfo\b[^>]*\bname="([^"]*)"/.exec(xml)?.[1] || ''),
+    });
+  }
+  return tables;
+}
+
 export async function snapshotXlsx(zip, options = {}) {
   const sheets = await workbookSheets(zip);
   const strings = await sharedStrings(zip);
+  const styles = resolveCellStyles(await zipText(zip, 'xl/styles.xml'));
   const workbookXml = await zipText(zip, 'xl/workbook.xml');
   const calculation = workbookCalculation(workbookXml);
   const definedNames = [];
@@ -281,8 +453,24 @@ export async function snapshotXlsx(zip, options = {}) {
   let page = null;
   for (const sheet of selectedSheets) {
     const xml = await zipText(zip, sheet.path);
-    const cellResult = cellRecords(xml, strings, paged ? options : null);
+    const cellResult = cellRecords(xml, strings, paged ? { ...options, styles } : { styles });
     const cells = paged ? cellResult.records : cellResult;
+    const notes = await worksheetNotes(zip, sheet);
+    const tables = await worksheetTables(zip, sheet);
+    // The same shape Excel reports: which rows and columns stay put.
+    const pane = /<pane\b([^>]*)\/?>/.exec(xml)?.[1] || '';
+    const freezePanes = {
+      frozen: /\bstate="frozen(?:Split)?"/.test(pane),
+      splitRow: Number(/\bySplit="(\d+)"/.exec(pane)?.[1] || 0),
+      splitColumn: Number(/\bxSplit="(\d+)"/.exec(pane)?.[1] || 0),
+    };
+    if (notes.length) {
+      const byRef = new Map(notes.map((note) => [note.cell, note.text]));
+      for (const cell of cells) {
+        const text = byRef.get(cell.ref);
+        if (text) cell.note = text;
+      }
+    }
     const validations = [];
     for (const match of xml.matchAll(/<dataValidation\b([^>]*?)(?:\/>|>([\s\S]*?)<\/dataValidation>)/g)) {
       const attributes = match[1];
@@ -335,6 +523,12 @@ export async function snapshotXlsx(zip, options = {}) {
         ...cell,
       })),
       truncated: paged ? cellResult.total > cells.length : cells.length > 2000,
+      noteCount: notes.length,
+      notes,
+      tableCount: tables.length,
+      tables,
+      mergedRanges: mergedRanges(xml),
+      freezePanes,
       validationCount: validations.length,
       validations,
       conditionalFormatCount: conditionalFormats.length,
@@ -347,6 +541,8 @@ export async function snapshotXlsx(zip, options = {}) {
     format: 'xlsx',
     sheetCount: sheets.length,
     sheets: output,
+    // The workbook default (cellXfs 0): what every unstyled cell renders with.
+    defaultStyle: styles[0] || null,
     formulaCount,
     formulaCacheMissing,
     needsRecalculation: formulaCacheMissing > 0,
@@ -417,34 +613,34 @@ async function pptxSlideNotes(zip, slidePath) {
   if (!tree) return '';
   for (const shape of topLevelElements(tree.inner, ['p:sp'])) {
     if (/<p:ph\b[^>]*\btype="body"/i.test(shape.xml)) {
-      return paragraphTexts(shape.xml, 'a:t').join('\n');
+      return blockText(shape.xml, 'a:t');
     }
   }
-  return paragraphTexts(xml, 'a:t').join('\n');
+  return blockText(xml, 'a:t');
 }
 
 
 async function snapshotPptx(zip, options = {}) {
-  const slidePaths = Object.keys(zip.files)
-    .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
-    .sort((a, b) => Number(/\d+/.exec(basename(a))?.[0]) - Number(/\d+/.exec(basename(b))?.[0]));
+  const roster = await presentationSlides(zip);
+  const slidePaths = roster.map((slide) => slide.path);
   const paged = options.paged === true;
   const offset = paged ? Math.max(0, Number(options.offset) || 0) : 0;
   const limit = paged ? Math.max(1, Number(options.limit) || 20) : slidePaths.length;
   const requested = paged && Array.isArray(options.pages) && options.pages.length
-    ? options.pages.map((page) => slidePaths.find((path) => Number(/slide(\d+)\.xml$/.exec(path)?.[1]) === Number(page))).filter(Boolean)
+    ? options.pages.map((page) => slidePaths[Number(page) - 1]).filter(Boolean)
     : paged
       ? slidePaths.slice(offset, offset + limit)
       : slidePaths;
   const slides = [];
   for (const path of requested) {
     const xml = await zipText(zip, path);
-    const index = Number(/slide(\d+)\.xml$/.exec(path)?.[1]);
+    const index = slidePaths.indexOf(path) + 1;
     const tree = containerInner(xml, 'p:spTree');
     const shapeBlocks = tree ? topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']) : [];
     slides.push({
       path: `/slide[${index}]`,
       index,
+      slideId: roster[index - 1].id,
       background: await pptxSlideBackground(zip, path, xml),
       notes: await pptxSlideNotes(zip, path),
       text: paragraphTexts(xml, 'a:t'),
@@ -475,20 +671,25 @@ async function snapshotPptx(zip, options = {}) {
         const geometry = shape.name === 'p:sp'
           ? (/<a:custGeom\b/i.test(shape.xml) ? 'custGeom' : /<a:prstGeom\b[^>]*\bprst="([^"]+)"/i.exec(shape.xml)?.[1] || '')
           : '';
-        // The shape's own surface color (spPr solidFill), distinct from text colors.
+        // The shape's own surface color (spPr solidFill, or a gradient's first stop — the side the kit
+        // puts type on), distinct from text colors.
         const spPr = /<p:spPr\b[^>]*>([\s\S]*?)<\/p:spPr>/i.exec(shape.xml)?.[1] || '';
-        const fill = /<a:solidFill>\s*<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/i.exec(spPr)?.[1]?.toUpperCase() || '';
+        const fill = /<a:gradFill\b[\s\S]*?<a:gs\b[^>]*>\s*<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/i.exec(spPr)?.[1]?.toUpperCase()
+          || /<a:solidFill>\s*<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/i.exec(spPr)?.[1]?.toUpperCase() || '';
         return {
           path: shapePath,
           index: shapeIndex + 1,
+          ...shapeIdentity(shape.xml),
           type: shape.name,
           ...(shapeName ? { name: shapeName } : {}),
           ...(geometry ? { geometry } : {}),
           ...(fill ? { fill: { color: fill } } : {}),
           // A table's cells are separate strings a reader never runs together
           // ("4:3" beside "8.8초" is not "4:38.8초"), so they join on a space;
-          // a text body keeps its paragraphs run together as before.
-          text: paragraphTexts(shape.xml, 'a:t').join(tableRows ? ' ' : ''),
+          // a text body keeps its runs together and its breaks — a soft break
+          // (a:br, which the kit writes between Hangul words) and a paragraph
+          // end — as newlines, so "4주차" + "잔존율" never reads "4주차잔존율".
+          text: tableRows ? paragraphTexts(shape.xml, 'a:t').join(' ') : blockText(shape.xml, 'a:t'),
           ...(shape.name === 'p:grpSp' ? { group: true } : {}),
           ...(/<p:ph\b/i.test(shape.xml) ? { placeholder: true } : {}),
           ...(/<c:chart\b/i.test(shape.xml) ? { chart: { path: `${shapePath}/chart` } } : {}),

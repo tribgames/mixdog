@@ -14,6 +14,9 @@ import type { BrowserCdpPort } from './cdp';
 import type { PendingFileChooser } from './guest-state';
 import type { createBrowserInputDriver } from './input';
 import { redactBrowserText } from './redaction';
+import { BROWSER_EDITABILITY_CHECK } from './editability';
+import { createBrowserRefAccess } from './ref-access';
+import { createBrowserRefSelection } from './ref-select';
 
 /** How long a clicked button gets to open its picker. */
 const FILE_CHOOSER_WAIT_MS = 3_000;
@@ -49,6 +52,7 @@ export interface BrowserRefActionsHost {
   /** How long a custom dropdown may take to render its options. */
   dropdownTimeoutMs: number;
   dropdownPollMs: number;
+  rememberSecret?(guest: WebContents, value: string): void;
 }
 
 export function createBrowserRefActions(host: BrowserRefActionsHost) {
@@ -62,9 +66,9 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     pause,
     pendingFileChooser,
     clearFileChooser,
-    dropdownTimeoutMs: CUSTOM_DROPDOWN_TIMEOUT_MS,
-    dropdownPollMs: CUSTOM_DROPDOWN_POLL_MS,
   } = host;
+  const { prepareRef } = createBrowserRefAccess(host);
+  const { selectRef, selectCustomRef } = createBrowserRefSelection(host);
   async function fillRef(
     guest: WebContents,
     ref: string,
@@ -78,6 +82,8 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     }>(guest, ref, `function(text) {
       const el = this;
       if (!el || !el.isConnected) return { error: 'stale' };
+      const editError = (${BROWSER_EDITABILITY_CHECK})(el);
+      if (editError) return { error: editError };
       el.scrollIntoView({ block: 'center', inline: 'center' });
       el.focus();
       const tag = (el.tagName || '').toLowerCase();
@@ -105,6 +111,8 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
         const record = window.__mixdogAgentSnapshot?.refs?.get(${JSON.stringify(ref)});
         const el = record?.element || record;
         if (!el || !el.isConnected) return { error: 'stale' };
+        const editError = (${BROWSER_EDITABILITY_CHECK})(el);
+        if (editError) return { error: editError };
         el.scrollIntoView({ block: 'center', inline: 'center' });
         el.focus();
         const text = ${JSON.stringify(text)};
@@ -132,6 +140,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
         ? `ref ${ref} is stale or unknown; take a fresh snapshot first`
         : outcome.error);
     }
+    if (outcome?.sensitive && text) host.rememberSecret?.(guest, text);
     return outcome?.sensitive ? '[REDACTED]' : redactBrowserText(outcome?.value ?? '');
   }
 
@@ -141,139 +150,40 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     text: string,
     signal?: AbortSignal,
   ): Promise<void> {
-    const accessibility = await callAccessibilityRef<{ error?: string }>(guest, ref, `function() {
+    const accessibility = await callAccessibilityRef<{ error?: string; sensitive?: boolean }>(guest, ref, `function() {
       const el = this;
       if (!el || !el.isConnected) return { error: 'stale' };
+      const editError = (${BROWSER_EDITABILITY_CHECK})(el);
+      if (editError) return { error: editError };
       if (!(el.matches?.('input, textarea') || el.isContentEditable)) return { error: 'element is not editable' };
       el.scrollIntoView({ block: 'center', inline: 'center' });
       el.focus();
-      return {};
+      return { sensitive: el.type === 'password' };
     }`, [], signal);
     const focused = accessibility.handled
       ? accessibility.value
-      : await evaluate<{ error?: string }>(guest, `(() => {
+      : await evaluate<{ error?: string; sensitive?: boolean }>(guest, `(() => {
         const record = window.__mixdogAgentSnapshot?.refs?.get(${JSON.stringify(ref)});
         const el = record?.element || record;
         if (!el || !el.isConnected) return { error: 'stale' };
+        const editError = (${BROWSER_EDITABILITY_CHECK})(el);
+        if (editError) return { error: editError };
         if (!(el.matches?.('input, textarea') || el.isContentEditable)) return { error: 'element is not editable' };
         el.scrollIntoView({ block: 'center', inline: 'center' });
         el.focus();
-        return {};
+        return { sensitive: el.type === 'password' };
       })()`, signal);
     if (focused?.error) {
       throw new Error(focused.error === 'stale'
         ? `ref ${ref} is stale or unknown; take a fresh snapshot first`
         : focused.error);
     }
+    if (focused?.sensitive && text) host.rememberSecret?.(guest, text);
     await browserInput.pressKey(guest, process.platform === 'darwin' ? 'Meta+A' : 'Control+A', signal);
     await browserInput.pressKey(guest, 'Backspace', signal);
     await cdp.sendCdpInput(guest, await cdp.guestDebugger(guest), 'Input.insertText', { text }, signal);
   }
 
-  /** Non-native dropdowns (ARIA combobox/listbox/menu) cannot be assigned like
-   *  a <select>: the page owns the popup. Open the trigger, then activate the
-   *  option whose text matches — the same two gestures a person performs. */
-  async function selectCustomRef(
-    guest: WebContents,
-    ref: string,
-    values: string[],
-    signal?: AbortSignal,
-  ): Promise<string[]> {
-    if (values.length > 1) {
-      throw new Error(
-        'this control is not a native <select>; custom dropdowns accept exactly one value per select',
-      );
-    }
-    const openScript = `function() {
-      const el = this;
-      if (!el || !el.isConnected) return { error: 'stale' };
-      const target = el.closest('[role="combobox"],[role="listbox"],[aria-haspopup]') || el;
-      if (target.getAttribute('aria-expanded') !== 'true') {
-        target.scrollIntoView({ block: 'center', behavior: 'instant' });
-        target.click();
-      }
-      return { opened: true };
-    }`;
-    const opened = await callAccessibilityRef<{ error?: string; opened?: boolean }>(
-      guest,
-      ref,
-      openScript,
-      [],
-      signal,
-    );
-    const openResult = opened.handled
-      ? opened.value
-      : await evaluate<{ error?: string; opened?: boolean }>(guest, `(() => {
-        const record = window.__mixdogAgentSnapshot?.refs?.get(${JSON.stringify(ref)});
-        const el = record?.element || record;
-        if (!el || !el.isConnected) return { error: 'stale' };
-        const target = el.closest('[role="combobox"],[role="listbox"],[aria-haspopup]') || el;
-        if (target.getAttribute('aria-expanded') !== 'true') {
-          target.scrollIntoView({ block: 'center', behavior: 'instant' });
-          target.click();
-        }
-        return { opened: true };
-      })()`, signal);
-    if (openResult?.error) {
-      throw new Error(openResult.error === 'stale'
-        ? `ref ${ref} is stale or unknown; take a fresh snapshot first`
-        : openResult.error);
-    }
-    const pickScript = `(() => {
-      const wanted = ${JSON.stringify(String(values[0] ?? ''))}.trim().toLowerCase();
-      if (!wanted) return { error: 'empty' };
-      const compact = (value) => String(value == null ? '' : value)
-        .slice(0, 2_000).replace(/\\s+/g, ' ').trim();
-      const visible = (el) => {
-        const rect = el.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return false;
-        const style = getComputedStyle(el);
-        return style.visibility !== 'hidden' && style.display !== 'none';
-      };
-      const candidates = [];
-      for (const candidate of document.querySelectorAll(
-        '[role="option"],[role="menuitem"],[role="menuitemradio"],[role="menuitemcheckbox"],[role="treeitem"],[data-value]'
-      )) {
-        if (visible(candidate)) candidates.push(candidate);
-        if (candidates.length >= 500) break;
-      }
-      const label = (el) => compact(el.getAttribute('aria-label') || el.textContent).toLowerCase();
-      const dataValue = (el) => compact(el.getAttribute('data-value')).toLowerCase();
-      const hit = candidates.find((el) => label(el) === wanted || dataValue(el) === wanted)
-        || candidates.find((el) => label(el).includes(wanted));
-      if (!hit) {
-        const sample = candidates.slice(0, 8).map((el) => compact(el.textContent).slice(0, 40))
-          .filter(Boolean);
-        return {
-          hasOptions: sample.length > 0,
-          error: sample.length
-            ? 'no open option matched; visible options include: ' + sample.join(' | ')
-            : 'no open option list was found after opening the control',
-        };
-      }
-      hit.scrollIntoView({ block: 'center', behavior: 'instant' });
-      hit.click();
-      return { value: compact(hit.getAttribute('aria-label') || hit.textContent).slice(0, 120) };
-    })()`;
-    const deadline = Date.now() + CUSTOM_DROPDOWN_TIMEOUT_MS;
-    let picked: { error?: string; hasOptions?: boolean; value?: string } | undefined;
-    for (;;) {
-      picked = await evaluate<{ error?: string; hasOptions?: boolean; value?: string }>(
-        guest,
-        pickScript,
-        signal,
-      );
-      // An option list that is present but has no match is a real failure;
-      // only an absent list is worth waiting on.
-      if (picked?.value || picked?.hasOptions || picked?.error === 'empty') break;
-      if (Date.now() >= deadline) break;
-      await pause(CUSTOM_DROPDOWN_POLL_MS, signal);
-    }
-    if (picked?.error) {
-      throw new Error(picked.error === 'empty' ? 'select requires a non-empty value' : picked.error);
-    }
-    return picked?.value ? [picked.value] : [];
-  }
 
   /** What a control offers, without choosing anything. A native <select> keeps
    *  its options out of the accessibility tree, so they are read from the
@@ -329,60 +239,6 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
       );
     }
     return result?.options || [];
-  }
-
-  async function selectRef(
-    guest: WebContents,
-    ref: string,
-    values: string[],
-    signal?: AbortSignal,
-  ): Promise<string[]> {
-    const accessibility = await callAccessibilityRef<{
-      error?: string;
-      custom?: boolean;
-      values?: string[];
-    }>(guest, ref, `function(values) {
-      const el = this;
-      if (!el || !el.isConnected) return { error: 'stale' };
-      if ((el.tagName || '').toLowerCase() !== 'select') return { custom: true };
-      const wanted = values.map(String);
-      const matched = [];
-      for (const option of el.options) {
-        const selected = wanted.includes(String(option.value)) || wanted.includes(String(option.label || option.text));
-        option.selected = selected;
-        if (selected) matched.push(String(option.value));
-      }
-      if (!matched.length) return { error: 'no option matched the requested values' };
-      el.dispatchEvent(new Event('input', { bubbles: true }));
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      return { values: matched };
-    }`, [values], signal);
-    const result = accessibility.handled
-      ? accessibility.value
-      : await evaluate<{ error?: string; custom?: boolean; values?: string[] }>(guest, `(() => {
-        const record = window.__mixdogAgentSnapshot?.refs?.get(${JSON.stringify(ref)});
-        const el = record?.element || record;
-        if (!el || !el.isConnected) return { error: 'stale' };
-        if ((el.tagName || '').toLowerCase() !== 'select') return { custom: true };
-        const wanted = ${JSON.stringify(values)}.map(String);
-        const matched = [];
-        for (const option of el.options) {
-          const selected = wanted.includes(String(option.value)) || wanted.includes(String(option.label || option.text));
-          option.selected = selected;
-          if (selected) matched.push(String(option.value));
-        }
-        if (!matched.length) return { error: 'no option matched the requested values' };
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-        return { values: matched };
-      })()`, signal);
-    if (result?.custom) return await selectCustomRef(guest, ref, values, signal);
-    if (result?.error) {
-      throw new Error(result.error === 'stale'
-        ? `ref ${ref} is stale or unknown; take a fresh snapshot first`
-        : result.error);
-    }
-    return result?.values || [];
   }
 
   async function checkedRefState(
@@ -609,6 +465,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
   }
 
   return {
+    prepareRef,
     fillRef,
     typeRef,
     listSelectOptions,

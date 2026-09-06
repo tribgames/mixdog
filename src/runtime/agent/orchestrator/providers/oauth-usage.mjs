@@ -107,7 +107,7 @@ try {
  *  writes and the persisted routes). A mutation that changes quota state
  *  server-side — redeeming a Codex reset credit — must not keep serving the
  *  pre-mutation meters from a 60s/10min cache. */
-export function invalidateOAuthUsageSnapshots(provider) {
+function invalidateOAuthUsageSnapshots(provider) {
   const providerOnly = String(provider || '').toLowerCase();
   if (!providerOnly) return;
   const routePrefix = `${providerOnly}\u0001`;

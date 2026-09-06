@@ -13,10 +13,12 @@ import {
   SESSION_CONFIGURE_ACTION_SET,
   SESSION_READ_ACTION_SET,
 } from './session-protocol.mjs';
-import { diffSessionState } from './session-state-patch.mjs';
 import { DesktopServiceRegistry } from './desktop-service-registry.mjs';
 import { createSessionServiceApi } from './session-service-api.mjs';
 import { sanitizeForWire } from './session-wire-values.mjs';
+import { createAgentTree, SESSION_ID_PATTERN } from './session-service/agent-tree.mjs';
+import { createProjectCatalog } from './session-service/project-catalog.mjs';
+import { createSessionProjection } from './session-service/projection.mjs';
 import {
   materializePromptSubmission,
   preparePromptSubmissionForProvider,
@@ -26,7 +28,6 @@ import {
   hasActiveBackgroundTasks,
 } from '../runtime/shared/background-tasks.mjs';
 
-const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
 const EXTERNAL_SESSION_ACTIONS = new Set([
   ...SESSION_READ_ACTION_SET,
   ...SESSION_CONFIGURE_ACTION_SET,
@@ -73,16 +74,6 @@ export function createSessionService({
   // addressed by clients; sessionId is the only identity outside this module.
   const sessions = new Set();
   const sessionsById = new Map();
-  // Agent children are catalog metadata over ordinary daemon-owned sessions.
-  // Their transcript/execution state remains exclusively in `sessionsById`;
-  // this index carries only the Parent–Child relationship and public Agent
-  // routing fields needed before/after a turn.
-  const agentSessions = new Map();
-  const agentChildren = new Map();
-  const agentCancelRuns = new Map();
-  let agentRehydrated = false;
-  let agentRehydratePromise = null;
-  let busyEntries = 0;
   const desktopServices = new DesktopServiceRegistry({
     runtime: desktopRuntime,
     onFrame,
@@ -90,7 +81,6 @@ export function createSessionService({
     onExternalClientsChanged,
     onReady: onDesktopReady,
   });
-  let projectStorePromise = null;
   let closed = false;
   // A turn belongs to the DAEMON, not to whoever is watching it: closing the
   // desktop window or restarting the TUI must never interrupt work. An session runtime
@@ -207,9 +197,6 @@ export function createSessionService({
 
   function updateEntryBusy(entry, state) {
     const next = stateBusy(state);
-    if (entry.busy === next) return next;
-    if (entry.busy === true) busyEntries = Math.max(0, busyEntries - 1);
-    if (next) busyEntries += 1;
     entry.busy = next;
     return next;
   }
@@ -303,285 +290,40 @@ export function createSessionService({
     entry.publishedSessionId = '';
   }
 
-  function snapshotOf(entry) {
-    const raw = entry.runtime.getState?.() ?? null;
-    // Store states are immutable snapshots (every mutation makes a new object),
-    // so identity is a sound cache key. Without this the whole transcript was
-    // re-sanitized on every call AND every published frame.
-    if (raw && entry.snapshotSource === raw) return entry.snapshotCache;
-    // Runtime-worker IPC has already produced a wire-safe graph. Reusing it
-    // removes the daemon's second full transcript clone; in-process runtimes
-    // keep the sanitizer boundary below.
-    const cloned = entry.runtime?.isWireSafe === true ? raw : projectState(entry, raw);
-    entry.snapshotSource = raw;
-    entry.snapshotCache = cloned;
-    return cloned;
-  }
-
-  /** Per-FIELD sanitize cache. Transcript items are immutable once settled, so
-   *  reusing their wire clones keeps object identity stable — which is what
-   *  makes the frame delta below a reference comparison instead of a deep diff.
-   */
-  function projectState(entry, raw) {
-    if (!raw || typeof raw !== 'object') return sanitizeForWire(raw);
-    const fields = entry.fieldCache ??= new Map();
-    const items = entry.itemCache ??= new Map();
-    const out = {};
-    for (const [key, value] of Object.entries(raw)) {
-      if (key === 'queued' && Array.isArray(value)) {
-        const projected = value.map((item) => ({
-          id: item?.id,
-          submittedAt: item?.submittedAt,
-          text: String(item?.displayText ?? item?.text ?? '').slice(0, 2_000),
-          displayText: String(item?.displayText ?? item?.text ?? '').slice(0, 2_000),
-          mode: item?.mode || 'prompt',
-          priority: item?.priority || 'next',
-          ...(Array.isArray(item?.images) && item.images.length ? { images: item.images } : {}),
-        }));
-        fields.set(key, { source: value, value: projected });
-        out[key] = projected;
-        continue;
-      }
-      if (key === 'items' && Array.isArray(value)) {
-        const nextItems = new Map();
-        out.items = value.map((item) => {
-          const cached = items.get(item);
-          if (cached !== undefined) { nextItems.set(item, cached); return cached; }
-          const cloned = sanitizeForWire(item);
-          nextItems.set(item, cloned);
-          return cloned;
-        });
-        entry.itemCache = nextItems;
-        continue;
-      }
-      const cached = fields.get(key);
-      if (cached && cached.source === value) { out[key] = cached.value; continue; }
-      const cloned = sanitizeForWire(value);
-      if (cloned === undefined) continue;
-      fields.set(key, { source: value, value: cloned });
-      out[key] = cloned;
-    }
-    return out;
-  }
-
-  /** Advance the session runtime's published revision one step. */
-  function advance(entry) {
-    const snapshot = snapshotOf(entry);
-    const projectedSessionId = String(snapshot?.sessionId || '');
-    const addressedSessionId = String(entry.addressedSessionId || '');
-    if (addressedSessionId
-      && projectedSessionId
-      && projectedSessionId !== addressedSessionId) {
-      throw new Error(
-        `session ${addressedSessionId} changed its durable address to ${projectedSessionId}`,
-      );
-    }
-    if (!addressedSessionId && projectedSessionId) {
-      entry.addressedSessionId = projectedSessionId;
-    }
-    indexSessionEntry(entry, projectedSessionId);
-    updateEntryBusy(entry, snapshot);
-    const previous = entry.publishedSnapshot;
-    const previousRevision = entry.revision || 0;
-    if (snapshot === previous) {
-      return { changed: false, snapshot, revision: previousRevision, previousRevision, patch: null };
-    }
-    entry.publishedSnapshot = snapshot;
-    entry.revision = previousRevision + 1;
-    return {
-      changed: true,
-      snapshot,
-      revision: entry.revision,
-      previousRevision,
-      patch: previous ? diffSessionState(previous, snapshot) : null,
-    };
-  }
-
-  /** Broadcast body: every attached view is, by construction, at the previous
-   *  revision — one that is not resyncs itself off the revision gap. */
-  function frameBody(step) {
-    return step.patch
-      ? { revision: step.revision, baseRevision: step.previousRevision, patch: step.patch }
-      : { revision: step.revision, full: step.snapshot };
-  }
-
-  function currentSessionId(entry) {
-    return String(entry?.runtime?.getState?.()?.sessionId || '');
-  }
-
-  function indexSessionEntry(entry, sessionId = currentSessionId(entry)) {
-    const nextId = String(sessionId || '');
-    const previousId = String(entry?.indexedSessionId || '');
-    if (previousId && previousId !== nextId && sessionsById.get(previousId) === entry) {
-      sessionsById.delete(previousId);
-    }
-    if (!entry || entry.disposed || !nextId) {
-      if (entry) entry.indexedSessionId = '';
-      return '';
-    }
-    // External agent projections use the same frame machinery but are not a
-    // daemon execution owner. Keeping them out of sessionsById lets a later
-    // ordinary session materialization adopt the viewers and take authority.
-    if (entry.externalView === true) return nextId;
-    const existing = sessionsById.get(nextId);
-    if (existing && existing !== entry && !existing.disposed) {
-      // Do not redirect an established address to a second session runtime. The load
-      throw new Error(`duplicate session address: ${nextId}`);
-    }
-    const external = externalViewEntries.get(nextId);
-    if (external) {
-      externalViewEntries.delete(nextId);
-      for (const token of external.subscribers || []) {
-        addSubscriber(entry, { clientToken: token });
-      }
-    }
-    sessionsById.set(nextId, entry);
-    entry.indexedSessionId = nextId;
-    return nextId;
-  }
-
-  /** Publish one durable session-addressed frame. The runtime pool is a daemon
-   *  implementation detail and never enters the client contract. */
-  function publishStep(entry, step) {
-    const sessionId = currentSessionId(entry);
-    if (!sessionId) return;
-    // Session runtime revisions may predate the session address (a reservation becomes
-    // a materialized session during newSession/resume). A session subscriber
-    // has no copy of that session runtime-only base, so the first frame for each session
-    // address must be FULL; only later frames may use session runtime revision deltas.
-    const body = entry.publishedSessionId === sessionId
-      ? frameBody(step)
-      : { revision: step.revision, full: step.snapshot };
-    entry.publishedSessionId = sessionId;
-    entry.lastPublishedAt = Date.now();
-    onFrame({
-      type: 'session-state',
-      key: `session-state:${sessionId}`,
-      sessionId,
-      ...body,
-    }, entry.subscribers);
-  }
-
-  function externalEntryForView(sessionId) {
-    return externalViewEntries.get(String(sessionId || '')) || null;
-  }
-
-  function publishExternalSessionState(update) {
-    const sessionId = String(update?.sessionId || '');
-    const snapshot = update?.snapshot;
-    if (!sessionId || !snapshot || typeof snapshot !== 'object') return;
-    // A daemon-owned runtime is the canonical owner if this address was
-    // materialized. External agent projection frames can arrive one tick late
-    // after that promotion and must not overwrite it.
-    if (sessionOwner(sessionId)) return;
-    let entry = externalViewEntries.get(sessionId);
-    if (!entry) {
-      if (!pendingViewers.has(sessionId)) return;
-      let state = { ...snapshot, sessionId };
-      const runtime = {
-        isWireSafe: true,
-        externalAction: typeof invokeExternalSessionAction === 'function',
-        getState: () => state,
-        setState: (next) => { state = next; },
-      };
-      Object.defineProperties(runtime, {
-        id: { get: () => sessionId },
-        provider: { get: () => String(state.provider || '') },
-        model: { get: () => String(state.model || '') },
-        session: {
-          get: () => ({
-            id: sessionId,
-            provider: String(state.provider || ''),
-            model: String(state.model || ''),
-          }),
-        },
-      });
-      if (typeof invokeExternalSessionAction === 'function') {
-        for (const name of EXTERNAL_SESSION_ACTIONS) {
-          runtime[name] = (...args) => invokeExternalSessionAction(sessionId, name, args);
-        }
-      }
-      entry = {
-        runtime,
-        subscribers: new Set(),
-        disposed: false,
-        timer: null,
-        lastPublishedAt: 0,
-        publishedSessionId: '',
-        indexedSessionId: '',
-        addressedSessionId: sessionId,
-        revision: revisionEpoch,
-        busy: null,
-        externalView: true,
-      };
-      externalViewEntries.set(sessionId, entry);
-      adoptPendingViewers(entry, sessionId);
-    } else {
-      entry.runtime.setState({ ...snapshot, sessionId });
-    }
-    const step = advance(entry);
-    if (step.changed) publishStep(entry, step);
-  }
+  // Wire projection + frame publication (see session-service/projection.mjs).
+  // Function declarations above reference these only from inside bodies that
+  // run after construction, so the late destructure is safe.
+  const {
+    advance,
+    currentSessionId,
+    indexSessionEntry,
+    publishStep,
+    externalEntryForView,
+    publishExternalSessionState,
+    bodyForClient,
+    sessionOwner,
+    schedulePublish,
+  } = createSessionProjection({
+    sessionsById,
+    externalViewEntries,
+    pendingViewers,
+    externalSessionActions: EXTERNAL_SESSION_ACTIONS,
+    revisionEpoch,
+    publishIntervalMs,
+    invokeExternalSessionAction,
+    onFrame,
+    log,
+    isClosed: () => closed,
+    addSubscriber,
+    adoptPendingViewers,
+    updateEntryBusy,
+    releaseProjection,
+  });
 
   const unsubscribeExternalSessionStates =
     typeof subscribeExternalSessionStates === 'function'
       ? subscribeExternalSessionStates(publishExternalSessionState)
       : () => {};
-
-  /** Response body for the CALLER, which announced the revision it holds. */
-  function bodyForClient(step, baseRevision) {
-    if (!step.changed && baseRevision === step.revision) return { revision: step.revision };
-    if (step.patch && baseRevision === step.previousRevision) return frameBody(step);
-    return { revision: step.revision, full: step.snapshot };
-  }
-
-  /** Entry that currently holds a session live. */
-  function sessionOwner(sessionId) {
-    const id = String(sessionId || '');
-    if (!id) return null;
-    const entry = sessionsById.get(id) || null;
-    if (!entry || entry.disposed) {
-      if (entry) sessionsById.delete(id);
-      return null;
-    }
-    return entry;
-  }
-
-  function publish(entry) {
-    if (closed || entry.disposed) return;
-    try {
-      if ((entry.subscribers?.size || 0) === 0) {
-        // A headless turn still needs busy/index liveness, but no client can
-        // consume a wire projection. Avoid cloning the growing transcript on
-        // every token; the next subscriber receives a fresh full snapshot.
-        const raw = entry.runtime.getState?.() || {};
-        indexSessionEntry(entry, raw.sessionId);
-        updateEntryBusy(entry, raw);
-        releaseProjection(entry);
-        return;
-      }
-      // Identical state produces no frame at all; a changed one travels as a
-      // DELTA against the revision every attached view already holds.
-      const step = advance(entry);
-      if (!step.changed) return;
-      publishStep(entry, step);
-    } catch (err) {
-      log(`publish failed session=${currentSessionId(entry) || '(creating)'}: ${err?.message || err}`);
-    }
-  }
-
-  /** Session runtime events fire per streamed token. Publish immediately after an idle
-   *  interval, then coalesce the rest of the burst to one display-frame clock.
-   *  This avoids charging every first token a fixed delay. */
-  function schedulePublish(entry) {
-    if (entry.timer || entry.disposed || closed) return;
-    const elapsed = Date.now() - (entry.lastPublishedAt || 0);
-    entry.timer = setTimeout(() => {
-      entry.timer = null;
-      publish(entry);
-    }, Math.max(0, publishIntervalMs - elapsed));
-    entry.timer.unref?.();
-  }
 
   async function createEntry(params = {}, ctx = null) {
     if (closed) throw new Error('session service is closed');
@@ -910,73 +652,16 @@ export function createSessionService({
     };
   }
 
-  async function loadProjectStore() {
-    if (typeof desktopRuntime?.loadProjects !== 'function') {
-      throw new Error('project service is unavailable');
-    }
-    projectStorePromise ??= Promise.resolve(desktopRuntime.loadProjects()).catch((error) => {
-      projectStorePromise = null;
-      throw error;
-    });
-    return projectStorePromise;
-  }
-
-  function requiredProjectPath(path) {
-    const value = String(path || '').trim();
-    if (!value) throw new TypeError('project path is required');
-    return value;
-  }
-
-  async function listProjectCatalog() {
-    const projects = await loadProjectStore();
-    return {
-      projects: sanitizeForWire(projects.listProjects?.() || []),
-    };
-  }
-
-  async function inspectProjectPath({ path } = {}) {
-    const projects = await loadProjectStore();
-    const resolved = projects.resolveProjectPath?.(requiredProjectPath(path)) || '';
-    if (!resolved) throw new TypeError('project path is required');
-    return {
-      path: resolved,
-      exists: projects.pathExists?.(resolved) === true,
-      directory: projects.isDirectory?.(resolved) === true,
-    };
-  }
-
-  async function addProjectEntry({ path } = {}) {
-    const projects = await loadProjectStore();
-    const project = projects.addProject?.(requiredProjectPath(path)) || null;
-    if (!project) throw new Error('project could not be registered');
-    return { project: sanitizeForWire(project) };
-  }
-
-  async function touchProjectEntry({ path } = {}) {
-    const projects = await loadProjectStore();
-    return {
-      project: sanitizeForWire(projects.touchProjectSelected?.(requiredProjectPath(path)) || null),
-    };
-  }
-
-  async function renameProjectEntry({ path, name = '' } = {}) {
-    const projects = await loadProjectStore();
-    const project = projects.renameProject?.(requiredProjectPath(path), String(name || '')) || null;
-    if (!project) throw new Error('project is not registered');
-    return { project: sanitizeForWire(project) };
-  }
-
-  async function removeProjectEntry({ path } = {}) {
-    const projects = await loadProjectStore();
-    return { removed: projects.removeProject?.(requiredProjectPath(path)) === true };
-  }
-
-  async function ensureProjectDirectory({ path } = {}) {
-    const projects = await loadProjectStore();
-    const resolved = projects.ensureDir?.(requiredProjectPath(path)) || '';
-    if (!resolved) throw new Error('project directory could not be created');
-    return { path: resolved };
-  }
+  const {
+    loadProjectStore,
+    listProjectCatalog,
+    inspectProjectPath,
+    addProjectEntry,
+    touchProjectEntry,
+    renameProjectEntry,
+    removeProjectEntry,
+    ensureProjectDirectory,
+  } = createProjectCatalog({ desktopRuntime });
 
   function requireSessionAction(action, allowed) {
     const name = String(action || '');
@@ -1293,7 +978,7 @@ export function createSessionService({
       && String(state.agent || '').trim().toLowerCase() !== 'lead'
       && parentId
       && parentId !== id;
-    const abortsAgentTurn = agentSessions.has(id)
+    const abortsAgentTurn = agentTree.hasAgentSession(id)
       || String(state.visibility || '').trim().toLowerCase() === 'agent-only'
       || isLegacyAgentChild;
     let rawResult;
@@ -1322,436 +1007,25 @@ export function createSessionService({
     return sessionResult(entry, step, baseRevision, abortResult);
   }
 
-  function linkAgentDescriptor(descriptor) {
-    const sessionId = String(descriptor?.id || '').trim();
-    const parentSessionId = String(descriptor?.parentSessionId || '').trim();
-    if (!sessionId || !parentSessionId) {
-      throw new TypeError('agent child requires session and parent ids');
-    }
-    const previous = agentSessions.get(sessionId);
-    if (previous?.parentSessionId && previous.parentSessionId !== parentSessionId) {
-      agentChildren.get(previous.parentSessionId)?.delete(sessionId);
-    }
-    const linked = {
-      ...(previous || {}),
-      ...descriptor,
-      id: sessionId,
-      parentSessionId,
-      ownerSessionId: String(
-        descriptor.ownerSessionId
-        || previous?.ownerSessionId
-        || agentSessions.get(parentSessionId)?.ownerSessionId
-        || parentSessionId,
-      ),
-      owner: 'agent',
-      visibility: 'agent-only',
-      closed: descriptor.closed === true,
-    };
-    agentSessions.set(sessionId, linked);
-    let children = agentChildren.get(parentSessionId);
-    if (!children) agentChildren.set(parentSessionId, children = new Set());
-    children.add(sessionId);
-    return linked;
-  }
-
-  function validLinkedSessionId(value, ownId = '') {
-    const id = String(value || '').trim();
-    return SESSION_ID_PATTERN.test(id) && id !== ownId ? id : '';
-  }
-
-  function storedAgentCandidate(row) {
-    const id = String(row?.id || '').trim();
-    if (!SESSION_ID_PATTERN.test(id)) return null;
-    const parentSessionId = validLinkedSessionId(
-      row?.parentSessionId || row?.ownerSessionId,
-      id,
-    );
-    if (!parentSessionId) return null;
-    const declaredVisibility = String(
-      row?.visibility || row?.sessionVisibility || '',
-    ).trim().toLowerCase() === 'agent-only';
-    const legacyAgentChild = String(row?.owner || '').trim().toLowerCase() === 'agent';
-    if (!declaredVisibility && !legacyAgentChild) return null;
-    return { row, id, parentSessionId };
-  }
-
-  function lastStoredAgentHandoff(row) {
-    if (typeof row?.lastHandoff === 'string') return row.lastHandoff;
-    const messages = Array.isArray(row?.messages) ? row.messages : [];
-    const assistant = [...messages].reverse().find((message) => (
-      message?.role === 'assistant'
-      && (typeof message.content === 'string' ? message.content.trim() : message.content)
-    ));
-    if (!assistant) return '';
-    return typeof assistant.content === 'string'
-      ? assistant.content
-      : JSON.stringify(assistant.content);
-  }
-
-  /** Rebuild the Agent-only routing layer from lightweight durable summaries
-   *  after daemon replacement. Transcripts remain store/runtime owned and are
-   *  loaded by exact canonical session id only when a caller needs one. */
-  async function rehydrateAgentSessions() {
-    if (agentRehydrated) return agentSessions.size;
-    if (agentRehydratePromise) return agentRehydratePromise;
-    if (typeof listSessions !== 'function') {
-      agentRehydrated = true;
-      return agentSessions.size;
-    }
-    let loading;
-    loading = (async () => {
-      const stored = await listSessions({
-        includeAgentOnly: true,
-        summaryOnly: true,
-        refreshFromStorage: false,
-      });
-      let candidates = (Array.isArray(stored) ? stored : [])
-        .map(storedAgentCandidate)
-        .filter(Boolean);
-      if (typeof readStoredSession === 'function') {
-        candidates = await Promise.all(candidates.map(async (candidate) => {
-          if (candidate.row?.parentSessionId) return candidate;
-          try {
-            const metadata = await readStoredSession(candidate.id, { metadataOnly: true });
-            return storedAgentCandidate({
-              ...candidate.row,
-              ...(metadata && typeof metadata === 'object' ? metadata : {}),
-              id: candidate.id,
-            }) || candidate;
-          } catch (error) {
-            log(`agent metadata migration failed session=${candidate.id}: ${error?.message || error}`);
-            return candidate;
-          }
-        }));
-      }
-      const byId = new Map(candidates.map((candidate) => [candidate.id, candidate]));
-      const roots = new Map();
-      const resolveRoot = (candidate, seen = new Set()) => {
-        if (!candidate || seen.has(candidate.id)) return candidate?.parentSessionId || '';
-        if (roots.has(candidate.id)) return roots.get(candidate.id);
-        seen.add(candidate.id);
-        const explicitOwner = validLinkedSessionId(candidate.row?.ownerSessionId, candidate.id);
-        if (explicitOwner && explicitOwner !== candidate.parentSessionId) {
-          roots.set(candidate.id, explicitOwner);
-          return explicitOwner;
-        }
-        const parent = byId.get(candidate.parentSessionId);
-        const root = parent ? resolveRoot(parent, seen) : (explicitOwner || candidate.parentSessionId);
-        roots.set(candidate.id, root);
-        return root;
-      };
-      for (const candidate of candidates) {
-        // A child created while the summary load was in flight is newer than
-        // the stored row and must never be rolled back by rehydration.
-        if (agentSessions.has(candidate.id)) continue;
-        const row = candidate.row;
-        linkAgentDescriptor({
-          id: candidate.id,
-          parentSessionId: candidate.parentSessionId,
-          ownerSessionId: resolveRoot(candidate),
-          owner: 'agent',
-          visibility: 'agent-only',
-          agent: row.agent || row.sourceName || 'worker',
-          agentTag: row.agentTag || row.tag || null,
-          cwd: row.cwd || process.cwd(),
-          provider: row.provider || null,
-          model: row.model || null,
-          presetName: row.presetName || row.preset || row.profileId || null,
-          effort: row.effort || null,
-          fast: row.fast === true,
-          modelParameters: row.modelParameters || null,
-          taskType: row.taskType || null,
-          maxLoopIterations: row.maxLoopIterations,
-          permission: row.permission || null,
-          permissionMode: row.permissionMode || null,
-          toolPermission: row.toolPermission || null,
-          schemaAllowedTools: Array.isArray(row.schemaAllowedTools)
-            ? row.schemaAllowedTools
-            : null,
-          sourceType: row.sourceType || 'agent',
-          sourceName: row.sourceName || row.agent || 'agent',
-          clientHostPid: row.clientHostPid || null,
-          createdAt: row.createdAt || null,
-          updatedAt: row.updatedAt || row.lastUsedAt || null,
-          status: row.closed === true ? 'closed' : (row.status || 'idle'),
-          stage: row.closed === true ? 'closed' : (row.stage || row.status || 'idle'),
-          messageCount: Number(row.messageCount)
-            || (Array.isArray(row.messages) ? row.messages.length : 0),
-          lastHandoff: lastStoredAgentHandoff(row),
-          closed: row.closed === true,
-        });
-      }
-      agentRehydrated = true;
-      return agentSessions.size;
-    })().finally(() => {
-      if (agentRehydratePromise === loading) agentRehydratePromise = null;
-    });
-    agentRehydratePromise = loading;
-    return loading;
-  }
-
-  function agentDescriptor(sessionId) {
-    const id = String(sessionId || '').trim();
-    const descriptor = agentSessions.get(id);
-    if (!descriptor) return null;
-    const owner = sessionOwner(id);
-    const state = owner?.runtime?.getState?.() || {};
-    const status = descriptor.closed
-      ? (descriptor.status || 'closed')
-      : stateBusy(state)
-        ? 'running'
-        : (descriptor.status || 'idle');
-    return {
-      ...descriptor,
-      status,
-      stage: status,
-      messageCount: Array.isArray(state.items) && state.items.length > 0
-        ? state.items.length
-        : Math.max(0, Number(descriptor.messageCount) || 0),
-      updatedAt: descriptor.updatedAt || Date.now(),
-    };
-  }
-
-  function rootOwnerSessionId(sessionId) {
-    const id = String(sessionId || '').trim();
-    return agentSessions.get(id)?.ownerSessionId || id || null;
-  }
-
-  async function createAgentChild({ spec = {}, prompt = '', tag = null } = {}) {
-    await rehydrateAgentSessions();
-    const parentSessionId = String(spec.parentSessionId || '').trim();
-    if (!parentSessionId) throw new TypeError('agent child parentSessionId is required');
-    const ownerSessionId = String(
-      spec.ownerSessionId
-      || agentSessions.get(parentSessionId)?.ownerSessionId
-      || parentSessionId,
-    );
-    const preset = spec.preset && typeof spec.preset === 'object' ? spec.preset : {};
-    const provider = String(preset.provider || spec.provider || '').trim();
-    const model = String(preset.model || spec.model || '').trim();
-    if (!provider || !model) throw new Error('agent child route is incomplete');
-    const sessionProfile = {
-      owner: 'agent',
-      agent: String(spec.agent || 'worker'),
-      parentSessionId,
-      ownerSessionId,
-      visibility: 'agent-only',
-      agentTag: String(spec.agentTag || tag || '').trim() || null,
-      taskType: spec.taskType || null,
-      maxLoopIterations: spec.maxLoopIterations,
-      permission: spec.permission || null,
-      permissionMode: spec.permissionMode || null,
-      schemaAllowedTools: Array.isArray(spec.schemaAllowedTools)
-        ? spec.schemaAllowedTools
-        : null,
-      sourceType: spec.sourceType || 'agent',
-      sourceName: spec.sourceName || spec.agent || 'agent',
-      clientHostPid: spec.clientHostPid || null,
-    };
-    const created = await createSession({
-      cwd: spec.cwd || process.cwd(),
-      provider,
-      model,
-      effort: preset.effort,
-      fast: preset.fast === true,
-      modelParameters: preset.modelParameters,
-      toolMode: 'full',
-      sessionProfile,
-    });
-    const descriptor = linkAgentDescriptor({
-      id: created.sessionId,
-      ...sessionProfile,
-      cwd: spec.cwd || process.cwd(),
-      provider,
-      model,
-      presetName: preset.id || preset.name || null,
-      effort: preset.effort || null,
-      fast: preset.fast === true,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      status: 'idle',
-      stage: 'idle',
-    });
-    void prompt;
-    return { session: descriptor, effectiveCwd: descriptor.cwd };
-  }
-
-  async function runAgentTurn({
-    session,
-    prompt,
-    context = null,
-    onToolResult,
-    onTerminalResult,
-  } = {}) {
-    await rehydrateAgentSessions();
-    const sessionId = String(session?.id || session || '').trim();
-    const descriptor = agentSessions.get(sessionId);
-    if (!descriptor || descriptor.closed) {
-      throw new Error(`agent session ${sessionId || '(empty)'} is closed`);
-    }
-    const entry = await entryForSession(sessionId, {
-      cwd: descriptor.cwd,
-      provider: descriptor.provider,
-      model: descriptor.model,
-      toolMode: 'full',
-    });
-    const target = entry.runtime.submitAndWait;
-    if (typeof target !== 'function') {
-      throw new TypeError('session runtime must implement submitAndWait');
-    }
-    descriptor.status = 'running';
-    descriptor.stage = 'running';
-    descriptor.updatedAt = Date.now();
-    try {
-      const options = {
-        id: `agent-turn-${randomUUID()}`,
-        mode: 'prompt',
-        priority: 'next',
-        context,
-        transcriptMeta: { sender: 'lead' },
-        ...(entry.runtime.isWireSafe === true || typeof onToolResult !== 'function'
-          ? {}
-          : { onToolResult }),
-      };
-      const detail = await target.call(entry.runtime, String(prompt || ''), options);
-      if (detail?.status === 'failed') {
-        throw new Error(String(detail.error || 'agent session turn failed'));
-      }
-      if (detail?.status === 'cancelled') {
-        throw new Error('agent session turn cancelled');
-      }
-      const result = detail?.result || { content: '' };
-      descriptor.status = 'idle';
-      descriptor.stage = 'idle';
-      descriptor.lastHandoff = typeof result?.content === 'string' ? result.content : '';
-      try { onTerminalResult?.(result); } catch {}
-      return result;
-    } catch (error) {
-      descriptor.status = /cancel/i.test(String(error?.message || '')) ? 'cancelled' : 'error';
-      descriptor.stage = descriptor.status;
-      throw error;
-    } finally {
-      descriptor.updatedAt = Date.now();
-      retainUnwatched(entry, 'agent child idle');
-    }
-  }
-
-  function cancelAgentTree(sessionId, reason = 'agent session cancelled') {
-    const id = String(sessionId || '').trim();
-    if (!id) return Promise.resolve(false);
-    const active = agentCancelRuns.get(id);
-    if (active) return active;
-    let run;
-    run = (async () => {
-      await rehydrateAgentSessions();
-      cancelBackgroundTasks({
-        surface: 'agent',
-        callerSessionId: id,
-        reason,
-      });
-      const children = [...(agentChildren.get(id) || [])];
-      await Promise.all(children.map((childId) => cancelAgentTree(childId, reason)));
-      const descriptor = agentSessions.get(id);
-      if (!descriptor) return children.length > 0;
-      if (descriptor.closed) return true;
-      let entry = sessionOwner(id);
-      if (!entry) {
-        try {
-          entry = await entryForSession(id, {
-            cwd: descriptor.cwd,
-            provider: descriptor.provider,
-            model: descriptor.model,
-            toolMode: 'full',
-          });
-        } catch (error) {
-          log(`agent cancel load failed session=${id}: ${error?.message || error}`);
-        }
-      }
-      const closeCanonical = entry?.runtime?.closeCanonicalSession;
-      if (typeof closeCanonical !== 'function') {
-        throw new TypeError('session runtime must implement closeCanonicalSession');
-      }
-      const closed = await closeCanonical.call(entry.runtime, reason);
-      if (closed !== true) throw new Error(`agent session ${id} could not be durably closed`);
-      descriptor.closed = true;
-      descriptor.status = 'closed';
-      descriptor.stage = 'closed';
-      descriptor.updatedAt = Date.now();
-      return true;
-    })().finally(() => {
-      if (agentCancelRuns.get(id) === run) agentCancelRuns.delete(id);
-    });
-    agentCancelRuns.set(id, run);
-    return run;
-  }
-
-  async function cancelAgentDescendants(parentSessionId, reason = 'parent session cancelled') {
-    await rehydrateAgentSessions();
-    const parentId = String(parentSessionId || '');
-    cancelBackgroundTasks({
-      surface: 'agent',
-      callerSessionId: parentId,
-      reason,
-    });
-    const children = [...(agentChildren.get(parentId) || [])];
-    if (!children.length) return false;
-    await Promise.all(children.map((childId) => cancelAgentTree(childId, reason)));
-    return true;
-  }
-
-  function agentDescendantSessionIds(parentSessionId) {
-    const descendants = [];
-    const seen = new Set();
-    const visit = (parentId) => {
-      for (const childId of agentChildren.get(String(parentId || '')) || []) {
-        if (seen.has(childId)) continue;
-        seen.add(childId);
-        descendants.push(childId);
-        visit(childId);
-      }
-    };
-    visit(parentSessionId);
-    return descendants;
-  }
-
-  const agentSurface = Object.freeze({
-    canonical: true,
-    canRun: (session) => Boolean(agentSessions.get(String(session?.id || ''))),
-    createChild: createAgentChild,
-    runTurn: runAgentTurn,
+  const agentTree = createAgentTree({
+    listSessions,
+    readStoredSession,
+    log,
+    sessionOwner,
+    stateBusy,
+    entryForSession,
+    retainUnwatched,
+    createSession,
   });
-
-  const agentManager = Object.freeze({
+  const {
+    agentDescriptor,
+    rootOwnerSessionId,
     rehydrateAgentSessions,
-    descendantSessionIds: agentDescendantSessionIds,
-    getSession: (sessionId) => agentDescriptor(sessionId),
-    listSessions: ({ includeClosed = false } = {}) => [...agentSessions.keys()]
-      .map(agentDescriptor)
-      .filter((session) => session && (includeClosed || session.closed !== true)),
-    getSessionRuntime: (sessionId) => {
-      const session = agentDescriptor(sessionId);
-      return session ? { stage: session.stage || session.status || 'idle' } : null;
-    },
-    async readSessionHandoff(sessionId) {
-      const id = String(sessionId || '').trim();
-      const descriptor = agentSessions.get(id);
-      if (!descriptor) return '';
-      if (typeof descriptor.lastHandoff === 'string' && descriptor.lastHandoff.trim()) {
-        return descriptor.lastHandoff;
-      }
-      if (typeof readStoredSession !== 'function') return '';
-      const stored = await readStoredSession(id, { includeMessages: true });
-      const handoff = lastStoredAgentHandoff(stored);
-      if (handoff) descriptor.lastHandoff = handoff;
-      return handoff;
-    },
-    async closeSession(sessionId, reason = 'agent session closed') {
-      await rehydrateAgentSessions();
-      return cancelAgentTree(sessionId, reason);
-    },
-    unloadSessionRuntime: () => false,
-    hideSessionFromList: () => false,
-  });
+    cancelAgentTree,
+    cancelAgentDescendants,
+    agentSurface,
+    agentManager,
+  } = agentTree;
 
   async function approveSession({
     sessionId, approvalId, decision, open: openHints = {}, baseRevision = null,
@@ -1786,7 +1060,6 @@ export function createSessionService({
     if (entry.indexedSessionId && sessionsById.get(entry.indexedSessionId) === entry) {
       sessionsById.delete(entry.indexedSessionId);
     }
-    if (entry.busy === true) busyEntries = Math.max(0, busyEntries - 1);
     entry.busy = false;
     try { await entry.runtime.dispose?.(reason, { keepBackgroundWork }); }
     catch (err) { log(`session dispose failed session=${sessionId}: ${err?.message || err}`); }
@@ -1806,8 +1079,7 @@ export function createSessionService({
     closed = true;
     try { unsubscribeExternalSessionStates(); } catch {}
     externalViewEntries.clear();
-    agentSessions.clear();
-    agentChildren.clear();
+    agentTree.clear();
     if (evictTimer) { clearInterval(evictTimer); evictTimer = null; }
     await desktopServices.dispose(reason);
     for (const entry of [...sessions]) {

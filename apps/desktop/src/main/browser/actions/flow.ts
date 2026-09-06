@@ -9,7 +9,7 @@ import { defineBrowserActions } from './types';
 
 export const flowActions = defineBrowserActions({
   async wait({ guest, command, signal, targetIsBackground, services }) {
-    const { cdp, reply } = services;
+    const { documents, reply } = services;
     const wantText = typeof command.text === 'string' && command.text.trim() ? command.text.trim() : '';
     const wantTextGone = typeof command.textGone === 'string' && command.textGone.trim()
       ? command.textGone.trim()
@@ -26,16 +26,12 @@ export const flowActions = defineBrowserActions({
       let textOk = !wantText;
       let textGoneOk = !wantTextGone;
       if (urlOk && (wantText || wantTextGone)) {
-        const pageText = await cdp.evaluate<string>(
-          guest,
-          `(document.body ? (document.body.innerText || document.body.textContent || '') : '').toLowerCase()`,
-          signal,
-        ).catch((error) => {
+        const pageText = await documents.pageText(guest, signal).then((text) => text.toLowerCase()).catch((error) => {
           if (signal?.aborted) throw signal.reason || error;
-          return '';
+          return null;
         });
-        textOk = !wantText || pageText.includes(wantText.toLowerCase());
-        textGoneOk = !wantTextGone || !pageText.includes(wantTextGone.toLowerCase());
+        textOk = pageText !== null && (!wantText || pageText.includes(wantText.toLowerCase()));
+        textGoneOk = pageText !== null && (!wantTextGone || !pageText.includes(wantTextGone.toLowerCase()));
       }
       if (urlOk && textOk && textGoneOk) {
         const outcome = await reply.snapshotResult(guest, command, signal, { targetIsBackground });
@@ -73,18 +69,24 @@ export const flowActions = defineBrowserActions({
     // the live ref set out from under the next step, which would reject
     // refs the caller legitimately holds, so the sequence pins it.
     const pinnedRefs = state.peek(guest)?.refSet;
+    const pinnedAccessibilityRefs = state.peek(guest)?.accessibilityRefs;
+    const generation = state.for(guest).documentGeneration;
     const performed: string[] = [];
     for (let index = 0; index < steps.length; index += 1) {
       const step = steps[index] || {};
       const stepAction = String(step.action || '').trim().toLowerCase();
+      if (state.for(guest).documentGeneration !== generation) {
+        throw new Error(`Sequence stopped before step ${index + 1}: the document changed; ${performed.length} step(s) completed.`);
+      }
       if (pinnedRefs) state.for(guest).refSet = pinnedRefs;
+      if (pinnedAccessibilityRefs) state.for(guest).accessibilityRefs = pinnedAccessibilityRefs;
       if (!SEQUENCE_STEP_ACTIONS.has(stepAction)) {
         throw new Error(
           `sequence step ${index + 1} action "${stepAction || '(empty)'}" is not chainable`,
         );
       }
       try {
-        await runCommand({
+        const result = await runCommand({
           ...step,
           action: stepAction,
           tab: command.tab,
@@ -93,6 +95,9 @@ export const flowActions = defineBrowserActions({
           session_id: command.session_id,
           turn_id: command.turn_id,
         }, signal);
+        if (result.outcome === 'blocked' || result.outcome === 'inconclusive') {
+          throw new Error(result.text);
+        }
       } catch (error) {
         // A partial sequence is a real page state, so report exactly how
         // far it got and hand back a fresh snapshot of where it stopped.

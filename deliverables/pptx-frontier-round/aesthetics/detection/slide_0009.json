@@ -1,0 +1,46 @@
+{
+  "source": "pptx-snapshot",
+  "image": "slide_0009.png",
+  "boxes": [
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        94,
+        210,
+        131,
+        242
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        94,
+        252,
+        818,
+        448
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        94,
+        495,
+        836,
+        657
+      ]
+    },
+    {
+      "label": "text",
+      "score": 1,
+      "coordinate": [
+        94,
+        683,
+        406,
+        717
+      ]
+    }
+  ]
+}

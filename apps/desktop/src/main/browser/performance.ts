@@ -2,6 +2,7 @@ import type { WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';
 import type { GuestSlot } from './guest-state';
+import { BrowserTraceExport } from './trace-file';
 
 interface TraceAggregate {
   count: number;
@@ -17,10 +18,12 @@ export class BrowserPerformanceTrace {
   constructor(
     private readonly maxEvents = 200_000,
     private readonly maxNames = 2_000,
+    private readonly raw?: BrowserTraceExport,
   ) {}
 
   add(events: unknown): void {
     if (!Array.isArray(events)) return;
+    this.raw?.add(events);
     for (const raw of events) {
       if (!raw || typeof raw !== 'object') continue;
       if (this.#events >= this.maxEvents) {
@@ -69,6 +72,7 @@ export interface ActiveBrowserPerformanceTrace {
   trace: BrowserPerformanceTrace;
   complete: Promise<void>;
   resolveComplete: () => void;
+  raw?: BrowserTraceExport;
 }
 
 export interface BrowserPerformanceCommandHost {
@@ -77,6 +81,8 @@ export interface BrowserPerformanceCommandHost {
   tracesByGuest: GuestSlot<ActiveBrowserPerformanceTrace>;
   settleAfterAction(guest: WebContents, signal?: AbortSignal): Promise<unknown>;
   pause(ms: number, signal?: AbortSignal): Promise<void>;
+  traceDirectory?: () => string;
+  redactText?: (guest: WebContents, value: string) => string;
 }
 
 const TRACE_COMPLETION_TIMEOUT_MS = 10_000;
@@ -86,7 +92,7 @@ export function createBrowserPerformanceCommands(host: BrowserPerformanceCommand
 
   async function performanceResult(
     guest: WebContents,
-    command: { operation?: string; reload?: boolean },
+    command: { operation?: string; reload?: boolean; saveTrace?: boolean },
     signal?: AbortSignal,
   ): Promise<{ text: string }> {
     const operation = String(command.operation || 'metrics').toLowerCase();
@@ -106,10 +112,15 @@ export function createBrowserPerformanceCommands(host: BrowserPerformanceCommand
       }
       let resolveComplete = () => {};
       const complete = new Promise<void>((resolve) => { resolveComplete = resolve; });
+      if (command.saveTrace && !host.traceDirectory) throw new Error('browser trace export is unavailable');
+      const raw = command.saveTrace
+        ? new BrowserTraceExport((value) => host.redactText?.(guest, value) ?? value)
+        : undefined;
       const active: ActiveBrowserPerformanceTrace = {
-        trace: new BrowserPerformanceTrace(),
+        trace: new BrowserPerformanceTrace(200_000, 2_000, raw),
         complete,
         resolveComplete,
+        raw,
       };
       tracesByGuest.set(guest, active);
       let tracingStarted = false;
@@ -158,7 +169,12 @@ export function createBrowserPerformanceCommands(host: BrowserPerformanceCommand
             throw new Error('performance trace completion timed out');
           }),
         ]);
-        return { text: `Performance trace stopped.\n${active.trace.summary()}` };
+        let saved = '';
+        if (active.raw) {
+          const file = active.raw.save(host.traceDirectory!());
+          saved = `\nRedacted Chrome trace written to ${file.path} (${file.bytes} bytes).`;
+        }
+        return { text: `Performance trace stopped.\n${active.trace.summary()}${saved}` };
       } finally {
         tracesByGuest.delete(guest);
       }

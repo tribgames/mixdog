@@ -38,7 +38,7 @@ export function goalStateReminder(goal, { reason = '' } = {}) {
   const lead = reason === 'compaction'
     ? 'Context was compacted, so this Goal\'s earlier tool results are no longer in context. Current durable snapshot:'
     : reason === 'paused'
-      ? 'This Goal is paused and was waiting on the user, whose reply has now arrived. Resume it and continue, or abandon it if the user redirected away from this objective.'
+      ? 'This Goal is paused; the user replied. Call resume alongside resumed work, not for questions alone; abandon only if the user redirected away from this objective.'
       : reason === 'objective-updated'
         ? 'The user changed this Goal\'s objective. Re-align the durable tasks to the objective below before continuing.'
         : 'Current durable Goal snapshot:';
@@ -49,6 +49,8 @@ export function goalStateReminder(goal, { reason = '' } = {}) {
     '',
     `Objective: ${escapeGoalPromptText(goal.objective)}`,
     `Status: ${escapeGoalPromptText(goal.status)} · tasks ${completed}/${tasks.length}`,
+    ...(goal.revision ? [`Revision: ${goal.revision}`] : []),
+    ...(goal.needsTaskReview ? ['The objective changed; reconcile the full task list with set_tasks before continuing.'] : []),
     '',
     'Durable tasks:',
     ...goalTaskLines(tasks),

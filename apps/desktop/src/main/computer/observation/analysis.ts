@@ -29,8 +29,7 @@ const CAPTURE_CHANGE_SAMPLE = 8;
 /** Below this the tree is too thin to prove anything, so the frame stays. */
 const CAPTURE_IMAGE_SKIP_MIN_ELEMENTS = 3;
 
-/** A predicate is proven, disproven, or unobserved. Unknown is never success. */
-export type VerifyStatus = 'satisfied' | 'unsatisfied' | 'unknown';
+export { evaluateVerifyPredicate, type VerifyStatus } from './verify-predicate';
 
 const OCR_LANGUAGE_TAG_PATTERN = /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/;
 
@@ -373,32 +372,6 @@ export function summarizeCaptureChanges(
   };
 }
 
-export function evaluateVerifyPredicate(
-  predicate: Record<string, unknown>,
-  observation: { ok: boolean; exists: boolean; title: string; haystack: string },
-): VerifyStatus {
-  if (!observation.ok) return 'unknown';
-  if (typeof predicate.window_exists === 'boolean') {
-    return observation.exists === predicate.window_exists ? 'satisfied' : 'unsatisfied';
-  }
-  if (!observation.exists) return 'unknown';
-  if (typeof predicate.present === 'string') {
-    return observation.haystack.includes(predicate.present.toLowerCase())
-      ? 'satisfied'
-      : 'unsatisfied';
-  }
-  if (typeof predicate.absent === 'string') {
-    return observation.haystack.includes(predicate.absent.toLowerCase())
-      ? 'unsatisfied'
-      : 'satisfied';
-  }
-  if (typeof predicate.title_contains === 'string') {
-    return observation.title.toLowerCase().includes(predicate.title_contains.toLowerCase())
-      ? 'satisfied'
-      : 'unsatisfied';
-  }
-  return 'unknown';
-}
 
 export function transitionConfirmsSemanticAction(
   action: string,

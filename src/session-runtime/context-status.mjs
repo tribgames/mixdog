@@ -72,8 +72,8 @@ export function createContextStatus({
     return {
       session,
       sessionId: session?.id || null,
-      provider: route.provider,
-      model: route.model,
+      provider: session?.provider || route.provider,
+      model: session?.model || route.model,
       cwd: getCurrentCwd(),
       mode: getMode(),
       messages,
@@ -199,8 +199,8 @@ export function createContextStatus({
       ));
       return {
         sessionId: session?.id || null,
-        provider: route.provider,
-        model: route.model,
+        provider: session?.provider || route.provider,
+        model: session?.model || route.model,
         cwd: getCurrentCwd(),
         toolMode: getMode(),
         contextWindow: routeWindow || null,
@@ -334,8 +334,8 @@ export function createContextStatus({
       : null;
     const value = {
       sessionId: session?.id || null,
-      provider: route.provider,
-      model: route.model,
+      provider: session?.provider || route.provider,
+      model: session?.model || route.model,
       cwd: getCurrentCwd(),
       toolMode: getMode(),
       contextWindow: displayWindow || effectiveWindow || null,

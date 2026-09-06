@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 
 import { updateJsonAtomicSync } from '../../runtime/shared/atomic-file.mjs';
 import { resolveAgentTerminalReapMs } from '../../session-runtime/config-helpers.mjs';
-import { clean } from './helpers.mjs';
+import { clean, registerExitFlush, runtimeAlive } from './helpers.mjs';
 import { leadPoolTag, workerRowKey } from './worker-rows.mjs';
 import { LEAD_WORKER_INDEX_FILE } from './tool-def.mjs';
 
@@ -23,32 +23,8 @@ const LEAD_POOL_FRESH_MS = 2 * 60 * 1000;
 // dev redeploy restarting the daemon mid-turn) leaves `running` behind forever:
 // the row is active, so the reaper refuses it, and the panel shows 작업 중 with
 // a growing elapsed for a session that stopped (user report). Flush on exit,
-// and recover what an exit could not write on the next construction.
-const exitFlushes = new Set();
-let exitFlushInstalled = false;
-
-function registerExitFlush(flush) {
-  exitFlushes.add(flush);
-  if (exitFlushInstalled) return;
-  exitFlushInstalled = true;
-  process.on('exit', () => {
-    for (const entry of exitFlushes) {
-      try { entry(); } catch { /* exit flush is best effort */ }
-    }
-  });
-}
-
-/** Unstamped legacy rows report alive: only the freshness window judges them. */
-function runtimeAlive(pid) {
-  const id = Number(pid) || 0;
-  if (id <= 0 || id === process.pid) return true;
-  try {
-    process.kill(id, 0);
-    return true;
-  } catch (error) {
-    return error?.code === 'EPERM';
-  }
-}
+// and recover what an exit could not write on the next construction
+// (registerExitFlush / runtimeAlive live in helpers.mjs).
 
 function normalizeLeadRows(value) {
   const source = Array.isArray(value?.workers)

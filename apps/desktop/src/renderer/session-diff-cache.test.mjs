@@ -7,6 +7,7 @@ import {
   peekSessionDiff,
   primeSessionDiff,
   releaseSessionDiff,
+  SESSION_DIFF_CACHE_MAX_CHARS,
 } from "./session-diff-cache.ts";
 
 const PATCH = [
@@ -71,10 +72,10 @@ test("a file slice reuses the shared result", async () => {
 });
 
 test("prime/peek/release manage the cache without the backend", async () => {
-  primeSessionDiff("cache-delta", RESULT);
-  assert.equal(peekSessionDiff("cache-delta")?.patch, PATCH);
   const calls = [];
   stubBackend(calls);
+  primeSessionDiff("cache-delta", RESULT);
+  assert.equal(peekSessionDiff("cache-delta")?.patch, PATCH);
   await fetchSessionDiff("cache-delta");
   assert.equal(calls.length, 0);
   releaseSessionDiff("cache-delta");
@@ -87,4 +88,46 @@ test("a blank session never reaches the backend", async () => {
   const result = await fetchSessionDiff("   ");
   assert.equal(result.supported, false);
   assert.equal(calls.length, 0);
+});
+
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+
+test("deleting a session fences its pending diff completion", async () => {
+  const gate = deferred();
+  globalThis.window = { mixdogDesktop: { invokeCapability: () => gate.promise } };
+  const pending = fetchSessionDiff("deleted");
+  releaseSessionDiff("deleted");
+  gate.resolve({ value: RESULT });
+  assert.equal((await pending).patch, PATCH);
+  assert.equal(peekSessionDiff("deleted"), null);
+});
+
+test("an older completion or failure never replaces or releases a newer request", async () => {
+  for (const failOld of [false, true]) {
+    const old = deferred(), fresh = deferred();
+    let calls = 0;
+    globalThis.window = { mixdogDesktop: { invokeCapability: () => (++calls === 1 ? old : fresh).promise } };
+    const before = fetchSessionDiff("race");
+    const observed = before.catch(() => null);
+    releaseSessionDiff("race");
+    const after = fetchSessionDiff("race");
+    if (failOld) old.reject(new Error("old failure"));
+    else old.resolve({ value: { ...RESULT, patch: "old" } });
+    await observed;
+    assert.equal(fetchSessionDiff("race"), after);
+    fresh.resolve({ value: { ...RESULT, patch: "new" } });
+    await after;
+    assert.equal(peekSessionDiff("race").patch, "new");
+  }
+});
+
+test("oversized diffs are delivered without being retained", async () => {
+  const result = { ...RESULT, patch: "x".repeat(SESSION_DIFF_CACHE_MAX_CHARS + 1) };
+  globalThis.window = { mixdogDesktop: { invokeCapability: async () => ({ value: result }) } };
+  assert.equal((await fetchSessionDiff("large")).patch, result.patch);
+  assert.equal(peekSessionDiff("large"), null);
 });

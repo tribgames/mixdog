@@ -11,6 +11,7 @@ import {
 
 import { splitGitPatchHunks, type GitPatchHunk } from "../shared/git-patch";
 import { t } from "./i18n";
+import { ErrorNotice } from "./ErrorNotice";
 import {
   beginBootSurface,
   reportBootSurfaceReady,
@@ -206,8 +207,8 @@ export function GitDiffPane({
   const sourceLabel = selection.source === "session"
     ? t("Session diff")
     : selection.source === "commit"
-    ? `Commit ${String(selection.hash || "").slice(0, 8)}`
-    : selection.source === "staged" ? "Staged Changes" : "Working Tree Changes";
+    ? t("Commit {{hash}}", { hash: String(selection.hash || "").slice(0, 8) })
+    : selection.source === "staged" ? t("Staged Changes") : t("Working Tree Changes");
   return <div className="workspace-git-diff">
     <header>
       <div>
@@ -233,26 +234,26 @@ export function GitDiffPane({
       {patch === null
         ? <p className="workspace-git-diff-state"><ProgressSpinner size={16} /> Loading diff…</p>
         : error
-          ? <p className="workspace-git-diff-state" role="alert">{error}</p>
+          ? <ErrorNotice error={error} />
           : patch
             ? hunks.length > 0
               ? <div className="workspace-git-diff-hunks">
                 {hunks.map((hunk, index) => {
                   const staged = selection.source === "staged";
-                  const label = staged ? "Unstage" : "Stage";
+                  const label = staged ? t("Unstage") : t("Stage");
                   return <section className="workspace-git-diff-hunk"
                     key={`${hunk.header}:${index}`}>
                     <header>
                       <code>{hunk.header}</code>
                       <button type="button" disabled={busyHunk >= 0}
-                        aria-label={`${label} hunk ${index + 1}`}
+                        aria-label={t("{{action}} hunk {{number}}", { action: label, number: index + 1 })}
                         onClick={() => void applyHunk(hunk, index)}>
                         {busyHunk === index
                           ? <ProgressSpinner size={14} aria-hidden="true" />
                           : staged
                             ? <Minus size={14} aria-hidden="true" />
                             : <Plus size={14} aria-hidden="true" />}
-                        {label} Hunk
+                        {t("{{action}} hunk", { action: label })}
                       </button>
                     </header>
                     {/* The section header above is the ONE place this hunk's

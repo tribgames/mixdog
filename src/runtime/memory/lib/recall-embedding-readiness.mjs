@@ -1,5 +1,5 @@
 const _envColdWaitMs = Number(process.env.MIXDOG_RECALL_COLD_EMBED_WAIT_MS)
-export const RECALL_COLD_EMBED_WAIT_MS = Number.isFinite(_envColdWaitMs) && _envColdWaitMs >= 0
+const RECALL_COLD_EMBED_WAIT_MS = Number.isFinite(_envColdWaitMs) && _envColdWaitMs >= 0
   ? Math.floor(_envColdWaitMs)
   : 3_000
 

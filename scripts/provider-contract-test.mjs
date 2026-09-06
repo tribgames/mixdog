@@ -863,15 +863,15 @@ test('provider-specific thinking fields do not leak across compat contracts', ()
     );
     assert.deepEqual(
         applyCompatProviderChatOptions({}, 'deepseek', { effort: 'xhigh' }),
-        { thinking: { type: 'enabled' }, reasoning_effort: 'max' },
+        { thinking: { type: 'enabled' }, reasoning_effort: 'high' },
     );
     assert.deepEqual(
         applyCompatProviderChatOptions({}, 'deepseek', { effort: 'none' }),
         { thinking: { type: 'disabled' } },
     );
     assert.deepEqual(
-        applyCompatProviderChatOptions({}, 'ollama', { effort: 'max' }),
-        { reasoning_effort: 'max' },
+        applyCompatProviderChatOptions({}, 'mixdog-local', { effort: 'max' }),
+        {},
     );
     const go = applyCompatProviderChatOptions(
         {},
@@ -883,8 +883,8 @@ test('provider-specific thinking fields do not leak across compat contracts', ()
     assert.deepEqual(go, { reasoning_effort: 'high' });
     assert.equal(go.thinking, undefined);
     assert.deepEqual(
-        applyCompatProviderChatOptions({}, 'lmstudio', {}, { reasoningEffort: 'medium' }),
-        { reasoning_effort: 'medium' },
+        applyCompatProviderChatOptions({}, 'mixdog-local', {}, { reasoningEffort: 'medium' }),
+        {},
     );
     assert.deepEqual(applyCompatProviderChatOptions({}, 'xai', { effort: 'none' }), {});
     assert.deepEqual(

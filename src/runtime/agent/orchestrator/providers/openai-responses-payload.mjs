@@ -1,238 +1,17 @@
-// ChatGPT-backend Responses payload builders, extracted from openai-oauth.mjs.
-/**
- * OpenAI ChatGPT OAuth subscription provider.
- *
- * Dispatches over the WebSocket upgrade of chatgpt.com/backend-api/codex/
- * responses (responses_websockets=2026-02-06 beta). Authenticates via PKCE
- * OAuth using Mixdog-owned token storage. Streaming/framing lives in
- * openai-oauth-ws.mjs; this file owns auth, model catalog, request-body
- * shape, and HTTP/SSE fallback when WebSocket transport is unhealthy.
- */
-import { createHash } from 'crypto';
-import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
-import { join, resolve } from 'path';
-import { getPluginData } from '../config.mjs';
-import { enrichModels } from './model-catalog.mjs';
-import { sanitizeModelList } from './model-list-sanitize.mjs';
-import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
-import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
-import { makeModelCache } from './model-cache.mjs';
-import { providerReplayItems } from './lib/provider-replay.mjs';
-import { ensureResponsesCallOutputs } from './lib/wire-pairing.mjs';
-
-import { sendViaWebSocket } from './openai-oauth-ws.mjs';
-import { _combineUsageWithWarmup } from './openai-ws-events.mjs';
-import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
+// Shared public API and OAuth Responses payload construction.
+import { projectEffortConfiguration } from './effort-configuration.mjs';
+import { convertMessagesToResponsesInput } from './openai-responses-input.mjs';
+export { convertMessagesToResponsesInput } from './openai-responses-input.mjs';
 import {
     buildStableProviderPromptCacheKey,
     resolveProviderPromptCacheLane,
-    resolveProviderCacheKey,
 } from '../agent-runtime/cache-strategy.mjs';
 import {
-    appendAgentTrace,
-    traceAgentFetch,
-    traceAgentSse,
-    traceAgentUsage,
-} from '../agent-trace.mjs';
-import {
-    PROVIDER_HTTP_RESPONSE_TIMEOUT_MS,
-    PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
-    PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
-    streamStalledError,
-    createTimeoutSignal,
-    createPassthroughSignal,
-} from '../stall-policy.mjs';
-import { shouldFallbackTransport } from './retry-classifier.mjs';
-import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
-import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
-import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './anthropic-leaked-toolcall.mjs';
-import {
-    normalizeContentForOpenAIResponses,
-    splitToolContentForOpenAIResponses,
-} from './media-normalization.mjs';
-import {
-    customToolCallFromResponseItem,
-    customToolInputFromArguments,
-    isCustomToolCallRecord,
     isResponsesFreeformTool,
-    nativeToolSearchCallInput,
-    nativeToolSearchOutputInput,
     toResponsesCustomTool,
 } from './custom-tool-wire.mjs';
-import {
-    sendViaHttpSse,
-    _envFlag,
-    _shouldUseOpenAIHttpFallback,
-} from './openai-oauth-http-sse.mjs';
-import { createOpenAIOAuthLogin } from './openai-oauth-login.mjs';
-import { warmCodexClientVersion } from './codex-client-meta.mjs';
-import {
-    _displayCodexModel,
-    _codexFamily,
-    _normalizeCodexModel,
-    _compareVersion,
-    _isMainCodexFamily,
-    _markLatestCodex,
-} from './openai-codex-model.mjs';
-
-// Public test/integration entry retained alongside the transport module export.
-// --- Constants ---
-
+import { _envFlag } from './openai-oauth-http-sse.mjs';
 import { _findCachedCodexModel, codexModelSupportsServiceTier } from './openai-oauth.mjs';
-
-function _contentTextParts(content, type = 'input_text') {
-    if (typeof content === 'string') return content ? [{ type, text: content }] : [];
-    if (!Array.isArray(content)) {
-        const text = content == null ? '' : JSON.stringify(content);
-        return text ? [{ type, text }] : [];
-    }
-    const out = [];
-    for (const item of content) {
-        if (!item || typeof item !== 'object') continue;
-        if (typeof item.text === 'string') {
-            out.push({ type: item.type === 'output_text' ? 'output_text' : type, text: item.text });
-        } else if (typeof item.content === 'string') {
-            out.push({ type, text: item.content });
-        }
-    }
-    return out;
-}
-
-/**
- * Convert a message slice to Responses API input items.
- */
-export function convertMessagesToResponsesInput(messages, opts = {}) {
-    const out = [];
-    const pendingToolMedia = [];
-    const customToolCallNameById = new Map();
-    const replayEncryptedReasoning = opts.replayEncryptedReasoning === true;
-    const wireParity = opts.codexWireParity === true;
-    const wireMessageMetadata = opts.codexMessageMetadata
-        && typeof opts.codexMessageMetadata === 'object'
-        ? opts.codexMessageMetadata
-        : {};
-    const wireMessage = (role, content) => (wireParity
-        ? {
-            type: 'message',
-            role,
-            content,
-            internal_chat_message_metadata_passthrough: wireMessageMetadata,
-        }
-        : { role, content });
-    // `phase` replays each retained item on the side of the assistant text it
-    // was emitted on, so the rebuilt turn keeps the response's own item order.
-    const pushReasoningItems = (message, phase = 'before') => {
-        if (!replayEncryptedReasoning || message?.role !== 'assistant' || !Array.isArray(message.reasoningItems)) return;
-        for (const item of message.reasoningItems) {
-            if ((item?.afterText === true) !== (phase === 'after')) continue;
-            // Collector shape contract: the WS/HTTP stream collectors store
-            // retained items as {id, encrypted_content, summary} WITHOUT a
-            // type tag (openai-ws-stream pushReasoningItem). Requiring
-            // type:'reasoning' here silently dropped every retained item, so
-            // replay never actually fired. Accept untagged items; only an
-            // explicit non-reasoning tag is rejected.
-            if (!item || (item.type != null && item.type !== 'reasoning')) continue;
-            if (typeof item.encrypted_content !== 'string' || !item.encrypted_content) continue;
-            out.push({
-                type: 'reasoning',
-                ...(typeof item.id === 'string' && item.id ? { id: item.id } : {}),
-                encrypted_content: item.encrypted_content,
-                summary: Array.isArray(item.summary) ? item.summary : [],
-            });
-        }
-    };
-    const flushToolMedia = () => {
-        if (!pendingToolMedia.length) return;
-        out.push(wireMessage('user', pendingToolMedia.splice(0)));
-    };
-    for (const m of messages) {
-        if (!m || m.role === 'system') continue;
-        if (m.role === 'tool') {
-            const { output, mediaContent } = splitToolContentForOpenAIResponses(m.content);
-            if (customToolCallNameById.has(m.toolCallId || '')) {
-                out.push({
-                    type: 'custom_tool_call_output',
-                    call_id: m.toolCallId || '',
-                    name: customToolCallNameById.get(m.toolCallId || '') || undefined,
-                    output,
-                });
-                if (mediaContent) pendingToolMedia.push(...mediaContent);
-                continue;
-            }
-            const nativeSearchOutput = nativeToolSearchOutputInput(
-                m,
-                opts.nativeToolSearchProvider || 'openai-oauth',
-            );
-            if (nativeSearchOutput) {
-                out.push(nativeSearchOutput);
-                if (mediaContent) pendingToolMedia.push(...mediaContent);
-                continue;
-            }
-            out.push({
-                type: 'function_call_output',
-                call_id: m.toolCallId || '',
-                output,
-            });
-            if (mediaContent) pendingToolMedia.push(...mediaContent);
-            continue;
-        }
-        flushToolMedia();
-        const orderedReplay = replayEncryptedReasoning && m.role === 'assistant'
-            ? providerReplayItems(m, 'openai-responses')
-            : undefined;
-        if (orderedReplay?.length) {
-            for (const item of orderedReplay) {
-                if (item?.type === 'custom_tool_call' && item.call_id) {
-                    customToolCallNameById.set(item.call_id, item.name || '');
-                }
-                out.push(item);
-            }
-            continue;
-        }
-        pushReasoningItems(m, 'before');
-        if (m.role === 'assistant' && Array.isArray(m.toolCalls) && m.toolCalls.length) {
-            // Default path deliberately omits reasoning replay: openai-oauth
-            // rejects an `rs_*` item repeated inside the same stateful
-            // handshake session_id. The explicit replay experiment pairs this
-            // converter option with stateless HTTP headers, where the complete
-            // retained conversation is the only continuation source.
-            if (m.content) out.push(wireMessage('assistant', normalizeContentForOpenAIResponses(m.content, { role: 'assistant' })));
-            pushReasoningItems(m, 'after');
-            for (const tc of m.toolCalls) {
-                const nativeSearchCall = nativeToolSearchCallInput(tc);
-                if (nativeSearchCall) {
-                    out.push(nativeSearchCall);
-                } else if (isCustomToolCallRecord(tc)) {
-                    if (tc.id) customToolCallNameById.set(tc.id, tc.name || '');
-                    out.push({
-                        type: 'custom_tool_call',
-                        call_id: tc.id,
-                        name: tc.name,
-                        input: customToolInputFromArguments(tc.name, tc.arguments),
-                    });
-                } else {
-                    out.push({
-                        type: 'function_call',
-                        call_id: tc.id,
-                        name: tc.name === 'tool_search' ? 'load_tool' : tc.name,
-                        arguments: JSON.stringify(tc.arguments),
-                    });
-                }
-            }
-            continue;
-        }
-        out.push(wireMessage(
-            m.role === 'assistant' ? 'assistant' : 'user',
-            normalizeContentForOpenAIResponses(m.content, { role: m.role }),
-        ));
-        pushReasoningItems(m, 'after');
-    }
-    flushToolMedia();
-    // Wire-level pairing guard: replay envelopes can carry a call whose
-    // result never committed (cancel/abort). The provider hard-rejects the
-    // unpaired call, so synthesize the missing outputs here.
-    return ensureResponsesCallOutputs(out);
-}
 
 export function toOpenAIResponsesTool(t) {
     if (t?.name === 'load_tool' || t?.name === 'tool_search') {
@@ -311,26 +90,21 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         .join('\n\n---\n\n');
     const opts = sendOpts || {};
     const promptCacheProvider = opts.promptCacheProvider || 'openai-oauth';
-    // Recovery-only encrypted-reasoning replay is DEFAULT ON for the OAuth
-    // backend (validated 2026-08-11: smoke wire parity on normal chains +
-    // live full-frame acceptance + full-run A/B). The per-socket policy in
-    // _applyReasoningReplayPolicy strips rs_* on live chains, so this only
-    // changes recovery frames. MIXDOG_OAI_DISABLE_REASONING_REPLAY=1 is the
-    // kill switch (wins over everything); explicit opts.replayEncryptedReasoning
-    // still forces either direction for probes.
+    const effortProjection = projectEffortConfiguration(messages, promptCacheProvider, model, opts);
+    // Both OpenAI routes retain reasoning in full logical history. Delta
+    // transport strips an anchored response; recovery/full-frame sends need the
+    // original items. Preserve explicit opt-out and the existing kill switch.
     const replayEncryptedReasoning = !_envFlag('MIXDOG_OAI_DISABLE_REASONING_REPLAY', false)
         && (opts.replayEncryptedReasoning === true
             || (opts.replayEncryptedReasoning !== false
-                && promptCacheProvider === 'openai-oauth'));
+                && (promptCacheProvider === 'openai-oauth' || promptCacheProvider === 'openai')));
     const input = convertMessagesToResponsesInput(messages, {
+        effortProjection,
         providerState: opts.providerState,
         model,
         nativeToolSearchProvider: promptCacheProvider,
         replayEncryptedReasoning,
         codexWireParity: promptCacheProvider === 'openai-oauth',
-        codexMessageMetadata: (opts.turnId || opts.turn_id)
-            ? { turn_id: opts.turnId || opts.turn_id }
-            : {},
     });
     if (environmentText) {
         // Leading input item, after the cached prefix instead of inside it.
@@ -345,11 +119,7 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
                 text: `<environment_context>\n${environmentText}\n</environment_context>`,
             }],
             ...(promptCacheProvider === 'openai-oauth'
-                ? {
-                    internal_chat_message_metadata_passthrough: (opts.turnId || opts.turn_id)
-                        ? { turn_id: opts.turnId || opts.turn_id }
-                        : {},
-                }
+                ? { internal_chat_message_metadata_passthrough: {} }
                 : {}),
         });
     }
@@ -388,7 +158,7 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         // carries reasoning as {"effort":"..."} with NO summary field on
         // gpt-5.5. Match the observed bytes.
         reasoning: {
-            effort: _normalizeReasoningEffort(opts.effort),
+            effort: _normalizeReasoningEffort(effortProjection?.initialEffort ?? opts.effort),
             ...(supportsReasoningSummary ? { summary: 'auto' } : {}),
         },
         store: process.env.MIXDOG_OAI_STORE === 'true' ? true : false,
@@ -470,10 +240,8 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
         text: { verbosity },
         ...(body.max_output_tokens ? { max_output_tokens: body.max_output_tokens } : {}),
     };
-    // NOTE: prompt_cache_retention is a public OpenAI Responses API parameter,
-    // but the openai-oauth endpoint still rejects it ("Unsupported parameter:
-    // prompt_cache_retention", re-probed 2026-06-22). Leave retention on the
-    // openai-oauth server default; public OpenAI direct injects 24h separately.
+    // Cache lifetime fields are public-API/model-specific. The direct provider
+    // adds them separately; OAuth keeps its backend defaults.
     return ordered;
 }
 

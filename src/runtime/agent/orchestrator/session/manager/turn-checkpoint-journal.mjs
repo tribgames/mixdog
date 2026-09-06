@@ -49,14 +49,14 @@ import { renameWithRetrySync } from '../../../../shared/atomic-file.mjs';
 import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';
 import { promptContentText } from './prompt-utils.mjs';
 
-export const TURN_CHECKPOINT_VERSION = 1;
+const TURN_CHECKPOINT_VERSION = 1;
 const SESSION_ID = /^[A-Za-z0-9_-]+$/;
 // Ceiling for records queued but not yet handed to the OS. Reaching it means
 // the append lane cannot keep up; the writer then drains synchronously rather
 // than dropping records — recovery correctness outranks a rare, bounded stall.
 const MAX_PENDING_JOURNAL_BYTES = 4 * 1024 * 1024;
 
-export function checkpointDir() {
+function checkpointDir() {
     const dir = join(getPluginData(), 'turn-checkpoints');
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     return dir;
@@ -405,7 +405,7 @@ function interruptionSnapshotFromState(state) {
     };
 }
 
-export function applyInterruptionDelta(state, delta) {
+function applyInterruptionDelta(state, delta) {
     if (!delta || typeof delta !== 'object') return state;
     if (typeof delta.rs === 'boolean') state.responseStarted = delta.rs;
     if (delta.ph === 'tools' || delta.ph === 'streaming') state.phase = delta.ph;

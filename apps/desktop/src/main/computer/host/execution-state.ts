@@ -12,6 +12,12 @@ export interface InputRecoveryState {
   restoreOwnerWindowId: string;
   cursorX: number;
   cursorY: number;
+  inputTick?: number;
+  inputObserverReady?: boolean;
+  inputMonitorId?: string;
+  inputUserSequence?: number;
+  syntheticInput?: boolean;
+  foregroundWithinTarget?: boolean;
 }
 
 export interface ActiveExecution {

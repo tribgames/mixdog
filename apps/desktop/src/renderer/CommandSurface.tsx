@@ -11,7 +11,8 @@ import {
 } from './command-surface-state';
 import { t } from './i18n';
 import { acquireModalLayer } from './modal-layer';
-import { showDesktopToast } from './notifications';
+import { useErrorToast } from './notifications';
+import { ErrorNotice } from './ErrorNotice';
 import {
   inheritanceContextFit,
   sessionModelSelection,
@@ -140,9 +141,7 @@ export function CommandSurface({
   useEffect(() => {
     if (open) void load();
   }, [load, open]);
-  useEffect(() => {
-    if (open && error) showDesktopToast(error, 'error');
-  }, [error, open]);
+  useErrorToast(open ? error : '', `command:${surface}`);
   useEffect(() => {
     if (!open || surface !== 'context' || loading
       || typeof api.subscribeState !== 'function') return undefined;
@@ -388,7 +387,7 @@ function InheritBody({ status, snapshot, sessionId, loading, onInherit, onClose 
           </dd></div>
         <div><dt>{t('Context')}</dt><dd>{fit.percent === null ? '—' : `${fit.percent}%`}</dd></div>
       </dl>
-      {(blocked || failure) && <p className="inherit-surface-note" role="status">{failure || blocked}</p>}
+      {(blocked || failure) && <ErrorNotice error={failure || blocked} role="status" />}
     </div>
     <footer className="inherit-surface-actions">
       {onClose && <button type="button" className="inherit-surface-cancel"

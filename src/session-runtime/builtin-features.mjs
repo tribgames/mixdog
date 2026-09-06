@@ -6,7 +6,7 @@
 // feature is BOTH installed and enabled; its toggle merely flips `enabled`
 // after installation. Voice keeps its on-disk runtime probe, and Browser
 // Use / Computer Use keep their bridge-presence gate plus desktop-side
-// installed markers — this section covers the runtime-persisted trio.
+// installed markers — this section covers the runtime-persisted features.
 //
 // Fresh profiles start with an explicit empty `builtins` section, so every
 // feature presents as "not installed". A config that predates the section is
@@ -37,7 +37,8 @@ function bridgePresent(file) {
   }
 }
 
-export const INSTALLABLE_BUILTIN_IDS = Object.freeze(['git', 'memory', 'office']);
+export const INSTALLABLE_BUILTIN_IDS = Object.freeze(['git', 'memory', 'office', 'localProvider']);
+const GRANDFATHERED_BUILTIN_IDS = Object.freeze(['git', 'memory', 'office']);
 
 /** Model-facing activation for one gated feature: an explicit MIXDOG_FEATURE_*
  *  env override (headless/bench) wins, otherwise the install marker and the
@@ -58,6 +59,10 @@ export function builtinFeatureActive(configLike, id) {
   if (id === 'office') {
     return featureEnvOverride('MIXDOG_FEATURE_OFFICE')
       ?? (builtinInstalled(configLike, 'office') && moduleEnabled(configLike, 'office', true));
+  }
+  if (id === 'localProvider') {
+    return builtinInstalled(configLike, 'localProvider')
+      && moduleEnabled(configLike, 'localProvider', true);
   }
   // Media Studio is a hidden built-in like setup: no Settings card, no install
   // step, always on. The lane catalog ships with the runtime and sign-in happens
@@ -93,7 +98,7 @@ export function featureDisallowedToolsFor(configLike, {
   return [
     ...(builtinFeatureActive(configLike, 'webSearch') ? [] : ['web_search', 'web_fetch']),
     ...(builtinFeatureActive(configLike, 'memory') ? [] : ['memory', 'recall']),
-    ...(builtinFeatureActive(configLike, 'git') ? [] : ['git', 'git_stage']),
+    ...(builtinFeatureActive(configLike, 'git') ? [] : ['git', 'git_stage', 'github']),
     ...(browser ? [] : ['browser']),
     ...(computer ? [] : ['computer']),
     ...(builtinFeatureActive(configLike, 'office') ? [] : ['office']),
@@ -130,7 +135,7 @@ export function withGrandfatheredBuiltins(configLike) {
   const existingProfile = ['presets', 'providers', 'modules', 'default', 'memoryTools', 'recap']
     .some((key) => config[key] !== undefined);
   if (existingProfile) {
-    for (const id of INSTALLABLE_BUILTIN_IDS) {
+    for (const id of GRANDFATHERED_BUILTIN_IDS) {
       next = setBuiltinInstalledInConfig(next, id, true);
     }
   }

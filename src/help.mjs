@@ -1,7 +1,7 @@
 import { stdout } from 'node:process';
 
 /** Help text printed by `--help`. */
-export const HELP_LINES = [
+const HELP_LINES = [
   'mixdog — standalone mixdog CLI/TUI coding agent.',
   '',
   'Usage:',

@@ -398,7 +398,7 @@ export function toolCallFingerprint(name, args) {
 // `toolu_leaked_…`, `gemini_leaked_…`). Such an id is not a server identity, so
 // a synthetic call can only be identified by its name+args fingerprint —
 // whereas a provider-assigned id IS the identity of a real call.
-export function isLeakedSyntheticToolCallId(id) {
+function isLeakedSyntheticToolCallId(id) {
     return typeof id === 'string' && id.includes('_leaked_');
 }
 export function createToolCallDedupe() {

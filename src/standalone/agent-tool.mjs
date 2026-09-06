@@ -5,49 +5,31 @@ import {
   cleanupBackgroundTasks,
   getBackgroundTask,
   listBackgroundTasks,
-  startBackgroundTask,
-  sanitizeTaskMeta,
   taskIdFromArgs,
 } from '../runtime/shared/background-tasks.mjs';
 import { presentErrorText, errorLine } from '../runtime/shared/err-text.mjs';
-import { normalizeAgentPermission } from '../runtime/shared/markdown-frontmatter.mjs';
 import { ensureProcessListenerHeadroom } from '../runtime/shared/process-listener-headroom.mjs';
-import { resourceAdmission } from '../runtime/shared/resource-admission.mjs';
 import { prepareAgentSession } from '../runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
 import {
   resolveAgentWatchdogPolicy,
   resolveHandoffMessageStartIndex,
   watchdogPartialHandoffFromError,
 } from '../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
-import { createProgressWatchdogRegistry } from './agent-watchdog-registry.mjs';
-import { buildAgentTaskProgressFields } from './agent-task-status.mjs';
-import { AGENT_OWNER } from '../runtime/agent/orchestrator/agent-owner.mjs';
 import {
-  ACTIVE_STAGES,
   AGENT_TOOL,
-  WORKER_INDEX_FILE,
 } from './agent-tool/tool-def.mjs';
 import {
   agentScope,
-  agentTagOf,
   clean,
   clearAgentStatuslineRoute,
   envTimeoutMs,
-  nonNegativeInt,
   normalizeAgentName,
-  positiveInt,
   callerSessionForContext,
-  presetKey,
-  readAgentFrontmatterPermission,
   resolvePrompt,
   rowMatchesContext,
-  sessionMatchesContext,
   terminalPidForContext,
-  writeAgentStatuslineRoute,
 } from './agent-tool/helpers.mjs';
 import { abnormalEmptyFinishError, renderResult } from './agent-tool/render.mjs';
-import { createProviderInit } from './agent-tool/provider-init.mjs';
-import { createNotify } from './agent-tool/notify.mjs';
 import { createTagRegistry } from './agent-tool/tag-registry.mjs';
 import { createJobViews } from './agent-tool/job-views.mjs';
 import {
@@ -59,15 +41,9 @@ import {
 import { createSpawnFlow } from './agent-tool/spawn-flow.mjs';
 import { resolveAgentSpawnPreset } from './agent-tool/spawn-preset.mjs';
 import {
-  TAG_TOMBSTONE_TTL_MS,
   isLeadPoolAgent,
   isTerminalWorkerStatus,
-  tagTombstoneKey,
-  workerRowTime,
-  workerRowToSession,
 } from './agent-tool/worker-rows.mjs';
-import { resolveAgentTerminalReapMs } from '../session-runtime/config-helpers.mjs';
-import { createWorkerIndex } from './agent-tool/worker-index.mjs';
 import {
   beginAgentTurnReview,
   completeAgentTurnReview,

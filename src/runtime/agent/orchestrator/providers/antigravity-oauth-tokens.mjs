@@ -53,9 +53,9 @@ export const REDIRECT_URI = `http://localhost:${CALLBACK_PORT}${CALLBACK_PATH}`;
 
 // Content requests ride the IDE's daily sandbox channel first. Production is
 // kept last as a fallback: it answers, but not for every Antigravity-only model.
-export const ENDPOINT_DAILY = 'https://daily-cloudcode-pa.sandbox.googleapis.com';
-export const ENDPOINT_AUTOPUSH = 'https://autopush-cloudcode-pa.sandbox.googleapis.com';
-export const ENDPOINT_PROD = 'https://cloudcode-pa.googleapis.com';
+const ENDPOINT_DAILY = 'https://daily-cloudcode-pa.sandbox.googleapis.com';
+const ENDPOINT_AUTOPUSH = 'https://autopush-cloudcode-pa.sandbox.googleapis.com';
+const ENDPOINT_PROD = 'https://cloudcode-pa.googleapis.com';
 export const CONTENT_ENDPOINTS = Object.freeze([ENDPOINT_DAILY, ENDPOINT_AUTOPUSH, ENDPOINT_PROD]);
 // Project discovery is best supported on production, so it leads there.
 export const PROJECT_ENDPOINTS = Object.freeze([ENDPOINT_PROD, ENDPOINT_DAILY, ENDPOINT_AUTOPUSH]);
@@ -74,14 +74,14 @@ export const ANTIGRAVITY_MODELS = Object.freeze([
 ]);
 export const DEFAULT_ANTIGRAVITY_MODEL = ANTIGRAVITY_MODELS[0].id;
 
-export const ANTIGRAVITY_VERSION_FALLBACK = '1.18.3';
+const ANTIGRAVITY_VERSION_FALLBACK = '1.18.3';
 export const LOGIN_TIMEOUT_MS = 5 * 60 * 1000;
 export const TOKEN_TIMEOUT_MS = 30_000;
 export const PROJECT_TIMEOUT_MS = 30_000;
 // Refresh ahead of expiry so an in-flight turn never posts a stale token.
 export const TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
 
-export function antigravityVersion() {
+function antigravityVersion() {
     return String(process.env.MIXDOG_ANTIGRAVITY_VERSION || '').trim() || ANTIGRAVITY_VERSION_FALLBACK;
 }
 

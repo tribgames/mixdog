@@ -31,17 +31,19 @@ import { callAgentDispatch } from './agent-ipc.mjs'
 import { listCore, editCore, deleteCore, archiveCore } from './core-memory-store.mjs'
 import { reclassifyCore } from './core-memory-store.mjs'
 import { loadCurrentRulesDigest } from './memory-cycle2.mjs'
-import { resourceDir } from './memory-cycle2-shared.mjs'
-import { embedText } from './embedding-provider.mjs'
-import { searchRelevantHybrid } from './memory-recall-store.mjs'
+import { resourceDir, throwIfAborted } from './memory-cycle2-shared.mjs'
+import {
+  collectCycle3ReviewEvidence,
+  CYCLE3_RELATED_PER_CORE,
+  CYCLE3_RELATED_PER_CORE_MAX,
+  formatCoreBlock,
+} from './memory-cycle3-evidence.mjs'
 import {
   isSafeConservativeUpdate, isSafeConservativeDelete, isStrictDuplicate,
   isSafeConsolidation, findElementConflict,
 } from './memory-cycle3-guards.mjs'
 import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
 
-const CYCLE3_RELATED_PER_CORE = 6
-const CYCLE3_RELATED_PER_CORE_MAX = 8
 const CYCLE3_PROMPT_MAX_BYTES = 160_000
 
 // resourceDir comes from memory-cycle2-shared.mjs and returns the package
@@ -62,7 +64,7 @@ async function invokeLlm(prompt, mode, preset, timeout, llmCall = callAgentDispa
   }, prompt)
 }
 
-export async function invokeCycle3Maintenance(prompt, options = {}) {
+async function invokeCycle3Maintenance(prompt, options = {}) {
   const preset = options.preset || resolveMaintenancePreset('memory')
   return await invokeLlm(
     prompt,
@@ -74,35 +76,12 @@ export async function invokeCycle3Maintenance(prompt, options = {}) {
   )
 }
 
-function throwIfAborted(signal) {
-  if (signal?.aborted) throw signal.reason ?? new Error('aborted')
-}
-
 function resolveApplyMode(config, options = {}) {
   if (options?.apply === true) return 'confirmed'
   if (options?.apply === false) return 'proposal'
   const raw = String(options?.applyMode || config?.cycle3?.applyMode || 'conservative').trim().toLowerCase()
   if (raw === 'proposal' || raw === 'dry-run' || raw === 'dryrun') return 'proposal'
   return 'conservative'
-}
-
-function formatRelatedRow(r) {
-  const tag = r.project_id ? r.project_id : 'COMMON'
-  const stat = r.status ? `[${r.status}]` : '[?]'
-  const el = r.element ? `el:${r.element} ` : ''
-  const sm = String(r.summary || r.content || '').replace(/\s+/g, ' ').slice(0, 160)
-  return `    - id:${r.id} ${stat} ${tag} ${r.category ?? '?'} ${el}sm:${sm}`
-}
-
-function formatCoreBlock(core, related) {
-  const tag = core.project_id ? core.project_id : 'COMMON'
-  const head = `## CORE id:${core.id} ${tag} ${core.category}`
-  const el = `  element: ${core.element}`
-  const sm = `  summary: ${String(core.summary || '').replace(/\s+/g, ' ')}`
-  const rel = related && related.length
-    ? `  related current memory (top ${related.length}):\n` + related.map(formatRelatedRow).join('\n')
-    : `  related current memory: (none found)`
-  return [head, el, sm, rel].join('\n')
 }
 
 // Parse cycle3 verdict lines. Returns { actions } where each action is one of
@@ -362,40 +341,13 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
     }
   }
 
-  // Per-core related-memory recall.
-  const blocks = []
   const relatedLimit = Math.min(
     CYCLE3_RELATED_PER_CORE_MAX,
     Math.max(0, Number(config?.cycle3?.related_per_core ?? CYCLE3_RELATED_PER_CORE)),
   )
-  for (const core of cores) {
-    throwIfAborted(signal)
-    const queryText = `${core.element}\n${String(core.summary || '')}`.trim()
-    let related = []
-    try {
-      const scope = core.project_id ? String(core.project_id) : 'common'
-      let queryVector = null
-      try {
-        queryVector = await embedText(queryText, { inputType: 'query' })
-      } catch (err) {
-        if (signal?.aborted) throw signal.reason ?? err
-        __mixdogMemoryLog(`[cycle3] embedding failed for core id=${core.id}: ${err.message}\n`)
-      }
-      related = await searchRelevantHybrid(db, queryText, {
-        limit: relatedLimit,
-        projectScope: scope,
-        includeMembers: false,
-        queryVector: Array.isArray(queryVector) ? queryVector : undefined,
-      })
-    } catch (err) {
-      if (signal?.aborted) throw signal.reason ?? err
-      __mixdogMemoryLog(`[cycle3] recall failed for core id=${core.id}: ${err.message}\n`)
-      related = []
-    }
-    throwIfAborted(signal)
-    blocks.push(formatCoreBlock(core, related))
-  }
-  let coreReview = blocks.join('\n\n')
+  const evidence = await collectCycle3ReviewEvidence(db, cores, { signal, relatedLimit })
+  let coreReview = evidence.coreReview
+  let knownPools = evidence.knownPools
 
   // Load + fill prompt template.
   const promptPath = join(resourceDir(), 'defaults', 'cycle3-review-prompt.md')
@@ -411,7 +363,8 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
   let prompt = fillPrompt()
   let promptBytes = Buffer.byteLength(prompt, 'utf8')
   if (promptBytes > promptMaxBytes) {
-    coreReview = cores.map(core => formatCoreBlock(core, [])).join('\n\n')
+    coreReview = cores.map(core => formatCoreBlock(core, [], [])).join('\n\n')
+    knownPools = new Set(cores.map(core => core.project_id).filter(pool => pool != null).map(String))
     prompt = fillPrompt()
     promptBytes = Buffer.byteLength(prompt, 'utf8')
     __mixdogMemoryLog(`[cycle3] prompt trimmed to core-only bytes=${promptBytes} max=${promptMaxBytes}\n`)
@@ -457,7 +410,6 @@ async function _runCycle3Impl(db, config, dataDir, options = {}) {
   // Real project pools present in this review — reclassify may only move an
   // entry INTO a pool we already know is real (COMMON is always valid), never
   // invent a typo pool from an LLM-supplied slug.
-  const knownPools = new Set(cores.map(c => c.project_id).filter(p => p != null).map(String))
   const parsed = parseVerdicts(raw, idSet)
   if (!parsed) {
     __mixdogMemoryLog(

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { t } from "./i18n";
+import { ErrorNotice } from "./ErrorNotice";
 import { normalizeAddressInput } from "./browser-address";
 import { BrowserImportDialog } from "./BrowserImportDialog";
 import {
@@ -533,11 +534,10 @@ function DesktopBrowserPane({
           </button>)}
         </div>}
       </form>
-      <div className="browser-pane-viewport-picker" data-tooltip={viewportPreset.label}>
+      <div className="browser-pane-viewport-picker" data-tooltip={t(viewportPreset.label)}>
         <OpenSelect className="browser-pane-viewport-control"
           value={viewportPresetId}
-          ariaLabel={t("Browser viewport size: {{label}}", { label: viewportPreset.label })}
-          localizeLabels={false}
+          ariaLabel={t("Browser viewport size: {{label}}", { label: t(viewportPreset.label) })}
           leading={<Smartphone size={15} aria-hidden="true" />}
           menuMinWidth={236}
           options={BROWSER_VIEWPORT_PRESETS.map((preset) => ({
@@ -631,11 +631,8 @@ function DesktopBrowserPane({
           <Globe size={28} />
           <span>{t("Search or enter address")}</span>
         </div>}
-        {pageFailure && <div className="browser-pane-failure" role="status" aria-live="polite">
-          <AlertTriangle size={26} />
-          <strong>{pageFailure.title}</strong>
-          <span>{pageFailure.detail}</span>
-          <button type="button" onClick={() => {
+        {pageFailure && <div className="browser-pane-failure">
+          <ErrorNotice error={pageFailure.detail} title={pageFailure.title} role="status" onRetry={() => {
             const view = webviewRef.current;
             setPageFailure(null);
             if (!view) return;
@@ -644,10 +641,7 @@ function DesktopBrowserPane({
             } catch {
               navigate(currentUrl || address);
             }
-          }}>
-            <RotateCw size={14} />
-            {t("Reload")}
-          </button>
+          }} />
         </div>}
       </div>
       {currentUrl && <BrowserZoomPill level={zoomLevel} onChange={changeZoomLevel} />}

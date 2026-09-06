@@ -6,6 +6,7 @@ import {
   notifyToolCompletion,
 } from './tool-execution-contract.mjs';
 import { presentErrorText, errorLine } from './err-text.mjs';
+import { clean } from './clean.mjs';
 
 export {
   TOOL_ASYNC_EXECUTION_CONTRACT,
@@ -18,10 +19,6 @@ const MAX_TASKS = 300;
 const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 const tasks = new Map();
 let seq = 0;
-
-function clean(value) {
-  return String(value ?? '').trim();
-}
 
 function compactText(value, max = 32_000) {
   const text = String(value ?? '');
@@ -426,39 +423,7 @@ export function reconcileBackgroundTask(taskId, {
   });
 }
 
-export function notifyBackgroundTaskProgress(taskOrId, {
-  text,
-  resultText,
-  resultType,
-  instruction,
-  key = 'progress',
-  status = null,
-  once = true,
-} = {}) {
-  const task = typeof taskOrId === 'string' ? getBackgroundTask(taskOrId) : taskOrId;
-  if (!task || TERMINAL_STATUSES.has(task.status)) return false;
-  const body = compactText(text ?? resultText ?? renderBackgroundTask(task, { includeResult: false }));
-  if (!body) return false;
-  const progressKey = clean(key || resultType || instruction || 'progress');
-  if (once) {
-    if (!task.progressNotifiedKeys) task.progressNotifiedKeys = new Set();
-    if (task.progressNotifiedKeys.has(progressKey)) return false;
-  }
-  const sent = notifyToolCompletion({
-    surface: task.surface,
-    id: task.taskId,
-    status,
-    text: body,
-    resultType: resultType || `${task.surface}_task_progress`,
-    instruction,
-    context: task.notifyContext,
-    logPrefix: `background-${task.surface}`,
-  });
-  if (sent && once) task.progressNotifiedKeys.add(progressKey);
-  return sent;
-}
-
-export function taskSummary(task) {
+function taskSummary(task) {
   if (!task) return null;
   return {
     task_id: task.taskId,

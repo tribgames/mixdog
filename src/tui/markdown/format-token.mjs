@@ -438,11 +438,6 @@ export const LANG_FAMILY = {
 const HIGHLIGHT_CACHE_MAX = 300;
 const highlightCache = new Map();
 
-/** @internal Test-only introspection for highlight LRU cache. */
-function _highlightCacheSizeForTests() {
-  return highlightCache.size;
-}
-
 let _hljsThemeVersion = -1;
 let _hljsTheme = null;
 

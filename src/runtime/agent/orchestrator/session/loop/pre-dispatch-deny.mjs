@@ -39,7 +39,7 @@ function callUrls(call) {
     return [];
 }
 
-export function isLoopbackHttpUrl(value) {
+function isLoopbackHttpUrl(value) {
     try {
         const url = new URL(value);
         if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;

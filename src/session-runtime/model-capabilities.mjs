@@ -3,29 +3,17 @@
 // callers persist via saveConfigAndAdopt so a new-task setWorkflow debounce
 // never collides with a sync mixdog-config lock (ELOCKCONTENDED).
 import { clean, hasOwn } from './session-text.mjs';
+import { modelSupportsServiceTier } from '../runtime/agent/orchestrator/providers/model-service-tiers.mjs';
 
 const FAST_CAPABLE_PROVIDERS = new Set([
   'anthropic', 'anthropic-oauth', 'openai', 'openai-oauth', 'cursor-oauth', 'cursor-api',
 ]);
-export const LAZY_SECRET_PROVIDERS = new Set(['openai-oauth', 'anthropic-oauth', 'grok-oauth', 'ollama', 'lmstudio']);
+export const LAZY_SECRET_PROVIDERS = new Set(['openai-oauth', 'anthropic-oauth', 'grok-oauth']);
 
 export function routeFastKey(provider, model) {
   const p = clean(provider);
   const m = clean(model);
   return p && m ? `${p}/${m}` : '';
-}
-
-function openAiModelMetaSupportsFast(model) {
-  const tiers = Array.isArray(model?.serviceTiers) ? model.serviceTiers : [];
-  const speedTiers = Array.isArray(model?.additionalSpeedTiers) ? model.additionalSpeedTiers : [];
-  if (tiers.length || speedTiers.length || model?.defaultServiceTier) {
-    return tiers.some((tier) => tier?.id === 'priority')
-      || speedTiers.includes('priority')
-      || model?.defaultServiceTier === 'priority';
-  }
-  const id = clean(model?.id || model).toLowerCase();
-  if (id.includes('mini') || id.includes('nano') || id.includes('codex')) return false;
-  return /^gpt-5(\.|-|$)/.test(id);
 }
 
 function openAiDirectModelSupportsFast(model) {
@@ -95,7 +83,7 @@ export function fastCapableFor(provider, model, effort = null, modelParameters =
     return !selectedEffort || fastEfforts.length === 0 || fastEfforts.includes(selectedEffort);
   }
   if (p === 'openai') return openAiDirectModelSupportsFast(model);
-  if (p === 'openai-oauth') return openAiModelMetaSupportsFast(model);
+  if (p === 'openai-oauth') return modelSupportsServiceTier(model, 'priority');
   if (p === 'anthropic' || p === 'anthropic-oauth') return anthropicModelMetaSupportsFast(model);
   return false;
 }

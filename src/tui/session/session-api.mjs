@@ -367,6 +367,23 @@ export function createSessionApiA(bag) {
         set({ commandBusy: false });
       }
     },
+    installLocalProviderModel: async (modelId) => {
+      if (getState().commandBusy) return null;
+      set({ commandBusy: true });
+      try {
+        return await runtime.installLocalProviderModel?.(modelId);
+      } finally {
+        set({ commandBusy: false });
+      }
+    },
+    // Background installs return promptly; cancellation must remain usable
+    // even while a legacy blocking install owns commandBusy.
+    startLocalProviderInstallation: (phase, modelId) => runtime.startLocalProviderInstallation(phase, modelId),
+    cancelLocalProviderInstallation: (jobId) => runtime.cancelLocalProviderInstallation(jobId),
+    setLocalProviderIdleTtl: (seconds) => runtime.setLocalProviderIdleTtl(seconds),
+    getLocalProviderModelDetails: (modelId) => runtime.getLocalProviderModelDetails(modelId),
+    startLocalProviderModelMaintenance: (modelId, operation) => runtime.startLocalProviderModelMaintenance(modelId, operation),
+    deleteLocalProviderModel: (token) => runtime.deleteLocalProviderModel(token),
     getChannelSettings: (options = {}) => {
       return runtime.getChannelSettings?.(options) || {
         enabled: true,

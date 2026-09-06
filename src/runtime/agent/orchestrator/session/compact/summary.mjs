@@ -13,10 +13,8 @@ import {
     toolResultId,
 } from './text-utils.mjs';
 import {
-    compactHeader,
-    makeSummaryMessage,
-    isProtectedContextUserMessage,
-    isInjectedSkillBodyMessage,
+  compactHeader,
+  makeSummaryMessage,
 } from './messages.mjs';
 import {
     summaryIsSchemaValid,
@@ -384,7 +382,7 @@ export function fitGeneratedHandoffMessage(oldHistory, summary, remainingTokens,
 // Peel the structural summary header off a prior summary body so handoff
 // generation can feed bare text into its <previous-summary> block. Old sessions may still carry a
 // <prior-compacted-context> wrapper, so those boundary lines are dropped too.
-export function stripNestedSummaryHeaderLines(text) {
+function stripNestedSummaryHeaderLines(text) {
     const raw = String(text ?? '');
     // Peel only the emitted wrapper/header/join bytes and keep the inner slice
     // verbatim: splitting into lines would lose ownership of a run of newlines,

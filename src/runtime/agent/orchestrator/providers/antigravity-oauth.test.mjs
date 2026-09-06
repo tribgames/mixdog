@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 
 import { AntigravityOAuthProvider } from './antigravity-oauth.mjs';
 import { antigravityHeaders, codeAssistMetadata } from './antigravity-oauth-tokens.mjs';
+import { createProviderReplay } from './lib/provider-replay.mjs';
 
 function sseResponse(chunks, { status = 200 } = {}) {
   const body = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('');
@@ -37,6 +38,49 @@ function providerWith(fetchFn, overrides = {}) {
     ...overrides,
   });
 }
+
+test('same-provider signed output survives the next Antigravity request without changing history', async () => {
+  const originalParts = [
+    { thought: true, text: 'Summary.', thoughtSignature: 'native-thinking-signature' },
+    { text: 'Answer.', thoughtSignature: 'native-text-signature' },
+  ];
+  const requests = [];
+  const provider = providerWith(async (_url, init) => {
+    requests.push(JSON.parse(init.body));
+    return sseResponse([candidateChunk(requests.length === 1 ? originalParts : [{ text: 'done' }], 'STOP')]);
+  });
+  const first = await provider.send([{ role: 'user', content: 'Hello.' }], 'gemini-3-flash', [], {});
+  const history = [
+    { role: 'user', content: 'Hello.' },
+    { role: 'assistant', content: first.content, providerReplay: first.providerReplay },
+    { role: 'user', content: 'Continue.' },
+  ];
+  const snapshot = structuredClone(history);
+  await provider.send(history, 'gemini-3-flash', [], {});
+  assert.deepEqual(requests[1].request.contents.find(content => content.role === 'model').parts, originalParts);
+  assert.deepEqual(history, snapshot);
+  const foreign = provider._buildBody([{
+    role: 'assistant', content: 'Foreign.',
+    providerReplay: createProviderReplay('gemini', originalParts),
+  }], 'gemini-3-flash', [], {});
+  assert.equal(foreign.request.contents[0].parts[0].thoughtSignature, 'skip_thought_signature_validator');
+});
+
+test('Antigravity uses Gemini Pro model tiers and Flash thinkingLevel without guessing Claude token budgets', () => {
+  const provider = providerWith(async () => { throw new Error('network forbidden'); });
+  const messages = [{ role: 'user', content: 'Hello.' }];
+  for (const effort of ['low', 'high']) {
+    const pro = provider._buildBody(messages, 'gemini-3-pro-high', [], { effort });
+    assert.equal(pro.model, `gemini-3-pro-${effort}`);
+    assert.equal(pro.request.generationConfig.thinkingConfig.thinkingLevel, effort);
+    const flash = provider._buildBody(messages, 'gemini-3-flash', [], { effort });
+    assert.equal(flash.model, 'gemini-3-flash');
+    assert.equal(flash.request.generationConfig.thinkingConfig.thinkingLevel, effort);
+  }
+  assert.throws(() => provider._buildBody(messages, 'claude-opus-4-6-thinking', [], { effort: 'high' }), /uses thinkingBudget/);
+  const claude = provider._buildBody(messages, 'claude-opus-4-6-thinking', [], { effort: 'high', thinkingBudget: 4096 });
+  assert.equal(claude.request.generationConfig.thinkingConfig.thinkingBudget, 4096);
+});
 
 test('requests carry the Cloud Code Assist envelope and Antigravity identity', async () => {
   let seen = null;

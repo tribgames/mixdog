@@ -27,7 +27,7 @@ import type { DesktopService } from './desktop-service-contract';
 function jitterProbeEnabled(): boolean {
   const mode = String(process.env.MIXDOG_JITTER_PROBE || '');
   return mode === '1' || mode === 'entry' || mode === 'keys' || mode === 'switch'
-    || mode === 'width';
+    || mode === 'width' || mode === 'select';
 }
 
 // The capture profile is a presentation-only fake. It intentionally implements
@@ -80,14 +80,7 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
       { id: 'anthropic', name: 'Anthropic', authenticated: false, status: 'Not connected' },
     ],
     oauth: [{ id: 'openai-oauth', name: 'OpenAI OAuth', authenticated: true, status: 'Connected' }],
-    local: [{
-      id: 'ollama',
-      name: 'Ollama',
-      detected: true,
-      enabled: true,
-      status: 'Enabled',
-      baseURL: 'http://127.0.0.1:11434/v1',
-    }],
+    local: [],
   },
   mcpStatus: {
     connectedCount: 1,
@@ -279,6 +272,12 @@ export class CaptureService implements DesktopService {
     throw new Error('The capture harness has no daemon.');
   }
 
+  /** Jitter probes: push a frame through the host's real publish path (state
+   *  and per-session channels), not only the bare state channel. */
+  publishProbeSnapshot(snapshot: SessionSnapshot): void {
+    this.publish(snapshot);
+  }
+
   prepareJitterRemoteResume(stored: SessionSnapshot, live: SessionSnapshot): void {
     this.jitterStoredSnapshot = stored;
     this.jitterLiveSnapshot = live;
@@ -321,7 +320,7 @@ export class CaptureService implements DesktopService {
       // keys, width). The streaming pass must not see it: an extra listed
       // session changes the layout it measures against.
       const mode = String(process.env.MIXDOG_JITTER_PROBE || '');
-      if (mode === 'entry' || mode === 'keys' || mode === 'width') {
+      if (mode === 'entry' || mode === 'keys' || mode === 'width' || mode === 'select') {
         sessions.push({
         id: 'probe_session_cold',
         preview: 'Cold history probe',
@@ -494,7 +493,8 @@ export class CaptureService implements DesktopService {
     // The capture profile runs against an isolated MIXDOG_HOME, where a fresh
     // config reports onboarding as incomplete; the wizard would cover the UI
     // under capture. Captures always run as an already-onboarded desktop.
-    if (capability === 'getOnboardingStatus') {
+    if (capability === 'getOnboardingStatus' || capability === 'skipOnboarding'
+      || capability === 'completeOnboarding') {
       return { value: { completed: true } as T, snapshot: this.getSnapshot() };
     }
     // Anything else (e.g. the settings preload's memoryControl read) would

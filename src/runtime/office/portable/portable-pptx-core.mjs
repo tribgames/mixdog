@@ -3,6 +3,7 @@ import { backgroundXml, shapeXml, solidFillXml, toEmu } from './portable-slide-s
 import { zipText } from './portable-opc.mjs';
 import { containerBody, containerInner, elementSpans, rebuildTextNodes, textNodes, topLevelElements, xmlAttribute, xmlDecode, xmlEncode } from './portable-xml.mjs';
 import { presentationSlides } from './portable-pptx-package.mjs';
+import { shapeIdentity } from './pptx-relations.mjs';
 
 export function balancedInner(xml, from, tag) {
   const opener = new RegExp(`<${tag}(?:\\s[^>]*)?>`, 'g');
@@ -92,8 +93,10 @@ export async function inspectPptxTextBoxes(zip) {
         content.push({ slide: index + 1, shape: shapeIndex + 1, kind: shape.name, ...bounds });
         continue;
       }
-      const ownFill = /<a:solidFill><a:srgbClr val="([0-9A-Fa-f]{6})"/
-        .exec(containerInner(shape.xml, 'p:spPr')?.inner || '')?.[1] || '';
+      // A gradient plane reads as its first stop: the kit puts the text on that side (a scrim's dark edge).
+      const shapeProperties = containerInner(shape.xml, 'p:spPr')?.inner || '';
+      const ownFill = /<a:gradFill\b[\s\S]*?<a:gs\b[^>]*><a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(shapeProperties)?.[1]
+        || /<a:solidFill><a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(shapeProperties)?.[1] || '';
       if (ownFill) painted.push({ ...bounds, color: ownFill });
       const paragraphs = shapeParagraphs(shape.xml);
       const hasText = Boolean(paragraphs?.length)
@@ -115,6 +118,8 @@ export async function inspectPptxTextBoxes(zip) {
         return Number.isFinite(value) ? value / 12_700 : fallback;
       };
       boxes.push({
+        ...shapeIdentity(shape.xml),
+        slideId: slides[index].id,
         slide: index + 1,
         shape: shapeIndex + 1,
         left: Number(offset[1]) / 12_700,
@@ -144,7 +149,7 @@ export async function inspectPptxTextBoxes(zip) {
 
 
 
-export function setTableCellText(cell, text) {
+function setTableCellText(cell, text) {
   const value = String(text ?? '');
   const nodes = textNodes(cell, 'a:t');
   if (nodes.length) {

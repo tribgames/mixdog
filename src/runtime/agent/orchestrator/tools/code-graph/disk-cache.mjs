@@ -5,7 +5,15 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import {
-  readdirSync, readFileSync, statSync, existsSync, mkdirSync, renameSync, unlinkSync, openSync, readSync, closeSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  existsSync,
+  mkdirSync,
+  unlinkSync,
+  openSync,
+  readSync,
+  closeSync,
 } from 'node:fs';
 import { getPluginData } from '../../config.mjs';
 import { writeJsonAtomicSync, withFileLockSync } from '../../../../shared/atomic-file.mjs';
@@ -26,7 +34,7 @@ import {
   RE_MANIFEST_TMP,
   RE_CACHE_LOCK,
 } from './constants.mjs';
-import { _serializeGraph, _deserializeGraph } from './graph-model.mjs';
+import { _serializeGraph } from './graph-model.mjs';
 
 const _diskCodeGraphCache = new Map();
 // Approximate serialized bytes of each resident entry, taken from the same
@@ -294,7 +302,7 @@ function _ensureCwdLoaded(cwd) {
   } catch { /* skip corrupt per-cwd file */ }
 }
 
-export function _persistDiskCodeGraphCacheNow({
+function _persistDiskCodeGraphCacheNow({
   strict = false,
   writeJson = writeJsonAtomicSync,
 } = {}) {

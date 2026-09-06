@@ -9,6 +9,8 @@ import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react-swc';
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import type { Plugin } from 'vite';
+import { stampRendererShell } from './scripts/renderer-shell';
+import { computerSourceVitePlugin } from './scripts/computer-source-assets.mjs';
 
 const selectedBuildTargets = new Set(
   String(process.env.MIXDOG_ELECTRON_BUILD_TARGETS || '')
@@ -144,10 +146,10 @@ const firstScreenHints: Plugin = {
         );
       }
       const hints = [...styles, ...modules, ...locales].join('');
-      return html.replace(
+      return stampRendererShell(html.replace(
         placeholder,
         hints ? `<template id="mixdog-first-screen">${hints}</template>` : '',
-      );
+      ), context.bundle);
     },
   },
 };
@@ -157,7 +159,7 @@ export default defineConfig({
     // qrcode is bundled, not resolved from the shipped node_modules: an
     // installed shell once lost its transitive deps (dijkstrajs, pngjs) and
     // the pairing QR silently never rendered. Pure JS, so bundling is safe.
-    plugins: [externalizeDepsPlugin({ exclude: ['qrcode'] })],
+    plugins: [computerSourceVitePlugin(), externalizeDepsPlugin({ exclude: ['qrcode'] })],
     build: {
       rollupOptions: {
         input: {
@@ -171,11 +173,15 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/preload/index.ts'),
+          'computer-overlay': resolve(__dirname, 'src/preload/computer-overlay.ts'),
+        },
         output: {
           // Sandboxed Electron preloads run through the CommonJS preload
           // loader even though the application package is ESM.
           format: 'cjs',
-          entryFileNames: 'index.js',
+          entryFileNames: '[name].js',
         },
       },
     },
