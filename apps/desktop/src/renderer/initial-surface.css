@@ -1,0 +1,51 @@
+/* Static slots avoid spinner/text flashes and respect reduced motion without
+   a second animation policy. They carry no fabricated values or counts. */
+.initial-surface {
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.initial-surface-shapes {
+  display: grid;
+  gap: 18px;
+}
+.initial-surface-shapes > i {
+  display: block;
+  height: 10px;
+  width: 72%;
+  border-radius: 4px;
+  background: var(--mx-border-muted);
+}
+.initial-surface-shapes > i:nth-child(2) { width: 48%; }
+.initial-surface-shapes > i:nth-child(3) { width: 60%; }
+.initial-surface--list {
+  width: 100%;
+  min-height: 112px;
+  padding: 20px 12px;
+}
+.initial-surface--control {
+  display: flex;
+  align-items: center;
+  width: 96px;
+  height: 28px;
+  padding: 0 10px;
+}
+.initial-surface--control > .initial-surface-shapes { width: 100%; }
+.initial-surface--control .initial-surface-shapes > i { width: 100%; }
+.initial-surface--control .initial-surface-shapes > i + i,
+.initial-surface--icon .initial-surface-shapes > i + i { display: none; }
+.initial-surface--icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+}
+.initial-surface--icon .initial-surface-shapes > i {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+html[data-mixdog-mobile-tabs] .route-controls > .initial-surface--control {
+  height: var(--mx-touch-main);
+}

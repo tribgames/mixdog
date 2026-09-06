@@ -1,38 +1,10 @@
 /* Desktop layer 27 — Workbench search and turn review.
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
+@import "./rail-controls.css";
 /* Plain query field, then equal-width mode buttons. Source Control uses this
    exact top control stack as Search. */
 .workbench-explorer-search, .dock-scm-view-controls { flex: 0 0 auto; display: grid; gap: 3px; padding: 6px 12px 0; border-bottom: 1px solid var(--mx-border-muted); }
-/* THE workbench search/filter box — one component grammar for every panel:
-   the Search pane's `Search files` field is the reference shape, and the
-   dock's Changes `Filter` and History `Search commits` boxes render from
-   THIS rule alone (height, insets, icon box, clear button, hairline and
-   focus affordance). Panels may place the box; they may not restyle it. */
-.workbench-search-input { min-width: 0; height: 28px; display: flex; align-items: center; gap: 5px; padding: 0 3px 0 7px; border: 1px solid var(--mx-border); border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: var(--mx-workspace-sheet); }
-.workbench-search-input:focus-within { border-color: var(--mx-focus); }
-/* The leading glyph is one fixed 14px box in every panel — it never shrinks
-   with the field. */
-.workbench-search-input > svg { width: var(--mx-icon-sm); height: var(--mx-icon-sm); flex: 0 0 var(--mx-icon-sm); }
-.workbench-search-input input { width: 100%; min-width: 0; flex: 1; border: 0; outline: 0; color: var(--mx-text); background: transparent; font: inherit; font-size: var(--mx-font-ui); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); letter-spacing: 0; }
-/* type="search" fields would paint Chromium's own cancel glyph beside the
-   component's clear button — two clear affordances in one box. The X below
-   is THE clear button (the native Escape behaviour is untouched). */
-.workbench-search-input input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
-.workbench-search-input button { width: 20px; height: 20px; flex: 0 0 20px; display: grid; place-items: center; padding: 0; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; cursor: pointer; }
-.workbench-search-input button:hover { color: var(--mx-text); background: var(--mx-hover); }
-.workbench-search-mode, .dock-scm-tab-bar { height: 30px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 4px; padding: 2px 0 4px; background: transparent; }
-/* Flat segmented control (user: 버튼 스타일 파일쪽 문법으로): borderless rows
-   with the pill hover, active = full ink + 600 + the underline bar. Shared by
-   the explorer search mode and Source Control's Changes | History selector. */
-.workbench-search-mode button, .dock-scm-tab { position: relative; min-width: 0; height: 24px; display: flex; align-items: center; justify-content: center; padding: 0 8px; border: 0; border-radius: var(--mx-radius-sm); color: var(--mx-text-muted); background: transparent; font-family: inherit; font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); line-height: var(--mx-line-ui); text-align: center; cursor: pointer; }
-.workbench-search-mode button:hover, .dock-scm-tab:hover { color: var(--mx-text); background: var(--mx-hover); }
-.workbench-search-mode button[aria-selected="true"], .dock-scm-tab[aria-checked="true"] { color: var(--mx-text); background: transparent; box-shadow: none; font-weight: var(--mx-weight-semibold); }
-/* The bar's 4px bottom padding kept the underline floating above the section
-   divider (user: 밑줄이 살짝 떠있는거같은데 붙혀줘 바닥에) — extend the bar
-   through that padding so it lands ON the divider line. */
-.workbench-search-mode button[aria-selected="true"]::after, .dock-scm-tab[aria-checked="true"]::after { position: absolute; right: 3px; bottom: -4px; left: 3px; height: 2px; border-radius: var(--mx-radius-hair) var(--mx-radius-hair) 0 0; background: var(--mx-text); content: ""; }
-.workbench-search-mode button:focus-visible, .dock-scm-tab:focus-visible { outline: 1px solid var(--mx-focus); outline-offset: -1px; }
 .dock-scm-tab-content { min-width: 0; max-width: 100%; display: flex; align-items: center; justify-content: center; }
 .dock-scm-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Empty state: one centered hint under generous whitespace. */

@@ -3,6 +3,7 @@ import { useMemo, type ReactNode } from "react";
 import type { Snapshot } from "./desktop-types";
 import { t } from "./i18n";
 import { ErrorNotice } from "./ErrorNotice";
+import { InitialSurface } from "./InitialSurface";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { ScmPathText } from "./ScmPathText";
 import { ScmStatusIcon, scmStatusKind } from "./ScmStatusIcon";
@@ -112,10 +113,7 @@ export function SessionDiffPane({
   }
   if (loading && !result) {
     return <SessionDiffFrame>
-      <div className="session-diff-loading" role="status">
-        <ProgressSpinner size={20} aria-hidden="true" />
-        <span>{t("Loading session diff…")}</span>
-      </div>
+      <InitialSurface />
     </SessionDiffFrame>;
   }
   if (error) {

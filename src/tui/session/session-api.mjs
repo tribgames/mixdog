@@ -384,6 +384,11 @@ export function createSessionApiA(bag) {
     getLocalProviderModelDetails: (modelId) => runtime.getLocalProviderModelDetails(modelId),
     startLocalProviderModelMaintenance: (modelId, operation) => runtime.startLocalProviderModelMaintenance(modelId, operation),
     deleteLocalProviderModel: (token) => runtime.deleteLocalProviderModel(token),
+    // Catalog reads and registration are advertised session actions; the
+    // daemon resolves them by name on this surface (session-protocol.mjs).
+    searchLocalProviderModels: (query) => runtime.searchLocalProviderModels(query),
+    inspectHuggingFaceModel: (options) => runtime.inspectHuggingFaceModel(options),
+    registerHuggingFaceModel: (previewId, licenseAccepted) => runtime.registerHuggingFaceModel(previewId, licenseAccepted),
     getChannelSettings: (options = {}) => {
       return runtime.getChannelSettings?.(options) || {
         enabled: true,

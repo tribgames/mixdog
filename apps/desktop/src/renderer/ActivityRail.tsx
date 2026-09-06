@@ -14,7 +14,9 @@ import { t } from "./i18n";
 import { useMobileBack } from "./mobile-back";
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from "./immediate-overlay";
 import { ProviderIcon } from "./provider-display";
-import { SidebarUsage, usagePinEntries } from "./SidebarUsage";
+import { SidebarUsage } from "./SidebarUsage";
+import { InitialSurface } from "./InitialSurface";
+import { useUsageRailPin } from "./use-usage-rail-pin";
 import {
   getUsageDashboardSnapshot,
   holdUsageDashboardCadence,
@@ -23,7 +25,6 @@ import {
   type UsageApi,
 } from "./usage-dashboard-store";
 import { displayUsagePercent } from "./usage-percent";
-import { usagePinStackFits } from "./rail-usage-pin-room";
 import type { SidebarPanelKey } from "./app-shell-components";
 import {
   SIDEBAR_GROUP_MIME,
@@ -34,10 +35,6 @@ import {
   type SidebarViewPlacement,
 } from "./sidebar-view-layout";
 import { viewGroupContainerDropProps } from "./view-group-layout";
-
-/** Pin mode survives restarts: the rail button keeps showing the per-brand
- *  usage stack until the pin is switched off again (user: 핀 온오프). */
-const USAGE_RAIL_PIN_KEY = "mixdog.desktop.usage-rail-pin.v1";
 
 export type ActivityRailSurface =
   "projects" | "workflows" | "schedules" | "webhooks" | "settings";
@@ -146,71 +143,13 @@ export function ActivityRail({
   const [usageOpen, setUsageOpen] = useState(false);
   // ABB: the usage flyout closes on hardware back.
   useMobileBack(usageOpen, () => setUsageOpen(false));
-  // Pin mode (user: 핀모드): pinned, the Usage button trades the pie glyph
-  // for one icon per brand with its worst-window percentage beneath it. The
-  // shared store the rail already prewarms feeds it; no extra requests.
-  const [usagePinned, setUsagePinned] = useState(() => {
-    try {
-      return window.localStorage.getItem(USAGE_RAIL_PIN_KEY) === "1";
-    } catch { return false; }
-  });
-  // The pin is a shared desktop SETTING (user: 모바일/웹에서도 연동): the
-  // localStorage seed paints instantly, then the canonical value loads
-  // through the same settings lane both surfaces share.
-  useEffect(() => {
-    let live = true;
-    void window.mixdogDesktop?.readSettings?.()
-      .then((settings) => {
-        if (!live || typeof settings?.usagePinned !== "boolean") return;
-        setUsagePinned(settings.usagePinned);
-        try {
-          window.localStorage.setItem(USAGE_RAIL_PIN_KEY, settings.usagePinned ? "1" : "0");
-        } catch { /* seed only */ }
-      })
-      .catch(() => { /* keep the local seed */ });
-    return () => { live = false; };
-  }, []);
-  const toggleUsagePin = () => {
-    setUsagePinned((pinned) => {
-      const next = !pinned;
-      try {
-        window.localStorage.setItem(USAGE_RAIL_PIN_KEY, next ? "1" : "0");
-      } catch { /* the toggle still applies for this session */ }
-      void window.mixdogDesktop?.updateSetting?.("usagePinned", next)
-        ?.catch(() => { /* local state still applies */ });
-      return next;
-    });
-  };
   const usageSnapshot = useSyncExternalStore(subscribeUsageDashboard, getUsageDashboardSnapshot);
-  // Data-less pinning (store not warmed yet, nothing connected) falls back to
-  // the pie glyph instead of an empty stack.
-  const wantedPinRows = usagePinned ? usagePinEntries(usageSnapshot.dashboard) : [];
-  // Short windows fold the stack back to the pie glyph rather than pushing
-  // the destinations into a scroller (user: USAGE 공간이 위쪽 메뉴 침범하면
-  // 아이콘으로). Measured from the rail, the nav's full content height and
-  // the Settings cell; re-checked on every rail resize and row-count change.
   const railRef = useRef<HTMLElement | null>(null);
   const navRef = useRef<HTMLElement | null>(null);
   const settingsRef = useRef<HTMLButtonElement | null>(null);
-  const [pinRoom, setPinRoom] = useState(true);
-  const wantedPinCount = wantedPinRows.length;
-  useEffect(() => {
-    const rail = railRef.current;
-    if (!rail || wantedPinCount === 0) return undefined;
-    const measure = () => {
-      setPinRoom(usagePinStackFits({
-        railHeight: rail.clientHeight,
-        navHeight: navRef.current?.scrollHeight ?? 0,
-        settingsHeight: settingsRef.current?.offsetHeight ?? 0,
-        rowCount: wantedPinCount,
-      }));
-    };
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(rail);
-    return () => observer.disconnect();
-  }, [wantedPinCount]);
-  const usagePinRows = pinRoom ? wantedPinRows : [];
+  const { usagePinned, toggleUsagePin, usagePinRows, loading: usagePinLoading } = useUsageRailPin(
+    usageSnapshot, { rail: railRef, nav: navRef, settings: settingsRef }, desktopFeatureEnabled("usage"),
+  );
   // Anchor the flyout's bottom edge to the Usage button itself, measured at
   // open time (static offsets drifted a few px from the real rail layout).
   const [usageAnchorBottom, setUsageAnchorBottom] = useState(48);
@@ -380,7 +319,8 @@ export function ActivityRail({
               </span>;
             })}
           </span>
-          : <span className="codicon codicon-pie-chart" aria-hidden="true" />}
+          : usagePinLoading ? <InitialSurface variant="icon" />
+            : <span className="codicon codicon-pie-chart" aria-hidden="true" />}
       </button>}
       {desktopFeatureEnabled("settings") && <button type="button" ref={settingsRef}
         className={`sidebar-settings-button ${activeSurface === "settings" ? "selected" : ""}`}

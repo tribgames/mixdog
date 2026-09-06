@@ -37,15 +37,16 @@ export function goalStateReminder(goal, { reason = '' } = {}) {
   // tool results. Standing rules stay in the cached tool description.
   const lead = reason === 'compaction'
     ? 'Context was compacted, so this Goal\'s earlier tool results are no longer in context. Current durable snapshot:'
-    : reason === 'paused'
-      ? 'This Goal is paused; the user replied. Call resume alongside resumed work, not for questions alone; abandon only if the user redirected away from this objective.'
-      : reason === 'objective-updated'
-        ? 'The user changed this Goal\'s objective. Re-align the durable tasks to the objective below before continuing.'
-        : 'Current durable Goal snapshot:';
+    : reason === 'objective-updated'
+      ? 'The user changed this Goal\'s objective. Re-align the durable tasks to the objective below before continuing.'
+      : 'Current durable Goal snapshot:';
   return [
     '<system-reminder>',
     '<goal_state>',
     lead,
+    ...(goal.status === 'paused' ? [
+      'This Goal is paused. Call resume with any task changes in the same call only when continuing user-approved work, not for questions or notifications alone; abandon only if the user redirected away from this objective.',
+    ] : []),
     '',
     `Objective: ${escapeGoalPromptText(goal.objective)}`,
     `Status: ${escapeGoalPromptText(goal.status)} · tasks ${completed}/${tasks.length}`,

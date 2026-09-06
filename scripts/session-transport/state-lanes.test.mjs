@@ -116,7 +116,7 @@ test('an agent session publishes through the ordinary subscribed session-state l
       sessionId: 'agent_child',
     }, client);
     assert.equal(subscribed.subscribed, true);
-    assert.equal(subscribed.revision, 0);
+    assert.equal(subscribed.projection, true);
     assert.deepEqual(subscribed.full.items.map((item) => item.id), ['brief']);
 
     publishAgentSession({

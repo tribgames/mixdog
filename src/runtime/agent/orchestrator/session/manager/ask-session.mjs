@@ -12,6 +12,7 @@ import { classifyError } from '../../providers/retry-classifier.mjs';
 import { loadSession, saveSession, saveSessionAsync, saveSessionAsyncDeferred, readSessionLifecycleFromDisk } from '../store.mjs';
 import { createAbortController } from '../../../../shared/abort-controller.mjs';
 import { estimateJsonBytes } from '../../../../shared/json-metrics.mjs';
+import { positiveInt } from '../../../../shared/numbers.mjs';
 import { logLlmCall } from '../../../../shared/llm/usage-log.mjs';
 import { appendAgentTrace } from '../../agent-trace.mjs';
 import {
@@ -558,8 +559,8 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 ...compactState,
                 auto: session.compaction?.auto !== false,
                 boundaryTokens: contextMeta.compactBoundaryTokens,
-                bufferTokens: positiveContextWindow(session.compaction?.bufferTokens ?? session.compaction?.buffer) || session.compaction?.bufferTokens || null,
-                keepTokens: positiveContextWindow(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens) || session.compaction?.keepTokens || null,
+                bufferTokens: positiveInt(session.compaction?.bufferTokens ?? session.compaction?.buffer) || session.compaction?.bufferTokens || null,
+                keepTokens: positiveInt(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens) || session.compaction?.keepTokens || null,
                 contextWindow: contextMeta.contextWindow,
                 rawContextWindow: contextMeta.rawContextWindow,
                 effectiveContextWindowPercent: contextMeta.effectiveContextWindowPercent,
@@ -643,9 +644,10 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
             }
             const _currentTimeBlock = buildCurrentTimeBlock(prompt);
             _turnDeferredToolDelta = snapshotPendingDeferredToolDelta(session);
-            // Event-driven Goal state: present only after compaction dropped the
-            // Goal's own tool results, never on an ordinary turn.
-            _turnGoalReminder = snapshotPendingGoalReminder(session);
+            // Read paused state after hydration and queue selection, not at
+            // input intake: either can precede the previous turn's pause.
+            // This supplies context only; it never resumes the Goal.
+            _turnGoalReminder = snapshotPendingGoalReminder(session, { includePaused: true });
             const _turnReminderBlock = [
                 _currentTimeBlock
                     ? `<system-reminder>\n# Current Time\n${_currentTimeBlock}\n</system-reminder>`

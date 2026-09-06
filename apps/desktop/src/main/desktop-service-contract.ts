@@ -55,8 +55,15 @@ export interface DesktopService {
   setSessionArchived(sessionId: string, archived: boolean): unknown;
   deleteSession(sessionId: string): unknown;
   prefetchSession(sessionId: string, transcriptItemLimit?: number): Promise<boolean>;
+  /** Transport-only recovery: capture current projections after refreshing
+   * every requested lane, even when the daemon reports unchanged content. */
+  replaySessionStates?(
+    sessionIds: string[],
+    deliver: (updates: DesktopSessionStateUpdate[]) => void,
+  ): Promise<void>;
   /** Keep every currently visible pane attached to its external live owner. */
   setVisibleSessions?(sessionIds: string[]): Promise<boolean>;
+  setVisibleSessionsForSource?(sourceId: string, sessionIds: string[]): Promise<boolean>;
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit?: number): Promise<string[]>;
   submitNewTask(
     prompt: DesktopPromptContent,

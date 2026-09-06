@@ -31,7 +31,26 @@ if ($ownedUpstream) {
 $UpstreamDirectory = [IO.Path]::GetFullPath($UpstreamDirectory)
 $OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory)
 
-if ($ownedUpstream -and -not (Test-Path -LiteralPath (Join-Path $UpstreamDirectory '.git'))) {
+# A .git directory alone proves nothing: a half-written or pruned TEMP clone
+# (HEAD and config gone, objects left behind) passes an existence check and
+# then fails every git call with "not a git repository". Ask git itself.
+function Test-GitCheckout {
+  param([string]$Directory)
+  if (-not (Test-Path -LiteralPath (Join-Path $Directory '.git'))) { return $false }
+  $previous = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    & git -C $Directory rev-parse --git-dir 2>&1 | Out-Null
+    return $LASTEXITCODE -eq 0
+  } finally { $ErrorActionPreference = $previous }
+}
+
+if ($ownedUpstream -and -not (Test-GitCheckout $UpstreamDirectory)) {
+  # The owned checkout is a disposable cache under TEMP: a broken one is
+  # replaced by a fresh clone rather than repaired in place.
+  if (Test-Path -LiteralPath $UpstreamDirectory) {
+    Remove-Item -LiteralPath $UpstreamDirectory -Recurse -Force
+  }
   git clone --filter=blob:none --no-checkout $UpstreamUrl $UpstreamDirectory
   if ($LASTEXITCODE -ne 0) { throw 'Unable to clone the browser importer source.' }
   git -C $UpstreamDirectory sparse-checkout init --no-cone
@@ -42,7 +61,7 @@ if ($ownedUpstream -and -not (Test-Path -LiteralPath (Join-Path $UpstreamDirecto
     '/LICENSE_GPL.txt'
   ) | Set-Content -LiteralPath (Join-Path $UpstreamDirectory '.git\info\sparse-checkout')
 }
-if (-not (Test-Path -LiteralPath (Join-Path $UpstreamDirectory '.git'))) {
+if (-not (Test-GitCheckout $UpstreamDirectory)) {
   throw "UpstreamDirectory is not a Git checkout: $UpstreamDirectory"
 }
 

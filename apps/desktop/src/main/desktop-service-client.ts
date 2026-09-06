@@ -130,6 +130,7 @@ export class DesktopServiceClient implements DesktopService {
   private disposing = false;
   private disposed = false;
   private recovering = false;
+  private viewSyncSupported = false;
 
   constructor(private readonly options: DesktopServiceClientOptions) {
     this.cachedSnapshot = options.initialSnapshot ?? null;
@@ -259,6 +260,7 @@ export class DesktopServiceClient implements DesktopService {
     if (transport !== this.transport || !value || typeof value !== 'object') return;
     const message = value as DesktopServiceOutbound;
     if (message.kind === 'ready') {
+      this.viewSyncSupported = message.viewSync === true;
       if (this.startupTimer) clearTimeout(this.startupTimer);
       this.startupTimer = null;
       this.nextRestartAt = 0;
@@ -273,6 +275,15 @@ export class DesktopServiceClient implements DesktopService {
       this.readyReject = null;
       resolve?.();
       this.announceServiceReady();
+      return;
+    }
+    if (message.kind === 'view-sync-complete') {
+      this.viewSyncSupported = true;
+      if (this.recovering) {
+        this.recovering = false;
+        this.clearFailureNoticeTimer();
+        this.publish(this.recoveredSnapshot(this.cachedSnapshot));
+      }
       return;
     }
     if (message.kind === 'daemon-replaced') {
@@ -293,8 +304,10 @@ export class DesktopServiceClient implements DesktopService {
       const snapshot = decoded.snapshot as SessionSnapshot;
       try {
         if (this.recovering) {
-          this.recovering = false;
-          this.clearFailureNoticeTimer();
+          if (!this.viewSyncSupported) {
+            this.recovering = false;
+            this.clearFailureNoticeTimer();
+          }
           this.publish(this.recoveredSnapshot(snapshot));
         } else {
           this.publish(snapshot);
@@ -348,6 +361,7 @@ export class DesktopServiceClient implements DesktopService {
         sessionId,
         snapshot: decoded.snapshot as SessionSnapshot,
         frameSource: message.frameSource,
+        ...(message.laneEnd ? { laneEnd: message.laneEnd } : {}),
         ...(typeof message.contentRevision === 'number'
           ? { contentRevision: message.contentRevision }
           : {}),

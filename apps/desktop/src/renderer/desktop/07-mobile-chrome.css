@@ -369,16 +369,14 @@ html[data-mixdog-mobile-tabs] .mobile-tab-overview-close {
   height: 44px;
 }
 html[data-mixdog-mobile-tabs] .schedules-new,
-html[data-mixdog-mobile-tabs] .model-provider-add,
-html[data-mixdog-mobile-tabs] .projects-memory-add-trigger {
+html[data-mixdog-mobile-tabs] .model-provider-add {
   width: 44px;
   height: 44px;
   min-width: 44px;
   flex-basis: 44px;
 }
 html[data-mixdog-mobile-tabs] .schedules-new > svg,
-html[data-mixdog-mobile-tabs] .model-provider-add > svg,
-html[data-mixdog-mobile-tabs] .projects-memory-add-trigger > svg {
+html[data-mixdog-mobile-tabs] .model-provider-add > svg {
   width: 22px;
   height: 22px;
 }
@@ -921,17 +919,8 @@ html[data-mixdog-mobile-tabs] :is(.conversation, .studio-shell) {
 html[data-mixdog-mobile-tabs] .composer-region {
   padding-bottom: max(var(--mx-mobile-floor-main), env(safe-area-inset-bottom, 0px));
 }
-/* The cached Project control can mount before the relay-backed Workflow
-   catalog arrives. Keep the whole draft context row out of paint and focus
-   until both controls can reveal in the same frame. */
-html[data-mixdog-mobile-tabs] .composer-context-bar:not(:has(.composer-route-workflow)) {
-  min-height: 0;
-  max-height: 0;
-  margin-bottom: 0;
-  opacity: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
+/* Draft context keeps its normal height while Workflow loads. The optional
+   catalog must neither collapse Project nor move the input when it arrives. */
 /* Agents dock at native dp: the desktop 10px card read too SHORT for a
    finger row, and the page's 16px tail stacked onto the sheet safe-bottom
    into a wide strip (user: 버튼이 상하로 작고 아래 여백이 넓다 — PC 같은

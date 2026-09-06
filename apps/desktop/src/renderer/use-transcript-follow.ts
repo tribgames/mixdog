@@ -704,10 +704,14 @@ export function useTranscriptFollow({
   const arm = useCallback(() => {
     // A pin from the previous session must not write into the new one.
     cancelJumpPin();
+    // Entry and submit explicitly return ownership to the tail. Keeping the
+    // previous wheel/drag window open made the timeline reject the append's
+    // only bottom pin, leaving the new prompt below the viewport.
+    clearReaderGesture();
     publish(true);
     const element = viewport.current;
     if (element) scheduleScrollState(element);
-  }, [cancelJumpPin, publish, scheduleScrollState, viewport]);
+  }, [cancelJumpPin, clearReaderGesture, publish, scheduleScrollState, viewport]);
 
   useEffect(() => {
     const target = content.current;

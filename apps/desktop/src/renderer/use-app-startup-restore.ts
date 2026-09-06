@@ -88,10 +88,7 @@ export function useAppStartupRestore({
       window.dispatchEvent(new Event("mixdog:startup-settled"));
     };
     if (restoredStartupNavigation.current) return;
-    if (restorePending) {
-      window.requestAnimationFrame(settleStartup);
-      return;
-    }
+    if (restorePending) return;
     // The phone always boots at NEW TASK (user: 무조건 NEW TASK로 가게, 뭘
     // 누를지 모르니까): the session list is its home surface, and restoring
     // the last session screen bought a cold relay round trip before the

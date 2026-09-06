@@ -1,0 +1,524 @@
+/* Extensions dialog grammar — the ONE card every Extensions entry opens in
+   (built-in feature, plugin, skill, MCP server, install/add prompts). The
+   chrome — scrim, card plate, header ladder, footer button ladder, input
+   skin — is the dialog system's (30-dialogs.css). This file owns the card
+   widths, the body rhythm and the body vocabulary: sections, item rows,
+   facts, notes, previews, fields and the in-card action button. */
+
+/* Width ladder: compact prompts, read-mostly details, Markdown editors. */
+.extensions-dialog { --mx-editor-width: 640px; }
+.extensions-dialog[data-dialog-width="compact"] { --mx-editor-width: 520px; }
+.extensions-dialog[data-dialog-width="editor"] { --mx-editor-width: 800px; }
+
+/* Identity glyph on the title line: the list row's plate, so the card opens
+   as a continuation of the row that was clicked. */
+.extensions-dialog > header > .extensions-dialog-icon {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: grid;
+  place-items: center;
+  margin-right: -2px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-rail-item-surface);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+}
+.extensions-dialog > header > .extensions-dialog-icon > svg { width: 18px; height: 18px; }
+
+/* Editors wrap body + footer in a form. The form is a plain flex column so
+   the BODY scrolls and the footer rests on the card floor — this overrides
+   the rail editors' scrolling-form layout (20-automation.css). */
+.extensions-dialog > .extensions-dialog-form {
+  min-height: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+}
+/* The body owns the dialog gutter and the 16px section rhythm; it opens
+   right under the header's own 12px like the editors' form body. */
+.extensions-dialog-body {
+  container: sidebar-dialog / inline-size;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px var(--mx-dialog-inset) var(--mx-dialog-inset);
+}
+/* One lead sentence on the body's soft ink, before the sections. */
+.extensions-dialog-tagline {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--mx-text-soft);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-minor);
+}
+/* Footer: static on the card floor (the body scrolls, never the card), no
+   plate of its own. The destructive button parks left through the dialog
+   system's .danger rule. */
+.extensions-dialog .extensions-dialog-actions {
+  position: static;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 12px var(--mx-dialog-inset) var(--mx-dialog-inset);
+  background: transparent;
+}
+.extensions-dialog .extensions-dialog-actions > .error-notice { flex: 1 1 100%; }
+
+/* ── Sections ─────────────────────────────────────────────────────────── */
+/* The Settings dialog's group head (user: 옵션쪽이랑 맞춰): 15px semibold
+   title, an optional muted note under it, a head-line control on the
+   trailing edge, then the card 16px below. */
+.extensions-section {
+  min-width: 0;
+  display: grid;
+  gap: 14px;
+}
+.extensions-section-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.extensions-section-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+.extensions-section h3 {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  color: var(--mx-text);
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-emphasis);
+}
+.extensions-section h3 > em {
+  color: var(--mx-text-muted);
+  font-style: normal;
+  font-weight: var(--mx-weight-regular);
+}
+.extensions-section-note {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+/* An advanced section folds behind its head; the chevron is the only cue. */
+.extensions-section > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  list-style: none;
+  cursor: pointer;
+}
+.extensions-section > summary::-webkit-details-marker { display: none; }
+.extensions-section > summary > svg {
+  flex: 0 0 auto;
+  color: var(--mx-icon-muted);
+  transition: transform var(--mx-motion-ink);
+}
+.extensions-section[open] > summary > svg { transform: rotate(180deg); }
+.extensions-section > summary:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 2px;
+  border-radius: var(--mx-radius-sm);
+}
+
+/* ── Item rows ────────────────────────────────────────────────────────── */
+/* The Settings dialog's resource card: one plate, rows divided by a
+   hairline, title + status pill on the first line, meta under it, the
+   control on the trailing edge (user: 옵션쪽이랑 맞춰). */
+.extensions-item-list {
+  min-width: 0;
+  display: grid;
+  padding: 0 16px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.extensions-item {
+  min-width: 0;
+  min-height: 56px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  padding: 12px 0;
+  border-bottom: .5px solid var(--mx-border);
+}
+.extensions-item:last-child { border-bottom: 0; }
+.extensions-item:not(:has(> .extensions-item-icon)) { grid-template-columns: minmax(0, 1fr) auto; }
+.extensions-item-icon { display: grid; place-items: center; color: var(--mx-text-soft); }
+.extensions-item-icon > svg { width: 16px; height: 16px; }
+.extensions-item-copy {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+.extensions-item-title {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.extensions-item-title > b {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.extensions-item-copy > small {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.extensions-item-trailing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+/* Status pill = .settings-status: a bordered pill with a dot, tinted by
+   tone (green = connected/running, amber = attention, neutral otherwise). */
+.extensions-item-status {
+  min-width: 0;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  border: .5px solid var(--mx-border);
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: var(--mx-hover);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: 1;
+  white-space: nowrap;
+}
+.extensions-item-status > i {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.extensions-item[data-tone="ok"] .extensions-item-status {
+  border-color: color-mix(in srgb, var(--mx-success) 35%, transparent);
+  color: var(--mx-success);
+  background: color-mix(in srgb, var(--mx-success) 10%, transparent);
+}
+.extensions-item[data-tone="warn"] .extensions-item-status {
+  border-color: color-mix(in srgb, var(--mx-warning) 35%, transparent);
+  color: var(--mx-warning);
+  background: color-mix(in srgb, var(--mx-warning) 10%, transparent);
+}
+/* A dropdown on a row's trailing edge keeps a readable width. */
+.extensions-select.mx-select-root { min-width: 150px; }
+
+/* ── The in-card action button ────────────────────────────────────────── */
+/* ONE plate for every action inside the body (Connect, Install, Delete,
+   Stop download, Save) = the Settings dialog's .settings-action: 28px on
+   the base plate with its hairline, danger as red ink on the same plate.
+   Footer buttons keep the dialog system's 32px ladder. */
+.extensions-action {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+  font: inherit;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--mx-motion-ink), color var(--mx-motion-ink);
+}
+.extensions-action:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
+}
+.extensions-action:active:not(:disabled) {
+  background: var(--mx-flat-press);
+  box-shadow: var(--mx-button);
+}
+.extensions-action:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 0;
+}
+.extensions-action:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.extensions-action.danger,
+.extensions-action.danger:hover:not(:disabled) { color: var(--mx-danger); }
+.extensions-action.danger:active:not(:disabled) {
+  background: var(--mx-flat-press-danger);
+  box-shadow: none;
+}
+
+/* ── Facts ────────────────────────────────────────────────────────────── */
+/* Same card as the rows: label column left, selectable value right. */
+.extensions-dialog-facts {
+  min-width: 0;
+  margin: 0;
+  display: grid;
+  padding: 0 16px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.extensions-dialog-facts > div {
+  min-width: 0;
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: 136px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: .5px solid var(--mx-border);
+}
+.extensions-dialog-facts > div:last-child { border-bottom: 0; }
+.extensions-dialog-facts dt {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.extensions-dialog-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+  user-select: text;
+}
+
+/* ── Notes and previews ───────────────────────────────────────────────── */
+.extensions-note {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-minor);
+}
+.extensions-note[data-tone="danger"] { color: var(--mx-danger); }
+.extensions-note code {
+  color: var(--mx-text);
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-code);
+}
+.extensions-note .extensions-action { vertical-align: middle; }
+.extensions-preview {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+}
+.extensions-preview > b {
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-semibold);
+}
+.extensions-preview > p {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.extensions-preview > code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  color: var(--mx-text);
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-code);
+  line-height: 1.5;
+}
+
+/* ── Fields ───────────────────────────────────────────────────────────── */
+/* Fields ride the dialog form grammar (schedules-field: 15px title, 13px
+   note, 32px plate); only the extension-specific bits live here. */
+.extensions-dialog-body .schedules-field { min-width: 0; }
+/* Prose textareas (commit example, AI instructions) read in the UI face;
+   Markdown fields keep their own mono skin (.workflows-md-field). */
+.extensions-dialog-body .schedules-field:not(.workflows-md-field) > textarea {
+  font-family: inherit;
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+}
+.extensions-field-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.extensions-field-actions > span {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+/* "Applies to": one dropdown — Shared, or a single project. */
+.extensions-scope-select { min-width: 0; justify-self: stretch; }
+.extensions-scope-select .mx-select-trigger { width: 100%; }
+
+/* ── Header control slot (built-in features) ──────────────────────────── */
+/* placeholder → progress → Install/Retry → switch, in the order the
+   feature's own status source allows; the slot never changes width. */
+.built-in-feature-control { display: flex; align-items: center; align-self: center; }
+.built-in-feature-control .mixdog-settings__switch span { height: 18px; }
+.built-in-feature-control .mixdog-settings__switch span::after {
+  width: 14px;
+  height: 14px;
+}
+.built-in-feature-control .mixdog-settings__switch input:checked + span::after {
+  transform: translateX(14px);
+}
+.built-in-feature-control-placeholder {
+  width: 32px;
+  height: 18px;
+  display: block;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-bg-layer-3);
+  box-shadow: var(--mx-switch-off);
+  opacity: var(--mx-op-disabled);
+}
+.built-in-feature-control > .extensions-action { min-width: 62px; }
+.built-in-feature-control > span:not([class]) {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  white-space: nowrap;
+}
+/* Install progress paints INSIDE the control slot (where the toggle lands
+   after install) — the card never opens a second progress band below. */
+.built-in-feature-slot-progress {
+  width: 72px;
+  display: grid;
+  gap: 3px;
+}
+.built-in-feature-slot-progress > small {
+  justify-self: end;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-micro);
+  line-height: 1;
+}
+.built-in-feature-slot-progress > .built-in-feature-progress-bar { height: 4px; }
+.built-in-feature-progress-bar {
+  height: 5px;
+  overflow: hidden;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border);
+}
+.built-in-feature-progress-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--mx-accent);
+  transition: width 160ms ease-out;
+}
+.built-in-feature-progress-bar.is-indeterminate > span {
+  width: 32%;
+  animation: voice-install-indeterminate 1.1s ease-in-out infinite;
+}
+/* One installation = progress + its row + error, as one divided card row. */
+.local-provider-installation {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: .5px solid var(--mx-border);
+}
+.local-provider-installation:last-child { border-bottom: 0; }
+.local-provider-installation > .extensions-item { min-height: 0; padding: 0; border-bottom: 0; }
+
+/* ── Add-kind choices (Skill / MCP) ───────────────────────────────────── */
+.extensions-create-options {
+  min-height: 0;
+  display: grid;
+  gap: 8px;
+}
+.extensions-create-options > button {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-rail-item-surface);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.extensions-create-options > button:hover { background: var(--mx-hover); }
+.extensions-create-options > button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: -1px;
+}
+.extensions-create-options > button > svg {
+  flex: 0 0 auto;
+  color: var(--mx-icon-muted);
+}
+.extensions-create-options > button > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+.extensions-create-options b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--mx-font-ui);
+}
+.extensions-create-options small {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+
+/* Respond to the card's usable width, not the application window. */
+@container sidebar-dialog (max-width: 440px) {
+  .extensions-dialog-facts > div { grid-template-columns: minmax(0, 1fr); gap: 4px; align-items: start; }
+  .extensions-item { grid-template-columns: auto minmax(0, 1fr); row-gap: 8px; }
+  .extensions-item:not(:has(> .extensions-item-icon)) { grid-template-columns: minmax(0, 1fr); }
+  .extensions-item-trailing { grid-column: 1 / -1; justify-content: flex-start; }
+}

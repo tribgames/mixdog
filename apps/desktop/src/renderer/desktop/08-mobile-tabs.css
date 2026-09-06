@@ -355,6 +355,15 @@
   visibility: visible !important;
   pointer-events: auto !important;
 }
+@media (min-width: 761px) {
+  /* The outer panel owns resizing and its open-width clipping animation.
+     SessionSidebar's private stored width can be older than that panel, so
+     using it as the inner floor clips titles/actions after a resize. */
+  .workbench-side-section-body > .sidebar.session-sidebar
+    > :is(.session-panel-header, .session-sidebar-scroll) {
+    min-width: calc(var(--workbench-side-panel-width, var(--session-sidebar-width)) - 16px);
+  }
+}
 .workbench-side-section-body .session-sidebar-resize { display: none; }
 .workbench-side-section-body .sidebar-view-section-header[hidden] { display: none; }
 .workbench-side-section-body > .utility-dock .utility-dock-header {

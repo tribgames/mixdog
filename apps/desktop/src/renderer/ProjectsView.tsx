@@ -1,12 +1,14 @@
-import { ChevronRight, Folder, Plus, X } from 'lucide-react';
+import { ChevronRight, FileText, Folder, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import type { DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
+import { InitialSurface } from './InitialSurface';
 import { projectIdentity, SidebarPanelAction } from './session-sidebar';
-import { SidebarDialogLayer } from './sidebar-dialog';
+import { ExtensionDetailDialog, ExtensionField, ExtensionSection } from './settings/extension-detail';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
+import './desktop/extension-dialog.css';
 import { publishSidebarProjects } from './sidebar-reference-cache';
 import { usePersistedListOrder } from './use-persisted-list-order';
 
@@ -21,6 +23,7 @@ function displayProjectFolder(path: string): string {
 export function ProjectsPane({
   active = true,
   projects,
+  projectsReady = true,
   selectedProjectPath,
   onChooseFolder,
   onCreateProject,
@@ -33,6 +36,7 @@ export function ProjectsPane({
 }: {
   active?: boolean;
   projects: DesktopProjectSummary[];
+  projectsReady?: boolean;
   selectedProjectPath: string;
   onChooseFolder(): Promise<string | null>;
   onCreateProject(path: string, name: string): Promise<void>;
@@ -198,67 +202,56 @@ export function ProjectsPane({
       {/* Plain + like every other rail panel action (user: 프로젝트도 + 통일). */}
       <SidebarPanelAction active={active} label={t('Add project')} icon={Plus}
         className="projects-add" onClick={() => setAddOpen(true)} />
-      {active && addOpen && <SidebarDialogLayer onClose={closeAdd}>
-        <section className="schedules-dialog projects-add-dialog" role="dialog" aria-modal="true"
-          aria-labelledby="projects-add-title">
-          <header>
-            <h2 id="projects-add-title">{t('Add project')}</h2>
-            <div className="schedules-dialog-header-actions">
-              <button type="button" aria-label={t('Close add project')} onClick={closeAdd}>
-                <X size={16} aria-hidden="true" /></button>
-            </div>
-          </header>
-          <form onSubmit={(event) => {
-            event.preventDefault();
-            if (!addPath || addBusy) return;
-            setAddBusy(true);
-            setAddError('');
-            void onCreateProject(addPath, addName.trim())
-              .then(() => closeAdd())
-              .catch((reason) => setAddError(reason instanceof Error ? reason.message : String(reason)))
-              .finally(() => setAddBusy(false));
-          }}>
-            <label className="schedules-field"><span>{t('Name')}</span>
-              <small>{t('Shown in the Projects list.')}</small>
-              <input name="project-name" value={addName} maxLength={120} autoFocus disabled={addBusy}
-                placeholder={t('my-project')}
-                onChange={(event) => setAddName(event.currentTarget.value)} />
-            </label>
-            <div className="schedules-field">
-              <span>{t('Folder')}</span>
-              <small>{t('Folder opened for this project.')}</small>
-              <div className="projects-folder-row">
-                <code>{addPath || t('No folder selected')}</code>
-                {/* Folder comes from the OS chooser only (user decision):
-                    prefill the Name with the folder's basename once picked. */}
-                <button type="button" className="settings-action" disabled={addBusy}
-                  onClick={() => void onChooseFolder().then((selected) => {
-                    if (!selected) return;
-                    setAddPath(selected);
-                    setAddName((current) => current.trim() ? current : displayProjectFolder(selected));
-                    setAddError('');
-                  })}>{t('Browse…')}</button>
-              </div>
-            </div>
-            <footer>
-              {addError && <ErrorNotice error={addError} />}
-              <button type="button" className="secondary" disabled={addBusy} onClick={closeAdd}>{t('Cancel')}</button>
-              <button type="submit" disabled={addBusy || !addPath}>{t('Add')}</button>
-            </footer>
-          </form>
-        </section>
-      </SidebarDialogLayer>}
-      {active && editTarget && <SidebarDialogLayer onClose={closeEdit}>
-        <section className="schedules-dialog projects-edit-dialog" role="dialog" aria-modal="true"
-          aria-labelledby="projects-edit-title">
-          <header>
-            <h2 id="projects-edit-title">{t('Edit {{name}}', { name: editTarget.title })}</h2>
-            <div className="schedules-dialog-header-actions">
-              <button type="button" aria-label={t('Close')} onClick={closeEdit}>
-                <X size={16} aria-hidden="true" /></button>
-            </div>
-          </header>
-          <form onSubmit={(event) => {
+      {/* Both dialogs ride the Extensions card (user: 이쪽도 레이아웃 맞춰):
+          identity plate + title, the body on the section rhythm, the footer
+          ladder with the destructive action parked left. */}
+      {active && addOpen && <ExtensionDetailDialog width="compact" className="projects-add-dialog"
+        titleId="projects-add-title" icon={<Folder size={16} aria-hidden="true" />}
+        title={t('Add project')} onClose={closeAdd}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!addPath || addBusy) return;
+          setAddBusy(true);
+          setAddError('');
+          void onCreateProject(addPath, addName.trim())
+            .then(() => closeAdd())
+            .catch((reason) => setAddError(reason instanceof Error ? reason.message : String(reason)))
+            .finally(() => setAddBusy(false));
+        }}
+        footer={<>
+          {addError && <ErrorNotice error={addError} />}
+          <button type="button" className="secondary" disabled={addBusy} onClick={closeAdd}>{t('Cancel')}</button>
+          <button type="submit" disabled={addBusy || !addPath}>{t('Add')}</button>
+        </>}>
+        <ExtensionField label={t('Name')} note={t('Shown in the Projects list.')}>
+          <input name="project-name" value={addName} maxLength={120} autoFocus disabled={addBusy}
+            placeholder={t('my-project')}
+            onChange={(event) => setAddName(event.currentTarget.value)} />
+        </ExtensionField>
+        <ExtensionField as="div" label={t('Folder')} note={t('Folder opened for this project.')}>
+          <div className="projects-folder-row">
+            <code>{addPath || t('No folder selected')}</code>
+            {/* Folder comes from the OS chooser only (user decision):
+                prefill the Name with the folder's basename once picked. */}
+            <button type="button" className="extensions-action" disabled={addBusy}
+              onClick={() => void onChooseFolder().then((selected) => {
+                if (!selected) return;
+                setAddPath(selected);
+                setAddName((current) => current.trim() ? current : displayProjectFolder(selected));
+                setAddError('');
+              })}>{t('Browse…')}</button>
+          </div>
+        </ExtensionField>
+      </ExtensionDetailDialog>}
+      {active && editTarget && <ExtensionDetailDialog width="editor" className="projects-edit-dialog"
+        titleId="projects-edit-title"
+        icon={editTarget.path === null
+          ? <FileText size={16} aria-hidden="true" />
+          : <Folder size={16} aria-hidden="true" />}
+        title={editTarget.title}
+        tagline={editTarget.path ?? t('Used for every project.')}
+        onClose={closeEdit}
+        onSubmit={(event) => {
             event.preventDefault();
             if (!editTarget || editBusy || editInsLoading || memoryBusy) return;
             const { path, title } = editTarget;
@@ -278,41 +271,59 @@ export function ProjectsPane({
               setEditBusy(false);
               setEditError(reason instanceof Error ? reason.message : String(reason));
             });
-          }}>
-            {editTarget.path !== null && <label className="schedules-field projects-edit-field">
-              <span>{t('Name')}</span>
-              <small>{t('Changes the display name without renaming the folder.')}</small>
+          }}
+        footer={<>
+          {editError && <ErrorNotice error={editError} />}
+          {editTarget.path !== null && <button type="button" className="danger" disabled={editBusy || memoryBusy}
+            onClick={() => {
+              if (!editConfirmRemove) {
+                setEditConfirmRemove(true);
+                return;
+              }
+              const path = editTarget.path;
+              if (path === null) return;
+              resetEdit();
+              onRemove(path);
+            }}>{editConfirmRemove ? t('Confirm remove') : t('Remove')}</button>}
+          <button type="button" className="secondary" disabled={editBusy || memoryBusy}
+            onClick={closeEdit}>{t('Cancel')}</button>
+          <button type="submit" disabled={editBusy || editInsLoading || memoryBusy || addingMemory}>{t('Save')}</button>
+        </>}>
+            {editTarget.path !== null && <ExtensionField className="projects-edit-field" label={t('Name')}
+              note={t('Changes the display name without renaming the folder.')}>
               <input name="project-alias" value={editName} maxLength={120} autoFocus
                 disabled={editBusy} aria-label={t('Project display name')}
                 onChange={(event) => setEditName(event.currentTarget.value)} />
-            </label>}
-            {canEditInstructions && <label className="schedules-field workflows-md-field projects-edit-field">
-              <span>{t('Instructions')}</span>
-              <small>{editTarget.path === null
+            </ExtensionField>}
+            {/* While the instructions stream in, the field stays empty and
+                disabled with a Loading… placeholder — never "Loading…" as
+                its VALUE, which read as text someone had typed (user: 로딩중
+                뜨면서 이상한 UI). */}
+            {canEditInstructions && <ExtensionField className="workflows-md-field projects-edit-field"
+              label={t('Instructions')}
+              note={editTarget.path === null
                 ? t('Markdown instructions applied across all projects.')
-                : t('Markdown instructions applied when working in this project.')}</small>
+                : t('Markdown instructions applied when working in this project.')}>
               <textarea aria-label={t('Instructions markdown')}
-                value={editInsLoading ? t('Loading…') : (editIns ?? '')}
+                value={editIns ?? ''}
                 disabled={editInsLoading || editBusy || editIns === null}
                 spellCheck={false}
-                placeholder={t('Markdown instructions for the model…')}
+                placeholder={editInsLoading ? t('Loading…') : t('Markdown instructions for the model…')}
                 onChange={(event) => setEditIns(event.currentTarget.value)} />
-            </label>}
-            {onMemoryControl && <section className="projects-memory-editor">
-              <header className="projects-edit-field">
-                <div><span>{t('Memories')}</span>
-                  <small>{t('Create, edit, move, or delete project memories.')}</small></div>
-                <button type="button" className="projects-memory-add-trigger"
-                  disabled={memoryBusy || addingMemory}
-                  aria-label={t('Add memory')} data-tooltip={t('Add memory')}
-                  onClick={() => {
-                    setAddingMemory(true);
-                    setAddMemoryDraft('');
-                    setConfirmDeleteMemory(null);
-                  }}>
-                  <Plus size={15} aria-hidden="true" />
-                </button>
-              </header>
+            </ExtensionField>}
+            {onMemoryControl && <ExtensionSection title={t('Memories')}
+              description={t('Create, edit, move, or delete project memories.')}
+              action={<button type="button" className="extensions-action"
+                disabled={memoryBusy || addingMemory} aria-label={t('Add memory')}
+                onClick={() => {
+                  setAddingMemory(true);
+                  setAddMemoryDraft('');
+                  setConfirmDeleteMemory(null);
+                }}>
+                <Plus size={14} aria-hidden="true" />
+                {t('Add')}
+              </button>}>
+              <div className="projects-memory-editor">
               <div className={`projects-memory-viewport${memories.length || addingMemory ? '' : ' is-empty'}`}>
               {addingMemory && <div className="projects-memory-add-row">
                 <div className="projects-memory-edit-fields">
@@ -395,30 +406,12 @@ export function ProjectsPane({
                     </div>)}</div>
                   : <p className="projects-memory-empty">{t('No memories yet.')}</p>}
               </div>
-            </section>}
-            <footer>
-              {editError && <ErrorNotice error={editError} />}
-              {editTarget.path !== null && <button type="button" className="danger" disabled={editBusy || memoryBusy}
-                onClick={() => {
-                  if (!editConfirmRemove) {
-                    setEditConfirmRemove(true);
-                    return;
-                  }
-                  const path = editTarget.path;
-                  if (path === null) return;
-                  resetEdit();
-                  onRemove(path);
-                }}>{editConfirmRemove ? t('Confirm remove') : t('Remove')}</button>}
-              <button type="button" className="secondary" disabled={editBusy || memoryBusy}
-                onClick={closeEdit}>{t('Cancel')}</button>
-              <button type="submit" disabled={editBusy || editInsLoading || memoryBusy || addingMemory}>{t('Save')}</button>
-            </footer>
-          </form>
-        </section>
-      </SidebarDialogLayer>}
+              </div>
+            </ExtensionSection>}
+      </ExtensionDetailDialog>}
       {canEditInstructions && <div className="schedules-list projects-list projects-common-instructions">
         <button type="button" className="schedules-row utilities-row projects-row"
-          onClick={() => openEdit(null, 'Common Instructions')}>
+          onClick={() => openEdit(null, t('Common Instructions'))}>
           <span className="schedules-row-copy utilities-row-copy">
             <b>{t('Common Instructions')}</b>
             <small>{t('Used for every project.')}</small>
@@ -426,7 +419,8 @@ export function ProjectsPane({
           <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
         </button>
       </div>}
-      {visible.length ? <div className="schedules-list projects-list">{visible.map((project) => {
+      {!projectsReady && projects.length === 0 ? <InitialSurface />
+        : visible.length ? <div className="schedules-list projects-list">{visible.map((project) => {
         const title = project.alias?.trim() || project.name?.trim() || displayProjectFolder(project.path);
         const selected = projectIdentity(selectedProjectPath) === projectIdentity(project.path);
         return <button type="button" key={project.path}

@@ -53,16 +53,41 @@ const markdownSource = readFileSync(
   "utf8",
 );
 
-test("phone draft context waits for Workflow before revealing Project", () => {
-  const rule = mobileChromeSource.match(
-    /html\[data-mixdog-mobile-tabs\] \.composer-context-bar:not\(:has\(\.composer-route-workflow\)\)\s*\{([^}]*)\}/u,
-  );
-  assert.ok(rule, "mobile context synchronization rule must exist");
-  assert.match(rule[1], /min-height:\s*0;/u);
-  assert.match(rule[1], /max-height:\s*0;/u);
-  assert.match(rule[1], /opacity:\s*0;/u);
-  assert.match(rule[1], /overflow:\s*hidden;/u);
-  assert.match(rule[1], /pointer-events:\s*none;/u);
+test("phone draft context keeps Project and its height while Workflow loads", () => {
+  const composer = readFileSync(new URL("./desktop/15-composer.css", import.meta.url), "utf8");
+  const dom = new JSDOM(`<!doctype html><html data-mixdog-mobile-tabs><head>
+    <style>${composer}\n${mobileChromeSource}</style></head><body>
+    <div class="composer-context-bar"><button>Project</button></div></body></html>`);
+  try {
+    const bar = dom.window.document.querySelector(".composer-context-bar");
+    const before = dom.window.getComputedStyle(bar);
+    assert.equal(before.minHeight, "28px");
+    assert.notEqual(before.opacity, "0");
+    assert.notEqual(before.pointerEvents, "none");
+    const workflow = dom.window.document.createElement("div");
+    workflow.className = "composer-route-workflow";
+    bar.append(workflow);
+    assert.equal(dom.window.getComputedStyle(bar).minHeight, before.minHeight);
+  } finally {
+    dom.window.close();
+  }
+});
+
+test("first-paint theme uses the same dark default and explicit System preference as App", () => {
+  for (const [preference, light] of [[null, false], ["dark", false], ["gray", false],
+    ["white", true], ["system", true]]) {
+    const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+      runScripts: "outside-only", url: "https://mixdog.test/",
+    });
+    dom.window.matchMedia = (query) => ({ matches: query === "(prefers-color-scheme: light)" });
+    if (preference) dom.window.localStorage.setItem("mixdog.desktop-theme-preference", preference);
+    try {
+      dom.window.eval(bootSource);
+      assert.equal(dom.window.document.documentElement.dataset.mixdogTheme === "light", light, String(preference));
+    } finally {
+      dom.window.close();
+    }
+  }
 });
 
 test("phone sheets preserve unread activity until the conversation is visible again", () => {
@@ -263,7 +288,7 @@ test("phone finishing rules keep reading, touch and safe-area geometry aligned",
   );
   assert.match(
     mobileChromeSource,
-    /\.session-sidebar \.session-row-actions\s*\{[^}]*top:\s*calc\(\(var\(--mx-touch-row\) - 24px\) \/ 2\);/su,
+    /\.session-sidebar \.session-row-actions\s*\{[^}]*top:\s*50%;/su,
   );
   assert.match(
     mobileChromeSource,

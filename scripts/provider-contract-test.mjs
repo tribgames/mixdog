@@ -81,7 +81,7 @@ test('Computer Use stays one shared custom-tool contract across providers', () =
     ];
     for (const schema of schemas) {
         assert.deepEqual(schema.properties.action.enum, [
-            'list', 'diagnose', 'capture', 'verify', 'act',
+            'list', 'diagnose', 'capture', 'verify', 'wait_for_user', 'act',
             'window', 'menu', 'clipboard', 'launch',
         ]);
         assert.equal(JSON.stringify(schema).includes('computer_use_preview'), false);

@@ -27,7 +27,9 @@ test("project file-change subscriptions share one recursive watcher", async () =
     await waitForTurn();
     assert.deepEqual(starts, [["C:\\Project\\mixdog", true]]);
 
-    receive("c:\\project\\mixdog");
+    // Case folding is a Windows path rule; posix keys are exact, so the echoed
+    // change keeps the subscribed spelling there.
+    receive(navigator.platform.toLowerCase().includes("win") ? "c:\\project\\mixdog" : "C:\\Project\\mixdog");
     assert.equal(first, 1);
     assert.equal(second, 1);
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
+import { InitialSurface } from './InitialSurface';
 import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
 import {
@@ -505,7 +506,7 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
         onToggle={(enabled) => void run('setWebhookEnabled', [editor.name, enabled], 'toast')} />}
       {/* No loading flash: the list area stays empty until the first snapshot
           lands (Schedules-page grammar). */}
-      {loading ? null
+      {loading ? <InitialSurface />
         : visible.length ? <div className="schedules-list">{visible.map((webhook) => {
           const name = String(webhook.name);
           const enabled = webhook.enabled !== false;

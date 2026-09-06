@@ -1,0 +1,143 @@
+/* Shared rail controls. Panels place these controls; they do not reskin them. */
+.schedules-search,
+.workbench-search-input {
+  box-sizing: border-box;
+  min-width: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 3px 0 7px;
+  border: 1px solid var(--mx-border);
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: var(--mx-workspace-sheet);
+}
+.schedules-search:focus-within,
+.workbench-search-input:focus-within { border-color: var(--mx-focus); }
+.schedules-search > svg,
+.workbench-search-input > svg {
+  width: var(--mx-icon-sm);
+  height: var(--mx-icon-sm);
+  flex: 0 0 var(--mx-icon-sm);
+  pointer-events: none;
+}
+.schedules-search input,
+.workbench-search-input input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: var(--mx-text);
+  background: transparent;
+  box-shadow: none;
+  font: inherit;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+  letter-spacing: 0;
+}
+.schedules-search input::placeholder,
+.workbench-search-input input::placeholder { color: var(--mx-text-muted); }
+.workbench-search-input input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
+}
+.workbench-search-input button {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.workbench-search-input button:hover { color: var(--mx-text); background: var(--mx-hover); }
+
+.workbench-search-mode,
+.dock-scm-tab-bar,
+.extensions-section-toolbar {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0 4px;
+  background: transparent;
+}
+.extensions-section-toolbar { border-bottom: 1px solid var(--mx-border-muted); }
+.workbench-search-mode button,
+.dock-scm-tab,
+.extensions-section-toolbar button {
+  position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--mx-font-minor);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+  text-align: center;
+  cursor: pointer;
+}
+.workbench-search-mode button:hover,
+.dock-scm-tab:hover,
+.extensions-section-toolbar button:hover { color: var(--mx-text); background: var(--mx-hover); }
+.workbench-search-mode button[aria-selected="true"],
+.dock-scm-tab[aria-checked="true"],
+.extensions-section-toolbar button.active {
+  color: var(--mx-text);
+  background: transparent;
+  box-shadow: none;
+  font-weight: var(--mx-weight-semibold);
+}
+.workbench-search-mode button[aria-selected="true"]::after,
+.dock-scm-tab[aria-checked="true"]::after,
+.extensions-section-toolbar button.active::after {
+  position: absolute;
+  right: 3px;
+  bottom: -4px;
+  left: 3px;
+  height: 2px;
+  border-radius: var(--mx-radius-hair) var(--mx-radius-hair) 0 0;
+  background: var(--mx-text);
+  content: "";
+}
+.workbench-search-mode button:focus-visible,
+.dock-scm-tab:focus-visible,
+.extensions-section-toolbar button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: -1px;
+}
+.extensions-section-toolbar button > svg { flex: 0 0 auto; }
+.extensions-section-toolbar button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+html[data-mixdog-mobile-tabs] .schedules-search {
+  height: var(--mx-touch);
+  min-height: var(--mx-touch);
+}

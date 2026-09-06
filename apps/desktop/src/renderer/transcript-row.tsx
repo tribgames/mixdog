@@ -58,7 +58,7 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
   if (streaming) workerPipeline.current = true;
   const markdownParts = resolveStreamingMarkdownChunks(text, streaming, markdownCache.current);
   const renderedChunks = markdownParts.stableChunks.map((chunk, index) => (
-    <Suspense fallback={null}
+    <Suspense fallback={<span hidden data-transcript-pending />}
       key={markdownParts.stableChunkKeys[index]}>
       {workerPipeline.current
         ? <StreamingMarkdownBody text={chunk}
@@ -72,7 +72,7 @@ export const MarkdownResponse = React.memo(function MarkdownResponse({
       : markdownParts.unstableText;
     renderedChunks.push(
       <Suspense
-        fallback={null}
+        fallback={<span hidden data-transcript-pending />}
         key={markdownParts.unstableKey}>
         {workerPipeline.current
           ? <StreamingMarkdownBody

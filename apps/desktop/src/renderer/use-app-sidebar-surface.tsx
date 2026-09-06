@@ -6,6 +6,7 @@ import type { ExtensionsSection } from "./extension-sections";
 import type { useAppShellPanels } from "./use-app-shell-panels";
 import { useStableEvent } from "./use-stable-event";
 import type { SidebarViewGroup } from "./sidebar-view-layout";
+import { InitialSurface } from "./InitialSurface";
 
 type ShellPanels = ReturnType<typeof useAppShellPanels>;
 
@@ -24,6 +25,7 @@ export function useAppSidebarSurface({
   retrySidebarPanel,
   runningAutomationNames,
   projects,
+  projectsReady,
   selectedProjectPath,
   extensionsSection,
   onExtensionsSectionChange,
@@ -48,6 +50,7 @@ export function useAppSidebarSurface({
   retrySidebarPanel(panel: SidebarPanelKey): void;
   runningAutomationNames: { schedule: Set<string>; webhook: Set<string> };
   projects: DesktopProjectSummary[];
+  projectsReady: boolean;
   selectedProjectPath: string;
   extensionsSection: ExtensionsSection;
   onExtensionsSectionChange(section: ExtensionsSection): void;
@@ -233,7 +236,7 @@ export function useAppSidebarSurface({
                ? <ExtensionsPane active={active} section={extensionsSection}
                    onSectionChange={onExtensionsSectionChange} />
             : <ProjectsPane active={active}
-                projects={projects} selectedProjectPath={selectedProjectPath}
+                projects={projects} projectsReady={projectsReady} selectedProjectPath={selectedProjectPath}
                 onChooseFolder={async () => (await window.mixdogDesktop?.chooseProject()) ?? null}
                 onCreateProject={projectsCreate}
                 onRename={projectsRename}
@@ -249,7 +252,7 @@ export function useAppSidebarSurface({
     return <SidebarPanelBoundary label={label} active={active}
       onFailure={() => markSidebarPanelFailed(panel)}
       onRetry={() => retrySidebarPanel(panel)}>
-      <Suspense fallback={null}>{content}</Suspense>
+      <Suspense fallback={<InitialSurface />}>{content}</Suspense>
     </SidebarPanelBoundary>;
   };
 

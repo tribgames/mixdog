@@ -18,6 +18,7 @@ import {
 import { preferredModelParameters } from "./model-route-utils";
 import { RouteEditor } from "./RouteEditor";
 import { OpenSelect } from "./OpenSelect";
+import { InitialSurface } from "./InitialSurface";
 import {
   modelContextWindow,
   modelDisplayName,
@@ -78,12 +79,14 @@ export const WorkflowSelect = memo(function WorkflowSelect({
   const [reloadNonce, setReloadNonce] = useState(0);
   const switchGuard = useRef(false);
   beginBootSurface("workflow-controls", "catalog");
-  // The inherited workflow label is a complete shell; fetching the dropdown
-  // choices is optional data and must not keep the whole desktop covered.
+  const workflowReady = optionsSettled || Boolean(workflow?.id);
+  // A known inherited label can paint immediately. An unknown cold catalog
+  // reserves the control instead of adding it to an already visible row.
   useEffect(() => {
     reportBootSurfaceStage("workflow-controls", "catalog", "module");
+    if (!workflowReady) return;
     reportBootSurfaceReady("workflow-controls", "catalog", "shell");
-  }, []);
+  }, [workflowReady]);
   useEffect(() => {
     if (workflowOptionsCache && Date.now() - workflowOptionsCache.at < 300_000) {
       setOptionsSettled(true);
@@ -167,14 +170,21 @@ export const WorkflowSelect = memo(function WorkflowSelect({
       setSwitching(false);
     }
   };
-  if (options.length === 0) return null;
+  if (options.length === 0 && !workflow?.id) {
+    return optionsSettled ? null : <div className="composer-route-workflow">
+      <InitialSurface variant="control" />
+    </div>;
+  }
+  const displayOptions = options.length ? options : [{
+    value: String(workflow?.id), label: String(workflow?.name || workflow?.id),
+  }];
   return <div className="composer-route-workflow">
     <OpenSelect variant="route" className="workflow-context-select"
-      ariaLabel="Workflow" disabled={disabled || switching}
+      ariaLabel="Workflow" disabled={disabled || switching || !optionsSettled}
       value={selectedId}
       displayValue={String(workflow?.name || selected?.label || selectedId)}
       onChange={(value) => void changeWorkflow(value)}
-      options={options} />
+      options={displayOptions} />
   </div>;
 });
 
@@ -240,13 +250,6 @@ export const ModelSelector = memo(function ModelSelector({
   const restoreAfterRoute = useRef<HTMLElement | null>(null);
   const modelBootKey = `${provider || "none"}:${model || "none"}`;
   beginBootSurface("model-controls", modelBootKey);
-  // The selected route can paint from its persisted provider/model ids while
-  // the picker catalog refreshes. Do not hold the whole desktop cover for
-  // optional dropdown rows that are already stale-while-revalidated.
-  useEffect(() => {
-    reportBootSurfaceStage("model-controls", modelBootKey, "module");
-    reportBootSurfaceReady("model-controls", modelBootKey, "shell");
-  }, [modelBootKey]);
   const modelUnavailable = modelDisabled || routing || selectionPending;
   const tuningUnavailable = tuningDisabled || routing || selectionPending;
   const displayedFast = fast;
@@ -271,6 +274,11 @@ export const ModelSelector = memo(function ModelSelector({
   // 모델이 그대로 표기되게). The RAW catalog answers those cases.
   const known = selected || models.find((option) =>
     option.provider === provider && option.model === model);
+  const awaitingRoute = !known && !startupCatalogSettled;
+  useEffect(() => {
+    reportBootSurfaceStage("model-controls", modelBootKey, "module");
+    if (!awaitingRoute) reportBootSurfaceReady("model-controls", modelBootKey, "shell");
+  }, [awaitingRoute, modelBootKey]);
   const fastCapable = known?.fastCapable ?? sourceFastCapable;
   const selectedModelParameters = preferredModelParameters(known, modelParameters || {});
   const defaultContextWindow = known ? modelContextWindow(known) : 0;
@@ -295,9 +303,7 @@ export const ModelSelector = memo(function ModelSelector({
   // unknown/retired persisted id must never read as a selectable model.
   const triggerModel = known
     ? modelDisplayName(known.model, known.provider, known.display || "")
-    : model && !catalogLoaded
-      ? modelDisplayName(model, provider)
-      : t("Select model");
+    : t("Select model");
 
   const loadCatalog = useCallback(async (force = false) => {
     if (!force && catalogInFlight.current) return catalogInFlight.current;
@@ -331,7 +337,11 @@ export const ModelSelector = memo(function ModelSelector({
           // failure must not become a boot-time error surface.
           console.warn("[model-catalog] full catalog refresh failed", reason);
         })
-        .finally(() => { if (shared.isCurrent()) setCatalogRefreshing(false); });
+        .finally(() => {
+          if (!shared.isCurrent()) return;
+          setCatalogRefreshing(false);
+          setStartupCatalogSettled(true);
+        });
       try {
         const quick = await shared.quick;
         if (shared.isCurrent() && Array.isArray(quick) && quick.length > 0) {
@@ -353,7 +363,6 @@ export const ModelSelector = memo(function ModelSelector({
       } finally {
         if (shared.isCurrent()) {
           setCatalogLoaded(true);
-          setStartupCatalogSettled(true);
         }
       }
       void Promise.allSettled([fullRequest, setupRequest]);
@@ -597,6 +606,9 @@ export const ModelSelector = memo(function ModelSelector({
     });
   };
 
+  if (awaitingRoute) return <div className="route-controls">
+    <InitialSurface variant="control" />
+  </div>;
   return <div className="route-controls">
     <RouteEditor models={selectableModels} provider={provider} model={model}
       triggerModel={triggerModel} effort={effort}

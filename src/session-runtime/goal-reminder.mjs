@@ -1,4 +1,4 @@
-// Post-compaction Goal reminder.
+// Goal reminders at the model request boundary.
 //
 // Compaction drops the Goal's own tool results out of context, so the durable
 // task snapshot silently disappears mid-objective and the model keeps working
@@ -7,7 +7,8 @@
 //
 // Lifecycle mirrors deferred-tool-delta.mjs exactly (mark → snapshot →
 // acknowledge on acceptance), so a cancelled or failed turn re-sends it instead
-// of losing it. Deliberately event-driven: no per-turn injection.
+// of losing it. Request preparation also recovers paused state directly:
+// intake can precede session hydration or the previous turn's pause.
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import { readStoredGoalSnapshot } from './goal-runtime.mjs';
 import { goalStateReminder } from './goal-text.mjs';
@@ -41,9 +42,11 @@ export function clearPendingGoalReminder(session) {
   return true;
 }
 
-export function snapshotPendingGoalReminder(session, { dataDir = null, readGoal = null } = {}) {
-  const revision = pendingRevision(session);
-  if (!revision) return null;
+export function snapshotPendingGoalReminder(session, {
+  dataDir = null, readGoal = null, includePaused = false,
+} = {}) {
+  let revision = pendingRevision(session);
+  if (!revision && !includePaused) return null;
   const sessionId = clean(session?.id);
   if (!sessionId) return null;
   let goal = null;
@@ -59,6 +62,10 @@ export function snapshotPendingGoalReminder(session, { dataDir = null, readGoal 
   if (!goal || goal.status === 'complete') {
     clearPendingGoalReminder(session);
     return null;
+  }
+  if (!revision) {
+    if (goal.status !== 'paused') return null;
+    revision = markPendingGoalReminder(session, 'paused').revision;
   }
   const reason = clean(session.pendingGoalReminder?.reason);
   const content = goalStateReminder(goal, { reason });

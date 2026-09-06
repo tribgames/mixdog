@@ -1800,6 +1800,7 @@ export function App() {
     retrySidebarPanel,
     runningAutomationNames,
     projects,
+    projectsReady: projectCatalogReady,
     selectedProjectPath,
     extensionsSection,
     onExtensionsSectionChange: setExtensionsSection,
@@ -2399,6 +2400,7 @@ export function App() {
       title={sideViewDescriptors.get(id)?.label}
       titleDragProps={titleDragProps}
       sessions={sessions}
+      sessionsReady={sessionCatalogReady}
       activeSessionIds={observedAgentSessionIds}
       unreadSessionIds={unreadSessionIds}
       onPrefetchSession={prefetchSession}
@@ -2590,7 +2592,6 @@ export function App() {
   };
   return (
     <DesktopBootGate
-      enabled={Boolean(window.mixdogDesktop?.bootContext?.bootId)}
       restorePending={paneWorkspace.restorePending}
       ready={desktopBootReady}>
     <div className={`app-shell ${

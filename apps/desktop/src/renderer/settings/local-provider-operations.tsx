@@ -2,8 +2,7 @@ import { t } from '../i18n';
 import { ErrorNotice } from '../ErrorNotice';
 import { record } from '../record-utils';
 import type { RecordValue } from './capability-data';
-import { ExtensionFacts, ExtensionItemRow, ExtensionSection } from './extension-detail';
-import { ActionButton } from './capability-controls';
+import { ExtensionAction, ExtensionItemList, ExtensionItemRow, ExtensionSection } from './extension-detail';
 import { SlotProgress } from './built-in-install-progress';
 import { installationPercent } from './local-provider-status';
 import type { useLocalProviderActions } from './local-provider-actions';
@@ -23,13 +22,13 @@ export function LocalProviderOperations({ status, actions }: { status: RecordVal
   const operations = Array.isArray(status.installations) ? status.installations.map(record)
     .filter((entry) => ['running', 'cancelling', 'paused', 'failed'].includes(String(entry.state))) : [];
   const error = actions.error || String(status.installationCommandError || status.lastUnloadError || '');
-  const hardware = record(status.hardware);
-  const gpus = Array.isArray(hardware.gpus) ? hardware.gpus.map(record) : [];
-  const gpu = gpus.find((entry) => entry.uuid === record(status.gpu).uuid) || record(hardware.gpu);
-  const memory = (bytes: unknown) => typeof bytes === 'number' ? `${(bytes / 1024 ** 3).toFixed(1)} GiB` : '—';
+  // GPU memory and server state live in the feature's Info facts; the
+  // request counters were operational noise and are gone (user: 불필요한
+  // 표면 정리). Only live installations earn a section here.
   return <>
     {error && <ErrorNotice error={error} />}
     {operations.length > 0 && <ExtensionSection title={t('Installation')}>
+      <ExtensionItemList>
       {operations.map((operation) => {
         const modelId = String(operation.modelId || '');
         const phase = String(operation.phase);
@@ -44,21 +43,14 @@ export function LocalProviderOperations({ status, actions }: { status: RecordVal
               : operation.state === 'cancelling' ? t('Stopping download…')
               : running ? '' : t('Paused · downloaded files are kept')}
             control={running
-              ? <ActionButton disabled={actions.busy || operation.state === 'cancelling' || !operation.jobId}
-                  onClick={() => actions.cancel(String(operation.jobId))}>{t('Stop download')}</ActionButton>
-              : <ActionButton disabled={actions.busy}
-                  onClick={() => actions.resume(phase, modelId)}>{t('Resume installation')}</ActionButton>} />
+              ? <ExtensionAction disabled={actions.busy || operation.state === 'cancelling' || !operation.jobId}
+                  onClick={() => actions.cancel(String(operation.jobId))}>{t('Stop download')}</ExtensionAction>
+              : <ExtensionAction disabled={actions.busy}
+                  onClick={() => actions.resume(phase, modelId)}>{t('Resume installation')}</ExtensionAction>} />
           {operation.state === 'failed' && <ErrorNotice error={operation.error || t('Failed')} />}
         </div>;
       })}
+      </ExtensionItemList>
     </ExtensionSection>}
-    <ExtensionSection title={t('Runtime')}>
-      <ExtensionFacts facts={[
-        ['Available GPU memory', `${memory(gpu.freeMemoryBytes)} / ${memory(gpu.memoryBytes)}`],
-        ['Requests', t('Local requests: {{active}} active · {{queued}} queued', {
-          active: String(status.activeRequests || 0), queued: String(status.queuedRequests || 0),
-        })],
-      ]} />
-    </ExtensionSection>
   </>;
 }

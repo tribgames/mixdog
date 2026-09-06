@@ -50,6 +50,7 @@ export interface RelayE2EEHello {
   listDelta?: 1;
   deflate?: 1;
   compactWire?: 1;
+  viewSync?: 1;
 }
 
 interface RelayE2EEBox {

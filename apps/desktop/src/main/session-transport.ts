@@ -91,6 +91,7 @@ export class SessionTransport implements DesktopTransport {
   private closed = false;
   private readonly bootStartedAt = performance.now();
   private connectAttempt = 0;
+  private viewSyncSupported = false;
 
   constructor(
     private readonly moduleUrl: string,
@@ -196,7 +197,7 @@ export class SessionTransport implements DesktopTransport {
         totalMs: Math.round((performance.now() - this.bootStartedAt) * 10) / 10,
         attempt: this.connectAttempt,
       });
-      this.emit('message', { kind: 'ready' } satisfies DesktopServiceOutbound);
+      this.emit('message', { kind: 'ready', viewSync: this.viewSyncSupported } satisfies DesktopServiceOutbound);
     })();
     try {
       await this.initializing;
@@ -210,6 +211,7 @@ export class SessionTransport implements DesktopTransport {
     options: DesktopInitOptions,
   ): Promise<AttachedDaemon> {
     const attempt = ++this.connectAttempt;
+    this.viewSyncSupported = false;
     let discovery: Record<string, unknown>;
     try {
       discovery = await this.measureBootPhase(
@@ -236,6 +238,7 @@ export class SessionTransport implements DesktopTransport {
             if (frame?.type !== 'desktop-event') return;
             if (String(frame.desktopId || '') !== this.desktopId) return;
             const outbound = frame.message as DesktopServiceOutbound;
+            if (outbound?.kind === 'view-sync-complete') this.viewSyncSupported = true;
             if (outbound && typeof outbound === 'object') this.emit('message', outbound);
           },
           onFatal: (reason) => {

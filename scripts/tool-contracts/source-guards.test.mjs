@@ -67,19 +67,23 @@ test('setRoute stays next-session-only and refreshes cache fields on live-apply'
   if (!/applyToCurrentSession = options\?\.applyToCurrentSession === true/.test(setRouteBlock)) {
     throw new Error('setRoute must default applyToCurrentSession to false (model changes apply to the next session only)');
   }
-  if (!/const applyLive = applyToCurrentSession \|\| currentSessionEmpty/.test(setRouteBlock)
-    || !/if \(!applyLive\)/.test(setRouteBlock)
+  // A live session that already owns route history is never rewritten in
+  // place, whatever applyToCurrentSession says: only effort/Fast tuning may
+  // reach it, from its next turn.
+  if (!/const currentSessionEmpty = !!session && !sessionHasRouteHistory\(session\)/.test(setRouteBlock)
+    || !/if \(!currentSessionEmpty\) \{/.test(setRouteBlock)
     || !/return getRoute\(\);/.test(setRouteBlock)) {
-    throw new Error('setRoute must early-return before touching a non-empty live session when applyToCurrentSession is false');
+    throw new Error('setRoute must early-return before touching a live session that owns route history (model changes apply to the next session only)');
   }
   // Empty current session must apply live so /model before the first chat
   // updates route + statusline at once, but compact summary anchors are route
   // history and must keep a compacted session next-session-only. Seeded system
   // or synthetic assistant/tool rows alone must NOT make the session non-empty.
-  if (!/!hasRouteHistoryMessage\(session\.messages\)/.test(setRouteBlock)
-    || !/!hasRouteHistoryMessage\(session\.liveTurnMessages\)/.test(setRouteBlock)
+  if (!/hasRouteHistoryMessage\(session\?\.messages\)/.test(runtimeSrc)
+    || !/hasRouteHistoryMessage\(session\?\.liveTurnMessages\)/.test(runtimeSrc)
     || !/SUMMARY_PREFIX/.test(runtimeSrc)
-    || !/hasUserConversationMessage\(list\) \|\| list\.some\(isSummaryAnchorMessage\)/.test(runtimeSrc)
+    || !/hasUserConversationMessage\(list\) \|\| list\.some\(/.test(runtimeSrc)
+    || !/startsWith\(SUMMARY_PREFIX\)/.test(runtimeSrc)
     || !/function hasRouteHistoryMessage/.test(runtimeSrc)) {
     throw new Error('setRoute must apply live only to route-empty sessions and must treat compact summary anchors as non-empty route history');
   }

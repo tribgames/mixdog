@@ -944,7 +944,6 @@ async function createWindow(): Promise<void> {
     powerMonitor,
     onDesktopSettingsChanged: applyDesktopSettings,
     browserHost,
-    computerHost: computerHost ?? undefined,
     updater: desktopUpdater,
     terminals: serviceTerminalManager,
     remoteAccessInfo,

@@ -7,6 +7,7 @@ import {
 } from "react";
 
 import { PaneSurfaceGate } from "./PaneSurfaceGate";
+import { InitialSurface } from "./InitialSurface";
 import { t } from "./i18n";
 import { ProviderIcon } from "./provider-display";
 import { record } from "./record-utils";
@@ -398,7 +399,8 @@ export function SidebarUsage({
           <Pin size={14} aria-hidden="true" />
         </button>}
       </header>
-      <PaneSurfaceGate ready={!awaitingFirstUsage} label={t("Loading usage…")}>
+      <PaneSurfaceGate ready={!awaitingFirstUsage} label={t("Loading usage…")}
+        fallback={<InitialSurface />}>
       <div className="sidebar-usage-content">
       <div id="sidebar-usage-list" className="sidebar-usage-list">
         {/* Flat roster: header (icon · name · soonest reset) with

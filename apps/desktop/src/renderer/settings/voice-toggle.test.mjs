@@ -89,6 +89,10 @@ function context({ run, snapshot = null, voice = {}, api = {}, toolModules = {} 
 const openFeature = (id) => act(async () => {
   document.querySelector(`button[data-built-in-feature="${id}"]`).click();
 });
+// jsdom's selector engine mishandles "&" inside a quoted attribute value
+// ("Git & GitHub"), so labelled controls are found by attribute equality.
+const labelled = (id, tag, label) => [...document.querySelectorAll(`[data-feature-id="${id}"] ${tag}`)]
+  .find((element) => element.getAttribute('aria-label') === label) ?? null;
 
 test('voice installs inline with live progress and enables on completion', async () => {
   const host = document.createElement('main');
@@ -233,9 +237,7 @@ test('missing Git dependency installs inline and enables the tool on completion'
       }));
     });
     await openFeature('git');
-    const install = document.querySelector(
-      '[data-feature-id="git"] button[aria-label="Install Git"]',
-    );
+    const install = labelled('git', 'button', 'Install Git & GitHub');
     assert.ok(install);
     await act(async () => {
       install.click();
@@ -248,7 +250,7 @@ test('missing Git dependency installs inline and enables the tool on completion'
 
     await act(async () => dependency.resolve({ installed: true, version: '2.50.1' }));
     assert.deepEqual(calls, [['setBuiltinToolEnabled', ['git', true]]]);
-    assert.ok(document.querySelector('[data-feature-id="git"] input[aria-label="Git"]'));
+    assert.ok(labelled('git', 'input', 'Git & GitHub'));
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -272,8 +274,8 @@ test('system Git alone does not bypass the Mixdog install marker', async () => {
       }));
     });
     await openFeature('git');
-    assert.ok(document.querySelector('[data-feature-id="git"] button[aria-label="Install Git"]'));
-    assert.equal(document.querySelector('[data-feature-id="git"] input[aria-label="Git"]'), null);
+    assert.ok(labelled('git', 'button', 'Install Git & GitHub'));
+    assert.equal(labelled('git', 'input', 'Git & GitHub'), null);
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -689,23 +691,22 @@ test('runtime-backed Built-ins stay installed through OFF and ON', async () => {
     await render();
     for (const id of ['memory', 'git', 'office', 'voice']) {
       const label = id === 'voice' ? 'Voice transcription'
+        : id === 'git' ? 'Git & GitHub'
         : id[0].toUpperCase() + id.slice(1);
       await openFeature(id);
-      let toggle = document.querySelector(`[data-feature-id="${id}"] input[aria-label="${label}"]`);
+      let toggle = labelled(id, 'input', label);
       assert.equal(toggle.checked, true, `${id} starts on`);
 
       await act(async () => toggle.click());
       await render();
-      toggle = document.querySelector(`[data-feature-id="${id}"] input[aria-label="${label}"]`);
+      toggle = labelled(id, 'input', label);
       assert.ok(toggle, `${id} stays installed after OFF`);
       assert.equal(toggle.checked, false, `${id} turns off`);
-      assert.equal(document.querySelector(
-        `[data-feature-id="${id}"] button[aria-label="Install ${label}"]`,
-      ), null);
+      assert.equal(labelled(id, 'button', `Install ${label}`), null);
 
       await act(async () => toggle.click());
       await render();
-      toggle = document.querySelector(`[data-feature-id="${id}"] input[aria-label="${label}"]`);
+      toggle = labelled(id, 'input', label);
       assert.equal(toggle.checked, true, `${id} turns back on`);
     }
     assert.deepEqual(calls.slice(-8), [

@@ -57,7 +57,8 @@ test('local provider streams a tool call and consumes its result with a strict s
       return { baseURL: `http://127.0.0.1:${server.address().port}/v1`, apiKey: 'test-key' };
     },
   });
-  const signal = new AbortController().signal;
+  const controller = new AbortController();
+  const signal = controller.signal;
   const messages = ['base', 'profile', 'workflow', 'environment'].map((content) => ({ role: 'system', content }));
   messages.push({ role: 'user', content: 'Look up the answer.' });
   const tools = [{ name: 'lookup', description: 'Read a value', inputSchema: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] } }];
@@ -74,7 +75,12 @@ test('local provider streams a tool call and consumes its result with a strict s
     assert.equal(second.content, 'The result is 42.');
     assert.equal(second.stopReason, 'stop');
     assert.equal(requests.length, 2);
-    assert.deepEqual(seenSignals, [signal, signal]);
+    // The request queue hands the server a request-scoped signal derived from
+    // the caller's, so aborting the caller aborts every server wait it began.
+    assert.equal(seenSignals.length, 2);
+    assert.ok(seenSignals.every((seen) => seen instanceof AbortSignal && !seen.aborted));
+    controller.abort();
+    assert.ok(seenSignals.every((seen) => seen.aborted));
     assert.equal(requests[1].messages.at(-1).tool_call_id, 'call_local');
     assert.equal(requests[1].messages[0].content, 'base\n\nprofile\n\nworkflow\n\nenvironment');
     assert.equal(messages.filter((message) => message.role === 'system').length, 4);

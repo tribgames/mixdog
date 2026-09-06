@@ -1,5 +1,7 @@
 import { Bot, ChevronDown, ChevronRight } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { InitialSurface } from './InitialSurface';
+import { beginBootSurface, reportBootSurfaceReady } from './boot-metrics';
 
 import type { DesktopAgentPoolRow, DesktopApi, DesktopSessionSummary } from '../shared/contract';
 import {
@@ -17,7 +19,6 @@ import {
 } from '../shared/agent-activity';
 import { sessionSummaryTitle } from '../shared/session-title.mjs';
 import { t } from './i18n';
-import { ProgressSpinner } from './ProgressSpinner';
 import { modelDisplayName, ModelRouteLabel } from './provider-display';
 import { record } from './record-utils';
 import { formatWorkElapsed, timeMs } from './TranscriptView';
@@ -809,6 +810,7 @@ function AgentActivityTree({
 export function AgentActivityPane({
   active,
   sessions,
+  sessionsReady = true,
   unreadSessionIds,
   onPrefetchSession,
   onOpenLeadSession,
@@ -816,6 +818,7 @@ export function AgentActivityPane({
 }: {
   active: boolean;
   sessions: readonly DesktopSessionSummary[];
+  sessionsReady?: boolean;
   activeSessionIds?: readonly string[];
   /** Recent-list unread set: an idle row whose session is unseen reads as
    *  "완료" until the session is actually opened. */
@@ -894,13 +897,13 @@ export function AgentActivityPane({
     return () => window.clearInterval(timer);
   }, [active, hasLiveClock]);
 
-  if (agents === null) return <div className="schedules-page agent-activity-page">
-    <div className="schedules-list">
-      <div className="schedules-row workflows-agent-summary-row" role="status">
-        <span className="schedules-row-copy">{t('Loading activity…')}</span>
-        <span className="agent-activity-status"><ProgressSpinner size={16} /></span>
-      </div>
-    </div>
+  const loading = agents === null || (!sessionsReady && groups.length === 0);
+  if (active) beginBootSurface("agent-activity", "catalog");
+  useEffect(() => {
+    if (!loading) reportBootSurfaceReady("agent-activity", "catalog");
+  }, [loading]);
+  if (loading) return <div className="schedules-page agent-activity-page">
+    <InitialSurface />
   </div>;
   if (groups.length === 0) return <div className="schedules-page agent-activity-page">
     <p className="schedules-empty agent-activity-empty">

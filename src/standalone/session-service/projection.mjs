@@ -23,6 +23,34 @@ export function createSessionProjection({
   updateEntryBusy,
   releaseProjection,
 }) {
+  // One clock owns every snapshot served by this daemon, including stored
+  // views and replacement runtimes. Per-entry counters restarted after idle
+  // eviction, so clients retaining the old baseline discarded new turns.
+  let revision = revisionEpoch;
+  const nextRevision = () => ++revision;
+
+  function projectionResult(sessionId, projection, {
+    baseRevision = null,
+    baseProjectionStamp = null,
+    allowUnchanged = false,
+  } = {}) {
+    const stamp = typeof projection?.projectionStamp === 'string'
+      ? projection.projectionStamp : '';
+    // A stamp alone identifies content, not the caller's wire baseline.
+    // Preserve a known baseline; otherwise return a full, freshly ordered body.
+    const unchanged = allowUnchanged && stamp && stamp === baseProjectionStamp
+      && Number.isSafeInteger(baseRevision)
+      && baseRevision > revisionEpoch && baseRevision <= revision;
+    return {
+      sessionId,
+      reservedOnly: false,
+      projection: true,
+      revision: unchanged ? baseRevision : nextRevision(),
+      ...(stamp ? { projectionStamp: stamp } : {}),
+      ...(unchanged ? { unchanged: true } : { full: projection }),
+    };
+  }
+
   function snapshotOf(entry) {
     const raw = entry.runtime.getState?.() ?? null;
     // Store states are immutable snapshots (every mutation makes a new object),
@@ -61,7 +89,7 @@ export function createSessionProjection({
       return { changed: false, snapshot, revision: previousRevision, previousRevision, patch: null };
     }
     entry.publishedSnapshot = snapshot;
-    entry.revision = previousRevision + 1;
+    entry.revision = nextRevision();
     return {
       changed: true,
       snapshot,
@@ -254,6 +282,7 @@ export function createSessionProjection({
 
   return {
     advance,
+    projectionResult,
     currentSessionId,
     indexSessionEntry,
     publishStep,

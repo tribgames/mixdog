@@ -97,7 +97,6 @@ export function createPowerShellComputerHost(
   const basePolicy = loadComputerExecutionPolicy(options.policyFile);
   const failureDiagnostics = createComputerFailureDiagnostics(join(mixdogDataDirectory(), 'computer-failures'));
   const authorization = createComputerAuthorizationSettings({
-    directory: mixdogDataDirectory(),
     base: basePolicy,
     stop: () => {
       computerUseCoordinator.pauseForUser('authorization_changed');

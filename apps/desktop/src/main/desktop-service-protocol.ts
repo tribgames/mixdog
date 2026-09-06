@@ -22,7 +22,8 @@ export interface DesktopServiceError {
 }
 
 export type DesktopServiceOutbound =
-  | { kind: 'ready' }
+  | { kind: 'ready'; viewSync?: boolean }
+  | { kind: 'view-sync-complete' }
   /** The daemon behind a still-open transport was replaced. Everything the
    *  dead process hosted went with it — the relay leg above all — and no
    *  second `ready` announces the swap, because the transport itself never

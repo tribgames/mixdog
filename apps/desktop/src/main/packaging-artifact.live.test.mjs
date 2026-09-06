@@ -5,7 +5,7 @@
 // in packaging.test.mjs.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { access, open, readdir } from 'node:fs/promises';
+import { access, open, readdir, readFile } from 'node:fs/promises';
 import { dirname, join, sep } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -52,6 +52,14 @@ async function streamingFileIdentity(path) {
 
 test('electron-vite emitted the preload entry the main process loads', async () => {
   await access(new URL('../../out/preload/index.js', import.meta.url));
+});
+
+test('plain Node can import the standalone daemon service artifact', async () => {
+  const serviceUrl = new URL('../../out/main/daemon.cjs', import.meta.url);
+  const source = await readFile(serviceUrl, 'utf8');
+  assert.doesNotMatch(source, /(?:from\s+|import\s*\()\s*["']electron["']/);
+  const service = await import(`${serviceUrl.href}?packaging-test=${Date.now()}`);
+  assert.equal(typeof service.createDesktopService, 'function');
 });
 
 test('built runtime archive metadata and emitted native sidecar agree', async () => {

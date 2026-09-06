@@ -72,7 +72,9 @@ test('the validator reports folder mismatch, unsupported fields, and missing res
   const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-creator-invalid-'));
   const skillDir = join(root, 'folder-name');
   try {
-    mkdirSync(skillDir, { recursive: true });
+    // A bundled references/ folder makes a missing file inside it a broken
+    // link (error), not a repository path the validator cannot resolve.
+    mkdirSync(join(skillDir, 'references'), { recursive: true });
     writeFileSync(join(skillDir, 'SKILL.md'), [
       '---',
       'name: manifest-name',

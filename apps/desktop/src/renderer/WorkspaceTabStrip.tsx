@@ -33,6 +33,7 @@ import { prefetchSurfaceForSelection } from "./lazy-widgets";
 import { isMobileRemoteSurface } from "./MobileTabOverview";
 import { useMobileBack } from "./mobile-back";
 import { ProgressSpinner } from "./ProgressSpinner";
+import { useTabStripReveal } from "./use-tab-strip-reveal";
 import {
   acceptPaneDrag,
   beginPaneDrag,
@@ -327,35 +328,8 @@ export function WorkspaceTabStrip({
     }
     displayTabs.splice(Math.min(ghost.index, displayTabs.length), 0, { tab: ghost.tab, closing: true });
   }
-  const revealActiveTab = useCallback(() => {
-    const strip = tabStrip.current;
-    const node = tabNodes.current.get(activeKey);
-    if (!strip || !node) return;
-    // The add button is a sibling of the scroll viewport, so clientWidth is
-    // already the complete unobscured label run.
-    const visibleWidth = strip.clientWidth;
-    if (visibleWidth <= 0) return;
-    if (strip.scrollWidth <= visibleWidth) {
-      strip.scrollLeft = 0;
-      return;
-    }
-    const left = node.offsetLeft;
-    const right = left + node.offsetWidth;
-    if (right > strip.scrollLeft + visibleWidth) {
-      strip.scrollLeft = right - visibleWidth;
-    } else if (left < strip.scrollLeft) {
-      strip.scrollLeft = left;
-    }
-  }, [activeKey]);
   useLayoutEffect(() => {
-    const previous = previousTabs.current;
-    const appended = tabs.length > previous.length
-      && previous.every((tab, index) => tabs[index]?.key === tab.key);
     previousTabs.current = tabs;
-    if (!appended) return;
-    // Reveal a newly appended active
-    // tab and the attached add-tab control are revealed before paint.
-    if (tabStrip.current) tabStrip.current.scrollLeft = tabStrip.current.scrollWidth;
   }, [tabs]);
   // One beat after the last change the ghosts unmount and the entering marks
   // drop; a change inside the beat restarts it so every tab settles together.
@@ -368,35 +342,6 @@ export function WorkspaceTabStrip({
     }, TAB_MOTION_SETTLE_MS);
     return () => window.clearTimeout(timer);
   }, [tabs]);
-  // Reveal-active-tab: switching tabs scrolls the strip MINIMALLY so
-  // the active tab is always fully visible — overflow scrolls, it never
-  // hides tabs. Right overflow aligns the tab's right edge; left overflow
-  // aligns its left edge. The reveal reads clientWidth/scrollWidth inside
-  // the commit, which forces a synchronous layout of the whole document —
-  // keyed on the tab SET (keys + titles) rather than the `tabs` array, whose
-  // identity changed on every App render and made each of those commits pay
-  // that layout (a keystroke sharing the frame painted 80–160ms late).
-  const tabSignature = tabs.map((tab) => `${tab.key}\u0000${tab.title}`).join("\u0001");
-  useLayoutEffect(() => {
-    revealActiveTab();
-  }, [activeKey, revealActiveTab, tabSignature]);
-  // Parent layout calls are implicit in React/CSS, with no explicit
-  // title-control layout pass. Observe this strip's OWN width so sash,
-  // dock, sidebar and window changes all reveal the active label without
-  // coupling pane labels to viewport breakpoints.
-  useLayoutEffect(() => {
-    const strip = tabStrip.current;
-    if (!strip || typeof ResizeObserver === "undefined") return undefined;
-    let previousWidth = strip.clientWidth;
-    const observer = new ResizeObserver(() => {
-      const nextWidth = strip.clientWidth;
-      if (nextWidth === previousWidth) return;
-      previousWidth = nextWidth;
-      revealActiveTab();
-    });
-    observer.observe(strip);
-    return () => observer.disconnect();
-  }, [revealActiveTab]);
   const setTabNode = useCallback((key: string, node: HTMLDivElement | null) => {
     if (node) tabNodes.current.set(key, node);
     else tabNodes.current.delete(key);
@@ -532,6 +477,14 @@ export function WorkspaceTabStrip({
         stripAvailable,
       )
     : null;
+  useTabStripReveal({
+    stripRef: tabStrip,
+    tabNodes,
+    activeKey,
+    signature: tabs.map((tab) => `${tab.key}\u0000${tab.title}`).join("\u0001"),
+    availableWidth: stripAvailable,
+    targetWidth: chromeWidths?.reduce((sum, width) => sum + width, 0) ?? null,
+  });
   return (
       <div ref={shellNode} className="workspace-tabs-shell" data-slot="workspace-tabs"
         data-count={tabs.length} data-mobile={mobile ? "true" : undefined}

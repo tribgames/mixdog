@@ -96,42 +96,32 @@
 /* Inline actions beside a field (Browse…, Regenerate secret) arrive on the
    Settings page's base-plate button — the CARD's own colour here, so they
    vanished into it and sat 4px shorter than the 32px field next to them.
-   They take the popup's quiet plate at field height; the small in-row and
-   header actions of the Extensions cards take the same plate at their own
-   size. */
-.schedules-dialog .settings-action,
-.schedules-dialog .extensions-item-action,
-.schedules-dialog .built-in-feature-control > button {
+   They take the popup's quiet plate at field height. (The Extensions cards'
+   in-body actions wear the same plate at 28px as .extensions-action —
+   extension-dialog.css.) */
+.schedules-dialog .settings-action {
+  min-height: 32px;
+  padding: 0 12px;
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-text);
   background: var(--mx-popup-action-bg);
   box-shadow: var(--mx-popup-action-ring);
+  font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
   cursor: pointer;
   transition: background-color var(--mx-motion-ink), color var(--mx-motion-ink);
 }
-.schedules-dialog .settings-action {
-  min-height: 32px;
-  padding: 0 12px;
-  font-size: var(--mx-font-ui);
-}
-.schedules-dialog .settings-action:hover:not(:disabled),
-.schedules-dialog .extensions-item-action:hover:not(:disabled),
-.schedules-dialog .built-in-feature-control > button:hover:not(:disabled) {
+.schedules-dialog .settings-action:hover:not(:disabled) {
   color: var(--mx-text);
   background: var(--mx-hover);
   box-shadow: var(--mx-popup-action-ring-hover);
 }
-.schedules-dialog .settings-action:active:not(:disabled),
-.schedules-dialog .extensions-item-action:active:not(:disabled),
-.schedules-dialog .built-in-feature-control > button:active:not(:disabled) {
+.schedules-dialog .settings-action:active:not(:disabled) {
   background: var(--mx-flat-press);
   box-shadow: var(--mx-popup-action-ring);
 }
-.schedules-dialog .settings-action:focus-visible,
-.schedules-dialog .extensions-item-action:focus-visible,
-.schedules-dialog .built-in-feature-control > button:focus-visible {
+.schedules-dialog .settings-action:focus-visible {
   outline: 1px solid var(--mx-focus);
   outline-offset: 0;
 }
@@ -240,6 +230,12 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 12px var(--mx-dialog-inset) var(--mx-dialog-inset);
+}
+/* Read-only details keep actions outside their scrolling body. */
+.schedules-dialog > footer {
+  position: static;
+  flex: 0 0 auto;
+  margin: 0;
 }
 /* One button ladder: quiet plate, contrast primary, ghost secondary, danger.
    The quiet plate is the context card's action tint — the card itself now

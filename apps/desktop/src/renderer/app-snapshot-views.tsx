@@ -3,6 +3,7 @@
 // re-renders the conversation (and vice versa). Extracted from App.tsx, which
 // keeps composition and session flow.
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { InitialSurface } from "./InitialSurface";
 
 import {
   beginBootSurface,
@@ -489,7 +490,7 @@ export const SnapshotUtilityDock = memo(function SnapshotUtilityDock({
     activated || !hidden,
   );
   if (!activated && hidden) return null;
-  return <React.Suspense fallback={null}>
+  return <React.Suspense fallback={<InitialSurface />}>
     <UtilityDock {...props} prewarm={prewarm}
       snapshot={hidden ? EMPTY_SNAPSHOT : hostSnapshot} />
   </React.Suspense>;

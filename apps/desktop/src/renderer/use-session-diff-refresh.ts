@@ -11,34 +11,46 @@ export function useSessionDiffRefresh({
   revision: string;
   busy: boolean;
 }) {
-  const [result, setResult] = useState<SessionDiffResult | null>(() => peekSessionDiff(sessionId));
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [state, setState] = useState(() => ({
+    sessionId,
+    result: peekSessionDiff(sessionId) as SessionDiffResult | null,
+    loading: false,
+    error: "",
+  }));
+  // The first render (including a new session on the same host) is unknown,
+  // not an empty diff. Effects must never be required to correct that claim.
+  const current = state.sessionId === sessionId ? state : {
+    sessionId, result: peekSessionDiff(sessionId), loading: false, error: "",
+  };
   const request = useRef(0);
   useEffect(() => {
     request.current += 1;
-    setResult(peekSessionDiff(sessionId));
-    setError("");
+    setState({ sessionId, result: peekSessionDiff(sessionId), loading: false, error: "" });
   }, [sessionId]);
   const refresh = useCallback(async (force = true) => {
     if (!active || !sessionId || document.visibilityState === "hidden") return;
-    const current = ++request.current;
-    if (!peekSessionDiff(sessionId)) setLoading(true);
-    setError("");
+    const token = ++request.current;
+    setState((previous) => ({
+      sessionId,
+      result: previous.sessionId === sessionId ? previous.result : peekSessionDiff(sessionId),
+      loading: true,
+      error: "",
+    }));
     try {
       const next = await fetchSessionDiff(sessionId, { force });
-      if (request.current !== current) return;
-      setResult(next);
+      if (request.current !== token) return;
+      setState({ sessionId, result: next, loading: false, error: "" });
     } catch (reason) {
-      if (request.current !== current) return;
-      setError(reason instanceof Error ? reason.message : String(reason));
-    } finally {
-      if (request.current === current) setLoading(false);
+      if (request.current !== token) return;
+      setState((previous) => ({
+        ...previous, loading: false,
+        error: reason instanceof Error ? reason.message : String(reason),
+      }));
     }
   }, [active, sessionId]);
   useEffect(() => {
     if (!active || !sessionId) {
-      setLoading(false);
+      setState((previous) => previous.loading ? { ...previous, loading: false } : previous);
       return;
     }
     void refresh(true);
@@ -53,5 +65,10 @@ export function useSessionDiffRefresh({
       refresh: () => void refresh(true),
     });
   }, [active, busy, refresh, sessionId]);
-  return { result, loading, error, refresh };
+  return {
+    result: current.result,
+    loading: current.loading || Boolean(sessionId && !current.result && !current.error),
+    error: current.error,
+    refresh,
+  };
 }

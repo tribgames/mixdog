@@ -28,24 +28,34 @@ test('a cold read with the held projection stamp answers without a body', async 
     assert.equal(full.projectionStamp, '1:abc:7');
     assert.equal(full.full.items.length, 1);
 
-    const unchanged = await service.readSession({ sessionId: id, baseProjectionStamp: '1:abc:7' });
+    const unchanged = await service.readSession({
+      sessionId: id, baseRevision: full.revision, baseProjectionStamp: '1:abc:7',
+    });
     assert.equal(unchanged.unchanged, true);
     assert.equal(unchanged.projectionStamp, '1:abc:7');
-    assert.equal(unchanged.revision, 0);
+    assert.equal(unchanged.revision, full.revision);
     assert.equal('full' in unchanged, false);
 
     stored.set(id, { ...stored.get(id), projectionStamp: '1:abc:8' });
-    const moved = await service.readSession({ sessionId: id, baseProjectionStamp: '1:abc:7' });
+    const moved = await service.readSession({
+      sessionId: id, baseRevision: full.revision, baseProjectionStamp: '1:abc:7',
+    });
     assert.equal(moved.unchanged, undefined);
     assert.equal(moved.projectionStamp, '1:abc:8');
     assert.equal(moved.full.items.length, 1);
+    assert.ok(moved.revision > full.revision);
 
     // A message slice is a different question; the stamp never short-circuits it.
     const sliced = await service.readSession({
-      sessionId: id, baseProjectionStamp: '1:abc:8', messageStart: 0,
+      sessionId: id, baseRevision: moved.revision, baseProjectionStamp: '1:abc:8', messageStart: 0,
     });
     assert.equal(sliced.unchanged, undefined);
     assert.ok(sliced.full);
+
+    const unbased = await service.readSession({
+      sessionId: id, baseProjectionStamp: '1:abc:8',
+    });
+    assert.ok(unbased.full, 'a content stamp without a wire baseline safely receives a full body');
   } finally {
     await service.stop('test complete');
   }

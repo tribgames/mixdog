@@ -2,7 +2,7 @@ import { t } from '../i18n';
 import { record } from '../record-utils';
 import type { RecordValue } from './capability-data';
 import { OpenSelect } from '../OpenSelect';
-import { ExtensionItemRow, ExtensionSection } from './extension-detail';
+import { ExtensionItemList, ExtensionItemRow, ExtensionNote, ExtensionSection } from './extension-detail';
 import { LocalProviderOperations, localIdleLabel, type LocalProviderActions } from './local-provider-operations';
 import { LocalProviderModelRow } from './local-provider-model-row';
 
@@ -28,10 +28,10 @@ export function LocalProviderModels({ status, actions }: {
   const presets = [...new Set([0, 300, 900, 3600, ttl])].sort((a, b) => a - b);
   return <>
   <ExtensionSection title={t('Installed models')} count={installed.length}>
-    {!installed.length && <p className="extensions-mcp-note">
+    {!installed.length && <ExtensionNote>
       {t('No models installed.')} {t('To add a model, ask in chat. The local-provider skill checks your PC and guides installation.')}
-    </p>}
-    {installed.length > 0 && <div className="extensions-item-list">
+    </ExtensionNote>}
+    {installed.length > 0 && <ExtensionItemList>
       {installed.map((model) => {
         const modelId = String(model.id);
         const details = [
@@ -41,13 +41,17 @@ export function LocalProviderModels({ status, actions }: {
         ].filter(Boolean).join(' · ');
         return <LocalProviderModelRow key={modelId} model={model} status={status} actions={actions} details={details} />;
       })}
-    </div>}
-    <ExtensionItemRow title={t('Auto-unload when idle')}
-      description={t('Active requests and queued work keep the model loaded.')}
-      control={<OpenSelect className="settings-select" ariaLabel={t('Auto-unload when idle')}
-        value={String(ttl)} disabled={actions.busy}
-        options={presets.map((seconds) => ({ value: String(seconds), label: localIdleLabel(seconds) }))}
-        onChange={(value) => actions.setIdleTtl(Number(value))} />} />
+    </ExtensionItemList>}
+  </ExtensionSection>
+  <ExtensionSection title={t('Model loading')}>
+    <ExtensionItemList>
+      <ExtensionItemRow title={t('Auto-unload when idle')}
+        description={t('Active requests and queued work keep the model loaded.')}
+        control={<OpenSelect className="extensions-select" ariaLabel={t('Auto-unload when idle')}
+          value={String(ttl)} disabled={actions.busy}
+          options={presets.map((seconds) => ({ value: String(seconds), label: localIdleLabel(seconds) }))}
+          onChange={(value) => actions.setIdleTtl(Number(value))} />} />
+    </ExtensionItemList>
   </ExtensionSection>
   <LocalProviderOperations status={status} actions={actions} />
   </>;

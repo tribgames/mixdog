@@ -713,7 +713,7 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
   const window = inputFor('window');
   const clipboard = inputFor('clipboard');
   assert.deepEqual(schema.properties.action.enum, [
-    'list', 'diagnose', 'capture', 'verify', 'act',
+    'list', 'diagnose', 'capture', 'verify', 'wait_for_user', 'act',
     'window', 'menu', 'clipboard', 'launch',
   ]);
   // verify waits on state without pixels; menu resolves an exact label path.
@@ -1328,8 +1328,8 @@ test('computer errors return one deterministic recovery instead of permission gu
     computerToolErrorRecovery('computer_user_control_active: paused'),
     {
       code: 'computer_user_control_active',
-      next: 'user',
-      guidance: 'The user has taken control. Do not issue more Computer Use commands until they explicitly resume automation.',
+      next: 'wait_for_user',
+      guidance: 'Computer Use yielded to the user. Call wait_for_user for bounded waiting. Ordinary physical input may resume after the host-configured quiet interval (default 5 seconds); explicit stops and uncertain cleanup/observation require the user. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input. Manual Resume is also available on the overlay.',
     },
   );
   assert.match(

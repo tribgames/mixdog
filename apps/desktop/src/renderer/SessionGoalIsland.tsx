@@ -1,29 +1,13 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { liveAgentRows } from './AgentActivityPane';
-import type { GoalSnapshot, GoalTask, Snapshot } from './desktop-types';
+import type { GoalTask, Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { GoalSubmissionContext, useGoalAfterSubmission } from './session-goal-submission';
+import { goalDisplayStatus, goalElapsedLabel, type GoalDisplayStatus } from './session-goal-presentation';
 
-const ACTIVE_AGENT_STAGE = /^(?:connecting|requesting|streaming|tool_running|running|cancelling)$/i;
-
-export function formatGoalDuration(milliseconds: number): string {
-  const totalSeconds = Math.max(0, Math.round(Number(milliseconds || 0) / 1_000));
-  const hours = Math.floor(totalSeconds / 3_600);
-  const minutes = Math.floor((totalSeconds % 3_600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) {
-    return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-  }
-  return `${minutes}:${String(seconds).padStart(2, '0')}`;
-}
-
-export function goalCompletedTimeLabel(goal: GoalSnapshot): string {
-  const completedAt = Number(goal.completedAt) || 0;
-  if (goal.status !== 'complete' || completedAt <= 0) return '';
-  return new Date(completedAt).toLocaleTimeString(undefined, { timeStyle: 'short' });
-}
+export { formatGoalDuration, goalCompletedTimeLabel, goalElapsedLabel, goalTimeLabel } from './session-goal-presentation';
 
 function useGoalClock(active: boolean): number {
   const [clock, setClock] = useState(() => Date.now());
@@ -36,60 +20,13 @@ function useGoalClock(active: boolean): number {
   return clock;
 }
 
-function activeAgentWaiting(snapshot: Snapshot): boolean {
-  if (liveAgentRows(snapshot).length > 0) return true;
-  const jobs = Array.isArray(snapshot.agentJobs) ? snapshot.agentJobs : [];
-  if (jobs.some((job) => String(job?.status || '').toLowerCase() === 'running')) return true;
-  const workers = Array.isArray(snapshot.agentWorkers) ? snapshot.agentWorkers : [];
-  return workers.some((worker) =>
-    ACTIVE_AGENT_STAGE.test(String(worker?.status || ''))
-    || ACTIVE_AGENT_STAGE.test(String(worker?.stage || worker?.worker_stage || '')));
-}
-
-function goalElapsedMs(goal: GoalSnapshot, clock: number): number {
-  const snapshotUsed = Math.max(0, Number(goal.timeUsedMs) || 0);
-  if (goal.status !== 'active') return snapshotUsed;
-  const snapshotAt = Number(goal.snapshotAt) || 0;
-  let elapsed = snapshotUsed;
-  if (snapshotAt > 0) {
-    elapsed += Math.max(0, clock - snapshotAt);
-  }
-  const deadlineAt = Number(goal.deadlineAt) || 0;
-  const total = Math.max(0, Number(goal.timeLimitMs) || 0);
-  if (snapshotAt <= 0 && deadlineAt > 0 && total > 0) {
-    elapsed = Math.max(snapshotUsed, total - Math.max(0, deadlineAt - clock));
-  }
-  return total > 0 ? Math.min(total, elapsed) : elapsed;
-}
-
-export function goalElapsedLabel(goal: GoalSnapshot, clock: number): string {
-  return formatGoalDuration(goalElapsedMs(goal, clock));
-}
-
-export function goalTimeLabel(goal: GoalSnapshot, clock: number): string {
-  if (goal.status === 'complete') {
-    return t('{{time}} elapsed', { time: formatGoalDuration(Number(goal.timeUsedMs) || 0) });
-  }
-  if (!['active', 'paused', 'duration_reached'].includes(String(goal.status || ''))) return '';
-  const total = Math.max(0, Number(goal.timeLimitMs) || 0);
-  const elapsed = goalElapsedMs(goal, clock);
-  if (total <= 0) {
-    return t('{{time}} elapsed', { time: formatGoalDuration(elapsed) });
-  }
-  const remaining = Math.max(0, total - elapsed);
-  return t('{{elapsed}} / {{total}} · {{remaining}} remaining', {
-    elapsed: formatGoalDuration(elapsed),
-    total: formatGoalDuration(total),
-    remaining: formatGoalDuration(remaining),
-  });
-}
-
 // No strokeWidth override: the global pixel-snapped icon rule
 // (`svg.lucide { stroke-width: 1px }`, 02-base.css) outranks presentation
 // attributes anyway, so a per-glyph value is dead weight that would also
 // violate the 1px small-glyph standard if it ever won.
-function GoalGlyph({ status }: { status?: GoalSnapshot['status'] }) {
+function GoalGlyph({ status }: { status: GoalDisplayStatus }) {
   if (status === 'complete') return <MxIcon name="check" size={16} />;
+  if (status === 'responding') return <MxIcon name="loading" size={16} />;
   if (status === 'paused' || status === 'duration_reached') {
     return <MxIcon name="paused" size={16} />;
   }
@@ -133,7 +70,13 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const drawerId = useId();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const sessionId = String(snapshot.sessionId || '');
-  const waiting = Boolean(goal && active && activeAgentWaiting(snapshot));
+  const agentWorking = liveAgentRows(snapshot).some((agent) => !agent.queued);
+  const displayStatus = goal ? goalDisplayStatus(goal, snapshot, agentWorking) : 'active';
+  const waiting = displayStatus === 'responding'
+    || (displayStatus === 'active' && (agentWorking || Boolean(snapshot.busy && !snapshot.toolApproval)));
+  const activityLabel = displayStatus === 'responding' ? t('Responding')
+    : displayStatus === 'paused' ? t('Paused')
+      : displayStatus === 'active' ? t('Working') : undefined;
 
   useEffect(() => setOpen(false), [sessionId, goal?.id]);
 
@@ -170,7 +113,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const objective = String(goal.objective || '');
 
   return <div ref={rootRef} className="session-goal-island"
-    data-status={goal.status || 'active'} data-waiting={waiting ? 'true' : 'false'}
+    data-status={displayStatus} data-waiting={waiting ? 'true' : 'false'}
     data-open={open ? 'true' : 'false'}>
     <div className="session-goal-stack">
       <div className="session-goal-summary">
@@ -179,7 +122,8 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
           aria-label={t('Goal: {{objective}}', { objective })}
           onClick={() => setOpen((value) => !value)}>
           <span className="session-goal-title-region">
-            <span className="session-goal-glyph"><GoalGlyph status={goal.status} /></span>
+            <span className="session-goal-glyph" role={activityLabel ? 'img' : undefined}
+              aria-label={activityLabel} title={activityLabel}><GoalGlyph status={displayStatus} /></span>
             <span className="session-goal-objective" title={objective}>{title}</span>
           </span>
           <span className="session-goal-meta">

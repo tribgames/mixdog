@@ -18,6 +18,7 @@ import React, {
   useState
 } from "react";
 import { createPortal } from "react-dom";
+import { InitialSurface } from "./InitialSurface";
 import type {
   DesktopSessionSummary
 } from "../shared/contract";
@@ -748,7 +749,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           {recentOpen && (
           <nav id="recent-session-list" className="session-list recent-session-list" aria-label={t("Recent sessions")}>
             {!sessionsReady && rows.length === 0
-              ? <p className="sidebar-section-empty sidebar-section-loading" role="status">{t("Loading sessions…")}</p>
+              ? <InitialSurface />
               : sessionsReady && rows.length === 0 && <p className="sidebar-section-empty">{t("No sessions")}</p>}
             {visibleRecentRows.map((session) => <SessionSidebarRow key={session.id}
               session={session} active={selection.kind === "session" && selection.id === session.id}

@@ -5,6 +5,76 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Computer Use drops the settings-side authorization editor (window and
+  action lock, expiry): it stays unrestricted by default with the standing
+  guards — input guards, elevation handling, user takeover, environment
+  guards — and a saved authorization file can no longer expire into a
+  lock-out. In-process narrowing survives for an embedding host through
+  `MIXDOG_COMPUTER_POLICY_FILE` and `host.updateAuthorization`, nothing is
+  persisted, and the failure-diagnostics export stays. The tool gains
+  `wait_for_user`: when the user takes control, the model waits for a
+  bounded interval and captures fresh state afterwards instead of guessing
+  at permissions.
+
+- Every Extensions and Built-in card opens the same detail dialog — identity
+  plate and title, sections on one rhythm, a footer ladder with the
+  destructive action parked left, one action button style — and the Projects
+  add/edit dialogs join it. The Git & GitHub card carries the GitHub account
+  (gh sign-in by device code) and commit-message settings; the Local Provider
+  card lists installed models with size, context and running state, a Model
+  loading section for idle unloading, and live facts (runtime build, GPU,
+  free memory, server), while repair and verification stay chat-driven
+  through the local-provider skill. Status/platform facts leave the dialogs
+  because the header control and the list badge already say them. The
+  extension stylesheets split into `extension-list.css`,
+  `extension-dialog.css`, `extension-editors.css` and `rail-controls.css`.
+
+- Goal: resuming a paused Goal and starting its approved task are one durable
+  write — `resume` accepts task updates and additions, marking a task
+  `in_progress` resumes the Goal, and bookkeeping alone never grants
+  approval. A paused Goal's state reaches the model when the request is
+  prepared, after hydration, instead of a one-off reminder on the user's
+  reply, so no turn can lose the fact that a Goal is waiting.
+
+- Phones synchronize their views on reconnect: after the secure handshake the
+  browser asks the desktop for one consistent baseline of its open sessions
+  (snapshot, session list, agent pool, session states) and live publications
+  are held until it lands, so a reconnected phone no longer paints a stale
+  transcript or misses the tail of a turn. The transcript handed to phones
+  omits provider replay material in deltas and baselines alike.
+
+- New-task creation survives a dropped remote connection: each request
+  carries a durable receipt, so a retry after a timeout or reconnect lands on
+  the same reserved session instead of creating a duplicate, and the project
+  store watcher recovers on its own and reconciles the catalog while it is
+  down.
+
+- Conversations and tab strips reveal without a jump: a visited transcript
+  shows once its visible rows and end offset agree across frames (bounded by
+  one second, so streaming or a slow font never hides it), and a tab strip
+  decides overflow from the destination layout rather than a half-grown tab.
+
+- The Local Provider catalog actions (`searchLocalProviderModels`,
+  `inspectHuggingFaceModel`, `registerHuggingFaceModel`) exist on the
+  session surface the daemon resolves them on, so a setup call routed through
+  the desktop no longer fails as an unavailable session action.
+
+- Desktop UI language catalogs are back in step with the renderer: strings
+  the source control views and slash commands read through `t()` were
+  missing from every catalog (the tab read "History" in Korean), the retired
+  legacy translation pack's Korean phrases are migrated into `ko.json` so
+  dynamic labels ("Ln 42", "Callers of …") translate again, and the native
+  menu and dialog strings are generated from the same catalogs. Korean is
+  complete; the other ten languages fall back to English for the newer
+  phrases until they are translated.
+
+- The browser importer build replaces a half-written upstream checkout under
+  TEMP instead of failing on it. Test harness: renderer suites can import
+  modules that pull in a feature stylesheet (a `.css` import resolves to an
+  empty module under Node), the built-artifact daemon import check runs in
+  the live lane after a build, and the settings-store path fixtures resolve
+  in the host's own path grammar.
+
 - The pdf skill and runtime take the inspect-first discipline of the
   reference PDF skills. Reading: a snapshot reports `encrypted` and
   `passwordRequired` instead of pdf-lib's own error, `open`/`snapshot` with

@@ -24,11 +24,11 @@ export function RemoteConnectionBanner() {
   const [disconnected, setDisconnected] = useState(false);
   useEffect(() => {
     setDisconnected(false);
-    if (state !== "reconnecting") return () => {};
+    if (state !== "reconnecting" && state !== "syncing") return () => {};
     const timer = window.setTimeout(() => setDisconnected(true), DISCONNECTED_AFTER_MS);
     return () => window.clearTimeout(timer);
   }, [state]);
-  if (state !== "reconnecting" || !disconnected) return null;
+  if ((state !== "reconnecting" && state !== "syncing") || !disconnected) return null;
 
   // No wording on purpose: the dim layer and the glyph ARE the message, and the
   // layer exists to block input against a desktop that cannot answer it. A tap

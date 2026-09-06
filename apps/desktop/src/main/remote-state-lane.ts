@@ -9,19 +9,22 @@ export function createRemoteStateLane(
 ) {
   const encoder = createSnapshotDeltaEncoder({ compact });
   type Publication = { snapshot: unknown; critical: boolean };
+  let lastDelivery: Promise<void> = Promise.resolve();
   let mailbox!: LatestStateMailbox<Publication>;
   mailbox = createLatestStateMailbox((sequence, { snapshot, critical }) => {
     const wire = encoder.encode(snapshot);
     const delivered = isNoDelta(wire)
       ? Promise.resolve()
       : send(compact ? { e: 'S', w: wire } : { event: 'state', payload: wire }, !critical);
+    lastDelivery = delivered;
     void delivered.catch(() => undefined).finally(() => mailbox.acknowledge(sequence));
   });
   return {
     publish(snapshot: unknown): void { mailbox.publish({ snapshot, critical: false }); },
-    reset(snapshot: unknown): void {
+    reset(snapshot: unknown): Promise<void> {
       encoder.reset();
       mailbox.reset({ snapshot, critical: true });
+      return lastDelivery;
     },
     clear(): void {
       encoder.reset();

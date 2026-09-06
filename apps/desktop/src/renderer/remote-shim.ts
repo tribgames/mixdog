@@ -56,6 +56,8 @@ import {
 import { createSnapshotDeltaDecoder, markCompactWire } from '../main/state-delta';
 import { armRemoteCallDeadline } from './remote-call-deadline';
 import { createRemoteSessionInbox } from './remote-session-inbox';
+import { createRemoteViewSync } from './remote-view-sync';
+import { recoverableCreation } from './recoverable-creation';
 import {
   isInstalledMobileWebAppSurface,
   isMobileRemoteSurface,
@@ -285,6 +287,23 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let nextId = 1;
   let secureChannel: RelayE2EEChannel | null = null;
   let connectionReady = false;
+  let peerViewSync = false;
+  let pendingReconnectNotification = false;
+  const viewSync = createRemoteViewSync({
+    synchronize: () => invoke('synchronizeViews', [lastVisibleSessionIds]),
+    state: (state) => {
+      setRemoteConnectionState(state);
+      if (state !== 'connected') return;
+      window.dispatchEvent(new Event(REMOTE_CONNECTION_READY_EVENT));
+      publishLanes();
+      if (pendingReconnectNotification) {
+        pendingReconnectNotification = false;
+        window.dispatchEvent(new Event('mixdog:remote-reconnected'));
+      }
+    },
+    error: (error) => console.warn('[mixdog-remote] view synchronization failed; retrying', error),
+    interrupted: remoteConnectionInterruptedError,
+  });
   let approvalVerificationInFlight = false;
   let relayBinaryFrames = false;
   const sessionsDecoder = createKeyedListDeltaDecoder<DesktopSessionSummary>();
@@ -773,10 +792,13 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let lastResyncAt = 0;
   let trailingResyncTimer: number | null = null;
   const requestResync = (): void => {
+    if (peerViewSync && connectionReady) {
+      void viewSync.request().catch(() => undefined);
+      return;
+    }
     const now = Date.now();
-    // Even when the outbound request is debounced, never continue applying
-    // patches to a known-invalid local base.
-    resetDeltaState();
+    // Decoders reject mismatched patches themselves. Resetting every healthy
+    // lane here made one gap invalidate unrelated catalogs during recovery.
     const sinceLast = now - lastResyncAt;
     if (sinceLast < 3_000) {
       // TRAIL it, never drop it: a wake that lands inside the window of the
@@ -1288,7 +1310,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           if (openingSocket === ws) openingSocket = null;
         }
         connectionReady = true;
-        setRemoteConnectionState('connected');
+        if (!peerViewSync) setRemoteConnectionState('connected');
         if (handshakeTimer !== null) {
           window.clearTimeout(handshakeTimer);
           handshakeTimer = null;
@@ -1301,8 +1323,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           everPaired = true;
           try { localStorage.setItem(PAIRED_STORAGE_KEY, '1'); } catch { /* no storage */ }
         }
-        window.dispatchEvent(new Event(REMOTE_CONNECTION_READY_EVENT));
-        if (everConnected) {
+        if (!peerViewSync) window.dispatchEvent(new Event(REMOTE_CONNECTION_READY_EVENT));
+        if (everConnected && !peerViewSync) {
           // E2EE relay handshakes already trigger an authoritative full state
           // push from the desktop. Only legacy direct sockets need the RPC.
           if (!e2eePairing) {
@@ -1331,7 +1353,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
             publishLanes();
             refreshBroadcastLanes();
           })();
-        } else if (lastVisibleSessionIds.length > 0) {
+        } else if (!peerViewSync && lastVisibleSessionIds.length > 0) {
           // COLD launch. The panes that will ask for this transcript are still
           // being parsed; naming the session now lets the desktop's own read
           // and projection run underneath that work instead of after it. The
@@ -1347,10 +1369,14 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         resyncOnWake = false;
         everConnected = true;
         if (firstReady) resolve(ws);
+        if (peerViewSync) {
+          pendingReconnectNotification = reconnected;
+          viewSync.open();
+        }
         // Existing terminal panes can hold PTY ids from the relay leg that
         // just died. Notify them only after the replacement connection has
         // settled so their ensure calls cannot race the reconnecting request.
-        if (reconnected) {
+        if (reconnected && !peerViewSync) {
           queueMicrotask(() => window.dispatchEvent(new Event('mixdog:remote-reconnected')));
         }
       };
@@ -1382,6 +1408,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
               // The caps the desktop learned from the relay handshake; this leg
               // never sees `relay-capabilities` itself.
               learnRoutingCaps(message);
+              peerViewSync = message.viewSync === 1;
               finishOpen();
               return;
             }
@@ -1421,6 +1448,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
               // Calls sent to the old leg cannot complete; fail them now and
               // establish a new channel on the existing browser socket.
               connectionReady = false;
+              viewSync.close();
               setRemoteConnectionState('reconnecting');
               resetDeltaState();
               const failure = remoteConnectionInterruptedError();
@@ -1442,7 +1470,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
             }, 10_000);
             const handshake = await createRelayE2EEClientHandshake(e2eePairing, clear);
             secureChannel = handshake.channel;
-            ws.send(JSON.stringify(handshake.hello));
+            ws.send(JSON.stringify({ ...handshake.hello, viewSync: 1 }));
             return;
           }
           if (!secureChannel) throw new Error('Relay encryption handshake was not established.');
@@ -1451,6 +1479,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           const message = decrypted as Record<string, unknown>;
           if (message.type === 'e2ee-ready' && message.version === 1) {
             learnRoutingCaps(message);
+            peerViewSync = message.viewSync === 1;
             finishOpen();
             return;
           }
@@ -1461,6 +1490,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         });
       };
       ws.onclose = (event) => {
+        viewSync.close();
         window.clearTimeout(openingTimer);
         if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
         if (socket === ws) socket = null;
@@ -1564,7 +1594,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const call = async <T = any>(method: string, params: unknown[] = []): Promise<T> => {
+  const invoke = async <T = any>(method: string, params: unknown[] = []): Promise<T> => {
     const ws = await connect();
     return await new Promise<T>((resolve, reject) => {
       const id = nextId++;
@@ -1590,6 +1620,14 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         try { ws.close(); } catch { /* reconnect loop handles it */ }
       });
     });
+  };
+
+  const call = async <T = unknown>(method: string, params: unknown[] = []): Promise<T> => {
+    await connect();
+    if (peerViewSync && method !== 'abortSession' && method !== 'resolveToolApprovalForSession') {
+      await viewSync.ready();
+    }
+    return invoke<T>(method, params);
   };
 
   const fire = (method: string, params: unknown[]): void => {
@@ -1721,7 +1759,11 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           JSON.stringify(lastVisibleSessionIds.slice(0, MAX_RESTORED_VISIBLE_SESSIONS)),
         );
       } catch { /* the next launch simply waits for React, as before */ }
-      return call<boolean>('setVisibleSessions', [lastVisibleSessionIds]);
+      return connect().then(async () => {
+        if (!peerViewSync) return call<boolean>('setVisibleSessions', [lastVisibleSessionIds]);
+        await viewSync.request();
+        return true;
+      });
     },
     searchProjectFiles: (projectIdOrWorkspaceId, query, limit) =>
       call('searchProjectFiles', [projectIdOrWorkspaceId, query, limit]),
@@ -1835,9 +1877,28 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     subscribeUpdaterState: () => () => {},
     checkForDesktopUpdate: () => Promise.resolve(DISABLED_UPDATER),
     showDesktopUpdate: () => Promise.resolve(DISABLED_UPDATER),
-    submitNewTask: (prompt, options, draft) => call('submitNewTask', [prompt, options, draft]),
+    submitNewTask: (prompt, options, draft) => {
+      const stable = { ...options, id: options?.id || newBrowserId() };
+      return recoverableCreation(
+        () => call('submitNewTask', [prompt, stable, draft ?? {}]),
+        async () => {
+          if (document.visibilityState === 'hidden') {
+            await new Promise<void>((resolve) => {
+              const visible = () => {
+                if (document.visibilityState === 'hidden') return;
+                document.removeEventListener('visibilitychange', visible);
+                resolve();
+              };
+              document.addEventListener('visibilitychange', visible);
+            });
+          }
+          await connect();
+          if (peerViewSync) await viewSync.request();
+        },
+      );
+    },
     submitToSession: (sessionId, prompt, options) =>
-      call('submitToSession', [sessionId, prompt, options]),
+      call('submitToSession', [sessionId, prompt, options ?? {}]),
     abortSession: (sessionId, options = {}) => call('abortSession', [sessionId, options]),
     resolveToolApprovalForSession: (sessionId, id, decision) =>
       call('resolveToolApprovalForSession', [sessionId, id, decision]),

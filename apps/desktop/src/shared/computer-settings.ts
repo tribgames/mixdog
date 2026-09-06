@@ -1,5 +1,5 @@
-export { COMPUTER_POLICY_ACTIONS } from '../../../../src/runtime/computer-bridge/actions.mjs';
-
+/** In-process Computer Use narrowing (embedding host / reliability harness);
+ *  never persisted and no longer exposed to the renderer. */
 export interface ComputerAuthorization {
   version: 1;
   actions: string[];
@@ -13,7 +13,6 @@ export interface ComputerAuthorizationStatus {
   policy: ComputerAuthorization | null;
   externallyRestricted: boolean;
   updating: boolean;
-  error?: 'computer_policy_invalid';
 }
 
 export interface ComputerAuthorizationWindow {

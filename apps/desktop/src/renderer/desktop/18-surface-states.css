@@ -12,13 +12,15 @@
 .pane-surface-gate[data-ready="false"] > .pane-surface-gate-content {
   visibility: hidden;
 }
-.pane-surface-gate > .desktop-loading-surface {
+.pane-surface-gate > .desktop-loading-surface,
+.pane-surface-gate > .pane-surface-placeholder {
   position: absolute;
   z-index: 2;
   inset: 0;
   border-radius: 0;
   box-shadow: none;
 }
+.pane-surface-placeholder { background: var(--mx-workspace-sheet); }
 .pane-surface-cover {
   position: absolute;
   z-index: 12;

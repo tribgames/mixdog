@@ -356,6 +356,9 @@ test('remote Browser Use renders a frame and forwards reload, tap, and page text
       sessionId: 'browser-remote-session',
       input: { type: 'reload' },
     });
+    // A submitted gesture consumes its frame; the next tap must carry the
+    // frame the follow-up poll delivered, so let that poll land first.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
 
     const content = document.querySelector('.browser-remote-content');
     content.setPointerCapture = () => {};

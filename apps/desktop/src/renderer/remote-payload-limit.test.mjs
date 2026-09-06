@@ -1074,7 +1074,10 @@ test("the browser is advertised the relay's published ceilings", async () => {
   assert.equal(source.includes("maxRoutedBytes: MAX_WS_PAYLOAD_BYTES"), false);
   // ONE shape for both frames, so the handshake and a later update can never
   // describe the same connection differently.
-  assert.match(source, /type: 'e2ee-ready',\s+version: 1,\s+\.\.\.relayRoutingCapsPayload\(uplink\),/);
+  assert.match(
+    source,
+    /type: 'e2ee-ready',\s+version: 1,\s+(?:\.\.\.\(client\.viewSync \? \{ viewSync: 1 \} : \{\}\),\s+)?\.\.\.relayRoutingCapsPayload\(uplink\),/,
+  );
   // A republished capabilities frame reaches the phones already attached, and
   // only when it says something new.
   assert.match(source, /relayPublishedCeilings = readRelayUplinkCeilings\(envelope\);\s+\/\/[\s\S]{0,200}?republishRoutingCaps\(\);/);
@@ -1098,7 +1101,7 @@ test("an unattributed refusal reaches the desktop UI, naming no call", async () 
     readFile(new URL("../main/ipc-state-bridge.ts", import.meta.url), "utf8"),
     readFile(new URL("../shared/contract.ts", import.meta.url), "utf8"),
     readFile(new URL("../preload/index.ts", import.meta.url), "utf8"),
-    readFile(new URL("./notifications.tsx", import.meta.url), "utf8"),
+    readFile(new URL("./desktop-toasts.tsx", import.meta.url), "utf8"),
   ]);
   // Raised where it happens, with sizes only — no client, no call.
   assert.match(
@@ -1249,7 +1252,7 @@ test("the browser refuses its own oversize request before it is sent", async () 
 test("an inbound refusal fails only a named call, otherwise it is shown", async () => {
   const [shim, notifications] = await Promise.all([
     readFile(new URL("./remote-shim.ts", import.meta.url), "utf8"),
-    readFile(new URL("./notifications.tsx", import.meta.url), "utf8"),
+    readFile(new URL("./desktop-toasts.tsx", import.meta.url), "utf8"),
   ]);
   // Cleartext phone-leg signal, handled before the resync it rides on, and
   // explicitly untrusted.
@@ -1284,9 +1287,9 @@ test("an inbound refusal fails only a named call, otherwise it is shown", async 
   assert.match(shim, /pending\.delete\(rejection\.callId\);/);
   // The toast rides the surface notifications.tsx actually renders.
   const toastEvent = /DESKTOP_TOAST_EVENT = "([^"]+)"/.exec(notifications);
-  assert.ok(toastEvent, "notifications.tsx exports the toast event name");
+  assert.ok(toastEvent, "desktop-toasts.tsx exports the toast event name");
   assert.ok(
     shim.includes(`new CustomEvent('${toastEvent[1]}'`),
-    "the shim dispatches the toast event notifications.tsx listens for",
+    "the shim dispatches the toast event desktop-toasts.tsx listens for",
   );
 });

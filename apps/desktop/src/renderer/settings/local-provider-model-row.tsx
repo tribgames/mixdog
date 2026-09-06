@@ -3,8 +3,8 @@ import { Cpu } from 'lucide-react';
 import { t } from '../i18n';
 import { record } from '../record-utils';
 import type { RecordValue } from './capability-data';
-import { ExtensionItemRow } from './extension-detail';
-import { ActionButton, SettingsConfirmDialog } from './capability-controls';
+import { ExtensionAction, ExtensionItemRow } from './extension-detail';
+import { SettingsConfirmDialog } from './capability-controls';
 import type { LocalProviderActions } from './local-provider-operations';
 
 /** One installed model as a plain list item: name, size facts, state and a
@@ -35,8 +35,8 @@ export function LocalProviderModelRow({ model, status, actions, details }: {
   return <>
     <ExtensionItemRow icon={<Cpu size={15} aria-hidden="true" />} title={name} description={details}
       tone={broken ? 'warn' : inUse ? 'ok' : 'muted'} status={label}
-      control={<ActionButton danger disabled={actions.busy || jobActive || inUse}
-        onClick={() => void requestDelete()}>{t('Delete')}</ActionButton>} />
+      control={<ExtensionAction danger disabled={actions.busy || jobActive || inUse}
+        onClick={() => void requestDelete()}>{t('Delete')}</ExtensionAction>} />
     {confirmation && <SettingsConfirmDialog options={confirmation} onClose={() => setConfirmation(null)} />}
   </>;
 }

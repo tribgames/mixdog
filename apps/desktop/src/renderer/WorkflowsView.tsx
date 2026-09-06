@@ -14,6 +14,7 @@ import type {
 } from '../shared/contract';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
+import { InitialSurface } from './InitialSurface';
 import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
 import { preferredModelEffort, routeOption } from './model-route-utils';
@@ -615,7 +616,7 @@ export function WorkflowsPane({
         }}
         onToggle={(enabled, route) => setAgentEnabled(routeEditor.id, enabled, route)}
         onSave={(route) => void saveRoute(route)} />}
-      {loading ? null : <>
+      {loading ? <InitialSurface /> : <>
       <section className="workflows-models workflows-packs" aria-label={t("Workflows")}>
       <div className="workflows-section-head">
         <h2>{t('Workflows')}</h2>

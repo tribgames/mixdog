@@ -5,8 +5,12 @@
 - Local authorization editor in Extensions → Built-in → Computer Use:
   exact HWND/PID selection, action and launch-target lists, elevation opt-in,
   expiry, atomic persistence and dispatch-time enforcement.
+  *Superseded:* the editor, its persisted `computer-authorization.json` and
+  the in-app diagnostics export were removed later (a saved policy could only
+  expire into a lock-out; the bundles stay on disk). The in-process narrowing
+  remains for the launch policy and the embedding host; see
+  `computer-use-reliability.md`.
 - Saving cancels current/queued work. Host launch restrictions remain binding.
-  Corrupt saved policies block execution without preventing settings repair.
 - Privacy-filtered failure bundles and local JSON export; no input text,
   clipboard contents, app paths, titles or screenshots.
 - Desktop lock/suspend and display geometry/DPI invalidation, with cancellation

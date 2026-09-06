@@ -14,6 +14,7 @@ import React, {
   useState,
 } from "react";
 import { ProgressSpinner } from "./ProgressSpinner";
+import { InitialSurface } from "./InitialSurface";
 import {
   describeSourceControlError,
   SourceControlErrorNotice,
@@ -939,9 +940,7 @@ export function SourceControlDock({
     return <p className="utility-dock-empty">Open a project to use Source Control.</p>;
   }
   if (!statusReady && !prOnly) {
-    return <div className="dock-scm-loading">
-      <ProgressSpinner size={16} aria-hidden="true" /> Loading…
-    </div>;
+    return <InitialSurface />;
   }
   if (!status && statusError && !prOnly) {
     // Git status is a background read. A cold host/repository can miss the

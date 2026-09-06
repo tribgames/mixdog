@@ -6,6 +6,7 @@ import { SurfaceActiveContext } from "../../src/renderer/surface-activity";
 import { TranscriptList } from "../../src/renderer/TranscriptList";
 import type { TranscriptRowModel } from "../../src/renderer/transcript-rows";
 import { runConversationSubmitProbe } from "./submit";
+import { runTranscriptMotionProbe } from "./transcript-motion";
 
 const root = createRoot(document.getElementById("root")!);
 const frame = () => new Promise<void>((done) => requestAnimationFrame(() => done()));
@@ -86,6 +87,7 @@ function geometry() {
   };
 }
 (window as any).runComposerLayoutProbe = async (mode = "all") => {
+  if (mode === "motion") return runTranscriptMotionProbe(root);
   if (mode === "submit") return runConversationSubmitProbe(root);
   const transitions = [];
   for (const scenario of [

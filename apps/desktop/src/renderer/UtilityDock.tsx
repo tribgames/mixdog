@@ -383,6 +383,7 @@ export const UtilityDock = memo(function UtilityDock({
   onOpenPullRequest,
   onOpenFileAt,
   sessions = [],
+  sessionsReady = true,
   activeSessionIds = [],
   unreadSessionIds,
   onPrefetchSession,
@@ -402,6 +403,7 @@ export const UtilityDock = memo(function UtilityDock({
   tab: UtilityDockTab;
   snapshot: Snapshot;
   sessions?: readonly DesktopSessionSummary[];
+  sessionsReady?: boolean;
   activeSessionIds?: readonly string[];
   /** Recent-list unread sessions: the Agents pane shows their idle rows as
    *  completed work instead of plain rest. */
@@ -714,6 +716,7 @@ export const UtilityDock = memo(function UtilityDock({
       <DockPane tab="agents" active={paneActive("agents")}>
       <AgentActivityPane active={paneActive("agents")}
         sessions={sessions}
+        sessionsReady={sessionsReady}
         activeSessionIds={activeSessionIds}
         unreadSessionIds={unreadSessionIds}
         onPrefetchSession={onPrefetchSession}

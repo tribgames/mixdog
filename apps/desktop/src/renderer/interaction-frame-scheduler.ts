@@ -44,9 +44,14 @@ function defaultCancelFrame(handle: number): void {
 export function createFrameCoordinator({
   requestFrame = defaultRequestFrame,
   cancelFrame = defaultCancelFrame,
+  onError = (error: unknown) => {
+    if (typeof globalThis.reportError === "function") globalThis.reportError(error);
+    else console.error("[mixdog-renderer] scheduled frame failed", error);
+  },
 }: {
   requestFrame?: FrameRequest;
   cancelFrame?: FrameCancel;
+  onError?: (error: unknown) => void;
 } = {}): FrameCoordinator {
   const jobs = new Map<object, () => void>();
   let handle: number | null = null;
@@ -55,7 +60,11 @@ export function createFrameCoordinator({
     handle = null;
     const pending = [...jobs.values()];
     jobs.clear();
-    for (const work of pending) work();
+    for (const work of pending) {
+      try { work(); } catch (error) {
+        try { onError(error); } catch { /* Diagnostics must not strand sibling panes. */ }
+      }
+    }
   };
   const cancelHandleIfIdle = (): void => {
     if (handle === null || jobs.size > 0) return;

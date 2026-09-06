@@ -1,4 +1,4 @@
-export type RemoteConnectionState = "connecting" | "connected" | "reconnecting";
+export type RemoteConnectionState = "connecting" | "syncing" | "connected" | "reconnecting";
 
 export const REMOTE_CONNECTION_STATE_EVENT = "mixdog:remote-connection-state";
 export const REMOTE_CONNECTION_INTERRUPTED_CODE = "MIXDOG_REMOTE_CONNECTION_INTERRUPTED";
@@ -21,7 +21,7 @@ export function shouldRunRemoteHeartbeat(
 }
 
 function isRemoteConnectionState(value: unknown): value is RemoteConnectionState {
-  return value === "connecting" || value === "connected" || value === "reconnecting";
+  return value === "connecting" || value === "syncing" || value === "connected" || value === "reconnecting";
 }
 
 export function currentRemoteConnectionState(): RemoteConnectionState | null {

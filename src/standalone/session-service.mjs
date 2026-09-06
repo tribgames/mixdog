@@ -61,9 +61,8 @@ export function createSessionService({
   const createRuntime = createSessionRuntime;
   if (typeof createRuntime !== 'function') throw new Error('createSessionRuntime is required');
   // Revisions optimize deltas inside one daemon lifetime; sessionId + full
-  // snapshots remain the durable contract. Start each daemon far above the
-  // prior wall-clock epoch so a view reconnecting after replacement accepts
-  // the new daemon's first full snapshot.
+  // snapshots remain the durable contract. Seed the shared projection clock
+  // above the prior wall-clock epoch so a reconnect accepts the new daemon.
   const configuredRevisionEpoch = Number(process.env.MIXDOG_SESSION_REVISION_EPOCH);
   const revisionEpoch = Number.isSafeInteger(configuredRevisionEpoch)
     && configuredRevisionEpoch >= 0
@@ -301,6 +300,7 @@ export function createSessionService({
     externalEntryForView,
     publishExternalSessionState,
     bodyForClient,
+    projectionResult,
     sessionOwner,
     schedulePublish,
   } = createSessionProjection({
@@ -543,22 +543,6 @@ export function createSessionService({
     });
   }
 
-  /** Cold view body. Revision 0 sits below every live revision (epoch-based),
-   *  so a projection racing a materialized frame can never roll a view back. */
-  function projectionResult(sessionId, projection, extra = {}) {
-    return {
-      sessionId,
-      reservedOnly: false,
-      projection: true,
-      ...extra,
-      revision: 0,
-      ...(typeof projection?.projectionStamp === 'string'
-        ? { projectionStamp: projection.projectionStamp }
-        : {}),
-      full: projection,
-    };
-  }
-
   async function requestedMessageSlice(params, sessionId) {
     if (!Number.isInteger(params?.messageStart)) return {};
     const start = Math.max(0, params.messageStart);
@@ -776,22 +760,15 @@ export function createSessionService({
         ));
       }
       if (!projection) throw new Error(`session ${id} is not available`);
-      // A visible cold pane re-reads on a clock. When the reader hands back
-      // the very projection the caller already holds, the answer carries no
-      // body: the caller keeps its snapshot and nothing crosses the wire.
-      if (typeof baseProjectionStamp === 'string' && baseProjectionStamp
-        && projection.projectionStamp === baseProjectionStamp
-        && !Number.isInteger(params.messageStart)) {
-        return {
-          sessionId: id,
-          reservedOnly: false,
-          projection: true,
-          revision: 0,
-          projectionStamp: projection.projectionStamp,
-          unchanged: true,
-        };
-      }
-      return projectionResult(id, projection, await requestedMessageSlice(params, id));
+      // Allocate the snapshot's revision before an optional history read can
+      // yield to a newer live publication. Matching content keeps the caller's
+      // baseline and carries no body.
+      const result = projectionResult(id, projection, {
+        baseRevision,
+        baseProjectionStamp,
+        allowUnchanged: !Number.isInteger(params.messageStart),
+      });
+      return { ...result, ...await requestedMessageSlice(params, id) };
     }
     // Embedders without a store reader keep the legacy load-on-read seam.
     const entry = await entryForSession(id, openHints || {});
@@ -836,7 +813,7 @@ export function createSessionService({
         dropPendingViewer(id, ctx);
         throw new Error(`session ${id} is not available`);
       }
-      return projectionResult(id, projection, { subscribed: true });
+      return { ...projectionResult(id, projection), subscribed: true };
     }
     const entry = await entryForSession(id, openHints || {});
     addSubscriber(entry, ctx);

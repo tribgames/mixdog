@@ -408,7 +408,7 @@ test('a reply whose baseline vanished re-reads instead of publishing an empty pa
   }
 });
 
-test('a cold view refresh announces its projection stamp and keeps the pane on an unchanged reply', async () => {
+test('explicit cold view recovery replays the retained body on an unchanged daemon reply', async () => {
   const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-session-host-'));
   let host = null;
   const reads = [];
@@ -466,11 +466,14 @@ test('a cold view refresh announces its projection stamp and keeps the pane on a
     await host.prefetchSession('s1', 1);
     await host.prefetchSession('s1', 1);
 
-    // First read has nothing to announce; every later one carries the stamp
-    // and the bodiless reply neither republishes nor blanks the projection.
+    // The daemon still receives its stamp and avoids returning duplicate
+    // bytes. An explicit viewer recovery nevertheless replays the host body.
     assert.deepEqual(reads, [null, 'stamp-1', 'stamp-1']);
-    assert.equal(updates.length, 1);
-    assert.deepEqual(updates[0].snapshot.items, items);
+    assert.equal(updates.length, 3);
+    for (const update of updates) {
+      assert.deepEqual(update.snapshot.items, items);
+      assert.equal(update.frameSource, 'replay');
+    }
   } finally {
     await host?.dispose();
     await rm(userDataPath, { recursive: true, force: true });
@@ -837,7 +840,7 @@ test('history replay prepends stored rows while retaining the live tail and work
 test('new-task route trusts its authoritative result over a stale projected snapshot', async () => {
   const run = async (fastCapable) => {
     const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-new-task-route-'));
-    const sessionId = fastCapable ? 'session_fast' : 'session_no_fast';
+    let sessionId = fastCapable ? 'session_fast' : 'session_no_fast';
     const actions = [];
     let host = null;
     let submitCalls = 0;
@@ -854,7 +857,8 @@ test('new-task route trusts its authoritative result over a stale projected snap
     });
     const client = {
       async list() { return { sessions: [] }; },
-      async create() {
+      async create(params) {
+        sessionId = params.sessionId;
         return { sessionId, revision: 0, full: snapshot(false) };
       },
       read: unsupported,
@@ -941,7 +945,7 @@ test('new-task route trusts its authoritative result over a stale projected snap
 
 test('a new task stays out of the session catalog until its first prompt is accepted', async () => {
   const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-new-task-catalog-'));
-  const sessionId = 'first_prompt_catalog';
+  let sessionId = 'first_prompt_catalog';
   const row = {
     id: sessionId,
     preview: 'catalog handoff',
@@ -959,7 +963,9 @@ test('a new task stays out of the session catalog until its first prompt is acce
   const unsupported = async () => { throw new Error('unsupported'); };
   const client = {
     async list() { return { sessions: [row] }; },
-    async create() {
+    async create(params) {
+      sessionId = params.sessionId;
+      row.id = sessionId;
       return {
         sessionId,
         revision: 0,

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
@@ -16,12 +17,15 @@ import {
 import { DESKTOP_IPC } from '../shared/contract.ts';
 
 test('settings config URL follows development and packaged runtime layouts', () => {
+  // Absolute fixtures in the host's own path grammar: a Windows-only literal
+  // is one relative segment on posix and resolves against the cwd instead.
+  const root = (...segments) => resolve(sep, ...segments);
   assert.match(
-    fileURLToPath(settingsConfigModuleUrl(false, 'C:\\resources', 'C:\\repo\\apps\\desktop')),
+    fileURLToPath(settingsConfigModuleUrl(false, root('resources'), root('repo', 'apps', 'desktop'))),
     /repo[\\/]src[\\/]runtime[\\/]shared[\\/]config\.mjs$/,
   );
   assert.match(
-    fileURLToPath(settingsConfigModuleUrl(true, 'C:\\resources', 'C:\\ignored')),
+    fileURLToPath(settingsConfigModuleUrl(true, root('resources'), root('ignored'))),
     /resources[\\/]runtime\.asar[\\/]node_modules[\\/]mixdog[\\/]src[\\/]runtime[\\/]shared[\\/]config\.mjs$/,
   );
 });

@@ -31,11 +31,11 @@ if (!/Electron/i.test(navigator.userAgent)) {
 try {
   var mixdogThemePref = localStorage.getItem('mixdog.desktop-theme-preference');
   var mixdogLight = mixdogThemePref === 'white'
-    || (mixdogThemePref !== 'dark'
-      && mixdogThemePref !== 'gray'
+    || (mixdogThemePref === 'system'
       && window.matchMedia
       && window.matchMedia('(prefers-color-scheme: light)').matches);
-  // A legacy stored 'gray' preference boots dark (Gray collapsed into Dark).
+  // Match App's default: only an explicit System choice follows the OS.
+  // Fresh profiles and the retired Gray preference both start dark.
   if (mixdogLight) {
     document.documentElement.dataset.mixdogTheme = 'light';
     document.documentElement.style.colorScheme = 'light';

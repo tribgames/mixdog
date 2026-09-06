@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { escapeGoalPromptText, goalTaskLines } from './goal-text.mjs';
 import { compactSessionTitle, SESSION_TITLE_TIMEOUT_MS } from './session-title.mjs';
 import { GOAL_TOOL_DEFS, GOAL_TASK_SETTLED, MAX_GOAL_TIME_LIMIT_MS, validateGoalToolCall } from './goal-tool-defs.mjs';
-import { normalizeGoalTasks, patchGoalTasks, taskInputRetains } from './goal-tasks.mjs';
+import { applyGoalTaskChanges, goalTasksStartWork, normalizeGoalTasks, optionalGoalTaskChanges } from './goal-tasks.mjs';
 import { createGoalStorage, readGoalRecordFile, reportGoalStorageError } from './goal-storage.mjs';
 import { clean } from '../runtime/shared/clean.mjs';
 
@@ -244,6 +244,14 @@ function activateGoal(goal, now = Date.now()) {
   goal.archivedAt = null;
   goal.blocker = '';
   clearTurnFailures(goal);
+}
+
+function resumeGoalState(goal, at, added = null) {
+  stopActiveClock(goal, at);
+  if (added != null) goal.timeLimitMs = Math.min(MAX_GOAL_TIME_LIMIT_MS, goal.timeUsedMs + added);
+  if (goal.timeLimitMs > 0 && goal.timeLimitMs <= goal.timeUsedMs) goal.timeLimitMs = 0;
+  activateGoal(goal, at);
+  goal.updatedAt = at;
 }
 
 function startActiveClock(goal, now = Date.now()) {
@@ -716,38 +724,14 @@ export function createGoalRuntime({
     if (clean(expectedGoalId) && clean(expectedGoalId) !== clean(goal.id)) {
       throw new Error('stale Goal task update rejected because the active Goal changed');
     }
-    if (goal.status === 'complete') {
-      throw new Error('cannot update tasks for a completed Goal');
-    }
-    if (!partial && (!Array.isArray(args.tasks) || args.tasks.length === 0)) {
-      throw new Error('goal set_tasks requires at least one task');
-    }
-    if (partial && goal.tasksObjectiveRevision !== goal.objectiveRevision) {
-      throw new Error('Goal objective changed; read status and reconcile the full task list with set_tasks before partial updates');
-    }
-    const previousTasks = normalizeGoalTasks(goal.tasks || []);
-    const input = partial ? patchGoalTasks(previousTasks, args) : args.tasks;
-    const omitted = previousTasks.filter((task) =>
-      !GOAL_TASK_SETTLED.includes(task.status)
-      && !input.some((entry) => taskInputRetains(entry, task)));
-    if (omitted.length > 0) {
-      const detail = omitted.map((task) => `${task.id} (${task.text})`).join(', ');
-      throw new Error(`cannot remove unfinished Goal tasks: ${detail}`);
-    }
-    const nextTasks = normalizeGoalTasks(input, previousTasks, { strict: true });
     const at = now();
-    // Only a real change counts as movement: re-sending an identical snapshot
-    // must not read as progress on the observation line.
-    if (JSON.stringify(nextTasks) !== JSON.stringify(previousTasks)) goal.tasksUpdatedAt = at;
-    // Stamp the turn that retired requested work so completion cannot ride on a
-    // last-breath write-off: the drop has to survive into a later turn, where it
-    // is visible to the user before the Goal can close.
-    const droppedNow = nextTasks.some((task) => task.status === 'dropped'
-      && previousTasks.find((prev) => prev.id === task.id)?.status !== 'dropped');
-    if (droppedNow) goal.lastDropTurn = Math.max(0, Math.floor(Number(goal.turnCount) || 0));
-    goal.tasks = nextTasks;
-    goal.tasksObjectiveRevision = goal.objectiveRevision;
-    goal.updatedAt = at;
+    const previousTasks = goal.tasks;
+    applyGoalTaskChanges(goal, args, { partial, at });
+    if (goal.status === 'paused' && goalTasksStartWork(previousTasks, goal.tasks, args, { partial })) {
+      // Starting approved work and resuming its Goal are one durable write.
+      // Intake, status reads, and bookkeeping alone never grant approval.
+      resumeGoalState(goal, at);
+    }
     return commit(id, goal);
   };
 
@@ -830,11 +814,13 @@ export function createGoalRuntime({
         throw new Error('a completed Goal cannot be resumed; edit it or create a new Goal');
       }
       const added = args.duration ? parseGoalDuration(args.duration) : null;
-      stopActiveClock(goal, at);
-      if (added != null) goal.timeLimitMs = Math.min(MAX_GOAL_TIME_LIMIT_MS, goal.timeUsedMs + added);
-      if (goal.timeLimitMs > 0 && goal.timeLimitMs <= goal.timeUsedMs) goal.timeLimitMs = 0;
-      activateGoal(goal, at);
-      goal.updatedAt = at;
+      // Empty optional fields from frozen provider schemas still mean a plain
+      // resume. Supplied changes validate before activation and share its write.
+      const taskChanges = optionalGoalTaskChanges(args);
+      const hasTaskChanges = [taskChanges.updates, taskChanges.tasks]
+        .some((value) => value != null && (!Array.isArray(value) || value.length > 0));
+      if (hasTaskChanges) applyGoalTaskChanges(goal, taskChanges, { partial: true, at });
+      resumeGoalState(goal, at, added);
       goal = await commit(id, goal);
       return {
         ok: true,
@@ -957,7 +943,10 @@ export function createGoalRuntime({
         return toolReply(id, null);
       }
       if (action === 'pause' || action === 'resume') {
-        const result = await mutateObserved(id, args, (expectedGoalId) => control(id, { action, expectedGoalId }));
+        const result = await mutateObserved(id, args, (expectedGoalId) => control(id, {
+          action, expectedGoalId,
+          ...(action === 'resume' ? { updates: args.updates, tasks: args.tasks } : {}),
+        }));
         return toolReply(id, result.goal, { full: action === 'resume' });
       }
       if (action === 'set_tasks' || action === 'update_tasks') {

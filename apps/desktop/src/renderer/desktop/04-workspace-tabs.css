@@ -120,6 +120,12 @@
    its neighbours grow into the space, instead of vanishing and leaving the
    right-hand tabs to jump left before they glide. The contents fade with the
    width, so nothing spills out of a cell narrower than its glyph. */
+.workspace-tab.entering {
+  /* A half-grown cell cannot contain its fixed-size glyph and close button.
+     Clip that temporary overflow so it neither paints over neighbours nor
+     enlarges the scrollable area while the run grows. */
+  overflow: clip;
+}
 @starting-style {
   .workspace-tab.entering {
     min-width: 0;

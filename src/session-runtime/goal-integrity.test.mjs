@@ -238,3 +238,99 @@ test('clock checkpoints and title generation do not invalidate a task revision',
   await f.call({ action: 'update_tasks', revision: created.revision, updates: [{ id: created.tasks[0].id, status: 'in_progress' }] });
   assert.equal(f.snapshot().tasks[0].status, 'in_progress');
 });
+
+test('resume commits task patches and additions together with activation in one revision', async (t) => {
+  const writes = [];
+  const f = fixture(t, {
+    writeGoalRecord: async (path, record, options) => {
+      await writeJsonAtomicAsync(path, record, options);
+      writes.push(structuredClone(record.goal));
+    },
+  });
+  const created = (await f.create()).goal;
+  const paused = (await f.call({ action: 'pause', revision: created.revision })).goal;
+  const events = [];
+  f.runtime.subscribe(({ goal }) => events.push(goal));
+  writes.length = 0;
+  const resumed = (await f.call({
+    action: 'resume', revision: paused.revision,
+    updates: [
+      { id: '', text: '', status: 'pending', kind: 'work' },
+      { id: created.tasks[0].id, status: 'in_progress' },
+    ],
+    tasks: [
+      { id: '', text: '', status: 'pending', kind: 'work' },
+      { text: 'Approved follow-up', status: 'pending', kind: 'work' },
+    ],
+  })).goal;
+  assert.equal(resumed.status, 'active');
+  assert.equal(resumed.revision, paused.revision + 1);
+  assert.equal(resumed.tasks[0].status, 'in_progress');
+  assert.equal(resumed.tasks[1].status, 'pending');
+  assert.equal(resumed.tasks[2].text, 'Approved follow-up');
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].status, 'active');
+  assert.deepEqual(writes[0].tasks, resumed.tasks);
+  assert.equal(events.length, 1);
+  assert.deepEqual(events[0].tasks, resumed.tasks);
+  assert.equal(f.runtime.continuation(f.sessionId).run, true);
+});
+
+test('invalid or unsaved resume task changes leave the entire paused state intact', async (t) => {
+  let fail = false;
+  const f = fixture(t, {
+    writeGoalRecord: async (...args) => {
+      if (fail) throw new Error('injected resume write failure');
+      return writeJsonAtomicAsync(...args);
+    },
+  });
+  const created = (await f.create()).goal;
+  await f.call({ action: 'pause' });
+  const paused = f.snapshot();
+  const events = [];
+  f.runtime.subscribe((event) => events.push(event));
+  const args = {
+    action: 'resume', revision: paused.revision,
+    updates: [{ id: created.tasks[0].id, status: 'in_progress' }],
+  };
+  await assert.rejects(f.call({
+    ...args, tasks: [{ text: 'Invalid follow-up', status: 'invalid', kind: 'work' }],
+  }), /invalid status/);
+  await assert.rejects(f.call({
+    ...args, updates: [{ id: created.tasks[0].id, text: '' }],
+  }), /task text is required/);
+  await assert.rejects(f.call({
+    ...args, updates: [{ id: '', text: '', unknown: true }],
+  }), /unknown Goal task id/);
+  await assert.rejects(f.call({ ...args, tasks: {} }), /must be arrays/);
+  fail = true;
+  await assert.rejects(f.call(args), /injected resume write failure/);
+  const unchanged = f.snapshot();
+  for (const key of ['status', 'revision', 'tasks', 'tasksUpdatedAt', 'lastStartedAt', 'timeUsedMs']) {
+    assert.deepEqual(unchanged[key], paused[key], key);
+  }
+  assert.equal(events.length, 0);
+  fail = false;
+  const resumed = (await f.call(args)).goal;
+  assert.equal(resumed.status, 'active');
+  assert.equal(resumed.tasks[0].status, 'in_progress');
+});
+
+test('plain resume tolerates empty frozen-schema task fields without bypassing objective review', async (t) => {
+  const f = fixture(t);
+  await f.create();
+  await f.call({ action: 'pause' });
+  await f.runtime.control(f.sessionId, { action: 'edit', objective: 'Changed work requiring review' });
+  const current = (await f.call({ action: 'status' })).goal;
+  await assert.rejects(f.call({
+    action: 'resume', revision: current.revision,
+    updates: [{ id: current.tasks[0].id, status: 'in_progress' }],
+  }), /reconcile the full task list/);
+  assert.equal(f.snapshot().status, 'paused');
+  const resumed = (await f.call({
+    action: 'resume', revision: current.revision, tasks: [], updates: [],
+  })).goal;
+  assert.equal(resumed.status, 'active');
+  assert.equal(resumed.needsTaskReview, true);
+  assert.deepEqual(resumed.tasks, current.tasks);
+});

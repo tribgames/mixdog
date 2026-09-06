@@ -19,29 +19,6 @@
    centering grid, and an uncentered glyph drifted ~8px left of the ⋯ column
    (user: + 버튼 위치 정렬 잘못됨). */
 .schedules-new { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; }
-.schedules-search { position: relative; }
-.schedules-search svg {
-  position: absolute;
-  top: 50%;
-  left: 11px;
-  transform: translateY(-50%);
-  color: var(--mx-icon-muted);
-  pointer-events: none;
-}
-.schedules-search input {
-  box-sizing: border-box;
-  width: 100%;
-  height: 34px;
-  padding: 0 12px 0 32px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  outline: 1px solid transparent;
-  color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
-  font-size: var(--mx-font-ui);
-}
-.schedules-search input:focus { box-shadow: inset 0 0 0 .5px var(--mx-border-strong); }
 .schedules-filters { display: flex; gap: 4px; }
 .schedules-filters button {
   min-height: 26px;
@@ -71,18 +48,21 @@
      --mx-editor-width so three fields never float in an 800px card. */
   width: min(var(--mx-editor-width, 800px), 100%);
 }
-.schedules-dialog form {
+.schedules-dialog > form {
+  container: sidebar-dialog / inline-size;
   min-height: 0;
   flex: 1 1 auto;
   overflow-y: auto;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
   /* One rhythm down the form: 16px between fields, and the body opens right
      under the header's own 12px so the title never floats away from field
      one (user: 정렬이 마음에 들지 않는다). */
   gap: 16px;
   padding: 4px var(--mx-dialog-inset) var(--mx-dialog-inset);
 }
-.schedules-field { display: grid; gap: 8px; color: var(--mx-text-muted); font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); }
+.schedules-field { min-width: 0; display: grid; gap: 8px; color: var(--mx-text-muted); font-size: var(--mx-font-minor); font-weight: var(--mx-weight-regular); }
 /* A field title and its note are ONE block: they close to 4px, and only the
    control opens the full 8px step — grown from 2/6 with the 15px label
    (user: 제목·설명·텍스트상자 사이가 좁다). */
@@ -258,6 +238,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
   /* The CARD's plate, not a raised layer: layer-1 painted a lighter band under
      the form so the floor read as a separate, empty strip (user: 배경도 한 색이
@@ -570,11 +551,8 @@
 }
 .projects-instructions-edit:hover:not(:disabled) { color: var(--mx-text); }
 .projects-instructions-edit:disabled { opacity: var(--mx-op-disabled); cursor: default; }
-.schedules-dialog.projects-add-dialog { --mx-editor-width: 520px; }
-/* Per-project edit dialog (rename + instructions + remove): the destructive
-   action sits alone on the footer's left edge, away from Cancel/Save. */
-.schedules-dialog.projects-edit-dialog { --mx-editor-width: 680px; }
-.projects-edit-dialog footer button.danger { margin-right: auto; }
+/* The Projects dialogs ride the Extensions card (extension-dialog.css):
+   compact width for Add, editor width for the per-project editor. */
 /* Field note grammar (user: 팝업 제목 아래 설명을 메모리 쪽과 맞춰): every
    dialog field title may carry one muted meta-sized line under it. */
 .schedules-field > small,
@@ -586,41 +564,17 @@
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-meta);
 }
-.projects-memory-editor { min-width: 0; display: grid; gap: 8px; }
-.projects-memory-editor > header {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-minor);
-  font-weight: var(--mx-weight-regular);
-}
-.projects-memory-editor > header > div { min-width: 0; display: grid; gap: 3px; }
-.projects-memory-add-trigger {
-  width: 26px;
-  height: 26px;
-  flex: 0 0 26px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-icon-muted);
-  background: transparent;
-  box-shadow: none;
-  cursor: pointer;
-}
-.projects-memory-add-trigger:hover:not(:disabled),
-.projects-memory-add-trigger:focus-visible { color: var(--mx-icon); background: var(--mx-hover); }
-.projects-memory-add-trigger:focus-visible { outline: 1px solid var(--mx-focus); }
-.projects-memory-add-trigger:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+/* Memories inside the project editor: the section head (title, note, Add)
+   is the Extensions section's; the list is the same divided card the
+   Extensions rows and the Settings resources use. */
+.projects-memory-editor { min-width: 0; display: grid; }
 .projects-memory-viewport {
   min-height: 0;
   max-height: 240px;
   overflow-y: auto;
-  border-radius: var(--mx-radius-lg);
-  background: var(--mx-bg-base);
+  padding: 0 16px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-layer-1);
   box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
 }
 .projects-memory-viewport.is-empty {
@@ -638,7 +592,7 @@
   text-align: center;
 }
 .projects-memory-editor .core-memory-list {
-  padding: 0 12px;
+  padding: 0;
   background: transparent;
   box-shadow: none;
 }
@@ -647,7 +601,7 @@
   grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
   gap: 12px;
-  padding: 12px;
+  padding: 12px 0;
   border-bottom: .5px solid var(--mx-border);
 }
 .projects-memory-editor .core-memory-edit,
@@ -688,30 +642,10 @@
 .projects-memory-editor .projects-memory-edit-fields,
 .projects-memory-editor .core-memory-copy { grid-column: 1; }
 .projects-memory-editor .core-memory-actions { grid-column: 2; }
-/* Memory row actions speak the popup's own button ladder (the usage card's
-   quiet plate) instead of the Settings page's base-plate buttons, which
-   vanished against the card. */
-.projects-memory-editor .core-memory-actions button {
-  min-height: 28px;
-  padding: 0 11px;
-  background: var(--mx-popup-action-bg);
-  box-shadow: var(--mx-popup-action-ring);
-}
-.projects-memory-editor .core-memory-actions button:hover:not(:disabled) {
-  background: var(--mx-hover);
-  box-shadow: var(--mx-popup-action-ring-hover);
-}
-.projects-memory-editor .core-memory-actions button.danger {
-  color: var(--mx-danger);
-  background: var(--mx-danger-bg);
-  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-danger) 28%, transparent);
-}
-.projects-memory-editor .core-memory-actions button.danger:hover:not(:disabled) {
-  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-danger-bg);
-}
-/* Memory rows part on the usage card's hairline, not a heavier border. */
-.projects-memory-add-row,
-.projects-memory-editor .core-memory-edit { border-bottom-color: var(--mx-border-muted); }
+/* Memory row actions keep the Settings page's base-plate buttons (the card
+   now sits on layer-1 like the Settings resources, so they read); danger is
+   red ink on the same plate. */
+.projects-memory-editor .core-memory-actions button.danger { color: var(--mx-danger); }
 .projects-folder-row { display: flex; align-items: center; gap: 8px; }
 /* The chosen path is a read-only FIELD, so it wears the field plate: same
    32px box, same 8px text axis and same tone as the Name input above it

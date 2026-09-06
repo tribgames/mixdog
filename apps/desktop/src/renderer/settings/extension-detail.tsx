@@ -1,5 +1,5 @@
-import { ChevronRight, X } from 'lucide-react';
-import { useMemo, type ReactNode } from 'react';
+import { ChevronDown, ChevronRight, X } from 'lucide-react';
+import { useMemo, type FormEvent, type ReactNode } from 'react';
 
 import type { DesktopProjectSummary } from '../../shared/contract';
 import { t } from '../i18n';
@@ -30,30 +30,47 @@ export function ExtensionRow({ icon, title, description, badge, enabled, busy, o
     className="schedules-row utilities-row extensions-row extensions-row-open"
     data-extension-row={title} data-enabled={enabled ? 'true' : 'false'}
     aria-label={title} disabled={busy} onClick={onOpen} {...dataAttributes}>
-    <span className="extensions-row-icon" aria-hidden="true">{icon}</span>
-    <span className="sidebar-resource-title">
-      <b>{title}</b>
-      {badge ? <span className="extensions-row-badge">{badge}</span> : null}
+    <span className="extensions-row-icon sidebar-resource-icon" aria-hidden="true">{icon}</span>
+    <span className="schedules-row-copy utilities-row-copy">
+      <span className="sidebar-resource-title">
+        <b>{title}</b>
+        {badge ? <span className="extensions-row-badge">{badge}</span> : null}
+      </span>
+      <small>{description}</small>
     </span>
-    <small>{description}</small>
     <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
   </button>;
 }
 
-/** The detail card every section shares: facts, optional content, then the
- *  entry's actions. Rows drill IN here instead of exposing their actions in the
- *  list (user: 다른것들처럼 클릭해서 들어가서 설정하는 걸로) — the same move
- *  Workflows, Schedules and Webhooks make. Portaled for their reason too: the
- *  list lives inside the sidebar's clipped box. */
-export function ExtensionDetailDialog({ title, icon, children, actions, enabled, busy, onToggle, headerControl, onClose, dataAttributes }: {
+/** Width ladder for every Extensions card: `compact` for one-field prompts
+ *  (install source, add-kind choice), `detail` for read-mostly entries, and
+ *  `editor` for the Skill/MCP forms that carry a Markdown body. */
+export type ExtensionDialogWidth = 'compact' | 'detail' | 'editor';
+
+/** THE card every Extensions entry opens in — built-in feature, plugin,
+ *  skill, MCP server, and the install/add prompts. One header (identity plate,
+ *  title, status switch or install control, close), one scrolling body on
+ *  the 16px section rhythm, and a footer only when the entry has real
+ *  actions. Editors pass `onSubmit`; the body and footer then live inside a
+ *  form so the footer's submit button posts it. Rows drill IN here instead
+ *  of exposing their actions in the list (user: 다른것들처럼 클릭해서 들어가서
+ *  설정하는 걸로). Portaled because the list lives inside the sidebar's
+ *  clipped box. */
+export function ExtensionDetailDialog({
+  title, icon, tagline, children, footer, enabled, busy, onToggle, headerControl, onClose,
+  onSubmit, width = 'detail', titleId = 'extensions-dialog-title', className = '', dataAttributes,
+}: {
   title: string;
   /** Identity glyph on the title line — the same plate as the list row's, so
-   *  the dialog opens as a continuation of the row instead of floating a
-   *  second icon in the body. */
+   *  the dialog opens as a continuation of the row that was clicked. */
   icon?: ReactNode;
-  /** Body sections: hero, scope, contents, facts — composed by the caller. */
+  /** One lead sentence under the header, before the sections. */
+  tagline?: string;
+  /** Body sections composed by the caller. */
   children: ReactNode;
-  actions?: ReactNode;
+  /** Footer buttons, complete: the caller decides Cancel/Close/Save/Remove.
+   *  A `.danger` button parks itself on the left edge. */
+  footer?: ReactNode;
   enabled?: boolean;
   busy?: boolean;
   onToggle?(enabled: boolean): void;
@@ -61,14 +78,27 @@ export function ExtensionDetailDialog({ title, icon, children, actions, enabled,
    *  not simply on/off yet. */
   headerControl?: ReactNode;
   onClose(): void;
+  /** Present on editors: body + footer render inside a form. */
+  onSubmit?(event: FormEvent<HTMLFormElement>): void;
+  width?: ExtensionDialogWidth;
+  titleId?: string;
+  className?: string;
   dataAttributes?: Record<`data-${string}`, string>;
 }) {
+  const body = <>
+    <div className="extensions-dialog-body">
+      {tagline ? <p className="extensions-dialog-tagline">{tagline}</p> : null}
+      {children}
+    </div>
+    {footer ? <footer className="extensions-dialog-actions">{footer}</footer> : null}
+  </>;
   return <SidebarDialogLayer onClose={onClose}>
-    <section className="schedules-dialog extensions-dialog" role="dialog" aria-modal="true"
-      aria-labelledby="extensions-dialog-title" {...dataAttributes}>
+    <section className={`schedules-dialog extensions-dialog ${className}`.trim()}
+      data-dialog-width={width} role="dialog" aria-modal="true"
+      aria-labelledby={titleId} {...dataAttributes}>
       <header>
         {icon ? <span className="extensions-dialog-icon" aria-hidden="true">{icon}</span> : null}
-        <h2 id="extensions-dialog-title">{title}</h2>
+        <h2 id={titleId}>{title}</h2>
         <div className="schedules-dialog-header-actions">
           {headerControl !== undefined ? headerControl
             : typeof enabled === 'boolean' && onToggle && <CompactSwitch
@@ -79,81 +109,152 @@ export function ExtensionDetailDialog({ title, icon, children, actions, enabled,
           </button>
         </div>
       </header>
-      <div className="extensions-dialog-body">
-        {children}
-        {actions && <footer className="extensions-dialog-actions">
-          {actions}
-          <button type="button" className="secondary" onClick={onClose}>{t('Close')}</button>
-        </footer>}
-      </div>
+      {onSubmit
+        ? <form className="extensions-dialog-form" onSubmit={onSubmit}>{body}</form>
+        : body}
     </section>
   </SidebarDialogLayer>;
 }
 
-/** Extension detail building blocks shared by the Plugin, Skill, and MCP
- *  dialogs: identity header, titled sections, item rows, the facts list, and
- *  the project-scope control. They live outside capability-panels.tsx so the
- *  three dialogs compose the same grammar instead of each growing its own. */
+/** Body building blocks shared by every Extensions card: titled sections,
+ *  item rows, the facts list, notes, previews, form fields, the one action
+ *  button, and the project-scope control. They live here so each dialog
+ *  composes the same grammar instead of growing its own. */
 
 export type ExtensionScopeKind = 'skills' | 'mcp' | 'plugins';
 
 const PROJECT_KEYS = ['projects'] as const;
 
-/** Tagline under the dialog title. The identity icon belongs on the header's
- *  title line (ExtensionDetailDialog `icon`); a hero-side icon is kept only
- *  for callers that have no header glyph. */
-export function ExtensionHero({ icon, tagline }: {
-  icon?: ReactNode;
-  tagline?: string;
-}) {
-  if (!icon && !tagline) return null;
-  return <div className="extensions-hero" data-plain={icon ? undefined : 'true'}>
-    {icon ? <span className="extensions-hero-icon" aria-hidden="true">{icon}</span> : null}
-    <div className="extensions-hero-copy">
-      {tagline ? <small>{tagline}</small> : null}
-    </div>
-  </div>;
-}
-
-/** Section head with an optional count, then its body on the shared rhythm. */
-export function ExtensionSection({ title, count, children }: {
+/** Section head (title, optional count, optional one-line note), then its
+ *  body on the shared rhythm. `collapsible` folds the section behind its head
+ *  for advanced, rarely used content. */
+export function ExtensionSection({ title, count, description, action, collapsible = false, defaultOpen = false, children, dataAttributes }: {
   title: string;
   count?: number;
+  description?: string;
+  /** Head-line control on the trailing edge (an add button, a refresh). */
+  action?: ReactNode;
+  collapsible?: boolean;
+  defaultOpen?: boolean;
   children: ReactNode;
+  dataAttributes?: Record<`data-${string}`, string>;
 }) {
-  return <section className="extensions-section">
-    <h3>
-      <span>{title}</span>
-      {typeof count === 'number' ? <em>{count}</em> : null}
-    </h3>
+  const head = <>
+    <span>{title}</span>
+    {typeof count === 'number' ? <em>{count}</em> : null}
+  </>;
+  if (collapsible) {
+    return <details className="extensions-section" open={defaultOpen || undefined} {...dataAttributes}>
+      <summary>
+        <h3>{head}</h3>
+        <ChevronDown size={14} aria-hidden="true" />
+      </summary>
+      {description ? <p className="extensions-section-note">{description}</p> : null}
+      {children}
+    </details>;
+  }
+  return <section className="extensions-section" {...dataAttributes}>
+    <div className="extensions-section-head">
+      <div>
+        <h3>{head}</h3>
+        {description ? <p className="extensions-section-note">{description}</p> : null}
+      </div>
+      {action ?? null}
+    </div>
     {children}
   </section>;
 }
 
 export type ExtensionItemTone = 'ok' | 'off' | 'warn' | 'muted';
 
-/** One contained item (a plugin's skill or MCP server, an MCP tool). */
-export function ExtensionItemRow({ icon, title, description, status, tone = 'muted', control }: {
+/** Stack of item rows on the section's 6px rhythm. */
+export function ExtensionItemList({ children }: { children: ReactNode }) {
+  return <div className="extensions-item-list">{children}</div>;
+}
+
+/** One contained item: a plugin's skill or MCP server, a model, a GitHub
+ *  account line, or a setting whose control sits on its trailing edge. */
+export function ExtensionItemRow({ icon, title, description, status, tone = 'muted', control, dataAttributes }: {
   icon?: ReactNode;
   title: string;
   description?: string;
   status?: string;
   tone?: ExtensionItemTone;
-  /** Trailing control (its own switch or action) so a bundled item can be
-   *  turned on/off without leaving the owning plugin. */
+  /** Trailing control (switch, select, or action) so the setting or bundled
+   *  item is handled without leaving the card. */
   control?: ReactNode;
+  dataAttributes?: Record<`data-${string}`, string>;
 }) {
-  return <div className="extensions-item" data-tone={tone} data-extension-item={title}>
+  // Same anatomy as the Settings dialog's resource row (user: 옵션쪽이랑
+  // 맞춰): title with its status pill on one line, the meta line under it,
+  // and the control on the trailing edge.
+  return <div className="extensions-item" data-tone={tone} data-extension-item={title} {...dataAttributes}>
     {icon ? <span className="extensions-item-icon" aria-hidden="true">{icon}</span> : null}
     <span className="extensions-item-copy">
-      <b>{title}</b>
+      <span className="extensions-item-title">
+        <b>{title}</b>
+        {status ? <span className="extensions-item-status"><i aria-hidden="true" />{status}</span> : null}
+      </span>
       {description ? <small>{description}</small> : null}
     </span>
-    <span className="extensions-item-trailing">
-      {status ? <span className="extensions-item-status"><i aria-hidden="true" />{status}</span> : null}
-      {control}
-    </span>
+    {control ? <span className="extensions-item-trailing">{control}</span> : null}
   </div>;
+}
+
+/** The one in-card action button (28px quiet plate; `danger` for removal). */
+export function ExtensionAction({ children, danger = false, disabled, ariaLabel, onClick }: {
+  children: ReactNode;
+  danger?: boolean;
+  disabled?: boolean;
+  ariaLabel?: string;
+  onClick(): void;
+}) {
+  return <button type="button" className={`extensions-action${danger ? ' danger' : ''}`}
+    aria-label={ariaLabel} disabled={disabled} onClick={onClick}>{children}</button>;
+}
+
+/** Muted guidance line inside a section; `danger` for a blocking condition. */
+export function ExtensionNote({ children, tone, role }: {
+  children: ReactNode;
+  tone?: 'danger';
+  role?: 'status';
+}) {
+  return <p className="extensions-note" data-tone={tone} role={role}>{children}</p>;
+}
+
+/** Quiet example block: a titled explanation over a monospace sample. */
+export function ExtensionPreview({ title, description, code }: {
+  title: string;
+  description?: string;
+  code: string;
+}) {
+  return <div className="extensions-preview">
+    <b>{title}</b>
+    {description ? <p>{description}</p> : null}
+    <code>{code}</code>
+  </div>;
+}
+
+/** Form field on the dialog grammar: title, optional note, then the control. */
+export function ExtensionField({ label, note, children, as = 'label', className = '', dataAttributes }: {
+  label: string;
+  note?: string;
+  children: ReactNode;
+  as?: 'label' | 'div';
+  className?: string;
+  dataAttributes?: Record<`data-${string}`, string>;
+}) {
+  const Tag = as;
+  return <Tag className={`schedules-field ${className}`.trim()} {...dataAttributes}>
+    <span>{label}</span>
+    {note ? <small>{note}</small> : null}
+    {children}
+  </Tag>;
+}
+
+/** Right-aligned action row under a field group (Save for a draft). */
+export function ExtensionFieldActions({ children }: { children: ReactNode }) {
+  return <div className="extensions-field-actions">{children}</div>;
 }
 
 export function ExtensionFacts({ facts }: {
@@ -217,17 +318,17 @@ export function ExtensionScopeField({ api, run, kind, name, scope, inheritedScop
   const matched = options.find((option) => option.value !== SHARED_SCOPE && samePath(option.value, current));
   const value = current ? matched?.value ?? current : SHARED_SCOPE;
   const inheritedCount = inheritedScope?.length ?? 0;
-  return <div className="schedules-field extensions-scope-field" data-extension-scope={kind}>
-    <span>{t('Applies to')}</span>
-    <small>{value ? t('Only available in the selected project.') : t('Applies to every project.')}</small>
+  return <ExtensionField as="div" className="extensions-scope-field" label={t('Applies to')}
+    note={value ? t('Only available in the selected project.') : t('Applies to every project.')}
+    dataAttributes={{ 'data-extension-scope': kind }}>
     <OpenSelect className="extensions-scope-select" ariaLabel={t('Applies to')}
       value={value} disabled={busy || references.loading && !projects.length}
       options={options} localizeLabels={false}
       onChange={(next) => { void run('setExtensionScope', [kind, name, next ? [next] : []]); }} />
-    {inheritedCount > 0 ? <p className="extensions-mcp-note">
+    {inheritedCount > 0 ? <ExtensionNote>
       {t('Also limited by plugin {{name}} to {{count}} projects.', { name: inheritedFrom || '', count: inheritedCount })}
-    </p> : null}
-  </div>;
+    </ExtensionNote> : null}
+  </ExtensionField>;
 }
 
 /** Scope props straight off a decorated status row. */

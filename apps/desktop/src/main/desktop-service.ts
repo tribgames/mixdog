@@ -39,6 +39,7 @@ import {
   type RemoteRelayHandle,
 } from './remote-relay';
 import { rotateRelayE2EEIdentity } from './remote-e2ee';
+import { synchronizeViewSnapshot } from './view-synchronizer';
 
 // Slightly under the relay's own claim TTL: a dialog left open must never
 // outlive the request it answers.
@@ -296,6 +297,10 @@ export async function createDesktopService(
     return remoteDescriptor();
   };
   const rpcMethods = new Set<string>(DESKTOP_SERVICE_METHODS);
+  let viewsSyncing = false;
+  let viewVersion = 0;
+  let serviceClosed = false;
+  let viewSyncQueue: Promise<void> = Promise.resolve();
   const visibleSessionIds = new Set<string>();
   const stateEncoder = createSnapshotDeltaEncoder();
   const sessionStateEncoders = new Map<string, SnapshotDeltaEncoder>();
@@ -344,18 +349,47 @@ export async function createDesktopService(
     });
   };
 
-  const unsubscribeState = host.subscribe((snapshot) => stateMailbox.publish(snapshot));
+  const unsubscribeState = host.subscribe((snapshot) => {
+    if (!viewsSyncing) stateMailbox.publish(snapshot);
+  });
   const unsubscribeSessions = host.subscribeSessions((sessions) => {
-    emit({ kind: 'sessions', sessions });
+    if (!viewsSyncing) emit({ kind: 'sessions', sessions });
   });
   const unsubscribeAgentPool = host.subscribeAgentPool((agents) => {
-    emit({ kind: 'agent-pool', agents });
+    if (!viewsSyncing) emit({ kind: 'agent-pool', agents });
   });
   const unsubscribeSessionStates = host.subscribeSessionStates((update) => {
+    if (viewsSyncing) return;
     if (!shouldPublishSessionState(update.sessionId, update.snapshot, visibleSessionIds)) return;
     postSessionState(update);
   });
   stateMailbox.publish(host.getSnapshot());
+  const synchronizeViews = (): Promise<void> => {
+    const run = viewSyncQueue.catch(() => undefined).then(async () => {
+      let version: number;
+      do {
+        if (serviceClosed) return;
+        version = viewVersion;
+        viewsSyncing = true;
+        try {
+          await host.setVisibleSessions([...visibleSessionIds]);
+          await synchronizeViewSnapshot(host, [...visibleSessionIds], (snapshot) => {
+            if (serviceClosed) return;
+            stateEncoder.reset();
+            stateMailbox.reset(snapshot.snapshot);
+            sessionStateEncoders.clear();
+            for (const update of snapshot.sessionStates) postSessionState(update);
+            emit({ kind: 'sessions', sessions: snapshot.sessions });
+            emit({ kind: 'agent-pool', agents: snapshot.agents });
+            viewsSyncing = false;
+            if (version === viewVersion) emit({ kind: 'view-sync-complete' });
+          });
+        } finally { viewsSyncing = false; }
+      } while (version !== viewVersion);
+    });
+    viewSyncQueue = run;
+    return run;
+  };
 
   return {
     get clientCount() {
@@ -410,6 +444,7 @@ export async function createDesktopService(
         return operations.invoke(operation, operationArgs);
       }
       if (method === 'setVisibleSessions') {
+        viewVersion += 1;
         visibleSessionIds.clear();
         const requested = args[0];
         if (Array.isArray(requested)) {
@@ -438,12 +473,20 @@ export async function createDesktopService(
         return;
       }
       if (message.kind === 'state-resync') {
-        stateEncoder.reset();
-        stateMailbox.reset(host.getSnapshot());
+        await synchronizeViews();
         return;
       }
       if (message.kind !== 'session-state-resync') return;
       const sessionId = String(message.sessionId || '');
+      if (host.replaySessionStates) {
+        await host.replaySessionStates([sessionId], (updates) => {
+          for (const update of updates) {
+            sessionStateEncoders.delete(update.sessionId);
+            postSessionState(update);
+          }
+        });
+        return;
+      }
       const encoder = sessionStateEncoders.get(sessionId);
       const snapshot = latestSessionStates.get(sessionId);
       const provenance = latestSessionProvenance.get(sessionId);
@@ -456,6 +499,7 @@ export async function createDesktopService(
       });
     },
     async dispose(): Promise<void> {
+      serviceClosed = true;
       unsubscribeState();
       unsubscribeSessions();
       unsubscribeAgentPool();

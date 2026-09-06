@@ -265,11 +265,13 @@ export function PaneSurfaceGate({
   ready,
   label,
   transitionKey,
+  fallback,
   children,
 }: {
   ready: boolean;
   label: string;
   transitionKey?: string | number;
+  fallback?: ReactNode;
   children: ReactNode;
 }) {
   const revealed = useStableSurfaceReveal(ready, transitionKey);
@@ -277,7 +279,9 @@ export function PaneSurfaceGate({
     <div className="pane-surface-gate-content" aria-hidden={revealed ? undefined : true}>
       {children}
     </div>
-    {!revealed && <DesktopLoadingSurface label={label} />}
+    {!revealed && (fallback
+      ? <div className="pane-surface-placeholder">{fallback}</div>
+      : <DesktopLoadingSurface label={label} />)}
   </div>;
 }
 

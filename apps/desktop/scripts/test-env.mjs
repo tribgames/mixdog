@@ -65,10 +65,18 @@ for (const specifier of ['react', 'react-dom']) {
     );
   }
 }
+// Renderer modules import their feature stylesheets for Vite to bundle. Node
+// has no CSS loader, so under test a stylesheet resolves to an empty module
+// instead of ERR_UNKNOWN_FILE_EXTENSION taking the importing suite down.
+// Resolved to a data: URL here because a synchronous `load` hook must hand
+// back a source for every module it sees, which breaks the CommonJS path.
+const EMPTY_MODULE_URL = 'data:text/javascript,';
 registerHooks({
   resolve(specifier, context, nextResolve) {
     const url = pinnedReactUrls.get(specifier);
-    return url ? { url, shortCircuit: true } : nextResolve(specifier, context);
+    if (url) return { url, shortCircuit: true };
+    if (/\.css$/i.test(specifier)) return { url: EMPTY_MODULE_URL, shortCircuit: true };
+    return nextResolve(specifier, context);
   },
 });
 

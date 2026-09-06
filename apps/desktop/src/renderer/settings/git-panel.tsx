@@ -16,8 +16,19 @@ import type {
 import { useErrorToast } from '../notifications';
 import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
+import { OpenSelect } from '../OpenSelect';
 
-import { ActionButton, FormRow, Group, ResourceRow, SelectRow, ToggleRow } from './capability-controls';
+import {
+  ExtensionAction,
+  ExtensionField,
+  ExtensionFieldActions,
+  ExtensionItemList,
+  ExtensionItemRow,
+  ExtensionNote,
+  ExtensionPreview,
+  ExtensionSection,
+  type ExtensionItemTone,
+} from './extension-detail';
 import {
   createGitPreferenceSaveQueue,
   type GitPreferenceField,
@@ -56,8 +67,6 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   const [account, setAccount] = useState<DesktopGithubCliAccount | null>(cachedInfo?.account ?? null);
   const [preset, setPreset] = useState<DesktopGitCommitPreset>(
     cachedInfo?.preferences?.commitPreset ?? 'none');
-  const [autoCommit, setAutoCommit] = useState(
-    cachedInfo?.preferences ? cachedInfo.preferences.autoCommitMessage === true : true);
   const [exampleDraft, setExampleDraft] = useState(customExample(cachedInfo?.preferences));
   const [exampleSaved, setExampleSaved] = useState(customExample(cachedInfo?.preferences));
   const [instructionsDraft, setInstructionsDraft] = useState(
@@ -99,7 +108,6 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
       setStatus(info.status);
       setAccount(info.account);
       setPreset(info.preferences?.commitPreset ?? 'none');
-      setAutoCommit(info.preferences ? info.preferences.autoCommitMessage === true : true);
       const example = customExample(info.preferences);
       const instructions = customInstructions(info.preferences);
       setExampleDraft((current) =>
@@ -201,8 +209,6 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
         onResult: (field, preferences, context) => {
           if (field === 'preset' && context.recovered) {
             setPreset(preferences.commitPreset);
-          } else if (field === 'auto' && context.recovered) {
-            setAutoCommit(preferences.autoCommitMessage);
           } else if (field === 'custom') {
             const example = customExample(preferences);
             const instructions = customInstructions(preferences);
@@ -226,11 +232,7 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   const preferenceSaver = preferenceSaverRef.current.saver;
 
   if (!supported) {
-    return <Group title="Git">
-      <p className="settings-connection-note">
-        Git and GitHub settings are managed in the desktop app.
-      </p>
-    </Group>;
+    return <ExtensionNote>{t('Git and GitHub settings are managed in the desktop app.')}</ExtensionNote>;
   }
 
   const act = (key: string, action: () => Promise<unknown> | undefined) => {
@@ -244,133 +246,125 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   const loading = status === null;
   const busyAny = Boolean(busy);
   const flowLive = flowState === 'pending' || flowState === 'code';
+  const cliStatus = loading ? t('Checking…')
+    : !status?.installed ? t('Not installed')
+    : status.authenticated ? t('Connected') : t('Not connected');
+  const cliTone: ExtensionItemTone = loading ? 'muted'
+    : !status?.installed ? 'warn'
+    : status.authenticated ? 'ok' : 'off';
+  const customDirty = exampleDraft !== exampleSaved || instructionsDraft !== instructionsSaved;
+  const saveCustom = () => {
+    setError('');
+    void preferenceSaver.save('custom', {
+      commitExample: exampleDraft,
+      commitInstructions: instructionsDraft,
+    });
+  };
 
+  // Same grammar as every other Extensions card: sections of item rows whose
+  // controls sit on the trailing edge, notes under them, previews as quiet
+  // blocks. The settings page's Group/ResourceRow/ToggleRow primitives are
+  // gone from here (user: 팝업 디자인 리뉴얼, 우리 테마에 맞게).
   return <>
-    <Group title="GitHub"
-      description="The GitHub CLI (gh) powers pull requests and repository actions. Connecting signs it in and authors your commits with this account.">
-      <ResourceRow title="GitHub CLI"
-        meta={status?.installed ? `gh ${status.version || ''}`.trim() : undefined}
-        status={loading ? 'Checking…' : !status?.installed ? 'Not installed'
-          : status.authenticated ? 'Connected' : 'Not connected'}
-        actions={<>
-          {!loading && !status?.installed && <ActionButton disabled={busyAny}
-            onClick={() => act('install', () => host?.installGithubCli?.()
-              .then((next) => {
-                setStatus(next);
-                patchCachedGitPanelInfo(host, { status: next });
-              }))}>
-            {busy === 'install' ? 'Installing…' : 'Install'}
-          </ActionButton>}
-          {!loading && !status?.installed && <ActionButton disabled={busyAny}
-            onClick={() => open(CLI_DOWNLOAD_URL)}>Download ↗</ActionButton>}
-          {status?.installed && !status.authenticated && !flowLive &&
-            <ActionButton disabled={busyAny} onClick={() => act('connect', () =>
-              host?.githubCliLoginStart?.().then((started) => { if (started) setFlow(started); }),
-            )}>Connect</ActionButton>}
-          {flowLive && <ActionButton danger disabled={busyAny} onClick={() => {
-            const id = flowId;
-            setFlow(null);
-            act('cancel', () => host?.githubCliLoginCancel?.(id));
-          }}>Cancel</ActionButton>}
-          {status?.authenticated && <ActionButton danger disabled={busyAny}
-            onClick={() => act('logout', () => host?.githubCliLogout?.()
-              .then((next) => {
-                setStatus(next);
-                setFlow(null);
-                patchCachedGitPanelInfo(host, { status: next, account: null });
-              }))}>
-            {busy === 'logout' ? 'Disconnecting…' : 'Disconnect'}
-          </ActionButton>}
-        </>} />
-      {status?.authenticated && (account || status.login) &&
-        <ResourceRow title="Account"
-          meta={account ? `${account.name} <${account.email}>` : status.login || ''} />}
-      {flowLive && <p className="settings-connection-note" role="status">
+    <ExtensionSection title={t('GitHub')}
+      description={t('The GitHub CLI (gh) powers pull requests and repository actions. Connecting signs it in and authors your commits with this account.')}>
+      <ExtensionItemList>
+        <ExtensionItemRow title="GitHub CLI"
+          description={status?.installed ? `gh ${status.version || ''}`.trim() : undefined}
+          status={cliStatus} tone={cliTone}
+          control={<>
+            {!loading && !status?.installed && <ExtensionAction disabled={busyAny}
+              onClick={() => act('install', () => host?.installGithubCli?.()
+                .then((next) => {
+                  setStatus(next);
+                  patchCachedGitPanelInfo(host, { status: next });
+                }))}>
+              {busy === 'install' ? t('Installing…') : t('Install')}
+            </ExtensionAction>}
+            {!loading && !status?.installed && <ExtensionAction disabled={busyAny}
+              onClick={() => open(CLI_DOWNLOAD_URL)}>{t('Download ↗')}</ExtensionAction>}
+            {status?.installed && !status.authenticated && !flowLive &&
+              <ExtensionAction disabled={busyAny} onClick={() => act('connect', () =>
+                host?.githubCliLoginStart?.().then((started) => { if (started) setFlow(started); }),
+              )}>{t('Connect')}</ExtensionAction>}
+            {flowLive && <ExtensionAction danger disabled={busyAny} onClick={() => {
+              const id = flowId;
+              setFlow(null);
+              act('cancel', () => host?.githubCliLoginCancel?.(id));
+            }}>{t('Cancel')}</ExtensionAction>}
+            {status?.authenticated && <ExtensionAction danger disabled={busyAny}
+              onClick={() => act('logout', () => host?.githubCliLogout?.()
+                .then((next) => {
+                  setStatus(next);
+                  setFlow(null);
+                  patchCachedGitPanelInfo(host, { status: next, account: null });
+                }))}>
+              {busy === 'logout' ? t('Disconnecting…') : t('Disconnect')}
+            </ExtensionAction>}
+          </>} />
+        {status?.authenticated && (account || status.login) &&
+          <ExtensionItemRow title={t('Account')}
+            description={account ? `${account.name} <${account.email}>` : status.login || ''} />}
+      </ExtensionItemList>
+      {flowLive && <ExtensionNote role="status">
         {flow?.code
-          ? <>Enter code <code><b>{flow.code}</b></code> at github.com/login/device — the
-            browser should open by itself. <ActionButton
-              onClick={() => open(flow.url || 'https://github.com/login/device')}>
-              Open github.com ↗</ActionButton></>
-          : 'Starting GitHub sign-in…'}
-      </p>}
-      {flowState === 'error' && <ErrorNotice error={flow?.message || 'Sign-in failed'} />}
-    </Group>
-    <Group title="Commit messages"
+          ? <>
+            {t('Enter this code at github.com/login/device — the browser should open by itself.')}
+            {' '}<code><b>{flow.code}</b></code>{' '}
+            <ExtensionAction onClick={() => open(flow.url || 'https://github.com/login/device')}>
+              {t('Open github.com ↗')}
+            </ExtensionAction>
+          </>
+          : t('Starting GitHub sign-in…')}
+      </ExtensionNote>}
+      {flowState === 'error' && <ErrorNotice error={flow?.message || t('Sign-in failed')} />}
+    </ExtensionSection>
+    <ExtensionSection title={t('Commit messages')}
       description={t('Choose how manual commit hints and AI-generated messages should be written.')}>
-      <SelectRow title="Format" value={preset} disabled={preferenceBusy.preset === true}
-        options={[
-          { value: 'none', label: t('Plain') },
-          { value: 'conventional', label: t('Conventional Commits') },
-          { value: 'custom', label: t('Custom instructions') },
-        ]}
-        onChange={(next) => {
-          const value = next as DesktopGitCommitPreset;
-          setPreset(value);
-          setError('');
-          void preferenceSaver.save('preset', { commitPreset: value });
-        }} />
-      {preferenceBusy.preset && <p className="settings-git-inline-status" role="status">
-        {t('Saving format…')}
-      </p>}
-      <ToggleRow title="Auto commit message"
-        description="Committing with an empty summary writes the message from the included changes (maintenance model), then commits."
-        checked={autoCommit} disabled={preferenceBusy.auto === true}
-        onChange={(enabled) => {
-          setAutoCommit(enabled);
-          setError('');
-          void preferenceSaver.save('auto', { autoCommitMessage: enabled });
-        }} />
-      {preferenceBusy.auto && <p className="settings-git-inline-status" role="status">
-        {t('Saving auto-message setting…')}
-      </p>}
-      {preset === 'none' && <div className="settings-commit-rule-card">
-        <b>{t('Plain')}</b>
-        <p>{t('Write any summary and optional description. No format validation is applied.')}</p>
-        <code>Improve settings save recovery</code>
-      </div>}
-      {preset === 'conventional' && <div className="settings-commit-rule-grid">
-        <article><b>{t('Format')}</b><code>type(scope)!: description</code></article>
-        <article><b>{t('Types')}</b><p>{t('feat, fix, docs, refactor, test, build, ci, chore, revert, or a custom lowercase type.')}</p></article>
-        <article><b>{t('Scope and breaking changes')}</b><p>{t('Scope is optional. Add')} <code>!</code> {t('before')} <code>:</code> {t('for a breaking change.')}</p></article>
-        <article><b>{t('Body')}</b><p>{t('Optional details start after one blank line. Manual messages warn but remain committable.')}</p></article>
-        <article className="settings-commit-rule-preview"><b>{t('Actual preview')}</b>
-          <code>feat(settings)!: preserve saves during daemon recovery{'\n\n'}Keep unrelated inputs editable while reconnecting.</code>
-        </article>
-      </div>}
-      {preset === 'custom' && <FormRow title={t('Custom instructions')}
-        status={preferenceBusy.custom
-          ? t('Saving')
-          : exampleDraft === exampleSaved && instructionsDraft === instructionsSaved
-            ? undefined : 'Unsaved'}
-        onSubmit={() => {
-          setError('');
-          void preferenceSaver.save('custom', {
-            commitExample: exampleDraft,
-            commitInstructions: instructionsDraft,
-          });
-        }}>
-        <div className="settings-commit-custom-fields">
-          <label><span>{t('Example commit message')}</span>
-            <textarea name="commitExample" aria-label={t('Example commit message')} rows={2}
-              value={exampleDraft} placeholder={CONVENTIONAL_PATTERN}
-              onChange={(event) => setExampleDraft(event.currentTarget.value)} />
-          </label>
-          <label><span>{t('AI instructions')}</span>
-            <textarea name="commitInstructions" aria-label={t('AI commit message instructions')} rows={4}
-              value={instructionsDraft}
-              placeholder={t('Describe the tone, structure, and details the AI should include.')}
-              onChange={(event) => setInstructionsDraft(event.currentTarget.value)} />
-          </label>
-          <button disabled={preferenceBusy.custom
-            || (exampleDraft === exampleSaved && instructionsDraft === instructionsSaved)}>
+      <ExtensionItemList>
+        <ExtensionItemRow title={t('Format')}
+          status={preferenceBusy.preset ? t('Saving…') : undefined}
+          control={<OpenSelect className="extensions-select" ariaLabel={t('Format')}
+            value={preset} disabled={preferenceBusy.preset === true}
+            options={[
+              { value: 'none', label: t('Plain') },
+              { value: 'conventional', label: t('Conventional Commits') },
+              { value: 'custom', label: t('Custom instructions') },
+            ]}
+            onChange={(next) => {
+              const value = next as DesktopGitCommitPreset;
+              setPreset(value);
+              setError('');
+              void preferenceSaver.save('preset', { commitPreset: value });
+            }} />} />
+      </ExtensionItemList>
+      {preset === 'none' && <ExtensionPreview title={t('Plain')}
+        description={t('Write any summary and optional description. No format validation is applied.')}
+        code="Improve settings save recovery" />}
+      {preset === 'conventional' && <ExtensionPreview title={t('Conventional Commits')}
+        description={t('type(scope)!: description — types are feat, fix, docs, refactor, test, build, ci, chore, revert, or a custom lowercase type. Scope is optional; ! before : marks a breaking change. Details start after one blank line.')}
+        code={'feat(settings)!: preserve saves during daemon recovery\n\nKeep unrelated inputs editable while reconnecting.'} />}
+      {preset === 'custom' && <>
+        <ExtensionField label={t('Example commit message')}>
+          <textarea name="commitExample" aria-label={t('Example commit message')} rows={2}
+            value={exampleDraft} placeholder={CONVENTIONAL_PATTERN}
+            onChange={(event) => setExampleDraft(event.currentTarget.value)} />
+        </ExtensionField>
+        <ExtensionField label={t('AI instructions')}>
+          <textarea name="commitInstructions" aria-label={t('AI commit message instructions')} rows={4}
+            value={instructionsDraft}
+            placeholder={t('Describe the tone, structure, and details the AI should include.')}
+            onChange={(event) => setInstructionsDraft(event.currentTarget.value)} />
+        </ExtensionField>
+        <ExtensionFieldActions>
+          {customDirty && !preferenceBusy.custom ? <span>{t('Unsaved')}</span> : null}
+          <ExtensionAction disabled={preferenceBusy.custom === true || !customDirty} onClick={saveCustom}>
             {preferenceBusy.custom ? t('Saving…') : t('Save')}
-          </button>
-        </div>
-      </FormRow>}
-      {preset === 'custom' && <div className="settings-commit-rule-card">
-        <b>{t('Actual preview')}</b>
-        <code>{exampleDraft.trim() || t('Your example commit message appears here.')}</code>
-      </div>}
-    </Group>
+          </ExtensionAction>
+        </ExtensionFieldActions>
+        <ExtensionPreview title={t('Actual preview')}
+          code={exampleDraft.trim() || t('Your example commit message appears here.')} />
+      </>}
+    </ExtensionSection>
   </>;
 }

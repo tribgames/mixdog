@@ -866,7 +866,8 @@
   min-width: 0;
   min-height: 0;
 }
-.desktop-boot-gate[data-ready="false"] > .desktop-boot-gate-content { visibility: hidden; }
+.desktop-boot-gate[data-ready="false"] > .desktop-boot-gate-content,
+.desktop-boot-gate[data-ready="false"] > .desktop-boot-gate-content * { visibility: hidden; }
 .desktop-boot-cover {
   position: absolute;
   z-index: 1000;

@@ -131,7 +131,6 @@ test('detail lists installed models and running state, not the uninstalled catal
     assert.match(text, /32K context/);
     assert.match(text, /Running/);
     assert.doesNotMatch(text, /Catalog-only model/);
-    assert.match(text, /ask in chat/);
   } finally {
     await mounted.dispose();
   }
@@ -168,7 +167,7 @@ test('detail can stop the shared download, resume retained files and change idle
   }
 });
 
-test('installed model exposes measured diagnostics and deletion waits for an exact-path confirmation', async () => {
+test('installed model lists its facts and deletion waits for an exact-path confirmation', async () => {
   const current = status({
     installed: true, runtime: { installed: true }, running: false,
     models: [{ id: 'installed', name: 'Managed model', installed: true, sizeBytes: 1e9,
@@ -186,12 +185,12 @@ test('installed model exposes measured diagnostics and deletion waits for an exa
   });
   try {
     const detail = () => document.querySelector('[data-feature-id="localProvider"]');
-    assert.match(detail().textContent, /1.20s/);
-    assert.match(detail().textContent, /0.25s/);
-    assert.match(detail().textContent, /24.5 tok\/s/);
+    // Repair and verification are chat-driven (local-provider skill): the
+    // row carries its facts and one Delete control, no maintenance clutter.
+    assert.match(detail().textContent, /Managed model/);
+    assert.match(detail().textContent, /1.0 GB/);
     const button = (name) => [...detail().querySelectorAll('button')].find((entry) => entry.textContent === name);
-    await act(async () => button('Verify integrity').click());
-    assert.deepEqual(calls[0], ['startLocalProviderModelMaintenance', ['installed', 'verify']]);
+    assert.equal(button('Verify integrity'), undefined);
     await act(async () => button('Delete').click());
     assert.equal(calls.filter(([name]) => name === 'deleteLocalProviderModel').length, 0);
     const confirmation = document.querySelector('[role="alertdialog"]');
@@ -202,7 +201,7 @@ test('installed model exposes measured diagnostics and deletion waits for an exa
   } finally { await mounted.dispose(); }
 });
 
-test('a damaged existing model remains repairable without showing uninstalled search candidates', async () => {
+test('a damaged existing model is flagged for chat repair without showing uninstalled search candidates', async () => {
   const current = status({
     installed: true, runtime: { installed: true },
     models: [
@@ -218,7 +217,7 @@ test('a damaged existing model remains repairable without showing uninstalled se
     assert.match(detail.textContent, /Damaged model/);
     assert.match(detail.textContent, /Needs repair/);
     assert.doesNotMatch(detail.textContent, /Uninstalled candidate/);
-    assert.equal([...detail.querySelectorAll('button')].find((button) => button.textContent === 'Repair').disabled, false);
+    assert.equal([...detail.querySelectorAll('button')].find((button) => button.textContent === 'Repair'), undefined);
   } finally { await mounted.dispose(); }
 });
 

@@ -172,7 +172,7 @@ test('setup skill documents every tool action and open target', () => {
     .map((name) => fs.readFileSync(path.join(skillRoot, 'references', name), 'utf8'));
   const documentation = [skill, ...references].join('\n');
   assert.match(skill, /^name: setup$/m);
-  assert.match(skill, /^description: .*`setup` tool/m);
+  assert.match(skill, /^description: .*\bsetup tool\b/m);
   for (const action of SETUP_ACTIONS) {
     assert.ok(documentation.includes('`' + action + '`'), `setup docs do not document action ${action}`);
   }

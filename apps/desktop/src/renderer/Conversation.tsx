@@ -23,7 +23,6 @@ import type {
 } from "../shared/contract";
 import { t } from "./i18n";
 import { ErrorNotice } from "./ErrorNotice";
-import { isMobileRemoteSurface } from "./mobile-surface";
 import {
   approvalInstanceKey,
   transcriptTurnKeys
@@ -57,6 +56,7 @@ import { useTranscriptHistory } from "./use-transcript-history";
 import { LiveActivity, resetToolDisclosureScope, ToolActivityGroup, TranscriptRow } from "./TranscriptView";
 import { TurnReviewBar } from "./TurnReview";
 import { useTranscriptFollow } from "./use-transcript-follow";
+import { useTranscriptReveal } from "./use-transcript-reveal";
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { classifyToolCategory } from "../../../../src/runtime/shared/tool-surface.mjs";
 
@@ -688,40 +688,14 @@ export function Conversation({
     [completionAnimationKeyByItem],
   );
   const transcriptHydrated = settledItems.length > 0;
-  // Cold-entry one-shot reveal (phone): entering a session whose lane is
-  // still filling used to paint rows at estimated heights and then visibly
-  // snap once real measurements pinned the bottom. Hold the scroller
-  // invisible until the first hydrated commit has settled (double rAF), then
-  // show the final frame in one paint (user: 전 페이지 보였다가 튀는 것보다
-  // 빈 화면에서 한 번에). A lane that is already warm renders settled in
-  // this same commit and never hides; the desktop surface never hides.
-  const [, bumpTranscriptReveal] = useState(0);
-  const transcriptRevealFrame = useRef({ sessionKey: transcriptSessionKey, revealed: true });
-  if (transcriptRevealFrame.current.sessionKey !== transcriptSessionKey) {
-    transcriptRevealFrame.current = {
-      sessionKey: transcriptSessionKey,
-      revealed: transcriptHydrated || !isMobileRemoteSurface(),
-    };
-  }
-  const transcriptRevealed = transcriptRevealFrame.current.revealed;
-  useLayoutEffect(() => {
-    if (transcriptRevealFrame.current.revealed || !transcriptHydrated) return undefined;
-    // Two frames: the hydrated commit measures its rows in the first, the
-    // follow pin's corrective write lands by the second. A session that never
-    // hydrates stays hidden, which reads the same as the blank it already is,
-    // and the pane-surface unavailable cover renders outside this gate.
-    let secondFrame = 0;
-    const firstFrame = requestAnimationFrame(() => {
-      secondFrame = requestAnimationFrame(() => {
-        transcriptRevealFrame.current.revealed = true;
-        bumpTranscriptReveal((tick) => tick + 1);
-      });
-    });
-    return () => {
-      cancelAnimationFrame(firstFrame);
-      if (secondFrame) cancelAnimationFrame(secondFrame);
-    };
-  }, [transcriptHydrated, transcriptSessionKey]);
+  const transcriptRevealed = useTranscriptReveal({
+    identity: transcriptIdentity.current,
+    enabled: showTranscriptTimeline && transcriptRows.length > 0,
+    draft: draftMode || transcriptSessionKey === "new-task",
+    viewport,
+    content,
+    hasScrollGesture: hasTranscriptScrollGesture,
+  });
   // Animate only completions that ARRIVE while this session's transcript is
   // already hydrated on screen. The baseline is a per-session UNION of every
   // completion key ever committed, not the previous frame: pane focus swaps

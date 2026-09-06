@@ -24,8 +24,9 @@ import { sectionLoaded, type PanelContext, type RecordValue } from './capability
 import {
   ExtensionDetailDialog,
   ExtensionFacts,
-  ExtensionHero,
+  ExtensionItemList,
   ExtensionItemRow,
+  ExtensionNote,
   ExtensionRow,
   ExtensionSection,
 } from './extension-detail';
@@ -39,7 +40,6 @@ import { LocalProviderModels, localProviderFileSize as fileSize } from './local-
 import { installationPercent, localProviderInstallation, useLocalProviderStatus } from './local-provider-status';
 import { useLocalProviderActions } from './local-provider-actions';
 import type { LocalProviderActions } from './local-provider-operations';
-import { ComputerAuthorizationPanel } from './computer-authorization-panel';
 import { GitPanel } from './git-panel';
 
 const FEATURE_ICONS: Readonly<Record<BuiltInFeatureId, LucideIcon>> = {
@@ -122,7 +122,7 @@ function FeatureControl({ state, onInstall, onToggle }: {
       : !installed && feature.id === 'localProvider'
       ? <span>{t('Install through chat')}</span>
       : !installed
-      ? <button type="button" disabled={!available || busy}
+      ? <button type="button" className="extensions-action" disabled={!available || busy}
           aria-label={t('Install {{name}}', { name: t(feature.title) })} onClick={onInstall}>
           {t(failed ? 'Retry' : 'Install')}
         </button>
@@ -139,21 +139,31 @@ function featureRequirement(id: BuiltInFeatureId): string {
   return '';
 }
 
-/** One-line status for the Info list — the same states the header control
- *  cycles through, spelled out so the dialog reads even without a switch. */
-function featureStatus({ ready, installed, enabled, available, action }: FeatureState): string {
-  if (!available) return t('Windows only');
-  if (!ready) return '';
-  if (action?.status === 'installing') return t('Installing…');
-  if (action?.status === 'failed') return t('Failed');
-  if (!installed) return t('Not installed');
-  return enabled ? t('Installed · On') : t('Installed · Off');
+/** Local Provider is the one feature with live runtime facts worth a list:
+ *  runtime build, the GPU it runs on, free memory, and the server state. */
+function localProviderFacts(status: RecordValue): Array<readonly [string, string]> {
+  const runtime = record(status.runtime);
+  const hardware = record(status.hardware);
+  const gpus = Array.isArray(hardware.gpus) ? hardware.gpus.map(record) : [];
+  const gpu = gpus.find((entry) => entry.uuid === record(status.gpu).uuid) || record(hardware.gpu);
+  const memory = (bytes: unknown) => typeof bytes === 'number' ? `${(bytes / 1024 ** 3).toFixed(1)} GiB` : '';
+  const free = memory(gpu.freeMemoryBytes);
+  const total = memory(gpu.memoryBytes);
+  return [
+    ['Runtime', [String(runtime.version || ''), fileSize(runtime.downloadBytes)].filter(Boolean).join(' · ')],
+    ['GPU', String(record(status.gpu).name || gpu.name || t('Not detected'))],
+    ['Available GPU memory', free && total ? `${free} / ${total}` : ''],
+    ['Server', status.starting ? t('Loading model…') : status.running ? t('Running') : t('Stopped')],
+  ];
 }
 
-/** Detail for one built-in feature: the same dialog grammar as plugins —
- *  icon and title on the header line with the install/enable control, the
- *  tagline, then Contents (each bundled skill switching on its own) only when
- *  the feature ships skills, and an Info list in every case. */
+/** Detail for one built-in feature on the shared card grammar: icon and
+ *  title on the header line with the install/enable control, the tagline,
+ *  the feature's own sections (GitHub, Commit messages, models…), bundled
+ *  skills (each switching on its own), and live facts only where a feature
+ *  has any (Local Provider). Status/platform/requirement facts are gone —
+ *  the header control already says the state, and the list badge says
+ *  "Windows only" (user: 불필요한 표면 정리). */
 function FeatureDetailDialog({ state, disabledSkills, onInstall, onToggle, onSkillToggle, onClose, localActions, api }: {
   api: PanelContext['api'];
   state: FeatureState;
@@ -164,47 +174,27 @@ function FeatureDetailDialog({ state, disabledSkills, onInstall, onToggle, onSki
   onClose(): void;
   localActions: LocalProviderActions;
 }) {
-  const { feature, bundledSkills, busy, action } = state;
+  const { feature, bundledSkills, busy, action, ready, installed } = state;
   const Icon = FEATURE_ICONS[feature.id];
   const title = t(feature.title);
   const requirement = featureRequirement(feature.id);
-  const infoFacts: Array<readonly [string, string]> = [
-    ['Status', featureStatus(state)],
-    ['Platform', feature.platform === 'windows' ? t('Windows only') : t('All platforms')],
-    ['Requires', requirement],
-  ];
-  if (feature.id === 'localProvider') {
-    const runtime = record(state.localProvider.runtime);
-    infoFacts.push(
-      ['Runtime', [
-        String(runtime.version || ''),
-        fileSize(runtime.downloadBytes),
-      ].filter(Boolean).join(' · ')],
-      ['GPU', String(record(state.localProvider.gpu).name
-        || record(record(state.localProvider.hardware).gpu).name || t('Not detected'))],
-      ['Server', state.localProvider.starting ? t('Loading model…')
-        : state.localProvider.running ? t('Running') : t('Stopped')],
-    );
-  }
   return <ExtensionDetailDialog title={title} onClose={onClose}
     icon={<Icon size={16} aria-hidden="true" />}
+    tagline={t(feature.description)}
     dataAttributes={{ 'data-feature-id': feature.id }}
     headerControl={<FeatureControl state={state} onInstall={onInstall} onToggle={onToggle} />}>
-    <ExtensionHero tagline={t(feature.description)} />
-    {feature.id === 'git' && <GitPanel api={api} />}
-    {feature.id === 'computer' && <ComputerAuthorizationPanel api={api} enabled={state.enabled && !busy} />}
+    {ready && !installed && requirement
+      ? <ExtensionNote>{t('Requires {{name}}', { name: requirement })}</ExtensionNote>
+      : null}
     <ErrorNotice errors={[
       action?.status === 'failed' ? action.message : '',
       feature.id === 'localProvider' && !state.localProvider.running ? state.localProvider.lastError : '',
       feature.id === 'localProvider' ? record(state.localProvider.hardware).error : '',
     ]} />
-    {feature.id === 'localProvider'
-      ? <>
-        <LocalProviderModels status={state.localProvider} actions={localActions} />
-      </>
-      : null}
+    {feature.id === 'git' && <GitPanel api={api} />}
+    {feature.id === 'localProvider' && <LocalProviderModels status={state.localProvider} actions={localActions} />}
     {bundledSkills.length > 0 && <ExtensionSection title={t('Skills')} count={bundledSkills.length}>
-      <div className="extensions-item-list">
+      <ExtensionItemList>
         {bundledSkills.map((skill) => {
           const name = String(skill.name);
           const off = disabledSkills.has(name);
@@ -214,11 +204,11 @@ function FeatureDetailDialog({ state, disabledSkills, onInstall, onToggle, onSki
             control={<CompactSwitch label={`${name} · ${t('Enabled')}`} checked={!off}
               disabled={busy} onChange={(next) => onSkillToggle(name, next)} />} />;
         })}
-      </div>
+      </ExtensionItemList>
     </ExtensionSection>}
-    <ExtensionSection title={t('Info')}>
-      <ExtensionFacts facts={infoFacts} />
-    </ExtensionSection>
+    {feature.id === 'localProvider' && <ExtensionSection title={t('Info')}>
+      <ExtensionFacts facts={localProviderFacts(state.localProvider)} />
+    </ExtensionSection>}
   </ExtensionDetailDialog>;
 }
 

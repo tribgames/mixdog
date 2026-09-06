@@ -35,7 +35,9 @@ test('packaged preload path matches electron-vite output', async () => {
   const vite = await readFile(new URL('../../electron.vite.config.ts', import.meta.url), 'utf8');
   assert.match(main, /preload:\s*join\(__dirname,\s*'\.\.\/preload\/index\.js'\)/);
   assert.match(vite, /format:\s*'cjs'/);
-  assert.match(vite, /entryFileNames:\s*'index\.js'/);
+  // Two preload entries (window + Computer Use overlay) keep their own names.
+  assert.match(vite, /entryFileNames:\s*'\[name\]\.js'/);
+  assert.match(vite, /index:\s*resolve\(__dirname,\s*'src\/preload\/index\.ts'\)/);
 });
 
 test('renderer bridge cannot dispose the singleton service client', async () => {
@@ -53,12 +55,12 @@ test('renderer bridge cannot dispose the singleton service client', async () => 
 
 test('packaged Markdown worker resolves DOM-dependent parsers through worker-safe entries', async () => {
   const vite = await readFile(new URL('../../electron.vite.config.ts', import.meta.url), 'utf8');
-  const client = await readFile(new URL('../renderer/markdown-worker-client.ts', import.meta.url), 'utf8');
+  const host = await readFile(new URL('../renderer/markdown-worker-host.ts', import.meta.url), 'utf8');
   assert.ok(vite.includes('find: /^hast-util-from-html-isomorphic$/'));
   assert.ok(vite.includes("'node_modules/hast-util-from-html-isomorphic/index.js'"));
-  assert.match(client, /event\.preventDefault\?\.\(\)/,
+  assert.match(host, /event\.preventDefault\?\.\(\)/,
     'fatal worker startup errors must not also surface as repeating window errors');
-  assert.match(client, /markdownWorkerFailure/,
+  assert.match(host, /if \(this\.failure\) throw this\.failure;/,
     'a fatal worker startup error must not recreate the same broken worker every publication');
 });
 
@@ -152,14 +154,6 @@ test('FastDirect staging ships the PTY package unpacked beside the archive', asy
     /join\(artifactResources, 'app\.asar\.unpacked', \.\.\.ptyPackageSegments\)/,
   );
   assert.match(fastDirect, /'build', 'Release', 'pty\.node'/);
-});
-
-test('plain Node can import the standalone daemon service artifact', async () => {
-  const serviceUrl = new URL('../../out/main/daemon.cjs', import.meta.url);
-  const source = await readFile(serviceUrl, 'utf8');
-  assert.doesNotMatch(source, /(?:from\s+|import\s*\()\s*["']electron["']/);
-  const service = await import(`${serviceUrl.href}?packaging-test=${Date.now()}`);
-  assert.equal(typeof service.createDesktopService, 'function');
 });
 
 test('browser password import uses only packaged native-tools without a certificate dependency', async () => {

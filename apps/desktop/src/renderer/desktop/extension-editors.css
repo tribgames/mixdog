@@ -1,0 +1,170 @@
+/* Skill and MCP editors inside the Extensions card: the trigger textarea,
+   the Markdown instructions field, the MCP transport switch and the
+   argument / environment / header list editors. Fields flow flat on the
+   card's 16px rhythm (user: 팝업 문법 통일) — no inner cards. */
+
+/* Standard skill editor: the trigger is prose, while instructions retain the
+   shared Markdown editor grammar used by workflows and agents. */
+.extensions-skill-dialog .extensions-trigger-field textarea {
+  min-height: 84px;
+  font-family: inherit;
+  font-size: var(--mx-font-ui);
+  line-height: var(--mx-line-ui);
+}
+.extensions-skill-dialog .extensions-instructions-field textarea { min-height: 320px; }
+
+/* MCP uses transport-specific structured rows instead of exposing JSON. */
+.extensions-mcp-transport-field {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 16px;
+}
+.extensions-mcp-transport-field > span,
+.extensions-mcp-transport-field > small {
+  grid-column: 1;
+}
+.extensions-mcp-transport-field > .extensions-mcp-transport,
+.extensions-mcp-transport-field > .extensions-note {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+.extensions-mcp-transport {
+  display: inline-flex;
+  align-self: center;
+  padding: 3px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-base);
+  box-shadow: var(--mx-button);
+}
+.extensions-mcp-transport button {
+  min-height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: calc(var(--mx-radius-md) - 2px);
+  color: var(--mx-text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: var(--mx-font-ui);
+  font-weight: var(--mx-weight-regular);
+  cursor: pointer;
+}
+.extensions-mcp-transport button > svg {
+  flex: 0 0 auto;
+  color: transparent;
+}
+.extensions-mcp-transport button:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+/* The chosen transport is a persistent selection: the rail's .selected plate
+   (pressed wash + the -active hairline) with its check in text ink. */
+.extensions-mcp-transport button.active,
+.extensions-mcp-transport button[aria-pressed="true"] {
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
+  font-weight: var(--mx-weight-semibold);
+}
+.extensions-mcp-transport button.active > svg,
+.extensions-mcp-transport button[aria-pressed="true"] > svg {
+  color: currentColor;
+}
+.extensions-mcp-transport button:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: -1px;
+}
+.extensions-mcp-transport button:disabled { cursor: default; opacity: var(--mx-op-disabled); }
+.extensions-mcp-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+/* Legend + note mirror the schedules-field label/note block exactly. */
+.extensions-mcp-list legend {
+  padding: 0;
+  color: var(--mx-text);
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-emphasis);
+}
+.extensions-mcp-list > small {
+  margin-top: -4px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.extensions-mcp-list-rows {
+  display: grid;
+  gap: 6px;
+}
+.extensions-mcp-list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 6px;
+}
+.extensions-mcp-pair-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 34px;
+}
+.extensions-mcp-list-row > button {
+  width: 34px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+.extensions-mcp-list-row > button:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.extensions-mcp-list-row > button:disabled { opacity: var(--mx-op-disabled); }
+.extensions-mcp-list-add {
+  width: 100%;
+  min-height: 30px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text-muted);
+  background: var(--mx-hover);
+  box-shadow: none;
+  font: inherit;
+  font-size: var(--mx-font-ui);
+  cursor: pointer;
+}
+.extensions-mcp-list-add:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-pressed);
+}
+@media (max-width: 560px) {
+  .extensions-mcp-transport-field {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .extensions-mcp-transport-field > .extensions-mcp-transport,
+  .extensions-mcp-transport-field > .extensions-note {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: stretch;
+  }
+  .extensions-mcp-transport { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .extensions-mcp-pair-row {
+    grid-template-columns: minmax(0, 1fr) 34px;
+  }
+  .extensions-mcp-pair-row > input:nth-child(2) {
+    grid-column: 1;
+  }
+  .extensions-mcp-pair-row > button {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}

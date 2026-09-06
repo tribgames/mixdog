@@ -139,23 +139,7 @@
   place-items: center;
   color: var(--mx-icon-muted);
 }
-/* Controls: rail heights, app type sizes. The search field wears the SAME
-   item surface as the cards below it — 6% wash + 14% inset ring — instead
-   of the darker sheet + border it had, which made it pop out of the rail
-   (user: 서치박스가 튀어 보인다). */
-.session-sidebar-panels .schedules-search input {
-  /* 26px read cramped beside the dock's airier search band (user). */
-  height: 28px;
-  padding: 0 8px 0 26px;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  background: var(--mx-rail-item-surface);
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline);
-}
-.session-sidebar-panels .schedules-search input:focus {
-  box-shadow: inset 0 0 0 .5px var(--mx-rail-item-outline-active);
-}
-.session-sidebar-panels .schedules-search svg { left: 8px; width: var(--mx-icon-sm); height: var(--mx-icon-sm); }
+/* Search fields share rail-controls.css with Search and Source Control. */
 /* The page's rail gap (8px) alone spaces search → filters → list on one
    even rhythm; the old +2/+4 margins predate the 6px page gap and drifted
    the stack to 10/12px (user: 스케줄/웹훅 전체적으로 정리). */
@@ -193,8 +177,7 @@
 .session-sidebar-panels .projects-common-instructions { margin-bottom: 0; }
 .session-sidebar-panels .schedules-row {
   gap: 8px;
-  /* Two-line cards: vertical air against the md radius, 12px BOX LINE gutter. */
-  padding: 12px var(--mx-rail-gutter);
+  padding: var(--mx-rail-row-padding) var(--mx-rail-gutter);
   border: 0;
   border-radius: var(--mx-radius-md);
   background: var(--mx-rail-item-surface);
@@ -240,15 +223,13 @@
 }
 .session-sidebar-panels .schedules-row.utilities-row {
   width: 100%;
-  align-items: flex-start;
-  padding: 11px var(--mx-rail-gutter);
+  align-items: center;
   color: inherit;
   text-align: left;
   cursor: pointer;
 }
 /* Settings-style resources use one functional glyph, one title/status line,
    one supporting line, then one trailing chevron. */
-.session-sidebar-panels .utilities-row { gap: 8px; }
 .session-sidebar-panels .utilities-pane .utilities-row-icon {
   flex: 0 0 16px;
   align-self: center;
@@ -478,7 +459,7 @@
 .utility-dock .agent-activity-page .schedules-list { gap: 6px; }
 .utility-dock .agent-activity-page .schedules-row {
   gap: 8px;
-  padding: 10px var(--mx-rail-gutter);
+  padding: var(--mx-rail-row-padding) var(--mx-rail-gutter);
   border: 0;
   border-radius: var(--mx-radius-md);
   background: var(--mx-rail-item-surface);

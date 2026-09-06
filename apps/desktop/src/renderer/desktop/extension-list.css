@@ -1,0 +1,160 @@
+/* Extensions rail list — the Plugin / Skill tab: category heads, the shared
+   resource row (icon · title · two-line description · chevron), and the
+   row's status badge. Detail cards live in extension-dialog.css. */
+
+/* Workflows rail rhythm: category blocks stay content-sized, open a clear
+   section step between one another, then keep the shared 8px list rhythm. */
+.extensions-pane .capability-settings-content {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--mx-rail-gap);
+}
+.extensions-pane .settings-group {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+/* Built-in → Plugins was only the page's 8px list gap, so the second
+   category sat as close as one more card. One extra step opens the
+   section without changing the row rhythm. */
+.extensions-pane .settings-group + .settings-group { margin-top: 8px; }
+
+/* Section head opens on the rail BOX LINE (no inset of its own) and wears the
+   rail's category type instead of the settings dialog's group title. */
+.extensions-pane .settings-group > header { display: grid; gap: 2px; padding: 0; }
+.extensions-pane .settings-group > header h3,
+.extensions-pane .settings-group > header p { margin: 0; }
+.extensions-pane .settings-group > header h3 {
+  color: var(--mx-text);
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+  line-height: var(--mx-line-ui);
+}
+.extensions-pane .settings-group > header p {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+
+/* The group body is a LIST, not a card — this is the .schedules-list role.
+   Every row already carries the rail item surface, so the settings card frame
+   would draw a second box around the whole list. */
+.extensions-pane .settings-group-body {
+  display: grid;
+  gap: var(--mx-rail-gap);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.extensions-pane .settings-empty {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+  text-align: center;
+}
+.extensions-pane .settings-group-body:has(> .settings-empty-list) {
+  min-width: 0;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.extensions-pane .settings-empty-list {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0;
+}
+
+/* The capability surface gate is a plain block inside the page column: it must
+   not claim the page height or open a second scroller. It also paints
+   --mx-workspace-sheet by default (layer 17), which showed through as a stray
+   plate behind the section head wherever a row card did not cover it
+   (user: 중간에 이상한 백플레이트) — every other host clears it the same way. */
+.extensions-pane .schedules-page > .pane-surface-gate {
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  flex: 1 1 auto;
+  display: flex;
+  overflow: visible;
+  background: transparent;
+}
+.extensions-pane .pane-surface-gate > .pane-surface-gate-content {
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  flex: 1 1 auto;
+  display: flex;
+  overflow: visible;
+  background: transparent;
+}
+
+/* Match the resource rows used by the other rail panels. Only descriptions
+   need two lines; icon, title, spacing and chevron use the shared row skin. */
+.extensions-row {
+  width: 100%;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.extensions-row:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+.extensions-row > .extensions-row-icon {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  color: var(--mx-icon-muted);
+}
+.extensions-row > .extensions-row-icon > svg { width: 16px; height: 16px; }
+/* A disabled entry only dims its icon so the list still reads as one column;
+   enabling lives in the detail card (user: 토글버튼 빼고). */
+.extensions-row[data-enabled="false"] .extensions-row-icon { opacity: var(--mx-op-disabled); }
+/* The description keeps up to TWO lines before it ellipsizes (user: 설명은
+   두줄까지), so a row reads its whole sentence at the rail's width. */
+.extensions-row .utilities-row-copy > small {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* List-row status note after the title (built-in: "Not installed",
+   "Installing…"). Project scope is not badged in the list (user: 배지 빼줘) —
+   it lives in the detail card's "Applies to" field only. */
+.extensions-row-badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-regular);
+  line-height: 1;
+  white-space: nowrap;
+}

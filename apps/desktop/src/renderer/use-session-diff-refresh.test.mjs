@@ -8,6 +8,7 @@ import { createRendererClock } from "../../scripts/test-renderer-clock.mjs";
 
 function Probe(props) {
   const state = useSessionDiffRefresh(props);
+  props.onRender?.(state);
   return React.createElement("output", null, `${state.loading}|${state.result?.patch || ""}|${state.error}`);
 }
 
@@ -114,4 +115,32 @@ test("repeated diff pane mounts leave no timer that can launch another backend r
   await view.visibility("hidden");
   await view.visibility("visible");
   assert.equal(calls, settledCalls);
+});
+
+test("a new session never presents the previous session's diff or an unconfirmed empty result", async (t) => {
+  const requests = [];
+  const view = harness(t, () => {
+    const request = Promise.withResolvers();
+    requests.push(request);
+    return request.promise;
+  });
+  await view.render({ sessionId: "first-initial-diff" });
+  await view.settle(() => requests[0].resolve({
+    value: { supported: true, files: [], patch: "previous-session" },
+  }));
+  const frames = [];
+  await view.render({
+    sessionId: "second-initial-diff",
+    onRender: ({ result, loading, error }) => frames.push({ result, loading, error }),
+  });
+  assert.ok(frames.length);
+  for (const frame of frames) {
+    assert.equal(frame.result, null);
+    assert.equal(frame.loading, true);
+    assert.equal(frame.error, "");
+  }
+  await view.settle(() => requests[1].resolve({
+    value: { supported: true, files: [], patch: "next-session" },
+  }));
+  assert.match(view.text(), /next-session/);
 });

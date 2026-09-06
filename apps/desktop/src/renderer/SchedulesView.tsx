@@ -4,6 +4,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
+import { InitialSurface } from './InitialSurface';
 import { filterConfiguredModels } from './model-catalog';
 import { ModelRouteEditor } from './ModelRouteEditor';
 import {
@@ -522,9 +523,9 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
         } : undefined}
         onSave={(entry) => void saveSchedule(entry)}
         onToggle={(enabled) => void run('setScheduleEnabled', [editor.name, enabled], 'toast')} />}
-      {/* No loading flash: the list area stays empty until the first snapshot
-          lands, so the empty-state icon never pops in and out on entry. */}
-      {loading ? null
+      {/* Reserve the first-read list, without claiming it is empty. Cached
+          rows stay visible while their background refresh runs. */}
+      {loading ? <InitialSurface />
         : visible.length ? <div className="schedules-list">{visible.map((schedule) => {
           const name = String(schedule.name);
           const enabled = schedule.enabled !== false;

@@ -246,6 +246,10 @@ export function useComposerSubmission({
         submissionRetryRef.current = { key: retryKey, id: submissionId };
         restoreSubmitted();
       }
+    } catch (error) {
+      setAttachmentError(error instanceof Error && error.message
+        ? error.message
+        : "The connection was interrupted. Your message has been kept for retry.");
     } finally {
       if (serializedSubmit) {
         submittingRef.current = false;

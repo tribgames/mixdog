@@ -1,33 +1,39 @@
 # Computer Use reliability and authorization
 
-## Local authorization
+## Authorization
 
-Extensions → Built-in → Computer Use exposes an authorization editor.
-Refresh windows, select exact app windows and actions, select an expiry
-(5 minutes–24 hours), then save. Saving cancels active and queued Computer Use
-commands before writing the policy. It does not restart Mixdog.
+Computer Use runs unrestricted by default; the standing guards (input guards,
+observation freshness, exact targeting, launch-path checks, Windows UAC
+consent, user takeover, observe-only mode, environment guard) always apply.
+There is no authorization editor in the app: the settings surface that wrote
+`computer-authorization.json` was removed because a saved restriction could
+only expire into a lock-out, and the window-scoped policy is an unattended /
+managed-run tool rather than a user setting.
 
-The saved `computer-authorization.json` lives in the Mixdog data directory.
-Exact HWND/PID pairs must still exist at save and dispatch. Reopening an app
-requires a new selection. Expired or corrupt policies do not silently revert
-to unrestricted access. A corrupt saved policy blocks tool operations while
-leaving the settings editor available for explicit repair.
-The launch policy in `MIXDOG_COMPUTER_POLICY_FILE`
-remains an independent restriction; settings cannot relax it. An empty action
-selection denies all tool operations except session cleanup.
+Narrowing comes from two in-process sources only:
 
-Only the authenticated local renderer has these IPC methods. The tool bridge
-and remote shim do not expose policy writes. Selecting `launch` also requires
-an exact launch path/URL, and newly opened windows need separate approval.
+- The launch policy in `MIXDOG_COMPUTER_POLICY_FILE` (see
+  `computer-use-execution-policy.md`), loaded once at host start.
+- `host.updateAuthorization(...)` on the embedding host (used by the
+  reliability harness). It can tighten, never relax, the launch policy; exact
+  HWND/PID pairs must exist at save and dispatch; saving cancels active and
+  queued commands; the expiry is at most 24 hours. Nothing is persisted — a
+  fresh host starts with the launch policy alone.
+
+Neither path is reachable from the renderer, the tool bridge or the remote
+shim. Selecting `launch` also requires an exact launch path/URL, and newly
+opened windows need separate authorization.
 
 ## Failure bundles
 
-Bounded failure histories are stored in `computer-failures` (20 bundles,
-40 recent steps per bundle, 128 KiB each). The local authorization panel can
-export them as JSON. They contain action, exact window handle, stage, duration,
-execution path, error category, numeric timing and boolean recovery results.
-Input text, clipboard contents, titles, app paths and screenshots are excluded.
-There is no implicit screenshot collection or remote upload.
+Bounded failure histories are stored as JSON in `computer-failures` under the
+Mixdog data directory (20 bundles, 40 recent steps per bundle, 128 KiB each);
+there is no in-app export — read the files directly when supporting a user,
+or `host.readFailureDiagnostics()` from the embedding host. They contain
+action, exact window handle, stage, duration, execution path, error category,
+numeric timing and boolean recovery results. Input text, clipboard contents,
+titles, app paths and screenshots are excluded. There is no implicit
+screenshot collection or remote upload.
 
 ## Isolated checks
 

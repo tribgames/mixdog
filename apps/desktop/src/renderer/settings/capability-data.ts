@@ -20,7 +20,6 @@ export type CapabilityApi = Partial<Pick<DesktopApi,
   | 'subscribeState' | 'getUpdaterState' | 'subscribeUpdaterState' | 'checkForDesktopUpdate'
   | 'showDesktopUpdate' | 'getRemoteAccessInfo' | 'rotateRemoteAccess' | 'revokeRemoteAccessClient'
   | 'readSettings' | 'updateSetting' | 'gitCliStatus' | 'installGitCli'
-  | 'computerReadAuthorization' | 'computerUpdateAuthorization' | 'computerAuthorizationWindows' | 'computerFailureDiagnostics'
   | 'libreOfficeStatus' | 'installLibreOffice'>>;
 
 export interface CapabilitySettingsProps {

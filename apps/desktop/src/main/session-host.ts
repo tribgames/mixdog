@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { watch, type FSWatcher } from 'node:fs';
 import { mkdir, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -43,6 +42,9 @@ import {
 } from './desktop-support';
 import { DesktopProjectRegistry } from './desktop-project-registry';
 import { DesktopSessionMetadata } from './desktop-session-metadata';
+import { RecoveringStoreWatcher } from './recovering-store-watcher';
+import { SessionViewRegistry } from './session-view-registry';
+import { NewTaskRequests, type NewTaskRequest } from './new-task-requests';
 import { localProviderInstallRequestTimeout } from './local-provider-install-timeout';
 import { createShellJobsPoller } from './shell-jobs-poller';
 import { reconcileSessionProjection } from './state-delta';
@@ -96,6 +98,8 @@ export interface SessionHostRuntime {
 type SessionProjection = {
   revision: number;
   snapshot: SessionSnapshot;
+  /** Stored views refresh until a live publication takes ownership. */
+  cold: boolean;
   /** Identity of the stored (cold) projection this snapshot was read from.
    *  Sent back on the refresh clock so an unchanged view answers bodiless. */
   projectionStamp?: string;
@@ -222,8 +226,11 @@ export class SessionHost implements DesktopService {
   private readonly sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
   private readonly sessionProjections = new Map<string, SessionProjection>();
   private readonly recoveringSessionIds = new Set<string>();
-  private readonly visibleSessionIds = new Set<string>();
-  private readonly visibleSessionSources = new Map<string, Set<string>>();
+  private readonly sessionViews = new SessionViewRegistry();
+  private readonly visibleSessionIds = this.sessionViews.visible;
+  private readonly visibleSessionSources = this.sessionViews.sources;
+  private readonly catalogWatcher: RecoveringStoreWatcher;
+  private readonly newTaskRequests: NewTaskRequests;
   /** A new runtime exists on disk before its first prompt/title is accepted.
    *  Keep watcher scans from exposing that half-created row ahead of the
    *  renderer's atomic draft promotion. */
@@ -245,7 +252,6 @@ export class SessionHost implements DesktopService {
   private rawSessionRows: Array<Record<string, unknown>> = [];
   private sessionCatalogLoaded = false;
   private sessionCatalogPromise: Promise<DesktopSessionSummary[]> | null = null;
-  private storeWatcher: FSWatcher | null = null;
   private storeRefreshTimer: NodeJS.Timeout | null = null;
   private storeRefreshedAt = 0;
   private coldViewTimer: NodeJS.Timeout | null = null;
@@ -270,6 +276,13 @@ export class SessionHost implements DesktopService {
       userDataRoot: () => options.userDataPath,
     });
     this.sessionMetadata = new DesktopSessionMetadata(() => options.userDataPath);
+    this.newTaskRequests = new NewTaskRequests(options.userDataPath);
+    this.catalogWatcher = new RecoveringStoreWatcher({
+      directory: dataDirectory,
+      relevant: catalogRelevantStoreEntry,
+      changed: () => this.scheduleCatalogRefresh(),
+      error: (error) => console.warn('[mixdog-catalog] change watcher interrupted; recovering', error),
+    });
   }
 
   static async create(
@@ -420,8 +433,8 @@ export class SessionHost implements DesktopService {
     const prior = this.sessionProjections.get(id);
     const revision = Number(value?.revision);
     // Configure replies and live frames can cross in flight. Revisions are
-    // daemon-epoch based; cold disk projections use 0. Never roll a live
-    // selection (or its transcript) back to an older reply.
+    // ordered across live runtimes and stored views. Never roll a selection
+    // (or its transcript) back to an older reply.
     if (prior && Number.isFinite(revision) && revision < prior.revision) {
       return this.snapshotWithRemoteSession(prior.snapshot);
     }
@@ -475,6 +488,8 @@ export class SessionHost implements DesktopService {
     this.sessionProjections.set(id, {
       revision: nextRevision,
       snapshot,
+      // Revision 0 remains a compatibility fallback for older daemon replies.
+      cold: value?.projection === true || nextRevision === 0,
       ...(projectionStamp ? { projectionStamp } : {}),
     });
     this.trackShellJobsEngineState(snapshot);
@@ -588,7 +603,7 @@ export class SessionHost implements DesktopService {
     };
   }
 
-  private async readSession(sessionId: string, forceFull = false): Promise<SessionSnapshot> {
+  private async readSession(sessionId: string, forceFull = false, publish = true): Promise<SessionSnapshot> {
     const id = sessionIdOf(sessionId);
     const prior = this.sessionProjections.get(id);
     const result = await this.sessionClient.read({
@@ -597,7 +612,16 @@ export class SessionHost implements DesktopService {
       baseRevision: forceFull ? null : prior?.revision ?? null,
       ...(!forceFull && prior?.projectionStamp ? { baseProjectionStamp: prior.projectionStamp } : {}),
     }, this.callOptions());
-    return this.applySessionResult(id, result);
+    const current = this.sessionProjections.get(id);
+    const hasFull = result.full !== null && typeof result.full === 'object';
+    const hasBaseline = current && (result.patch
+      ? Number(result.baseRevision) === current.revision
+      : Number(result.revision) === current.revision);
+    if (!hasFull && !hasBaseline) {
+      if (forceFull) throw new Error('Session recovery returned no usable baseline.');
+      return this.readSession(id, true, publish);
+    }
+    return this.applySessionResult(id, result, publish);
   }
 
   private async invokeSession(
@@ -929,7 +953,8 @@ export class SessionHost implements DesktopService {
       Math.min(8_192, Math.floor(Number(transcriptItemLimit) || DESKTOP_TRANSCRIPT_ITEM_LIMIT)),
     );
     if (limit <= DESKTOP_TRANSCRIPT_ITEM_LIMIT) {
-      await this.readSession(id);
+      const snapshot = await this.readSession(id, false, false);
+      this.publishSession(id, snapshot, 'replay');
       return true;
     }
     const store = await this.runtime.loadSessionStore();
@@ -942,6 +967,32 @@ export class SessionHost implements DesktopService {
     return true;
   }
 
+  async replaySessionStates(
+    sessionIds: string[],
+    deliver: (updates: DesktopSessionStateUpdate[]) => void,
+  ): Promise<void> {
+    const ids = [...new Set(sessionIds.map(sessionIdOf))];
+    const gone = new Set<string>();
+    await Promise.all(ids.map(async (id) => {
+      try { await this.readSession(id, false, false); } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes(`session ${id} is not available`)) throw error;
+        gone.add(id);
+        this.sessionProjections.delete(id);
+      }
+    }));
+    if (this.disposed) throw new Error('Mixdog service host is disposed.');
+    // Capture and deliver in one synchronous turn. A live update that arrived
+    // during a read is already in this map and must outrank the earlier reply.
+    deliver(ids.map((sessionId) => ({
+      sessionId,
+      snapshot: gone.has(sessionId) ? null : this.snapshotWithRemoteSession(this.snapshotWithShellJobs(
+        sessionId, this.sessionProjections.get(sessionId)?.snapshot ?? null,
+      )),
+      frameSource: 'replay' as const,
+      ...(gone.has(sessionId) ? { laneEnd: 'gone' as const } : {}),
+    })));
+  }
+
   async setVisibleSessions(sessionIds: string[]): Promise<boolean> {
     return this.setVisibleSessionsForSource('desktop', sessionIds);
   }
@@ -950,22 +1001,12 @@ export class SessionHost implements DesktopService {
     const source = String(sourceId || '').trim();
     if (!source) throw new TypeError('sourceId is required.');
     const requested = [...new Set(sessionIds.map(sessionIdOf))];
-    const priorSourceSessions = this.visibleSessionSources.get(source);
-    // Subscribe is already an exact, single-record authorization boundary in
-    // the daemon. Do not scan the complete catalog merely to validate the few
-    // session ids represented by visible panes.
-    const accepted = await Promise.all(requested.map(async (sessionId) => {
-      if (this.visibleSessionIds.has(sessionId)) {
-        // A projection can already be resident for the desktop or another
-        // phone. A NEW source still needs one full replay: subscribing again
-        // would duplicate the daemon read, while returning silently leaves the
-        // new phone blank until the next live token arrives.
-        if (!priorSourceSessions?.has(sessionId)) {
-          const projection = this.sessionProjections.get(sessionId);
-          if (projection) this.publishSession(sessionId, projection.snapshot, 'replay');
-          else await this.readSession(sessionId);
-        }
-        return sessionId;
+    const accepted = await this.sessionViews.set(source, requested, async (sessionId, alreadyVisible) => {
+      if (alreadyVisible) {
+        const projection = this.sessionProjections.get(sessionId);
+        if (projection) this.publishSession(sessionId, projection.snapshot, 'replay');
+        else await this.readSession(sessionId);
+        return true;
       }
       const prior = this.sessionProjections.get(sessionId);
       try {
@@ -977,27 +1018,15 @@ export class SessionHost implements DesktopService {
         this.applySessionResult(sessionId, result, false);
         const projection = this.sessionProjections.get(sessionId);
         if (projection) this.publishSession(sessionId, projection.snapshot, 'replay');
-        return sessionId;
+        return true;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        if (message.includes(`session ${sessionId} is not available`)) return null;
+        if (message.includes(`session ${sessionId} is not available`)) return false;
         throw error;
       }
-    }));
-    const sourceSessions = new Set(accepted.filter((id): id is string => Boolean(id)));
-    if (sourceSessions.size > 0) this.visibleSessionSources.set(source, sourceSessions);
-    else this.visibleSessionSources.delete(source);
-    const next = new Set<string>();
-    for (const sessions of this.visibleSessionSources.values()) {
-      for (const sessionId of sessions) next.add(sessionId);
-    }
-    const removed = [...this.visibleSessionIds].filter((id) => !next.has(id));
-    this.visibleSessionIds.clear();
-    for (const id of next) this.visibleSessionIds.add(id);
-    await Promise.allSettled(removed.map((sessionId) =>
-      this.sessionClient.unsubscribe({ sessionId }, this.callOptions())));
+    }, (sessionId) => this.sessionClient.unsubscribe({ sessionId }, this.callOptions()));
     this.ensureColdViewRefresh();
-    return true;
+    return accepted;
   }
 
   async searchProjectFiles(
@@ -1014,6 +1043,25 @@ export class SessionHost implements DesktopService {
     options: DesktopSubmitOptions = {},
     draft: DesktopNewTaskDraft = {},
   ): Promise<DesktopNewTaskSubmitResult> {
+    const id = String(options.id || '').trim() || randomUUID();
+    const stableOptions = { ...options, id, submittedAt: undefined };
+    return this.newTaskRequests.run(id, { prompt, options: stableOptions, draft }, async (request) => {
+      if (request.phase === 'accepted') {
+        return {
+          accepted: true, sessionId: request.sessionId,
+          snapshot: await this.readSession(request.sessionId, false, false),
+        };
+      }
+      return this.createNewTask(prompt, { ...options, id }, draft, request);
+    });
+  }
+
+  private async createNewTask(
+    prompt: DesktopPromptContent,
+    options: DesktopSubmitOptions,
+    draft: DesktopNewTaskDraft,
+    request: NewTaskRequest,
+  ): Promise<DesktopNewTaskSubmitResult> {
     const requestedProject = String(draft.projectPath || '').trim();
     const registeredProject = requestedProject
       ? await this.projects.knownPath(requestedProject)
@@ -1025,17 +1073,18 @@ export class SessionHost implements DesktopService {
       ? { classification: 'project' as const, projectPath: cwd }
       : { classification: 'task' as const, projectPath: null };
     const created = await this.sessionClient.create(
-      { cwd, desktopSession },
-      this.callOptions(`session-create:${process.pid}:${randomUUID()}`),
+      { sessionId: request.sessionId, cwd, desktopSession },
+      this.callOptions(`session-create:${request.sessionId}`),
     );
     const sessionId = sessionIdOf(created.sessionId);
+    if (sessionId !== request.sessionId) throw new Error('New task service returned a mismatched reserved session id.');
     this.pendingCatalogSessionIds.add(sessionId);
     this.applySessionResult(sessionId, created);
     try {
-      if (draft.workflowId) {
+      if (request.phase === 'reserved' && draft.workflowId) {
         await this.invokeSession(sessionId, 'setWorkflow', [draft.workflowId]);
       }
-      if (draft.route) {
+      if (request.phase === 'reserved' && draft.route) {
         const routeResult = await this.invokeSession(sessionId, 'setRoute', [{
           provider: draft.route.provider,
           model: draft.route.model,
@@ -1059,6 +1108,7 @@ export class SessionHost implements DesktopService {
           );
         }
       }
+      if (request.phase === 'reserved') await request.commit('configured');
       const goalCommand = String(options.goalCommand || '').trim();
       if (goalCommand) {
         const goalResult = await this.invokeSession(sessionId, 'goalControl', [{
@@ -1077,6 +1127,7 @@ export class SessionHost implements DesktopService {
         await this.sessionMetadata.load();
         this.sessionMetadata.rememberGeneratedTitle(sessionId, objective);
         this.pendingCatalogSessionIds.delete(sessionId);
+        await request.commit('accepted');
         void this.publishCatalogs();
         return { accepted: true, sessionId, snapshot: goalResult.snapshot };
       }
@@ -1112,6 +1163,7 @@ export class SessionHost implements DesktopService {
         promptTitle(prompt, options.displayText || ''),
       );
       this.pendingCatalogSessionIds.delete(sessionId);
+      await request.commit('accepted');
       void this.publishCatalogs();
       return { accepted: true, sessionId, snapshot };
     } catch (error) {
@@ -1321,8 +1373,8 @@ export class SessionHost implements DesktopService {
 
   /** Cold-view refresh.
    *
-   *  A session served from its STORED projection carries revision 0 and
-   *  receives no live frames, because only a materialized daemon entry
+   *  A session served from its STORED projection receives no live frames,
+   *  because only a materialized daemon entry
    *  publishes those. An agent worker session never materializes one: it runs
    *  inside its Lead's runtime, so a pane opened on a working agent would sit
    *  forever on whatever snapshot it happened to load first (user report:
@@ -1330,7 +1382,7 @@ export class SessionHost implements DesktopService {
    *
    *  Re-reading the visible cold views turns that pane into a live one. A
    *  session that later materializes starts publishing live frames, its
-   *  revision leaves 0, and it drops out of this set on its own. */
+   *  stored-projection flag clears, and it drops out of this set on its own. */
   private ensureColdViewRefresh(): void {
     if (this.coldViewTimer || this.disposed) return;
     this.coldViewTimer = setInterval(() => {
@@ -1342,7 +1394,7 @@ export class SessionHost implements DesktopService {
   private async refreshColdViews(): Promise<void> {
     if (this.disposed) return;
     const cold = [...this.visibleSessionIds]
-      .filter((sessionId) => this.sessionProjections.get(sessionId)?.revision === 0);
+      .filter((sessionId) => this.sessionProjections.get(sessionId)?.cold === true);
     if (cold.length === 0) {
       if (this.coldViewTimer) clearInterval(this.coldViewTimer);
       this.coldViewTimer = null;
@@ -1352,19 +1404,7 @@ export class SessionHost implements DesktopService {
   }
 
   private ensureStoreWatcher(): void {
-    if (this.storeWatcher || this.disposed) return;
-    try {
-      this.storeWatcher = watch(dataDirectory(), { persistent: false }, (_event, filename) => {
-        if (!catalogRelevantStoreEntry(filename)) return;
-        this.scheduleCatalogRefresh();
-      });
-      this.storeWatcher.on('error', () => {
-        try { this.storeWatcher?.close(); } catch {}
-        this.storeWatcher = null;
-      });
-    } catch {
-      this.storeWatcher = null;
-    }
+    if (!this.disposed) this.catalogWatcher.start();
   }
 
   private sessionCatalog(): DesktopSessionSummary[] {
@@ -1429,8 +1469,8 @@ export class SessionHost implements DesktopService {
     this.storeRefreshTimer = null;
     if (this.coldViewTimer) clearInterval(this.coldViewTimer);
     this.coldViewTimer = null;
-    try { this.storeWatcher?.close(); } catch {}
-    this.storeWatcher = null;
+    this.catalogWatcher.close();
+    this.sessionViews.close();
     await this.sessionMetadata.flush();
     try { await this.sessionClient.close('service host disposed'); } catch {}
     this.listeners.clear();

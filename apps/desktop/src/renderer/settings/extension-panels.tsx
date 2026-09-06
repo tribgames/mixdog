@@ -12,7 +12,7 @@ import { t } from '../i18n';
 import { ErrorNotice, errorSummary } from '../ErrorNotice';
 import { showDesktopToast } from '../notifications';
 import { record } from '../record-utils';
-import { SidebarDialogLayer, SidebarLoadingDialog } from '../sidebar-dialog';
+import { SidebarLoadingDialog } from '../sidebar-dialog';
 import { BuiltInFeaturesPanel } from './built-in-features-panel';
 import {
   CompactSwitch,
@@ -28,14 +28,18 @@ import {
 } from './capability-data';
 import {
   currentProjectPath,
+  ExtensionAction,
   ExtensionDetailDialog,
   ExtensionFacts,
-  ExtensionHero,
+  ExtensionField,
+  ExtensionItemList,
   ExtensionItemRow,
+  ExtensionNote,
   ExtensionRow,
   ExtensionScopeField,
   ExtensionSection,
   scopeOf,
+  type ExtensionItemTone,
 } from './extension-detail';
 
 function SkillEditorDialog({
@@ -60,84 +64,71 @@ function SkillEditorDialog({
   onToggle?(): void;
 }) {
   const editing = Boolean(skill);
+  const name = String(skill?.name || '');
   const [formError, setFormError] = useState('');
-  return <SidebarDialogLayer onClose={onClose}>
-    <section className="schedules-dialog workflows-dialog extensions-dialog extensions-skill-dialog"
-      role="dialog" aria-modal="true" aria-labelledby="extensions-skill-dialog-title">
-      <header>
-        <span className="extensions-dialog-icon" aria-hidden="true"><Sparkles size={16} /></span>
-        <h2 id="extensions-skill-dialog-title">
-          {editing ? String(skill?.name || '') : t('Add skill')}
-        </h2>
-        <div className="schedules-dialog-header-actions">
-          {editing && onToggle && <CompactSwitch
-            label={`${String(skill?.name || '')} · ${t('Enabled')}`} checked={!disabled}
-            disabled={busy} onChange={() => onToggle()} />}
-          <button type="button" aria-label={t('Close')} onClick={onClose}>
-            <X size={16} aria-hidden="true" />
-          </button>
-        </div>
-      </header>
-      <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        if (readOnly) return;
-        const data = new FormData(event.currentTarget);
-        const name = String(data.get('skill-name') || '').trim();
-        const description = String(data.get('skill-description') || '').trim();
-        const whenToUse = String(data.get('skill-trigger') || '').trim();
-        const body = String(data.get('skill-instructions') || '').trim();
-        if (!body) {
-          setFormError('SKILL.md instructions must not be empty.');
-          return;
-        }
-        setFormError('');
-        onSave({
-          ...(editing ? { originalName: String(skill?.name || '') } : {}),
-          name,
-          description,
-          whenToUse,
-          instructions: body,
-        });
-      }}>
-        {editing ? scopeField : null}
-        <label className="schedules-field"><span>{t('Name')}</span>
-          <small>{t('Shown in skill lists and menus.')}</small>
-          <input name="skill-name" defaultValue={String(skill?.name || '')}
-            required autoFocus={!editing} disabled={busy || readOnly} maxLength={64}
-            pattern="[a-z0-9]+(?:-[a-z0-9]+)*" />
-        </label>
-        {/* Description and trigger are the two halves of the model's skill
-            listing (`description — when_to_use`), cut at 250 characters. The
-            description names the capability; the trigger carries the phrases
-            and boundary that route the skill. */}
-        <label className="schedules-field"><span>{t('Description')}</span>
-          <small>{t('One sentence on what this skill does. Shown in the skill list.')}</small>
-          <input name="skill-description" defaultValue={String(skill?.description || '')}
-            required disabled={busy || readOnly} maxLength={1024} />
-        </label>
-        <label className="schedules-field workflows-md-field extensions-trigger-field">
-          <span>{t('Trigger')}</span>
-          <small>{t('Phrases and situations that should call this skill, and what it should leave to others.')}</small>
-          <textarea name="skill-trigger" defaultValue={String(skill?.whenToUse || '')}
-            disabled={busy || readOnly} maxLength={1024} />
-        </label>
-        <label className="schedules-field workflows-md-field extensions-instructions-field">
-          <span>{t('Instructions')}</span>
-          <small>{t('Instructions that define how this skill works.')}</small>
-          <textarea name="skill-instructions"
-            defaultValue={instructions || (editing ? '' : '# Instructions\n\nDescribe how to use this skill.')}
-            required spellCheck={false} disabled={busy || readOnly} />
-        </label>
-        <footer>
-          {formError && <ErrorNotice error={formError} />}
-          <button type="button" className="secondary" disabled={busy} onClick={onClose}>
-            {t(readOnly ? 'Close' : 'Cancel')}
-          </button>
-          {!readOnly && <button type="submit" disabled={busy}>{t('Save')}</button>}
-        </footer>
-      </form>
-    </section>
-  </SidebarDialogLayer>;
+  return <ExtensionDetailDialog width="editor" className="extensions-skill-dialog"
+    titleId="extensions-skill-dialog-title"
+    icon={<Sparkles size={16} aria-hidden="true" />}
+    title={editing ? name : t('Add skill')} onClose={onClose}
+    headerControl={editing && onToggle
+      ? <CompactSwitch label={`${name} · ${t('Enabled')}`} checked={!disabled}
+          disabled={busy} onChange={() => onToggle()} />
+      : null}
+    onSubmit={(event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (readOnly) return;
+      const data = new FormData(event.currentTarget);
+      const nextName = String(data.get('skill-name') || '').trim();
+      const description = String(data.get('skill-description') || '').trim();
+      const whenToUse = String(data.get('skill-trigger') || '').trim();
+      const body = String(data.get('skill-instructions') || '').trim();
+      if (!body) {
+        setFormError('SKILL.md instructions must not be empty.');
+        return;
+      }
+      setFormError('');
+      onSave({
+        ...(editing ? { originalName: name } : {}),
+        name: nextName,
+        description,
+        whenToUse,
+        instructions: body,
+      });
+    }}
+    footer={<>
+      {formError && <ErrorNotice error={formError} />}
+      <button type="button" className="secondary" disabled={busy} onClick={onClose}>
+        {t(readOnly ? 'Close' : 'Cancel')}
+      </button>
+      {!readOnly && <button type="submit" disabled={busy}>{t('Save')}</button>}
+    </>}>
+    {editing ? scopeField : null}
+    <ExtensionField label={t('Name')} note={t('Shown in skill lists and menus.')}>
+      <input name="skill-name" defaultValue={name}
+        required autoFocus={!editing} disabled={busy || readOnly} maxLength={64}
+        pattern="[a-z0-9]+(?:-[a-z0-9]+)*" />
+    </ExtensionField>
+    {/* Description and trigger are the two halves of the model's skill
+        listing (`description — when_to_use`), cut at 250 characters. The
+        description names the capability; the trigger carries the phrases
+        and boundary that route the skill. */}
+    <ExtensionField label={t('Description')}
+      note={t('One sentence on what this skill does. Shown in the skill list.')}>
+      <input name="skill-description" defaultValue={String(skill?.description || '')}
+        required disabled={busy || readOnly} maxLength={1024} />
+    </ExtensionField>
+    <ExtensionField className="workflows-md-field extensions-trigger-field" label={t('Trigger')}
+      note={t('Phrases and situations that should call this skill, and what it should leave to others.')}>
+      <textarea name="skill-trigger" defaultValue={String(skill?.whenToUse || '')}
+        disabled={busy || readOnly} maxLength={1024} />
+    </ExtensionField>
+    <ExtensionField className="workflows-md-field extensions-instructions-field" label={t('Instructions')}
+      note={t('Instructions that define how this skill works.')}>
+      <textarea name="skill-instructions"
+        defaultValue={instructions || (editing ? '' : '# Instructions\n\nDescribe how to use this skill.')}
+        required spellCheck={false} disabled={busy || readOnly} />
+    </ExtensionField>
+  </ExtensionDetailDialog>;
 }
 
 function mcpTransport(config: RecordValue): string {
@@ -295,6 +286,7 @@ function McpEditorDialog({
   onRemove?(): void;
 }) {
   const editing = Boolean(server);
+  const name = String(server?.name || '');
   const config = record(server?.config);
   const initialTransport = mcpTransport(config);
   const [transport, setTransport] = useState(initialTransport);
@@ -305,139 +297,140 @@ function McpEditorDialog({
   const [envHeaders, setEnvHeaders] = useState(() => mcpPairValues(config.env_http_headers));
   const [formError, setFormError] = useState('');
   const autoDetect = initialTransport === 'autoDetect';
-  return <SidebarDialogLayer onClose={onClose}>
-    <section className="schedules-dialog extensions-dialog extensions-skill-dialog extensions-mcp-dialog"
-      role="dialog" aria-modal="true" aria-labelledby="extensions-mcp-dialog-title">
-      <header>
-        <span className="extensions-dialog-icon" aria-hidden="true"><Plug size={16} /></span>
-        <h2 id="extensions-mcp-dialog-title">
-          {editing ? String(server?.name || '') : t('Add MCP server')}
-        </h2>
-        <div className="schedules-dialog-header-actions">
-          {editing && onToggle && <CompactSwitch
-            label={`${String(server?.name || '')} · ${t('Enabled')}`}
-            checked={server?.enabled !== false} disabled={busy}
-            onChange={() => onToggle()} />}
-          <button type="button" aria-label={t('Close')} onClick={onClose}>
-            <X size={16} aria-hidden="true" />
-          </button>
-        </div>
-      </header>
-      <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        if (autoDetect) return;
-        const data = new FormData(event.currentTarget);
-        try {
-          const name = String(data.get('mcp-name') || '').trim();
-          const payload: RecordValue = {
-            ...(editing ? { originalName: String(server?.name || '') } : {}),
-            name,
-            type: transport,
-          };
-          if (transport === 'stdio') {
-            payload.command = String(data.get('mcp-command') || '').trim();
-            payload.args = args.map((value) => value.trim()).filter(Boolean);
-            payload.env = mcpPairRecord(env, 'Environment');
-            payload.env_vars = envVars.map((value) => value.trim()).filter(Boolean);
-            payload.cwd = String(data.get('mcp-cwd') || '').trim();
-          } else {
-            payload.url = String(data.get('mcp-url') || '').trim();
-            payload.headers = mcpPairRecord(headers, 'Headers');
-            payload.bearer_token_env_var = String(data.get('mcp-bearer-token-env') || '').trim();
-            payload.env_http_headers = mcpPairRecord(envHeaders, 'Environment-backed headers');
-          }
-          setFormError('');
-          onSave(payload);
-        } catch (error) {
-          setFormError(error instanceof Error ? error.message : String(error));
+  const connection = editing && server ? mcpConnection(server) : null;
+  return <ExtensionDetailDialog width="editor" className="extensions-mcp-dialog"
+    titleId="extensions-mcp-dialog-title"
+    icon={<Plug size={16} aria-hidden="true" />}
+    title={editing ? name : t('Add MCP server')} onClose={onClose}
+    headerControl={editing && onToggle
+      ? <CompactSwitch label={`${name} · ${t('Enabled')}`}
+          checked={server?.enabled !== false} disabled={busy}
+          onChange={() => onToggle()} />
+      : null}
+    onSubmit={(event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (autoDetect) return;
+      const data = new FormData(event.currentTarget);
+      try {
+        const payload: RecordValue = {
+          ...(editing ? { originalName: name } : {}),
+          name: String(data.get('mcp-name') || '').trim(),
+          type: transport,
+        };
+        if (transport === 'stdio') {
+          payload.command = String(data.get('mcp-command') || '').trim();
+          payload.args = args.map((value) => value.trim()).filter(Boolean);
+          payload.env = mcpPairRecord(env, 'Environment');
+          payload.env_vars = envVars.map((value) => value.trim()).filter(Boolean);
+          payload.cwd = String(data.get('mcp-cwd') || '').trim();
+        } else {
+          payload.url = String(data.get('mcp-url') || '').trim();
+          payload.headers = mcpPairRecord(headers, 'Headers');
+          payload.bearer_token_env_var = String(data.get('mcp-bearer-token-env') || '').trim();
+          payload.env_http_headers = mcpPairRecord(envHeaders, 'Environment-backed headers');
         }
-      }}>
-        {editing && <p className="extensions-mcp-summary">
-          {String(server?.status || 'unknown')}{server?.error ? ` · ${errorSummary(server.error)}` : ''}
-        </p>}
-        {editing ? scopeField : null}
-        <section className="extensions-mcp-card extensions-mcp-identity-card">
-          <label className="schedules-field"><span>{t('Name')}</span>
-            <small>{t('Shown in the MCP server list.')}</small>
-            <input name="mcp-name" defaultValue={String(server?.name || '')}
-              required autoFocus={!editing} disabled={busy || autoDetect} maxLength={80}
-              pattern="[a-z0-9_.-]+" />
-          </label>
-          <div className="schedules-field extensions-mcp-transport-field">
-            <span>{t('Transport')}</span>
-            <small>{t('How Mixdog connects to this MCP server.')}</small>
-            {autoDetect ? <p className="extensions-mcp-note">{t('Auto-detect')}</p>
-              : <div className="extensions-mcp-transport" role="group" aria-label={t('Transport')}>
-                <button type="button" className={transport === 'stdio' ? 'active' : ''}
-                  aria-pressed={transport === 'stdio'} disabled={busy}
-                  onClick={() => setTransport('stdio')}>
-                  <Check size={12} aria-hidden="true" />
-                  <span>{t('stdio')}</span>
-                </button>
-                <button type="button" className={transport === 'http' ? 'active' : ''}
-                  aria-pressed={transport === 'http'} disabled={busy}
-                  onClick={() => setTransport('http')}>
-                  <Check size={12} aria-hidden="true" />
-                  <span>{t('Streamable HTTP')}</span>
-                </button>
-              </div>}
-          </div>
-        </section>
-        {transport === 'stdio' ? <section className="extensions-mcp-card extensions-mcp-config-card">
-          <label className="schedules-field"><span>{t('Command')}</span>
-            <small>{t('Executable used to start the stdio server.')}</small>
-            <input name="mcp-command" defaultValue={String(config.command || '')}
-              required disabled={busy} spellCheck={false} />
-          </label>
-          <McpStringListEditor label="Arguments" description="One command argument per row."
-            values={args} placeholder="--argument" busy={busy} onChange={setArgs} />
-          <McpPairListEditor label="Environment" description="Environment variables passed to the server."
-            values={env} keyPlaceholder={t('Key')} valuePlaceholder={t('Value')}
-            busy={busy} onChange={setEnv} />
-          <McpStringListEditor label="Environment passthrough"
-            description="Environment variable names inherited by the server."
-            values={envVars} placeholder="VARIABLE_NAME" busy={busy} onChange={setEnvVars} />
-          <label className="schedules-field"><span>{t('Working directory')}</span>
-            <small>{t('Optional directory used when starting the server.')}</small>
-            <input name="mcp-cwd" defaultValue={String(config.cwd || '')}
-              placeholder="~/code" disabled={busy} spellCheck={false} />
-          </label>
-        </section> : !autoDetect && <section className="extensions-mcp-card extensions-mcp-config-card">
-          <label className="schedules-field"><span>{t('URL')}</span>
-            <small>{t('Streamable HTTP server endpoint.')}</small>
-            <input name="mcp-url" type="url" defaultValue={String(config.url || '')}
-              required disabled={busy} spellCheck={false} />
-          </label>
-          <label className="schedules-field"><span>{t('Bearer token environment variable')}</span>
-            <small>{t('Environment variable containing the bearer token. The token is not stored.')}</small>
-            <input name="mcp-bearer-token-env"
-              defaultValue={String(config.bearer_token_env_var || '')}
-              placeholder="MCP_BEARER_TOKEN"
-              disabled={busy} spellCheck={false} />
-          </label>
-          <McpPairListEditor label="Headers" description="HTTP request headers."
-            values={headers} keyPlaceholder={t('Key')} valuePlaceholder={t('Value')}
-            busy={busy} onChange={setHeaders} />
-          <McpPairListEditor label="Environment-backed headers"
-            description="Map each HTTP header to an environment variable name."
-            values={envHeaders} keyPlaceholder="Header" valuePlaceholder="VARIABLE_NAME"
-            busy={busy} onChange={setEnvHeaders} />
-        </section>}
-        {autoDetect && <p className="extensions-mcp-note">
-          {t('Built-in auto-detect servers keep their managed connection settings.')}
-        </p>}
-        <footer>
-          {formError && <ErrorNotice error={formError} />}
-          {editing && onRemove && <button type="button" className="danger"
-            disabled={busy} onClick={onRemove}>{t('Remove')}</button>}
-          <button type="button" className="secondary" disabled={busy} onClick={onClose}>
-            {t(autoDetect ? 'Close' : 'Cancel')}
+        setFormError('');
+        onSave(payload);
+      } catch (error) {
+        setFormError(error instanceof Error ? error.message : String(error));
+      }
+    }}
+    footer={<>
+      {formError && <ErrorNotice error={formError} />}
+      {editing && onRemove && <button type="button" className="danger"
+        disabled={busy} onClick={onRemove}>{t('Remove')}</button>}
+      <button type="button" className="secondary" disabled={busy} onClick={onClose}>
+        {t(autoDetect ? 'Close' : 'Cancel')}
+      </button>
+      {!autoDetect && <button type="submit" disabled={busy}>{t('Save')}</button>}
+    </>}>
+    {connection && <ExtensionItemList>
+      <ExtensionItemRow icon={<Plug size={15} aria-hidden="true" />} title={t('Connection')}
+        description={connection.description} status={connection.status} tone={connection.tone} />
+    </ExtensionItemList>}
+    {editing ? scopeField : null}
+    <ExtensionField label={t('Name')} note={t('Shown in the MCP server list.')}>
+      <input name="mcp-name" defaultValue={name}
+        required autoFocus={!editing} disabled={busy || autoDetect} maxLength={80}
+        pattern="[a-z0-9_.-]+" />
+    </ExtensionField>
+    <ExtensionField as="div" className="extensions-mcp-transport-field" label={t('Transport')}
+      note={t('How Mixdog connects to this MCP server.')}>
+      {autoDetect ? <ExtensionNote>{t('Auto-detect')}</ExtensionNote>
+        : <div className="extensions-mcp-transport" role="group" aria-label={t('Transport')}>
+          <button type="button" className={transport === 'stdio' ? 'active' : ''}
+            aria-pressed={transport === 'stdio'} disabled={busy}
+            onClick={() => setTransport('stdio')}>
+            <Check size={12} aria-hidden="true" />
+            <span>{t('stdio')}</span>
           </button>
-          {!autoDetect && <button type="submit" disabled={busy}>{t('Save')}</button>}
-        </footer>
-      </form>
-    </section>
-  </SidebarDialogLayer>;
+          <button type="button" className={transport === 'http' ? 'active' : ''}
+            aria-pressed={transport === 'http'} disabled={busy}
+            onClick={() => setTransport('http')}>
+            <Check size={12} aria-hidden="true" />
+            <span>{t('Streamable HTTP')}</span>
+          </button>
+        </div>}
+    </ExtensionField>
+    {transport === 'stdio' ? <>
+      <ExtensionField label={t('Command')} note={t('Executable used to start the stdio server.')}>
+        <input name="mcp-command" defaultValue={String(config.command || '')}
+          required disabled={busy} spellCheck={false} />
+      </ExtensionField>
+      <McpStringListEditor label="Arguments" description="One command argument per row."
+        values={args} placeholder="--argument" busy={busy} onChange={setArgs} />
+      <McpPairListEditor label="Environment" description="Environment variables passed to the server."
+        values={env} keyPlaceholder={t('Key')} valuePlaceholder={t('Value')}
+        busy={busy} onChange={setEnv} />
+      <McpStringListEditor label="Environment passthrough"
+        description="Environment variable names inherited by the server."
+        values={envVars} placeholder="VARIABLE_NAME" busy={busy} onChange={setEnvVars} />
+      <ExtensionField label={t('Working directory')} note={t('Optional directory used when starting the server.')}>
+        <input name="mcp-cwd" defaultValue={String(config.cwd || '')}
+          placeholder="~/code" disabled={busy} spellCheck={false} />
+      </ExtensionField>
+    </> : !autoDetect && <>
+      <ExtensionField label={t('URL')} note={t('Streamable HTTP server endpoint.')}>
+        <input name="mcp-url" type="url" defaultValue={String(config.url || '')}
+          required disabled={busy} spellCheck={false} />
+      </ExtensionField>
+      <ExtensionField label={t('Bearer token environment variable')}
+        note={t('Environment variable containing the bearer token. The token is not stored.')}>
+        <input name="mcp-bearer-token-env"
+          defaultValue={String(config.bearer_token_env_var || '')}
+          placeholder="MCP_BEARER_TOKEN"
+          disabled={busy} spellCheck={false} />
+      </ExtensionField>
+      <McpPairListEditor label="Headers" description="HTTP request headers."
+        values={headers} keyPlaceholder={t('Key')} valuePlaceholder={t('Value')}
+        busy={busy} onChange={setHeaders} />
+      <McpPairListEditor label="Environment-backed headers"
+        description="Map each HTTP header to an environment variable name."
+        values={envHeaders} keyPlaceholder="Header" valuePlaceholder="VARIABLE_NAME"
+        busy={busy} onChange={setEnvHeaders} />
+    </>}
+    {autoDetect && <ExtensionNote>
+      {t('Built-in auto-detect servers keep their managed connection settings.')}
+    </ExtensionNote>}
+  </ExtensionDetailDialog>;
+}
+
+/** Connection row at the top of an MCP editor: the transport/endpoint line,
+ *  or the failure summary, under one status dot — replacing the bare
+ *  "unknown · error" text the editor used to open with. */
+function mcpConnection(server: RecordValue): { description: string; status: string; tone: ExtensionItemTone } {
+  const enabled = server.enabled !== false;
+  const raw = String(server.status || '').trim();
+  const connected = server.connected === true || raw.toLowerCase() === 'connected';
+  const failed = Boolean(server.error);
+  return {
+    description: server.error ? errorSummary(server.error) : mcpRowDescription(server),
+    status: !enabled ? t('Off')
+      : connected ? t('Connected')
+      : failed ? t('Failed')
+      : raw ? `${raw.charAt(0).toUpperCase()}${raw.slice(1)}` : t('Not connected'),
+    tone: !enabled ? 'off' : connected ? 'ok' : failed ? 'warn' : 'muted',
+  };
 }
 
 function PluginInstallDialog({ busy, onClose, onSubmit }: {
@@ -445,36 +438,26 @@ function PluginInstallDialog({ busy, onClose, onSubmit }: {
   onClose(): void;
   onSubmit(source: string): void;
 }) {
-  return <SidebarDialogLayer onClose={onClose}>
-    <section className="schedules-dialog workflows-dialog extensions-plugin-dialog"
-      role="dialog" aria-modal="true" aria-labelledby="extensions-plugin-dialog-title">
-      <header>
-        <h2 id="extensions-plugin-dialog-title">{t('Install plugin')}</h2>
-        <div className="schedules-dialog-header-actions">
-          <button type="button" aria-label={t('Close')} onClick={onClose}>
-            <X size={16} aria-hidden="true" />
-          </button>
-        </div>
-      </header>
-      <form onSubmit={(event: FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        const source = String(new FormData(event.currentTarget).get('source') || '').trim();
-        if (!source) return;
-        onSubmit(source);
-        onClose();
-      }}>
-        <label className="schedules-field">
-          <span>{t('Source')}</span>
-          <input name="source" placeholder="https://github.com/org/plugin or C:\path"
-            required autoFocus disabled={busy} />
-        </label>
-        <footer>
-          <button type="button" className="secondary" disabled={busy} onClick={onClose}>{t('Cancel')}</button>
-          <button type="submit" disabled={busy}>{t('Install')}</button>
-        </footer>
-      </form>
-    </section>
-  </SidebarDialogLayer>;
+  return <ExtensionDetailDialog width="compact" className="extensions-plugin-dialog"
+    titleId="extensions-plugin-dialog-title"
+    icon={<Blocks size={16} aria-hidden="true" />}
+    title={t('Install plugin')} onClose={onClose}
+    onSubmit={(event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const source = String(new FormData(event.currentTarget).get('source') || '').trim();
+      if (!source) return;
+      onSubmit(source);
+      onClose();
+    }}
+    footer={<>
+      <button type="button" className="secondary" disabled={busy} onClick={onClose}>{t('Cancel')}</button>
+      <button type="submit" disabled={busy}>{t('Install')}</button>
+    </>}>
+    <ExtensionField label={t('Source')}>
+      <input name="source" placeholder="https://github.com/org/plugin or C:\path"
+        required autoFocus disabled={busy} />
+    </ExtensionField>
+  </ExtensionDetailDialog>;
 }
 
 type SkillExtensionCreateKind = 'skill' | 'mcp';
@@ -483,37 +466,27 @@ function SkillExtensionCreateDialog({ onClose, onSelect }: {
   onClose(): void;
   onSelect(kind: SkillExtensionCreateKind): void;
 }) {
-  return <SidebarDialogLayer onClose={onClose}>
-    <section className="schedules-dialog extensions-create-dialog" role="dialog" aria-modal="true"
-      aria-labelledby="extensions-create-dialog-title">
-      <header>
-        <h2 id="extensions-create-dialog-title">{t('Add skill or MCP')}</h2>
-        <div className="schedules-dialog-header-actions">
-          <button type="button" aria-label={t('Close')} onClick={onClose}>
-            <X size={16} aria-hidden="true" />
-          </button>
-        </div>
-      </header>
-      <div className="extensions-create-options">
-        <button type="button" data-extension-create-kind="skill" onClick={() => onSelect('skill')}>
-          <Sparkles size={17} aria-hidden="true" />
-          <span>
-            <b>{t('Skill')}</b>
-            <small>{t('Instructions that define how this skill works.')}</small>
-          </span>
-          <ChevronRight size={16} aria-hidden="true" />
-        </button>
-        <button type="button" data-extension-create-kind="mcp" onClick={() => onSelect('mcp')}>
-          <Plug size={17} aria-hidden="true" />
-          <span>
-            <b>{t('MCP')}</b>
-            <small>{t('How Mixdog connects to this MCP server.')}</small>
-          </span>
-          <ChevronRight size={16} aria-hidden="true" />
-        </button>
-      </div>
-    </section>
-  </SidebarDialogLayer>;
+  return <ExtensionDetailDialog width="compact" className="extensions-create-dialog"
+    titleId="extensions-create-dialog-title" title={t('Add skill or MCP')} onClose={onClose}>
+    <div className="extensions-create-options">
+      <button type="button" data-extension-create-kind="skill" onClick={() => onSelect('skill')}>
+        <Sparkles size={17} aria-hidden="true" />
+        <span>
+          <b>{t('Skill')}</b>
+          <small>{t('Instructions that define how this skill works.')}</small>
+        </span>
+        <ChevronRight size={16} aria-hidden="true" />
+      </button>
+      <button type="button" data-extension-create-kind="mcp" onClick={() => onSelect('mcp')}>
+        <Plug size={17} aria-hidden="true" />
+        <span>
+          <b>{t('MCP')}</b>
+          <small>{t('How Mixdog connects to this MCP server.')}</small>
+        </span>
+        <ChevronRight size={16} aria-hidden="true" />
+      </button>
+    </div>
+  </ExtensionDetailDialog>;
 }
 
 export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCreate }: PanelContext) {
@@ -680,46 +653,42 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
       const contents = skills.length + servers.length;
       const installedAt = formatInstallDate(open.installedAt);
       const updatedAt = formatInstallDate(open.updatedAt);
+      // Footer keeps the plugin's real actions only — Remove (parked left),
+      // Update, and Reconfigure MCP when the plugin ships one. The Copy
+      // buttons are gone: the root path and MCP name sit in Info as
+      // selectable text (user: 불필요한 표면 정리).
       return <ExtensionDetailDialog title={label(open)}
         icon={<Blocks size={16} aria-hidden="true" />}
+        tagline={String(open.description || '').trim()
+          || [String(open.version || '').trim(), String(open.sourceType || '').trim()].filter(Boolean).join(' · ')}
         enabled={open.enabled !== false} busy={busy}
         onToggle={(next) => void run('setPluginEnabled', [open, next])}
-        actions={<>
-        <button type="button" className="danger" disabled={busy}
-          onClick={() => confirm({
-            title: 'Remove plugin?',
-            description: t('{{name}} will be removed from Mixdog.', { name: label(open) }),
-            confirmLabel: 'Remove',
-            danger: true,
-            onConfirm: () => {
-              setOpenId('');
-              void run('removePlugin', [open]);
-            },
-          })}>{t('Remove')}</button>
-        <button type="button" disabled={busy} onClick={() => void run('updatePlugin', [open])}>
-          {open.sourceType === 'local' ? t('Update metadata') : t('Update plugin')}
-        </button>
-        {Boolean(open.mcpScript && open.mcpEnabled) && <button type="button" disabled={busy}
-          onClick={() => void run('enablePluginMcp', [open])}>
-          {t('Reconfigure MCP')}
-        </button>}
-        {Boolean(open.root) && <button type="button"
-          onClick={() => void navigator.clipboard?.writeText(String(open.root))}>
-          {t('Copy root')}
-        </button>}
-        {Boolean(open.mcpServerName) && <button type="button"
-          onClick={() => void navigator.clipboard?.writeText(String(open.mcpServerName))}>
-          {t('Copy MCP name')}
-        </button>}
-      </>}
-      onClose={() => setOpenId('')}>
-        <ExtensionHero
-          tagline={String(open.description || '').trim()
-            || [String(open.version || '').trim(), String(open.sourceType || '').trim()].filter(Boolean).join(' · ')} />
+        footer={<>
+          <button type="button" className="danger" disabled={busy}
+            onClick={() => confirm({
+              title: 'Remove plugin?',
+              description: t('{{name}} will be removed from Mixdog.', { name: label(open) }),
+              confirmLabel: 'Remove',
+              danger: true,
+              onConfirm: () => {
+                setOpenId('');
+                void run('removePlugin', [open]);
+              },
+            })}>{t('Remove')}</button>
+          {Boolean(open.mcpScript && open.mcpEnabled) && <button type="button" disabled={busy}
+            onClick={() => void run('enablePluginMcp', [open])}>
+            {t('Reconfigure MCP')}
+          </button>}
+          <button type="button" disabled={busy} onClick={() => void run('updatePlugin', [open])}>
+            {open.sourceType === 'local' ? t('Update metadata') : t('Update plugin')}
+          </button>
+          <button type="button" className="secondary" onClick={() => setOpenId('')}>{t('Close')}</button>
+        </>}
+        onClose={() => setOpenId('')}>
         <ExtensionScopeField api={api} run={run} kind="plugins" name={id}
           {...scopeOf(open)} currentPath={currentProjectPath(data)} busy={busy} />
         <ExtensionSection title={t('Contents')} count={contents}>
-          {contents ? <div className="extensions-item-list">
+          {contents ? <ExtensionItemList>
             {skills.map((skill) => {
               const name = String(skill.name);
               const off = disabledSkills.has(name);
@@ -746,18 +715,18 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
                 control={<CompactSwitch label={`${name} · ${t('Enabled')}`} checked={enabled}
                   disabled={busy} onChange={(next) => void run('setMcpServerEnabled', [name, next])} />} />;
             })}
-          </div> : null}
-          {Boolean(open.mcpScript && !open.mcpEnabled) && <div className="extensions-item-list">
+          </ExtensionItemList> : null}
+          {Boolean(open.mcpScript && !open.mcpEnabled) && <ExtensionItemList>
             <ExtensionItemRow icon={<Plug size={15} aria-hidden="true" />}
               title={String(open.mcpServerName || t('MCP server'))}
               description={t('This plugin ships an MCP server. Enable MCP to connect it.')}
               tone="muted"
-              control={<button type="button" className="extensions-item-action" disabled={busy}
-                onClick={() => void run('enablePluginMcp', [open])}>{t('Enable MCP')}</button>} />
-          </div>}
-          {!contents && !(open.mcpScript && !open.mcpEnabled) && <p className="extensions-mcp-note">
+              control={<ExtensionAction disabled={busy}
+                onClick={() => void run('enablePluginMcp', [open])}>{t('Enable MCP')}</ExtensionAction>} />
+          </ExtensionItemList>}
+          {!contents && !(open.mcpScript && !open.mcpEnabled) && <ExtensionNote>
             {t('Nothing installed by this plugin yet.')}
-          </p>}
+          </ExtensionNote>}
         </ExtensionSection>
         <ExtensionSection title={t('Info')}>
           <ExtensionFacts facts={[

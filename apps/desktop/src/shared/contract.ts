@@ -72,10 +72,6 @@ export const DESKTOP_IPC = {
   setModelRoute: 'mixdog:set-model-route',
   setFast: 'mixdog:set-fast',
   readSettings: 'mixdog:read-settings',
-  computerReadAuthorization: 'mixdog:computer-read-authorization',
-  computerUpdateAuthorization: 'mixdog:computer-update-authorization',
-  computerAuthorizationWindows: 'mixdog:computer-authorization-windows',
-  computerFailureDiagnostics: 'mixdog:computer-failure-diagnostics',
   updateSetting: 'mixdog:update-setting',
   getZoomFactor: 'mixdog:get-zoom-factor',
   setZoomFactor: 'mixdog:set-zoom-factor',
@@ -1946,11 +1942,6 @@ export interface DesktopApi {
   setModelRoute(selection: DesktopModelSelection, sessionId?: string): Promise<SessionSnapshot>;
   setFast(enabled: boolean, sessionId?: string): Promise<SessionSnapshot>;
   readSettings(): Promise<DesktopSettings>;
-  /** Local trusted settings surface only; never forwarded by the remote shim. */
-  computerReadAuthorization?(): Promise<import('./computer-settings').ComputerAuthorizationStatus>;
-  computerUpdateAuthorization?(value: import('./computer-settings').ComputerAuthorization): Promise<import('./computer-settings').ComputerAuthorizationStatus>;
-  computerAuthorizationWindows?(): Promise<import('./computer-settings').ComputerAuthorizationWindow[]>;
-  computerFailureDiagnostics?(): Promise<unknown[]>;
   updateSetting(key: DesktopSettingKey, enabled: boolean): Promise<DesktopSettings>;
   getZoomFactor(): Promise<number>;
   setZoomFactor(factor: number): Promise<number>;

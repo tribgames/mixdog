@@ -72,34 +72,13 @@ try {
   ]);
 } catch { /* font swap stays a cosmetic fallback */ }
 
-// The desktop keeps its window hidden until rendererReady, so its launch
-// sequence is never visible. Over the relay that call is a no-op and the
-// installed web app showed every step of it (user: 웹앱 처음 들어갈 때 화면이
-// 툭툭 튄다). boot.js gates #root behind the window band; release it once the
-// first frame is as settled as it is going to get.
-// Session/layout restore is a relay round trip on the installed web app, so
-// the reveal waits for it instead of letting the restored layout land on an
-// already visible frame. A slow desktop leg can never hold the app behind the
-// gate. The budget starts HERE rather than inside the reveal call: the font
-// race below covers the same launch, and running the two in series charged
-// every boot the sum of both waits (user: 최초 부트가 느리다).
-const startupRevealBudget = Promise.race([
-  new Promise<void>((resolve) => {
-    if ((window as { __mixdogStartupSettled?: boolean }).__mixdogStartupSettled) {
-      resolve();
-      return;
-    }
-    window.addEventListener("mixdog:startup-settled", () => resolve(), { once: true });
-  }),
-  new Promise((resolve) => { window.setTimeout(resolve, 800); }),
-]);
-
+// Hand the browser's pre-React gate to the same in-app boot cover as Desktop.
+// A timer or navigation signal must not expose unfinished catalogs, layout or
+// onboarding. DesktopBootGate owns readiness and its bounded recovery path.
 function revealInstalledWebApp(): void {
   const reveal = (window as typeof window & { mixdogRevealApp?: () => void }).mixdogRevealApp;
   if (typeof reveal !== "function") return;
-  void startupRevealBudget.then(() => {
-    window.requestAnimationFrame(() => reveal());
-  });
+  window.requestAnimationFrame(() => reveal());
 }
 
 const reactCommitted = new Promise<void>((resolve) => {

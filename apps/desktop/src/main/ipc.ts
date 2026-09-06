@@ -123,11 +123,8 @@ const SERVICE_OPERATION_NAMES = [
   'ghPrCheckout', 'ghPrCreate', 'ghPrDefaultBranch', 'ghPrDiff', 'ghPrList',
   'ghPrMerge', 'ghPrView', 'githubRequest',
 ] as const;
-import { registerComputerSettingsIpc } from './ipc-computer';
-import type { ComputerHost } from './computer';
 
 interface DesktopIpcDependencies {
-  computerHost?: ComputerHost;
   app: Pick<App, 'quit'> & Partial<Pick<App, 'getPath'>>;
   ipcMain: Pick<IpcMain, 'handle' | 'removeHandler' | 'on' | 'removeListener'>;
   dialog: Pick<Dialog, 'showOpenDialog' | 'showMessageBox'>
@@ -170,7 +167,6 @@ export function registerDesktopIpc(
     settingsStore,
     onDesktopSettingsChanged,
     browserHost,
-    computerHost,
     updater,
     terminals,
     remoteAccessInfo,
@@ -556,7 +552,6 @@ export function registerDesktopIpc(
     });
   });
   registerBrowserIpc({ handle, browserHost });
-  registerComputerSettingsIpc(handle, computerHost);
   handle(DESKTOP_IPC.getZoomFactor, async () => {
     const factor = settingsStore
       ? await settingsStore.readZoom()

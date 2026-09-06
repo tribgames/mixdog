@@ -88,6 +88,31 @@ test.beforeEach(() => {
   invalidateSharedModelCatalogRequest();
 });
 
+test("a cold selected route never flashes its raw id or Select model while the full catalog is outstanding", async () => {
+  const host = document.createElement("main");
+  document.body.append(host);
+  const root = createRoot(host);
+  const oldList = window.mixdogDesktop.listProviderModels;
+  const full = deferred();
+  window.mixdogDesktop.listProviderModels = () => full.promise;
+  try {
+    await act(async () => root.render(React.createElement(ModelSelector, {
+      provider: model.provider, model: model.model, effort: "high", fast: false,
+      fastCapable: true, modelDisabled: false, tuningDisabled: false,
+      invokeResult: (work) => work(), applySnapshot() {}, onOpenSettings() {},
+    })));
+    assert.ok(host.querySelector('[role="status"][aria-busy="true"]'));
+    assert.doesNotMatch(host.textContent, /gpt-fast-handoff-test|Select model/);
+    await act(async () => full.resolve([model]));
+    assert.match(host.querySelector(".model-trigger").textContent, /Fast handoff test/);
+    assert.equal(host.querySelector('[aria-busy="true"]'), null);
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    window.mixdogDesktop.listProviderModels = oldList;
+  }
+});
+
 test("fast mode stays optimistic until the authoritative snapshot paints", async () => {
   const host = document.createElement("main");
   document.body.append(host);
