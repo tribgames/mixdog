@@ -65,6 +65,11 @@ async function libreOfficeProgram() {
   return '';
 }
 
+/** Whether a LibreOffice front-end answers on this machine; portable rendering and recalculation need it. */
+export async function libreOfficeAvailable() {
+  return Boolean(await libreOfficeProgram());
+}
+
 
 const MAX_ERROR_LOCATIONS = 100;
 

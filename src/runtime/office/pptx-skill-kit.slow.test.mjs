@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { executeOfficeTool } from './index.mjs';
 import { isAdvisoryOfficeIssue } from './quality/quality-pipeline.mjs';
+import { libreOfficeAvailable } from './portable/portable-soffice.mjs';
 
 import { kitBlocks } from './authoring/pptx-kit.mjs';
 
@@ -19,6 +20,8 @@ const SKILL = fileURLToPath(new URL('../../defaults/skills/pptx/references/', im
 
 const value = (result) => JSON.parse(result.content[0].text);
 const measured = (qa) => (qa.issuesAfter || qa.issues || []).filter((issue) => !isAdvisoryOfficeIssue(issue)).map((issue) => `${issue.code} ${issue.path}: ${issue.message}`);
+// The authored decks are rendered (render: true), which portable mode does through LibreOffice.
+const RENDERED = { skip: !(await libreOfficeAvailable()) && 'LibreOffice is not installed' };
 
 // A twelve-slide deck composed slide by slide from the kit primitives: a cover on a gradient field, a
 // statement hanging from a rule, a chart as spine, a stat band by weight, a chevron run with measured
@@ -209,7 +212,7 @@ test('the skill never ships a whole-slide function: no reference defines an arch
   }
 });
 
-test('a deck composed from the kit primitives authors, validates, and passes the measured review', { timeout: 180_000 }, async (t) => {
+test('a deck composed from the kit primitives authors, validates, and passes the measured review', { timeout: 180_000, ...RENDERED }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-pptx-kit-'));
   t.after(() => rm(cwd, { recursive: true, force: true }));
   // The runner adds the kit: the script is the brief and the slides alone.
@@ -230,7 +233,7 @@ test('a deck composed from the kit primitives authors, validates, and passes the
 
 // The same deck at the presentation scale in the safe (system) pairing: the largest type must not
 // overflow the measured boxes and Malgun Gothic must pass the font review as safe.
-test('the kit deck holds at presentation scale with the safe Korean pairing', { timeout: 180_000 }, async (t) => {
+test('the kit deck holds at presentation scale with the safe Korean pairing', { timeout: 180_000, ...RENDERED }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-pptx-presentation-'));
   t.after(() => rm(cwd, { recursive: true, force: true }));
   const script = `deck({ hue: 205, accentHue: 205, mode: 'presentation', script: 'ko', pairing: 'serif', fonts: 'safe' });\n${DECK}`;
@@ -277,7 +280,7 @@ const pictureDeck = (P) => `
 await pres.writeFile({ fileName: OUTPUT });
 `;
 
-test('pictures composed through the picture kit author without measured review warnings', { timeout: 240_000 }, async (t) => {
+test('pictures composed through the picture kit author without measured review warnings', { timeout: 240_000, ...RENDERED }, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-pptx-pictures-'));
   t.after(() => rm(cwd, { recursive: true, force: true }));
   const paths = await writeSamplePictures(cwd);
