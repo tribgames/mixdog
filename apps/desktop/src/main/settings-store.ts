@@ -2,8 +2,6 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import type {
-  DesktopGitCommitPreset,
-  DesktopGitPreferences,
   DesktopSettingKey,
   DesktopSettings,
 } from '../shared/contract';
@@ -66,33 +64,6 @@ export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
     // Grandfather: a control that is already on predates the install marker.
     computerInstalled: desktop.computerInstalled === true || desktop.computerControl === true,
     browserInstalled: desktop.browserInstalled === true || desktop.browserControl === true,
-  };
-}
-
-// Mirrors the commit-message IPC bound (ipc.ts's gitCommit handler).
-const COMMIT_TEMPLATE_LIMIT = 20_000;
-const COMMIT_PRESETS: ReadonlySet<string> = new Set(['none', 'conventional', 'custom']);
-
-export function gitPreferencesFromConfig(value: unknown): DesktopGitPreferences {
-  const git = record(record(record(value).desktop).git);
-  const legacy = typeof git.commitTemplate === 'string'
-    ? git.commitTemplate.slice(0, COMMIT_TEMPLATE_LIMIT)
-    : '';
-  const legacyLines = legacy.split(/\r?\n/);
-  const commitExample = typeof git.commitExample === 'string'
-    ? git.commitExample.slice(0, COMMIT_TEMPLATE_LIMIT)
-    : (legacyLines[0] || '').trim();
-  const commitInstructions = typeof git.commitInstructions === 'string'
-    ? git.commitInstructions.slice(0, COMMIT_TEMPLATE_LIMIT)
-    : legacyLines.slice(1).join('\n').trim();
-  return {
-    commitPreset: typeof git.commitPreset === 'string' && COMMIT_PRESETS.has(git.commitPreset)
-      ? git.commitPreset as DesktopGitCommitPreset
-      : 'none',
-    commitExample,
-    commitInstructions,
-    // Default ON (user decision): only an explicit false turns it off.
-    autoCommitMessage: git.autoCommitMessage !== false,
   };
 }
 
@@ -181,44 +152,6 @@ export class DesktopSettingsStore {
   async readZoom(): Promise<number> {
     const config = await this.loadConfig();
     return desktopZoomFromConfig(config.readConfig());
-  }
-
-  async readGitPreferences(): Promise<DesktopGitPreferences> {
-    const config = await this.loadConfig();
-    return gitPreferencesFromConfig(config.readConfig());
-  }
-
-  async updateGitPreferences(
-    preferences: Partial<DesktopGitPreferences>,
-  ): Promise<DesktopGitPreferences> {
-    const config = await this.loadConfig();
-    const saved = await config.updateConfigAsync((current) => {
-      const next = { ...record(current) };
-      const desktop = { ...record(next.desktop) };
-      const git = { ...record(desktop.git) };
-      const migrated = gitPreferencesFromConfig(current);
-      if (typeof git.commitExample !== 'string') git.commitExample = migrated.commitExample;
-      if (typeof git.commitInstructions !== 'string') {
-        git.commitInstructions = migrated.commitInstructions;
-      }
-      delete git.commitTemplate;
-      if (typeof preferences.commitPreset === 'string' && COMMIT_PRESETS.has(preferences.commitPreset)) {
-        git.commitPreset = preferences.commitPreset;
-      }
-      if (typeof preferences.commitExample === 'string') {
-        git.commitExample = preferences.commitExample.slice(0, COMMIT_TEMPLATE_LIMIT);
-      }
-      if (typeof preferences.commitInstructions === 'string') {
-        git.commitInstructions = preferences.commitInstructions.slice(0, COMMIT_TEMPLATE_LIMIT);
-      }
-      if (typeof preferences.autoCommitMessage === 'boolean') {
-        git.autoCommitMessage = preferences.autoCommitMessage;
-      }
-      desktop.git = git;
-      next.desktop = desktop;
-      return next;
-    });
-    return gitPreferencesFromConfig(saved);
   }
 
   async updateZoom(factor: number): Promise<number> {

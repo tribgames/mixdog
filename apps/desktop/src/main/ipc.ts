@@ -79,7 +79,6 @@ import {
 export {
   projectDisplayName,
   requiredAbortOptions,
-  requiredCommitMessageFiles,
   requiredDesktopCapabilityReadRequests,
   requiredDesktopCapabilityRequest,
   requiredDesktopSettingKey,
@@ -132,7 +131,7 @@ interface DesktopIpcDependencies {
   shell: Pick<Shell, 'openPath' | 'openExternal' | 'showItemInFolder' | 'trashItem'>;
   powerMonitor?: Pick<PowerMonitor, 'on' | 'removeListener'>;
   settingsStore?: Pick<DesktopSettingsStore,
-    'read' | 'update' | 'readZoom' | 'updateZoom' | 'readGitPreferences' | 'updateGitPreferences'>;
+    'read' | 'update' | 'readZoom' | 'updateZoom'>;
   /** Fires after a successful desktop-settings write (keep-awake wiring). */
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
   /** Browser Use pane: local profile import without renderer-visible secrets. */
@@ -638,8 +637,6 @@ export function registerDesktopIpc(
     app,
     handle,
     operations: serviceOperations,
-    settingsStore,
-    invokeDesktopOperation,
     shell,
     grantedFile,
   });

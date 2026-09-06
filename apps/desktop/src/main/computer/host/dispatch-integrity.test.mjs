@@ -20,7 +20,10 @@ const { createComputerExecutionPolicy } = await import('./execution-policy.ts');
 const { createCaptureEngine } = await import('../observation/capture.ts');
 const { createComputerCommandBudget } = await import('./command-budget.ts');
 
-test('observation-only routing refuses every input family before backend dispatch', async () => {
+// The command router refuses every command off Windows before any routing runs.
+const WINDOWS_ONLY = { skip: process.platform !== 'win32' };
+
+test('observation-only routing refuses every input family before backend dispatch', WINDOWS_ONLY, async () => {
   let dispatched = 0;
   const router = createCommandRouter({
     isObserveOnly: () => true, sessionIdFor: () => 'test',
@@ -35,7 +38,7 @@ test('observation-only routing refuses every input family before backend dispatc
   assert.equal(dispatched, 0);
 });
 
-test('authority which expires during preparation never reaches the input backend', async () => {
+test('authority which expires during preparation never reaches the input backend', WINDOWS_ONLY, async () => {
   let now = 0;
   let dispatched = 0;
   const policy = createComputerExecutionPolicy({

@@ -108,6 +108,11 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install
         run: npm ci --prefer-offline --no-audit --no-fund
+      # Office audits measure text in the deck's own faces and Ubuntu ships none of the
+      # Microsoft families; the metric-compatible Liberation faces stand in for Arial,
+      # Times New Roman, and Courier New (src/runtime/office/portable/text-metrics.mjs).
+      - name: Install metric-compatible fonts
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends fonts-liberation
       # The tool-contract and shell-hardening suites drive the debug native
       # spawn binary; the build reuses the runner's preinstalled Rust toolchain.
       - name: Build the native spawn test binary
@@ -134,6 +139,8 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install
         run: npm ci --prefer-offline --no-audit --no-fund
+      - name: Install metric-compatible fonts
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends fonts-liberation
       - name: Build the native spawn test binary
         run: npm run build:spawn:test
       - name: Run the slow test lane

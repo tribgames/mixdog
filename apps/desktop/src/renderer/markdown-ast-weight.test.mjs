@@ -23,13 +23,15 @@ test("the real parser worker carries an accurate weight through the host reply",
   const previous = Object.getOwnPropertyDescriptor(globalThis, "self");
   const handlers = new Map();
   let response;
-  const scope = {
+  // tsx's bundled es-module-lexer takes `self` as its global once one exists, so the
+  // worker scope must still expose the typed-array constructors: inherit globalThis.
+  const scope = Object.assign(Object.create(globalThis), {
     onmessage: null,
     postMessage(value) {
       response = value;
       handlers.get("message")({ data: value });
     },
-  };
+  });
   Object.defineProperty(globalThis, "self", { configurable: true, value: scope });
   const host = new MarkdownWorkerHost(() => ({
     addEventListener: (name, handler) => handlers.set(name, handler),

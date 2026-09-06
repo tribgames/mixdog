@@ -50,9 +50,7 @@ import {
   sessionDisplayName,
 } from './ipc';
 import {
-  requiredCommitMessageFiles,
   requiredGitGlobalConfigKey,
-  requiredGitPreferencesInput,
   requiredInstructionsContent,
   requiredLspDocumentInput,
   requiredLspRequestInput,
@@ -568,17 +566,6 @@ export function createRemoteMethods(
       'gitShowFile',
       [requiredRepositoryCwd(cwd), requiredGitRevision(rev), requiredGitPath(path)],
     ),
-    gitGenerateCommitMessage: async ([cwd, files]) => {
-      const repository = requiredRepositoryCwd(cwd);
-      const entries = requiredCommitMessageFiles(files);
-      const preferences = await invokeDesktopOperation('readGitPreferences', [])
-        .catch(() => null);
-      const message = await invokeDesktopOperation(
-        'gitGenerateCommitMessage',
-        [repository, entries, preferences],
-      );
-      return { message };
-    },
     gitGlobalConfig: () => invokeDesktopOperation('gitGlobalConfig', []),
     setGitGlobalConfig: ([key, value]) => {
       // Empty is a real value here: it UNSETS the key.
@@ -590,11 +577,6 @@ export function createRemoteMethods(
         value,
       ]);
     },
-    readGitPreferences: () => invokeDesktopOperation('readGitPreferences', []),
-    updateGitPreferences: ([preferences]) => invokeDesktopOperation(
-      'updateGitPreferences',
-      [requiredGitPreferencesInput(preferences)],
-    ),
     // Settings → Git/About: gh runs in the daemon, and its login is a DEVICE
     // flow (code + github.com/login/device), so a phone completes it in its
     // own browser exactly like the desktop does.

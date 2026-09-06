@@ -5,7 +5,7 @@ import { overlayHtml, overlayScript, OVERLAY_WIDTH, OVERLAY_HEIGHT } from '../co
 import { computerUseOverlayPresentation } from '../model';
 import { createComputerOverlayController } from '../controls';
 import { bindComputerOverlayControls } from '../ipc-controls';
-import { checkOverlayOutline } from './outline-check';
+import { checkOverlayOutline, emulateMotionPreference } from './outline-check';
 
 app.disableHardwareAcceleration();
 app.setPath('userData', join(process.env.OVERLAY_TEST_DIRECTORY!, 'profile'));
@@ -15,7 +15,14 @@ void app.whenReady().then(async () => {
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false,
       preload: join(process.env.OVERLAY_TEST_DIRECTORY!, 'preload.cjs') },
   });
+  // A renderer failure otherwise surfaces only as the generic "script failed to execute".
+  window.webContents.on('console-message', (event) => {
+    process.stderr.write(`renderer console [${event.level}] ${event.message}\n`);
+  });
   try {
+    // Windows Server (the CI runner) turns system animations off, which Chromium reads as reduced
+    // motion. The checks read the stylesheet's own motion states, so pin the media feature.
+    window.webContents.debugger.attach('1.3');
     let resumed = 0, paused = 0, stopped = 0, seconds = 5;
     const controls = {
       async resume(generation: number) {
@@ -32,6 +39,7 @@ void app.whenReady().then(async () => {
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-navigate', (event) => event.preventDefault());
     await window.loadURL(`data:text/html;base64,${Buffer.from(overlayHtml('ko')).toString('base64')}`);
+    await emulateMotionPreference(window.webContents, 'no-preference');
     await window.webContents.executeJavaScript(overlayScript('ko'));
     const click = async (isPaused: boolean, revision: number, id = 'toggle') => window.webContents.executeJavaScript(`
       window.mixdogComputerOverlay({paused:${isPaused},canResume:true,generation:7,renderRevision:${revision}});
@@ -56,6 +64,7 @@ void app.whenReady().then(async () => {
     let revision = 3;
     for (const locale of ['ko', 'en']) {
       await window.loadURL(`data:text/html;base64,${Buffer.from(overlayHtml(locale)).toString('base64')}`);
+      await emulateMotionPreference(window.webContents, 'no-preference');
       await window.webContents.executeJavaScript(overlayScript(locale));
       for (const reason of ['', 'user_input_active', 'user_pause', 'input_cleanup_unconfirmed']) {
         const presentation = computerUseOverlayPresentation({

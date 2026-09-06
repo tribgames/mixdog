@@ -61,7 +61,6 @@ interface DesktopServiceRuntime {
   loadSessionStore(): Promise<MixdogSessionStoreModule>;
   loadStatuslineSegments(): Promise<StatuslineSegmentsModule>;
   loadConfig(): Promise<import('./settings-store').MixdogConfigModule>;
-  loadCommitCompletion(): Promise<import('./commit-message').CommitCompletionModule>;
   /** Office document conversion and page rasterization. Optional: an older
    *  daemon simply has no document preview, and the editor says so. */
   loadDocumentPreview?(): Promise<import('./document-preview').DocumentPreviewModule>;
@@ -105,7 +104,6 @@ export async function createDesktopService(
     resourcesPath: options.resourcesPath,
     appPath: options.appPath,
     loadConfig: runtime.loadConfig,
-    loadCommitCompletion: runtime.loadCommitCompletion,
     loadDocumentPreview: runtime.loadDocumentPreview
       ? () => runtime.loadDocumentPreview!()
       : undefined,

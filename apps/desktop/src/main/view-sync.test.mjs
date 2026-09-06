@@ -103,7 +103,7 @@ test('desktop stream recovery restores every visible lane and catalogs before it
     f.put('agent', 'agent initial');
     service = await createDesktopService({
       options: f.options,
-      runtime: { ...f.runtime, loadConfig: async () => ({}), loadCommitCompletion: async () => ({}) },
+      runtime: { ...f.runtime, loadConfig: async () => ({}) },
       emit: (message) => messages.push(message),
     });
     await service.invoke('setVisibleSessions', [['lead', 'agent']]);

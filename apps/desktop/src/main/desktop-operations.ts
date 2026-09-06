@@ -19,8 +19,6 @@ import type { MixdogConfigModule } from './settings-store';
 import { TerminalManager } from './terminal-manager';
 import * as workspaceConfig from './workspace-config';
 import * as workspaceSearch from './workspace-search';
-import { createCommitMessageGenerator } from './commit-message';
-import type { CommitCompletionModule } from './commit-message';
 import { createDocumentPreviewOperations } from './document-preview';
 import type { DocumentPreviewModule } from './document-preview';
 
@@ -35,7 +33,6 @@ interface DesktopOperationsOptions {
   resourcesPath?: string;
   appPath?: string;
   loadConfig?: () => Promise<MixdogConfigModule>;
-  loadCommitCompletion?: () => Promise<CommitCompletionModule>;
   loadDocumentPreview?: () => Promise<DocumentPreviewModule>;
   emit(event: DesktopOperationEvent): void;
 }
@@ -150,7 +147,6 @@ export function createDesktopOperations({
   resourcesPath,
   appPath,
   loadConfig,
-  loadCommitCompletion,
   loadDocumentPreview,
   emit,
 }: DesktopOperationsOptions) {
@@ -165,12 +161,6 @@ export function createDesktopOperations({
   const executeGithub = createGithubService(loadConfig ?? (async () => import(
     /* @vite-ignore */ settingsConfigModuleUrl(packaged, resourcesPath, appPath)
   ) as Promise<MixdogConfigModule>));
-  const generateCommitMessage = createCommitMessageGenerator({
-    packaged,
-    resourcesPath,
-    appPath,
-    loadModule: loadCommitCompletion,
-  });
   // Converted documents are a cache, not user data: they live under the app's
   // own directory and are evicted, never synced or backed up.
   const documentPreviews = createDocumentPreviewOperations({
@@ -244,25 +234,12 @@ export function createDesktopOperations({
         args[1] === true,
       );
     }
-    if (name === 'readGitPreferences') return settingsStore.readGitPreferences();
-    if (name === 'updateGitPreferences') {
-      return settingsStore.updateGitPreferences(
-        (args[0] ?? {}) as Parameters<DesktopSettingsStore['updateGitPreferences']>[0],
-      );
-    }
     if (name === 'readZoom') return settingsStore.readZoom();
     if (name === 'updateZoom') return settingsStore.updateZoom(Number(args[0]));
     if (name === 'githubStarStatus') return githubStarStatus();
     if (name === 'starGithub') return starGithub();
     if (name === 'installLibreOffice') {
       return libreoffice.installLibreOffice({ packaged, resourcesPath, appPath });
-    }
-    if (name === 'gitGenerateCommitMessage') {
-      return generateCommitMessage(
-        String(args[0] || ''),
-        args[1] as Parameters<typeof generateCommitMessage>[1],
-        args[2] as Parameters<typeof generateCommitMessage>[2],
-      );
     }
     if (name === 'readInstructions') {
       const [file, legacyFile] = args.map((value) => String(value || ''));

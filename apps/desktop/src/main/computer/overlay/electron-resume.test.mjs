@@ -9,7 +9,8 @@ import test from 'node:test';
 import { build } from 'esbuild';
 import electron from 'electron';
 
-test('hidden sandboxed Electron overlay delivers and acknowledges real preload IPC', { timeout: 30000 }, async () => {
+// The overlay belongs to Computer Use, which ships on Windows only; the Linux CI lanes also have no display server.
+test('hidden sandboxed Electron overlay delivers and acknowledges real preload IPC', { timeout: 30000, skip: process.platform !== 'win32' }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-overlay-ipc-'));
   try {
     await Promise.all([

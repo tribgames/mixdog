@@ -50,7 +50,7 @@ function resolveFont(fontName) {
     weight = SUFFIX_WEIGHT[suffix[1].toLowerCase()] || 0;
     family = family.replace(WEIGHT_SUFFIX, '');
   }
-  return { family, weight };
+  return { family: installedEquivalent(family.toLowerCase()) || family, weight };
 }
 
 function fontSpec({ fontName = 'Calibri', fontSize = 18, bold = false, italic = false } = {}) {
@@ -61,19 +61,44 @@ function fontSpec({ fontName = 'Calibri', fontSize = 18, bold = false, italic = 
 }
 
 let installedFonts = null;
+// Lower-cased family → the name the canvas registered, so a substitute is requested as enumerated.
+let installedFamilyNames = null;
 
 function installedFamilies() {
   if (!installedFonts) {
     try {
       warmupInstalledOfficeFonts();
-      installedFonts = new Set((GlobalFonts.families || [])
-        .map((entry) => String(entry?.family || '').toLowerCase())
-        .filter(Boolean));
+      installedFamilyNames = new Map((GlobalFonts.families || [])
+        .map((entry) => String(entry?.family || '').trim())
+        .filter(Boolean)
+        .map((family) => [family.toLowerCase(), family]));
     } catch {
-      installedFonts = new Set();
+      installedFamilyNames = new Map();
     }
+    installedFonts = new Set(installedFamilyNames.keys());
   }
   return installedFonts;
+}
+
+// Open faces with the same advance widths as the proprietary family they stand in for
+// (fontconfig substitutes them the same way): a machine without Arial still measures the
+// deck as PowerPoint lays it out where Arial is installed.
+const METRIC_EQUIVALENTS = Object.freeze({
+  arial: ['liberation sans', 'arimo'],
+  helvetica: ['liberation sans', 'arimo'],
+  'times new roman': ['liberation serif', 'tinos'],
+  'courier new': ['liberation mono', 'cousine'],
+  calibri: ['carlito'],
+  cambria: ['caladea'],
+  georgia: ['gelasio'],
+});
+
+/** Registered name of an installed metric-compatible substitute for a family that is not installed, else ''. */
+function installedEquivalent(family) {
+  const installed = installedFamilies();
+  if (!installed.size || installed.has(family)) return '';
+  const match = (METRIC_EQUIVALENTS[family] || []).find((candidate) => installed.has(candidate));
+  return match ? installedFamilyNames.get(match) : '';
 }
 
 function fontAvailable(name) {
@@ -81,12 +106,12 @@ function fontAvailable(name) {
   if (!family) return true;
   installedFamilies();
   if (!installedFonts.size) return true;
-  if (installedFonts.has(family)) return true;
+  if (installedFonts.has(family) || installedEquivalent(family)) return true;
   // Weight-suffixed families (Malgun Gothic Semilight, Segoe UI Semibold)
   // often enumerate only under their base family; measure with that base
   // instead of reporting the whole font missing.
   const base = family.replace(/\s+(?:semilight|light|semibold|medium|black|thin|extrabold)$/u, '');
-  return base !== family && installedFonts.has(base);
+  return base !== family && (installedFonts.has(base) || Boolean(installedEquivalent(base)));
 }
 
 // PowerPoint's East Asian fallback for a Latin face: Malgun Gothic where Windows provides it, else

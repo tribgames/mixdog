@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import type { WebContents } from 'electron';
 
+/** Pins prefers-reduced-motion through the already attached debugger, independent of the host's own setting. */
+export async function emulateMotionPreference(contents: WebContents, value: 'no-preference' | 'reduce'): Promise<void> {
+  await contents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-reduced-motion', value }],
+  });
+}
+
 export async function checkOverlayOutline(contents: WebContents): Promise<void> {
   const active = await contents.executeJavaScript(`(() => {
     const outline = document.getElementById('outline');
@@ -38,11 +45,8 @@ export async function checkOverlayOutline(contents: WebContents): Promise<void> 
   assert.equal(active.followsPill, true);
   assert.equal(active.controlsReachable, true, 'outline must not intercept controls');
 
-  contents.debugger.attach('1.3');
+  await emulateMotionPreference(contents, 'reduce');
   try {
-    await contents.debugger.sendCommand('Emulation.setEmulatedMedia', {
-      features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
-    });
     const reduced = await contents.executeJavaScript(`(() => {
       const outline = document.getElementById('outline');
       const style = getComputedStyle(outline.querySelector('.highlight'));
@@ -55,7 +59,6 @@ export async function checkOverlayOutline(contents: WebContents): Promise<void> 
     assert.notEqual(reduced.stroke, 'none', 'reduced motion must retain a visible outline');
     assert.equal(reduced.dash, 'none');
   } finally {
-    await contents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [] });
-    contents.debugger.detach();
+    await emulateMotionPreference(contents, 'no-preference');
   }
 }

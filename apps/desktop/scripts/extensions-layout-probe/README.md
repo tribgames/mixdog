@@ -9,7 +9,7 @@ node scripts/extensions-layout-probe/run.mjs
 To limit a retry to affected views:
 
 ```powershell
-node scripts/extensions-layout-probe/run.mjs --views=git-plain,git-custom,skill
+node scripts/extensions-layout-probe/run.mjs --views=git,skill
 ```
 
 Uses production side panels, extension dialogs and settings controls with an

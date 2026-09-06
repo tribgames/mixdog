@@ -28,7 +28,6 @@ import type {
   DesktopGitLogEntry,
   DesktopGitStatus,
 } from "../shared/contract";
-import { isConventionalCommitMessage } from "../shared/commit-message-format";
 import { t } from "./i18n";
 import type { PullRequestOpenHandler } from "./PullRequestsPane";
 import { GithubDock as PullRequestsPane } from "./github/GithubDock";
@@ -127,13 +126,6 @@ export function SourceControlDock({
   // Commit messages keep summary and description as separate fields.
   const [summary, setSummary] = useState("");
   const [description, setDescription] = useState("");
-  /** Settings → Git commit format: a ghost-text placeholder only (user
-   *  decision: 프리셋 + 미리보기) — nothing is ever inserted into the draft —
-   *  plus the auto-commit-message switch. */
-  const [commitFormat, setCommitFormat] = useState<{ preset: string; example: string; auto: boolean }>(
-    // Auto defaults ON (user decision); the preferences read reconciles.
-    { preset: "none", example: "", auto: true },
-  );
   /** ONE right-click / Menu-key menu shared by every row grammar in the dock
    *  (changed file, history commit, branch) and by the file list's View & Sort
    *  button. The per-row "…" trigger buttons are gone. */
@@ -480,47 +472,6 @@ export function SourceControlDock({
       : visibleBranches.find((branch) =>
         !branch.remote && DEFAULT_BRANCH_NAMES.includes(branch.name)));
   const otherBranches = visibleBranches.filter((branch) => branch !== defaultBranch);
-  useEffect(() => {
-    if (!active) return;
-    let live = true;
-    void api?.readGitPreferences?.().then((preferences) => {
-      if (live) setCommitFormat({
-        preset: String(preferences?.commitPreset || "none"),
-        example: String(preferences?.commitExample || ""),
-        auto: preferences?.autoCommitMessage === true,
-      });
-    }).catch(() => { /* the default placeholders remain */ });
-    return () => { live = false; };
-  }, [api, active]);
-  // Settings → Git saves broadcast in-window so an already-open dock adopts
-  // the change immediately (user: 토글 켜고 나오면 커밋 버튼이 바로 살아야 함).
-  useEffect(() => {
-    const onPreferences = (event: Event) => {
-      const detail = (event as CustomEvent<{
-        commitPreset?: string; commitExample?: string;
-        autoCommitMessage?: boolean;
-      }>).detail;
-      if (!detail) return;
-      setCommitFormat({
-        preset: String(detail.commitPreset || "none"),
-        example: String(detail.commitExample || ""),
-        auto: detail.autoCommitMessage === true,
-      });
-    };
-    window.addEventListener("mixdog:git-preferences-changed", onPreferences);
-    return () => window.removeEventListener("mixdog:git-preferences-changed", onPreferences);
-  }, []);
-  // The conventional string mirrors Settings → Git's preset preview.
-  const commitFormatLines = (commitFormat.preset === "conventional"
-    ? "feat(scope): summary"
-    : commitFormat.preset === "custom" ? commitFormat.example : "").split("\n");
-  const summaryPlaceholder = (commitFormatLines[0] || "").trim() || t("Summary (required)");
-  const descriptionPlaceholder = commitFormatLines.slice(1).join("\n").trim() || t("Description");
-  /** Auto-message needs both the setting AND a build that carries the API. */
-  const autoCommitMessage = commitFormat.auto && Boolean(api?.gitGenerateCommitMessage);
-  const conventionalWarning = commitFormat.preset === "conventional"
-    && Boolean(summary.trim())
-    && !isConventionalCommitMessage(summary);
   const clearCommitDraft = () => {
     setSummary("");
     setDescription("");
@@ -545,25 +496,13 @@ export function SourceControlDock({
    *  (push/sync) is reported without aborting run()'s refresh. */
   const runCommitFlow = (key: string, followUp?: () => Promise<unknown> | undefined) => {
     void run(key, async () => {
+      if (!summary.trim()) throw new Error("A commit summary is required to commit.");
       const prepared = await prepareCommitPaths();
       if (!prepared) return;
-      let message = commitMessage;
-      // Auto commit message (Settings → Git): an empty summary asks the
-      // maintenance model and commits with the result in ONE press. The
-      // generated text NEVER lands in the form (user: 박스에 아무 메시지도
-      // 안 보이고 즉시 커밋) — the accidental-trigger guard lives solely in
-      // the Ctrl+Enter accelerator, which requires a typed summary.
-      if (!message.trim() && autoCommitMessage && api?.gitGenerateCommitMessage) {
-        const generated = await api.gitGenerateCommitMessage(projectPath, includedFiles.map(
-          (file) => ({ path: file.path, ...(file.untracked ? { untracked: true } : {}) })));
-        message = String(generated?.message || "").trim();
-        if (!message) throw new Error("Commit message generation returned nothing.");
-      }
-      if (!message.trim()) throw new Error("A commit summary is required to commit.");
       // A rejected commit must never clear the draft: it throws out of run(),
       // which reports it and leaves the composer untouched.
       if (!api?.gitCommitPaths) throw new Error("This build cannot commit selected files.");
-      await api.gitCommitPaths(projectPath, message, prepared);
+      await api.gitCommitPaths(projectPath, commitMessage, prepared);
       clearCommitDraft();
       if (!followUp) return;
       try {
@@ -575,7 +514,7 @@ export function SourceControlDock({
   };
   /** Commit is refused while git is mid-operation or conflicts are unresolved,
    *  at EVERY entry point (the operation banner's Continue owns that path). */
-  const commitBlocked = Boolean(busy) || (!summary.trim() && !autoCommitMessage)
+  const commitBlocked = Boolean(busy) || !summary.trim()
     || includedFiles.length === 0 || Boolean(status?.operation) || conflicts.length > 0;
   const discardFiles = async (files: DesktopGitFile[]) => {
     for (const file of files) {
@@ -1213,20 +1152,16 @@ export function SourceControlDock({
         <p className="dock-scm-clean">No changed files match the filter.</p>}
       </div>
       <SourceControlCommitForm
-        autoCommitMessage={autoCommitMessage}
         branch={status?.branch || ""}
         busy={busy}
         commitBlocked={commitBlocked}
         conflictCount={conflicts.length}
-        conventionalWarning={conventionalWarning}
         description={description}
-        descriptionPlaceholder={descriptionPlaceholder}
         detached={Boolean(status?.detached)}
         fileCount={files.length}
         operation={status?.operation}
         selectedFileCount={includedFiles.length}
         summary={summary}
-        summaryPlaceholder={summaryPlaceholder}
         onCommit={() => runCommitFlow("commit")}
         onDescriptionChange={setDescription}
         onSummaryChange={setSummary}

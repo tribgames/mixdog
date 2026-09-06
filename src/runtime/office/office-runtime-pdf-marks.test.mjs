@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { PDFDocument, PDFName, PDFString, degrees } from 'pdf-lib';
 import { executeOfficeTool } from './index.mjs';
 import { findPdfText } from './pdf/pdf-analysis.mjs';
-import { value, workspace } from './office-test-support.mjs';
+import { unicodeFontPath, value, workspace } from './office-test-support.mjs';
 
 // Reading positions and marking an existing PDF: text search, highlight,
 // links, page-number placeholders, field previews, and the safety report.
@@ -134,6 +134,10 @@ test('PDF marks by find measure documents longer than one analysis call', async 
 });
 
 test('PDF preview_fields outlines fields and proposed boxes on a copy', async (t) => {
+  // Labels are drawn in the first installed Unicode face that covers them (pdf-fonts.mjs): Hangul
+  // where Malgun Gothic exists, Greek where only DejaVu does, Latin where no Unicode face is installed.
+  const fontPath = await unicodeFontPath();
+  const fieldName = !fontPath ? 'Name' : /DejaVuSans/i.test(fontPath) ? 'Όνομα' : '성명';
   const cwd = await workspace(t);
   const path = join(cwd, 'form.pdf');
   const created = value(await executeOfficeTool({
@@ -141,7 +145,7 @@ test('PDF preview_fields outlines fields and proposed boxes on a copy', async (t
     path,
     format: 'pdf',
     blocks: [{ type: 'paragraph', text: 'Name:' }],
-    fields: [{ name: '성명', type: 'text', page: 1, x: 100, y: 700, width: 150, height: 24 }],
+    fields: [{ name: fieldName, type: 'text', page: 1, x: 100, y: 700, width: 150, height: 24 }],
   }, { cwd }));
   const preview = value(await executeOfficeTool({
     action: 'batch',
@@ -157,7 +161,7 @@ test('PDF preview_fields outlines fields and proposed boxes on a copy', async (t
   const [page] = layout.pages;
   const outlined = (y, height) => page.boxes.some((box) => box.stroked && Math.abs(box.x - 100) < 1 && Math.abs(box.top - (page.height - y - height)) < 1);
   assert.ok(outlined(700, 24) && outlined(650, 24), JSON.stringify(page.boxes));
-  assert.ok(page.items.some((item) => item.text === '1 성명') && page.items.some((item) => item.text === 'Date'), JSON.stringify(page.items.map((item) => item.text)));
+  assert.ok(page.items.some((item) => item.text === `1 ${fieldName}`) && page.items.some((item) => item.text === 'Date'), JSON.stringify(page.items.map((item) => item.text)));
   assert.equal((await PDFDocument.load(await readFile(path))).getForm().getFields().length, 1);
   assert.ok(!(await readFile(path)).equals(await readFile(result.output)));
 });

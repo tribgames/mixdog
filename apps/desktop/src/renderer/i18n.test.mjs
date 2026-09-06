@@ -49,9 +49,9 @@ test("all selectable languages render source control and slash labels without a 
           onFileFilterChange: noop, onHistoryQueryChange: noop, onViewChange: noop,
         }),
         React.createElement(SourceControlCommitForm, {
-          autoCommitMessage: true, branch: "feature/Changes", busy: "", commitBlocked: false,
-          conflictCount: 0, conventionalWarning: false, description: "", descriptionPlaceholder: t("Description"),
-          detached: false, fileCount: 3, selectedFileCount: 3, summary: "", summaryPlaceholder: t("Summary (required)"),
+          branch: "feature/Changes", busy: "", commitBlocked: true,
+          conflictCount: 0, description: "",
+          detached: false, fileCount: 3, selectedFileCount: 3, summary: "",
           onCommit: noop, onDescriptionChange: noop, onSummaryChange: noop,
         }),
       ));
@@ -61,7 +61,7 @@ test("all selectable languages render source control and slash labels without a 
       const commit = document.querySelector("button[type=submit]");
       assert.equal(commit.textContent, catalog["Commit {{count}} files to {{branch}}"]
         .replace("{{count}}", "3").replace("{{branch}}", "feature/Changes"), language);
-      assert.equal(commit.title, catalog["Commit with an auto-generated message"], language);
+      assert.equal(commit.title, catalog["Summary (required)"], language);
       assert.equal(createAppSideViewDescriptors(noop).get("source-control").label, catalog["Source Control"], language);
       assert.equal(createAppSideViewDescriptors(noop).get("session-diff").label, catalog.Changes, language);
       assert.equal(desktopSlashCommandDescription(SLASH_COMMANDS[0]), catalog["Start a fresh chat"], language);

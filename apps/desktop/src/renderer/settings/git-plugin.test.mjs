@@ -17,18 +17,15 @@ window.HTMLElement.prototype.detachEvent = () => {};
 window.mixdogDesktop = { setTitleBarDimmed() {}, rendererDiagnostic() {} };
 const { BuiltInFeaturesPanel } = await import('./built-in-features-panel.tsx');
 
-test('Git & GitHub detail reuses saved account and commit settings without reconnecting or overwriting them', async () => {
+test('Git & GitHub detail retains the saved account without commit-message settings or identity writes', async () => {
   const changes = [];
-  const preferences = { commitPreset: 'custom', commitExample: 'feat: 한글', commitInstructions: '한국어로 작성', autoCommitMessage: false };
   const api = {
     readSettings: async () => ({}),
     gitCliStatus: async () => ({ installed: true, version: '2.50' }),
     githubCliStatus: async () => ({ installed: true, authenticated: true, login: 'owner', version: '2.81' }),
     githubCliAccount: async () => ({ login: 'owner', name: 'Saved Owner', email: 'saved@example.com' }),
-    readGitPreferences: async () => preferences,
     gitGlobalConfig: async () => ({ name: 'Manual identity', email: 'manual@example.com' }),
     setGitGlobalConfig: async (...args) => { changes.push(args); },
-    updateGitPreferences: async (...args) => { changes.push(args); return preferences; },
     githubCliLoginStart: async () => { changes.push('login'); },
   };
   const host = document.createElement('main');
@@ -43,8 +40,8 @@ test('Git & GitHub detail reuses saved account and commit settings without recon
     assert.ok(dialog);
     assert.match(dialog.textContent, /Git & GitHub/);
     assert.match(dialog.textContent, /saved@example.com/);
-    assert.equal(dialog.querySelector('textarea[name="commitExample"]').value, 'feat: 한글');
-    assert.equal(dialog.querySelector('textarea[name="commitInstructions"]').value, '한국어로 작성');
+    assert.doesNotMatch(dialog.textContent, /Commit messages|Conventional Commits|AI instructions/);
+    assert.equal(dialog.querySelector('textarea'), null);
     assert.deepEqual(changes, []);
   } finally {
     await act(async () => root.unmount());

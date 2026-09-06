@@ -1,5 +1,4 @@
-// Built-in Git & GitHub: GitHub CLI status/install/device-flow login,
-// the commit format preset (ghost-text preview, never inserted), and the
+// Built-in Git & GitHub: GitHub CLI status/install/device-flow login and the
 // global git identity sourced from the signed-in GitHub account. The Connect
 // flow follows the Providers OAuth grammar: start → one-time code card →
 // status polling until a terminal state; gh itself opens the browser.
@@ -10,52 +9,27 @@ import type {
   DesktopGithubCliAccount,
   DesktopGithubCliLoginFlow,
   DesktopGithubCliStatus,
-  DesktopGitCommitPreset,
   DesktopGitGlobalConfig,
 } from '../../shared/contract';
 import { useErrorToast } from '../notifications';
 import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
-import { OpenSelect } from '../OpenSelect';
 
 import {
   ExtensionAction,
-  ExtensionField,
-  ExtensionFieldActions,
   ExtensionItemList,
   ExtensionItemRow,
   ExtensionNote,
-  ExtensionPreview,
   ExtensionSection,
   type ExtensionItemTone,
 } from './extension-detail';
 import {
-  createGitPreferenceSaveQueue,
-  type GitPreferenceField,
-} from './git-preference-save';
-import {
   getCachedGitPanelInfo,
   patchCachedGitPanelInfo,
   preloadGitPanelInfo,
-  publishGitPreferences,
 } from './git-panel-info';
 
 const CLI_DOWNLOAD_URL = 'https://cli.github.com';
-// Mirrored by SourceControlDock's summary placeholder.
-const CONVENTIONAL_PATTERN = 'feat(scope): summary';
-
-function customExample(preferences: {
-  commitExample?: string;
-} | null | undefined): string {
-  return String(preferences?.commitExample || '');
-}
-
-function customInstructions(preferences: {
-  commitInstructions?: string;
-} | null | undefined): string {
-  return String(preferences?.commitInstructions || '');
-}
-
 export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   const host = api ?? (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
   const supported = Boolean(host?.githubCliStatus);
@@ -65,25 +39,10 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   const [status, setStatus] = useState<DesktopGithubCliStatus | null>(cachedInfo?.status ?? null);
   const [config, setConfig] = useState<DesktopGitGlobalConfig | null>(null);
   const [account, setAccount] = useState<DesktopGithubCliAccount | null>(cachedInfo?.account ?? null);
-  const [preset, setPreset] = useState<DesktopGitCommitPreset>(
-    cachedInfo?.preferences?.commitPreset ?? 'none');
-  const [exampleDraft, setExampleDraft] = useState(customExample(cachedInfo?.preferences));
-  const [exampleSaved, setExampleSaved] = useState(customExample(cachedInfo?.preferences));
-  const [instructionsDraft, setInstructionsDraft] = useState(
-    customInstructions(cachedInfo?.preferences));
-  const [instructionsSaved, setInstructionsSaved] = useState(
-    customInstructions(cachedInfo?.preferences));
-  const customSavedRef = useRef({ example: exampleSaved, instructions: instructionsSaved });
-  useEffect(() => {
-    customSavedRef.current = { example: exampleSaved, instructions: instructionsSaved };
-  }, [exampleSaved, instructionsSaved]);
   const appliedGithubIdentity = useRef(false);
   const loginAppliedFlow = useRef('');
   const [flow, setFlow] = useState<DesktopGithubCliLoginFlow | null>(null);
   const [busy, setBusy] = useState('');
-  const [preferenceBusy, setPreferenceBusy] = useState<
-    Partial<Record<GitPreferenceField, boolean>>
-  >({});
   const [error, setError] = useState('');
   useErrorToast(error, 'git-settings');
 
@@ -101,21 +60,11 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   useEffect(() => {
     let live = true;
     // Stale-while-revalidate: the cached snapshot painted already; this probe
-    // reconciles it. The custom-pattern draft only adopts the fresh value
-    // when it carries no unsaved edits.
+    // reconciles it.
     void preloadGitPanelInfo(host).then((info) => {
       if (!live || !info) return;
       setStatus(info.status);
       setAccount(info.account);
-      setPreset(info.preferences?.commitPreset ?? 'none');
-      const example = customExample(info.preferences);
-      const instructions = customInstructions(info.preferences);
-      setExampleDraft((current) =>
-        current === customSavedRef.current.example ? example : current);
-      setInstructionsDraft((current) =>
-        current === customSavedRef.current.instructions ? instructions : current);
-      setExampleSaved(example);
-      setInstructionsSaved(instructions);
     });
     void host?.gitGlobalConfig?.().then((next) => { if (live) setConfig(next); }).catch(() => {});
     return () => { live = false; };
@@ -186,51 +135,6 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
     })();
   }, [flowState, flowId, account, host]);
 
-  const preferenceSaverRef = useRef<{
-    host: typeof host;
-    saver: ReturnType<typeof createGitPreferenceSaveQueue>;
-  } | null>(null);
-  if (!preferenceSaverRef.current || preferenceSaverRef.current.host !== host) {
-    preferenceSaverRef.current = {
-      host,
-      saver: createGitPreferenceSaveQueue({
-        update: async (patch) => {
-          if (!host?.updateGitPreferences) throw new Error('Git preferences are unavailable.');
-          return await host.updateGitPreferences(patch);
-        },
-        read: async () => {
-          if (!host?.readGitPreferences) throw new Error('Git preferences are unavailable.');
-          return await host.readGitPreferences();
-        },
-        onBusy: (field, saving) => setPreferenceBusy((current) => ({
-          ...current,
-          [field]: saving,
-        })),
-        onResult: (field, preferences, context) => {
-          if (field === 'preset' && context.recovered) {
-            setPreset(preferences.commitPreset);
-          } else if (field === 'custom') {
-            const example = customExample(preferences);
-            const instructions = customInstructions(preferences);
-            setExampleSaved(example);
-            setInstructionsSaved(instructions);
-            if (context.recovered) {
-              const submittedExample = String(context.patch.commitExample || '');
-              const submittedInstructions = String(context.patch.commitInstructions || '');
-              setExampleDraft((current) => current === submittedExample ? example : current);
-              setInstructionsDraft((current) =>
-                current === submittedInstructions ? instructions : current);
-            }
-          }
-          if (context.publish) publishGitPreferences(host, preferences);
-        },
-        onError: (reason) =>
-          setError(reason instanceof Error ? reason.message : String(reason)),
-      }),
-    };
-  }
-  const preferenceSaver = preferenceSaverRef.current.saver;
-
   if (!supported) {
     return <ExtensionNote>{t('Git and GitHub settings are managed in the desktop app.')}</ExtensionNote>;
   }
@@ -252,14 +156,6 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   const cliTone: ExtensionItemTone = loading ? 'muted'
     : !status?.installed ? 'warn'
     : status.authenticated ? 'ok' : 'off';
-  const customDirty = exampleDraft !== exampleSaved || instructionsDraft !== instructionsSaved;
-  const saveCustom = () => {
-    setError('');
-    void preferenceSaver.save('custom', {
-      commitExample: exampleDraft,
-      commitInstructions: instructionsDraft,
-    });
-  };
 
   // Same grammar as every other Extensions card: sections of item rows whose
   // controls sit on the trailing edge, notes under them, previews as quiet
@@ -318,53 +214,6 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
           : t('Starting GitHub sign-in…')}
       </ExtensionNote>}
       {flowState === 'error' && <ErrorNotice error={flow?.message || t('Sign-in failed')} />}
-    </ExtensionSection>
-    <ExtensionSection title={t('Commit messages')}
-      description={t('Choose how manual commit hints and AI-generated messages should be written.')}>
-      <ExtensionItemList>
-        <ExtensionItemRow title={t('Format')}
-          status={preferenceBusy.preset ? t('Saving…') : undefined}
-          control={<OpenSelect className="extensions-select" ariaLabel={t('Format')}
-            value={preset} disabled={preferenceBusy.preset === true}
-            options={[
-              { value: 'none', label: t('Plain') },
-              { value: 'conventional', label: t('Conventional Commits') },
-              { value: 'custom', label: t('Custom instructions') },
-            ]}
-            onChange={(next) => {
-              const value = next as DesktopGitCommitPreset;
-              setPreset(value);
-              setError('');
-              void preferenceSaver.save('preset', { commitPreset: value });
-            }} />} />
-      </ExtensionItemList>
-      {preset === 'none' && <ExtensionPreview title={t('Plain')}
-        description={t('Write any summary and optional description. No format validation is applied.')}
-        code="Improve settings save recovery" />}
-      {preset === 'conventional' && <ExtensionPreview title={t('Conventional Commits')}
-        description={t('type(scope)!: description — types are feat, fix, docs, refactor, test, build, ci, chore, revert, or a custom lowercase type. Scope is optional; ! before : marks a breaking change. Details start after one blank line.')}
-        code={'feat(settings)!: preserve saves during daemon recovery\n\nKeep unrelated inputs editable while reconnecting.'} />}
-      {preset === 'custom' && <>
-        <ExtensionField label={t('Example commit message')}>
-          <textarea name="commitExample" aria-label={t('Example commit message')} rows={2}
-            value={exampleDraft} placeholder={CONVENTIONAL_PATTERN}
-            onChange={(event) => setExampleDraft(event.currentTarget.value)} />
-        </ExtensionField>
-        <ExtensionField label={t('AI instructions')}>
-          <textarea name="commitInstructions" aria-label={t('AI commit message instructions')} rows={4}
-            value={instructionsDraft}
-            placeholder={t('Describe the tone, structure, and details the AI should include.')}
-            onChange={(event) => setInstructionsDraft(event.currentTarget.value)} />
-        </ExtensionField>
-        <ExtensionFieldActions>
-          {customDirty && !preferenceBusy.custom ? <span>{t('Unsaved')}</span> : null}
-          <ExtensionAction disabled={preferenceBusy.custom === true || !customDirty} onClick={saveCustom}>
-            {preferenceBusy.custom ? t('Saving…') : t('Save')}
-          </ExtensionAction>
-        </ExtensionFieldActions>
-        <ExtensionPreview title={t('Actual preview')}
-          code={exampleDraft.trim() || t('Your example commit message appears here.')} />
-      </>}
     </ExtensionSection>
   </>;
 }

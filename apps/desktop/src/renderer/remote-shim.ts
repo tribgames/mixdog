@@ -1831,11 +1831,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     gitStashApply: (cwd, ref) => call('gitStashApply', [cwd, ref]),
     gitStashDrop: (cwd, ref) => call('gitStashDrop', [cwd, ref]),
     gitShowFile: (cwd, rev, path) => call('gitShowFile', [cwd, rev, path]),
-    gitGenerateCommitMessage: (cwd, files) => call('gitGenerateCommitMessage', [cwd, files]),
     gitGlobalConfig: () => call('gitGlobalConfig'),
     setGitGlobalConfig: (key, value) => call('setGitGlobalConfig', [key, value]),
-    readGitPreferences: () => call('readGitPreferences'),
-    updateGitPreferences: (preferences) => call('updateGitPreferences', [preferences]),
     // gh runs on the desktop machine and its login is a DEVICE flow, so the
     // phone shows the same code and finishes it in its own browser.
     githubStarStatus: () => call('githubStarStatus'),

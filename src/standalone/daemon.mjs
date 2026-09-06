@@ -625,9 +625,6 @@ async function main() {
     loadSessionStore: () => import('../runtime/agent/orchestrator/session/store-summary-reader.mjs'),
     loadStatuslineSegments: () => import('../ui/statusline-segments.mjs'),
     loadConfig: () => import('../runtime/shared/config.mjs'),
-    loadCommitCompletion: () => import(
-      '../runtime/agent/orchestrator/agent-runtime/commit-message-completion.mjs'
-    ),
     loadDocumentPreview: () => import('../runtime/office/pdf/document-preview.mjs'),
     async executeCodeGraphTool(name, args, cwd) {
       const graph = await import('../runtime/agent/orchestrator/tools/code-graph/dispatch.mjs');

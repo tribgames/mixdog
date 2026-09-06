@@ -460,13 +460,6 @@
   outline: 0;
 }
 .dock-scm-commit-summary::placeholder { color: var(--mx-text-faint); }
-.dock-scm-commit-format-warning {
-  margin: 6px 0 0;
-  color: var(--mx-warning);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-}
-.dock-scm-commit-format-warning code { color: inherit; }
 /* `Description` gets its OWN focus container beneath the summary: the border and
    the focus ring live on the container, the textarea inside is borderless, and
    the box fakes being a text field for the pointer (`cursor: text`). */

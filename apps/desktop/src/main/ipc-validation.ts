@@ -515,24 +515,6 @@ export function requiredGitPaths(value: unknown): string[] {
   return value.map(requiredGitPath);
 }
 
-export function requiredCommitMessageFiles(
-  value: unknown,
-): Array<{ path: string; untracked?: boolean }> {
-  if (!Array.isArray(value) || value.length === 0 || value.length > 500) {
-    throw new TypeError('git files are invalid.');
-  }
-  return value.map((entry) => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      throw new TypeError('git file is invalid.');
-    }
-    const record = entry as Record<string, unknown>;
-    return {
-      path: requiredGitPath(record.path),
-      ...(record.untracked === true ? { untracked: true as const } : {}),
-    };
-  });
-}
-
 export function requiredGitPath(value: unknown): string {
   const path = requiredString(value, 'git path', 4_096);
   if (pathIsAbsolute(path) || path.includes('\0') ||
@@ -676,9 +658,6 @@ const WORKSPACE_WRITE_KEYS = new Set(['relPath', 'content', 'expectedContent']);
 const WORKSPACE_SEARCH_KEYS = new Set([
   'query', 'include', 'exclude', 'matchCase', 'wholeWord', 'regex', 'maxResults',
 ]);
-const GIT_PREFERENCE_KEYS = new Set([
-  'commitExample', 'commitInstructions', 'commitPreset', 'autoCommitMessage',
-]);
 const MAX_TEXT_FILE_LENGTH = 4_194_304;
 
 export interface DesktopWorkspaceSearchOptionsInput {
@@ -689,13 +668,6 @@ export interface DesktopWorkspaceSearchOptionsInput {
   wholeWord: boolean;
   regex: boolean;
   maxResults: number;
-}
-
-export interface DesktopGitPreferencesInput {
-  commitExample?: string;
-  commitInstructions?: string;
-  commitPreset?: 'none' | 'conventional' | 'custom';
-  autoCommitMessage?: boolean;
 }
 
 /** Editor/LSP payload body: the same 4 MiB ceiling every text lane uses. */
@@ -810,38 +782,6 @@ export function requiredWorkspaceSearchOptions(value: unknown): DesktopWorkspace
   };
 }
 
-export function requiredGitPreferencesInput(value: unknown): DesktopGitPreferencesInput {
-  const source = value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
-  requireAllowedKeys(source, GIT_PREFERENCE_KEYS, 'preferences');
-  const text = (input: unknown, name: string): string | undefined => {
-    if (input === undefined) return undefined;
-    if (typeof input !== 'string' || input.length > 20_000) {
-      throw new TypeError(`${name} must be a string of at most 20,000 characters.`);
-    }
-    return input;
-  };
-  const example = text(source.commitExample, 'commitExample');
-  const instructions = text(source.commitInstructions, 'commitInstructions');
-  const preset = source.commitPreset;
-  if (preset !== undefined
-    && (typeof preset !== 'string' || !['none', 'conventional', 'custom'].includes(preset))) {
-    throw new TypeError('commitPreset must be none, conventional, or custom.');
-  }
-  const auto = source.autoCommitMessage;
-  if (auto !== undefined && typeof auto !== 'boolean') {
-    throw new TypeError('autoCommitMessage must be a boolean.');
-  }
-  return {
-    ...(typeof example === 'string' ? { commitExample: example } : {}),
-    ...(typeof instructions === 'string' ? { commitInstructions: instructions } : {}),
-    ...(typeof preset === 'string'
-      ? { commitPreset: preset as 'none' | 'conventional' | 'custom' }
-      : {}),
-    ...(typeof auto === 'boolean' ? { autoCommitMessage: auto } : {}),
-  };
-}
 
 export function requiredWorkspaceFolders(value: unknown): DesktopWorkspaceFolder[] {
   if (!Array.isArray(value) || value.length > 64) {

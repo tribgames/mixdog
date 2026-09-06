@@ -79,9 +79,6 @@ const api: DesktopApi = {
   gitGlobalConfig: () => ipcRenderer.invoke(DESKTOP_IPC.gitGlobalConfig),
   setGitGlobalConfig: (key, value) =>
     ipcRenderer.invoke(DESKTOP_IPC.setGitGlobalConfig, key, value),
-  readGitPreferences: () => ipcRenderer.invoke(DESKTOP_IPC.readGitPreferences),
-  updateGitPreferences: (preferences) =>
-    ipcRenderer.invoke(DESKTOP_IPC.updateGitPreferences, preferences),
   renameProject: (projectPath, alias) =>
     ipcRenderer.invoke(DESKTOP_IPC.renameProject, projectPath, alias),
   removeProject: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.removeProject, projectPath),
@@ -408,8 +405,6 @@ const api: DesktopApi = {
   gitCommit: (cwd, message) => ipcRenderer.invoke(DESKTOP_IPC.gitCommit, cwd, message),
   gitCommitPaths: (cwd, message, paths) =>
     ipcRenderer.invoke(DESKTOP_IPC.gitCommitPaths, cwd, message, paths),
-  gitGenerateCommitMessage: (cwd, files) =>
-    ipcRenderer.invoke(DESKTOP_IPC.gitGenerateCommitMessage, cwd, files),
   gitAmend: (cwd, message) => ipcRenderer.invoke(DESKTOP_IPC.gitAmend, cwd, message),
   gitUndoLastCommit: (cwd) => ipcRenderer.invoke(DESKTOP_IPC.gitUndoLastCommit, cwd),
   gitStash: (cwd, message) => ipcRenderer.invoke(DESKTOP_IPC.gitStash, cwd, message),

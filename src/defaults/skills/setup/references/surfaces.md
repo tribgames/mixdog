@@ -36,7 +36,7 @@ execution returns `opened:false` with guidance to relay to the user.
 - Settings → Context: auto-compact and auto-clear.
 - Settings → Output style: output style selection.
 - Settings → Providers: API-key, OAuth, local providers, and usage sign-in.
-- Extensions → Plugin → Git & GitHub: Git/GitHub CLI installation, connection, and commit-message preferences.
+- Extensions → Plugin → Git & GitHub: Git/GitHub CLI installation and connection.
 - Settings → Connection: web-app pairing and linked devices.
 - Settings → System: update, keep-awake, and Doctor.
 - Projects: Project registration, name, Instructions, Common Instructions, and
@@ -53,7 +53,7 @@ the user to Desktop.
 The setup tool does not mutate:
 
 - Desktop display language, theme, side panels, notifications, or keep-awake;
-- GitHub CLI connection and commit-message preferences;
+- GitHub CLI connection;
 - web-app pairing and linked devices;
 - Project registration, naming, or Project/Common Instructions;
 - workflow-pack and agent-definition authoring;

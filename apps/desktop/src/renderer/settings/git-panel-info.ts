@@ -7,32 +7,14 @@ import type {
   DesktopApi,
   DesktopGithubCliAccount,
   DesktopGithubCliStatus,
-  DesktopGitPreferences,
 } from '../../shared/contract';
 
 export type GitPanelApi = Partial<Pick<DesktopApi,
-  'githubCliStatus' | 'githubCliAccount' | 'readGitPreferences'>>;
-
-/** Same-window broadcast fired after every git-preferences save, so already
- *  mounted consumers (SourceControlDock's commit gating) adopt the change
- *  immediately instead of waiting for their next preferences read
- *  (user: 온으로 바꾸고 나가면 커밋창이 바로 활성화돼야 한다). */
-export const GIT_PREFERENCES_EVENT = 'mixdog:git-preferences-changed';
-
-export function publishGitPreferences(
-  host: GitPanelApi | undefined,
-  preferences: DesktopGitPreferences,
-): void {
-  patchCachedGitPanelInfo(host, { preferences });
-  try {
-    window.dispatchEvent(new CustomEvent(GIT_PREFERENCES_EVENT, { detail: preferences }));
-  } catch { /* consumers re-read on their own schedule */ }
-}
+  'githubCliStatus' | 'githubCliAccount'>>;
 
 export interface GitPanelInfo {
   status: DesktopGithubCliStatus | null;
   account: DesktopGithubCliAccount | null;
-  preferences: DesktopGitPreferences | null;
 }
 
 interface GitPanelInfoCacheEntry {
@@ -55,7 +37,7 @@ export function getCachedGitPanelInfo(host: GitPanelApi | undefined): GitPanelIn
   return host ? gitPanelInfoCache.get(host)?.value : undefined;
 }
 
-/** Panel actions (connect/disconnect/install/save) publish their fresh
+/** Panel actions (connect/disconnect/install) publish their fresh
  *  results here so the next open paints them without waiting for a probe. */
 export function patchCachedGitPanelInfo(
   host: GitPanelApi | undefined,
@@ -66,7 +48,6 @@ export function patchCachedGitPanelInfo(
   entry.value = {
     status: null,
     account: null,
-    preferences: null,
     ...entry.value,
     ...patch,
   };
@@ -79,12 +60,7 @@ export function preloadGitPanelInfo(host: GitPanelApi | undefined): Promise<GitP
   entry.promise = (async (): Promise<GitPanelInfo> => {
     // A failed probe keeps the last known value — a transient gh/IPC hiccup
     // must not blank an already-painted card.
-    const [status, preferences] = await Promise.all([
-      host.githubCliStatus!().catch(() => entry.value?.status ?? null),
-      host.readGitPreferences
-        ? host.readGitPreferences().catch(() => entry.value?.preferences ?? null)
-        : Promise.resolve<DesktopGitPreferences | null>(null),
-    ]);
+    const status = await host.githubCliStatus!().catch(() => entry.value?.status ?? null);
     const account = status?.authenticated
       ? await (host.githubCliAccount
         ? host.githubCliAccount().catch(() => entry.value?.account ?? null)
@@ -93,7 +69,6 @@ export function preloadGitPanelInfo(host: GitPanelApi | undefined): Promise<GitP
     entry.value = {
       status: status ?? null,
       account: account ?? null,
-      preferences: preferences ?? null,
     };
     return entry.value;
   })().finally(() => { entry.promise = undefined; });

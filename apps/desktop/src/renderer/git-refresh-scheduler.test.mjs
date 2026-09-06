@@ -28,7 +28,9 @@ test("git refresh scheduler stays single-flight and keeps one trailing activity 
   assert.equal(reasons.length, 1);
 
   releases.shift()();
-  await waitForDelay(20);
+  // The trailing run waits out the first run's own duration, which a loaded CI host stretches.
+  const deadline = Date.now() + 2_000;
+  while (reasons.length < 2 && Date.now() < deadline) await waitForDelay(5);
   assert.deepEqual(reasons, ["activity", "activity"]);
 
   releases.shift()();

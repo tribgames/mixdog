@@ -5,6 +5,19 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Office audits measure Arial, Helvetica, Times New Roman, Courier New,
+  Calibri, Cambria and Georgia in their metric-compatible open faces
+  (Liberation, Arimo/Tinos/Cousine, Carlito, Caladea, Gelasio) wherever the
+  original is not installed, instead of reporting the font unavailable and
+  approximating the fit — a Linux machine with the Liberation faces now
+  audits a deck the way Windows does. The root package gains `test:slow` and
+  `test:live` lanes, and the CI runtime lanes install the Liberation faces.
+
+- Source Control commits take a summary typed by hand plus an optional
+  description: commit-message presets, format checks, autocomplete and AI
+  generation leave the Git & GitHub card and the commit form, and the legacy
+  `desktop.git` preferences are neither read nor written.
+
 - Computer Use drops the settings-side authorization editor (window and
   action lock, expiry): it stays unrestricted by default with the standing
   guards — input guards, elevation handling, user takeover, environment
@@ -20,7 +33,7 @@ the Unreleased section is empty, and stamps it with the released version.
   plate and title, sections on one rhythm, a footer ladder with the
   destructive action parked left, one action button style — and the Projects
   add/edit dialogs join it. The Git & GitHub card carries the GitHub account
-  (gh sign-in by device code) and commit-message settings; the Local Provider
+  (gh sign-in by device code); the Local Provider
   card lists installed models with size, context and running state, a Model
   loading section for idle unloading, and live facts (runtime build, GPU,
   free memory, server), while repair and verification stay chat-driven

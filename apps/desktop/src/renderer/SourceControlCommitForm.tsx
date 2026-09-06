@@ -4,44 +4,36 @@ import { ProgressSpinner } from "./ProgressSpinner";
 import { t } from "./i18n";
 
 export function SourceControlCommitForm({
-  autoCommitMessage,
   branch,
   busy,
   commitBlocked,
   conflictCount,
-  conventionalWarning,
   description,
-  descriptionPlaceholder,
   detached,
   fileCount,
   operation,
   selectedFileCount,
   summary,
-  summaryPlaceholder,
   onCommit,
   onDescriptionChange,
   onSummaryChange,
 }: {
-  autoCommitMessage: boolean;
   branch: string;
   busy: string;
   commitBlocked: boolean;
   conflictCount: number;
-  conventionalWarning: boolean;
   description: string;
-  descriptionPlaceholder: string;
   detached: boolean;
   fileCount: number;
   operation?: string;
   selectedFileCount: number;
   summary: string;
-  summaryPlaceholder: string;
   onCommit(): void;
   onDescriptionChange(value: string): void;
   onSummaryChange(value: string): void;
 }) {
   const committing = busy === "commit" || busy === "amend";
-  const autoDraft = !summary.trim() && autoCommitMessage;
+  const blocked = commitBlocked || !summary.trim();
   const branchName = detached ? "" : branch;
   const commitLabel = committing ? t("Committing…")
     : branchName
@@ -55,10 +47,8 @@ export function SourceControlCommitForm({
         : selectedFileCount > 0
         ? t("Commit {{count}} files", { count: selectedFileCount })
         : t("Commit");
-  const title = autoDraft
-    ? t("Commit with an auto-generated message")
-    : !summary.trim()
-      ? t("A commit summary is required to commit")
+  const title = !summary.trim()
+      ? t("Summary (required)")
       : selectedFileCount === 0 && fileCount > 0
         ? t("Select one or more files to commit")
         : committing
@@ -74,33 +64,28 @@ export function SourceControlCommitForm({
   ) => {
     if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey)) return;
     event.preventDefault();
-    if (summary.trim()) event.currentTarget.form?.requestSubmit();
+    if (!blocked) event.currentTarget.form?.requestSubmit();
   };
 
   return <form className="dock-scm-commit" noValidate onSubmit={(event) => {
     event.preventDefault();
-    if (!commitBlocked) onCommit();
+    if (!blocked) onCommit();
   }}>
     <input type="text" className="dock-scm-commit-summary" aria-label={t("Summary")}
-      placeholder={summaryPlaceholder} value={summary}
+      placeholder={t("Summary (required)")} value={summary} autoComplete="off"
       readOnly={committing}
       onInput={(event) => onSummaryChange(event.currentTarget.value)}
       onKeyDown={submitOnAccelerator} />
     <div className="dock-scm-commit-description-box">
       <textarea className="dock-scm-commit-description" aria-label={t("Description")}
-        placeholder={descriptionPlaceholder} value={description} rows={1}
+        placeholder={t("Description")} value={description} rows={1} autoComplete="off"
         readOnly={committing}
         onInput={(event) => onDescriptionChange(event.currentTarget.value)}
         onKeyDown={submitOnAccelerator} />
     </div>
-    {conventionalWarning && <p className="dock-scm-commit-format-warning" role="status">
-      {t("Expected {{format}}. You can still commit this message.", {
-        format: "type(scope)!: description",
-      })}
-    </p>}
     <div className="dock-scm-commit-split">
       <button type="submit" className="dock-scm-commit-button"
-        disabled={commitBlocked} title={title}>
+        disabled={blocked} title={title}>
         {committing && <ProgressSpinner size={14} aria-hidden="true" />}
         <span>{commitLabel}</span>
       </button>

@@ -126,7 +126,6 @@ export const DESKTOP_IPC = {
   gitIgnore: 'mixdog:git-ignore',
   gitCommit: 'mixdog:git-commit',
   gitCommitPaths: 'mixdog:git-commit-paths',
-  gitGenerateCommitMessage: 'mixdog:git-generate-commit-message',
   gitAmend: 'mixdog:git-amend',
   gitUndoLastCommit: 'mixdog:git-undo-last-commit',
   gitStash: 'mixdog:git-stash',
@@ -175,8 +174,6 @@ export const DESKTOP_IPC = {
   githubCliAccount: 'mixdog:github-cli-account',
   gitGlobalConfig: 'mixdog:git-global-config',
   setGitGlobalConfig: 'mixdog:set-git-global-config',
-  readGitPreferences: 'mixdog:read-git-preferences',
-  updateGitPreferences: 'mixdog:update-git-preferences',
   revealFile: 'mixdog:reveal-file',
   openFilePath: 'mixdog:open-file-path',
   openAttachmentImage: 'mixdog:open-attachment-image',
@@ -990,20 +987,6 @@ export interface DesktopGitGlobalConfig {
   defaultBranch: string;
 }
 
-export type DesktopGitCommitPreset = 'none' | 'conventional' | 'custom';
-
-/** Settings → Git: desktop-stored commit-message preferences. */
-export interface DesktopGitPreferences {
-  commitPreset: DesktopGitCommitPreset;
-  /** Custom commit shown as the Source Control ghost-text/preview. */
-  commitExample: string;
-  /** Custom natural-language instructions supplied to AI generation. */
-  commitInstructions: string;
-  /** Commit with an empty summary generates the message from the included
-   *  changes on the maintenance model, then commits with that exact text. */
-  autoCommitMessage: boolean;
-}
-
 export type DesktopSessionClassification = 'task' | 'project' | null;
 
 /** Pairing card data for Settings → Connection (QRs pre-rendered as SVG in
@@ -1631,11 +1614,6 @@ export interface DesktopApi {
     key: DesktopGitGlobalConfigKey,
     value: string,
   ): Promise<DesktopGitGlobalConfig>;
-  /** Settings → Git: desktop-stored git preferences (commit template). */
-  readGitPreferences?(): Promise<DesktopGitPreferences>;
-  updateGitPreferences?(
-    preferences: Partial<DesktopGitPreferences>,
-  ): Promise<DesktopGitPreferences>;
   renameProject(projectPath: string, alias: string): Promise<void>;
   removeProject(projectPath: string): Promise<void>;
   /** Instructions editor (Projects page). `projectPath: null` targets the
@@ -1843,12 +1821,6 @@ export interface DesktopApi {
    * content, so the caller never stages or unstages around a commit.
    */
   gitCommitPaths?(cwd: string, message: string, paths: string[]): Promise<string>;
-  /** Settings → Git auto commit message: one-shot maintenance-model
-   *  completion over the included files' diffs; never touches git itself. */
-  gitGenerateCommitMessage?(
-    cwd: string,
-    files: Array<{ path: string; untracked?: boolean }>,
-  ): Promise<{ message: string }>;
   gitAmend?(cwd: string, message?: string): Promise<string>;
   gitUndoLastCommit?(cwd: string): Promise<string>;
   gitStash?(cwd: string, message?: string): Promise<string>;

@@ -13,7 +13,6 @@ import {
 import {
   attachmentImageBaseName,
   requiredAttachmentImage,
-  requiredCommitMessageFiles,
   requiredGitBranchName,
   requiredGitDiscardMode,
   requiredGitGlobalConfigKey,
@@ -24,10 +23,8 @@ import {
   requiredGitPatch,
   requiredGitPath,
   requiredGitPaths,
-  requiredGitPreferencesInput,
   requiredString,
 } from './ipc-validation';
-import type { DesktopSettingsStore } from './settings-store';
 import { validateGithubRequest } from '../../../../src/runtime/github/contract.mjs';
 
 type ServiceOperation = (...args: any[]) => Promise<any>;
@@ -40,8 +37,6 @@ interface SourceControlIpcOptions {
   app: Partial<Pick<App, 'getPath'>>;
   handle: Handle;
   operations: Record<string, ServiceOperation>;
-  settingsStore?: Pick<DesktopSettingsStore, 'readGitPreferences' | 'updateGitPreferences'>;
-  invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
   shell: Pick<Shell, 'openPath' | 'showItemInFolder'>;
   grantedFile: (
     accessToken: unknown,
@@ -54,8 +49,6 @@ export function registerSourceControlIpc({
   app,
   handle,
   operations,
-  settingsStore,
-  invokeDesktopOperation,
   shell,
   grantedFile,
 }: SourceControlIpcOptions): void {
@@ -140,14 +133,6 @@ export function registerSourceControlIpc({
     }
     return setGitGlobalConfig(requiredGitGlobalConfigKey(key), value);
   });
-  handle(DESKTOP_IPC.readGitPreferences, () =>
-    settingsStore?.readGitPreferences() ?? invokeDesktopOperation('readGitPreferences', []));
-  handle(DESKTOP_IPC.updateGitPreferences, (_event, preferences) => {
-    const value = requiredGitPreferencesInput(preferences);
-    return settingsStore
-      ? settingsStore.updateGitPreferences(value)
-      : invokeDesktopOperation('updateGitPreferences', [value]);
-  });
 
   handle(DESKTOP_IPC.gitStatus, (_event, cwd, options) => {
     const record = options && typeof options === 'object'
@@ -208,18 +193,6 @@ export function registerSourceControlIpc({
       requiredString(message, 'commit message', 20_000),
       requiredGitPaths(paths),
     ));
-  handle(DESKTOP_IPC.gitGenerateCommitMessage, async (_event, cwd, files) => {
-    const repository = requiredRepositoryCwd(cwd);
-    const entries = requiredCommitMessageFiles(files);
-    const preferences = settingsStore
-      ? await settingsStore.readGitPreferences().catch(() => null)
-      : await invokeDesktopOperation('readGitPreferences', []).catch(() => null);
-    const message = await invokeDesktopOperation<string>(
-      'gitGenerateCommitMessage',
-      [repository, entries, preferences],
-    );
-    return { message };
-  });
   handle(DESKTOP_IPC.gitAmend, (_event, cwd, message) =>
     gitAmend(requiredRepositoryCwd(cwd), requiredGitOptionalMessage(message)));
   handle(DESKTOP_IPC.gitUndoLastCommit, (_event, cwd) =>

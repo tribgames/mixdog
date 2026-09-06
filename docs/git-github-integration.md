@@ -1,9 +1,13 @@
 # Git & GitHub
 
-Git installation, GitHub CLI installation/sign-in, and commit-message preferences
-live in **Extensions → Plugin → Git & GitHub**. The existing `git` feature id,
-install marker, enabled flag, CLI credentials, and `desktop.git` preferences are
-preserved. Disabling the feature does not uninstall Git or sign out.
+Git installation and GitHub CLI installation/sign-in live in
+**Extensions → Plugin → Git & GitHub**. The existing `git` feature id, install
+marker, enabled flag, and CLI credentials are preserved. Disabling the feature
+does not uninstall Git or sign out.
+
+Source Control commits require a manually entered summary and accept an optional
+description. There are no commit-message presets, format checks, autocomplete,
+or AI generation. Legacy `desktop.git` preferences are no longer read or written.
 
 The **GitHub** side view retains the pull-request list and adds repositories,
 issues, Actions runs, workflows, releases, and notifications. Lists are paged.
@@ -60,7 +64,7 @@ node --test src/runtime/github/github.test.mjs src/session-runtime/builtin-featu
 Desktop integration (from `apps/desktop`):
 
 ```powershell
-node --import ./scripts/test-env.mjs --import tsx --test src/main/github-service.test.mjs src/renderer/github/github-ui.test.mjs src/renderer/settings/git-plugin.test.mjs src/renderer/settings/git-preference-save.test.mjs
+node --import ./scripts/test-env.mjs --import tsx --test src/main/github-service.test.mjs src/renderer/github/github-ui.test.mjs src/renderer/settings/git-plugin.test.mjs src/renderer/source-control-commit.test.mjs
 npm run typecheck
 ```
 

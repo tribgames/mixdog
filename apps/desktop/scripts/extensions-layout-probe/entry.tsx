@@ -53,7 +53,7 @@ const data: Record<string, unknown> = {
 };
 let api: any;
 let calls: Array<{ capability: string; args: unknown[] }> = [];
-function makeHost(view: string) {
+function makeHost() {
   const reads = new Map(SECTION_READS.map(([key, capability]) => [capability as string, data[key] ?? {}]));
   const value = (capability: string, args: unknown[] = []) => {
     if (reads.has(capability)) return reads.get(capability);
@@ -65,7 +65,6 @@ function makeHost(view: string) {
     if (capability === "listAgents" || capability === "listWebSearchModels") return [];
     return {};
   };
-  let preferences = { commitPreset: view === "git-custom" ? "custom" : "none", autoCommitMessage: true, commitExample: "feat: preserve layout", commitInstructions: "변경 사항을 명확하게 설명합니다." };
   return {
     setTitleBarDimmed: noop, rendererDiagnostic: noop, perfLog: noop,
     readSettings: async () => ({ browserControl: true, computerControl: true, browserInstalled: true, computerInstalled: true }),
@@ -77,8 +76,6 @@ function makeHost(view: string) {
     libreOfficeStatus: async () => ({ installed: true, version: "25.2" }),
     githubCliStatus: async () => ({ installed: true, authenticated: true, login: "ExampleOwner", version: "2.81.0" }),
     githubCliAccount: async () => ({ login: "ExampleOwner", name: "Example Owner", email: "123456+ExampleOwner@users.noreply.github.com" }),
-    readGitPreferences: async () => preferences,
-    updateGitPreferences: async (patch: any) => { calls.push({ capability: "updateGitPreferences", args: [patch] }); preferences = { ...preferences, ...patch }; return preferences; },
     gitGlobalConfig: async () => ({ name: "Example Owner", email: "owner@example.test" }),
     computerReadAuthorization: async () => ({ policy: null, externallyRestricted: false }),
     computerUpdateAuthorization: async () => ({ policy: null }),
@@ -157,7 +154,7 @@ function click(selector: string) {
   async render(view: string, theme: string, language: "ko" | "en", mobile: boolean, railWidth: number) {
     flushSync(() => root.render(null));
     calls = [];
-    api = makeHost(view);
+    api = makeHost();
     window.mixdogDesktop = api;
     seedReferences();
     document.documentElement.dataset.mixdogTheme = theme;
@@ -168,7 +165,7 @@ function click(selector: string) {
     flushSync(() => root.render(<Scene key={`${view}-${theme}-${language}`} view={view} railWidth={railWidth} />));
     await settle();
     const selectors: Record<string, string> = {
-      "git-plain": '[data-built-in-feature="git"]', "git-custom": '[data-built-in-feature="git"]',
+      git: '[data-built-in-feature="git"]',
       browser: '[data-built-in-feature="browser"]', computer: '[data-built-in-feature="computer"]',
       memory: '[data-built-in-feature="memory"]', office: '[data-built-in-feature="office"]',
       voice: '[data-built-in-feature="voice"]', localProvider: '[data-built-in-feature="localProvider"]',

@@ -54,6 +54,8 @@
     "prepublishOnly": "node -e \"if(!process.env.CI){console.error('local npm publish is disabled — run npm run release:patch');process.exit(1)}\"",
     "start": "node src/cli.mjs",
     "test": "node scripts/test.mjs",
+    "test:slow": "node scripts/test.mjs --lane slow",
+    "test:live": "node scripts/test.mjs --lane live",
     "smoke": "node scripts/smoke.mjs",
     "smoke:all": "npm run smoke && npm run smoke:boot && npm run smoke:patch && npm run smoke:compact",
     "smoke:boot": "node scripts/boot-smoke.mjs",

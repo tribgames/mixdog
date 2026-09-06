@@ -13,7 +13,12 @@ import { build } from "esbuild";
 const require = createRequire(import.meta.url);
 const rendererDir = fileURLToPath(new URL(".", import.meta.url));
 
-test("tab creation keeps fitting runs anchored and still reveals genuine overflow", { timeout: 45_000 }, async (t) => {
+// Electron needs a display server; the Linux CI lanes have none, so the probe runs where a desktop exists.
+const headlessLinux = process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
+
+test("tab creation keeps fitting runs anchored and still reveals genuine overflow", {
+  timeout: 45_000, skip: headlessLinux && "no display server for Electron",
+}, async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), "mixdog-tab-motion-"));
   try {
     const bundle = await build({
