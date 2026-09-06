@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.161
+
 - Office audits measure Arial, Helvetica, Times New Roman, Courier New,
   Calibri, Cambria and Georgia in their metric-compatible open faces
   (Liberation, Arimo/Tinos/Cousine, Carlito, Caladea, Gelasio) wherever the
@@ -231,9 +233,7 @@ the Unreleased section is empty, and stamps it with the released version.
   `when_to_use` trigger; the model's skill list shows `description — trigger`
   cut at 250 characters, the skill editor gains a separate Trigger field, the
   skill-creator validator warns when a listing line will be cut, and every
-  built-in skill is rewritten to the new shape.
-
-## v0.9.161 - 2026-09-03
+  built-in skill is rewritten to the new shape. - 2026-09-03
 
 - The session Goal island aligns its task list with the collapsed header,
   separates rows with hairlines, and collapses on outside click or Escape.
