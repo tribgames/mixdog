@@ -61,6 +61,8 @@ export function isMotifShape(shape) {
 }
 export const MAX_FONT_FAMILIES_PER_SLIDE = 3;
 export const MAX_ACCENT_HUE_FAMILIES = 2;
+export const STATE_ROLES = Object.freeze(['positive', 'warning', 'critical', 'informative']);
+const STATE_HUES = Object.freeze({ positive: 150, warning: 40, critical: 5, informative: 215 });
 const TEXT_CONTRAST_MINIMUM = 4.5;
 const LARGE_TEXT_CONTRAST_MINIMUM = 3;
 const LARGE_TEXT_POINT_SIZE = 24;
@@ -253,6 +255,24 @@ export function normalizePaletteTokens(source) {
     }
     if (!hexToRgb(colors[`${role}Deep`]) && hexToRgb(lightPanel)) {
       colors[`${role}Deep`] = adjustLightnessForContrast(colors[role], lightPanel, TEXT_CONTRAST_MINIMUM, -1);
+    }
+  }
+  // Four state colors on fixed hues — positive, warning, critical, informative — each as a solid mark (`positive`),
+  // a weak field under a state word (`positiveWeak`), and the word itself (`positiveText`): the text clears the canvas,
+  // the light panel, and its own field at 4.5:1, the mark clears the canvas at 3:1. The text stays restrained (30%
+  // saturation) so a verdict column adds no saturated hue family beside the accents. A pack may set any of them.
+  for (const [role, hue] of Object.entries(STATE_HUES)) {
+    if (!hexToRgb(colors[role])) {
+      const solid = hslToHex(hue, 65, 48);
+      colors[role] = hexToRgb(colors.canvas) ? adjustLightnessForContrast(solid, colors.canvas, LARGE_TEXT_CONTRAST_MINIMUM, -1) : solid;
+    }
+    if (!hexToRgb(colors[`${role}Weak`])) colors[`${role}Weak`] = hslToHex(hue, 45, 92);
+    if (!hexToRgb(colors[`${role}Text`])) {
+      let text = hslToHex(hue, 30, 34);
+      for (const field of [colors.canvas, lightPanel, colors[`${role}Weak`]]) {
+        if (hexToRgb(field)) text = adjustLightnessForContrast(text, field, TEXT_CONTRAST_MINIMUM, -1);
+      }
+      colors[`${role}Text`] = text;
     }
   }
   return { colors, adjustments };

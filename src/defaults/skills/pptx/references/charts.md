@@ -152,7 +152,8 @@ function table(slide, x, y, w, header, rows, { colW, rowH, verdict = -1, tones =
       align: alignments[j] || 'left', fill: { color: state ? state.fill : emphasized || j === verdict || highlightRows.includes(i) ? T.tint : banded && i % 2 ? T.paperAlt : T.paper } } };
   };
   slide.addTable([header.map(head), ...rows.map((r, i) => r.map((t, j) => cell(t, i, j)))],
-    { x, y, w, colW: colW || header.map(() => w / header.length), rowH, border: Array.isArray(border) ? border.map((edge) => ({ ...edge })) : { ...border }, margin: [...sp.margin], valign: 'middle' });
+    { x, y, w, colW: colW || header.map(() => w / header.length), rowH, border: Array.isArray(border) ? border.map((edge) => ({ ...edge })) : { ...border }, margin: [...sp.margin], valign: 'middle',
+      objectName: specName('table', tones.length ? 'toned' : verdict >= 0 ? 'verdict' : banded ? 'banded' : 'plain') });
   return y + rowH * (rows.length + 1);
 }
 ```

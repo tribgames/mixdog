@@ -158,6 +158,32 @@ function typeSizesOf(shape) {
 // Page chrome (a slide-number placeholder from the master) is not the author's type or color.
 const isChrome = (shape) => Boolean(shape?.placeholder) || Number(shape?.type) === 14;
 
+// Spec carriers (kit.md §1 SPEC): the kit signs a badge, a callout, a chevron stage, a stat numeral, or a table with
+// its spec name and variant (`mixdog-spec:badge:positive`); the receipt reads the signature back — how many of each
+// the slide holds, in which variants, and with what anatomy (type sizes and face) — so the deck can see whether the
+// third callout is the first's. One anatomy per carrier is the spec kept; two is a per-call override to explain.
+const SPEC_PREFIX = 'mixdog-spec:';
+function specOf(shape) {
+  const name = String(shape?.name || '');
+  if (!name.startsWith(SPEC_PREFIX)) return null;
+  const [spec, variant = ''] = name.slice(SPEC_PREFIX.length).split(':');
+  return spec ? { spec, variant } : null;
+}
+function anatomyOf(shape) {
+  const sizes = typeSizesOf(shape).sort((a, b) => a - b).join('/');
+  const face = Array.isArray(shape?.fonts) ? shape.fonts[0] : shape?.font?.name;
+  return [sizes, face].filter(Boolean).join('|');
+}
+function noteSpec(specs, shape) {
+  const found = specOf(shape);
+  if (!found) return;
+  const entry = specs[found.spec] || (specs[found.spec] = { count: 0, variants: [], anatomies: [] });
+  entry.count += 1;
+  if (found.variant && !entry.variants.includes(found.variant)) entry.variants.push(found.variant);
+  const anatomy = anatomyOf(shape);
+  if (anatomy && !entry.anatomies.includes(anatomy)) entry.anatomies.push(anatomy);
+}
+
 // Visual centroid: the area-weighted center of every shape that is not a canvas-wide surface,
 // in canvas units [0, 1]; offset is its ellipse-normalized distance from the canvas center with
 // a horizontal tolerance of 0.05 and a vertical one of 0.15 (a sideways drift reads first, as in
@@ -275,6 +301,7 @@ export function slideReceipt(slide) {
   const fills = new Map();
   let titleBox = null;
   const seen = [];
+  const specs = {};
   for (const shape of shapes) {
     if (shape.placeholder && !String(shape.text || '').trim()) continue;
     seen.push(shape);
@@ -283,12 +310,13 @@ export function slideReceipt(slide) {
     const fill = surfaceColor(shape);
     if (fill && box) fills.set(fill, (fills.get(fill) || 0) + area);
     if (shape.chart) { receipt.charts += 1; covered += area; if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
-    if (shape.table) { receipt.tables += 1; covered += area; if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
+    if (shape.table) { receipt.tables += 1; covered += area; noteSpec(specs, shape); if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
     if (isPicture(shape)) { receipt.pictures += 1; covered += area; if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
     if (shape.group) { receipt.groups += 1; covered += area; if (box) { visuals.push(box); content.push(box); blocks.push(box); } continue; }
     const hasText = Boolean(String(shape.text || '').trim());
     if (hasText) {
       receipt.textBoxes += 1;
+      noteSpec(specs, shape);
       const size = Number(shape.font?.size) || 0;
       if (size > receipt.largestText) { receipt.largestText = size; titleBox = box; }
       if (box) { textBoxes.push(box); if (!isChrome(shape)) { content.push(box); blocks.push(box); } }
@@ -303,6 +331,7 @@ export function slideReceipt(slide) {
     else if (geometry) { presets.add(geometry); covered += area; if (box) { content.push(box); constructs.push(box); } }
   }
   receipt.presets = [...presets];
+  if (Object.keys(specs).length) receipt.specs = specs;
   receipt.coverage = Math.min(1, Number((covered / CANVAS_AREA).toFixed(2)));
   // Diagram labels — small text bound to a contour or connector (a node's name, an axis tick, a dumbbell value,
   // a legend entry) — belong to their device, not to the page's columns and spacing steps: they leave the
@@ -329,6 +358,18 @@ export function compositionReceipt(document, brief = null) {
     deck.presets += s.presets.length; deck.fields += s.fields; deck.lines += s.lines; deck.groups += s.groups;
     if (s.textBoxes && !s.charts && !s.tables && !s.pictures && !s.drawn && !s.groups) deck.textOnly += 1;
   }
+  // Spec carriers across the deck: how many, on how many slides, in which variants, and the distinct anatomies they show.
+  const specs = {};
+  for (const s of slides) {
+    for (const [name, entry] of Object.entries(s.specs || {})) {
+      const total = specs[name] || (specs[name] = { count: 0, slides: 0, variants: [], anatomies: [] });
+      total.count += entry.count;
+      total.slides += 1;
+      for (const variant of entry.variants) if (!total.variants.includes(variant)) total.variants.push(variant);
+      for (const anatomy of entry.anatomies) if (!total.anatomies.includes(anatomy)) total.anatomies.push(anatomy);
+    }
+  }
+  if (Object.keys(specs).length) deck.specs = specs;
   const absent = ['charts', 'tables', 'pictures', 'presets', 'fields', 'lines']
     .filter((family) => deck[family] === 0);
   // The deck read as a sequence: air per slide is the density rhythm, title tops the composition variety.
@@ -363,7 +404,9 @@ export function compositionReceipt(document, brief = null) {
       + ' largestTextTop and bodyTop are positions in inches, not mandatory shared baselines; bodyFill = the vertical span of content below the largest type relative to the lower safe margin.'
       + ' centroid = area-weighted [x, y] in canvas fractions; centroidOffset normalizes distance from center by 0.05 horizontally and 0.15 vertically.'
       + ' renderAir = pixels without local variation; renderBalance reports centered, leftRight, topBottom and their mean score (higher means more centered or even, not necessarily better design).'
-      + ' gaps = vertical gaps in 0.05-inch steps; typeSet and textColors = observed sizes and colors; deck.rhythm sequences these observations. Relevance, legibility, grouping, and visual emphasis must be judged from the rendered pages, not from balanced ratios or short token sets.',
+      + ' gaps = vertical gaps in 0.05-inch steps; typeSet and textColors = observed sizes and colors; deck.rhythm sequences these observations.'
+      + ' specs = the kit\'s spec carriers (badge, callout, chevrons, stat, table) read from their signatures: count, slides, variants, and the distinct anatomies (type sizes|face) they show — one anatomy per carrier is the spec kept, two is a per-call override to explain.'
+      + ' Relevance, legibility, grouping, and visual emphasis must be judged from the rendered pages, not from balanced ratios or short token sets.',
   };
 }
 

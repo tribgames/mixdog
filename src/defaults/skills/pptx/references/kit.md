@@ -151,6 +151,9 @@ function spec(name) {
   if (!s) throw new Error(`spec: unknown "${name}" — one of ${Object.keys(SPEC).join(', ')}`);
   return { slots: s.slots, variants: s.variants, ...s.definitions() };
 }
+// A spec carrier signs its shape: the receipt reads the name back (composition.md §9) and reports per slide and per deck
+// how many of each carrier the deck holds, in which variants, and whether their anatomy (type size and face) stayed one.
+const specName = (name, variant = '') => `mixdog-spec:${name}${variant ? `:${variant}` : ''}`;
 // tone: the field + type pair a toned carrier takes — neutral ink on tint, accent white on the accent, a state its word
 // on its weak field (direction.md §5: the solid form never sits under type).
 function tone(name = 'neutral') {
@@ -399,7 +402,7 @@ function hero(slide, x, y, w, value, label, { scale = 'hero', size, color, unit 
   const runs = [{ text: value, options: { fontSize: size } }];
   if (unit) runs.push({ text: unit, options: { fontSize: Math.round(size * sp.unit) } });
   const h = Math.max(1.12, lineH(size, T.data) + 0.04), bind = GAP.bind;
-  slide.addText(runs, { ...box(x, y, w, h), fontFace: T.data, bold: true, color, margin: 0, valign: 'bottom' });
+  slide.addText(runs, { ...box(x, y, w, h), fontFace: T.data, bold: true, color, margin: 0, valign: 'bottom', objectName: specName('stat', scale) });
   if (!label) return y + h;
   const l = wrapKo(label, w, labelSize, T.sans), lh = fitH(l, w, labelSize);
   slide.addText(runsOf(l), { ...box(x, y + h + bind, w, lh), fontFace: T.sans, fontSize: labelSize, color: labelColor, margin: 0, valign: 'top' });
@@ -577,7 +580,7 @@ function badge(slide, x, y, w, h, str, { tone: toneName = 'neutral', fill, color
   const sp = spec('badge'), t = tone(toneName);
   h ??= sp.h; fill ??= t.fill; color ??= t.color; font ??= sp.font; size ??= sp.size;
   slide.addShape(S.roundRect, { ...box(x, y, w, h), rectRadius: sp.radius, fill: { color: fill }, line: { color: fill } });
-  slide.addText(str, { ...box(x, y, w, h), fontFace: font, fontSize: size, bold: true, color, align: 'center', valign: 'middle', margin: 0 });
+  slide.addText(str, { ...box(x, y, w, h), fontFace: font, fontSize: size, bold: true, color, align: 'center', valign: 'middle', margin: 0, objectName: specName('badge', toneName) });
 }
 // Horizontal rule: T.line at a section boundary (default), T.lineSubtle between repeated items, T.lineStrong as a frame edge.
 function hairline(slide, x, y, w, color = T.line) {
@@ -599,7 +602,7 @@ function chevrons(slide, x, y, w, h, labels, { active = -1, widths = null, size 
   labels.forEach((label, i) => {
     const cw = ws[i] + notch, state = i === active ? 'active' : 'default';
     slide.addShape(S.chevron, { ...box(cx, y, cw, h), fill: { color: sp.fill[state] }, line: { color: sp.seam, width: 1.5 } });
-    slide.addText(label, { ...box(cx + notch, y, cw - notch * 2, h), fontFace: sp.font, fontSize: size ?? sp.size, bold: state === 'active', color: sp.color[state], align: 'center', valign: 'middle', margin: 0 });
+    slide.addText(label, { ...box(cx + notch, y, cw - notch * 2, h), fontFace: sp.font, fontSize: size ?? sp.size, bold: state === 'active', color: sp.color[state], align: 'center', valign: 'middle', margin: 0, objectName: specName('chevrons', state) });
     cx += ws[i];
   });
 }
@@ -630,7 +633,7 @@ function callout(slide, x, y, w, h, str, { tone: toneName = 'neutral', form = 'w
   const sp = spec('callout'), c = inner({ x, w });
   const t = toneName === 'neutral' ? sp.neutral : tone(toneName);
   slide.addShape(form === 'plain' ? S.rect : S.wedgeRectCallout, { ...box(x, y, w, h), fill: { color: t.fill }, line: { color: t.line ?? t.fill, width: sp.width } });
-  slide.addText(str, { ...box(c.x, y, c.w, h), fontFace: sp.font, fontSize: size ?? sp.size, color: t.color, valign: 'middle', margin: 0 });
+  slide.addText(str, { ...box(c.x, y, c.w, h), fontFace: sp.font, fontSize: size ?? sp.size, color: t.color, valign: 'middle', margin: 0, objectName: specName('callout', toneName) });
 }
 // Custom silhouette: diagonal cut field or any polygon, points in inches relative to the box.
 function polygon(slide, x, y, w, h, points, fill = T.dark) {

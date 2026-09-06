@@ -1,4 +1,5 @@
 import { strings } from '../design-tokens.mjs';
+import { STATE_ROLES } from '../design-discipline.mjs';
 import {
   addDocxDecisionCallout,
   addDocxMetricStrip,
@@ -214,7 +215,7 @@ export function expandDocxDocument(operation, design, state, backend, compositio
     if (section.callout) {
       addDocxDecisionCallout(output, state, String(section.callout), design, {
         label: String(section.calloutLabel || 'NEXT CHECKPOINT'),
-        emphasis: 'accent',
+        emphasis: STATE_ROLES.includes(String(section.calloutTone || '')) ? String(section.calloutTone) : 'accent',
       });
     }
   }

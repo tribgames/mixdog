@@ -1,3 +1,5 @@
+import { STATE_ROLES } from '../design-discipline.mjs';
+
 function tableBorders(colors) {
   return {
     style: 'single',
@@ -59,13 +61,16 @@ function pushTable(output, state, values, design, variant) {
 }
 
 
+// emphasis: 'inverse' (the dark field) · 'accent' · a state tone ('positive' | 'warning' | 'critical' | 'informative'):
+// the label sits on the state's weak field in its text color, so a verdict reads the same as in a deck's badge.
 export function addDocxDecisionCallout(output, state, text, design, {
   label = 'RECOMMENDATION',
   emphasis = 'inverse',
 } = {}) {
   const colors = design.tokens.colors;
-  const fillColor = emphasis === 'accent' ? colors.accent : colors.inverse;
-  const foreground = emphasis === 'accent' ? colors.onAccent : colors.onInverse;
+  const tone = STATE_ROLES.includes(emphasis) && colors[`${emphasis}Weak`] && colors[`${emphasis}Text`] ? emphasis : '';
+  const fillColor = tone ? colors[`${tone}Weak`] : emphasis === 'accent' ? colors.accent : colors.inverse;
+  const foreground = tone ? colors[`${tone}Text`] : emphasis === 'accent' ? colors.onAccent : colors.onInverse;
   const { table } = pushTable(output, state, [[label], [String(text)]], design, 'callout');
   output.push({
     op: 'set_table_cell_style',
@@ -301,18 +306,21 @@ export function addDocxSectionTable(output, state, values, design, variant = 'de
         row,
         col: column,
         properties: {
+          // A release gate is a positive state, a stop gate a critical one: the state fields and words, never a literal tint.
           fillColor: releaseCell
-            ? colors.surface
+            ? (colors.positiveWeak || colors.surface)
             : stopCell
-              ? 'FFF4E5'
+              ? (colors.criticalWeak || colors.surface2 || colors.surface)
               : row % 2 === 0
                 ? colors.canvas
                 : colors.surface,
-          color: metricValue || releaseCell
+          color: metricValue
             ? colors.accent
-            : stopCell
-              ? colors.accent2
-              : colors.ink,
+            : releaseCell
+              ? (colors.positiveText || colors.accent)
+              : stopCell
+                ? (colors.criticalText || colors.accent2)
+                : colors.ink,
           bold: column === 1 || metricValue,
           verticalAlignment: 'center',
         },

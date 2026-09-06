@@ -130,11 +130,12 @@ export function addXlsxDecisionPanel(output, {
             fontName: type.body,
             fontSize: 10,
             bold: columnIndex === 0,
-            color: columnIndex === 1 ? colors.accent : columnIndex === 2 ? colors.accent2 : colors.ink,
+            // Release is a positive state, Stop a critical one: the state fields and words, never a literal tint.
+            color: columnIndex === 1 ? (colors.positiveText || colors.accent) : columnIndex === 2 ? (colors.criticalText || colors.accent2) : colors.ink,
             fillColor: columnIndex === 1
-              ? colors.surface
+              ? (colors.positiveWeak || colors.surface)
               : columnIndex === 2
-                ? 'FFF4E5'
+                ? (colors.criticalWeak || colors.surface2)
                 : rowIndex % 2 === 0
                   ? colors.canvas
                   : colors.surface2,

@@ -17,7 +17,17 @@ the Unreleased section is empty, and stamps it with the released version.
   with `tone` variants, a `stat` scale step, and a `statBand()` helper; icons
   map to four size bands; and a new `references/writing.md` fixes sentence,
   register, number, date, money, unit, and translation-room rules, linked
-  from the docx and xlsx skills.
+  from the docx and xlsx skills. Each spec carrier signs its shape, and the
+  composition receipt reads the signatures back (`slides[].specs`,
+  `deck.specs`: count, slides, variants, anatomies) so a carrier whose type
+  size or face drifted between slides shows as a second anatomy.
+
+- Office design tokens derive the same four state colors (`positive`,
+  `warning`, `critical`, `informative`, each with a `Weak` field and a `Text`
+  step, contrast-checked against the canvas, the light panel, and the field);
+  the docx and xlsx decision gates draw Release and Stop on the positive and
+  critical states instead of a literal tint and the second accent, and a
+  `compose_document` section's `calloutTone` puts its callout on a state.
 
 ## v0.9.161 - 2026-09-06
 

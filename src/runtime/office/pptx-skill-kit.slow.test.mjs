@@ -144,6 +144,7 @@ test('kit carriers read their anatomy from SPEC and a state reads the same in a 
   kit.badge(slide, 1, 1, 1.2, null, '채택', { tone: 'positive' });
   assert.equal(slide.shapes.at(-1).fill.color, T.state.positive.weak, 'a positive badge sits on the state\'s weak field');
   assert.equal(slide.texts.at(-1).color, T.state.positive.text, 'the badge word is the state text');
+  assert.equal(slide.texts.at(-1).objectName, 'mixdog-spec:badge:positive', 'the carrier signs its shape for the receipt');
   assert.equal(slide.shapes.at(-1).h, kit.spec('badge').h, 'h null takes the spec height');
   kit.badge(slide, 1, 1, 1.2, 0.32, '후', { tone: 'accent' });
   assert.deepEqual([slide.shapes.at(-1).fill.color, slide.texts.at(-1).color], [T.accent, T.onAccent], 'the accent chip is white on the accent');
@@ -282,6 +283,11 @@ test('a deck composed from the kit primitives authors, validates, and passes the
   assert.equal(authored.receipt?.slides?.length, 12, 'the author result carries a composition receipt per slide');
   assert.ok(authored.receipt.slides[2].charts >= 1, 'the receipt sees the native chart on slide 3');
   assert.ok(authored.receipt.deck.charts >= 1 && authored.receipt.deck.presets >= 1, 'the deck totals count charts and preset contours');
+  // The spec carriers' signatures survive the save: the stat band's four numerals, the toned verdict table, the chevron run.
+  assert.equal(authored.receipt.slides[3].specs?.stat?.count, 4, `slide 4 carries four stat numerals: ${JSON.stringify(authored.receipt.slides[3].specs)}`);
+  assert.deepEqual(authored.receipt.slides[8].specs?.table?.variants, ['toned']);
+  assert.equal(authored.receipt.deck.specs?.chevrons?.anatomies?.length, 1, 'every chevron stage shares one anatomy');
+  assert.deepEqual(authored.receipt.deck.specs?.badge?.variants, ['neutral', 'accent']);
   const validation = value(await executeOfficeTool({ action: 'validate', session: authored.session }, { cwd }));
   assert.equal(validation.schema?.ok, true, JSON.stringify(validation.schema?.errors?.slice(0, 3)));
   const qa = value(await executeOfficeTool({ action: 'qa', session: authored.session }, { cwd }));

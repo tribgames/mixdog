@@ -42,6 +42,33 @@ test('a slide receipt counts what the saved slide carries and names its preset c
   assert.ok(evidence.coverage > 0.3 && evidence.coverage <= 1);
 });
 
+// The kit signs its spec carriers by name; the receipt reads them back per slide and across the deck, and a carrier
+// whose type size or face changed between slides shows as a second anatomy — information, not a verdict.
+test('a receipt reads spec carriers from their signatures and shows a second anatomy when one drifted', () => {
+  const document = { slides: [
+    { index: 1, background: { color: 'F7F9FB' }, shapes: [
+      { text: '채택', name: 'mixdog-spec:badge:positive', font: { size: 11, name: 'Noto Sans KR' }, width: 90, height: 24 },
+      { text: '보류', name: 'mixdog-spec:badge:warning', font: { size: 11, name: 'Noto Sans KR' }, width: 90, height: 24 },
+      { text: '31', name: 'mixdog-spec:stat:band', font: { size: 49, name: 'Arial' }, width: 200, height: 80 },
+      { table: { path: '/slide[1]/shape[4]/table' }, name: 'mixdog-spec:table:toned', width: 600, height: 200 },
+      { text: 'plain box', font: { size: 18 }, width: 300, height: 60 },
+    ] },
+    { index: 2, background: { color: 'F7F9FB' }, shapes: [
+      { text: '기각', name: 'mixdog-spec:badge:critical', font: { size: 14, name: 'Noto Sans KR' }, width: 90, height: 24 },
+      { text: '주의', name: 'mixdog-spec:callout:warning', font: { size: 14, name: 'Noto Sans KR' }, width: 300, height: 60 },
+    ] },
+  ] };
+  const first = slideReceipt(document.slides[0]);
+  assert.deepEqual(first.specs.badge, { count: 2, variants: ['positive', 'warning'], anatomies: ['11|Noto Sans KR'] });
+  assert.deepEqual(first.specs.stat, { count: 1, variants: ['band'], anatomies: ['49|Arial'] });
+  assert.deepEqual(first.specs.table, { count: 1, variants: ['toned'], anatomies: [] });
+  assert.equal(slideReceipt(document.slides[1]).specs.callout.count, 1);
+  assert.equal(slideReceipt({ index: 3, shapes: [{ text: 'no signature', font: { size: 18 }, width: 10, height: 10 }] }).specs, undefined, 'a slide without carriers carries no specs key');
+  const { deck } = compositionReceipt(document);
+  assert.deepEqual(deck.specs.badge, { count: 3, slides: 2, variants: ['positive', 'warning', 'critical'], anatomies: ['11|Noto Sans KR', '14|Noto Sans KR'] }, 'the badge on slide 2 drifted to 14 pt: two anatomies');
+  assert.equal(deck.specs.callout.slides, 1);
+});
+
 test('a slide receipt observes air, quadrants, the largest object, text columns, and fills from shape footprints', () => {
   const slide = { index: 5, background: { color: 'F7F9FB' }, shapes: [
     { text: 'Title', font: { size: 36 }, left: 43, top: 72, width: 600, height: 60 },

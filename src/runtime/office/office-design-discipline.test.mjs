@@ -44,6 +44,19 @@ test('design tokens replace unsafe typefaces and keep palettes readable', () => 
   assert.ok(contrastRatio(palette.colors.accent2Deep, palette.colors.surface2) >= 4.5);
   assert.ok(palette.adjustments.some((entry) => entry.role === 'inverse'));
   assert.ok(palette.adjustments.some((entry) => entry.role === 'muted'));
+  // The four state colors derive when a pack sets none: the word clears the canvas, the light panel, and its own
+  // field; the mark clears the canvas; and the words and fields add no saturated hue family beside the accents.
+  for (const role of ['positive', 'warning', 'critical', 'informative']) {
+    for (const field of ['FFFFFF', 'E2E8F0', palette.colors[`${role}Weak`]]) {
+      assert.ok(contrastRatio(palette.colors[`${role}Text`], field) >= 4.5, `${role} text on ${field}`);
+    }
+    assert.ok(contrastRatio(palette.colors[role], 'FFFFFF') >= 3, `${role} mark on the canvas`);
+  }
+  const accents = saturatedHueFamilies([palette.colors.accent, palette.colors.accent2]).length;
+  const withStates = saturatedHueFamilies([palette.colors.accent, palette.colors.accent2,
+    ...['positive', 'warning', 'critical', 'informative'].flatMap((role) => [palette.colors[`${role}Text`], palette.colors[`${role}Weak`]])]).length;
+  assert.equal(withStates, accents, 'state words and fields stay under the saturated band');
+  assert.equal(normalizePaletteTokens({ canvas: 'FFFFFF', ink: '111111', critical: 'B00020' }).colors.critical, 'B00020', 'a pack-set state color is kept');
 
   const design = resolveOfficeDesign('pptx', {
     typography: { display: 'Aptos Display', body: 'Consolas' },
