@@ -9,6 +9,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text } from 'ink';
 import { rgbSgr } from '../../ui/ansi.mjs';
+import { measuredContextUsage, contextMeasurementLabel } from '../../ui/context-measurement.mjs';
 import { displayModelName, shortenModelName } from '../../ui/model-display.mjs';
 import { theme, surfaceBackground } from '../theme.mjs';
 import {
@@ -156,39 +157,18 @@ function localContextPct({
   compactBoundaryTokens = 0,
   autoCompactTokenLimit = 0,
 } = {}) {
-  const boundary = localNum(compactBoundaryTokens) > 0
-    ? localNum(compactBoundaryTokens)
-    : (localNum(displayContextWindow) > 0
-      ? localNum(displayContextWindow)
-      : (localNum(contextWindow) > 0
-        ? localNum(contextWindow)
-        : (localNum(rawContextWindow) > 0 ? localNum(rawContextWindow) : 200_000)));
-  // The trigger is the denominator used by the pre-send auto-compact decision,
-  // so the local boot gauge reaches 100% at the exact same pressure.
-  const window = localNum(autoCompactTokenLimit) > 0
-    ? localNum(autoCompactTokenLimit)
-    : boundary;
-  const s = stats && typeof stats === 'object' ? stats : {};
-  const source = String(s.currentContextSource || '').toLowerCase();
-  const estimated = localNum(s.currentEstimatedContextTokens);
-  if (estimated > 0) {
-    return Math.max(0, (estimated / window) * 100);
-  }
-  if (source === 'estimated') return 0;
-  let tokens = localNum(s.currentContextTokens ?? s.contextTokens);
-  if (!tokens) return 0;
-  return Math.max(0, (tokens / window) * 100);
+  return measuredContextUsage({ stats, contextWindow, displayContextWindow, rawContextWindow }).percent;
 }
 
 function localContextPctDisplayLabel(ctxPct) {
   const pct = Number(ctxPct);
   if (!Number.isFinite(pct) || pct <= 0) return '0';
-  if (pct > 0 && pct < 1) return String(Math.round(pct * 10) / 10);
-  return String(Math.floor(Math.min(100, pct)));
+  return String(Math.round(Math.min(100, pct) * 10) / 10);
 }
 
-function localContextSegmentFromPct(ctxPct = 0) {
+function localContextSegmentFromPct(ctxPct, source = 'pending') {
   const { SUBTLE, SUCCESS, WARNING, ERROR } = statusColors();
+  if (ctxPct == null) return `${SUBTLE}${contextMeasurementLabel(source)}${RESET}`;
   const cols = terminalColumns();
   const cells = cols >= 80 ? 14 : 0;
   const raw = Number(ctxPct);
@@ -360,7 +340,7 @@ function localBootStatusLine(args = {}) {
     compactBoundaryTokens,
     autoCompactTokenLimit,
   });
-  const l1 = `${STATUS}${modelBits}${RESET} ${SUBTLE}│${RESET} ${localContextSegmentFromPct(ctxPct)}`;
+  const l1 = `${STATUS}${modelBits}${RESET} ${SUBTLE}│${RESET} ${localContextSegmentFromPct(ctxPct, stats?.currentContextSource)}`;
   const l2 = localStatusLineL2(args);
   return l2 ? `${l1}\n${l2}` : l1;
 }

@@ -54,6 +54,10 @@ import {
   extensionSectionForSettings,
   type ExtensionsSection,
 } from "./extension-sections";
+import {
+  projectsSectionForSettings,
+  type ProjectsSection,
+} from "./project-sections";
 import { TooltipLayer } from "./TooltipLayer";
 import {
   UnsavedChangesDialog,
@@ -109,7 +113,7 @@ import {
   reportStudioLoadStage,
 } from "./renderer-load-metrics";
 import type { SourceControlDiffRequest } from "./SourceControlDock";
-import { shouldFocusComposerFromWindowKey } from "./surface-input-focus";
+import { usePaneTypingFocus } from "./use-composer-focus";
 import { asRecord, displayProject, navigationKey, newDraftSelection, newStudioSelection } from "./text-format";
 import { isMarkdownBodyReady, preloadMarkdownBody } from "./markdown-body-loader";
 import { useEditorNavigation } from "./use-editor-navigation";
@@ -217,7 +221,6 @@ import { DEFAULT_SIDEBAR_VIEW_ORDER } from "./sidebar-view-layout";
 import {
   WorkbenchSideIconBar,
   WorkbenchSidePanel,
-  isWorkbenchSideLauncher,
   type WorkbenchSide,
   type WorkbenchSideTitleDragProps,
   type WorkbenchSideViewId,
@@ -233,10 +236,7 @@ import {
   SessionBrowserParkingHost,
   SessionBrowserSlot,
 } from "./session-browser-surfaces";
-import {
-  browserSurfaceRequestShouldReveal,
-  browserSurfaceRevealPlan,
-} from "./session-browser-policy";
+import { useAgentBrowserSurfaceRequests } from "./use-agent-browser-surface-requests";
 import {
   sessionSideDockEntryForSession,
 } from "./session-side-surface-policy";
@@ -303,7 +303,6 @@ export function App() {
     openSchedules,
     openSidebar,
     openWebhooks,
-    openWorkflows,
     problemsCollapseNonce,
     problemsFilter,
     projectsOpen,
@@ -324,7 +323,6 @@ export function App() {
     toggleSidebar,
     trackSidebarPanelModule,
     webhooksOpen,
-    workflowsOpen,
   } = useAppShellPanels(paneWorkspace.focusedLeafId);
   const settingsMounted = useRef(false);
   const mountedCommandSurfaces = useRef(new Set<string>());
@@ -361,6 +359,9 @@ export function App() {
     applySidebarOpen,
   });
   const [extensionsSection, setExtensionsSection] = useState<ExtensionsSection>("plugins");
+  // Projects panel section (Project | Workflow): owned here like the
+  // Extensions one so /workflow and /websearch can land on the Workflow tab.
+  const [projectsSection, setProjectsSection] = useState<ProjectsSection>("projects");
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [onboardingReady, setOnboardingReady] = useState(false);
   const {
@@ -523,29 +524,7 @@ export function App() {
   // worker parked it during the launch this claims it from.
   useSharedIntakeBoot();
   const [composerFocusRequest, setComposerFocusRequest] = useState(0);
-  useEffect(() => {
-    const focusComposerForTyping = (event: globalThis.KeyboardEvent) => {
-      const typingSurfaceSelector = focusedPaneSelection?.kind === "studio"
-        ? ".studio-root[data-surface-active='true'] textarea"
-        : focusedPaneSelection?.kind === "session" || focusedPaneSelection?.kind === "new"
-          ? "form.composer textarea"
-          : "";
-      if (!typingSurfaceSelector) return;
-      if (!shouldFocusComposerFromWindowKey(event)) return;
-      const pane = document.querySelector<HTMLElement>(
-        `[data-pane-id="${paneWorkspace.focusedLeafId}"]`,
-      );
-      const typingSurface = pane?.querySelector<HTMLTextAreaElement>(typingSurfaceSelector);
-      if (!typingSurface || typingSurface.closest("[inert]")) return;
-      // Focus during keydown capture, before Chromium commits the printable
-      // character or starts IME composition. This gives the desktop shell the
-      // same type-anywhere grammar across Task and Studio while real editors,
-      // terminals, menus, dialogs, and form fields keep their own keyboard.
-      typingSurface.focus({ preventScroll: true });
-    };
-    window.addEventListener("keydown", focusComposerForTyping, true);
-    return () => window.removeEventListener("keydown", focusComposerForTyping, true);
-  }, [focusedPaneSelection?.kind, paneWorkspace.focusedLeafId]);
+  usePaneTypingFocus(paneWorkspace.focusedLeafId, focusedPaneSelection?.kind);
   // Warm route CODE as soon as startup settles, before the stricter desktop
   // boot gate waits on every catalog. Hidden mounting and reference DATA still
   // stay behind desktopBootReady below, so this removes click-time downloads
@@ -1104,11 +1083,14 @@ export function App() {
       applySidebarOpen(true);
       return;
     }
-    // Workflow and web-search-model settings graduated to the main-pane
-    // Workflows page: /workflow and /websearch land there.
-    if (section === "workflow" || section === "websearch") {
+    // Workflow and web-search-model settings live on the Projects panel's
+    // Workflow tab: /workflow and /websearch land there.
+    const projectsTab = projectsSectionForSettings(section);
+    if (projectsTab) {
+      if (!desktopFeatureEnabled("projects")) return;
       setCommandSurface(null);
-      openWorkflows();
+      setProjectsSection(projectsTab);
+      openProjects();
       return;
     }
     if (!desktopFeatureEnabled("settings")) return;
@@ -1122,7 +1104,7 @@ export function App() {
   }, [
     applySidebarOpen,
     mountSidebarPanel,
-    openWorkflows,
+    openProjects,
     paneSideDocks.open,
     trackSidebarPanelModule,
     warmSettingsView,
@@ -1212,6 +1194,7 @@ export function App() {
   });
   const conversationOpenProjects = useStableEvent(() => {
     if (!desktopFeatureEnabled("projects")) return;
+    setProjectsSection("projects");
     openProjects();
     void refreshProjects().catch(() => undefined);
   });
@@ -1422,53 +1405,19 @@ export function App() {
     setSessionSideSurface(selection.id, "terminal");
     paneSideDocks.select(leafId, "terminal");
   };
-  // Agent browser bridge: retain each session's persistent surface, and reveal
-  // it beside the owner only when the host marks the request as foreground.
-  const browserPaneOwners = paneWorkspace.leaves.map((leaf) => {
-    const selection = paneActiveSelection(leaf);
-    return {
-      leafId: leaf.id,
-      sessionId: selection?.kind === "session" ? selection.id : null,
-    };
+  useAgentBrowserSurfaceRequests({
+    owners: paneWorkspace.leaves.map((leaf) => {
+      const selection = paneActiveSelection(leaf);
+      return {
+        leafId: leaf.id,
+        sessionId: selection?.kind === "session" ? selection.id : null,
+      };
+    }),
+    focusedLeafId: paneWorkspace.focusedLeafId,
+    surfaces: sessionPaneSurfaces,
+    prefetch: prefetchBrowserPane,
+    select: paneSideDocks.select,
   });
-  const openBrowserSurfaceForAgent = (sessionId: string, reveal = true) => {
-    if (!sessionId) return;
-    void prefetchBrowserPane().catch(() => {});
-    browserSurfaces.ensure(sessionId);
-    if (!reveal) return;
-    setSessionSideSurface(sessionId, "browser");
-    const plan = browserSurfaceRevealPlan(
-      browserPaneOwners,
-      sessionId,
-      paneWorkspace.focusedLeafId,
-    );
-    if (plan.leafId) {
-      pendingBrowserAutoReveal.current.delete(sessionId);
-      paneSideDocks.select(plan.leafId, "browser");
-    } else {
-      pendingBrowserAutoReveal.current.add(sessionId);
-    }
-  };
-  const openBrowserSurfaceForAgentRef = useRef(openBrowserSurfaceForAgent);
-  openBrowserSurfaceForAgentRef.current = openBrowserSurfaceForAgent;
-  useEffect(() => window.mixdogDesktop?.onBrowserOpenRequested?.((request) => {
-    openBrowserSurfaceForAgentRef.current(
-      String(request?.sessionId || "").trim(),
-      browserSurfaceRequestShouldReveal(request),
-    );
-  }), []);
-  useEffect(() => {
-    for (const sessionId of pendingBrowserAutoReveal.current) {
-      const plan = browserSurfaceRevealPlan(
-        browserPaneOwners,
-        sessionId,
-        paneWorkspace.focusedLeafId,
-      );
-      if (!plan.leafId) continue;
-      pendingBrowserAutoReveal.current.delete(sessionId);
-      paneSideDocks.select(plan.leafId, "browser");
-    }
-  }, [browserPaneOwners, paneSideDocks.select, paneWorkspace.focusedLeafId]);
   const openDiffTab = (
     project: string,
     rel: string,
@@ -1782,6 +1731,7 @@ export function App() {
   // while their editors float as popup dialogs.
   const {
     sidebarNewTask,
+    sidebarNewStudio,
     sidebarPanel,
     sidebarResumeSession,
     renderSidebarPanel,
@@ -1789,7 +1739,6 @@ export function App() {
     schedulesOpen,
     webhooksOpen,
     projectsOpen,
-    workflowsOpen,
     sidebarOpen,
     viewGroups: sidebarViewGroups,
     loadedSidebarPanels,
@@ -1804,8 +1753,11 @@ export function App() {
     selectedProjectPath,
     extensionsSection,
     onExtensionsSectionChange: setExtensionsSection,
+    projectsSection,
+    onProjectsSectionChange: setProjectsSection,
     closeSidebarForNavigation,
     startTask,
+    openStudio: openStudioTab,
     openSession,
     refreshProjects,
     renameProject,
@@ -1917,16 +1869,10 @@ export function App() {
     paneSideDocks.setOpen(focusedLeafIdRef.current, false);
     bottomPanel.setOpen(false, "instant");
   }, [applySidebarOpen, bottomPanel, paneSideDocks.setOpen]);
-  const launchStudioSurface = useStableEvent(() => openStudioTab());
   const prefetchWorkbenchSideView = useCallback((id: WorkbenchSideViewId) => {
     if (DEFAULT_SIDEBAR_VIEW_ORDER.includes(id as SidebarPanelKey)) {
       const panel = id as SidebarPanelKey;
       trackSidebarPanelModule(panel, loadSidebarPanelModule[panel]());
-      return;
-    }
-    // A launcher warms the surface its tab will present, not the dock.
-    if (id === "studio") {
-      void loadStudioViewModule().catch(() => {});
       return;
     }
     if (id === "browser") {
@@ -1951,13 +1897,7 @@ export function App() {
     id: WorkbenchSideViewId,
     paneLeafId?: string,
   ) => {
-    // A launcher owns no panel: it mints its workspace tab and leaves both
-    // sides exactly as they were. The browser is no launcher anymore — it
-    // flows to the right-side branch as the pane dock's own child.
-    if (isWorkbenchSideLauncher(id)) {
-      launchStudioSurface();
-      return;
-    }
+    // The browser flows to the right-side branch as the pane dock's own child.
     const side = workbenchSideLayout.sideOf(id);
     if (id === "sessions") {
       closeSidebarPanels();
@@ -2003,7 +1943,6 @@ export function App() {
     activeSideViews,
     applySidebarOpen,
     closeSidebarPanels,
-    launchStudioSurface,
     mountSidebarPanel,
     paneSideDocks.select,
     browserSurfaces,
@@ -2028,11 +1967,9 @@ export function App() {
     const landedRoot = placement.startsWith("inside") && targetRoot
       ? targetRoot
       : sourceRoot;
-    if (!isWorkbenchSideLauncher(landedRoot)) {
-      setActiveSideViews((current) =>
-        current.left === landedRoot ? current : { ...current, left: landedRoot });
-      applySidebarOpen(true);
-    }
+    setActiveSideViews((current) =>
+      current.left === landedRoot ? current : { ...current, left: landedRoot });
+    applySidebarOpen(true);
   }, [
     applySidebarOpen,
     workbenchSideLayout.moveGroup,
@@ -2050,11 +1987,9 @@ export function App() {
     const landedView = placement.startsWith("inside") && targetRoot
       ? targetRoot
       : sourceId;
-    if (!isWorkbenchSideLauncher(landedView)) {
-      setActiveSideViews((current) =>
-        current.left === landedView ? current : { ...current, left: landedView });
-      applySidebarOpen(true);
-    }
+    setActiveSideViews((current) =>
+      current.left === landedView ? current : { ...current, left: landedView });
+    applySidebarOpen(true);
   }, [
     applySidebarOpen,
     workbenchSideLayout.moveView,
@@ -2302,7 +2237,7 @@ export function App() {
       priority: BOOT_WARMUP.utilityDockModule,
       run: () => preloadUtilityDock().catch(() => {}),
     })];
-    const panels: SidebarPanelKey[] = ["schedules", "webhooks", "projects", "workflows", "extensions"];
+    const panels: SidebarPanelKey[] = ["schedules", "webhooks", "projects", "extensions"];
     panels.forEach((panel, index) => {
       if (!desktopSidebarDestinationEnabled(panel)) return;
       cancels.push(scheduleBootWarmup({
@@ -2342,6 +2277,7 @@ export function App() {
         unreadSessionIds={unreadSessionIds}
         selection={sidebarSelection}
         onNewTask={sidebarNewTask}
+        onNewStudio={sidebarNewStudio}
         onPrefetchSession={window.mixdogDesktop?.prefetchSession ? prefetchSession : undefined}
         onResumeSession={sidebarResumeSession}
         onRenameSession={renameSession}
@@ -2361,6 +2297,7 @@ export function App() {
         unreadSessionIds={unreadSessionIds}
         selection={sidebarSelection}
         onNewTask={sidebarNewTask}
+        onNewStudio={sidebarNewStudio}
         onPrefetchSession={window.mixdogDesktop?.prefetchSession ? prefetchSession : undefined}
         onResumeSession={sidebarResumeSession}
         onRenameSession={renameSession}
@@ -2387,9 +2324,8 @@ export function App() {
             }
           : undefined} />;
     }
-    // Launchers have no panel body, and session-owned surfaces render in the
-    // pane dock's persistent stack.
-    if (isWorkbenchSideLauncher(id) || id === "browser" || id === "terminal") return null;
+    // Session-owned surfaces render in the pane dock's persistent stack.
+    if (id === "browser" || id === "terminal") return null;
     const tab = id as UtilityDockTab;
     return <SnapshotUtilityDock snapshotStore={snapshotStore}
       hidden={!active}
@@ -2639,10 +2575,6 @@ export function App() {
           onPrefetchProjects={() => {
             trackSidebarPanelModule("projects", loadSidebarPanelModule.projects());
           }}
-          onOpenWorkflows={openWorkflows}
-          onPrefetchWorkflows={() => {
-            trackSidebarPanelModule("workflows", loadSidebarPanelModule.workflows());
-          }}
           onOpenSchedules={openSchedules}
           onPrefetchSchedules={() => {
             trackSidebarPanelModule("schedules", loadSidebarPanelModule.schedules());
@@ -2653,6 +2585,7 @@ export function App() {
           }}
           onCloseActiveSurface={closeActiveRailPanel}
           onOpenSettings={() => { closeSidebarForNavigation("instant"); openSettings(); }}
+          onOpenProviders={() => { closeSidebarForNavigation("instant"); openSettings('providers'); }}
           onPrefetchSettings={warmSettingsView}
           primaryNavigation={<WorkbenchSideIconBar
             side="left"

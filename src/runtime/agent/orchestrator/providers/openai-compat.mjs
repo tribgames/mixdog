@@ -479,7 +479,10 @@ export class OpenAICompatProvider {
                     async ({ signal: attemptSignal }) => {
                         try { opts.onStageChange?.('requesting'); } catch { /* heartbeat best-effort */ }
                         const stream = await withRetry(
-                            ({ signal: openSignal }) => this.client.chat.completions.create(params, { signal: openSignal }),
+                            ({ signal: openSignal }) => this.client.chat.completions.create(params, {
+                                signal: openSignal,
+                                ...(opts.requestHeaders ? { headers: opts.requestHeaders } : {}),
+                            }),
                             {
                                 signal: attemptSignal,
                                 // Single attempt: this inner wrapper exists only to
@@ -674,7 +677,10 @@ export class OpenAICompatProvider {
             response = await withRetry(
                 ({ signal: attemptSignal }) => this.client.chat.completions.create(
                     nonStreamParams,
-                    { signal: attemptSignal },
+                    {
+                        signal: attemptSignal,
+                        ...(opts.requestHeaders ? { headers: opts.requestHeaders } : {}),
+                    },
                 ),
                 {
                     signal,

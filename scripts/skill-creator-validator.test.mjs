@@ -123,3 +123,27 @@ test('the validator rejects malformed nested YAML through the Mixdog parser', ()
   }
 });
 
+test('the validator accepts explicit tool dependencies and rejects malformed dependency entries', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-creator-dependencies-'));
+  const skillDir = join(root, 'linked-skill');
+  mkdirSync(skillDir);
+  try {
+    for (const [declaration, valid] of [
+      ['dependencies:\n  tools:\n    - type: tool\n      value: office', true],
+      ['dependencies:\n  tools:\n    - type: mcp\n      value: figma', true],
+      ['dependencies: office', false],
+      ['dependencies:\n  tools: office', false],
+      ['dependencies:\n  tools:\n    - type: tool', false],
+    ]) {
+      writeFileSync(join(skillDir, 'SKILL.md'), [
+        '---', 'name: linked-skill', 'description: Create linked output.',
+        'when_to_use: Linked output requests.', declaration, '---', '', '# Instructions', '',
+      ].join('\n'));
+      const result = validateSkillDirectory(skillDir);
+      assert.equal(result.ok, valid, JSON.stringify(result.errors));
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+

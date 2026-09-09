@@ -47,6 +47,7 @@ import { createCommandRouter } from './command-router';
 import { createBridgeServer } from './bridge-server';
 import { loadComputerExecutionPolicy } from './execution-policy';
 import { createUserWaitService } from './user-wait-service';
+import { configureCursorDiagnostics, recordCursorDiagnostic } from '../overlay/cursor-diagnostics';
 
 export type { ChromeRemoteDebuggingSetup, ChromeRemoteDebuggingTarget };
 
@@ -110,6 +111,7 @@ export function createPowerShellComputerHost(
     },
   });
   const policy = authorization.policy;
+  configureCursorDiagnostics(join(mixdogDataDirectory(), 'computer-cursor-diagnostics.json'));
   const diagnose = (event: string, data: Record<string, unknown> = {}): void => {
     try { options.onDiagnostic?.(event, data); } catch { /* diagnostics are advisory */ }
   };
@@ -121,6 +123,20 @@ export function createPowerShellComputerHost(
     isDisposed: () => disposed,
     onSessionRetired: (sessionId, child) => lifecycle.onSessionWorkerRetired(sessionId, child),
     maxWorkers: options.maxWorkers,
+    onPointerProgress: (sessionId, x, y, held, mode, phase) => {
+      const state = computerUseCoordinator.snapshot();
+      if (state.userControlActive) { recordCursorDiagnostic('ignored_user_control'); return; }
+      if (state.cleanupState !== 'ready') { recordCursorDiagnostic('ignored_cleanup'); return; }
+      if (!state.activities.some(activity => activity.sessionId === sessionId)) {
+        recordCursorDiagnostic('ignored_no_activity'); return;
+      }
+      recordCursorDiagnostic('published');
+      computerUseCoordinator.showCursor({ sessionId, x, y, tracking: true,
+        action: phase, effect: phase === 'release' ? 'click'
+          : phase === 'prepare' ? 'prepare' : phase === 'press' ? 'press'
+          : phase === 'scroll' ? 'scroll' : phase === 'type' ? 'type'
+          : held ? 'drag' : 'move', mode });
+    },
   });
   const { callPowerShell, powerShellBySession } = workerPool;
 
@@ -182,12 +198,17 @@ export function createPowerShellComputerHost(
   });
   const sequenceRunner = createSequenceRunner({
     sessionIdFor,
+    recordProgress: (completed, inFlight) => {
+      const state = execution.executionContext.getStore();
+      if (state) state.progress = { completed, inFlight };
+    },
     freshObservedWindowScope: sessionState.freshObservedWindowScope,
     captureAfterAction: captureEngine.captureAfterAction,
     runCommand: (command) => router.runCommand(command),
   });
   const router = createCommandRouter({
     policy,
+    recordDiagnostic: failureDiagnostics.record,
     ...workerPool,
     ...sessionState,
     ...execution,
@@ -210,6 +231,7 @@ export function createPowerShellComputerHost(
 
   const userWait = createUserWaitService({
     directory: mixdogDataDirectory(), lifecycle, callPowerShell,
+    recordDiagnostic: failureDiagnostics.record,
     enabled: () => bridgeWanted && !disposed && !observeOnly,
   });
 
@@ -218,7 +240,9 @@ export function createPowerShellComputerHost(
     ...lifecycle,
     waitForUser: userWait.command,
     abortComputerSession: (command) => {
-      computerUseCoordinator.pauseForUser('user_stop');
+      // Runtime cancellation or a dropped HTTP caller ends only that session.
+      // Only the trusted global Stop control latches user_stop; a transient
+      // disconnect must not disable an existing user-intervention idle resume.
       userWait.cancel(sessionIdFor(command));
       return lifecycle.abortComputerSession(command);
     },

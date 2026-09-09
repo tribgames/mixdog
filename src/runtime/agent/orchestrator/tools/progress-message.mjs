@@ -59,7 +59,8 @@ export function formatToolStartProgress(name, args = {}) {
         case 'web_fetch':
             return Array.isArray(a.url) ? `fetching ${_plural(a.url.length, 'URL')}` : `fetching ${_t(a.url)}`;
         // Bridge tools nest their fields under `input`; the action stays at the root.
-        case 'browser': {
+        case 'browser':
+        case 'browser_devtools': {
             const bi = a.input && typeof a.input === 'object' ? a.input : a;
             return a.action === 'navigate' && bi.url
                 ? `browsing ${_t(bi.url)}`

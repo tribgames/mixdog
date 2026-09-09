@@ -28,6 +28,8 @@ export interface BrowserEmulationHost {
   cdp: BrowserCdpPort;
   /** An override changes the page, so refs taken before it are no longer safe. */
   invalidateInteractionState(guest: WebContents): void;
+  /** Hold presentation until the complete metrics override has settled. */
+  beginViewportChange?(guest: WebContents): () => void;
   /** Device metrics were set (size) or cleared (null) on this guest. The pane
    *  that shows it mirrors the size as a centered device frame. */
   onViewportChanged?(
@@ -158,6 +160,9 @@ export function createBrowserEmulation(host: BrowserEmulationHost) {
     signal?: AbortSignal,
   ): Promise<string[]> {
     const validated = validateEmulationCommand(command);
+    const finishViewportChange = command.reset || validated.hasViewport
+      ? host.beginViewportChange?.(guest) : undefined;
+    try {
     const applied: string[] = [];
     if (command.reset) {
       await Promise.all([
@@ -280,6 +285,7 @@ export function createBrowserEmulation(host: BrowserEmulationHost) {
     }
     invalidateInteractionState(guest);
     return applied;
+    } finally { finishViewportChange?.(); }
   }
 
   async function applyEmulation(

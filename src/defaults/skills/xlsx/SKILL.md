@@ -1,19 +1,27 @@
 ---
 name: xlsx
 description: Create, edit, audit, or model a spreadsheet (.xlsx/.xlsm/.csv/.tsv) with the office tool.
-when_to_use: '"엑셀", "스프레드시트", "시트", "CSV", "수식", "표 정리", "Excel"; load before the first office call for a spreadsheet deliverable; not for Word or PDF.'
+when_to_use: 'Create, edit, audit, or model Excel spreadsheets, CSV/TSV, formulas, or tabular data; not for Word or PDF.'
 metadata:
   requires: office
+dependencies:
+  tools:
+    - type: tool
+      value: office
 ---
 
 # Spreadsheets (office tool)
 
-Excel proves the numbers: every figure a reader sees is either an input with a source or a formula they can trace. Build the data before the styling. The runtime recalculates, audits, and validates what can be measured; the rest it reports for you to judge.
+Use `office` to create, edit, audit, and model spreadsheets, including CSV/TSV.
+Read this guide before the first spreadsheet operation.
+
+Excel proves the numbers and makes their meaning readable. Keep sourced inputs and live calculations intact; design the report surface separately from the working grid. File validation proves integrity, not visual quality.
 
 ## 1. Load routing
 | File | Owns | Read when |
 |---|---|---|
 | `references/model-conventions.md` | input/formula/link colors, number formats, assumption structure, the Checks sheet, the fill-in legend | any workbook a decision depends on, any financial model, or whenever `auditProfile:'financial-model'` will run |
+| `references/report-design.md` | report versus data-sheet layout, native charts, same-content trials, rendered acceptance | a report, dashboard, visual redesign, or quality comparison; not a raw CSV export |
 
 ## 2. Requirements for every workbook
 - **Hard rule — zero formula errors.** `finalize` recalculates and refuses a workbook with any `#REF!`, `#DIV/0!`, `#VALUE!`, `#NAME?`, `#N/A`, `#NUM!` (`reason: formula_errors` or a `formula_error` issue). An error you think predates you is proven from the original file's snapshot; an inherited error looks exactly like one you introduced. → runtime `formula_error`, `recalculation.errorSummary`
@@ -27,16 +35,16 @@ Excel proves the numbers: every figure a reader sees is either an input with a s
 
 ## 3. Workflow: new workbook
 1. Settle the table first: headers, one row per record, consistent units, numeric cells as numbers (not text), dates as ISO strings, percentages as fractions (`0.15`, formatted `0.0%`). Keep the same `design.content` model as the deck or document in the same package.
-2. One call does the sheet: `office action:'create' path:<file.xlsx> operations:[{ op:'compose_sheet', sheet, title, subtitle, headers, rows, columnFormats, metrics, insights, decision, chart, tableName, tableStyle, source }] finalize:true`. `rows` is required; `kind` or `purpose` (`dashboard|trend|comparison|scorecard|analysis` via `explain|decide|compare|monitor`) selects the layout, otherwise the content topology decides.
-3. Add sheets in the same batch with `add_sheet` followed by `compose_sheet` targeting `sheet`; `set_formula` for derived cells so the workbook stays live; `define_name` for inputs a model references more than once. Write two or three formulas, `snapshot` the cells, and check they pull the values you expect before building out a grid — a clean recalculation proves formulas evaluate, not that the ranges are right.
+2. For a report, design the reading order, sheet roles, column proportions, chart placement and intended screen/print use. Author with native cell, style, merge and chart operations by default. `compose_sheet` is an opt-in preset only when its table-plus-panel structure already fits; do not select it merely to save calls. Batch all known operations. Use `describe format:'xlsx' operation:<op>` when fields are unknown; cell styles belong in `properties`.
+3. Add sheets with `add_sheet`, then native ranges and formulas targeting `sheet`. Use `set_formula` for derived cells and `define_name` for reused inputs. Check representative formulas against the intended ranges before extending a model; clean recalculation proves evaluation, not correct modelling. A design specimen is optional, not required for every workbook.
 4. Raw tabular files (`.csv`, `.tsv`) take `set_range` with a 2D `values` array and `append_row`; they carry no styles, formulas, or multiple sheets.
-5. `finalize:true` reviews (number formats, frozen header, autofit, contrast, the formula audit of §6), recalculates, validates, and closes. Add `auditProfile:'financial-model'` for anything a decision depends on (§6 second tier and `references/model-conventions.md`).
+5. `finalize` recalculates and returns current rendered pages for review; add `auditProfile:'financial-model'` for a decision model. Read the actual images as in `report-design.md`, with concrete keep/fix observations about hierarchy, charts and print layout. Correct material issues and rerender, rather than filling a pass checklist. Complete with `design:{ reviewed:true, reviewToken:<current token>, critique:[{ page:1, verdict:'pass', note:<page-specific observations> }, ...] }`. This records agent review, not user approval. CSV/TSV needs no visual approval. Resolve validation failures against their original baseline, never by reopening as a new baseline.
 
 ## 4. Workflow: existing workbook
 1. `office action:'open' path:<file>` then `action:'snapshot' sheet:<name> range:'A1:H200'` (or `query` for a value search); paths look like `/sheet[NAME]/cell[A1]` and `/sheet[NAME]/range[A1:C10]`. Snapshots are capped, so ask for the range you need. Read the conventions before planning any edit: `document.conventions` summarizes the workbook default face (`defaultFont`), the faces in use, the number formats by column, and the input markers (`inputMarkers`, `sampleInputs`); each cell carries its `style` (and `dataType: 'text'` when Excel holds it as text), a noted cell its `note`, and the sheet its `notes`, `tables` (name, range, style), `mergedRanges`, and `freezePanes`. Which color or fill marks an input and where the assumptions live is decided there, not by §2.
 2. Edit through `action:'batch' operations:[...]`: `set_cell`, `set_formula`, `set_range`, `append_row`, `insert_rows`, `delete_columns`, `set_style` (`fontName`, `fontSize`, `bold`, `italic`, `color`, `fillColor`, `numberFormat`, `horizontalAlignment`, `wrapText`), `merge_cells`, `freeze_panes`, `autofit_range`, `add_table`, `add_chart`, `add_validation`, `add_conditional_format`, `add_pivot_table`, `add_note`, `add_provenance`, `protect_sheet`. Results report `changed`; `requireChanges` (default true) rolls back a batch that changed nothing. A merged range takes its value at the top-left anchor only (the result warns otherwise).
 3. `mode:'attach'` co-edits a workbook already open in Excel and keeps its selection; default `background` edits an output copy; `portable` needs no Excel and preserves `.xlsm` macros without running them.
-4. Finish with `office action:'finalize' session:<id> review:true`; for decision models add `auditProfile:'financial-model'`. Confirm from the result: `recalculation.status`, the saved path, formula issues, and package validity.
+4. Finish with `office action:'finalize' session:<id> review:true` and the page review from §3; for decision models add `auditProfile:'financial-model'`. Recalculation invalidates earlier pixels when it changes the workbook. Confirm the saved path, formula issues, and package validity.
 
 ## 5. Recalculation — what the result means
 - `finalize` recalculates every formula: Excel in `background`/`attach`, LibreOffice in `portable`. The result's `recalculation` reports `status` (`success` | `errors_found`), `formulaCount`, `totalErrors`, and `errorSummary` — each error type with up to 100 cell locations (`truncated` counts the rest; trust `totalErrors`, not the list length). `errors_found` blocks finalize; fix what it names and finalize again. A formula LibreOffice could not parse comes back lower-cased beside its `#NAME?`; `recalculation.unparsedFormulas` names those cells.
@@ -64,7 +72,7 @@ Audit findings the runtime reports (fix the cell, or answer with the reason in t
 | `financial-model` | `hardcode_missing_source`, `input_cells_unmarked` (info) | an input a formula reads without a note (records inside an Excel table are sourced by the table or sheet note, not cell by cell); inputs indistinguishable from formulas |
 
 ## 7. Layout rules
-- Headers in row 1, frozen; one header row, no merged header cells inside a data table; numeric columns right-aligned with an explicit `columnFormats` entry (`#,##0`, `0.0%`, `yyyy-mm-dd`); years as text or `0`, never with a thousands separator.
+- Data-only sheets start with one frozen header row. Reports may place a title and summary above the table; freeze at the actual header. Never merge inside a data table. Numeric columns are right-aligned with explicit formats (`#,##0`, `0.0%`, `yyyy-mm-dd`); years use `0`, not a thousands separator.
 - Charts stay native (`add_chart` or `compose_sheet.chart`), one message per chart, quiet axes, no 3D.
 - Colors carry meaning only with a legend or a label beside them; conditional formats use at most two hues.
 - Every external number has a `source`; the sheet's `source` field or `add_provenance` on the cell.

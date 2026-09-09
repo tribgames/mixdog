@@ -63,6 +63,8 @@ const api: DesktopApi = {
   openMediaAsset: (assetId) => ipcRenderer.invoke(DESKTOP_IPC.openMediaAsset, assetId),
   openMediaFolder: (assetId) => ipcRenderer.invoke(DESKTOP_IPC.openMediaFolder, assetId),
   openExternal: (url) => ipcRenderer.invoke(DESKTOP_IPC.openExternal, url),
+  openLocalFileLink: (projectPath, href) =>
+    ipcRenderer.invoke(DESKTOP_IPC.openLocalFileLink, projectPath, href),
   githubStarStatus: () => ipcRenderer.invoke(DESKTOP_IPC.githubStarStatus),
   starGithub: () => ipcRenderer.invoke(DESKTOP_IPC.starGithub),
   gitCliStatus: () => ipcRenderer.invoke(DESKTOP_IPC.gitCliStatus),
@@ -534,13 +536,17 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener(DESKTOP_IPC.browserOpenRequested, receive);
   },
   onBrowserSessionReleased: (listener) => {
-    const receive = (_event: Electron.IpcRendererEvent, sessionId: string): void =>
-      listener(sessionId);
+    const receive = (_event: Electron.IpcRendererEvent, sessionId: string, reason?: 'unloaded' | 'gone'): void =>
+      listener(sessionId, reason);
     ipcRenderer.on(DESKTOP_IPC.browserSessionReleased, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.browserSessionReleased, receive);
   },
   browserSetActiveGuest: (sessionId, webContentsId, active) =>
     ipcRenderer.invoke(DESKTOP_IPC.browserSetActiveGuest, sessionId, webContentsId, active),
+  browserPageFrame: (sessionId, previousId) =>
+    ipcRenderer.invoke(DESKTOP_IPC.browserPageFrame, sessionId, previousId),
+  browserPageControl: (sessionId, input) =>
+    ipcRenderer.invoke(DESKTOP_IPC.browserPageControl, sessionId, input),
   browserConfigureGuestViewport: (sessionId, webContentsId, config) =>
     ipcRenderer.invoke(
       DESKTOP_IPC.browserConfigureGuestViewport,

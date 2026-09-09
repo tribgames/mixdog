@@ -2,10 +2,14 @@ import type { Rectangle, WebContents } from 'electron';
 import { BrowserWindow, nativeImage } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';
+import { timedBrowserOperation } from './timing';
+import { validatedScreenshot } from './screenshot-image';
 import {
   assertFullPageOutputBounds,
   browserScreenshotBytesFitBudget,
   boundedFullPageRect,
+  FULL_PAGE_LAYOUT_PREPARE,
+  FULL_PAGE_LAYOUT_RESTORE,
   normalizeScreenshotOptions,
   scaledScreenshotRect,
   type BrowserScreenshotOptions,
@@ -43,14 +47,6 @@ function encodeImage(
   };
 }
 
-function decodeImage(
-  data: string,
-  options: BrowserScreenshotOptions,
-): BrowserScreenshotCapture | null {
-  if (!data || !browserScreenshotBytesFitBudget(Math.floor(data.length * 3 / 4))) return null;
-  return encodeImage(nativeImage.createFromBuffer(Buffer.from(data, 'base64')), options);
-}
-
 function coversRect(capture: BrowserScreenshotCapture | null, rect?: Rectangle): boolean {
   return Boolean(
     capture
@@ -64,6 +60,14 @@ export function createBrowserScreenshotService(
   nativeTimeoutMs: number,
 ) {
   const slow = { timeoutMs: screenshotTimeoutMs };
+  async function anchorPinnedLayout(guest: WebContents, prepare: boolean, signal?: AbortSignal): Promise<void> {
+    await cdp.call(
+      guest,
+      'Runtime.evaluate',
+      { expression: prepare ? FULL_PAGE_LAYOUT_PREPARE : FULL_PAGE_LAYOUT_RESTORE, returnByValue: true },
+      signal,
+    );
+  }
   async function fullPageRect(guest: WebContents, signal?: AbortSignal): Promise<Rectangle> {
     const metrics = await cdp.call<{
       cssContentSize?: { x?: number; y?: number; width?: number; height?: number };
@@ -99,7 +103,9 @@ export function createBrowserScreenshotService(
         signal,
         slow,
       );
-      const capture = shot.data ? decodeImage(shot.data, options) : null;
+      const capture = shot.data
+        ? validatedScreenshot(shot.data, options, (bytes) => nativeImage.createFromBuffer(bytes))
+        : null;
       return coversRect(capture, expectedRect) ? capture : null;
     } catch (error) {
       if (signal?.aborted) throw signal.reason || error;
@@ -169,23 +175,32 @@ export function createBrowserScreenshotService(
     signal?: AbortSignal,
   ): Promise<BrowserScreenshotCapture> {
     const options = normalizeScreenshotOptions(rawOptions);
-    const fullPageClip = options.fullPage ? await fullPageRect(guest, signal) : undefined;
-    try { guest.invalidate(); } catch { /* teardown can reject repaint */ }
-    const order = background
-      ? [
-        () => captureViaNative(guest, options, fullPageClip, background, signal),
-        () => captureViaCdp(guest, options, fullPageClip, signal),
-      ]
-      : [
-        () => captureViaCdp(guest, options, fullPageClip, signal),
-        () => captureViaNative(guest, options, fullPageClip, background, signal),
-      ];
-    for (const engine of order) {
-      const data = await engine();
-      if (data) return data;
+    if (options.fullPage) {
+      await anchorPinnedLayout(guest, true, signal).catch((error) => {
+        if (signal?.aborted) throw signal.reason || error;
+      });
     }
-    throw new Error('screenshot capture failed');
+    try {
+      const fullPageClip = options.fullPage ? await fullPageRect(guest, signal) : undefined;
+      try { guest.invalidate(); } catch { /* teardown can reject repaint */ }
+      const order = background
+        ? [
+          () => captureViaNative(guest, options, fullPageClip, background, signal),
+          () => captureViaCdp(guest, options, fullPageClip, signal),
+        ]
+        : [
+          () => captureViaCdp(guest, options, fullPageClip, signal),
+          () => captureViaNative(guest, options, fullPageClip, background, signal),
+        ];
+      for (const engine of order) {
+        const data = await engine();
+        if (data) return data;
+      }
+      throw new Error('screenshot capture failed');
+    } finally {
+      if (options.fullPage) await anchorPinnedLayout(guest, false).catch(() => undefined);
+    }
   }
 
-  return { capture };
+  return { capture: timedBrowserOperation('screenshot', capture) };
 }

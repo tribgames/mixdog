@@ -1,7 +1,13 @@
 ---
 name: skill-creator
 description: Create, audit, repair, or simplify a Mixdog Agent Skill and its SKILL.md.
-when_to_use: '"스킬 만들어", "스킬 개선", "스킬 감사", "스킬이 안 불려", "이 과정을 스킬로", "skill audit", "SKILL.md"; any skill file edit; not for ordinary feature work.'
+when_to_use: 'Create, audit, repair, or edit skills, including activation failures; not ordinary feature work.'
+dependencies:
+  tools:
+    - type: tool
+      value: read
+    - type: tool
+      value: shell
 ---
 
 # Skill Creator
@@ -82,17 +88,23 @@ by compatibility, maintenance, executable-content, and license evidence.
 
 ### 4. Draft the smallest complete skill
 
-Write the frontmatter for the listing line the model selects on
-(`description — when_to_use`, cut at 250 characters):
+Separate UI metadata, model selection, and loaded instructions:
 
-- `description`: one sentence, at most 100 characters, naming the capability.
-- `when_to_use`: the phrases users actually write, implicit situations, then
-  `not for …` naming the neighbouring owner. Strongest trigger first.
+- `description`: UI-only summary, at most 100 characters. It is not sent in
+  the model's skill listing and must never be the sole home of an instruction.
+- `when_to_use`: English descriptions of user intents and implicit situations,
+  then `not for …` naming the neighbouring owner. Strongest trigger first;
+  at most 250 characters, understandable with the skill name alone.
+- Write instructions and listing text in English, describing user intent
+  across languages rather than listing translated keywords. Preserve exact
+  literals and language-specific examples when needed.
 
 Write the body in the section order from `references/design.md`: intro,
 boundary or mode selection, prerequisites, procedure with an observable result
 per important step, pitfalls, verification, resource links. Body text never
-routes the skill, so keep triggers out of it.
+routes the skill. Put capabilities, tool usage, prerequisites, operating rules,
+and recovery details here, not in the trigger or UI description. Keep only
+selection conditions in the trigger; the body must stand on its own when loaded.
 
 Move conditional detail into directly referenced files. Add scripts only for
 deterministic work that would otherwise be rebuilt on repeated invocations.
@@ -169,12 +181,18 @@ report lists nothing unresolved without an explicit reason.
 
 - Discovery precedence is machine-global, enabled plugin, then built-in.
 - The directory name must equal frontmatter `name`.
-- The skill list shows one line per skill, `description — when_to_use`, cut at
-  250 characters on a word boundary; the body loads once through `Skill`.
+- The model sees `name: when_to_use [tools: linked tool names]`; the trigger is cut at 250 characters
+  on a word boundary. UI descriptions are not injected. A missing trigger
+  leaves a name-only entry; the body loads once through `Skill`.
 - `${MIXDOG_SKILL_DIR}` resolves to the active skill directory.
 - `metadata.requires` names a mandatory Mixdog built-in feature. Add it only
   when the skill cannot function without that feature.
 - Optional frontmatter has no effect unless the current runtime implements it.
+- `dependencies.tools` declares tools loaded with the skill, without granting
+  permissions. Use `type: tool` with the exact tool name or `type: mcp` with
+  an existing server name. Keep optional tools out; `allowed-tools` is not
+  interpreted as dependencies. Imported `agents/openai.yaml` dependencies
+  are also read, but never authorize installation or activation.
 
 ## Final review
 

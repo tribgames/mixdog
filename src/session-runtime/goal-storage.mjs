@@ -25,6 +25,12 @@ export function readGoalRecordFile(path, sessionId, normalizeGoal, at) {
   }
 }
 
+// A stat/read refused while the file is being replaced (Windows rename over
+// an open handle) or momentarily locked. The committed cache still holds the
+// last durable record, which is the right answer for a read that lands inside
+// another writer's critical section.
+const TRANSIENT_READ_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
+
 // Cached records are committed snapshots, never mutable working copies.
 // Publish only after the atomic writer succeeds; failed writes leave both
 // observers and later mutations on the last durable state.
@@ -32,12 +38,28 @@ export function createGoalStorage({ pathFor, normalizeGoal, now, writeRecord = w
   const cache = new Map();
   const writing = new Set();
   const read = (id) => {
+    const cached = cache.get(id);
+    // Our own write is in flight: the file is mid-replace, and the cache is
+    // the committed state until that write lands. Do not touch the disk.
+    if (cached && writing.has(id)) return structuredClone(cached.record);
     const path = pathFor(id);
     let mtimeMs = 0;
-    try { mtimeMs = statSync(path).mtimeMs; } catch (error) { if (error?.code !== 'ENOENT') throw error; }
-    const cached = cache.get(id);
-    if (cached && (writing.has(id) || cached.mtimeMs === mtimeMs)) return structuredClone(cached.record);
-    const record = readGoalRecordFile(path, id, normalizeGoal, now());
+    try {
+      mtimeMs = statSync(path).mtimeMs;
+    } catch (error) {
+      if (cached && TRANSIENT_READ_CODES.has(error?.code)) return structuredClone(cached.record);
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    if (cached && cached.mtimeMs === mtimeMs) return structuredClone(cached.record);
+    let record;
+    try {
+      record = readGoalRecordFile(path, id, normalizeGoal, now());
+    } catch (error) {
+      if (cached && TRANSIENT_READ_CODES.has(error?.cause?.code ?? error?.code)) {
+        return structuredClone(cached.record);
+      }
+      throw error;
+    }
     cache.set(id, { record, mtimeMs });
     return structuredClone(record);
   };

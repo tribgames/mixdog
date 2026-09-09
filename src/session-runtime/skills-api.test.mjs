@@ -141,3 +141,64 @@ test('creates new global skills with all three standard fields', () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('tool-link edits preserve imported source bytes, survive renames, and can be cleared or restored', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-links-edit-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  const cwd = join(root, 'project');
+  const dir = join(process.env.MIXDOG_DATA_DIR, 'skills', 'imported-guide');
+  mkdirSync(join(dir, 'agents'), { recursive: true });
+  const source = '---\n# preserve formatting\nname: imported-guide\ndescription: Original guide.\nallowed-tools: shell\n---\n\n# Instructions\n';
+  writeFileSync(join(dir, 'SKILL.md'), source);
+  const metadata = 'dependencies:\n  tools:\n    - type: mcp\n      value: design-server\n';
+  writeFileSync(join(dir, 'agents', 'openai.yaml'), metadata);
+  try {
+    contextMod.invalidateSkillsCache(cwd);
+    const api = createSkillsApi({ contextMod, getCwd: () => cwd });
+    api.saveSkillDocument({ originalName: 'imported-guide', dependenciesOnly: true,
+      toolDependencies: [{ type: 'tool', value: 'office' }] });
+    assert.equal(readFileSync(join(dir, 'SKILL.md'), 'utf8'), source);
+    assert.equal(readFileSync(join(dir, 'agents', 'openai.yaml'), 'utf8'), metadata);
+    assert.deepEqual(api.skillContent('imported-guide').toolDependencies, [{ type: 'tool', value: 'office' }]);
+    api.saveSkillDocument({ originalName: 'imported-guide', name: 'renamed-guide',
+      description: 'Original guide.', instructions: '# Instructions' });
+    assert.deepEqual(api.skillContent('renamed-guide').toolDependencies, [{ type: 'tool', value: 'office' }]);
+    api.saveSkillDocument({ originalName: 'renamed-guide', dependenciesOnly: true, toolDependencies: [] });
+    assert.deepEqual(api.skillContent('renamed-guide').toolDependencies, []);
+    api.saveSkillDocument({ originalName: 'renamed-guide', dependenciesOnly: true, toolDependencies: null });
+    assert.deepEqual(api.skillContent('renamed-guide').toolDependencies, [{ type: 'mcp', value: 'design-server' }]);
+  } finally {
+    contextMod.invalidateSkillsCache(cwd);
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('read-only packaged skills permit local dependency edits but not source edits', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-builtin-links-edit-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  const previousRoot = process.env.MIXDOG_ROOT;
+  process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  process.env.MIXDOG_ROOT = join(root, 'package');
+  const dir = join(process.env.MIXDOG_ROOT, 'defaults', 'skills', 'packaged-guide');
+  mkdirSync(dir, { recursive: true });
+  const source = '---\nname: packaged-guide\ndescription: Packaged guide.\n---\n\n# Instructions\n';
+  writeFileSync(join(dir, 'SKILL.md'), source);
+  try {
+    contextMod.invalidateSkillsCache(root);
+    const api = createSkillsApi({ contextMod, getCwd: () => root });
+    api.saveSkillDocument({ originalName: 'packaged-guide', dependenciesOnly: true,
+      toolDependencies: [{ type: 'tool', value: 'office' }] });
+    assert.equal(readFileSync(join(dir, 'SKILL.md'), 'utf8'), source);
+    assert.equal(api.skillsStatus().skills.find((entry) => entry.name === 'packaged-guide').dependencySource, 'override');
+    assert.throws(() => api.saveSkillDocument({ originalName: 'packaged-guide', name: 'packaged-guide',
+      description: 'Changed source', instructions: 'New body' }), /read-only/);
+  } finally {
+    contextMod.invalidateSkillsCache(root);
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR; else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    if (previousRoot === undefined) delete process.env.MIXDOG_ROOT; else process.env.MIXDOG_ROOT = previousRoot;
+    rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -5,6 +5,76 @@ import { createGoalContinuation } from './goal-continuation.mjs';
 
 const settleImmediate = () => new Promise((resolve) => setImmediate(resolve));
 
+test('preserved cancellations and recoverable failures continue without displacing queued user input', async () => {
+  for (const status of ['cancelled', 'failed']) {
+    const goal = { id: `goal-${status}`, status: 'active' };
+    const state = { busy: false, sessionId: 'sess_goal_recovery', goal };
+    const pending = [{ mode: 'prompt', content: 'User correction' }];
+    const controller = createGoalContinuation({
+      runtime: {
+        goalTurnSettled: async () => goal,
+        goalContinuation: () => ({ run: true, goal, prompt: 'Continue approved work' }),
+      },
+      flags: {},
+      getState: () => state,
+      set: (patch) => Object.assign(state, patch),
+      getPending: () => pending,
+      enqueue: (content, options) => pending.push({ content, ...options }),
+    });
+    try {
+      await controller.onGoalTurnSettled({ status });
+      await settleImmediate();
+      assert.equal(pending.length, 1);
+      assert.equal(pending[0].content, 'User correction');
+      pending.length = 0;
+      await controller.onGoalTurnSettled({ status });
+      await settleImmediate();
+      assert.equal(pending.length, 1);
+      assert.equal(pending[0].mode, 'goal-continuation');
+    } finally {
+      controller.disposeGoalContinuation();
+    }
+  }
+});
+
+test('route publications read the completed Goal through the archive mask', async () => {
+  const goal = { id: 'goal-route', status: 'complete', objective: 'Retire me' };
+  const state = { busy: false, commandBusy: false, sessionId: 'sess_goal_route', goal };
+  let runtimeGoal = goal;
+  let resolveArchive;
+  const archive = new Promise((resolve) => { resolveArchive = resolve; });
+  const controller = createGoalContinuation({
+    runtime: {
+      id: state.sessionId,
+      goalStatus: () => runtimeGoal,
+      archiveCompletedGoalOnUserInput: () => archive,
+      onGoalStatusChange: () => () => {},
+    },
+    flags: { disposed: false, pendingSessionReset: false },
+    getState: () => state,
+    set: (patch) => Object.assign(state, patch),
+    getPending: () => [],
+    enqueue: () => true,
+  });
+  try {
+    assert.equal(controller.visibleGoalStatus(), goal, 'an unretired Goal is visible');
+    controller.archiveCompletedGoalOnUserInput();
+    // The record still holds the completed Goal until the write lands; a
+    // route publication (2s pulse, turn end) in that window must not revive it.
+    assert.equal(controller.visibleGoalStatus(), null);
+    runtimeGoal = null;
+    resolveArchive(null);
+    await archive;
+    await Promise.resolve();
+    assert.equal(controller.visibleGoalStatus(), null);
+    const next = { id: 'goal-next', status: 'active', objective: 'New work' };
+    runtimeGoal = next;
+    assert.equal(controller.visibleGoalStatus(), next, 'a new Goal is never masked');
+  } finally {
+    controller.disposeGoalContinuation();
+  }
+});
+
 test('completed Goal stays hidden while its user-input archive is in flight', async () => {
   const goal = { id: 'goal-complete', status: 'complete', objective: 'Finished work' };
   const state = {

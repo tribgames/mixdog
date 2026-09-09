@@ -16,7 +16,7 @@ animation:outline-loop 2.8s linear infinite; }
 #dot { width:10px;height:10px;flex-shrink:0;border-radius:50%;background:var(--accent);
 animation:breathe 1.8s ease-in-out infinite; }
 #status { min-width:0;flex:1; }
-#title { font-size:15px;font-weight:650;white-space:nowrap; }
+#title { font-size:15px;line-height:20px;font-weight:650;overflow-wrap:anywhere; }
 button { border:1px solid #ffffff33;border-radius:14px;background:#ffffff18;color:inherit;
 width:30px;height:30px;padding:5px;cursor:pointer;flex-shrink:0;display:grid;place-items:center; }
 button:hover { background:#ffffff30; }

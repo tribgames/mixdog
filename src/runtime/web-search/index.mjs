@@ -31,9 +31,9 @@ import {
   loadUsageState,
   updateProviderState,
 } from './lib/state.mjs'
-import { getScrapeCapabilities, scrapeUrls } from './lib/web-tools.mjs'
+import { closeScrapeBrowserPool, getScrapeCapabilities, scrapeUrls } from './lib/web-tools.mjs'
 import { fetchLoopbackText, fetchPublicImage } from './lib/http-fetch.mjs'
-import { formatResponse } from './lib/formatter.mjs'
+import { applyFetchPagination, formatResponse } from './lib/formatter.mjs'
 ensureDataDir()
 
 const webSearchArgsSchema = z.object({
@@ -323,53 +323,11 @@ async function _webSearchCore(args, { cacheState, nativeWebSearch, signal }) {
   }
 }
 
-const DEFAULT_FETCH_MAX_LENGTH = 50000
-const FETCH_CACHE_VERSION = 'auto-render-js-fallback-v1'
-
-// Apply character-level pagination to a cached or fresh fetch payload. Mirrors
-// the mcp-server-fetch reference: caller passes startIndex/maxLength and
-// receives a slice plus pointers (nextStartIndex, hasMore) for the next chunk.
-// totalLength is preserved so the caller can decide whether to keep paging.
-function applyFetchPagination(payload, args) {
-  const fullContent = String(payload?.content ?? '')
-  const totalLength = fullContent.length
-  const startIndex = Math.max(0, Number.isFinite(args?.startIndex) ? args.startIndex : 0)
-  const rawLimit = args?.maxLength
-  const limit = rawLimit === 0
-    ? Infinity
-    : (rawLimit == null ? DEFAULT_FETCH_MAX_LENGTH : Math.max(0, Number(rawLimit)))
-  if (startIndex >= totalLength) {
-    return {
-      ...payload,
-      content: '',
-      bytes: 0,
-      totalLength,
-      range: { startIndex, endIndex: startIndex },
-      hasMore: false,
-      nextStartIndex: null,
-      truncated: false,
-    }
-  }
-  const endIndex = Math.min(totalLength, startIndex + (Number.isFinite(limit) ? limit : totalLength - startIndex))
-  const slice = fullContent.slice(startIndex, endIndex)
-  const hasMore = endIndex < totalLength
-  return {
-    ...payload,
-    content: slice,
-    bytes: Buffer.byteLength(slice, 'utf-8'),
-    totalLength,
-    range: { startIndex, endIndex },
-    hasMore,
-    nextStartIndex: hasMore ? endIndex : null,
-    truncated: hasMore || startIndex > 0,
-  }
-}
+const FETCH_CACHE_VERSION = 'document-pipeline-v3'
 
 async function _fetchCore(args, { usageState, cacheState, timeoutMs, signal }) {
   const FETCH_URL_CAP = Math.max(1, Number(process.env.FETCH_URL_CAP) || 10)
-  // Bound how many URLs scrape concurrently. Each non-cached URL can launch a
-  // Puppeteer browser; running all FETCH_URL_CAP (default 10) at once can spawn
-  // up to 10 Chromium processes simultaneously and exhaust memory/file handles.
+  // Bound document jobs in addition to the shared browser page pool.
   const FETCH_CONCURRENCY = Math.max(1, Number(process.env.FETCH_CONCURRENCY) || 3)
   const allUrls = Array.isArray(args.url) ? args.url : [args.url]
   const urls = allUrls.slice(0, FETCH_URL_CAP)
@@ -396,6 +354,9 @@ async function _fetchCore(args, { usageState, cacheState, timeoutMs, signal }) {
           tool: 'web_fetch',
           url,
           error: page.error,
+          errorCode: page.errorCode,
+          failures: page.failures,
+          attempts: page.attempts,
         }
       }
       const payload = { tool: 'web_fetch', ...page }
@@ -600,4 +561,4 @@ export { WEB_SEARCH_INSTRUCTIONS as instructions }
 
 export { handleToolCall }
 export async function start() { await writeStartupSnapshot() }
-export function stop() { flushUsageState(); flushCacheState() }
+export async function stop() { flushUsageState(); flushCacheState(); await closeScrapeBrowserPool() }

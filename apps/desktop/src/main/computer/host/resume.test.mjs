@@ -134,6 +134,7 @@ test('native interruption stops the active input but retains a queued read throu
   const execution = createExecutionState();
   let calls = 0;
   const lifecycle = createSessionLifecycle({
+    pauseWaitMs: 15,
     coordinator, execution, powerShellBySession: new Map(), workerLastUsedAt: new Map(),
     retirePowerShell() {}, callPowerShell: async () => ({ ok: true }),
     cancelElevatedSession: async () => true, elevatedSessionIds: () => [],
@@ -148,10 +149,13 @@ test('native interruption stops the active input but retains a queued read throu
     recaptureRequiredReply: async () => null,
   });
   const interrupted = lifecycle.executeSerialized({ action: 'type', session_id: 'a', delivery: 'background' });
+  const paused = JSON.parse((await interrupted).text);
+  assert.equal(paused.status, 'paused');
+  assert.equal(paused.input_replayed, false);
+  assert.equal(paused.pending_work.uncertain_step, 1);
   let completed = false;
   const queued = lifecycle.executeSerialized({ action: 'capture', session_id: 'a', delivery: 'background' })
     .then((value) => { completed = true; return value; });
-  await assert.rejects(interrupted, /user_input_active/);
   await lifecycle.waitForCleanup();
   assert.equal(calls, 1);
   assert.equal(completed, false);

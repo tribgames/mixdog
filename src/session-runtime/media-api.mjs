@@ -23,10 +23,24 @@ async function store() {
   return storeModule;
 }
 
+let defaultsModule = null;
+async function defaults() {
+  defaultsModule ??= await import('../runtime/media/defaults.mjs');
+  return defaultsModule;
+}
+
 export function createMediaApi() {
   return {
     async listMediaLanes() {
       return (await lanes()).listMediaLanes();
+    },
+    // The Studio's current selection is the runtime's default: a tool call
+    // that omits lane/model follows it. Studio pushes on every settled change.
+    async getMediaDefault(kind) {
+      return (await defaults()).getMediaDefault(kind);
+    },
+    async setMediaDefault(input) {
+      return (await defaults()).setMediaDefault(input || {});
     },
     async startMediaJob(input) {
       return (await jobs()).startMediaJob(input || {});

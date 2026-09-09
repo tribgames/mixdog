@@ -1,12 +1,19 @@
 ---
 name: image
 description: Make or edit an image through the media tool (Mixdog Media Studio).
-when_to_use: '"이미지 만들어", "그림 생성", "배경 바꿔", "누끼", "아이콘", "썸네일", product shot, illustration, figure; load before the first media call; a video clip is the video skill.'
+when_to_use: 'Generate or edit still images and assets; video clips use video.'
 metadata:
   requires: media
+dependencies:
+  tools:
+    - type: tool
+      value: media
 ---
 
 # Image generation and editing (media tool · Media Studio)
+
+Use `media` for still-image generation and editing. Read this guide before
+the first image-generation or editing call.
 
 This file owns the judgement around one tool for still images: how a picture is asked for, checked, and saved. It is not tied to any deliverable — a deck, a document, or a page that needs a picture loads this skill and keeps only its own placement rules. The lane catalog (providers, models, controls, sign-in state) lives in the runtime and is read with `list`; nothing here names a lane or a model, so this file stays true when providers change.
 
@@ -19,8 +26,8 @@ This file owns the judgement around one tool for still images: how a picture is 
 **Default — one generation per job, one corrected retry**: a result that misses the brief is retried once with a single targeted change (§2 step 3); a second miss is reported as "not achieved", not a third attempt. Several candidates only when the user asks for choices.
 
 ## 2. Call order
-1. `media action:'list' kind:'image'` once per session before the first generate: signed-in lanes, their models, and each model's controls (`aspectRatio` / `size`, `resolution`, `quality`, `maxReferences`). Add `model:` for one model's controls.
-2. `media action:'generate' kind:'image', prompt, path, lane, model, + controls` — lane and model chosen from `list`, controls only from that model's list. Omitting lane and model picks the first signed-in lane's default; the result reports the lane, model, and options actually used, and those go into the report.
+1. `media action:'list' kind:'image'` once per session before the first generate: signed-in lanes, their models, and `remembered` — the lane/model a generate runs on when none is passed (the user's current Studio selection, else the last generation of this kind). Add `model:` for that model's controls (`aspectRatio` / `size`, `resolution`, `quality`, `maxReferences`).
+2. `media action:'generate' kind:'image', prompt, path, + controls` — **lane and model are omitted by default** so the picture comes from what the user chose; controls only from the remembered model's list. Pass `lane`/`model` only when the job needs a capability that model lacks (reference count, exact in-image text, a listed resolution), chosen from `list`. The result reports the lane, model, `laneSource` (`requested` / `remembered` / `first`), and options actually used, and those go into the report.
 3. **Hard rule — look before using**: open the file with `read` and check subject, style, composition, the exclusions, any in-image text, and — for an edit — every item in the preserve list. A miss is fixed by changing one variable in the prompt and restating every invariant; never rewrite the whole prompt, never use an unseen result. → manual
 4. The result is also a Studio asset (`assetId`); the file at `path` is the copy the work uses.
 

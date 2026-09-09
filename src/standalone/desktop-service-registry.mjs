@@ -34,7 +34,8 @@ function desktopEventKey(desktopId, message) {
   // key. Name (and terminal id) keep each producer on its own key.
   if (kind === 'desktop-event') {
     const name = String(message?.name || '');
-    const terminalId = name === 'terminal-data' ? String(message?.value?.id || '') : '';
+    const terminalId = name === 'terminal-data' ? String(message?.value?.id || '')
+      : name === 'session-runtime-released' ? String(message?.value?.sessionId || '') : '';
     return `desktop-event:${desktopId}:${kind}:${name}${terminalId ? `:${terminalId}` : ''}`;
   }
   return `desktop-event:${desktopId}:${kind}`;
@@ -197,6 +198,18 @@ export class DesktopServiceRegistry {
     if (!token) return;
     for (const service of this.#servicesById.values()) {
       service.subscribers.delete(token);
+    }
+  }
+
+  notifySessionRuntimeReleased(sessionId, reason) {
+    // An evicted session has NO session subscribers. Its desktop resources
+    // still belong to the desktop service and must be notified on that lane.
+    for (const desktopId of this.#servicesById.keys()) {
+      this.#publish(desktopId, {
+        kind: 'desktop-event',
+        name: 'session-runtime-released',
+        value: { sessionId, restore: reason === 'idle and unwatched' },
+      });
     }
   }
 

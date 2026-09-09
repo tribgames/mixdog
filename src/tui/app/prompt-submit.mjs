@@ -454,8 +454,8 @@ export function createPromptSubmit({
           // would corrupt the entry (and re-embed/dedupe on the clobbered
           // value). Otherwise only `summary` is sent.
           const editArgs = settingsPrompt._singleSentence
-            ? { action: 'core', op: 'edit', id, project_id: projectId, element: sentence, summary: sentence }
-            : { action: 'core', op: 'edit', id, project_id: projectId, summary: sentence };
+            ? { action: 'core', op: 'edit', id, index_revision: settingsPrompt._indexRevision, project_id: projectId, element: sentence, summary: sentence }
+            : { action: 'core', op: 'edit', id, index_revision: settingsPrompt._indexRevision, project_id: projectId, summary: sentence };
           void store.memoryControl?.(editArgs, { silent: true })
             .then((result) => {
               const errText = memoryCoreResultErrorText(result);
@@ -478,7 +478,7 @@ export function createPromptSubmit({
             openMemoryCorePicker();
             return true;
           }
-          void store.memoryControl?.({ action: 'core', op: 'delete', id, project_id: projectId }, { silent: true })
+          void store.memoryControl?.({ action: 'core', op: 'delete', id, index_revision: settingsPrompt._indexRevision, project_id: projectId }, { silent: true })
             .then((result) => {
               const errText = memoryCoreResultErrorText(result);
               store.pushNotice(errText || 'core memory deleted', errText ? 'error' : 'info');

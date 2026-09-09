@@ -6,9 +6,10 @@ import type { RecordValue } from './capability-data';
 import { ExtensionAction, ExtensionItemRow } from './extension-detail';
 import { SettingsConfirmDialog } from './capability-controls';
 import type { LocalProviderActions } from './local-provider-operations';
+import { LocalProviderContext } from './local-provider-context';
 
-/** One installed model as a plain list item: name, size facts, state and a
- *  delete control. Repair and verification stay chat-driven via the
+/** One installed model as a plain list item: name, size facts, state,
+ *  context controls and deletion. Repair and verification stay chat-driven via the
  *  local-provider skill so the card carries no maintenance clutter. */
 export function LocalProviderModelRow({ model, status, actions, details }: {
   model: RecordValue; status: RecordValue; actions: LocalProviderActions; details: string;
@@ -35,8 +36,11 @@ export function LocalProviderModelRow({ model, status, actions, details }: {
   return <>
     <ExtensionItemRow icon={<Cpu size={15} aria-hidden="true" />} title={name} description={details}
       tone={broken ? 'warn' : inUse ? 'ok' : 'muted'} status={label}
-      control={<ExtensionAction danger disabled={actions.busy || jobActive || inUse}
-        onClick={() => void requestDelete()}>{t('Delete')}</ExtensionAction>} />
+      control={<div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+        {!broken && <LocalProviderContext model={model} status={status} actions={actions} />}
+        <ExtensionAction danger disabled={actions.busy || jobActive || inUse}
+          onClick={() => void requestDelete()}>{t('Delete')}</ExtensionAction>
+      </div>} />
     {confirmation && <SettingsConfirmDialog options={confirmation} onClose={() => setConfirmation(null)} />}
   </>;
 }

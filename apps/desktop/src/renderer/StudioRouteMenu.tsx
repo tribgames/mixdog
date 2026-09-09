@@ -21,8 +21,10 @@ import {
 export interface StudioModelEntry {
   lane: string;
   laneLabel: string;
+  authType?: string;
   model: string;
   label: string;
+  description?: string;
 }
 
 /** One lane option (aspect, resolution, …) surfaced as a sheet row. */
@@ -338,11 +340,11 @@ export function StudioRouteMenu({
     </button>
   );
 
-  const lanes: Array<{ id: string; label: string; items: StudioModelEntry[] }> = [];
+  const lanes: Array<{ id: string; label: string; authType?: string; items: StudioModelEntry[] }> = [];
   for (const entry of entries) {
     const bucket = lanes.find((group) => group.id === entry.lane);
     if (bucket) bucket.items.push(entry);
-    else lanes.push({ id: entry.lane, label: entry.laneLabel, items: [entry] });
+    else lanes.push({ id: entry.lane, label: entry.laneLabel, authType: entry.authType, items: [entry] });
   }
   const normalizedModelQuery = modelQuery.trim().toLocaleLowerCase();
   const visibleLanes = lanes.map((group) => ({
@@ -394,18 +396,22 @@ export function StudioRouteMenu({
           <h3><span className="model-provider-heading">
             <ProviderIcon provider={group.id} />
             <span>{group.label}</span>
+            <small>{group.authType === 'oauth' ? t('Account') : group.authType === 'api-key' ? t('API key') : ''}</small>
           </span></h3>
           <div className="model-items">
             {group.items.map((entry) => {
               const active = entry.lane === lane && entry.model === model;
               return <button type="button" key={`${entry.lane}/${entry.model}`}
                 className="model-option-row" role="menuitemradio" aria-checked={active}
+                title={entry.description}
                 onClick={() => {
                   onSelect(entry);
                   closeAll();
                 }}>
                 <span className="model-row-copy">
                   <span className="model-row-title"><strong>{entry.label}</strong></span>
+                  <small className="studio-model-id">{entry.model}</small>
+                  {entry.description && <small className="studio-model-description">{entry.description}</small>}
                 </span>
                 {active && <span className="route-selection-check">
                   <Check size={14} aria-hidden="true" />

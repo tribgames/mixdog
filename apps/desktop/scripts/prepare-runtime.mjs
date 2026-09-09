@@ -38,6 +38,8 @@ const builderNativeModulesDir = join(runtimeDir, 'native-modules');
 const externalProcessArchivePaths = [
   'node_modules/mixdog/src/runtime/office/com/office-com-host.ps1',
   'node_modules/mixdog/src/runtime/office/com/office-com-session-host.ps1',
+  'node_modules/mixdog/src/runtime/office/com/office-com-cleanup.ps1',
+  'node_modules/mixdog/src/runtime/office/com/office-word-formatting.ps1',
   'node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx',
   'node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx.mixdog.json',
 ];

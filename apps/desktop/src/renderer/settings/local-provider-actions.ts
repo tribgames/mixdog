@@ -6,7 +6,7 @@ export function useLocalProviderActions(run: PanelContext['run'], pending: Panel
   const [error, setError] = useState('');
   const invoke = async (
     capability: 'cancelLocalProviderInstallation' | 'startLocalProviderInstallation' | 'setLocalProviderIdleTtl'
-      | 'getLocalProviderModelDetails' | 'startLocalProviderModelMaintenance' | 'deleteLocalProviderModel',
+      | 'getLocalProviderModelDetails' | 'startLocalProviderModelMaintenance' | 'deleteLocalProviderModel' | 'setLocalProviderContext',
     args: unknown[],
   ) => {
     if (working || pending) return;
@@ -30,6 +30,7 @@ export function useLocalProviderActions(run: PanelContext['run'], pending: Panel
       ? invoke('startLocalProviderModelMaintenance', [modelId, phase])
       : invoke('startLocalProviderInstallation', phase === 'model' ? [phase, modelId] : [phase])),
     setIdleTtl: (seconds: number) => void invoke('setLocalProviderIdleTtl', [seconds]),
+    setContext: (modelId: string, tokens: number | null) => invoke('setLocalProviderContext', [modelId, tokens]),
     details: (modelId: string) => invoke('getLocalProviderModelDetails', [modelId]),
     maintain: (modelId: string, operation: 'verify' | 'repair') => void invoke('startLocalProviderModelMaintenance', [modelId, operation]),
     deleteModel: (confirmationToken: string) => void invoke('deleteLocalProviderModel', [confirmationToken]),

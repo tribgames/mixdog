@@ -7,6 +7,7 @@ import { blankTableCells, docxStyleId, docxTable, insertDocxBlockAt, paragraphFo
 import { docxRevisionTree, flattenDocxRevisions } from './docx-revisions.mjs';
 import { normalizeDocxRuns, settleDocxStory } from './docx-runs.mjs';
 import { anchorPhraseInParagraph, trackedParagraphReplace, trackedParagraphRewrite } from './docx-tracked-edits.mjs';
+import { formatFirstBodyPhrase, patchParagraphFormat } from './docx-formatting.mjs';
 
 /** Tracked find-and-replace cuts only the matched characters out of their
  *  runs (deletion plus insertion in the run's own formatting). A match that
@@ -388,15 +389,10 @@ export async function applyDocx(zip, operations) {
       const model = docxBodyModel(current);
       const paragraph = model.blocks.filter((block) => block.name === 'w:p')[Number(op.paragraph) - 1];
       if (!paragraph) throw new Error(`DOCX paragraph ${op.paragraph} not found`);
-      const existingStyle = /<w:pStyle\b[^>]*\/>/.exec(paragraph.xml)?.[0] || '';
-      const nextParagraph = replaceWordProperties(
+      const nextParagraph = patchParagraphFormat(
         paragraph.xml,
-        'p',
-        'pPr',
-        `${existingStyle}${paragraphFormatXml(
-          properties,
-          numbering ? { numId: numbering.numId, level: properties.listLevel } : null,
-        )}`,
+        properties,
+        numbering ? { numId: numbering.numId, level: properties.listLevel } : null,
       );
       const nextInner = `${model.body.inner.slice(0, paragraph.start)}${nextParagraph}${model.body.inner.slice(paragraph.end)}`;
       current = `${current.slice(0, model.body.start)}${nextInner}${current.slice(model.body.end)}`;
@@ -559,22 +555,10 @@ export async function applyDocx(zip, operations) {
       continue;
     }
     if (op.op === 'set_font') {
-      const find = String(op.find || '');
-      if (!find) throw new Error('set_font requires non-empty find');
-      const properties = wordRunProperties(op.properties || {});
-      if (!properties) throw new Error('set_font requires at least one font property');
-      let count = 0;
-      for (const part of parts) {
-        const current = await zipText(zip, part);
-        if (!current) continue;
-        const next = current.replace(/<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g, (run) => {
-          if (!paragraphTexts(run, 'w:t').join('').includes(find)) return run;
-          count += 1;
-          return replaceWordProperties(run, 'r', 'rPr', properties);
-        });
-        if (next !== current) zip.file(part, next);
-      }
-      results.push({ op: op.op, changed: count > 0, runs: count });
+      const current = await zipText(zip, 'word/document.xml');
+      const formatted = formatFirstBodyPhrase(current, String(op.find || ''), op.properties || {});
+      if (formatted.changed) zip.file('word/document.xml', formatted.xml);
+      results.push({ op: op.op, changed: formatted.changed, scope: 'body', matches: 1 });
       continue;
     }
     if (op.op === 'add_comment' || op.op === 'add_provenance') {

@@ -50,7 +50,6 @@ export function useAppSideDocks({
     ...(desktopFeatureEnabled("sessions") ? ["sessions" as const] : []),
     ...DEFAULT_SIDEBAR_VIEW_ORDER.filter((panel) =>
       desktopSidebarDestinationEnabled(panel)),
-    "studio" as const,
     "session-diff" as const,
     ...(browserFeatureInstalled ? ["browser" as const] : []),
     "terminal" as const,

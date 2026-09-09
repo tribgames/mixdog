@@ -86,9 +86,11 @@ test('one transcript reports one number before and after the disk round-trip', (
     assert.equal(cold.usedSource, 'provider');
     assert.equal(cold.usedTokens, live.usedTokens);
     assert.equal(cold.usedTokens, 120_500);
+    assert.deepEqual(cold.measurement, live.measurement);
+    assert.equal(cold.measurement.tokens, 120_000);
 });
 
-test('the published stats every surface subscribes to carry the gauge number', () => {
+test('the published display carries measured input while pressure retains output', () => {
     const messages = [
         { role: 'user', content: 'question '.repeat(300) },
         { role: 'assistant', content: 'answer '.repeat(300) },
@@ -99,8 +101,10 @@ test('the published stats every surface subscribes to carry the gauge number', (
     const status = statusOf(session);
     const projection = sessionContextSnapshotProjection(session, status);
 
-    assert.equal(projection.stats.currentEstimatedContextTokens, status.usedTokens);
-    assert.equal(projection.stats.currentContextSource, status.usedSource);
+    assert.equal(projection.stats.currentEstimatedContextTokens, 0);
+    assert.equal(projection.stats.currentContextTokens, 64_000);
+    assert.equal(projection.stats.currentContextSource, 'last_api_request');
+    assert.equal(status.usedTokens, 64_500);
     assert.equal(projection.autoCompactTokenLimit, status.compaction.triggerTokens);
 });
 

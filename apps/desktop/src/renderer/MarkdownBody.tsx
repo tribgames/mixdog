@@ -10,6 +10,7 @@ import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 
 import { markdownComponents, type MarkdownCopyControl } from "./markdown-components";
+import { safeMarkdownUrl } from "./markdown-url";
 import {
   htmlLineBreaksToBreaks,
   repairAdjacentStrongPunctuation,
@@ -26,6 +27,7 @@ export default function MarkdownBody({ text, copyControl }: {
   // singleDollarTextMath:false — shell/price prose ("$PATH and $5") must never
   // flip into inline math; only explicit $$…$$ math is intentional enough.
   return <ReactMarkdown
+    urlTransform={safeMarkdownUrl}
     remarkPlugins={[
       repairAdjacentStrongPunctuation,
       stripHtmlComments,

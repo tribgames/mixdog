@@ -4,6 +4,7 @@
  */
 import { redactBrowserText } from '../redaction';
 import { mutateRef } from './ref-mutation';
+import { actionRef, adoptResolvedTargets } from './target';
 import { type BrowserActionContext, defineBrowserActions } from './types';
 
 /** After the control changed: forget the old refs, optionally submit, and
@@ -23,19 +24,41 @@ export const formActions = defineBrowserActions({
     const { refActions, state } = services;
     const fields = Array.isArray(command.fields) ? command.fields : [];
     if (!fields.length) {
-      if (!command.ref) throw new Error('fill requires ref or fields');
-      if (typeof command.text !== 'string') throw new Error('fill requires text');
-      await mutateRef(
-        context,
-        command.ref,
-        (ref) => refActions.fillRef(guest, ref, command.text as string, signal),
-      );
+      const ref = await actionRef(context);
+      if (!ref) throw new Error('fill requires ref, target, or fields');
+      // One control: text for an input, or a checked state for a checkbox
+      // or radio; the schema admits exactly one of the two.
+      const hasText = typeof command.text === 'string';
+      const hasChecked = typeof command.checked === 'boolean';
+      if (hasText === hasChecked) throw new Error('fill requires text or checked');
+      await mutateRef(context, ref, async (recovered) => {
+        if (hasChecked) await refActions.setCheckedRef(guest, recovered, command.checked as boolean, signal);
+        else await refActions.fillRef(guest, recovered, command.text as string, signal);
+      });
       return afterEdit(context, Boolean(command.submit));
     }
     if (fields.length > 30) throw new Error('fill requires at most 30 fields');
+    // Targets are resolved against ONE fresh observation before any field
+    // changes; refs and targets cannot mix because that observation would
+    // retire the caller's refs.
+    const targeted = fields.filter((field) => field?.target !== undefined && field?.target !== null);
+    if (targeted.length && targeted.length !== fields.length) {
+      throw new Error('fill.fields must address every item by ref or every item by target, not a mix');
+    }
+    let fieldRefs = fields.map((field) => String(field?.ref || ''));
+    if (targeted.length) {
+      const resolved = await services.targets.resolveTargetRefs(
+        guest,
+        fields.map((field) => field.target),
+        signal,
+      );
+      adoptResolvedTargets(context, resolved);
+      fieldRefs = resolved.map((entry) => entry.ref);
+    }
     let changed = false;
     try {
-      for (const field of fields) {
+      for (const [index, field] of fields.entries()) {
+        const fieldRef = fieldRefs[index];
         const hasText = typeof field?.text === 'string';
         const hasValue = typeof field?.value === 'string';
         const hasValues = Array.isArray(field?.values)
@@ -43,15 +66,15 @@ export const formActions = defineBrowserActions({
           && field.values.every((value) => typeof value === 'string');
         const hasChecked = typeof field?.checked === 'boolean';
         const payloadCount = Number(hasText || hasValue) + Number(hasValues) + Number(hasChecked);
-        if (!field?.ref || payloadCount !== 1 || (hasText && hasValue)) {
-          throw new Error('each fill field requires ref and exactly one of text/value, values, or checked');
+        if (!fieldRef || payloadCount !== 1 || (hasText && hasValue)) {
+          throw new Error('each fill field requires ref or target and exactly one of text/value, values, or checked');
         }
         const operation: (ref: string) => Promise<unknown> = hasValues
           ? (ref) => refActions.selectRef(guest, ref, field.values as string[], signal)
           : hasChecked
             ? (ref) => refActions.setCheckedRef(guest, ref, field.checked as boolean, signal)
             : (ref) => refActions.fillRef(guest, ref, String(field.text ?? field.value), signal);
-        await mutateRef(context, field.ref, operation);
+        await mutateRef(context, fieldRef, operation);
         changed = true;
       }
     } catch (error) {
@@ -63,12 +86,13 @@ export const formActions = defineBrowserActions({
 
   async type(context) {
     const { guest, command, signal, services } = context;
-    if (!command.ref) throw new Error('type requires ref (from snapshot)');
+    const ref = await actionRef(context);
+    if (!ref) throw new Error('type requires ref (from snapshot) or target');
     if (typeof command.text !== 'string') throw new Error('type requires text');
     await mutateRef(
       context,
-      command.ref,
-      (ref) => services.refActions.typeRef(guest, ref, command.text as string, signal),
+      ref,
+      (recovered) => services.refActions.typeRef(guest, recovered, command.text as string, signal),
     );
     return afterEdit(context, Boolean(command.submit));
   },
@@ -76,7 +100,8 @@ export const formActions = defineBrowserActions({
   async select(context) {
     const { guest, command, signal, refRecovery, services } = context;
     const { reply, refActions } = services;
-    if (!command.ref) throw new Error('select requires ref (from snapshot)');
+    const ref = await actionRef(context);
+    if (!ref) throw new Error('select requires ref (from snapshot) or target');
     const values = Array.isArray(command.values) ? command.values.map(String) : [];
     if (!values.length) {
       // Asking without a value reads the control instead of changing it, so
@@ -84,37 +109,27 @@ export const formActions = defineBrowserActions({
       const options = await reply.withRefRecovery(
         guest,
         refRecovery,
-        command.ref,
-        (ref) => refActions.listSelectOptions(guest, ref, signal),
+        ref,
+        (recovered) => refActions.listSelectOptions(guest, recovered, signal),
         signal,
       );
       return reply.decorateRecovery({
         text: options.length
-          ? `Options for ${command.ref} (${options.length}):\n${options.map((option) => `- ${redactBrowserText(option)}`).join('\n')}`
-          : `${command.ref} has no options.`,
+          ? `Options for ${ref} (${options.length}):\n${options.map((option) => `- ${redactBrowserText(option)}`).join('\n')}`
+          : `${ref} has no options.`,
       }, refRecovery);
     }
     await mutateRef(
       context,
-      command.ref,
-      (ref) => refActions.selectRef(guest, ref, values, signal),
+      ref,
+      (recovered) => refActions.selectRef(guest, recovered, values, signal),
     );
     return afterEdit(context, false);
   },
 
-  async check(context) {
-    const { guest, command, signal, services } = context;
-    if (!command.ref) throw new Error('check requires ref (from snapshot)');
-    await mutateRef(
-      context,
-      command.ref,
-      (ref) => services.refActions.setCheckedRef(guest, ref, command.checked !== false, signal),
-    );
-    return afterEdit(context, false);
-  },
-
-  async upload({ guest, command, signal, refRecovery, actionSnapshot, services }) {
-    const ref = command.ref ? String(command.ref) : undefined;
+  async upload(context) {
+    const { guest, command, signal, refRecovery, actionSnapshot, services } = context;
+    const ref = await actionRef(context);
     if (ref && !refRecovery.source?.refs.has(ref)) {
       throw new Error('upload requires a ref from the latest snapshot; upload refs are never auto-recovered');
     }
@@ -122,7 +137,6 @@ export const formActions = defineBrowserActions({
       guest,
       ref,
       Array.isArray(command.paths) ? command.paths.map(String) : [],
-      command.confirm === true,
       signal,
     );
     services.state.invalidateInteraction(guest);

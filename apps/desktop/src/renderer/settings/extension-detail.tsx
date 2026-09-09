@@ -57,13 +57,15 @@ export type ExtensionDialogWidth = 'compact' | 'detail' | 'editor';
  *  설정하는 걸로). Portaled because the list lives inside the sidebar's
  *  clipped box. */
 export function ExtensionDetailDialog({
-  title, icon, tagline, children, footer, enabled, busy, onToggle, headerControl, onClose,
+  title, icon, titleStatus, tagline, children, footer, enabled, busy, onToggle, headerControl, onClose,
   onSubmit, width = 'detail', titleId = 'extensions-dialog-title', className = '', dataAttributes,
 }: {
   title: string;
   /** Identity glyph on the title line — the same plate as the list row's, so
    *  the dialog opens as a continuation of the row that was clicked. */
   icon?: ReactNode;
+  /** Connection state next to the dialog title. */
+  titleStatus?: { label: string; tone: ExtensionItemTone };
   /** One lead sentence under the header, before the sections. */
   tagline?: string;
   /** Body sections composed by the caller. */
@@ -99,6 +101,8 @@ export function ExtensionDetailDialog({
       <header>
         {icon ? <span className="extensions-dialog-icon" aria-hidden="true">{icon}</span> : null}
         <h2 id={titleId}>{title}</h2>
+        {titleStatus ? <span className="extensions-item-status extensions-dialog-title-status"
+          data-tone={titleStatus.tone} role="status"><i aria-hidden="true" />{titleStatus.label}</span> : null}
         <div className="schedules-dialog-header-actions">
           {headerControl !== undefined ? headerControl
             : typeof enabled === 'boolean' && onToggle && <CompactSwitch
@@ -207,7 +211,7 @@ export function ExtensionAction({ children, danger = false, disabled, ariaLabel,
   danger?: boolean;
   disabled?: boolean;
   ariaLabel?: string;
-  onClick(): void;
+  onClick?(): void;
 }) {
   return <button type="button" className={`extensions-action${danger ? ' danger' : ''}`}
     aria-label={ariaLabel} disabled={disabled} onClick={onClick}>{children}</button>;

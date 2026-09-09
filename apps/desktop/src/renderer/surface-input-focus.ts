@@ -74,10 +74,13 @@ export function modalDialogPresented(): boolean {
     .some((dialog) => !dialog.closest(PARKED_SURFACE_SELECTOR));
 }
 
+export function surfaceOwnsKeyboard(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest(SURFACE_KEYBOARD_OWNER_SELECTOR));
+}
+
 export function shouldFocusComposerFromWindowKey(event: KeyboardEvent): boolean {
   if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return false;
   if (event.key.length !== 1 && event.key !== "Process" && event.key !== "Dead") return false;
   if (modalDialogPresented()) return false;
-  const target = event.target;
-  return !(target instanceof Element) || !target.closest(SURFACE_KEYBOARD_OWNER_SELECTOR);
+  return !surfaceOwnsKeyboard(event.target);
 }

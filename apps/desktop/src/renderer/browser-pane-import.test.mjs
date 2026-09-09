@@ -29,6 +29,7 @@ const {
 } = await import('./browser-foreground-lifecycle.ts');
 const {
   browserAutoFitZoom,
+  browserViewportZoom,
   browserViewportEmulation,
   readBrowserViewportPreset,
   resolveBrowserViewportPreset,
@@ -39,7 +40,7 @@ const { default: RemoteBrowserPane } = await import('./RemoteBrowserPane.tsx');
 test('Browser viewport presets expose responsive fill and exact device frames', () => {
   assert.deepEqual(resolveBrowserViewportPreset('responsive'), {
     id: 'responsive',
-    label: 'Auto · Fit to pane',
+    label: 'Desktop · 100%',
     width: null,
     height: null,
     deviceScaleFactor: 1,
@@ -73,6 +74,11 @@ test('Browser viewport presets expose responsive fill and exact device frames', 
   assert.match(iphone.userAgent, /iPhone/);
   assert.equal(browserAutoFitZoom(720), 0.5);
   assert.equal(browserAutoFitZoom(1440), 1);
+  const normal = resolveBrowserViewportPreset('responsive');
+  assert.deepEqual([360, 720, 1440].map(width => browserViewportZoom(normal, width)), [1, 1, 1]);
+  assert.equal(browserViewportZoom(normal, 720, 1.25), 1.25);
+  assert.equal(browserViewportZoom(resolveBrowserViewportPreset('fit'), 720), 0.5);
+  assert.equal(browserViewportZoom(iphone, 720), 1);
   assert.equal(resolveBrowserViewportPreset('unknown').id, 'responsive');
 });
 
@@ -211,6 +217,34 @@ test('cookie-only import exposes approval and sends only the selected data', asy
     assert.deepEqual(request.items, ['cookies']);
     assert.equal(request.administratorApproved, true);
     assert.match(document.querySelector('[role="dialog"]').textContent, /Browser data imported/);
+    assert.match(document.querySelector('[role="note"]').textContent, /does not verify sign-in/);
+    assert.match(document.querySelector('.browser-import-items').textContent, /1 imported/);
+    assert.equal(document.querySelectorAll('.browser-import-state.is-failed').length, 0);
+  } finally {
+    await act(async () => view.root.unmount());
+    view.host.remove();
+  }
+});
+
+test('partial cookie import shows the returned count and failure even without progress events', async () => {
+  const view = renderDialog({
+    browserProfileImportSources: async () => [chromeSource()],
+    onBrowserProfileImportProgress: () => () => {},
+    browserProfileImportStart: async (input) => ({
+      jobId: input.jobId,
+      counts: { passwords: 0, cookies: 12, history: 0 },
+      errors: { cookies: 'Cookie import incomplete: 12 imported, 2 decryption failures.' },
+    }),
+  });
+  try {
+    await view.render();
+    await act(async () => document.querySelector('.browser-import-admin input').click());
+    await act(async () => document.querySelector('.browser-import-primary').click());
+    assert.match(view.host.textContent, /Some data could not be imported/);
+    assert.match(view.host.querySelector('.browser-import-items').textContent, /12 imported/);
+    assert.equal(view.host.querySelectorAll('.browser-import-state.is-failed').length, 1);
+    assert.match(view.host.textContent, /2 decryption failures/);
+    assert.equal(view.host.querySelector('.browser-import-primary').textContent, 'Retry');
   } finally {
     await act(async () => view.root.unmount());
     view.host.remove();
@@ -307,7 +341,8 @@ test('remote Browser Use renders a frame and forwards reload, tap, and page text
     remoteBrowserFrame: async (sessionId) => {
       assert.equal(sessionId, 'browser-remote-session');
       return {
-      frameId: 'frame-1',
+      frameId: 'rbf_a1',
+      documentId: 'p1:0',
       url: 'https://example.test/',
       title: 'Remote fixture',
       loading: false,
@@ -380,7 +415,7 @@ test('remote Browser Use renders a frame and forwards reload, tap, and page text
       sessionId: 'browser-remote-session',
       input: {
         type: 'tap',
-        frameId: 'frame-1',
+        frameId: 'rbf_a1',
         x: 25,
         y: 12.5,
       },
@@ -399,10 +434,28 @@ test('remote Browser Use renders a frame and forwards reload, tap, and page text
       sessionId: 'browser-remote-session',
       input: {
         type: 'text',
-        frameId: 'frame-1',
+        frameId: 'rbf_a1',
+        documentId: 'p1:0',
         text: 'A',
       },
     });
+    // No screen refresh between keystrokes: keyboard input stays attached
+    // to the displayed document while the image refresh cursor is cleared.
+    await act(async () => {
+      for (const text of ['b', '@', '한']) {
+        pageInput.value = text;
+        pageInput.dispatchEvent(new window.Event('input', { bubbles: true }));
+      }
+      pageInput.dispatchEvent(new window.KeyboardEvent('keydown', {
+        key: 'Backspace', bubbles: true, cancelable: true,
+      }));
+    });
+    assert.deepEqual(controls.slice(-4).map(({ input }) => input), [
+      ...['b', '@', '한'].map((text) => ({
+        type: 'text', frameId: 'rbf_a1', documentId: 'p1:0', text,
+      })),
+      { type: 'key', frameId: 'rbf_a1', documentId: 'p1:0', key: 'Backspace' },
+    ]);
   } finally {
     await act(async () => root.unmount());
     host.remove();

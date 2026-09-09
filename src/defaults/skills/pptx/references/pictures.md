@@ -1,11 +1,11 @@
 # Pictures
 
-Owns everything that exists only when the deck carries pictures — supplied by the user or generated: the picture families a page can be built on, the tone and crop modifiers, generation, and the kit functions that place them. Loaded on that trigger (`SKILL.md` §1); a deck without pictures never reads this file. Canvas and rule strength as in `composition.md`.
+Owns selected pictures — supplied, accessible authorized product assets, or generated: picture families, crop and tone, generation, and placement. Loaded on that trigger (`SKILL.md` §1); a deck without pictures never reads this file. Canvas and rule strength as in `composition.md`.
 
 ## 0. Generated pictures (when the user supplied none)
 The `image` skill makes the picture; this file only decides where it goes. Load `image`, follow its call order (`list` → `generate kind:'image'` → inspect), and pass what the deck knows: `path:<beside the deck>.png` and `aspect:<the frame ratio from §2>`. No signed-in lane means no generated pictures, and the deck says so instead of substituting a photo library it does not have.
 
-The cover decision — a picture of the subject when a lane is signed in or the user supplied one, a text-led cover otherwise, recorded in the brief — is `direction.md` §4; this file starts after it. Content pages take a picture only when it explains or demonstrates something the claim needs. One picture on the cover costs one generation; the deck never fills pages to reach a picture count.
+The cover decision follows the subject and available authorized assets (`direction.md` §4), not whether generation is signed in. This file starts after asset selection. Content pages take a picture when it explains or demonstrates the claim; the deck never fills pages to reach a picture count.
 
 **Default — choose the asset by its job**: use an actual screenshot, object photograph, source figure, or document excerpt when the claim concerns that artifact. Use a native diagram for relationships and a generated illustration for a clearly identified explanation or atmosphere. A generic photograph does not become relevant by matching the palette; omit it when the subject reads better without it. Generated imagery never stands in for observed evidence.
 **Default — what the deck hands the media prompt**: the `Asset:` line ("deck cover, full-bleed background"), the style's treatment as `Style:` (editorial: muted documentary photograph, shallow depth; dark-tech: macro of a lit surface on black; swiss-minimal: single object on a plain field; soft-rounded: soft daylight, pastel), the palette temperature (`direction.md` §5) as `Mood:`, and the calm zone as `Composition:`. A cover is a field for copy, so the image skill's no-text / no-faces exclusions apply. The subject comes from the brief, never the deck's topic word.
@@ -17,7 +17,7 @@ The cover decision — a picture of the subject when a lane is signed in or the 
 ## 1. Placing a picture (contract)
 **Hard rule — a picture is cropped to its frame before it is placed, never stretched**: `picture()` crops with sharp; `addImage` with a file path and a frame of another ratio is a defect. → runtime `image_aspect_distorted`
 **Hard rule — text over a picture sits on a scrim**: a `scrim()` or `spotlight()` goes between the picture and any text on it; text straight on a picture fails the readability check at finalize. → runtime `low_visual_contrast` (render); scrim presence → manual
-**Hard rule — one modifier per picture**: a crop and one tone treatment at most; a flat plate is never a tone. → manual
+**Default — preserve useful detail**: use only treatments that support the asset's job. Multiple treatments are allowed when they improve integration without obscuring evidence.
 **Default — presence follows the job**: a cover or atmosphere picture recedes (`transparency: 55-70` or `wash()`); an evidence picture keeps full presence and gets annotation instead.
 
 ## 2. Picture families (Reference — starting geometry, not slots)

@@ -457,6 +457,13 @@ function applyComputerObserveOnlySetting(enabled: boolean): void {
   computerHost?.setObserveOnly(computerObserveOnly);
 }
 unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value }) => {
+  if (name === 'session-runtime-released') {
+    const event = value as { sessionId?: unknown; restore?: unknown } | null;
+    if (typeof event?.sessionId === 'string' && /^[A-Za-z0-9_-]+$/.test(event.sessionId)) {
+      browserHost?.releaseSession(event.sessionId, { restore: event.restore === true });
+    }
+    return;
+  }
   if (name === 'browser-remote-request') {
     const request = value && typeof value === 'object'
       ? value as { id?: unknown; method?: unknown; args?: unknown }

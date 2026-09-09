@@ -12,6 +12,8 @@ test('browser action budget is per turn and leaves recovery actions available', 
   for (let index = 0; index < 10; index += 1) budget.consume(first, 'open');
   assert.throws(() => budget.consume(first, 'open'), /action limit \(10\)/);
   assert.doesNotThrow(() => budget.consume(first, 'handle_dialog'));
+  assert.doesNotThrow(() => budget.consume(first, 'hide'));
+  assert.doesNotThrow(() => budget.consume(first, 'close_tab'));
   assert.doesNotThrow(() => budget.consume({ ...first, turn_id: 2 }, 'open'));
   budget.clear();
   assert.doesNotThrow(() => budget.consume(first, 'open'));

@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { freshContextCompactMessages, SUMMARY_PREFIX } from './compact.mjs';
 import { runFreshContextCompact } from './loop/fresh-context.mjs';
@@ -37,8 +40,6 @@ test('fresh Compact persists one verbatim Memory handoff without rebuilding a du
             contextWindow: 100_000,
             boundaryTokens: 100_000,
             reserveTokens: 0,
-            keepTokens: 10_000,
-            preserveRecentTokens: 10_000,
         },
         sessionId,
         executeMemorySearch: async (args) => {
@@ -89,8 +90,6 @@ test('fresh Compact waits for ingest before browsing the complete session handof
             contextWindow: 100_000,
             boundaryTokens: 100_000,
             reserveTokens: 0,
-            keepTokens: 10_000,
-            preserveRecentTokens: 10_000,
         },
         sessionId: 'sess-ingest-barrier',
         executeMemorySearch: async (args) => {
@@ -134,8 +133,6 @@ test('pre-send active turn reaches the Memory fresh builder as a continuation', 
             contextWindow: 100_000,
             boundaryTokens: 100_000,
             reserveTokens: 0,
-            keepTokens: 10_000,
-            preserveRecentTokens: 10_000,
         },
         sessionId: 'sess-active-turn',
         activeTurn: true,
@@ -189,8 +186,6 @@ test('repeated compact rebuilds from the same session transcript instead of nest
         contextWindow: 100_000,
         boundaryTokens: 100_000,
         reserveTokens: 0,
-        keepTokens: 10_000,
-        preserveRecentTokens: 10_000,
     };
     const original = [{ role: 'system', content: 'system' }];
     for (let turn = 1; turn <= 7; turn += 1) {
@@ -273,18 +268,16 @@ test('fresh layout keeps session injection and stable summary before the volatil
     assert.equal(summaryIndex, sessionPrefix.length);
     assert.equal(result.messages[summaryIndex + 1]?.role, 'assistant');
     assert.equal(result.messages[summaryIndex + 1]?.content, '.');
-    const volatileTail = result.messages[summaryIndex + 2];
+    const volatileTail = result.messages.at(-1);
     assert.equal(volatileTail?.role, 'user');
     assert.ok(String(volatileTail.content).startsWith(goalReminder));
     assert.ok(String(volatileTail.content).endsWith('<system-reminder>\n# Current Time\n2026-09-01\n</system-reminder>\n\nLATEST_REAL_USER_INSTRUCTION'));
     assert.equal(String(volatileTail.content).includes('STALE_GOAL_STATE'), false);
     assert.equal((String(volatileTail.content).match(/<goal_state>/g) || []).length, 1);
     assert.equal(String(result.messages[summaryIndex].content).includes('CURRENT_GOAL_STATE'), false);
-    assert.equal(result.messages.some((message) => message?.role === 'tool'), false);
-    assert.equal(result.messages.some((message) => Array.isArray(message?.toolCalls)), false);
-    assert.equal(JSON.stringify(result.messages).includes('OLD_PROVIDER_REPLAY'), false);
-    assert.equal(result.diagnostics.retainedAssistantToolMessages, 0);
-    assert.equal(result.diagnostics.retainedProviderReplayMessages, 0);
+    assert.equal(result.messages.some((message) => message?.content === 'OLD_TOOL_RESULT'), true);
+    assert.equal(result.diagnostics.retainedAssistantToolMessages, 1);
+    assert.equal(result.diagnostics.retainedProviderReplayMessages, 1);
 });
 
 test('mid-turn Compact resumes completed progress instead of replaying the latest request as unanswered', () => {
@@ -305,7 +298,7 @@ test('mid-turn Compact resumes completed progress instead of replaying the lates
         { role: 'tool', toolCallId: 'browser-call', content: '390x844 mobile emulation completed' },
     ], 40_000, {
         force: true,
-        handoffText: 'The mobile emulation tool call completed and inspection should continue.',
+        handoffText: 'The user requested mobile inspection; tool execution is absent from this Memory handoff.',
         activeTurn: true,
     });
 
@@ -317,10 +310,8 @@ test('mid-turn Compact resumes completed progress instead of replaying the lates
     assert.equal(continuation?.role, 'user');
     assert.match(String(continuation?.content), /already in progress/i);
     assert.match(String(continuation?.content), /without repeating/i);
-    assert.equal(result.messages.some((message) => message?.role === 'tool'), false);
-    assert.equal(result.messages.some((message) => Array.isArray(message?.toolCalls)), false);
+    assert.equal(result.messages.find(message => message.toolCallId === 'browser-call')?.content, '390x844 mobile emulation completed');
     assert.equal(result.diagnostics.activeTurnContinuation, true);
-    assert.equal(result.diagnostics.tailMessages, 2);
 });
 
 test('out-of-loop Compact does not fabricate an active continuation from completed history', () => {
@@ -382,7 +373,15 @@ test('mid-turn continuation survives repeated Compact once and clears for a new 
     assert.equal(nextTurn.diagnostics.activeTurnContinuation, false);
 });
 
-test('263k-class tool-heavy transcript compacts without carrying any completed tool execution', () => {
+test('263k-class tool-heavy transcript retains bounded recent execution and archives overflow', (t) => {
+    const previousDataDir = process.env.MIXDOG_DATA_DIR;
+    const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-heavy-compact-'));
+    process.env.MIXDOG_DATA_DIR = dataDir;
+    t.after(() => {
+        if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+        else process.env.MIXDOG_DATA_DIR = previousDataDir;
+        rmSync(dataDir, { recursive: true, force: true });
+    });
     const messages = [
         { role: 'system', content: 'session rules' },
         { role: 'user', content: 'initial tool-heavy request' },
@@ -409,6 +408,8 @@ test('263k-class tool-heavy transcript compacts without carrying any completed t
         force: true,
         handoffText,
         handoffTokenCap: 136_000,
+        sessionId: 'test-compact-heavy-execution',
+        contextWindow: 500_000,
     });
 
     assert.ok(result.diagnostics.baseTokens > 200_000);
@@ -419,9 +420,9 @@ test('263k-class tool-heavy transcript compacts without carrying any completed t
         && message.content.includes(handoffText)
     )));
     assert.equal(result.messages.at(-1)?.content, 'LATEST_AFTER_127_TOOLS');
-    assert.equal(result.messages.some((message) => message?.role === 'tool'), false);
-    assert.equal(result.messages.some((message) => Array.isArray(message?.toolCalls)), false);
-    assert.equal(JSON.stringify(result.messages).includes('providerReplay'), false);
+    assert.ok(result.messages.some(message => message.toolCallId === 'tool-heavy-126'));
+    assert.ok(result.diagnostics.toolHistoryTokens <= 25_000);
+    assert.ok(result.diagnostics.omittedToolGroups > 0);
 });
 
 test('the deterministic builder fails closed instead of truncating an oversized complete handoff', () => {
@@ -436,8 +437,6 @@ test('the deterministic builder fails closed instead of truncating an oversized 
             force: true,
             handoffText: `[old episode] ${'context '.repeat(20_000)}`,
             handoffTokenCap: 50_000,
-            keepTokens: 4_000,
-            preserveRecentTokens: 4_000,
         }),
         /complete handoff exceeds the compact budget/,
     );

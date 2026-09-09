@@ -2,6 +2,7 @@ import { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
 import { oauthCredentialProbeState } from './oauth-credential-probes.mjs';
 import { refreshCatalog as refreshMetadataCatalog } from './model-catalog.mjs';
 import { wrapProviderAdmission } from './admission-scheduler.mjs';
+import { createAccountPoolProvider } from './account-pool.mjs';
 // OpenAI-compat provider names are self-declared by openai-compat-presets.mjs via
 // OPENAI_COMPAT_PRESETS. No parallel list maintained here.
 const providers = new Map();
@@ -148,7 +149,7 @@ function instantiateProvider(name, Ctor, cfg) {
     if (Object.prototype.hasOwnProperty.call(OPENAI_COMPAT_PRESETS, name) && name !== 'opencode-go') {
         return wrapProviderAdmission(new Ctor(name, cfg), name);
     }
-    return wrapProviderAdmission(new Ctor(cfg), name);
+    return createAccountPoolProvider(name, () => wrapProviderAdmission(new Ctor(cfg), name));
 }
 
 export async function initProviders(config, { signal = null } = {}) {

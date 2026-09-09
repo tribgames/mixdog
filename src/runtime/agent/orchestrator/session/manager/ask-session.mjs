@@ -13,6 +13,10 @@ import { loadSession, saveSession, saveSessionAsync, saveSessionAsyncDeferred, r
 import { createAbortController } from '../../../../shared/abort-controller.mjs';
 import { estimateJsonBytes } from '../../../../shared/json-metrics.mjs';
 import { positiveInt } from '../../../../shared/numbers.mjs';
+import {
+    persistedAssistantTranscriptMetadata,
+    persistedUserTranscriptMetadata,
+} from '../../../../shared/transcript-metadata.mjs';
 import { logLlmCall } from '../../../../shared/llm/usage-log.mjs';
 import { appendAgentTrace } from '../../agent-trace.mjs';
 import {
@@ -121,18 +125,6 @@ export async function acknowledgeAskTextReset(askOpts, detail, onAcknowledged) {
     return true;
 }
 
-function persistedAssistantTranscriptMetadata(value, fallbackAt = Date.now()) {
-    if (!value || typeof value !== 'object') return null;
-    const candidateAt = Number(value.assistantAt);
-    const assistantAt = Number.isFinite(candidateAt) && candidateAt > 0 ? candidateAt : fallbackAt;
-    value.assistantAt = assistantAt;
-    return {
-        at: assistantAt,
-        ...(typeof value.model === 'string' && value.model ? { model: value.model } : {}),
-        ...(typeof value.provider === 'string' && value.provider ? { provider: value.provider } : {}),
-        ...(typeof value.agent === 'string' && value.agent ? { agent: value.agent } : {}),
-    };
-}
 
 function attachAssistantTranscriptCompletion(messages, completion, turnStartedAt = 0) {
     if (!Array.isArray(messages) || !completion || typeof completion !== 'object') return false;
@@ -229,15 +221,7 @@ export async function _api_call_with_interrupt(sessionId, fn) {
 export async function askSession(sessionId, prompt, context, onToolCall, cwdOverride, explicitPrefetch, askOpts = {}) {
     const _askStartedAt = Date.now();
     const _rawTranscriptMeta = askOpts?.transcriptMeta;
-    const _transcriptMeta = _rawTranscriptMeta && typeof _rawTranscriptMeta === 'object'
-        ? {
-            ...(Number.isFinite(Number(_rawTranscriptMeta.at)) ? { at: Number(_rawTranscriptMeta.at) } : {}),
-            ...(typeof _rawTranscriptMeta.model === 'string' && _rawTranscriptMeta.model ? { model: _rawTranscriptMeta.model } : {}),
-            ...(typeof _rawTranscriptMeta.provider === 'string' && _rawTranscriptMeta.provider ? { provider: _rawTranscriptMeta.provider } : {}),
-            ...(typeof _rawTranscriptMeta.agent === 'string' && _rawTranscriptMeta.agent ? { agent: _rawTranscriptMeta.agent } : {}),
-            ...(typeof _rawTranscriptMeta.sender === 'string' && _rawTranscriptMeta.sender ? { sender: _rawTranscriptMeta.sender } : {}),
-        }
-        : null;
+    const _transcriptMeta = persistedUserTranscriptMetadata(_rawTranscriptMeta);
     const _takeAssistantTranscriptMetadata = () => {
         const metadata = persistedAssistantTranscriptMetadata(_rawTranscriptMeta);
         if (_rawTranscriptMeta && typeof _rawTranscriptMeta === 'object') delete _rawTranscriptMeta.assistantAt;
@@ -560,7 +544,6 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                 auto: session.compaction?.auto !== false,
                 boundaryTokens: contextMeta.compactBoundaryTokens,
                 bufferTokens: positiveInt(session.compaction?.bufferTokens ?? session.compaction?.buffer) || session.compaction?.bufferTokens || null,
-                keepTokens: positiveInt(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens) || session.compaction?.keepTokens || null,
                 contextWindow: contextMeta.contextWindow,
                 rawContextWindow: contextMeta.rawContextWindow,
                 effectiveContextWindowPercent: contextMeta.effectiveContextWindowPercent,

@@ -47,8 +47,11 @@ export async function prepareRequiredNativeAssets({
 } = {}) {
   const platformKey = nativeAssetPlatformKey(platform, arch);
   if (!NATIVE_ASSET_PLATFORMS.includes(platformKey)) {
+    const guidance = platformKey === 'win32-arm64'
+      ? ' Windows ARM64 Node.js is not supported; use x64 Node.js under Windows x64 emulation.'
+      : '';
     throw new Error(
-      `native assets are not published for ${platformKey}; supported: ${NATIVE_ASSET_PLATFORMS.join(', ')}`,
+      `native assets are not published for ${platformKey}; supported: ${NATIVE_ASSET_PLATFORMS.join(', ')}.${guidance}`,
     );
   }
   const root = resolve(String(packageRoot || ''));

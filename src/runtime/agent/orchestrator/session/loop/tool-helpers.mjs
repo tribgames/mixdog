@@ -4,6 +4,7 @@
 import { isMcpTool } from '../../mcp/client.mjs';
 import { isBuiltinTool } from '../../tools/builtin.mjs';
 import { isInternalTool } from '../../internal-tools.mjs';
+import { loadSkillToolDependencies } from '../../../../../session-runtime/skill-tool-loading.mjs';
 import {
     collectSkillsCached,
     loadSkillResource,
@@ -89,7 +90,7 @@ export function buildSkillsListResponse(cwd) {
     const entries = skills.map(s => ({ name: s.name, description: s.description || '' }));
     return JSON.stringify({ skills: entries });
 }
-export function viewSkill(cwd, name) {
+export function viewSkill(cwd, name, session = null) {
     const skillName = String(name || '').trim();
     if (!skillName) return 'Error: skill name is required';
     const missingFeature = skillMissingFeature(skillName);
@@ -102,7 +103,7 @@ export function viewSkill(cwd, name) {
     // Return the general tool envelope: the model-visible tool_result is the
     // short stub (`Loaded skill: <name>`) and the full SKILL.md body is
     // delivered ONCE as a separate injected role:'user' message (newMessages).
-    return buildSkillToolEnvelope(skillName, res.content, res.dir, { source: res.source });
+    return loadSkillToolDependencies(buildSkillToolEnvelope(skillName, res.content, res.dir, res), session);
 }
 
 /** Normalize PostToolUse hook override values (legacy MCP text envelopes only). */

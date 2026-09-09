@@ -2,6 +2,7 @@ import { basename, dirname, extname, join, posix } from 'node:path';
 import { applyCellStyle } from './portable-sheet-styles.mjs';
 import { normalizeXlsxFormula } from './xlsx-contract.mjs';
 import { chartXml } from './portable-chart.mjs';
+import { applyWorksheetPageSetup } from './portable-sheet-page.mjs';
 import { toEmu } from './portable-slide-shapes.mjs';
 import { readFile } from 'node:fs/promises';
 import { summarizePivotFields, writePivotTable } from './portable-pivot.mjs';
@@ -740,6 +741,8 @@ export async function applyXlsx(zip, operations) {
           name: String(cellValue(column, area.startRow) ?? `Series ${index + 1}`),
           values: numbers,
           ...(palette.length ? { color: palette[index % palette.length] } : {}),
+          ...(['pie', 'doughnut', 'donut'].includes(String(op.chartType).toLowerCase()) && palette.length
+            ? { pointColors: categories.map((_, point) => palette[point % palette.length]) } : {}),
         });
         names.push(`${sheetReference}!$${label}$${area.startRow}`);
         values.push(`${sheetReference}!$${label}$${area.startRow + 1}:$${label}$${area.endRow}`);
@@ -796,48 +799,7 @@ export async function applyXlsx(zip, operations) {
       continue;
     }
     if (op.op === 'set_page_setup') {
-      const orientation = String(op.orientation || '').toLowerCase();
-      if (orientation && !['portrait', 'landscape'].includes(orientation)) {
-        throw new Error('set_page_setup orientation must be portrait or landscape');
-      }
-      const fitWide = Number(op.fitToPagesWide) || 0;
-      const fitTall = op.fitToPagesTall == null ? null : Number(op.fitToPagesTall) || 0;
-      if (fitWide || fitTall != null) {
-        const existing = worksheetSection(xml, 'sheetPr');
-        const attrs = existing ? /^<sheetPr\b([^>]*?)(?:\/>|>)/.exec(existing[0])?.[1] || '' : '';
-        const body = existing && !existing[0].endsWith('/>')
-          ? existing[0].slice(existing[0].indexOf('>') + 1, existing[0].lastIndexOf('</sheetPr>'))
-          : '';
-        const cleaned = body.replace(/<pageSetUpPr\b[^>]*?\/>/, '');
-        xml = upsertWorksheetSection(xml, 'sheetPr', `<sheetPr${attrs}>${cleaned}<pageSetUpPr fitToPage="1"/></sheetPr>`);
-      }
-      const centered = `${op.centerHorizontally === true ? ' horizontalCentered="1"' : ''}`
-        + `${op.centerVertically === true ? ' verticalCentered="1"' : ''}`;
-      xml = upsertWorksheetSection(xml, 'printOptions', centered ? `<printOptions${centered}/>` : '');
-      const margin = (value, fallback) => (Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : fallback);
-      xml = upsertWorksheetSection(xml, 'pageMargins', `<pageMargins left="${margin(op.leftMargin, 0.7)}"`
-        + ` right="${margin(op.rightMargin, 0.7)}" top="${margin(op.topMargin, 0.75)}"`
-        + ` bottom="${margin(op.bottomMargin, 0.75)}" header="0.3" footer="0.3"/>`);
-      xml = upsertWorksheetSection(xml, 'pageSetup', `<pageSetup paperSize="9"`
-        + `${orientation ? ` orientation="${orientation}"` : ''}`
-        + `${fitWide ? ` fitToWidth="${fitWide}"` : ''}`
-        + `${fitTall == null ? '' : ` fitToHeight="${fitTall}"`}/>`);
-      zip.file(sheet.path, xml);
-      if (op.printArea) {
-        const area = parseAreaRange(op.printArea);
-        const reference = `${quoteSheetName(sheet.name)}!`
-          + absoluteRange(`${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`);
-        const localSheetId = sheets.findIndex((entry) => entry.name === sheet.name);
-        const workbookPath = 'xl/workbook.xml';
-        const workbook = await zipText(zip, workbookPath);
-        zip.file(workbookPath, upsertDefinedName(
-          workbook,
-          `<definedName name="_xlnm.Print_Area" localSheetId="${localSheetId}">${xmlEncode(reference)}</definedName>`,
-          (item) => xmlAttribute(item, 'name') === '_xlnm.Print_Area'
-            && Number(xmlAttribute(item, 'localSheetId')) === localSheetId,
-        ));
-      }
-      results.push({ op: op.op, changed: true, sheet: sheet.name });
+      results.push(await applyWorksheetPageSetup(zip, sheets, sheet, xml, op));
       continue;
     }
     throw new Error(`Portable XLSX backend does not support operation: ${op.op}`);

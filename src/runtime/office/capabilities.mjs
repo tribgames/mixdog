@@ -48,12 +48,12 @@ const CATALOG = {
     },
     properties: {
       paragraph: ['style'],
-      font: ['name', 'size', 'bold', 'italic', 'color'],
+      font: ['name', 'nameEastAsia', 'size', 'bold', 'italic', 'underline', 'color'],
       page: ['orientation', 'topMargin', 'bottomMargin', 'leftMargin', 'rightMargin'],
       headerFooter: ['section', 'kind', 'header', 'text'],
       table: ['style', 'textStyle', 'fontName', 'fontSize', 'color', 'spacingAfter', 'columnWidths', 'rowHeights', 'borders', 'shading', 'alignment'],
       tableCell: ['fillColor', 'verticalAlignment', 'width', 'fontName', 'fontSize', 'bold', 'italic', 'color'],
-      paragraphFormat: ['alignment', 'spacingBefore', 'spacingAfter', 'lineSpacing', 'keepWithNext', 'pageBreakBefore', 'border', 'tabStops', 'listKind', 'listLevel'],
+      paragraphFormat: ['alignment', 'spacingBefore', 'spacingAfter', 'lineSpacing', 'keepWithNext', 'keepTogether', 'widowControl', 'pageBreakBefore', 'border', 'tabStops', 'listKind', 'listLevel'],
       comment: ['author', 'initials', 'date', 'text', 'anchoredText', 'resolved', 'replies'],
       contentControl: ['tag', 'title', 'lock', 'text'],
       revision: ['author', 'date', 'type', 'typeCode', 'text', 'resolution'],
@@ -154,9 +154,9 @@ const COMMON_SIGNATURES = {
 
 const FORMAT_SIGNATURES = {
   docx: {
-    compose_document: signature(['title'], ['claimId', 'purpose', 'expressionMode', 'variant', 'subtitle', 'summary', 'summaryLabel', 'meta', 'metrics', 'sections', 'footer', 'orientation', 'pageNumbers'], {
+    compose_document: signature(['title'], ['claimId', 'purpose', 'expressionMode', 'variant', 'subtitle', 'summary', 'summaryLabel', 'eyebrow', 'titleSize', 'language', 'nameEastAsia', 'meta', 'metrics', 'sections', 'footer', 'orientation', 'pageNumbers'], {
       propertySets: ['design'],
-      notes: 'Purpose-aware native Word composition; variant is optional because content topology selects the default.',
+      notes: 'Optional preset, not the default authoring path. It chooses typography, summary emphasis and spacing. For an authored design use set_page and native append_text/table/image operations with explicit properties.',
     }),
     append_text: signature(['text'], ['style', 'properties'], {
       propertySets: ['paragraph', 'font', 'paragraphFormat'],
@@ -174,11 +174,11 @@ const FORMAT_SIGNATURES = {
     set_table_style: signature(['table', 'properties'], [], { propertySets: ['table'] }),
     merge_table_cells: signature(['table', 'row', 'col'], ['rowSpan', 'colSpan']),
     set_table_cell_style: signature(['table', 'row', 'col', 'properties'], [], { propertySets: ['tableCell'] }),
-    set_paragraph_format: signature(['paragraph', 'properties'], [], { propertySets: ['paragraphFormat'] }),
+    set_paragraph_format: signature(['paragraph', 'properties'], [], { propertySets: ['paragraphFormat'], notes: 'Patches supplied properties only; lineSpacing is a minimum in points on both backends.' }),
     remove_paragraph: signature(['paragraph'], ['author']),
     move_paragraph: signature(['paragraph', 'index']),
     set_paragraph_style: signature(['paragraph', 'style']),
-    set_font: signature(['find', 'properties'], [], { propertySets: ['font'] }),
+    set_font: signature(['find', 'properties'], [], { propertySets: ['font'], notes: 'Formats only the first matching body phrase across runs; excludes headers/footers and preserves unrelated formatting. nameEastAsia sets the East Asian font independently.' }),
     add_image: signature(['path'], ['paragraph', 'width', 'height']),
     add_comment: signature(['find', 'text'], ['author', 'initials']),
     add_comment_reply: signature(['comment', 'text'], ['author', 'initials']),
@@ -213,7 +213,7 @@ const FORMAT_SIGNATURES = {
   xlsx: {
     compose_sheet: signature(['rows'], ['claimId', 'purpose', 'expressionMode', 'variant', 'sheet', 'kind', 'eyebrow', 'title', 'subtitle', 'source', 'headers', 'metrics', 'insights', 'decision', 'gates', 'actions', 'columnFormats', 'tableName', 'tableStyle', 'chart'], {
       propertySets: ['design'],
-      notes: 'Purpose-aware native Excel composition with content-selected dashboard, trend, comparison, scorecard, or analysis layout.',
+      notes: 'Optional layout preset. For a model-authored report use native ranges, styles, merges and charts with explicit placement; choose this composer only when its built-in arrangement fits.',
     }),
     set_cell: signature(['cell', 'value'], ['sheet']),
     set_formula: signature(['cell', 'formula'], ['sheet']),

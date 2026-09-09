@@ -157,13 +157,11 @@ function buildProfilePreferencesContent(dataDir) {
   const profile = normalizeProfileConfig(readAgentConfig(dataDir).profile);
   const lines = [];
   if (profile.title) {
-    lines.push(`- User title: ${profile.title}.`);
-    lines.push(`- Use "${profile.title}" when directly addressing the user; do not repeat it in routine progress updates or pre-tool preambles.`);
+    lines.push(`- Address the user as "${profile.title}"; omit the title from routine progress updates and pre-tool preambles.`);
   }
   const experience = PROFILE_EXPERIENCE_LEVELS[profile.experienceLevel];
   if (experience) {
-    lines.push(`- Development experience: ${experience.label}. ${experience.prompt}`);
-    lines.push('- Adapt vocabulary and assumed background to this level without adding lessons, examples, or tips unless the task needs them; output style still controls information depth.');
+    lines.push(`- Development experience: ${experience.label}. ${experience.prompt} Output style controls information depth.`);
   }
   // No configured preference means no section: a bare heading would ship an
   // empty block to every model that has neither a title nor an experience level.
@@ -175,17 +173,15 @@ function buildLanguageSection(dataDir) {
   const language = profileLanguagePrompt(profile.language);
   if (!language?.prompt) return '';
   const lines = [
-    `- Always respond in ${language.prompt}. Use ${language.prompt} for all user-facing text: pre-tool preamble, progress updates, questions, reports, notices. This overrides output style. Code comments follow the file's existing language.`,
-    `- English rules, tool results, and runtime/system tags never change the response language; write the preamble and progress lines in ${language.prompt} even when the text just before them is English.`,
-    `- Preamble and reply language follow this setting and the user's latest instruction only; earlier lines in this conversation set no precedent.`,
+    `- Always respond in ${language.prompt}, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.`,
+    `- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.`,
   ];
   // Translation guards only bind when the output language differs from the
   // language of code, docs, and errors. English output has nothing to
   // mistranslate, so the two clauses would be dead text.
   if (language.prompt !== 'English') {
     lines.push(
-      `- Keep code identifiers, paths, commands, symbols, API names, and exact errors in original form.`,
-      `- Never coin a word-for-word translation of source jargon; use the established original term or a plain functional description.`,
+      `- Preserve identifiers, paths, commands, API names, and exact errors. For technical jargon, use the established term or a plain functional description, never an invented literal translation.`,
     );
   }
   return `# Language\n\n${lines.join('\n')}`;
@@ -328,12 +324,6 @@ function buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR }) {
   // environment block (buildLeadLanguageContent) so no later English text
   // (workflow, role, persona, memory, session lines) sits between it and the
   // first reply.
-
-  // Common instructions (renamed from user-workflow.md; legacy file still
-  // honored so existing installs keep their guidance without migration).
-  const commonInstructionsMd = readOptional(path.join(DATA_DIR, 'instructions.md'))
-    || readOptional(path.join(DATA_DIR, 'user-workflow.md'));
-  if (commonInstructionsMd) parts.push(`# Common Instructions\n\n${commonInstructionsMd}`);
 
   const outputStyle = loadOutputStyle({ PLUGIN_ROOT, DATA_DIR });
   if (outputStyle) parts.push(outputStyle);

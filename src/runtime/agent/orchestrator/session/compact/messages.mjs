@@ -63,6 +63,7 @@ export function isInjectedSkillBodyMessage(m) {
 
 const SYNTHETIC_USER_SOURCES = new Set([
     'compact-active-turn-continuation',
+    'compact-execution-recovery',
     'max-output-recovery',
     'refusal-recovery',
 ]);

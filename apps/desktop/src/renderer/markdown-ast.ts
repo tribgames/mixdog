@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
+import { safeMarkdownUrl } from "./markdown-url";
 
 import {
   htmlLineBreaksToBreaks,
@@ -34,25 +35,6 @@ interface SyntaxNode {
   children?: SyntaxNode[];
 }
 
-const safeProtocol = /^(?:https?|ircs?|mailto|xmpp)$/i;
-
-function safeMarkdownUrl(value: string): string {
-  const colon = value.indexOf(":");
-  const questionMark = value.indexOf("?");
-  const numberSign = value.indexOf("#");
-  const slash = value.indexOf("/");
-  if (
-    colon === -1
-    || (slash !== -1 && colon > slash)
-    || (questionMark !== -1 && colon > questionMark)
-    || (numberSign !== -1 && colon > numberSign)
-    || safeProtocol.test(value.slice(0, colon))
-  ) {
-    return value;
-  }
-  return "";
-}
-
 // react-markdown displays raw HTML as literal text unless a rehype HTML
 // plugin is explicitly installed. Preserve that contract before remark-rehype
 // would otherwise discard mdast `html` nodes.
@@ -77,7 +59,7 @@ function normalizedProperties(value: unknown): Record<string, unknown> | undefin
   const properties = { ...(value as Record<string, unknown>) };
   for (const name of ["href", "src"]) {
     if (typeof properties[name] === "string") {
-      properties[name] = safeMarkdownUrl(properties[name]);
+      properties[name] = safeMarkdownUrl(properties[name], name);
     }
   }
   return properties;

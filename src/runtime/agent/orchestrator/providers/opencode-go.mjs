@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { AnthropicProvider } from './anthropic.mjs';
 import { OpenAICompatProvider, OPENAI_COMPAT_PRESETS } from './openai-compat.mjs';
 import { getModelMetadataSync, getModelsDevRowSync } from './model-catalog.mjs';
@@ -122,6 +123,18 @@ export class OpenCodeGoProvider {
     }
 
     async send(messages, model, tools, sendOpts) {
+        // The transports share account-level clients, so session identity must
+        // travel with each request rather than mutate client default headers.
+        // Calls without a conversation get a send-scoped ID, reused by retries.
+        const sessionId = [sendOpts?.sessionId, sendOpts?.session?.id]
+            .find(value => typeof value === 'string' && value.trim())?.trim() || randomUUID();
+        sendOpts = {
+            ...(sendOpts || {}),
+            requestHeaders: {
+                ...(sendOpts?.requestHeaders || {}),
+                'x-opencode-session': sessionId,
+            },
+        };
         const wire = openCodeGoWireApi(model);
         if (wire === 'responses') {
             // OpenAI-family brands on the gateway (Muse Spark, GPT, Grok)

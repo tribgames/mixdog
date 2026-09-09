@@ -407,14 +407,14 @@ export function recommendedRecovery(
   delivery: string,
   transition: ComputerWindowTransition | null,
   targetWindow?: ComputerWindowRecord,
-): 'switch_target' | 'recapture' | 'pixel' | 'foreground' | 'browser_use' | undefined {
+): 'switch_target' | 'recapture' | 'user' | 'browser_use' | undefined {
   if (transition?.next_target) return 'switch_target';
   if (code === 'target_mismatch' || code === 'stale_target' || code === 'stale_frame'
     || code === 'user_input_active') {
     return 'recapture';
   }
   if (code === 'foreground_unavailable' || code === 'foreground_changed') {
-    return 'pixel';
+    return 'user';
   }
   const browserTarget = targetWindow
     && /^(chrome|msedge|edge|brave)$/i.test(targetWindow.app)
@@ -425,13 +425,8 @@ export function recommendedRecovery(
     return 'browser_use';
   }
   if (delivery === 'background'
-    && (effect === 'suspected_noop' || code?.startsWith('background_'))
-    && ['invoke', 'set_value', 'toggle'].includes(action)) {
-    return 'pixel';
-  }
-  if (delivery === 'background'
     && (effect === 'suspected_noop' || code?.startsWith('background_'))) {
-    return 'foreground';
+    return 'recapture';
   }
   return undefined;
 }

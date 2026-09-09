@@ -9,7 +9,6 @@ export {
     DEFAULT_COMPACTION_BUFFER_TOKENS,
     DEFAULT_COMPACTION_BUFFER_RATIO,
     MAX_COMPACTION_BUFFER_RATIO,
-    DEFAULT_COMPACTION_KEEP_TOKENS,
     normalizeCompactionBufferRatio,
     compactionBufferTokensForBoundary,
     SUMMARY_PREFIX,

@@ -132,7 +132,7 @@ export async function reviewRenderedOfficePages(images = [], {
       issues.push(issue(
         'sparse_page',
         `/page[${metric.page}]`,
-        `Rendered page uses only ${(metric.verticalSpan * 100).toFixed(1)}% of its height.`,
+        `Rendered body spans ${(metric.bodyVerticalSpan * 100).toFixed(1)}% of the body region; inspect paragraph flow and intentional whitespace.`,
         'render-review',
       ));
     }

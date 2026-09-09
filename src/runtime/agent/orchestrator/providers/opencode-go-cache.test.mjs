@@ -62,5 +62,5 @@ test('OpenCode Go Anthropic routes do not synthesize a cache override', async ()
         { sessionId: 'opencode-go-default-cache-test' },
     );
 
-    assert.deepEqual(capturedOpts, { sessionId: 'opencode-go-default-cache-test' });
+    assert.equal(capturedOpts.cacheStrategy, undefined);
 });

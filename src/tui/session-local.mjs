@@ -52,7 +52,7 @@ import { createRunTurn } from './session/turn.mjs';
 import { createSessionApi } from './session/session-api.mjs';
 import { createFrameBatchedStorePublisher } from './session/frame-batched-store.mjs';
 import { createLiveShare, forwardViewerSubmit, liveSharePipePath } from './session/live-share.mjs';
-import { displayModelName } from '../ui/model-display.mjs';
+import { createTranscriptRouteMetadata } from '../runtime/shared/transcript-metadata.mjs';
 const SESSION_RUNTIME_MODULE = '../mixdog-session-runtime.mjs';
 
 // The runtime graph is imported lazily, but that import (measured ~250ms) used
@@ -214,6 +214,9 @@ export async function createLocalSessionRuntime({
   const displayedExecutionNotificationKeys = new Set();
   const bag = {};
   let state;
+  // Bound once the goal-continuation controller exists: route publications
+  // read the Goal through its archive mask, never the raw record.
+  let visibleGoalStatus = null;
   // Route/context/agent-status derivations live in ./session/context-state.mjs.
   // getState()/getPendingSessionReset() are late-bound to the `state` and
   // `pendingSessionReset` closures declared below; the sync helpers mutate
@@ -230,6 +233,9 @@ export async function createLocalSessionRuntime({
     getState: () => state,
     updateState: (patch) => { state = { ...state, ...patch }; },
     getPendingSessionReset: () => flags.pendingSessionReset,
+    getVisibleGoal: () => (visibleGoalStatus
+      ? visibleGoalStatus()
+      : (runtime.goalStatus?.() || null)),
   });
 
   const initialAgentState = {
@@ -491,18 +497,8 @@ export async function createLocalSessionRuntime({
     activeToolCalls.clear();
     if (state.activeToolSummary || state.activeTools) set({ activeToolSummary: null, activeTools: null });
   };
-  const transcriptRouteMetadata = (at = Date.now()) => {
-    const route = routeState();
-    const provider = runtime.session?.provider || route.provider;
-    const modelName = displayModelName(runtime.session?.model || route.model, provider);
-    const workflowLabel = String(route.workflow?.name || route.workflow?.id || '').trim();
-    return {
-      at,
-      ...(modelName ? { model: modelName } : {}),
-      ...(provider ? { provider: String(provider) } : {}),
-      ...(workflowLabel ? { agent: workflowLabel } : {}),
-    };
-  };
+  const transcriptRouteMetadata = (at = Date.now()) =>
+    createTranscriptRouteMetadata(runtime.session, routeState(), at);
   const pushItem = (item) => {
     if (!flags.pushingFromDeferredEntry && flags.flushDeferredBeforeImmediatePush) {
       flags.flushDeferredBeforeImmediatePush();
@@ -869,6 +865,7 @@ export async function createLocalSessionRuntime({
     getPending: () => pending,
     enqueue: (...args) => bag.enqueue(...args),
   }));
+  visibleGoalStatus = bag.visibleGoalStatus;
   bag.runTurn = createRunTurn(bag);
   const api = createSessionApi(bag);
   // Cross-surface share: presence + the durable pending spool remain the

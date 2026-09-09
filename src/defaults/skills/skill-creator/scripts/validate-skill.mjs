@@ -13,6 +13,7 @@ import {
 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseSkillDocument } from '../../../../runtime/shared/skill-document.mjs';
+import { normalizeSkillToolDependencies } from '../../../../runtime/shared/skill-tool-dependencies.mjs';
 
 const ALLOWED_FIELDS = new Set([
   'name',
@@ -22,12 +23,11 @@ const ALLOWED_FIELDS = new Set([
   'compatibility',
   'metadata',
   'allowed-tools',
+  'dependencies',
 ]);
 
-// The model's skill listing shows `description — when_to_use` per entry and
-// cuts past LISTING_MAX on a word boundary, so anything beyond it never routes.
-// DESCRIPTION_MAX keeps the capability sentence short enough to leave room for
-// the trigger half.
+// UI descriptions and model selection triggers have separate budgets.
+// Only when_to_use enters the model's listing; instructions live in the body.
 const DESCRIPTION_MAX = 100;
 const LISTING_MAX = 250;
 
@@ -90,23 +90,30 @@ export function validateSkillDirectory(inputPath) {
   for (const key of Object.keys(frontmatter)) {
     if (!ALLOWED_FIELDS.has(key)) errors.push(`Unsupported frontmatter field: ${key}.`);
   }
+  if (frontmatter.dependencies != null) {
+    if (typeof frontmatter.dependencies !== 'object' || Array.isArray(frontmatter.dependencies)) {
+      errors.push('dependencies must be a mapping.');
+    } else {
+      try { normalizeSkillToolDependencies(frontmatter.dependencies.tools); }
+      catch (error) { errors.push(error.message); }
+    }
+  }
 
   if (basename(skillDir) !== name) {
     errors.push(`Folder name "${basename(skillDir)}" must match skill name "${name}".`);
   }
 
   if (/[<>]/.test(description) || /[<>]/.test(whenToUse)) {
-    errors.push('description and when_to_use cannot contain angle brackets because they appear in a manifest.');
+    errors.push('description and when_to_use cannot contain angle brackets.');
   }
   if (description.length > DESCRIPTION_MAX) {
-    warnings.push(`description is ${description.length} characters; keep it a capability sentence of ${DESCRIPTION_MAX} or fewer and move trigger phrases to when_to_use.`);
+    warnings.push(`description is ${description.length} characters; keep this UI summary within ${DESCRIPTION_MAX} and put operating details in the instructions.`);
   }
-  const listing = whenToUse ? `${description} — ${whenToUse}` : description;
-  if (listing.length > LISTING_MAX) {
-    warnings.push(`description — when_to_use is ${listing.length} characters; the model's listing cuts at ${LISTING_MAX}, so text past that never routes the skill.`);
+  if (whenToUse.length > LISTING_MAX) {
+    warnings.push(`when_to_use is ${whenToUse.length} characters; the model's trigger cuts at ${LISTING_MAX}, so text past that never routes the skill.`);
   }
   if (!whenToUse) {
-    warnings.push('when_to_use is empty; add trigger phrases and the boundary against neighbouring skills so the listing routes reliably.');
+    warnings.push('when_to_use is empty; the model sees only the name, not the UI description. Add selection conditions and relevant boundaries.');
   }
   if (frontmatter.compatibility != null) {
     if (typeof frontmatter.compatibility !== 'string') {

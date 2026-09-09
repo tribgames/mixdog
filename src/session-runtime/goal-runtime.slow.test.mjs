@@ -289,10 +289,11 @@ test('Goal tool schemas expose lifecycle and durable task contracts', () => {
   assert.deepEqual(goalTool.inputSchema.properties.tasks.items.required, ['text', 'status', 'kind']);
   assert.equal(goalTool.inputSchema.properties.blocker.minLength, 1);
   assert.match(goalTool.description, /If a mutation needs approval, create the Goal only after it/i);
-  assert.match(goalTool.description, /3\+ steps or careful planning/i);
-  assert.match(goalTool.description, /skip trivial or conversational work/i);
+  assert.match(goalTool.description, /Goal creation requires an explicit request from the user or system\/developer instructions/i);
+  assert.match(goalTool.description, /Ordinary tasks, complexity, or planning needs do not imply a Goal request/i);
   assert.match(goalTool.description, /idle reminder for unfinished work/i);
-  // Advisory policy anchors: ordinary turns need the update triggers too.
+  // Advisory policy anchors: update triggers apply to an existing Goal.
+  assert.match(goalTool.description, /For an existing Goal, keep tasks current/i);
   assert.match(goalTool.description, /capture new requirements immediately/i);
   assert.match(goalTool.description, /mark work in_progress before starting and completed as soon as fully done/i);
   assert.match(goalTool.description, /update changed plans before continuing or reporting/i);
@@ -311,7 +312,7 @@ test('Goal tool schemas expose lifecycle and durable task contracts', () => {
   assert.match(goalTool.description, /Block only when the same external impasse stops progress for 3 turns/i);
   // A stopped Goal must stay retirable, or it blocks every later Goal.
   assert.match(goalTool.description, /Abandon only when the user redirects away from the objective/i);
-  assert.doesNotMatch(goalTool.description, /opt-in|explicit user request/i);
+  assert.doesNotMatch(goalTool.description, /3\+ steps or careful planning|skip trivial or conversational work/i);
   assert.match(goalTool.inputSchema.properties.action.description, /pause waits for user; resume accompanies resumed work/i);
   assert.match(goalTool.inputSchema.properties.action.description, /abandon retires superseded work/i);
   assert.match(goalTool.inputSchema.properties.blocker.description, /external impasse.*3 consecutive turns/i);

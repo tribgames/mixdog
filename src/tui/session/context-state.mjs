@@ -5,7 +5,9 @@
  * snapshot. The two sync helpers stage immutable draft patches through
  * updateState; callers still follow with set(...) to schedule publication.
  */
-export function createContextState({ runtime, getState, updateState, getPendingSessionReset }) {
+import { contextMeasurementStats } from '../../ui/context-measurement.mjs';
+
+export function createContextState({ runtime, getState, updateState, getPendingSessionReset, getVisibleGoal }) {
   const autoClearState = () => runtime.getAutoClear?.() || runtime.autoClear || { enabled: true, idleMs: 60 * 60 * 1000, custom: false, providerDefault: 60 * 60 * 1000, provider: null, minContextPercent: 10 };
   const AGENT_STATUS_CACHE_MS = 250;
   let agentStatusCache = null;
@@ -48,7 +50,15 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     webSearchRoute: runtime.getWebSearchRoute?.() || runtime.webSearchRoute || null,
     autoClear: autoClearState(),
     workflow: runtime.workflow || null,
-    goal: runtime.goalStatus?.() || null,
+    // Every `set({ ...routeState() })` (the 2s runtime pulse, model/effort
+    // switches, turn end, resume) republishes the Goal. It must read it
+    // through the goal-continuation mask: the raw record still holds a
+    // completed Goal while its user-input archive is being written, so the
+    // retired capsule popped back for one frame and vanished again (user:
+    // 안 보이던 골이 생성되었다 바로 사라짐).
+    goal: typeof getVisibleGoal === 'function'
+      ? getVisibleGoal()
+      : (runtime.goalStatus?.() || null),
   });
 
   const routeState = () => {
@@ -95,71 +105,7 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     const ctx = runtime.contextStatus?.() || null;
     if (!ctx) return null;
     syncContextDisplayFields(ctx);
-    const state = getState();
-    const stats = { ...state.stats };
-    const hasProviderUsage = Number(stats.latestPromptTokens || stats.latestInputTokens || stats.inputTokens || 0) > 0;
-    const hasApiContextUsage = Number(ctx?.lastApiRequestTokens ?? ctx?.usage?.lastContextTokens ?? 0) > 0;
-    const hasTurnActivity = state.busy === true
-      || state.spinner != null
-      || state.thinking != null;
-    const hasConversationMessages = Number(ctx?.messages?.count || 0) > 0;
-    const isFreshSession = !hasProviderUsage && !hasApiContextUsage && !hasTurnActivity
-      && !hasConversationMessages;
-    if (isFreshSession) {
-      stats.currentEstimatedContextTokens = 0;
-      stats.currentContextTokens = 0;
-      stats.currentContextSource = null;
-      stats.currentContextUpdatedAt = Date.now();
-      updateState({ stats });
-      return ctx;
-    }
-    const estimatedTokens = Math.max(0, Number(ctx.currentEstimatedTokens ?? ctx.usedTokens ?? 0));
-    const usedTokens = Math.max(0, Number(ctx.usedTokens ?? estimatedTokens ?? 0));
-    const usedSource = String(ctx.usedSource || '').toLowerCase();
-    // A successful pre-send auto-compact rewrites the transcript before the
-    // next provider request can publish fresh usage. Never keep painting the
-    // exact token count measured against the deleted pre-compact prefix during
-    // that gap; publish the compacted transcript estimate immediately.
-    const forceEstimated = invalidateExact && estimatedTokens > 0;
-    const shouldPublishEstimate = allowEstimated && (
-      usedSource === 'estimated'
-      || Number(ctx.currentEstimatedTokens) > 0
-      || usedTokens > 0
-    );
-    if (!allowEstimated && !hasProviderUsage && usedSource !== 'last_api_request') return ctx;
-    if (forceEstimated || shouldPublishEstimate) {
-      stats.currentEstimatedContextTokens = estimatedTokens;
-      // The published number is the runtime's canonical gauge value; its
-      // PROVENANCE is whatever produced it (a provider reading, a post-compact
-      // replacement, or a local estimate). Stamping every publication as
-      // `estimated` hid that distinction from every surface downstream.
-      stats.currentContextSource = forceEstimated
-        ? 'estimated'
-        : (usedSource || (estimatedTokens > 0 ? 'estimated' : null));
-      stats.currentContextTokens = 0;
-    } else if (allowEstimated && (hasProviderUsage || hasApiContextUsage || hasTurnActivity)) {
-      stats.currentEstimatedContextTokens = estimatedTokens;
-      stats.currentContextSource = usedSource || (estimatedTokens > 0 ? 'estimated' : null);
-      const publishedSource = String(stats.currentContextSource || '').toLowerCase();
-      if (publishedSource === 'last_api_request') {
-        const apiUsed = Math.max(0, Number(ctx.lastApiRequestTokens ?? usedTokens ?? 0));
-        stats.currentContextTokens = apiUsed;
-      } else if (publishedSource === 'estimated') {
-        stats.currentContextTokens = 0;
-      } else {
-        stats.currentContextTokens = usedTokens > 0 ? usedTokens : 0;
-      }
-    } else {
-      stats.currentEstimatedContextTokens = 0;
-      if (usedSource === 'last_api_request' && Number(ctx.lastApiRequestTokens ?? usedTokens ?? 0) > 0) {
-        stats.currentContextTokens = Math.max(0, Number(ctx.lastApiRequestTokens ?? usedTokens ?? 0));
-        stats.currentContextSource = 'last_api_request';
-      } else {
-        stats.currentContextTokens = 0;
-        stats.currentContextSource = null;
-      }
-    }
-    stats.currentContextUpdatedAt = Date.now();
+    const stats = { ...getState().stats, ...contextMeasurementStats(ctx) };
     updateState({ stats });
     return ctx;
   };

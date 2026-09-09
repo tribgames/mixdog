@@ -5,6 +5,8 @@ import {
   ChevronRight,
   FolderPlus,
   Plus,
+  Sparkles,
+  SquarePen,
   Trash2,
   X
 } from "lucide-react";
@@ -222,6 +224,8 @@ interface SessionSidebarProps {
   unreadSessionIds?: ReadonlySet<string>;
   selection: NavigationSelection;
   onNewTask(): void;
+  /** Second fixed launcher row: opens a Studio workspace tab. */
+  onNewStudio(): void;
   onPrefetchSession?(sessionId: string): Promise<boolean>;
   onResumeSession(sessionId: string): void;
   onRenameSession(sessionId: string, title: string): Promise<void>;
@@ -242,6 +246,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   unreadSessionIds,
   selection,
   onNewTask,
+  onNewStudio,
   onPrefetchSession,
   onResumeSession,
   onRenameSession,
@@ -649,12 +654,31 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           )}
         </div>
       </header>
-      <div className="session-sidebar-scroll session-sidebar-surface"
-        ref={recentScrollerRef}
+      {/* Sessions surface: a fixed launcher block over the scrolling list.
+          The launchers live OUTSIDE the scroller on purpose — as a sticky
+          block inside it they clamped to the scroller's content box, so the
+          12px top inset showed scrolled rows through (user: 고정이냐? 뭔가
+          이상한데). The surface flags (active/inert/hidden) move up to this
+          wrapper so both parts hide together while a rail panel is shown. */}
+      <div className="session-sidebar-surface session-sidebar-sessions"
         data-surface-active={panelActive ? "false" : "true"}
         inert={panelActive ? true : undefined}
-        aria-hidden={panelActive ? true : undefined}
-        onScroll={handleRecentScroll}>
+        aria-hidden={panelActive ? true : undefined}>
+        {/* Fixed creation rows share the category type tier with leading
+            icons. Both open tabs and stay outside the scrolling lists. */}
+        <nav className="session-sidebar-launchers" aria-label={t("New")}>
+          <button type="button" className="task-link session-launcher-row" onClick={onNewTask}>
+            <SquarePen className="session-launcher-icon" size={16} aria-hidden="true" />
+            <span className="session-launcher-label">{t("New task")}</span>
+          </button>
+          <button type="button" className="task-link session-launcher-row" onClick={onNewStudio}>
+            <Sparkles className="session-launcher-icon" size={16} aria-hidden="true" />
+            <span className="session-launcher-label">{t("New Studio")}</span>
+          </button>
+        </nav>
+        <div className="session-sidebar-scroll"
+          ref={recentScrollerRef}
+          onScroll={handleRecentScroll}>
         {automationGroups.length > 0 && (
           <section className="sidebar-recent sidebar-automations" aria-label={t("Automations")}>
             <div className="sidebar-category-header">
@@ -780,7 +804,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                 <span>{t("Archived")}</span>
                 {archivedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
               </button>
-              <RowOverflowMenu label="Actions" width={232} items={[
+              <RowOverflowMenu label="Actions" items={[
                 {
                   id: "restore-all",
                   label: "Restore all",
@@ -824,6 +848,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             )}
           </section>
         )}
+        </div>
       </div>
       {/* Rail destinations render here as compact visible lists; their
           editors open as popup dialogs portaled above the workspace. */}

@@ -52,7 +52,7 @@ export const BUILT_IN_FEATURES: ReadonlyArray<BuiltInFeatureDefinition> = [
   {
     id: 'localProvider',
     title: 'Local Provider',
-    description: 'Run recommended models on this PC without installing another model app.',
+    description: 'Download AI models and run them directly in Mixdog.',
     group: 'agent',
     platform: 'windows',
     managedInstall: true,

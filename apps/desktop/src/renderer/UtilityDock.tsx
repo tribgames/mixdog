@@ -12,11 +12,12 @@ import type {
   DesktopWorkspaceTextSearchOptions,
 } from "../shared/contract";
 import { AgentActivityPane } from "./AgentActivityPane";
+import { AgentGroupsMenu } from "./agent-group-visibility";
 import { OpenSelect } from "./OpenSelect";
 import { DesktopLoadingSurface } from "./RendererRecovery";
 import type { PullRequestOpenHandler } from "./PullRequestsPane";
 import { SourceControlDock, type SourceControlDiffRequest } from "./SourceControlDock";
-import { SurfaceActiveContext } from "./surface-activity";
+import { SurfaceActiveContext, useSurfaceNavigationReset } from "./surface-activity";
 import {
   beginBootSurface,
   reportBootSurfaceReady,
@@ -179,6 +180,7 @@ const SearchPane = memo(function SearchPane({
   // Names filters paths; Contents runs full-text search with the same field.
   const [query, setQuery] = useState("");
   const [searchMode, setSearchMode] = useState<"names" | "contents">("names");
+  useSurfaceNavigationReset(active, () => setSearchMode("names"));
   const [nameResults, setNameResults] = useState<Array<{ project: string; paths: string[] }>>([]);
   const [contentResults, setContentResults] = useState<Array<{
     project: string;
@@ -705,8 +707,9 @@ export const UtilityDock = memo(function UtilityDock({
     aria-hidden={open ? undefined : true}
     inert={open ? undefined : true}
     aria-label={t("Utility panel")}>
-    {showTitle && <header {...titleDragProps} className="utility-dock-header">
+    {showTitle && <header {...titleDragProps} className="utility-dock-header" data-tab={presentedTab}>
       <b>{dockTitle}</b>
+      {presentedTab === "agents" && <AgentGroupsMenu />}
     </header>}
     <div className="stable-surface-switch utility-dock-body"
       data-ready={selectedSurfaceVisible ? "true" : "false"}
@@ -715,6 +718,7 @@ export const UtilityDock = memo(function UtilityDock({
       <UtilityDockViewSection active={paneActive("agents")}>
       <DockPane tab="agents" active={paneActive("agents")}>
       <AgentActivityPane active={paneActive("agents")}
+        showGroupActions={!showTitle}
         sessions={sessions}
         sessionsReady={sessionsReady}
         activeSessionIds={activeSessionIds}

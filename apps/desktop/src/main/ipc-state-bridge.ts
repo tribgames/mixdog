@@ -144,9 +144,11 @@ export class DesktopStateBridge {
         ? { contentRevision: update.contentRevision }
         : {}),
     });
+    const wire = encoder.encode(update.snapshot);
+    if (isNoDelta(wire)) return;
     this.send(DESKTOP_IPC.sessionState, {
       sessionId,
-      wire: encoder.encode(update.snapshot),
+      wire,
       frameSource: update.frameSource,
       ...(typeof update.contentRevision === 'number'
         ? { contentRevision: update.contentRevision }

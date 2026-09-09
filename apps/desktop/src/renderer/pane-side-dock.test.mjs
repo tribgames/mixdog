@@ -159,7 +159,7 @@ test("the stored diff survives; legacy diff LISTS keep the pointed-at one", () =
   );
 });
 
-test("an empty or launcher-only right side closes every pane dock", () => {
+test("an empty or surface-only right side closes every pane dock", () => {
   assert.deepEqual(
     normalizePaneSideDocks(
       { "pane-1": { open: true, view: "source-control" } },
@@ -170,7 +170,7 @@ test("an empty or launcher-only right side closes every pane dock", () => {
     { "pane-1": closed(null) },
   );
   assert.deepEqual(
-    normalizePaneSideDocks(null, ["pane-1"], [["browser"], ["terminal"], ["studio"]], true),
+    normalizePaneSideDocks(null, ["pane-1"], [["browser"], ["terminal"]], true),
     { "pane-1": closed(null) },
   );
 });

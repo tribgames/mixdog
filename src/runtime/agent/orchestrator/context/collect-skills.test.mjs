@@ -8,6 +8,7 @@ import {
   buildSkillManifest,
   collectPromptSkillsCached,
   collectSkillsCached,
+  filterSkillsExcludingDisabled,
   invalidateSkillsCache,
   invalidateSkillsMtimeGate,
   isSkillDisabled,
@@ -15,24 +16,67 @@ import {
   skillMissingFeature,
 } from './collect.mjs';
 
-test('the skill manifest lists description — when_to_use and keeps a well-formed entry whole', () => {
-  const trigger = '"배포", "deploy", "ship it"; not for local builds or tests.';
-  const manifest = buildSkillManifest([
+test('feature-owned built-in skills follow the parent instead of stale individual OFF preferences', () => {
+  const previous = process.env.MIXDOG_FEATURE_OFFICE;
+  delete process.env.MIXDOG_FEATURE_OFFICE;
+  try {
+    const skills = [
+      { name: 'bundled', source: 'builtin', requires: ['office'] },
+      { name: 'custom', source: 'global', requires: ['office'] },
+      { name: 'standalone', source: 'builtin', requires: [] },
+    ];
+    const active = {
+      builtins: { office: { installed: true } },
+      skills: { disabled: skills.map((skill) => skill.name) },
+    };
+    const names = (config) => filterSkillsExcludingDisabled(skills, config).map((skill) => skill.name);
+    assert.deepEqual(names(active), ['bundled']);
+    assert.deepEqual(names({ ...active, modules: { office: { enabled: false } } }), []);
+    assert.deepEqual(names({ ...active, builtins: {} }), []);
+    assert.deepEqual(names(active), ['bundled']);
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_FEATURE_OFFICE;
+    else process.env.MIXDOG_FEATURE_OFFICE = previous;
+  }
+});
+
+test('the model selects from triggers, independently of UI descriptions and loaded instructions', () => {
+  const trigger = 'Deploy or ship the app; not for local builds or tests.';
+  const skills = [
     { name: 'deploy-helper', description: 'Deploy the app to staging.', whenToUse: trigger },
     { name: 'plain-skill', description: 'A skill with no trigger line.' },
-  ]);
-  assert.match(manifest, /^- deploy-helper: Deploy the app to staging\. — "배포", "deploy", "ship it"; not for local builds or tests\.$/m);
-  assert.match(manifest, /^- plain-skill: A skill with no trigger line\.$/m);
+  ];
+  const manifest = buildSkillManifest(skills);
+  assert.ok(manifest.includes(`- deploy-helper: ${trigger}`));
+  assert.match(manifest, /^- plain-skill$/m);
+  assert.equal(manifest, buildSkillManifest(skills.map((skill) => ({
+    ...skill,
+    description: 'Different UI-only copy.',
+    content: 'Detailed operating instructions.',
+  }))));
+  assert.equal(skills[0].description, 'Deploy the app to staging.');
+});
 
-  // Past the per-entry cap the listing cuts on a word boundary; the Skill()
-  // load supplies the rest, so the description half must survive the cut.
+test('skill selection exposes linked tools without tool schemas or duplicate dependencies', () => {
+  const manifest = buildSkillManifest([{
+    name: 'history-recall', whenToUse: 'Find past decisions.',
+    toolDependencies: [
+      { type: 'tool', value: 'recall' }, { type: 'tool', value: 'recall' },
+      { type: 'mcp', value: 'archive' }, { type: 'tool', value: '<invalid>' },
+    ],
+  }]);
+  assert.match(manifest, /^- history-recall: Find past decisions\. \[tools: recall, mcp:archive\]$/m);
+  assert.doesNotMatch(manifest, /<invalid>/);
+});
+
+test('long skill triggers are bounded without exposing UI copy', () => {
   const long = buildSkillManifest([{
     name: 'verbose',
     description: 'Short capability sentence.',
     whenToUse: 'trigger '.repeat(60),
   }]);
   const line = long.split('\n').find((entry) => entry.startsWith('- verbose:')) || '';
-  assert.ok(line.startsWith('- verbose: Short capability sentence. — trigger'));
+  assert.ok(line.startsWith('- verbose: trigger'));
   assert.ok(line.endsWith('...'));
   assert.ok(line.length <= '- verbose: '.length + 250);
 });

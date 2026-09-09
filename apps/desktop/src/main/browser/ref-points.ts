@@ -17,6 +17,8 @@ import {
 } from './snapshot-format';
 import { browserRefPointExpression } from './snapshot-scripts';
 import { createBrowserHitTarget } from './hit-target';
+import { BROWSER_STABLE_RECT } from './stable-rect';
+import { timedBrowserOperation } from './timing';
 
 /** The screenshot a coordinate action is allowed to be expressed in. */
 export interface VisualGrounding {
@@ -103,43 +105,34 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
       covering?: string;
       rx?: number;
       ry?: number;
+      x?: number;
+      y?: number;
+      via?: string;
     }>(guest, ref, `async function() {
-      if (!this || !this.isConnected) return { error: 'stale' };
-      if (this.disabled || this.getAttribute?.('aria-disabled') === 'true') return { error: 'disabled' };
-      const view = this.ownerDocument?.defaultView || window;
-      const style = view.getComputedStyle(this);
-      if (style.display === 'none' || style.visibility === 'hidden'
-        || style.pointerEvents === 'none' || Number(style.opacity || '1') === 0) {
-        return { error: 'not-actionable' };
-      }
-      const nextVisualTick = () => new Promise((resolve) => {
-        let settled = false;
-        let timer;
-        const finish = () => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          resolve();
-        };
-        timer = setTimeout(finish, 100);
-        requestAnimationFrame(finish);
-      });
-      this.scrollIntoView({ block: 'center', inline: 'center' });
-      await nextVisualTick();
-      await nextVisualTick();
-      const first = this.getBoundingClientRect();
-      await nextVisualTick();
-      const rect = this.getBoundingClientRect();
-      if (rect.width < 1 || rect.height < 1) return { error: 'not-visible' };
-      if (Math.abs(first.left - rect.left) > 2 || Math.abs(first.top - rect.top) > 2
-        || Math.abs(first.width - rect.width) > 2 || Math.abs(first.height - rect.height) > 2) {
-        return { error: 'moving' };
-      }
+      const target = this;
+      if (!target || !target.isConnected) return { error: 'stale' };
+      if (target.disabled || target.getAttribute?.('aria-disabled') === 'true') return { error: 'disabled' };
+      const view = target.ownerDocument?.defaultView || window;
+      const hidden = (node) => {
+        const style = view.getComputedStyle(node);
+        return style.display === 'none' || style.visibility === 'hidden';
+      };
+      if (hidden(target)) return { error: 'not-actionable' };
+      const targetRect = await (${BROWSER_STABLE_RECT})(target);
+      if (!targetRect) return { error: 'moving' };
+      // A transparent, pointer-events:none, or 1px control is how custom
+      // checkboxes hide the native input; the label is what a person clicks,
+      // and clicking it activates the control. Opacity alone never disqualifies.
+      const labels = target.labels ? Array.from(target.labels) : [];
+      const candidates = [target, ...labels.filter((label) => (
+        label !== target && label.isConnected && !hidden(label)
+      ))];
       const points = [[0.5, 0.5], [0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]];
       const controlSelector = 'a[href],button,input,select,textarea,summary,[role="button"],[role="link"]';
       const controlFor = (value) => value?.matches?.(controlSelector)
         ? value
         : value?.closest?.(controlSelector);
+      const labelControl = (value) => value?.closest?.('label')?.control || null;
       const sameDestination = (left, right) => {
         if (!left || !right || left === right
           || left.matches?.('a[href]') !== true || right.matches?.('a[href]') !== true) return false;
@@ -150,25 +143,37 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
         }
       };
       let covering = null;
-      for (const [rx, ry] of points) {
-        let hit = this.ownerDocument.elementFromPoint(rect.left + rect.width * rx, rect.top + rect.height * ry);
-        while (hit?.shadowRoot) {
-          const nested = hit.shadowRoot.elementFromPoint?.(rect.left + rect.width * rx, rect.top + rect.height * ry);
-          if (!nested || nested === hit) break;
-          hit = nested;
-        }
-        const targetControl = controlFor(this);
-        const hitControl = controlFor(hit);
-        const related = hit && (
-          hit === this
-          || (this.contains(hit) && (!hitControl || hitControl === targetControl))
-          || (targetControl && hitControl === targetControl)
-          || sameDestination(targetControl, hitControl)
-        );
-        if (related) {
+      let visible = false;
+      for (const candidate of candidates) {
+        const rect = candidate === target ? targetRect : candidate.getBoundingClientRect();
+        if (rect.width < 1 || rect.height < 1) continue;
+        visible = true;
+        for (const [rx, ry] of points) {
+          const localX = rect.left + rect.width * rx;
+          const localY = rect.top + rect.height * ry;
+          let hit = candidate.ownerDocument.elementFromPoint(localX, localY);
+          while (hit?.shadowRoot) {
+            const nested = hit.shadowRoot.elementFromPoint?.(localX, localY);
+            if (!nested || nested === hit) break;
+            hit = nested;
+          }
+          const targetControl = controlFor(target);
+          const hitControl = controlFor(hit);
+          const related = hit && (
+            hit === target
+            || hit === candidate
+            || (candidate.contains(hit) && (!hitControl || hitControl === targetControl))
+            || (targetControl && hitControl === targetControl)
+            || sameDestination(targetControl, hitControl)
+            || labelControl(hit) === target
+          );
+          if (!related) {
+            covering = hit || covering;
+            continue;
+          }
           let frameView = view;
-          let px = rect.left + rect.width * rx;
-          let py = rect.top + rect.height * ry;
+          let px = localX;
+          let py = localY;
           for (;;) {
             let frame;
             try { frame = frameView.frameElement; } catch { break; }
@@ -180,10 +185,10 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
             if (parent.elementFromPoint(px, py) !== frame) return { error: 'covered', covering: 'parent frame overlay' };
             frameView = parent.defaultView;
           }
-          return { rx, ry };
+          return candidate === target ? { rx, ry } : { x: px, y: py, via: 'label' };
         }
-        covering = hit || covering;
       }
+      if (!visible) return { error: 'not-visible' };
       const label = covering
         ? ((covering.tagName || 'element').toLowerCase() + ' "'
           + String(covering.getAttribute?.('aria-label') || covering.textContent || '')
@@ -197,6 +202,12 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
       if (!target) throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
       if (accessibility.value?.error) {
         point = accessibility.value;
+      } else if (typeof accessibility.value?.x === 'number' && typeof accessibility.value?.y === 'number') {
+        // The landing spot is the control's label, so the page already
+        // measured it; only the cross-origin frame offset is left to add.
+        const local = { x: accessibility.value.x, y: accessibility.value.y };
+        const frameOffset = await frameOffsetForSession(guest, target.sessionId, signal, local);
+        point = { x: frameOffset.x + local.x, y: frameOffset.y + local.y };
       } else {
         const box = await cdp.call<{
           model?: { content?: number[]; border?: number[] };
@@ -334,5 +345,10 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
     };
   }
 
-  return { resolveRefPoint, bindVisualGrounding, visualPoint, guardRef };
+  return {
+    resolveRefPoint: timedBrowserOperation('actionability', resolveRefPoint),
+    bindVisualGrounding,
+    visualPoint: timedBrowserOperation('actionability', visualPoint),
+    guardRef: timedBrowserOperation('actionability', guardRef),
+  };
 }

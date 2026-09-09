@@ -7,7 +7,6 @@ import {
   WorkbenchSideIconBar,
   discardLayoutForPaneBoundRight,
   initialActiveWorkbenchSideViews,
-  isWorkbenchSideLauncher,
   moveWorkbenchSideGroup,
   moveWorkbenchSideView,
   nextRetainedWorkbenchSideRoots,
@@ -35,7 +34,7 @@ test("a persisted layout restores its sides and re-seats newly available views",
       // The right side is pane-bound: Sessions and Agents stored there before
       // the rails were split re-seat on the left in default order, as does
       // Search, instead of trailing whichever side happened to be stored.
-      left: [["agents"], ["sessions"], ["search"], ["projects"]],
+      left: [["sessions"], ["agents"], ["projects"], ["search"]],
       right: [],
     },
   );
@@ -54,7 +53,7 @@ test("a stored right side keeps only the views the pane ships there", () => {
       ["sessions", "agents", "projects", "source-control", "session-diff", "browser", "terminal"],
     ),
     {
-      left: [["sessions"], ["agents"], ["source-control"], ["projects"]],
+      left: [["sessions"], ["agents"], ["projects"], ["source-control"]],
       right: [["session-diff"], ["browser"], ["terminal"]],
     },
   );
@@ -66,14 +65,18 @@ test("restoration drops views this build no longer offers", () => {
       { left: [["sessions", "webhooks"]], right: [["agents"]] },
       ["sessions", "agents"],
     ),
-    { left: [["agents"], ["sessions"]], right: [] },
+    { left: [["sessions"], ["agents"]], right: [] },
   );
 });
 
 test("a corrupt or missing persisted layout falls back to the defaults", () => {
   assert.deepEqual(
+    normalizeWorkbenchSideViewLayout(null).left,
+    [["sessions"], ["agents"], ["schedules"], ["projects"], ["extensions"], ["source-control"], ["search"], ["webhooks"]],
+  );
+  assert.deepEqual(
     normalizeWorkbenchSideViewLayout(null, ["sessions", "terminal", "agents"]),
-    { left: [["agents"], ["sessions"]], right: [["terminal"]] },
+    { left: [["sessions"], ["agents"]], right: [["terminal"]] },
   );
   // Session surfaces sit beside the pane's project-scoped tools.
   assert.deepEqual(
@@ -113,7 +116,7 @@ test("views missing from a stored side are restored in default order", () => {
       ["sessions", "agents", "schedules", "source-control", "session-diff", "browser", "terminal"],
     ),
     {
-      left: [["agents"], ["sessions"], ["schedules"], ["source-control"]],
+      left: [["sessions"], ["agents"], ["schedules"], ["source-control"]],
       right: [["session-diff"], ["browser"], ["terminal"]],
     },
   );
@@ -209,13 +212,13 @@ test("a category label extracts one view into its own icon", () => {
 
 test("activity icons reorder groups without combining them", () => {
   const layout = {
-    left: [["sessions"], ["projects"], ["workflows"]],
+    left: [["sessions"], ["projects"], ["extensions"]],
     right: [["agents"]],
   };
   assert.deepEqual(
-    moveWorkbenchSideGroup(layout, "workflows", "left", "projects", "before"),
+    moveWorkbenchSideGroup(layout, "extensions", "left", "projects", "before"),
     {
-      left: [["sessions"], ["workflows"], ["projects"]],
+      left: [["sessions"], ["extensions"], ["projects"]],
       right: [["agents"]],
     },
   );
@@ -223,13 +226,13 @@ test("activity icons reorder groups without combining them", () => {
 
 test("dropping a category on an activity icon adds an independent icon", () => {
   const layout = {
-    left: [["projects", "search"], ["workflows"]],
+    left: [["projects", "search"], ["extensions"]],
     right: [["agents"]],
   };
   assert.deepEqual(
-    moveWorkbenchSideView(layout, "search", "left", "workflows", "after"),
+    moveWorkbenchSideView(layout, "search", "left", "extensions", "after"),
     {
-      left: [["projects"], ["workflows"], ["search"]],
+      left: [["projects"], ["extensions"], ["search"]],
       right: [["agents"]],
     },
   );
@@ -237,60 +240,47 @@ test("dropping a category on an activity icon adds an independent icon", () => {
 
 test("pane top and bottom drops combine views at the requested label position", () => {
   const layout = {
-    left: [["projects", "search"], ["workflows"], ["agents"]],
+    left: [["projects", "search"], ["extensions"], ["agents"]],
     right: [["source-control"]],
   };
   assert.deepEqual(
     moveWorkbenchSideView(layout, "search", "left", "agents", "inside-after"),
     {
-      left: [["projects"], ["workflows"], ["agents", "search"]],
+      left: [["projects"], ["extensions"], ["agents", "search"]],
       right: [["source-control"]],
     },
   );
   assert.deepEqual(
-    moveWorkbenchSideGroup(layout, "workflows", "left", "projects", "inside-before"),
+    moveWorkbenchSideGroup(layout, "extensions", "left", "projects", "inside-before"),
     {
-      left: [["workflows", "projects", "search"], ["agents"]],
+      left: [["extensions", "projects", "search"], ["agents"]],
       right: [["source-control"]],
     },
   );
 });
 
-test("a launcher reorders as its own icon and never joins a group", () => {
-  const layout = {
-    left: [["sessions"], ["studio"], ["workflows"]],
-    right: [["source-control"], ["browser"]],
-  };
-  const unchanged = {
-    left: [["sessions"], ["studio"], ["workflows"]],
-    right: [["source-control"], ["browser"]],
-  };
-  // An "inside" drop involving a launcher degrades to a neighbouring slot, so
-  // Studio keeps its own icon instead of disappearing into another panel.
-  assert.deepEqual(
-    moveWorkbenchSideView(layout, "studio", "left", "sessions", "inside-after"),
-    unchanged,
-  );
-  assert.deepEqual(
-    moveWorkbenchSideView(layout, "workflows", "left", "studio", "inside"),
-    unchanged,
-  );
-  assert.equal(isWorkbenchSideLauncher("studio"), true);
-  // The browser left the launcher set: it is the pane dock's own child now.
-  assert.equal(isWorkbenchSideLauncher("browser"), false);
-  assert.equal(isWorkbenchSideLauncher("terminal"), false);
-  assert.equal(isWorkbenchSideLauncher("sessions"), false);
+test("a stored rail order drops the retired Studio launcher id on load", () => {
+  // Studio opens from the Sessions panel's fixed launcher rows now, so an
+  // older stored layout that still carries the rail icon re-seats without it.
+  const layout = normalizeWorkbenchSideViewLayout({
+    left: [["sessions"], ["studio"], ["extensions"]],
+    right: [["session-diff"], ["browser"]],
+  }, ["sessions", "extensions", "session-diff", "browser"]);
+  assert.deepEqual(layout, {
+    left: [["sessions"], ["extensions"]],
+    right: [["session-diff"], ["browser"]],
+  });
 });
 
 test("dragging a combined pane label reorders it within the group", () => {
   const layout = {
-    left: [["projects", "search", "workflows"]],
+    left: [["projects", "search", "extensions"]],
     right: [["agents"]],
   };
   assert.deepEqual(
-    moveWorkbenchSideView(layout, "workflows", "left", "projects", "inside-after"),
+    moveWorkbenchSideView(layout, "extensions", "left", "projects", "inside-after"),
     {
-      left: [["projects", "workflows", "search"]],
+      left: [["projects", "extensions", "search"]],
       right: [["agents"]],
     },
   );
@@ -375,7 +365,7 @@ test("the whole activity bar accepts a drag and drops after the last icon", asyn
   const Icon = () => React.createElement("span");
   const descriptors = new Map([
     ["projects", { id: "projects", label: "Projects", icon: Icon }],
-    ["workflows", { id: "workflows", label: "Workflows", icon: Icon }],
+    ["extensions", { id: "extensions", label: "Workflows", icon: Icon }],
   ]);
   const transferData = new Map();
   const dataTransfer = {
@@ -397,7 +387,7 @@ test("the whole activity bar accepts a drag and drops after the last icon", asyn
   try {
     await act(async () => root.render(React.createElement(WorkbenchSideIconBar, {
       side: "left",
-      groups: [["projects"], ["workflows"]],
+      groups: [["projects"], ["extensions"]],
       activeRoot: "projects",
       descriptors,
       orientation: "vertical",
@@ -431,14 +421,14 @@ test("the whole activity bar accepts a drag and drops after the last icon", asyn
     await act(async () => {
       bar.dispatchEvent(dragEvent("drop", 130));
     });
-    assert.deepEqual(moves, [["projects", "left", "workflows", "after"]]);
+    assert.deepEqual(moves, [["projects", "left", "extensions", "after"]]);
 
     // The same bar on the right belongs to the pane: its icons cannot be
     // picked up and a drop landing there changes nothing.
     moves.length = 0;
     await act(async () => root.render(React.createElement(WorkbenchSideIconBar, {
       side: "right",
-      groups: [["projects"], ["workflows"]],
+      groups: [["projects"], ["extensions"]],
       activeRoot: "projects",
       descriptors,
       orientation: "vertical",

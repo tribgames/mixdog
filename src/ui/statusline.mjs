@@ -14,6 +14,7 @@ import { readCachedOpenCodeGoUsageSnapshot } from '../runtime/agent/orchestrator
 import { buildGatewayLimits } from '../runtime/agent/orchestrator/providers/statusline-route-meta.mjs';
 import { compactBoundaryForStatus, formatGatewayLimitSegments, loadGatewayStatus } from '../vendor/statusline/bin/statusline-route.mjs';
 import { createSessionStats } from './session-stats.mjs';
+import { measuredContextUsage } from './context-measurement.mjs';
 import {
   statusSubtle,
   R,
@@ -165,18 +166,7 @@ function l2SpinnerFrame(now = Date.now()) {
  * loadGatewayStatus() when it's running; these are the standalone fallbacks.
  */
 function activeContextNumerator(provider, stats) {
-  const s = stats || createSessionStats();
-  const source = String(s.currentContextSource || '').toLowerCase();
-  const estimated = num(s.currentEstimatedContextTokens);
-  if (estimated > 0) return estimated;
-  if (source === 'estimated') return 0;
-  if (source === 'last_api_request') {
-    const apiUsed = num(s.currentContextTokens);
-    if (apiUsed > 0) return apiUsed;
-  }
-  const explicit = num(s.currentContextTokens ?? s.contextTokens);
-  if (explicit > 0) return explicit;
-  return 0;
+  return measuredContextUsage({ stats }).used;
 }
 
 function displayContextBoundary({
@@ -210,31 +200,7 @@ export function resolveContextUsedPct({
   autoCompactTokenLimit = 0,
   gatewayStatus = null,
 } = {}) {
-  const numerator = activeContextNumerator(provider, stats);
-  const compact = gatewayStatus?.lastUsage?.compact || null;
-  const boundary = displayContextBoundary({
-    contextWindow,
-    displayContextWindow,
-    rawContextWindow,
-    compactBoundaryTokens,
-    autoCompactTokenLimit,
-    compact,
-  });
-  const trigger = num(autoCompactTokenLimit);
-  // A resolved trigger means this is the runtime compaction gauge: keep both
-  // operands local so a gateway boundary percentage cannot replace it.
-  if (trigger > 0) return (numerator / trigger) * 100;
-  const gatewayRawPct = gatewayStatus?.contextUsedPct;
-  if (
-    gatewayStatus
-    && gatewayRawPct !== null
-    && gatewayRawPct !== undefined
-  ) {
-    const gatewayPct = Number(gatewayRawPct);
-    if (Number.isFinite(gatewayPct)) return gatewayPct;
-  }
-  if (boundary > 0) return (numerator / boundary) * 100;
-  return 0;
+  return measuredContextUsage({ stats, contextWindow, displayContextWindow, rawContextWindow }).percent;
 }
 
 /**
@@ -311,7 +277,7 @@ function renderNativeStatusline({
   const addL2 = (seg) => { if (seg) l2Parts.push(seg); };
 
   addL1(formatModelSegment({ provider, model, effort, fast, cols }));
-  addL1(formatContextSegment(ctxPct, cols));
+  addL1(formatContextSegment(ctxPct, cols, s.currentContextSource));
 
   // Option A boot gate: for OAuth routes, render NOTHING for the usage/quota
   // segment until this process has captured its first confirmed (current-
@@ -655,7 +621,7 @@ function fallbackLine({
   const sep = ` ${D}│${R} `;
   const parts = [
     formatModelSegment({ provider, model, effort, fast, cols }),
-    formatContextSegment(ctxPct, cols),
+    formatContextSegment(ctxPct, cols, s.currentContextSource),
   ].filter(Boolean);
   if (!parts.length) return statusSubtle('> mixdog');
   return parts.join(sep);

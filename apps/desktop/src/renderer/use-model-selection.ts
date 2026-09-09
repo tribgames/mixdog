@@ -44,6 +44,8 @@ function acknowledgedSelection(
 
 // A mutation owns its preview through BOTH the reply and the React snapshot
 // handoff. Streaming old props are not a rejection; only a failed mutation is.
+// Only the request locks controls. Snapshot handoff can lag or never match
+// the reply during a turn, and must not prevent another selection.
 export function useModelSelection(sessionId: string, authoritative: DesktopModelSelection) {
   const [pending, setPending] = useState<PendingSelection | null>(null);
   const sequence = useRef(0);
@@ -57,7 +59,7 @@ export function useModelSelection(sessionId: string, authoritative: DesktopModel
   }, [authoritative, pending, sessionId]);
   return {
     selection,
-    pending: active !== null,
+    pending: active !== null && !active.settled,
     begin(next: DesktopModelSelection) {
       const token = ++sequence.current;
       setPending({

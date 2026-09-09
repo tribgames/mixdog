@@ -13,6 +13,8 @@ export type ComputerUseActivityPhase =
 
 export type ComputerUseCursorEffect =
   | 'move'
+  | 'prepare'
+  | 'press'
   | 'click'
   | 'double_click'
   | 'drag'
@@ -32,6 +34,7 @@ export interface ComputerUseActivity {
 
 export interface ComputerUseCursor {
   sessionId: string;
+  tracking?: boolean;
   x: number;
   y: number;
   toX?: number;
@@ -298,6 +301,7 @@ export class ComputerUseCoordinator {
 
   showCursor(input: {
     sessionId: string;
+    tracking?: boolean;
     x: number;
     y: number;
     toX?: number;
@@ -306,12 +310,13 @@ export class ComputerUseCoordinator {
     effect: ComputerUseCursorEffect;
     direction?: 'up' | 'down' | 'left' | 'right';
     mode: 'background' | 'foreground';
-  }): void {
-    if (!Number.isFinite(input.x) || !Number.isFinite(input.y)) return;
+  }): number {
+    if (!Number.isFinite(input.x) || !Number.isFinite(input.y)) throw new Error('computer_cursor_invalid_point');
     const hasDestination = Number.isFinite(input.toX) && Number.isFinite(input.toY);
     const now = this.now();
     this.cursors.set(input.sessionId, {
       sessionId: input.sessionId,
+      ...(input.tracking ? { tracking: true } : {}),
       x: Math.round(input.x),
       y: Math.round(input.y),
       ...(hasDestination ? {
@@ -337,6 +342,7 @@ export class ComputerUseCoordinator {
       });
     }
     this.changed();
+    return this.cursorSequence;
   }
 
   finishCommand(sessionId: string): void {

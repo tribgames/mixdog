@@ -234,17 +234,22 @@
   border-radius: 50%;
   background: currentColor;
 }
-.extensions-item[data-tone="ok"] .extensions-item-status {
+.extensions-item[data-tone="ok"] .extensions-item-status,
+.extensions-dialog-title-status[data-tone="ok"] {
   border-color: color-mix(in srgb, var(--mx-success) 35%, transparent);
   color: var(--mx-success);
   background: color-mix(in srgb, var(--mx-success) 10%, transparent);
 }
-.extensions-item[data-tone="warn"] .extensions-item-status {
+.extensions-item[data-tone="warn"] .extensions-item-status,
+.extensions-dialog-title-status[data-tone="warn"] {
   border-color: color-mix(in srgb, var(--mx-warning) 35%, transparent);
   color: var(--mx-warning);
   background: color-mix(in srgb, var(--mx-warning) 10%, transparent);
 }
 /* A dropdown on a row's trailing edge keeps a readable width. */
+.extensions-dialog-title-status { flex-shrink: 0; }
+.extensions-dialog > header:has(> .extensions-dialog-title-status) > h2 { flex: 0 1 auto; }
+.extensions-dialog-title-status + .schedules-dialog-header-actions { margin-left: auto; }
 .extensions-select.mx-select-root { min-width: 150px; }
 
 /* ── The in-card action button ────────────────────────────────────────── */

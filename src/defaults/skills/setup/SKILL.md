@@ -1,7 +1,11 @@
 ---
 name: setup
 description: Inspect or change persisted Mixdog settings through the built-in setup tool.
-when_to_use: '"설정 바꿔", "모델 바꿔", "워크플로우 설정", "MCP 추가", "플러그인", "스킬 꺼", providers, output style, profile; not for Mixdog source, builds, or deployment.'
+when_to_use: 'Settings, models, workflows, MCP, plugins, skills, output style, or profile changes; not Mixdog code/builds/deployment.'
+dependencies:
+  tools:
+    - type: tool
+      value: setup
 ---
 
 # Mixdog setup
@@ -59,7 +63,9 @@ that a call returned without transport error.
 - Memory master state controls the capability; recap controls background
   cycles only. Core Memory content is managed by the `memory` tool.
 - Git, Memory, and Office have installation state separate from enabled state.
-  Browser Use, Computer Use, and voice are managed through Built-in UI cards.
+  Browser Use, Computer Use, and voice are managed through Built-in UI cards;
+  `set_first_use_approval` controls once-per-session first-use approval for
+  Browser Use and Computer Use only, not voice.
 - MCP servers and plugins are machine-global integrations whose visibility may
   be scoped to selected Projects.
 - User skills are machine-global. Enabled plugin skills and built-in skills are

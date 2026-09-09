@@ -26,6 +26,7 @@ import {
   type DesktopWorkspace,
 } from '../shared/contract';
 import { localFileMimeTypeForPath } from '../shared/local-files';
+import { openLocalFileLink } from './local-file-links';
 import { requiredSessionId } from './desktop-state';
 import type { DesktopService } from './desktop-service-contract';
 import {
@@ -143,7 +144,9 @@ interface DesktopIpcDependencies {
     | 'setGuestActive'
     | 'configureGuestViewport'
     | 'browserCredentialSuggestions'
-    | 'browserCredentialFill'>;
+    | 'browserCredentialFill'
+    | 'browserPageFrame'
+    | 'browserPageControl'>;
   /** Settings → Connection pairing card; resolves null while the bridge is off. */
   remoteAccessInfo?: () => Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection: mint a new pairing token (revokes paired phones). */
@@ -365,6 +368,8 @@ export function registerDesktopIpc(
   });
   handle(DESKTOP_IPC.openExternal, (_event, url) =>
     shell.openExternal(requiredExternalUrl(url)));
+  handle(DESKTOP_IPC.openLocalFileLink, (_event, projectPath, href) =>
+    openLocalFileLink(projectPath, href, (file) => shell.openPath(file)));
   handle(DESKTOP_IPC.githubStarStatus, () => githubStarStatus());
   handle(DESKTOP_IPC.starGithub, () => starGithub());
   // Extensions → Office: LibreOffice dependency probe + guided install.

@@ -3,6 +3,8 @@ export type BrowserConsoleLevel = 'debug' | 'info' | 'warning' | 'error';
 interface BrowserConsoleEntry {
   level: BrowserConsoleLevel;
   text: string;
+  /** Monotonic position, so "since the last report" survives the cap. */
+  seq: number;
 }
 
 const MAX_CONSOLE_ENTRY_CHARS = 4_000;
@@ -36,6 +38,8 @@ function normalizeFilterLevel(value: unknown): BrowserConsoleLevel | 'all' {
 export class BrowserConsoleLedger {
   readonly #entries: BrowserConsoleEntry[] = [];
   readonly #sanitize: (value: string) => string;
+  #nextSeq = 1;
+  #reportedErrorSeq = 0;
 
   constructor(sanitize: (value: string) => string = (value) => value) {
     this.#sanitize = sanitize;
@@ -50,6 +54,7 @@ export class BrowserConsoleLedger {
       text: sanitized.length > MAX_CONSOLE_ENTRY_CHARS
         ? `${sanitized.slice(0, MAX_CONSOLE_ENTRY_CHARS)} [truncated]`
         : sanitized,
+      seq: this.#nextSeq++,
     });
     if (this.#entries.length > 200) this.#entries.splice(0, this.#entries.length - 200);
   }
@@ -63,6 +68,16 @@ export class BrowserConsoleLedger {
       .filter((entry) => entry.level === 'error')
       .slice(-Math.max(1, limit))
       .map((entry) => entry.text);
+  }
+
+  /** Errors logged since the last report, then marked reported: a page's
+   *  old errors are said once, not on every reply. */
+  newErrors(limit: number): string[] {
+    const fresh = this.#entries.filter((entry) => (
+      entry.level === 'error' && entry.seq > this.#reportedErrorSeq
+    ));
+    if (fresh.length) this.#reportedErrorSeq = fresh[fresh.length - 1].seq;
+    return fresh.slice(-Math.max(1, limit)).map((entry) => entry.text);
   }
 
   format(rawLevel: unknown, rawQuery: unknown, rawLimit: unknown): string {

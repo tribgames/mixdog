@@ -42,6 +42,31 @@ the physical sidecar at runtime. Moving these files means updating that list and
 
 ## Tests and benchmarks
 
+### Native authoring is the default
+
+For Word, Excel and PDF, the agent chooses the reading structure, typography,
+spacing and flow, then sends native operations or styled PDF blocks. The runtime
+does not attach an unsolicited art direction, choose a design pack or recolor
+those blocks. `compose_document`, `compose_sheet` and an explicit `design.profile`
+remain opt-in presets; their chosen arrangement is not the default workflow.
+
+The process is design → author → inspect actual pages → refine material issues.
+A specimen or separate reviewer is optional when useful. A page review records
+specific keep/fix observations, not required boolean declarations; it represents
+agent judgement and never records user acceptance. Tests certify editing,
+integrity and review-state behavior, not aesthetic quality.
+
+Word formatting uses character-range edits across fragmented runs, with a
+body-only first-match contract shared by COM and OOXML. Partial paragraph and
+font edits preserve unspecified properties. `nameEastAsia` is independent of
+the Latin face; `lineSpacing` is a minimum in points on both backends.
+
+For Word, Excel and PDF, automated diagnostics never certify visual quality.
+`finalize review:true` needs the current render token and one format-specific
+page review in `design.critique` (`quality/document-acceptance.mjs`). Rendering
+reports its actual renderer separately from the editing backend. Recalculation
+invalidates pre-calculation Excel previews. Read-only sessions use `close`.
+
 - `npm test -- src/runtime/office` runs the unit suites: `office-runtime-{contract,com,portable,pdf,pdf-marks,design}.test.mjs`
   (the PDF suite builds its own RC4-encrypted fixture, so no binary PDF is checked in),
   `xlsx-formula-audit` (the formula audit, conventions, recalculation summary, and style helpers without the runtime),

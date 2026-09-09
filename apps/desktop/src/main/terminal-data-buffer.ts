@@ -22,15 +22,18 @@ export class TerminalDataBufferer {
   private readonly delayMs: number;
   private readonly highWatermarkChars: number;
   private readonly lowWatermarkChars: number;
+  private readonly leadingEdge: boolean;
+  private readonly lastDeliveredAt = new Map<string, number>();
 
   constructor(
     private readonly deliver: (event: TerminalDataEvent) => void,
-    delayMs = 5,
+    delayMs: number | { delayMs?: number; leadingEdge?: boolean } = 5,
     highWatermarkChars = 256 * 1024,
     private readonly producerFlow?: TerminalProducerFlowControl,
     lowWatermarkChars = Math.max(1, Math.floor(highWatermarkChars / 8)),
   ) {
-    this.delayMs = Math.max(0, Math.round(delayMs));
+    this.leadingEdge = typeof delayMs === "object" && delayMs.leadingEdge === true;
+    this.delayMs = Math.max(0, Math.round(typeof delayMs === "number" ? delayMs : delayMs.delayMs ?? 5));
     this.highWatermarkChars = Math.max(1, Math.round(highWatermarkChars));
     this.lowWatermarkChars = Math.max(
       0,
@@ -49,9 +52,16 @@ export class TerminalDataBufferer {
       this.updateProducerFlow(id);
       return;
     }
-    const timer = setTimeout(() => this.flush(id), this.delayMs);
+    // Send the first output after an idle window immediately. Continued bursts
+    // still coalesce, and an occupied in-flight window still waits for its ACK.
+    const lastDelivery = this.lastDeliveredAt.get(id);
+    const waitMs = this.leadingEdge
+      ? Math.max(0, this.delayMs - (lastDelivery === undefined ? Infinity : performance.now() - lastDelivery))
+      : this.delayMs;
+    const timer = waitMs > 0 ? setTimeout(() => this.flush(id), waitMs) : null;
     this.pending.set(id, { chunks: [data], charCount: data.length, timer });
     this.updateProducerFlow(id);
+    if (!timer) this.flush(id);
   }
 
   flush(id: string, force = false): void {
@@ -77,6 +87,7 @@ export class TerminalDataBufferer {
     if (!force) {
       this.inFlightChars.set(id, inFlight + data.length);
     }
+    if (this.leadingEdge) this.lastDeliveredAt.set(id, performance.now());
     this.deliver({ id, data });
   }
 
@@ -105,6 +116,7 @@ export class TerminalDataBufferer {
     if (buffered?.timer) clearTimeout(buffered.timer);
     this.pending.delete(terminalId);
     this.inFlightChars.delete(terminalId);
+    this.lastDeliveredAt.delete(terminalId);
     this.resumeProducer(terminalId);
   }
 
@@ -142,5 +154,6 @@ export class TerminalDataBufferer {
     for (const id of [...this.pending.keys()]) this.flush(id, true);
     for (const id of [...this.pausedProducers]) this.resumeProducer(id);
     this.inFlightChars.clear();
+    this.lastDeliveredAt.clear();
   }
 }

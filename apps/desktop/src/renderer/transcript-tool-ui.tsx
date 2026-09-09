@@ -16,6 +16,7 @@ import { MxIcon } from "./MxIcon";
 import { CodeDiff } from "./transcript-diff";
 import { CopyControl, TextShimmer } from "./transcript-primitives";
 import { requestTranscriptRowMeasure } from "./transcript-measure";
+import { TranscriptArtifacts } from "./transcript-artifacts-ui";
 import {
   desktopToolActivityCategoryGroups,
   desktopToolActivityItemPresentation,
@@ -122,6 +123,7 @@ export function ToolActivityGroup({
           <ToolActivityDetails groups={categoryGroups} disclosureKey={disclosureKey} />
         </div>
       )}
+      <TranscriptArtifacts items={items} />
     </article>
   );
 }
@@ -550,6 +552,7 @@ export function ToolCard({
           </span>
         </div>
       )}
+      <TranscriptArtifacts items={[item]} />
     </article>
   );
 }

@@ -3,6 +3,7 @@ import { extname, join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { resolveOfficeDesign } from '../design/design-system.mjs';
+import { nativeOfficeDesign, usesNativeOfficeDesign } from '../design/native-design.mjs';
 import { persistOfficeDesignBinding, resolveOfficeDesignLibrary } from '../design/library/design-library.mjs';
 import { FACTS_SAMPLE_DISCLOSURE } from '../authoring/pptx-brief.mjs';
 
@@ -72,6 +73,13 @@ export async function resolveOfficeDesignContext({
   created,
 }) {
   const designRequest = args.design || (created ? {} : { source: 'existing-document', review: format === 'pptx' });
+  if (usesNativeOfficeDesign(format, designRequest, args.operations || [])) {
+    return {
+      designRequest,
+      designLibrary: null,
+      design: nativeOfficeDesign(format, designRequest),
+    };
+  }
   const designLibrary = await resolveOfficeDesignLibrary({
     dataDir,
     documentPath: target,

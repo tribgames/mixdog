@@ -38,12 +38,14 @@ export interface SessionLifecycleHost extends
   Pick<SessionState, 'sessionIdFor' | 'releaseSessionState' | 'invalidateWorkerGeneration'>,
   Pick<CaptureEngine, 'releaseCaptureSession'> {
   execution: ExecutionState;
+  inputMarker?: string;
   /** Late-bound: the router is composed after the lifecycle it depends on. */
   runCommand(command: ComputerCommand): Promise<ComputerCommandResult>;
   recaptureRequiredReply(command: ComputerCommand, error: unknown): Promise<ComputerCommandResult | null>;
   coordinator?: ComputerUseCoordinator;
   cleanupInput?: (recovery: InputRecoveryState | undefined, restoreDesktop: boolean) => Promise<boolean>;
   recordDiagnostic?: (sessionId: string, record: Record<string, unknown>) => void;
+  pauseWaitMs?: number;
 }
 
 export function createSessionLifecycle(host: SessionLifecycleHost) {
@@ -73,6 +75,7 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
   const queue = createComputerCommandQueue({
     coordinator: computerUseCoordinator, execution, sessionIdFor, runCommand,
     recaptureRequiredReply, takeOver: takeOverComputer, recordDiagnostic: host.recordDiagnostic,
+    pauseWaitMs: host.pauseWaitMs,
   });
   const { runForegroundExclusive, executeSerialized } = queue;
 
@@ -157,6 +160,7 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
         stdio: 'ignore',
         env: {
           ...process.env,
+          MIXDOG_COMPUTER_INPUT_MARKER: host.inputMarker,
           MIXDOG_ABORT_TARGET: restoreDesktop ? recovery.targetWindowId : '',
           MIXDOG_ABORT_RESTORE: restoreDesktop ? recovery.restoreWindowId : '',
           MIXDOG_ABORT_CURSOR_X: String(recovery.cursorX),

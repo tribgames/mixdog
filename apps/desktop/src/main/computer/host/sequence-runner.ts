@@ -17,6 +17,11 @@ type CaptureEngine = ReturnType<typeof createCaptureEngine>;
 
 const suppressedSequenceCaptures = new WeakSet<object>();
 const trustedSequenceContinuations = new WeakSet<object>();
+const sequenceStepCommands = new WeakSet<object>();
+
+export function isSequenceStep(command: ComputerCommand): boolean {
+  return sequenceStepCommands.has(command);
+}
 
 /** The command runs without its automatic post-action capture. */
 export function suppressCaptureAfter(command: ComputerCommand): void {
@@ -62,6 +67,7 @@ const ALLOWED_STEP_FIELDS: Record<string, Set<string>> = {
 export interface SequenceRunnerHost extends Pick<CaptureEngine, 'captureAfterAction'> {
   sessionIdFor(command: ComputerCommand): string;
   freshObservedWindowScope(command: ComputerCommand): ObservedWindowScope | undefined;
+  recordProgress?(completed: number, inFlight?: number): void;
   /** Late-bound: each step goes back through the router. */
   runCommand(command: ComputerCommand): Promise<ComputerCommandResult>;
 }
@@ -148,12 +154,16 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
       );
     }
     const stepCommands = validateSteps(command, windowId);
+    host.recordProgress?.(0);
+    const stepsStartedAt = performance.now();
     const sequence = await executeComputerSequenceSteps(
       stepCommands,
       windowId,
       async (stepCommand, index) => {
+        host.recordProgress?.(index, index);
         const stepAction = String(stepCommand.action || '');
         suppressedSequenceCaptures.add(stepCommand);
+        sequenceStepCommands.add(stepCommand);
         if (index > 0) trustedSequenceContinuations.add(stepCommand);
         const result = await runCommand(stepCommand);
         try {
@@ -162,7 +172,9 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
           return { ok: true, action: stepAction, message: result.text };
         }
       },
+      (completed) => host.recordProgress?.(completed),
     );
+    const stepsMs = elapsedMs(stepsStartedAt);
     const {
       rows,
       completedSteps,
@@ -171,7 +183,9 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
       lastTransition,
     } = sequence;
     const completed = completedSteps === steps.length && !stoppedReason;
+    const captureStartedAt = performance.now();
     const capture = await captureAfterAction(command, finalWindowId, 0, 0);
+    const postCaptureMs = elapsedMs(captureStartedAt);
     const {
       unavailable: observationUnavailable,
       pixelUnavailable,
@@ -208,7 +222,11 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
         target_reason: finalWindowId === windowId ? 'original_target' : 'sequence_successor',
         ...(finalWindowId !== windowId ? { previous_window_id: windowId } : {}),
       },
-      timings_ms: { total_ms: elapsedMs(startedAt) },
+      timings_ms: {
+        total_ms: elapsedMs(startedAt),
+        steps_ms: stepsMs,
+        post_capture_ms: postCaptureMs,
+      },
     };
     return {
       text: JSON.stringify(payload),

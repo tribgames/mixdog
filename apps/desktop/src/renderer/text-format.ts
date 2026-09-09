@@ -108,13 +108,35 @@ export async function copyTextToClipboard(value: string) {
     await navigator.clipboard.writeText(value);
     return;
   }
+  const focused = document.activeElement;
+  const selection = window.getSelection();
+  const ranges = selection
+    ? Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index).cloneRange())
+    : [];
+  const inputSelection = focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement
+    ? { start: focused.selectionStart, end: focused.selectionEnd, direction: focused.selectionDirection }
+    : null;
   const input = document.createElement("textarea");
   input.value = value;
   input.setAttribute("readonly", "");
   input.style.position = "fixed";
   input.style.opacity = "0";
-  document.body.appendChild(input);
-  input.select();
-  document.execCommand("copy");
-  input.remove();
+  try {
+    document.body.appendChild(input);
+    input.select();
+    if (!document.execCommand("copy")) throw new Error("Copy failed");
+  } finally {
+    input.remove();
+    if (focused instanceof HTMLElement && focused.isConnected) {
+      focused.focus({ preventScroll: true });
+      if (inputSelection?.start != null && inputSelection.end != null
+        && (focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement)) {
+        focused.setSelectionRange(inputSelection.start, inputSelection.end, inputSelection.direction ?? undefined);
+      }
+    }
+    if (selection) {
+      selection.removeAllRanges();
+      for (const range of ranges) selection.addRange(range);
+    }
+  }
 }

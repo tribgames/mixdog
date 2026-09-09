@@ -20,12 +20,8 @@ export const GOAL_TOOL_DEFS = Object.freeze([{
   name: 'goal',
   title: 'Goal',
   description: [
-    'Durable tasks with an idle reminder for unfinished work. Use for 3+ steps or careful planning; skip trivial or conversational work. If a mutation needs approval, create the Goal only after it.',
-    'Keep tasks current: capture new requirements immediately, mark work in_progress before starting and completed as soon as fully done; update changed plans before continuing or reporting. Starting a task also resumes a paused Goal atomically; bookkeeping alone does not.',
-    'Prefer update_tasks for changed items; set_tasks replaces the full list. Serialize mutations to the same Goal; resume accepts task updates/additions atomically. Use the latest revision; on a stale conflict, read status and reconcile, never blindly replay. Full state returns on create/status/resume; other replies are brief.',
-    'When possible, batch updates with independent work; standalone updates are allowed and must not be delayed for batching.',
-    'Finish every approved step. Record additions immediately, but park new approval-dependent work and anything it could invalidate as awaiting_approval; continue unaffected approved work. paused is the only user-wait state: pause only when nothing else can proceed, ask all parked questions together, and call resume alongside resumed work. Routine errors and retries are not reasons to pause.',
-    'Create with full tasks plus verification. Complete only after auditing every user condition against evidence. A requested duration is a full-period commitment; only explicit user completion can end it early. Block only when the same external impasse stops progress for 3 turns, never for user input or direction. Abandon only when the user redirects away from the objective.',
+    'Durable tasks with an idle reminder for unfinished work. Goal creation requires an explicit request from the user or system/developer instructions. Ordinary tasks, complexity, or planning needs do not imply a Goal request. If a mutation needs approval, create the Goal only after it.',
+    'Load the goal-management skill for task lifecycle and completion policy. Mutations require the latest revision; reconcile stale conflicts rather than blindly replaying.',
   ].join(' '),
   annotations: {
     title: 'Goal', readOnlyHint: false, destructiveHint: false,

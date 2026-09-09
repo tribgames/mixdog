@@ -562,7 +562,15 @@ export async function createMixdogSessionRuntime({
     addGlobalSkill,
     saveSkillDocument,
     invalidateSkills,
-  } = createSkillsApi({ contextMod, getCwd: () => rt.currentCwd });
+  } = createSkillsApi({
+    contextMod,
+    getCwd: () => rt.currentCwd,
+    getTools: () => {
+      const surface = activeToolSurface();
+      return [...new Map([...(surface?.tools || []), ...(surface?.deferredToolCatalog || []),
+        ...(surface?.deferredLateToolCatalog || [])].map((tool) => [tool.name, tool])).values()];
+    },
+  });
 
   // cwd resolution/apply + plugins-status + core-memory context. Extracted to
   // session-runtime/cwd-plugins.mjs; the facade keeps ownership of the mutable
@@ -683,7 +691,7 @@ export async function createMixdogSessionRuntime({
     ...(memoryToolDefs?.TOOL_DEFS || []).filter((tool) => tool?.name === 'recall' || tool?.name === 'memory'),
     ...(channelToolDefs?.TOOL_DEFS || []).filter((tool) => channels.isChannelTool(tool?.name)),
     ...(codeGraphToolDefs?.CODE_GRAPH_TOOL_DEFS || []).filter((tool) => tool?.name === 'code_graph'),
-    ...BROWSER_BRIDGE_TOOL_DEFS.filter((tool) => tool?.name === 'browser'),
+    ...BROWSER_BRIDGE_TOOL_DEFS.filter((tool) => tool?.name === 'browser' || tool?.name === 'browser_devtools'),
     ...COMPUTER_BRIDGE_TOOL_DEFS.filter((tool) => tool?.name === 'computer'),
     ...OFFICE_TOOL_DEFS.filter((tool) => tool?.name === 'office'),
     ...MEDIA_TOOL_DEFS.filter((tool) => tool?.name === 'media'),

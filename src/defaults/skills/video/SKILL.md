@@ -1,12 +1,19 @@
 ---
 name: video
 description: Make a short video clip through the media tool (Mixdog Media Studio).
-when_to_use: '"영상 만들어", "비디오", "클립", "움직이게", "이어서 만들어", animated still, continuation; load before the first media call for a video; a still image is the image skill.'
+when_to_use: 'Generate or extend video, or animate stills; still-image generation/editing uses image.'
 metadata:
   requires: media
+dependencies:
+  tools:
+    - type: tool
+      value: media
 ---
 
 # Video generation (media tool · Media Studio)
+
+Use `media` to generate short video clips. Read this guide before the first
+video-generation call.
 
 This file owns the judgement around one tool for moving pictures. It is not tied to any deliverable. The lane catalog (providers, models, controls, sign-in state) lives in the runtime and is read with `list`; nothing here names a lane or a model. A still that the clip needs first is the `image` skill's job — load it for that step.
 
@@ -22,8 +29,8 @@ This file owns the judgement around one tool for moving pictures. It is not tied
 **Default — one generation per job, one corrected retry**: a miss is retried once with a single changed variable and every invariant restated; a second miss is reported, not attempted a third time. Several candidates only when the user asks.
 
 ## 2. Call order
-1. `media action:'list' kind:'video'` once per session: signed-in lanes, models, and each model's controls (`aspectRatio`, `resolution`, `durations` or `durationRange`, `maxReferences`). Add `model:` for one model's controls.
-2. `media action:'generate' kind:'video', prompt, path, lane, model, aspect, duration, resolution, references, wait:false` — lane and model from `list`, controls only from that model's list. The result returns a job id.
+1. `media action:'list' kind:'video'` once per session: signed-in lanes, models, and `remembered` — the lane/model a generate runs on when none is passed (the user's current Studio selection, else the last clip's). Add `model:` for that model's controls (`aspectRatio`, `resolution`, `durations` or `durationRange`, `maxReferences`).
+2. `media action:'generate' kind:'video', prompt, path, aspect, duration, resolution, references, wait:false` — **lane and model are omitted by default** so the clip comes from what the user chose; controls only from the remembered model's list. Pass `lane`/`model` only when the job needs a capability that model lacks (reference count, a duration outside its range), chosen from `list`. The result returns a job id and `laneSource` (`requested` / `remembered` / `first`).
 3. Continue other work; call `media action:'status' job:<id> path:<file>` once when the file is needed or reported progress makes completion plausible. It is written on the call that sees `done`. If it is still running, report that state and wait for later work or a later turn instead of tight-looping. `cancel` when the user moves on.
 4. **Hard rule — look before using**: frame-sample or play the file; check the opening frame, that the one change happens, the ending frame, and that no text, logo, or extra subject appeared. → manual
 5. The result is also a Studio asset (`assetId`); the file at `path` is the copy the work uses.

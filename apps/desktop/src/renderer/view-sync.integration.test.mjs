@@ -19,8 +19,8 @@ async function until(condition) {
   }
 }
 
-test('real host, relay and browser shim restore lost final frames and agent rows through repeated reconnects', async () => {
-  const f = await viewSyncHost();
+test('real host, relay and browser shim preserve cancel/resubmit and recover final frames through repeated reconnects', async () => {
+  const f = await viewSyncHost({ runTurns: true });
   let relay, handle, dom, stop, stopPane;
   const sockets = [];
   const priorWindow = globalThis.window;
@@ -43,7 +43,7 @@ test('real host, relay and browser shim restore lost final frames and agent rows
     Object.defineProperty(w, 'crypto', { value: webcrypto });
     Object.assign(w, {
       TextEncoder, TextDecoder, ArrayBuffer, Uint8Array,
-      CompressionStream, DecompressionStream,
+      ReadableStream, CompressionStream, DecompressionStream,
       fetch: (url, options) => fetch(new URL(url, origin), options),
     });
     class BrowserSocket extends WebSocket {
@@ -74,17 +74,33 @@ test('real host, relay and browser shim restore lost final frames and agent rows
     stop = store.start(api.subscribeSessionState);
     const text = w.document.getElementById('transcript');
     stopPane = store.subscribe('lead', () => {
-      text.textContent = store.get('lead')?.items?.[0]?.text ?? '';
+      text.textContent = store.get('lead')?.items?.at(-1)?.text ?? '';
     });
     const agentRows = [];
     api.subscribeAgentPool((rows) => agentRows.push(rows));
     await api.setVisibleSessions(['lead']);
     await until(() => text.textContent === 'initial answer');
     for (let cycle = 0; cycle < 4; cycle++) {
+      const before = store.get('lead').items;
+      const cancelledId = `cancel-${cycle}`;
+      assert.equal(await api.submitToSession('lead', 'cancel this', { id: cancelledId }), true);
+      await until(() => store.get('lead')?.items?.at(-1)?.id === cancelledId);
+      const aborted = await api.abortSession('lead');
+      assert.equal(aborted.aborted, true);
+      await until(() => store.get('lead')?.busy === false);
+      assert.deepEqual(store.get('lead').items, before);
+      const nextId = `next-${cycle}`;
+      assert.equal(await api.submitToSession('lead', 'continue', { id: nextId }), true);
+      await until(() => store.get('lead')?.items?.at(-1)?.id === nextId);
       const socket = sockets.at(-1);
       socket.dropNext = true;
       socket.dropped = false;
-      f.put('lead', `finished ${cycle}`);
+      const current = f.records.get('lead').snapshot;
+      const finished = {
+        ...current, busy: false,
+        items: [...current.items, { id: `answer-${cycle}`, kind: 'assistant', text: `finished ${cycle}` }],
+      };
+      f.putSnapshot('lead', finished);
       await until(() => socket.dropped);
       assert.notEqual(text.textContent, `finished ${cycle}`);
       f.state.agents = [{ sessionId: `agent-${cycle}`, ownerSessionId: 'lead', status: 'completed' }];
@@ -95,14 +111,17 @@ test('real host, relay and browser shim restore lost final frames and agent rows
       socket.terminate();
       await until(() => sockets.length === cycle + 2
         && w.document.documentElement.dataset.mixdogRemoteConnection === 'connected');
+      assert.deepEqual(JSON.parse(JSON.stringify(store.get('lead').items)), finished.items);
+      assert.equal(store.get('lead').busy, false);
     }
+    const submitsBeforeCreation = f.state.submits;
     const [first, retry] = await Promise.all([
       api.submitNewTask('created once', { id: 'web-creation-receipt' }),
       api.submitNewTask('created once', { id: 'web-creation-receipt' }),
     ]);
     assert.equal(first.sessionId, retry.sessionId);
     assert.equal(f.state.creates, 1);
-    assert.equal(f.state.submits, 1);
+    assert.equal(f.state.submits, submitsBeforeCreation + 1);
     const gate = Promise.withResolvers();
     const entered = Promise.withResolvers();
     const replay = f.host.replaySessionStates.bind(f.host);

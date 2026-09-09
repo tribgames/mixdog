@@ -333,6 +333,18 @@
   text-align: center;
 }
 .utility-dock .agent-activity-empty svg { color: var(--mx-icon-muted); }
+.utility-dock .agent-group-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+/* Agent titles and overflow triggers share the group's inner frame. */
+.utility-dock > .utility-dock-header[data-tab="agents"] {
+  padding-inline: var(--mx-rail-gutter);
+}
+.utility-dock :is(.agent-activity-page, .utility-dock-header) .row-overflow-trigger {
+  width: 24px;
+  height: 24px;
+}
 .utility-dock .agent-session-heading {
   width: 100%;
   max-width: 100%;
@@ -609,7 +621,6 @@
   background: transparent;
   pointer-events: none;
 }
-.session-row-menu-wrap { position: relative; z-index: 1; width: 24px; height: 24px; flex: 0 0 24px; }
 .session-row-action {
   position: relative;
   z-index: 1;
@@ -674,20 +685,6 @@
   opacity: 1;
 }
 .session-row-action.session-row-delete:hover { color: var(--mx-danger); opacity: 1; }
-.session-row-menu {
-  position: absolute;
-  z-index: 40;
-  top: 26px;
-  right: 0;
-  width: 132px;
-  padding: var(--mx-menu-inset);
-  border: var(--mx-popup-border);
-  border-radius: var(--mx-popup-radius);
-  color: var(--mx-text);
-  background: var(--mx-popup-bg);
-  box-shadow: var(--mx-popup-shadow);
-}
-.session-row-menu button.danger { color: var(--mx-danger); }
 .session-title-input {
   position: absolute;
   /* Centered in the 31px row and starting on the row's own text line: the
@@ -803,12 +800,62 @@
    inserts above it. Native anchoring would apply a second, browser-dependent
    correction and recreate the visible jump. Other rail panels keep native
    anchoring because they do not use the keyed session-row compensation. */
-.session-sidebar > .session-sidebar-scroll:not(.session-sidebar-panels) {
+.session-sidebar-sessions > .session-sidebar-scroll {
   overflow-anchor: none;
 }
 .sidebar-recent { display: grid; gap: 2px; }
 /* Sibling sections stay distinct without opening an oversized empty band. */
 .session-sidebar-scroll > .sidebar-recent + .sidebar-recent { margin-top: 2px; }
+/* Fixed launcher block (user: 세션 위에 새 작업·새 스튜디오 고정): New Task
+   and New Studio sit ABOVE the scroller as a real fixed block. The first
+   cut kept them INSIDE it as a sticky block with a -12px margin, but the
+   engine clamps a sticky box to its scroller's content box, so it stuck
+   12px under the header hairline and scrolled rows showed through that band
+   (user: 고정이냐? 뭔가 이상한데). Out here nothing can scroll beneath it and
+   the scrollbar starts under the launchers. The block owns the surface's
+   12px top inset and an 8px bottom inset to separate creation actions from
+   the categories; the scroller below retains its 2px sibling gap. */
+.session-sidebar-sessions {
+  display: flex;
+  flex-direction: column;
+}
+.session-sidebar-launchers {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 2px;
+  padding-top: 12px;
+  padding-bottom: 8px;
+}
+.session-sidebar-sessions > .session-sidebar-scroll { padding-top: 2px; }
+/* Fixed launchers use category typography and leading icons on the same
+   left edge as category headings, retaining the primary-link hit area. */
+.session-sidebar .task-link.session-launcher-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 0;
+  font-size: var(--mx-font-category);
+  font-weight: var(--mx-weight-semibold);
+  text-align: left;
+}
+.session-launcher-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-launcher-row > .session-launcher-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  color: var(--mx-icon);
+}
+/* Keyboard focus uses the rows' neutral inner line, not the blue ring. */
+.session-sidebar .task-link.session-launcher-row:focus-visible {
+  outline: none;
+  box-shadow: var(--mx-list-focus-ring);
+}
 .sidebar-recent-heading {
   height: 32px;
   display: flex;

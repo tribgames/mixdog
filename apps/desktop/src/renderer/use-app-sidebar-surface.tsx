@@ -3,6 +3,7 @@ import type { DesktopProjectSummary } from "../shared/contract";
 import { SidebarPanelBoundary } from "./sidebar-panel-surface";
 import type { SidebarPanelKey } from "./app-shell-components";
 import type { ExtensionsSection } from "./extension-sections";
+import type { ProjectsSection } from "./project-sections";
 import type { useAppShellPanels } from "./use-app-shell-panels";
 import { useStableEvent } from "./use-stable-event";
 import type { SidebarViewGroup } from "./sidebar-view-layout";
@@ -14,7 +15,6 @@ export function useAppSidebarSurface({
   schedulesOpen,
   webhooksOpen,
   projectsOpen,
-  workflowsOpen,
   sidebarOpen,
   viewGroups,
   loadedSidebarPanels,
@@ -29,8 +29,11 @@ export function useAppSidebarSurface({
   selectedProjectPath,
   extensionsSection,
   onExtensionsSectionChange,
+  projectsSection,
+  onProjectsSectionChange,
   closeSidebarForNavigation,
   startTask,
+  openStudio,
   openSession,
   refreshProjects,
   renameProject,
@@ -39,7 +42,6 @@ export function useAppSidebarSurface({
   schedulesOpen: boolean;
   webhooksOpen: boolean;
   projectsOpen: boolean;
-  workflowsOpen: boolean;
   sidebarOpen: boolean;
   viewGroups: readonly SidebarViewGroup[];
   loadedSidebarPanels: ReadonlySet<string>;
@@ -54,18 +56,21 @@ export function useAppSidebarSurface({
   selectedProjectPath: string;
   extensionsSection: ExtensionsSection;
   onExtensionsSectionChange(section: ExtensionsSection): void;
+  projectsSection: ProjectsSection;
+  onProjectsSectionChange(section: ProjectsSection): void;
   closeSidebarForNavigation(): void;
   startTask(): unknown;
+  /** Opens a Studio workspace tab in the focused pane. */
+  openStudio(): unknown;
   openSession(sessionId: string): unknown;
   refreshProjects(): Promise<DesktopProjectSummary[]>;
   renameProject(path: string, alias: string): unknown;
   removeProject(path: string): unknown;
 }) {
-  type SidebarSurface = "sessions" | "schedules" | "webhooks" | "projects" | "workflows";
+  type SidebarSurface = "sessions" | "schedules" | "webhooks" | "projects";
   const requestedSidebarSurface: SidebarSurface = schedulesOpen ? "schedules"
     : webhooksOpen ? "webhooks"
     : projectsOpen ? "projects"
-    : workflowsOpen ? "workflows"
     : "sessions";
   const sidebarGroupFor = (surface: SidebarSurface): readonly SidebarPanelKey[] =>
     surface === "sessions"
@@ -178,12 +183,10 @@ export function useAppSidebarSurface({
   const SchedulesPane = sidebarPanes.schedules;
   const WebhooksPane = sidebarPanes.webhooks;
   const ProjectsPane = sidebarPanes.projects;
-  const WorkflowsPane = sidebarPanes.workflows;
   const ExtensionsPane = sidebarPanes.extensions;
   const sidebarPanelTitle = presentedSidebarPanel === "schedules" ? "Schedules"
     : presentedSidebarPanel === "webhooks" ? "Webhooks"
     : presentedSidebarPanel === "projects" ? "Projects"
-    : presentedSidebarPanel === "workflows" ? "Workflows"
     : presentedSidebarPanel === "extensions" ? "Extensions"
     : "";
   // Stable sidebar handlers + memoised panel children: SessionSidebar, its
@@ -195,6 +198,13 @@ export function useAppSidebarSurface({
   const sidebarNewTask = useStableEvent(() => {
     closeSidebarForNavigation();
     startTask();
+  });
+  // The Sessions panel's second fixed launcher row: Studio opens as a
+  // workspace tab exactly like New Task (user: 세션 위에 새 작업·새 스튜디오
+  // 고정), so the phone drawer closes the same way before the tab lands.
+  const sidebarNewStudio = useStableEvent(() => {
+    closeSidebarForNavigation();
+    openStudio();
   });
   const sidebarResumeSession = useStableEvent((sessionId: string) => {
     closeSidebarForNavigation();
@@ -211,11 +221,6 @@ export function useAppSidebarSurface({
   // and edits projects; NEW TASK is minted from its own entries only.
   const projectsRename = useStableEvent((path: string, alias: string) => void renameProject(path, alias));
   const projectsRemove = useStableEvent((path: string) => void removeProject(path));
-  const projectsSaveInstructions = useStableEvent(async (path: string, content: string) => {
-    const host = window.mixdogDesktop;
-    if (!host?.writeInstructions) throw new Error("Desktop bridge is unavailable.");
-    await host.writeInstructions(path, content);
-  });
   const renderSidebarPanel = (
     panel: SidebarPanelKey,
     active: boolean,
@@ -224,27 +229,21 @@ export function useAppSidebarSurface({
     const label = panel === "schedules" ? "Schedules"
       : panel === "webhooks" ? "Webhooks"
       : panel === "projects" ? "Projects"
-      : panel === "extensions" ? "Extensions"
-      : "Workflows";
+      : "Extensions";
     const content = panel === "schedules"
       ? <SchedulesPane active={active} runningNames={runningAutomationNames.schedule} />
         : panel === "webhooks"
           ? <WebhooksPane active={active} runningNames={runningAutomationNames.webhook} />
-          : panel === "workflows"
-            ? <WorkflowsPane active={active} />
-            : panel === "extensions"
-               ? <ExtensionsPane active={active} section={extensionsSection}
-                   onSectionChange={onExtensionsSectionChange} />
+          : panel === "extensions"
+            ? <ExtensionsPane active={active} section={extensionsSection}
+                onSectionChange={onExtensionsSectionChange} />
             : <ProjectsPane active={active}
+                section={projectsSection} onSectionChange={onProjectsSectionChange}
                 projects={projects} projectsReady={projectsReady} selectedProjectPath={selectedProjectPath}
                 onChooseFolder={async () => (await window.mixdogDesktop?.chooseProject()) ?? null}
                 onCreateProject={projectsCreate}
                 onRename={projectsRename}
                 onRemove={projectsRemove}
-                instructionsSupported={!!window.mixdogDesktop?.readInstructions}
-                onReadInstructions={async (path) =>
-                  (await window.mixdogDesktop?.readInstructions?.(path)) ?? ''}
-                onSaveInstructions={projectsSaveInstructions}
                 onMemoryControl={async (input) => (await window.mixdogDesktop.invokeCapability({
                   capability: 'memoryControl',
                   args: [input, { silent: true }],
@@ -259,6 +258,7 @@ export function useAppSidebarSurface({
   return {
     presentedSidebarPanel,
     sidebarNewTask,
+    sidebarNewStudio,
     sidebarPanel,
     sidebarPanelTitle,
     sidebarResumeSession,

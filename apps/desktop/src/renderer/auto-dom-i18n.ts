@@ -19,6 +19,9 @@ const SKIP = [
   ".diff-fallback",
   ".folder-name-text",
   ".folder-tile-label",
+  // Project identities are user content, even when they match a UI key.
+  ".projects-row-label",
+  ".projects-edit-dialog h2",
   ".dock-pr-row-label b",
   ".dock-scm-commit-info",
 ].join(",");

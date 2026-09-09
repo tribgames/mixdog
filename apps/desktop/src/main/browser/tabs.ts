@@ -6,6 +6,7 @@
  */
 import type { BrowserWindow, WebContents } from 'electron';
 
+import type { DesktopBrowserTab } from '../../shared/contract';
 import type { BrowserCommandResult } from './command';
 import { redactBrowserText, redactBrowserUrl } from './redaction';
 import { normalizeBackgroundTabName } from './tab-policy';
@@ -15,7 +16,8 @@ export interface BackgroundPage {
   window: BrowserWindow;
   guest: WebContents;
   lastUsedAt: number;
-  kind: 'agent' | 'popup';
+  kind: 'agent' | 'popup' | 'user';
+  keepAlive?: boolean;
   openerPageId?: string;
 }
 
@@ -37,9 +39,11 @@ export interface BrowserTabsHost {
   currentGuest(sessionId: string): WebContents | null;
   /** Targeting a visible tab also makes it the default for later commands. */
   selectGuest(sessionId: string, guest: WebContents): void;
+  closeGuest(guest: WebContents): void;
 }
 
 export function createBrowserTabs(host: BrowserTabsHost) {
+  let nextUserTab = 0;
   const {
     visibleGuests,
     backgroundPages,
@@ -139,5 +143,64 @@ export function createBrowserTabs(host: BrowserTabsHost) {
     return { text: `Closed background tab "${name}".` };
   }
 
-  return { resolveTargetGuest, listTabs, closeBackgroundTab };
+  function displayEntries(sessionId: string) {
+    return [
+      ...visibleGuests(sessionId).map(guest => ({
+        guest, kind: 'page' as DesktopBrowserTab['kind'], page: null as BackgroundPage | null,
+      })),
+      ...[...backgroundPages(sessionId).values()]
+        .filter(page => !page.window.isDestroyed() && !page.guest.isDestroyed())
+        .map(page => ({
+          guest: page.guest,
+          kind: (page.kind === 'popup' ? 'popup' : page.kind === 'user' ? 'page' : 'background') as DesktopBrowserTab['kind'],
+          page,
+        })),
+    ];
+  }
+
+  function displayTabs(sessionId: string): DesktopBrowserTab[] {
+    const selected = currentGuest(sessionId);
+    return displayEntries(sessionId).map(({ guest, kind }) => ({
+      id: stablePageId(guest),
+      title: guest.getTitle(),
+      url: guest.getURL(),
+      loading: guest.isLoadingMainFrame(),
+      active: guest === selected,
+      kind,
+    }));
+  }
+
+  function displayEntry(sessionId: string, id: string) {
+    const entry = displayEntries(sessionId).find(({ guest }) => stablePageId(guest) === id);
+    if (!entry) throw new Error('Browser tab is no longer available in this session.');
+    return entry;
+  }
+
+  function selectDisplayTab(sessionId: string, id: string): void {
+    const { guest, page } = displayEntry(sessionId, id);
+    if (page) {
+      page.lastUsedAt = Date.now();
+      page.keepAlive = true;
+    }
+    selectGuest(sessionId, guest);
+  }
+
+  function createDisplayTab(sessionId: string): void {
+    let name: string;
+    do { name = `user-tab-${++nextUserTab}`; } while (backgroundPages(sessionId).has(name));
+    const page = ensureOffscreen(sessionId, name);
+    page.kind = 'user';
+    page.keepAlive = true;
+    selectGuest(sessionId, page.guest);
+  }
+
+  function closeDisplayTab(sessionId: string, id: string): void {
+    // Use the window's normal close path so beforeunload can protect edits.
+    host.closeGuest(displayEntry(sessionId, id).guest);
+  }
+
+  return {
+    resolveTargetGuest, listTabs, closeBackgroundTab,
+    displayTabs, selectDisplayTab, createDisplayTab, closeDisplayTab,
+  };
 }

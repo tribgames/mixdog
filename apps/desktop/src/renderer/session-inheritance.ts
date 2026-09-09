@@ -1,6 +1,8 @@
 import type { DesktopModelSelection } from "../shared/contract";
 import type { Snapshot } from "./desktop-types";
 import { record } from "./record-utils";
+// @ts-expect-error Shared runtime ESM intentionally has no separate declaration file.
+import { displayModelName } from "../../../../src/ui/model-display.mjs";
 
 function finite(value: unknown): number | null {
   const number = Number(value);
@@ -30,16 +32,19 @@ export function sessionModelSelection(snapshot: Snapshot): DesktopModelSelection
   };
 }
 
-export function lastAssistantRoute(snapshot: Snapshot): { provider: string; model: string } | null {
+export function lastAssistantRoute(snapshot: Snapshot): { provider: string; model: string; modelId?: string } | null {
   const items = Array.isArray(snapshot.items) ? snapshot.items : [];
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = record(items[index]);
-    if (String(item.kind || "") !== "assistant") continue;
+    if (String(item.kind || "") !== "assistant"
+      && !(item.kind === "statusdone" && item.status === "inherited")) continue;
     const model = String(item.model || "").trim();
-    if (!model) continue;
+    const modelId = String(item.modelId || "").trim();
+    if (!model && !modelId) continue;
     return {
       provider: String(item.provider || "").trim(),
       model,
+      ...(modelId ? { modelId } : {}),
     };
   }
   return null;
@@ -49,9 +54,14 @@ export function shouldOfferSessionInheritance(snapshot: Snapshot): boolean {
   const current = sessionModelSelection(snapshot);
   const previous = lastAssistantRoute(snapshot);
   if (!current || !previous) return false;
-  if (current.model.toLowerCase() !== previous.model.toLowerCase()) return true;
-  return Boolean(previous.provider)
-    && current.provider.toLowerCase() !== previous.provider.toLowerCase();
+  if (previous.provider && current.provider.toLowerCase() !== previous.provider.toLowerCase()) return true;
+  // New rows carry exact identity even when two IDs share a display name.
+  if (previous.modelId) return current.model.toLowerCase() !== previous.modelId.toLowerCase();
+  // Legacy rows stored either a raw ID or its display label. Reuse the
+  // original formatter, not punctuation-stripping or guessed model aliases.
+  const recordedModel = previous.model.toLowerCase();
+  return current.model.toLowerCase() !== recordedModel
+    && displayModelName(current.model, current.provider).toLowerCase() !== recordedModel;
 }
 
 export function inheritanceContextFit(status: unknown, snapshot: Snapshot) {

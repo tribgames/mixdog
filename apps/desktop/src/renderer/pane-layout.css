@@ -49,7 +49,11 @@
   /* Consume one visual pixel; the transparent pseudo-element below preserves
      a forgiving seven-pixel drag target without opening a dark gutter. */
   flex: 0 0 1px;
-  z-index: 3;
+  /* Above the lifted FOCUSED leaf (4): the 6px hit target below lives inside
+     the second cell, and with the browser pane focused that cell covered it,
+     leaving a 1px handle nobody could grab (user: 브라우저 창이 좌측으로
+     확장축소가 안 되네). */
+  z-index: 5;
   background: transparent;
 }
 .pane-split-row > .pane-resize-handle { cursor: col-resize; }

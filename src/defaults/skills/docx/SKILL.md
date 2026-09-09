@@ -1,21 +1,28 @@
 ---
 name: docx
 description: Create, edit, review, or redline a Word document (.docx/.dotx/.docm) with the office tool.
-when_to_use: '"워드", "문서 만들어", ".docx", "레드라인", "변경 추적", "Word"; load before the first office call for a Word deliverable; not for PDF or slides.'
+when_to_use: 'Create, edit, or review Word files (.docx/.dotx/.docm), including tracked changes; not PDF/slides.'
 metadata:
   requires: office
+dependencies:
+  tools:
+    - type: tool
+      value: office
 ---
 
 # Word documents (office tool)
 
-Word explains the decision: a document states the conclusion first, then the evidence, then the detail a reader may skip. Build content before decoration, and judge the result by looking at rendered pages, never by a clean report alone.
+Use `office` to create, edit, review, and redline Word documents, including
+tracked changes. Read this guide before the first Word operation.
+
+Choose the document's genre before its layout. A decision brief leads with a conclusion; an essay follows its narrative, without executive labels or metric strips. Judge the result by looking at rendered pages, never by a clean report alone.
 
 ## 1. New document
-1. Settle the content model before any call: audience, objective, the decision or action requested, the claims with their facts, units, and sources. Reuse the same `design.content` across a package (deck, sheet, document) so all three carry one content fingerprint.
-2. One call composes the whole document: `office action:'create' path:<file.docx> operations:[{ op:'compose_document', title, subtitle, summary, metrics, sections:[...], footer, pageNumbers }]`. Every operation whose inputs are known goes in that one batch; split only when a later input depends on an earlier result.
-3. `compose_document` fields: `title` (required), `subtitle`, `summary` (the conclusion, 1-3 sentences), `metrics` (2-4 headline figures with labels), `sections` as `{ heading, level:1|2, paragraphs:[...], bullets:[...], table:{ headers, rows }, quote, callout, calloutLabel, calloutTone:'positive'|'warning'|'critical'|'informative' (a verdict on its state field; omit for the accent), kind:'roadmap' with steps:[...], eyebrow, pageBreak }`, `footer`, `orientation`, `pageNumbers`. `purpose` (`explain|decide|compare|monitor`) and `variant` pick the layout family; leave them out to let the content topology choose. `describe format:'docx' operation:'compose_document'` only when a field is unknown.
-4. **Default — render, then look**: `office action:'render' session:<id>` returns every page as an image. Open each page at readable size and read it against §4: phrase endings, a heading stranded at a page foot, a short table split across pages, a metric strip that wraps, leftover placeholder copy. Fix by re-running the composition with corrected content (or one `batch` for a local edit), then render again; one or two loops is normal. Without Microsoft Office or LibreOffice no renderer exists — say so in the delivery and rely on the structural review.
-5. `office action:'finalize' session:<id> review:true` runs the review (structure, spacing, contrast, provenance), saves, validates the package, and closes. Read `review`, `validation` (with `documentLint`), and the issues; fix, then finalize again. Never leave a session open.
+1. Settle the content and editing design before creating the file: genre, audience, reading order, body width, type roles, spacing and page flow. A report may need a summary; an essay need not. For a related package reuse `design.content` for sourced facts, not a shared page template. A representative-page trial is optional when the direction is uncertain or costly to change, not a mandatory ceremony.
+2. **Author native paragraphs by default.** Use `create operations:[...]` with `set_page`, `append_text` and the table/image operations. Specify the chosen fonts, sizes and paragraph formats in `properties`; built-in styles provide semantics, not a finished design. Batch all known operations. See `references/native-authoring.md` for the control map and the optional preset route.
+3. Render with `action:'render'` and read every page at a usable size, with fresh eyes rather than expectations from the generating code. Ask whether the page suits its genre and whether the emphasis, line length and whitespace help reading. A second reviewer is optional. Being unclipped and opening successfully is not enough.
+4. Record concrete keep/fix observations by page and element. Correct the cause with targeted edits, not new decoration or arbitrary text cuts; rerender after meaningful changes. Preserve before/after output when comparing directions. Do not force a repair loop if the first result already works, or stop at a fixed round count if it does not.
+5. Finalize with `review:true` and `design:{ reviewed:true, reviewToken:<current token>, critique:[{ page:1, verdict:'pass', note:<specific visual observations> }, ...] }`. Do not pass a page with unresolved fixes. This records agent review, not user approval. Resolve `validation.documentLint` failures before delivery. If no renderer exists, close and disclose structural-only validation rather than claiming visual approval; never leave a session open.
 
 ## 2. Existing document
 1. `office action:'open' path:<file>` then `action:'snapshot'` (add `query` for a targeted search): paths look like `/body/p[N]`, `/body/tbl[N]/row[N]/cell[N]`, `/body/comment[N]`, `/body/revision[N]`. A paragraph's `text` is the accepted view on both backends (words a reviewer deleted sit in `deletedText`, not in `text`), shows a line break as `\n`, and its `runs[]` are the raw runs; a cell's `text` joins its paragraphs with `\n`. A legacy `.doc` is not a Word package; have Word save it as `.docx` first.
@@ -32,8 +39,9 @@ Word explains the decision: a document states the conclusion first, then the evi
 - `resolve_revisions resolution:'accept'|'reject'` produces the clean copy across the body, headers, footers, and notes: text wrappers, moves, paragraph marks (in the body, in table cells, and in those stories), tracked table rows (`tableRows`), and formatting change records (`propertyChanges`) all resolve, so Word shows no revision afterwards. `author:<label>` settles only that reviewer's changes on both backends and leaves the others tracked; a label matching nobody changes nothing and the result names the reviewers present. Accepting a deleted paragraph mark joins that paragraph to the next one (the next paragraph's formatting survives), so a paragraph whose text was all deleted vanishes instead of leaving an empty bullet; the result reports `mergedParagraphs`. A comment anchors to exactly the phrase it was asked about (`add_comment find:<phrase>`; the result says `anchor: 'phrase'`, or `'paragraph'` when the phrase crosses a tab, field, or drawing); one without an anchor is reported as `comment_not_anchored` because Word never shows it. `fill_template` under tracking fills each token as a tracked change too.
 
 ## 4. Design rules and machine tells
-- One body face and one display face; sizes body 10.5-11 pt, heading 1 16-18 pt, heading 2 13-14 pt, captions 9 pt. Line spacing 1.3-1.4 for body.
-- Hierarchy through size, weight, and space, not through boxes and colored bars. A metric strip and section eyebrows are the allowed chrome.
+- Choose a coherent type hierarchy for the reader and medium; do not apply one global title/body size ladder to essays, letters and reports. `lineSpacing` is a minimum in points, not a multiplier. Native `properties.nameEastAsia` chooses the recipient's Korean font independently of the Latin `name`; set both when required for predictable rendering.
+- Labels (`eyebrow`, `summaryLabel`), accent headings and page breaks are opt-in. Let paragraphs flow first. Do not shorten the prose solely to repair an oversized title or remove a page break merely to hide a stranded paragraph.
+- Build hierarchy through type, alignment and space. Use a box, label or metric strip only if it serves this document's content; they are not required decorations.
 - Every material number carries a source (`add_provenance` or the section's `source`), and a table replaces any list of more than four numbers.
 - Words and notation follow `${MIXDOG_SKILL_DIR}/../pptx/references/writing.md` (sentence rules, one register, numbers, dates, money, units, room for translation): one notation across the deck, document, and sheet of a package.
 - Never leave template tokens, placeholder text, or empty headings; `fill_template` with `strict:true` catches them. → `placeholder_text`, `unfilled_token`

@@ -588,7 +588,8 @@ test('Office design composition maps Word, Excel, and PDF to native structures',
   assert.ok(word.operations.some((operation) => (
     operation.op === 'add_page_numbers'
     && operation.alignment === 'center'
-    && operation.prefix === 'Source: operating model · Page '
+    && operation.prefix === 'Source: operating model · '
+    && operation.separator === ' / '
   )));
   assert.ok(!word.operations.some((operation) => operation.op === 'set_header_footer'));
   const workbook = expandOfficeDesignOperations({

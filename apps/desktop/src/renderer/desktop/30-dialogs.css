@@ -29,6 +29,22 @@
   backdrop-filter: blur(2px);
   animation: mx-scrim-in var(--mx-motion-chrome);
 }
+/* Pane-scoped scrim (user: 골 설정 뜨는 게 PANE 중앙에 뜨는 게 낫지 않을까):
+   the same skin, but it fills only the `.pane-cell` that raised the dialog —
+   sibling panes stay clear and interactive, and the caption band is not in
+   play, so no titlebar reserve is needed. Sits above the pane's dock overlay
+   (30) and below the transient file-drop overlay (240). */
+.pane-dialog-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: clamp(12px, 3vw, 24px);
+  background: var(--mx-scrim);
+  backdrop-filter: blur(2px);
+  animation: mx-scrim-in var(--mx-motion-chrome);
+}
 /* A confirmation always paints above the card that raised it. */
 .settings-confirm-layer { z-index: 950; }
 .onboarding-dialog,
@@ -143,6 +159,7 @@
 @media (prefers-reduced-motion: reduce) {
   .onboarding-layer,
   .schedules-dialog-layer,
+  .pane-dialog-layer,
   .settings-confirm-layer,
   .mx-dialog-layer,
   .onboarding-dialog,
@@ -474,7 +491,9 @@
    it, and header/category TEXT sits on the same line instead of a deeper
    text gutter. Item text keeps its own 14px inside its box. The sidebar
    already pads 8, so containers add 4. */
-.sidebar.session-sidebar > .session-sidebar-scroll { padding-inline: 4px; }
+.sidebar.session-sidebar > .session-sidebar-scroll,
+.session-sidebar-sessions > .session-sidebar-scroll,
+.session-sidebar-launchers { padding-inline: 4px; }
 .session-sidebar .session-panel-header {
   /* Title text on the box line; the 28px "+" box closes on the SAME 4px the
      scroller below pays, so its center lands exactly on the list's

@@ -47,7 +47,7 @@ test('structural keys alone never grandfather a profile', () => {
 test('a fresh profile keeps every gated tool family off the session surface', () => {
   const config = withGrandfatheredBuiltins({});
   assert.deepEqual(featureDisallowedToolsFor(config), [
-    'memory', 'recall', 'git', 'git_stage', 'github', 'browser', 'computer', 'office',
+    'memory', 'recall', 'git', 'git_stage', 'github', 'browser', 'browser_devtools', 'computer', 'office',
   ]);
 });
 
@@ -58,7 +58,7 @@ test('installed features with live bridges expose the full tool surface', () => 
     [],
   );
   // A missing bridge keeps browser/computer out even on an installed profile.
-  assert.deepEqual(featureDisallowedToolsFor(config), ['browser', 'computer']);
+  assert.deepEqual(featureDisallowedToolsFor(config), ['browser', 'browser_devtools', 'computer']);
 });
 
 test('a disabled toggle removes tools even while the feature stays installed', () => {

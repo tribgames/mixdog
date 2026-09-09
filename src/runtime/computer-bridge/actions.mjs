@@ -40,7 +40,8 @@ for (const name of ['invoke', 'set_value', 'toggle', 'click', 'double_click', 'r
   action(name, {
     observationBound: true,
     autoCapture: true,
-    focusContinuation: ['click', 'double_click', 'right_click', 'middle_click', 'triple_click', 'drag', 'scroll'].includes(name),
+    focusGuard: ['invoke', 'set_value', 'toggle'].includes(name),
+    focusContinuation: ['invoke', 'click', 'double_click', 'right_click', 'middle_click', 'triple_click', 'mouse_move', 'drag', 'scroll'].includes(name),
     policy: 'act',
   });
 }

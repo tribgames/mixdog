@@ -40,6 +40,8 @@ import { resolveProjectScope } from './project-id-resolver.mjs'
 import { resolvePluginData } from '../../shared/plugin-paths.mjs'
 import { getMetaValue, isBootstrapComplete } from './memory.mjs'
 import { createToolCallHandler } from './tool-call-handler.mjs'
+import { listManagedMemories, formatManagedMemories, excludeGeneratedMemory } from './generated-memory-management.mjs'
+import { publicCoreMemoryIdentity, resolveCoreMemoryIndex } from './core-memory-index.mjs'
 
 export function createMemoryActionHandlers({
   getDb,
@@ -62,6 +64,7 @@ export function createMemoryActionHandlers({
   cwdFromTranscriptPath,
   addCoreImpl = addCore,
   editCoreImpl = editCore,
+  deleteCoreImpl = deleteCore,
   refreshCoreMemoryFile = async () => {},
 }) {
   const DATA_DIR = dataDir
@@ -606,8 +609,8 @@ export function createMemoryActionHandlers({
 
     if (action === 'core') {
       const op = normalizeCoreOp(args.op)
-      if (!['add', 'edit', 'delete', 'list', 'candidates', 'promote', 'dismiss'].includes(op)) {
-        return { text: 'core requires op: "add" | "edit" | "delete" | "list" | "candidates" | "promote" | "dismiss"', isError: true }
+      if (!['add', 'edit', 'delete', 'list', 'candidates', 'promote', 'dismiss', 'exclude'].includes(op)) {
+        return { text: 'core requires op: add | edit | delete | list | candidates | promote | dismiss | exclude', isError: true }
       }
       const coreDataDir = (typeof DATA_DIR === 'string' ? DATA_DIR : resolvePluginData())
       if (!coreDataDir) return { text: 'core: memory data dir is not initialized', isError: true }
@@ -648,8 +651,8 @@ export function createMemoryActionHandlers({
           if (op === 'promote') {
             const entry = await promoteCoreCandidate(coreDataDir, args.id, { ...args, scope })
             await refreshCoreMemoryFile('core-promote')
-            const mergeNote = entry.merged_with ? ` (merged into core id=${entry.merged_with}, sim=${entry.sim})` : ''
-            return { text: `core promoted candidate id=${args.id} → core id=${entry.id}${mergeNote}: ${entry.element}` }
+            const identity = await publicCoreMemoryIdentity(getDb(), entry)
+            return { text: `core promoted candidate id=${args.id} → ${identity}: ${entry.element}` }
           }
           // dismiss
           const removed = await dismissCoreCandidate(coreDataDir, args.id, { scope })
@@ -670,6 +673,14 @@ export function createMemoryActionHandlers({
         return projectIdText
       })()
       try {
+        if (args.source === 'generated' && ['edit', 'delete'].includes(op)) {
+          return { text: 'Generated summaries must use exclude; recall history is preserved.', isError: true }
+        }
+        if (op === 'exclude') {
+          const result = await excludeGeneratedMemory(getDb(), args.id, projectId)
+          await refreshCoreMemoryFile('generated-exclude')
+          return { text: `generated memory id=${result.id}: injection disabled; recall history preserved`, ...result }
+        }
         if (op === 'add' || op === 'edit') {
           // Category is intentionally absent from the public memory schema.
           // New direct entries use normalizeCoreInput's internal compatibility
@@ -701,33 +712,13 @@ export function createMemoryActionHandlers({
           return { text: `core ${op}: project_id "*" only valid for op="list"`, isError: true }
         }
         if (op === 'list') {
-          if (projectId !== '*') {
-            const entries = await listCore(coreDataDir, projectId)
-            if (entries.length === 0) return { text: 'core: empty' }
-            return { text: entries.map(e => `id=${e.id} ${e.element} — ${String(e.summary || '').slice(0, 200)}`).join('\n') }
-          }
-          // Cross-pool listing — group by project_id, COMMON first
-          const entries = await listCore(coreDataDir, '*')
-          if (entries.length === 0) return { text: 'core: empty' }
-          const groups = new Map()
-          for (const e of entries) {
-            const key = e.project_id ?? null
-            if (!groups.has(key)) groups.set(key, [])
-            groups.get(key).push(e)
-          }
-          const lines = []
-          for (const [key, rows] of groups) {
-            lines.push(`${key === null ? 'COMMON' : key}:`)
-            for (const e of rows) {
-              lines.push(`  id=${e.id} ${e.element} — ${String(e.summary || '').slice(0, 200)}`)
-            }
-          }
-          return { text: lines.join('\n') }
+          const page = await listManagedMemories(getDb(), projectId, args)
+          return { text: args.format === 'json' ? JSON.stringify(page) : formatManagedMemories(page), ...page }
         }
         if (op === 'add') {
           const entry = await addCoreImpl(coreDataDir, args, projectId)
           await refreshCoreMemoryFile('core-add')
-          return { text: `core added (id=${entry.id}): ${entry.element} — ${entry.summary.slice(0, 200)}` }
+          return { text: `core added (${await publicCoreMemoryIdentity(getDb(), entry)}): ${entry.element} — ${entry.summary.slice(0, 200)}` }
         }
         if (op === 'edit') {
           const hasTargetProjectId = Object.prototype.hasOwnProperty.call(args, 'target_project_id')
@@ -739,18 +730,20 @@ export function createMemoryActionHandlers({
             : typeof args.target_cwd === 'string' && args.target_cwd
               ? resolveProjectScope(args.target_cwd)
               : projectId
-          const entry = await editCoreImpl(coreDataDir, args.id, {
+          const recordId = await resolveCoreMemoryIndex(getDb(), projectId, args.id, args.index_revision)
+          const entry = await editCoreImpl(coreDataDir, recordId, {
             ...args,
             expectedProjectId: projectId,
             targetProjectId,
           })
           await refreshCoreMemoryFile('core-edit')
-          return { text: `core edited (id=${entry.id}): ${entry.element} — ${entry.summary.slice(0, 200)}` }
+          return { text: `core edited (${await publicCoreMemoryIdentity(getDb(), entry)}): ${entry.element} — ${entry.summary.slice(0, 200)}` }
         }
         if (op === 'delete') {
-          const removed = await deleteCore(coreDataDir, args.id)
+          const recordId = await resolveCoreMemoryIndex(getDb(), projectId, args.id, args.index_revision)
+          const removed = await deleteCoreImpl(coreDataDir, recordId, { expectedProjectId: projectId })
           await refreshCoreMemoryFile('core-delete')
-          return { text: `core deleted (id=${removed.id}): ${removed.element}` }
+          return { text: `core deleted (project=${projectId ?? 'COMMON'} id=${args.id}): ${removed.element}. Remaining indices were compacted; list memories before the next write.` }
         }
       } catch (e) {
         return { text: `core ${op} failed: ${e.message}`, isError: true }

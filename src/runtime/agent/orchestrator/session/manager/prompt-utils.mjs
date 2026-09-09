@@ -1,7 +1,5 @@
 // Prompt content + temporal helpers, extracted verbatim from manager.mjs
 // (behavior-preserving). Pure string/date utilities with no session state.
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { isInternalRuntimeNotificationText as contractIsInternalRuntimeNotificationText } from '../../../../shared/tool-execution-contract.mjs';
 import { formatLocalAndUtcTimestamp } from '../../../../shared/time-format.mjs';
 import { SUMMARY_PREFIX } from '../compact.mjs';
@@ -113,28 +111,6 @@ export function buildSessionStartBlock(session, cwd) {
     return lines.length > 1 ? lines.join('\n') : '';
 }
 
-// Project-scoped user instructions (<project>/.mixdog/instructions.md),
-// injected into the BP3 session/project environment after the `# Session`
-// block. Missing or empty file → '' (nothing injected). Best-effort:
-// unreadable files never break session creation.
-const PROJECT_INSTRUCTIONS_MAX_CHARS = 16_000;
-export function buildProjectInstructionsBlock(cwd) {
-    const dir = String(cwd || '').trim();
-    if (!dir) return '';
-    try {
-        const file = join(dir, '.mixdog', 'instructions.md');
-        if (!existsSync(file)) return '';
-        const text = readFileSync(file, 'utf8').trim();
-        if (!text) return '';
-        const body = text.length > PROJECT_INSTRUCTIONS_MAX_CHARS
-            ? `${text.slice(0, PROJECT_INSTRUCTIONS_MAX_CHARS)}\n[... project instructions truncated]`
-            : text;
-        return `# Project Instructions\n${body}`;
-    } catch {
-        return '';
-    }
-}
-
 const BP3_PART_SEPARATOR = '\n\n---\n\n';
 
 function bp3SystemMessage(session) {
@@ -171,8 +147,7 @@ export function refreshSessionBp3Environment(session, cwd) {
     if (session?.bp3EnvSplit === true) {
         if (typeof session?.bp3EnvironmentContext !== 'string') return false;
         const sessionBlock = buildSessionStartBlock(session, cwd);
-        const projectBlock = sessionBlock ? buildProjectInstructionsBlock(cwd) : '';
-        const content = joinBp3Parts([sessionBlock, projectBlock, session.bp3EnvironmentContext]);
+        const content = joinBp3Parts([sessionBlock, session.bp3EnvironmentContext]);
         const target = bpEnvSystemMessage(session);
         if (!target) {
             if (!content) {
@@ -196,11 +171,9 @@ export function refreshSessionBp3Environment(session, cwd) {
     const target = bp3SystemMessage(session);
     if (!target || typeof session?.bp3CoreContext !== 'string') return false;
     const sessionBlock = buildSessionStartBlock(session, cwd);
-    const projectBlock = sessionBlock ? buildProjectInstructionsBlock(cwd) : '';
     replaceSystemMessageContent(session, target, joinBp3Parts([
         session.bp3CoreContext,
         sessionBlock,
-        projectBlock,
         session.bp3EnvironmentContext,
     ]));
     session.sessionStartMetaInjected = true;

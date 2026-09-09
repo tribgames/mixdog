@@ -10,6 +10,7 @@ import { randomUUID } from 'crypto';
 import { MAX_GENERATED_MEDIA_BYTES } from './download.mjs';
 import { mediaError, resolveMediaRequest } from './lanes.mjs';
 import { saveMediaAsset } from './store.mjs';
+import { setMediaDefault } from './defaults.mjs';
 
 const JOBS = new Map();
 // Finished jobs stay readable for a while so a slow poller still sees the
@@ -46,7 +47,7 @@ function sweep() {
   }
 }
 
-async function runAdapter({ lane, kind, model, prompt, options, references, signal, onProgress }) {
+async function runAdapter({ lane, kind, model, requestModel, prompt, options, references, signal, onProgress }) {
   if (lane.id === 'grok-oauth' || lane.id === 'xai') {
     const adapter = await import('./adapters/xai-media.mjs');
     return kind === 'video'
@@ -55,7 +56,7 @@ async function runAdapter({ lane, kind, model, prompt, options, references, sign
   }
   if (lane.id === 'openai-oauth') {
     const adapter = await import('./adapters/codex-image.mjs');
-    return await adapter.generateImage({ model, prompt, options, references, signal });
+    return await adapter.generateImage({ model: requestModel || model, prompt, options, references, signal });
   }
   if (lane.id === 'gemini') {
     if (kind === 'video') {
@@ -72,11 +73,11 @@ async function runAdapter({ lane, kind, model, prompt, options, references, sign
  * Validate + start one generation. Returns the initial snapshot immediately;
  * the caller polls getMediaJob for progress and the finished asset id.
  */
-export function startMediaJob({ lane: laneId, kind, model, prompt, options = {}, references = [] } = {}) {
+export async function startMediaJob({ lane: laneId, kind, model, prompt, options = {}, references = [] } = {}) {
   const text = String(prompt || '').trim();
   if (!text) throw mediaError('prompt is required', 'MEDIA_PROMPT_REQUIRED');
   if (text.length > MAX_PROMPT_CHARS) throw mediaError('prompt is too long', 'MEDIA_PROMPT_TOO_LONG');
-  const resolved = resolveMediaRequest({ lane: laneId, kind, model });
+  const resolved = await resolveMediaRequest({ lane: laneId, kind, model });
   // Reference images: the MODEL publishes its own cap (Veo takes one start
   // frame, Grok ref2v takes seven), so the bound follows the resolved model.
   const modelEntry = resolved.spec.models.find((entry) => entry.id === resolved.model);
@@ -97,6 +98,13 @@ export function startMediaJob({ lane: laneId, kind, model, prompt, options = {},
       429,
     );
   }
+
+  // Every started generation — Studio or tool — becomes the remembered default
+  // for its kind, so a later tool call that omits lane/model follows the user.
+  // Remembering is a convenience: a full disk never blocks the generation.
+  try {
+    setMediaDefault({ kind: resolved.kind, lane: resolved.lane.id, model: resolved.model });
+  } catch {}
 
   const controller = new AbortController();
   const job = {
@@ -124,6 +132,7 @@ export function startMediaJob({ lane: laneId, kind, model, prompt, options = {},
         lane: resolved.lane,
         kind: resolved.kind,
         model: resolved.model,
+        requestModel: modelEntry?.requestModel,
         prompt: text,
         options,
         references: refs,

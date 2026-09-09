@@ -8,6 +8,7 @@ import {
 } from './tool-catalog.mjs';
 import { LEAD_DISALLOWED_TOOLS } from './tool-defs.mjs';
 import { deferredSurfaceModeForLead, toolSpecForMode } from './effort.mjs';
+import { loadSkillToolDependencies } from './skill-tool-loading.mjs';
 import {
   disallowedModelToolNamesForProfile,
   filterModelToolsForProfile,
@@ -145,6 +146,13 @@ export function createToolSurface({
         : [];
       const replay = [...new Set([...selected, ...discovered])];
       if (replay.length) selectDeferredTools(session, replay, deferredSurfaceModeForLead(mode));
+      if (preSessionSurface.skillLoadedTools?.length) {
+        loadSkillToolDependencies({
+          __toolEnvelope: true,
+          result: '',
+          skillToolDependencies: preSessionSurface.skillLoadedTools.map((value) => ({ type: 'tool', value })),
+        }, session, deferredSurfaceModeForLead(mode));
+      }
     },
   };
 }

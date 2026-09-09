@@ -4,6 +4,80 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 
+test("the fixed launcher rows lead the session list and open a task or a Studio tab", async () => {
+  const dom = new JSDOM("<!doctype html><html><body><div id=\"root\"></div></body></html>", {
+    url: "http://localhost/",
+  });
+  const globals = ["window", "document", "navigator", "CustomEvent", "IS_REACT_ACT_ENVIRONMENT"];
+  const previous = new Map(globals.map((key) =>
+    [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  Object.defineProperty(globalThis, "window", { configurable: true, value: dom.window });
+  Object.defineProperty(globalThis, "document", { configurable: true, value: dom.window.document });
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: dom.window.navigator });
+  Object.defineProperty(globalThis, "CustomEvent", {
+    configurable: true,
+    value: dom.window.CustomEvent,
+  });
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+  const { SessionSidebar } = await import("./session-sidebar.tsx");
+  const root = createRoot(document.getElementById("root"));
+  const calls = [];
+  try {
+    await act(async () => root.render(React.createElement(SessionSidebar, {
+      open: true,
+      sessions: [{
+        id: "recent-one",
+        title: "recent-one",
+        preview: "",
+        updatedAt: 1,
+        activityAt: 1,
+        messageCount: 1,
+        cwd: "",
+        classification: "task",
+        projectPath: null,
+        working: false,
+      }],
+      sessionsReady: true,
+      selection: { kind: "new" },
+      onNewTask() { calls.push("task"); },
+      onNewStudio() { calls.push("studio"); },
+      onResumeSession() {},
+      async onRenameSession() {},
+      async onArchiveSession() {},
+      async onDeleteSession() {},
+    })));
+    const launchers = document.querySelector('nav[aria-label="New"]');
+    const recentSection = document.querySelector('section[aria-label="Recent sessions"]');
+    assert.ok(launchers);
+    assert.ok(recentSection);
+    assert.ok(
+      launchers.compareDocumentPosition(recentSection) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
+      "the launcher rows sit above the Recent list",
+    );
+    // Fixed means OUTSIDE the scroller: only the lists scroll, so the
+    // launchers can never slide away or let rows show through above them.
+    const scroller = recentSection.closest(".session-sidebar-scroll");
+    assert.ok(scroller, "the Recent list lives in the scroller");
+    assert.equal(launchers.closest(".session-sidebar-scroll"), null,
+      "the launcher rows stay outside the scroller");
+    assert.equal(launchers.parentElement, scroller.parentElement,
+      "launchers and scroller share the Sessions surface");
+    const [taskRow, studioRow] = launchers.querySelectorAll("button");
+    assert.equal(taskRow?.textContent, "New task");
+    assert.equal(studioRow?.textContent, "New Studio");
+    await act(async () => { taskRow.click(); });
+    await act(async () => { studioRow.click(); });
+    assert.deepEqual(calls, ["task", "studio"]);
+  } finally {
+    await act(async () => root.unmount());
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+  }
+});
+
 test("native sidebar drag preserves the existing session title in the pane selection", async () => {
   const dom = new JSDOM("<!doctype html><html><body><div id=\"root\"></div></body></html>", {
     url: "http://localhost/",

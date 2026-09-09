@@ -7,6 +7,7 @@ import { localProviderDiskStatus, partialAssetBytes } from './asset-storage.mjs'
 import { localProviderHardwareStatus } from './hardware.mjs';
 import { registeredLocalModels } from './registered-models.mjs';
 import { localModelState } from './model-state.mjs';
+import { localContextSettings } from './context-settings.mjs';
 export { detectLocalProviderHardware } from './hardware.mjs';
 
 export const LOCAL_PROVIDER_ID = 'mixdog-local';
@@ -80,10 +81,7 @@ function publicModel(entry, dataDir, hardware) {
     remainingDownloadBytes: entry.size - partialAssetBytes(localProviderModelPath(entry, dataDir), entry.size),
     estimatedVramBytes: entry.estimatedVramBytes,
     minimumVramBytes: entry.minimumVramBytes,
-    contextWindow: entry.contextWindow,
-    // The model's theoretical window is not an allocated runtime capacity.
-    maxContextWindow: entry.contextWindow,
-    runtimeContextWindow: entry.contextWindow,
+    ...localContextSettings(entry, dataDir),
     supportsFunctionCalling: state.capabilities?.tools ?? entry.supportsFunctionCalling ?? null,
     supportsReasoning: entry.supportsReasoning ?? null,
     supportsImages: false,
@@ -122,6 +120,7 @@ export function localProviderCatalogStatus({
       downloadBytes: platformEntry?.downloadBytes || 0,
       source: LOCAL_PROVIDER_MANIFEST.runtime.source,
       license: LOCAL_PROVIDER_MANIFEST.runtime.license,
+      backend: platformEntry?.backend || '',
     },
     hardware,
     disk: localProviderDiskStatus(dataDir),

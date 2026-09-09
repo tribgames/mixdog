@@ -13,7 +13,7 @@ const REFRESH_SKEW_MS = 5 * 60_000;
 // Upper bound for the SHARED token exchange. It replaces the first caller's
 // abort signal, which must never govern work every other waiter depends on.
 const REFRESH_TIMEOUT_MS = 30_000;
-let refreshInFlight = null;
+const refreshesInFlight = new Map();
 
 // Wait on the shared refresh while still honouring THIS caller's abort signal.
 // Aborting only ends this caller's wait; the exchange keeps running for the
@@ -56,7 +56,7 @@ export function cursorTokenExpiry(token) {
 }
 
 function loadStoredCredentials() {
-    if (process.env.CURSOR_ACCESS_TOKEN) {
+    if (process.env.CURSOR_ACCESS_TOKEN && !boundProviderAuthPath('cursor-oauth')) {
         return {
             access_token: process.env.CURSOR_ACCESS_TOKEN,
             refresh_token: null,
@@ -239,9 +239,10 @@ export async function resolveCursorOAuthAccessToken({ forceRefresh = false, fetc
         if (!tokens.expires_at || tokens.expires_at > Date.now()) return tokens.access_token;
         throw new Error('Cursor access token expired and has no refresh token. Open /providers in Mixdog to sign in again.');
     }
+    const refreshPath = credentialsPath();
+    let refreshInFlight = refreshesInFlight.get(refreshPath);
     if (!refreshInFlight) {
         const startingTokens = tokens;
-        const refreshPath = credentialsPath();
         refreshInFlight = withFileLock(`${refreshPath}.refresh.lock`, async () => {
             const latest = loadStoredCredentials() || startingTokens;
             const validAfter = Date.now() + (forceRefresh ? 0 : REFRESH_SKEW_MS);
@@ -262,7 +263,7 @@ export async function resolveCursorOAuthAccessToken({ forceRefresh = false, fetc
                 fetchFn,
                 signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
             });
-            if (!process.env.CURSOR_ACCESS_TOKEN) {
+            if (!process.env.CURSOR_ACCESS_TOKEN || boundProviderAuthPath('cursor-oauth')) {
                 saveCredentials(next);
             }
             return next;
@@ -271,7 +272,8 @@ export async function resolveCursorOAuthAccessToken({ forceRefresh = false, fetc
             staleMs: 120_000,
             secret: true,
         })
-            .finally(() => { refreshInFlight = null; });
+            .finally(() => { refreshesInFlight.delete(refreshPath); });
+        refreshesInFlight.set(refreshPath, refreshInFlight);
         // Every waiter may abandon its wait; keep the shared rejection observed.
         refreshInFlight.catch(() => {});
     }

@@ -86,8 +86,8 @@ void app.whenReady().then(async () => {
             })
           })
         `);
-        assert.equal(observed.title, locale === 'ko' ? 'Mixdog 사용 중' : 'Mixdog using');
-        assert.equal(observed.text, observed.title);
+        assert.equal(observed.title, presentation.title);
+        assert.equal(observed.text, presentation.title);
         assert.equal(observed.moving, !presentation.paused);
         assert.equal(observed.fits, true, `${locale}/${reason} overflows`);
         layout.push({ locale, reason, ...observed });

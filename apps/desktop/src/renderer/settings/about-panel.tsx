@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { DesktopApi } from '../../shared/contract';
 import { ActionButton, Group, ResourceRow } from './capability-controls';
+import { readGithubStarred, rememberGithubStarred } from './github-star-storage';
 
 const MIXDOG_REPO_URL = 'https://github.com/tribgames/mixdog';
 const MIXDOG_ISSUES_URL = 'https://github.com/tribgames/mixdog/issues';
@@ -9,15 +10,18 @@ const MIXDOG_SPONSOR_URL = 'https://ko-fi.com/tribgamesdev';
 export function AboutPanel() {
   const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
   const [ghReady, setGhReady] = useState(false);
-  const [starred, setStarred] = useState(false);
+  const [starred, setStarred] = useState(readGithubStarred);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
+    if (readGithubStarred()) return;
     let live = true;
     void host?.githubStarStatus?.()
       ?.then((status) => {
-        if (!live || !status) return;
+        if (!status) return;
+        const confirmedStarred = rememberGithubStarred(status.starred === true);
+        if (!live) return;
         setGhReady(status.available === true);
-        setStarred(status.starred === true);
+        setStarred(confirmedStarred);
       })
       .catch(() => { /* retain the plain repository link */ });
     return () => {
@@ -32,7 +36,7 @@ export function AboutPanel() {
     }
     setBusy(true);
     void host.starGithub()
-      .then((result) => setStarred(result?.starred === true))
+      .then((result) => setStarred(rememberGithubStarred(result?.starred === true)))
       .catch(() => open(MIXDOG_REPO_URL))
       .finally(() => setBusy(false));
   };

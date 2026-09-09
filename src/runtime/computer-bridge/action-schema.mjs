@@ -2,6 +2,7 @@ import { splitBridgeToolArgs } from '../shared/bridge-tool-args.mjs';
 import { hasOwn } from '../shared/object.mjs';
 import {
   COMPUTER_CORE_ACTION_SCHEMA,
+  COMPUTER_DEFAULT_DELIVERY,
   validateComputerCoreActions,
 } from './core-actions.mjs';
 
@@ -50,7 +51,7 @@ const delivery = {
   delivery: {
     type: 'string',
     enum: ['background', 'foreground'],
-    description: 'Background by default; foreground is a visible escalation.',
+    description: 'Foreground by default: real cursor and target focus. Use explicit background only for supported no-focus work; never switch modes to retry an uncertain input.',
   },
 };
 
@@ -113,36 +114,28 @@ const captureProperties = {
     ...ocrLanguage,
     description: 'Installed Windows OCR language tag, e.g. ko or en-US.',
   },
-  max_ocr_words: {
-    type: 'integer',
-    minimum: 1,
-    maximum: 1000,
-  },
+  // Image encoding (JPEG quality, downscale width) and the OCR word cap are
+  // host defaults: the element budget already bounds OCR, and a frame the
+  // model cannot read is fixed by zoom, not by re-encoding.
   image_output: {
     type: 'string',
     enum: ['inline', 'file'],
-    description: 'inline (default) returns the frame here; file writes it beside the run and returns its path, keeping large pixels out of the conversation.',
+    description: 'inline (default) returns the frame here; file writes it beside the run and returns its path.',
   },
-  query: { type: 'string', maxLength: MAX_TARGET_TOKEN_LENGTH },
-  role: { type: 'string', maxLength: MAX_TARGET_TOKEN_LENGTH },
-  visible_only: { type: 'boolean' },
-  include_noninteractive: { type: 'boolean' },
+  query: { type: 'string', maxLength: MAX_TARGET_TOKEN_LENGTH, description: 'Element name/value substring filter.' },
+  role: { type: 'string', maxLength: MAX_TARGET_TOKEN_LENGTH, description: 'Control type filter, e.g. Button, Edit.' },
+  visible_only: { type: 'boolean', description: 'On-screen elements only; default true.' },
+  include_noninteractive: { type: 'boolean', description: 'Also static text, panes, groups; default false.' },
   max_elements: {
     type: 'integer',
     minimum: 1,
     maximum: 1000,
     description: 'Total returned accessibility + OCR element budget. state defaults to 80.',
   },
-  continuation: { type: 'string', maxLength: MAX_TARGET_TOKEN_LENGTH },
-  quality: {
-    type: 'integer',
-    minimum: 0,
-    maximum: 100,
-  },
-  maxWidth: {
-    type: 'integer',
-    minimum: 256,
-    maximum: 3840,
+  continuation: {
+    type: 'string',
+    maxLength: MAX_TARGET_TOKEN_LENGTH,
+    description: 'Next-page token from a capture cut at max_elements.',
   },
 };
 
@@ -165,7 +158,7 @@ export const COMPUTER_INPUT_SCHEMA = {
   oneOf: [
     branch('wait_for_user', input({
       timeout_ms: { type: 'integer', minimum: 0, maximum: 120000,
-        description: 'Wait for manual or host-configured idle resume. Default 60000. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input.' },
+        description: 'Wait for manual or host-configured idle resume; default 60000.' },
     }), false),
     branch('list', input({
       kind: { type: 'string', enum: ['windows', 'apps'] },
@@ -203,7 +196,7 @@ export const COMPUTER_INPUT_SCHEMA = {
         type: 'string',
         enum: ['focus', 'move', 'minimize', 'maximize', 'restore', 'close'],
       },
-      x: { type: 'integer' },
+      x: { type: 'integer', description: 'move only: new left edge; y the top; width/height an optional new size.' },
       y: { type: 'integer' },
       width: { type: 'integer', minimum: 1 },
       height: { type: 'integer', minimum: 1 },
@@ -475,7 +468,7 @@ export function validateComputerToolArgs(rawArgs) {
   if (name === 'act') {
     const actionError = validateComputerCoreActions(inputObject.actions, {
       frameId: String(inputObject.frame_id || ''),
-      delivery: String(inputObject.delivery || 'background'),
+      delivery: String(inputObject.delivery || COMPUTER_DEFAULT_DELIVERY),
     });
     if (actionError) return actionError;
   }
@@ -526,6 +519,7 @@ export function toComputerHostCommand(rawArgs) {
       break;
     case 'act':
       command.action = 'sequence';
+      command.delivery = inputValue.delivery ?? COMPUTER_DEFAULT_DELIVERY;
       command.steps = inputValue.actions.map((step) => {
         const translated = { ...step, action: step.type };
         delete translated.type;
@@ -534,7 +528,7 @@ export function toComputerHostCommand(rawArgs) {
             ? 'right_click'
             : step.button === 'middle'
               ? 'middle_click'
-              : step.ref
+              : step.ref && command.delivery === 'background'
                 ? 'invoke'
                 : 'click';
           delete translated.button;

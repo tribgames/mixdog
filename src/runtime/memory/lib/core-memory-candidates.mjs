@@ -80,6 +80,10 @@ export async function nominateCoreCandidates(dataDir, options = {}) {
      FROM entries
      WHERE is_root = 1 AND status = 'active'
        AND core_candidate_status IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM meta p WHERE p.key = 'memory.generated.policy.' || entries.id::text
+           AND COALESCE((p.value->>'excluded')::boolean, false)
+       )
        AND reviewed_at IS NOT NULL
        AND category = ANY($1::text[])
        AND score >= $2
@@ -205,7 +209,11 @@ export async function promoteCoreCandidate(dataDir, id, options = {}) {
   // archived/merged root must not be promotable by direct id.
   const cur = (await db.query(
     `SELECT id, element, summary, category, project_id, core_candidate_status
-     FROM entries WHERE id = $1 AND is_root = 1 AND status = 'active'`,
+     FROM entries WHERE id = $1 AND is_root = 1 AND status = 'active'
+       AND NOT EXISTS (
+         SELECT 1 FROM meta p WHERE p.key = 'memory.generated.policy.' || entries.id::text
+           AND COALESCE((p.value->>'excluded')::boolean, false)
+       )`,
     [numId],
   )).rows[0]
   if (!cur) throw new Error(`no active root entry with id=${numId} (already archived, merged, or deleted)`)
@@ -228,7 +236,11 @@ export async function promoteCoreCandidate(dataDir, id, options = {}) {
   const claim = await db.transaction(async (tx) => {
     const r = await tx.query(
       `UPDATE entries SET core_candidate_status = 'promoting', core_candidate_at = $1, status = 'archived'
-       WHERE id = $2 AND is_root = 1 AND status = 'active' AND core_candidate_status = 'candidate'`,
+       WHERE id = $2 AND is_root = 1 AND status = 'active' AND core_candidate_status = 'candidate'
+         AND NOT EXISTS (
+           SELECT 1 FROM meta p WHERE p.key = 'memory.generated.policy.' || entries.id::text
+             AND COALESCE((p.value->>'excluded')::boolean, false)
+         )`,
       [now, numId],
     )
     return Number(r.rowCount ?? r.affectedRows ?? 0)

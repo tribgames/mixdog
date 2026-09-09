@@ -282,9 +282,7 @@ test('desktop activity uses concrete control, MCP server, and skill names', () =
     { unitKey: 'Office', category: 'Office', label: 'Document work', count: 1 },
     { unitKey: 'MCP|UnityMCP', category: 'MCP', label: 'MCP UnityMCP', count: 1 },
     { unitKey: 'Skill|gamerscroll-article', category: 'Skill', label: 'Skill gamerscroll-article', count: 1 },
-    { unitKey: 'Media|image', category: 'Media', label: 'Image generation', count: 1 },
-    { unitKey: 'Media|video', category: 'Media', label: 'Video generation', count: 1 },
-    { unitKey: 'Media|lookup', category: 'Media', label: 'Media lookup', count: 1 },
+    { unitKey: 'Media', category: 'Media', label: 'Media generation', count: 3 },
   ]);
 
   assert.equal(desktopToolActivityItemPresentation({

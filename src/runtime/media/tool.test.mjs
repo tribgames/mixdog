@@ -24,16 +24,17 @@ const LANES = [
   },
 ];
 
-function fakeGraph({ outcome = 'done', lanes = LANES } = {}) {
+function fakeGraph({ outcome = 'done', lanes = LANES, remembered = null } = {}) {
   const jobs = new Map();
   let counter = 0;
   const assetPath = join(tmpdir(), `mixdog-media-asset-${process.pid}.png`);
   return {
     assetPath,
     calls: [],
-    lanes: { listMediaLanes: () => lanes },
+    lanes: { listMediaLanes: async () => lanes },
+    defaults: { getMediaDefault: (kind) => (remembered && remembered.kind === kind ? remembered : null) },
     jobs: {
-      startMediaJob: (request) => {
+      startMediaJob: async (request) => {
         const job = { id: `job-${++counter}`, status: 'running', ...request, startedAt: Date.now() };
         jobs.set(job.id, job);
         return job;
@@ -90,7 +91,10 @@ test('buildOptions validates against the model controls', () => {
   assert.throws(() => buildOptions(lane, 'video', lane.video.models[0].controls, { duration: 12 }), /duration 12s is not supported/);
   assert.deepEqual(buildOptions(lane, 'video', lane.video.models[0].controls, { duration: 8 }), { duration: 8 });
   const openai = { id: 'openai-oauth' };
-  assert.deepEqual(buildOptions(openai, 'image', { size: ['1536x1024', 'auto'] }, { aspect: '16:9' }), { size: '1536x1024', quality: 'high' });
+  assert.deepEqual(buildOptions(openai, 'image', { size: ['1536x1024', 'auto'] }, { aspect: '16:9' }), { size: '1536x1024' });
+  assert.deepEqual(buildOptions(openai, 'image', { maxReferences: 5 }, {}), {});
+  assert.throws(() => buildOptions(openai, 'image', { maxReferences: 5 }, { quality: 'high' }), /not supported/);
+  assert.throws(() => buildOptions(lane, 'image', { aspectRatio: ['1:1'] }, { resolution: '4k' }), /not supported/);
 });
 
 test('generate picks the first signed-in lane, waits, and copies the asset to path', async () => {
@@ -105,12 +109,53 @@ test('generate picks the first signed-in lane, waits, and copies the asset to pa
     assert.equal(result.ok, true);
     assert.equal(result.lane, 'lane-a');
     assert.equal(result.model, 'a-image');
+    assert.equal(result.laneSource, 'first');
     assert.deepEqual(result.options, { aspectRatio: '16:9', resolution: '2k' });
     assert.equal(result.output, join(cwd, 'cover.png'));
     assert.equal(String(await readFile(result.output)), 'png-bytes');
   } finally {
     await rm(cwd, { recursive: true, force: true });
     await rm(graph.assetPath, { force: true });
+  }
+});
+
+test('generate follows the remembered lane/model when none is passed, and falls back when it no longer applies', async () => {
+  const followed = fakeGraph({ remembered: { kind: 'image', lane: 'lane-b', model: 'b-image' } });
+  await writeFile(followed.assetPath, Buffer.from('png-bytes'));
+  const cwd = await mkdtemp(join(tmpdir(), 'mixdog-media-remembered-'));
+  const generate = (deps, extra = {}) => executeMediaTool(
+    { action: 'generate', kind: 'image', prompt: 'x', path: 'x.png', ...extra },
+    { cwd, deps },
+  ).then(parse);
+  try {
+    const remembered = await generate(followed);
+    assert.equal(remembered.lane, 'lane-b');
+    assert.equal(remembered.model, 'b-image');
+    assert.equal(remembered.laneSource, 'remembered');
+
+    const listed = parse(await executeMediaTool({ action: 'list', kind: 'image' }, { deps: followed }));
+    assert.deepEqual(listed.remembered, { lane: 'lane-b', model: 'b-image' });
+    assert.ok(!('remembered' in parse(await executeMediaTool({ action: 'list', kind: 'image' }, { deps: fakeGraph() }))));
+
+    const explicit = await generate(followed, { lane: 'lane-a' });
+    assert.equal(explicit.lane, 'lane-a');
+    assert.equal(explicit.laneSource, 'requested');
+
+    const signedOut = await generate(fakeGraph({ remembered: { kind: 'image', lane: 'lane-out', model: 'x' } }));
+    assert.equal(signedOut.lane, 'lane-a');
+    assert.equal(signedOut.model, 'a-image');
+    assert.equal(signedOut.laneSource, 'first');
+
+    const staleModel = await generate(fakeGraph({ remembered: { kind: 'image', lane: 'lane-a', model: 'gone' } }));
+    assert.equal(staleModel.lane, 'lane-a');
+    assert.equal(staleModel.model, 'a-image', 'a model the lane no longer lists falls back to the lane default');
+    assert.equal(staleModel.laneSource, 'remembered');
+
+    const otherKind = await generate(fakeGraph({ remembered: { kind: 'video', lane: 'lane-b', model: 'b-image' } }));
+    assert.equal(otherKind.laneSource, 'first', 'a video default never steers an image generate');
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+    await rm(followed.assetPath, { force: true });
   }
 });
 

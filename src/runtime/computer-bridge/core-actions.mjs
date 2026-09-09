@@ -1,5 +1,7 @@
 import { hasOwn } from '../shared/object.mjs';
 
+export const COMPUTER_DEFAULT_DELIVERY = 'foreground';
+
 const COMPUTER_CORE_ACTION_TYPES = Object.freeze([
   'click',
   'double_click',
@@ -126,7 +128,7 @@ function fieldValueError(field, value, label) {
 
 export function validateComputerCoreActions(
   actions,
-  { frameId = '', delivery = 'background' } = {},
+  { frameId = '', delivery = COMPUTER_DEFAULT_DELIVERY } = {},
 ) {
   if (!Array.isArray(actions) || actions.length < 1 || actions.length > 6) {
     return 'Computer Use act actions must contain 1..6 items';

@@ -79,3 +79,74 @@ test('route replies cannot rewind streamed selections and baseline gaps recover 
     await rm(userDataPath, { recursive: true, force: true });
   }
 });
+
+// The lane usually delivers a mutation's revision BEFORE the action reply
+// that carries the same revision as a patch (every accepted submit logged
+// "missing baseline" and re-read the whole session). Either ordering of the
+// same revision is already applied, never a crossed baseline.
+test('a reply or lane frame repeating the projection revision never re-reads the session', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'mixdog-reply-order-'));
+  let host;
+  let hooks;
+  let configured;
+  const reads = [];
+  const updates = [];
+  const id = 'session_reply_order';
+  const base = { sessionId: id, model: 'gpt', provider: 'openai', effort: 'low', fast: false, items: [], queued: [], busy: false };
+  let current = base;
+  let revision = 1;
+  const unsupported = async () => { throw new Error('unexpected call'); };
+  const client = {
+    list: unsupported, create: unsupported,
+    async subscribe() { return { sessionId: id, revision, full: current }; },
+    async unsubscribe() { return {}; },
+    async read(params) {
+      reads.push(params);
+      return { sessionId: id, revision, full: current };
+    },
+    configure() {
+      configured = deferred();
+      return configured.promise;
+    },
+    submit: unsupported, abort: unsupported, approve: unsupported,
+    async close() {},
+  };
+  try {
+    host = await SessionHost.create({
+      userDataPath, packaged: false, resourcesPath: userDataPath, appPath: userDataPath,
+    }, {
+      async attachSessionClient(next) { hooks = next; return client; },
+      loadProjects: unsupported, loadSessionStore: unsupported,
+      loadStatuslineSegments: unsupported, executeCodeGraphTool: unsupported,
+    });
+    host.subscribeSessionStates((update) => updates.push(update));
+    await host.setVisibleSessions([id]);
+
+    // Lane frame first, then the reply carrying the same revision as a patch.
+    const first = host.setFast(true, id);
+    revision = 2;
+    current = { ...base, fast: true };
+    hooks.onFrame({ type: 'session-state', sessionId: id, revision, full: current });
+    const published = updates.length;
+    configured.resolve({ sessionId: id, revision: 2, baseRevision: 1, patch: { set: { fast: true } } });
+    assert.equal((await first).fast, true);
+    assert.equal(reads.length, 0, 'a reply repeating the projection revision is already applied');
+    assert.equal(updates.length, published, 'nothing new is published for it');
+
+    // Reply first, then the lane frame for the revision it already applied.
+    const second = host.setFast(false, id);
+    revision = 3;
+    current = { ...base, fast: false };
+    configured.resolve({ sessionId: id, revision: 3, baseRevision: 2, patch: { set: { fast: false } } });
+    assert.equal((await second).fast, false);
+    const applied = updates.length;
+    hooks.onFrame({ type: 'session-state', sessionId: id, revision: 3, baseRevision: 2, patch: { set: { fast: false } } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(reads.length, 0, 'a lane frame repeating the applied revision is not a crossed baseline');
+    assert.equal(updates.length, applied);
+    assert.equal(updates.at(-1).snapshot.fast, false);
+  } finally {
+    await host?.dispose();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});

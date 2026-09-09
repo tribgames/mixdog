@@ -6,6 +6,8 @@ import { applyUsageDelta } from './session-stats.mjs';
 import { pickVerb, pickDoneVerb, compactEventLabel, compactEventDetail } from './labels.mjs';
 import { toolErrorDisplay } from './tool-result-text.mjs';
 import { errText, isCancelLikeError } from '../../runtime/shared/err-text.mjs';
+import { preserveGoalStateAfterTurn } from './goal-turn-state.mjs';
+export { preserveGoalStateAfterTurn } from './goal-turn-state.mjs';
 import { safeErrorDetails } from '../../runtime/shared/error-presentation.mjs';
 import { toolCallId, toolResultCallId, toolCallName, toolCallArgs } from './tool-call-fields.mjs';
 import { promptDisplayText, STEERING_SUPPRESSED_DISPLAY } from './queue-helpers.mjs';
@@ -46,16 +48,6 @@ async function builtinSkillNamesFor(runtime, calls) {
   } catch {
     return null;
   }
-}
-
-export function preserveGoalStateAfterTurn({
-  cancelled = false,
-  stale = false,
-  pendingSessionReset = false,
-  disposed = false,
-} = {}) {
-  return cancelled === true
-    && (stale === true || pendingSessionReset === true || disposed === true);
 }
 
 function isUsageLimitError(error) {
@@ -744,15 +736,9 @@ export function createRunTurn(bag) {
           if (info?.willCompact !== true) return;
           const used = Math.max(0, Number(info?.usedTokens) || 0);
           if (!used) return;
-          set({
-            stats: {
-              ...getState().stats,
-              currentEstimatedContextTokens: used,
-              currentContextTokens: 0,
-              currentContextSource: 'estimated',
-              currentContextUpdatedAt: Date.now(),
-            },
-          });
+          // Pressure drives compaction, not the measured-input display.
+          syncContextStats({ allowEstimated: true });
+          set({ stats: { ...getState().stats } });
         },
         onCompactEvent: (event) => {
           if (!markTurnProgress('compact-event')) return;
@@ -1144,9 +1130,11 @@ export function createRunTurn(bag) {
           stale: !isCurrentTurn(),
           pendingSessionReset: flags.pendingSessionReset,
           disposed: flags.disposed,
+          interruptedForSteering: flags.goalSteeringAbortEpoch === turnEpoch,
         }),
       });
     } catch {}
+    if (flags.goalSteeringAbortEpoch === turnEpoch) flags.goalSteeringAbortEpoch = null;
     try {
       options.onSettled?.({
         status: finalStatus,

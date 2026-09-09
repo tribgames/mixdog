@@ -6,8 +6,8 @@
  * PKCE login flow. anthropic-oauth.mjs imports these back and re-exports
  * the public functions so external callers keep their existing import path.
  */
-import { readFileSync, existsSync, statSync } from 'fs';
-import { join, resolve } from 'path';
+import { readFileSync, existsSync, mkdirSync, statSync } from 'fs';
+import { dirname, join, resolve } from 'path';
 import { createServer } from 'http';
 import { randomBytes, createHash } from 'crypto';
 import { updateJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
@@ -348,11 +348,15 @@ function _oauthGeneratePKCE() {
     return { verifier, challenge };
 }
 
+// The login writes to the FIRST candidate, existing or not. A per-account
+// binding names a file that does not exist yet — that is the whole point of
+// adding an account — and falling back to an existing file wrote the second
+// account's tokens over the first (user: 앤트로픽은 두 개 연결이 안 된다).
 function _oauthCredentialsWritePath() {
-    for (const p of credentialCandidates()) {
-        if (existsSync(p)) return p;
-    }
-    return DEFAULT_CREDENTIALS_PATH;
+    const [first] = credentialCandidates();
+    const path = first || DEFAULT_CREDENTIALS_PATH;
+    mkdirSync(dirname(path), { recursive: true });
+    return path;
 }
 
 function _oauthParseScopeField(scope) {

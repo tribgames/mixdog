@@ -272,14 +272,22 @@
   min-width: 0;
   overflow: visible;
 }
-/* Resource tags (Providers, Skills, MCP…) sit UNDER the name on every
-   platform (user decision) — long names never squeeze the badge inline. */
+/* Resource tags (Output style, Providers, Skills, MCP…) sit to the RIGHT of
+   the name (user: 액티브 네임 오른쪽에 붙이고), matching the provider account
+   rows. The name yields with an ellipsis; the badge never wraps under it. */
 .mixdog-settings-v2 .settings-resource-title {
-  flex-direction: column;
-  align-items: flex-start;
-  row-gap: 4px;
+  flex-wrap: nowrap;
+  align-items: center;
+  column-gap: 8px;
 }
-.mixdog-settings-v2 .settings-resource-title b { max-width: 100%; }
+.mixdog-settings-v2 .settings-resource-title b {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mixdog-settings-v2 .settings-resource-title > .settings-status { flex: none; }
 .settings-empty-list {
   box-sizing: border-box;
   min-height: 56px;

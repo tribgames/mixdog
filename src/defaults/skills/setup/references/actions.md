@@ -27,6 +27,7 @@ authority for required fields and accepted values.
 | Background memory cycles | `set_recap_enabled` |
 | Web Search tool exposure | `set_web_search_enabled` |
 | Git, Office, or Local Provider enabled state | `set_builtin_enabled` |
+| One approval per session before the first Browser Use or Computer Use call (`name`: browser or computer; on by default) | `set_first_use_approval` |
 | Git, Memory, Office, or Local Provider runtime preparation | `install_builtin` |
 | Managed local model installation (use the local-provider skill) | `install_local_model` |
 | Start or resume a background runtime/model download | `start_local_installation` |

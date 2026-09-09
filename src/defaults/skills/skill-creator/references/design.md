@@ -60,22 +60,49 @@ Confirm runtime support before assigning it operational meaning.
 For Mixdog, `metadata.requires` may list a built-in feature that is mandatory
 for the skill. Do not use it for ordinary repository files or generic tools.
 
+Declare mandatory tools in `dependencies.tools`, either in `SKILL.md`
+frontmatter or an imported `agents/openai.yaml`:
+
+```yaml
+dependencies:
+  tools:
+    - type: tool
+      value: office
+    - type: mcp
+      value: existing-server
+```
+
+`tool` resolves an exact tool name; `mcp` resolves the available tools of an
+already connected server. Loading adds their schemas to the current session,
+not permissions. Missing, disabled, and policy-blocked tools are reported,
+never installed or enabled. Leave optional tools to ordinary on-demand loading.
+`allowed-tools` remains imported metadata, not a dependency declaration.
+
+The skill editor keeps tool-link overrides in Mixdog's data directory so
+updating a downloaded skill does not erase local links or rewrite its source.
+An empty override disconnects all tools; restoring the declaration removes
+the override. Changing the instruction text still requires an editable skill.
+
 ## Listing line
 
 The model never sees the body until it calls `Skill()`. Selection happens on
 one listing line per skill:
 
 ```text
-- <name>: <description> — <when_to_use>
+- <name>: <when_to_use> [tools: <linked tool names>]
 ```
 
-The runtime cuts that line at 250 characters on a word boundary; text past the
-cut never routes the skill. Write both halves for that budget:
+The runtime cuts the trigger at 250 characters on a word boundary; text past
+the cut never routes the skill. A missing trigger leaves only the name, never
+the UI description. The tool suffix comes from effective dependencies, not
+handwritten trigger text; `mcp:<server>` denotes a server's tools. Keep these
+three responsibilities separate:
 
 | Field | Job | Budget | Write | Avoid |
 |---|---|---|---|---|
-| `description` | Say what the skill does | ≤ 100 chars | One plain sentence; capability, not implementation | Repeating the name, marketing words, workflow steps, file lists |
-| `when_to_use` | Say when to select it | Rest of the 250 | Quoted user phrases in the languages users write, implicit situations, then `not for …` naming the neighbouring owner | Restating the description, listing every feature |
+| `description` | UI-only summary | ≤ 100 chars | One plain capability sentence | Operating rules or selection conditions found nowhere else |
+| `when_to_use` | Model selection | ≤ 250 chars | English descriptions of user intents across languages, implicit situations, then `not for …` naming the neighbouring owner | Procedures, tool arguments, translated keyword lists |
+| Body | Loaded operating instructions | As needed | Capability, prerequisites, procedure, constraints, recovery, and verification | Depending on UI copy to supply an instruction |
 
 Put the strongest trigger first in `when_to_use`. A boundary is worth writing
 only when a neighbouring skill or plain tool could plausibly win the request.
@@ -84,7 +111,7 @@ Example:
 
 ```yaml
 description: Deploy Mixdog to the installed app, VPS, or a live release.
-when_to_use: '"배포", "재배포", "deploy", update:dev:fast; not for builds or tests that ship nothing.'
+when_to_use: 'Deploy, redeploy, or update the installed app with update:dev:fast; not for builds or tests that ship nothing.'
 ```
 
 ## Body
@@ -169,7 +196,7 @@ Apply to every skill when asked to audit, review, or tidy the skill set.
 
 | Check | Failure looks like | Fix |
 |---|---|---|
-| Listing line | `description` over 100 chars, or `description — when_to_use` over 250; trigger phrases sitting past the cut | Move the capability into one sentence; move phrases and the boundary into `when_to_use`; drop the rest |
+| Field separation | UI `description` over 100 chars, `when_to_use` over 250, or operating details present only in metadata | Keep the UI summary short, selection conditions in the trigger, and all execution details in the body |
 | Trigger presence | `when_to_use` empty while a neighbour competes | Add the phrases users actually write and the `not for …` boundary |
 | Body order | Sections out of the order above, a `When to use` section in the body, steps without a completion result | Reorder; delete body triggers (they never route); add the observable result |
 | Resources | A referenced file missing, a chain of references, a script without an input check | Fix the path, flatten the chain, add validation |

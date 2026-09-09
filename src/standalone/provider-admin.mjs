@@ -42,6 +42,12 @@ import {
   loginOAuth as loginAntigravityOAuth,
 } from '../runtime/agent/orchestrator/providers/antigravity-oauth.mjs';
 import { localProviderStatus } from '../runtime/local-provider/managed-runtime.mjs';
+import { isOAuthProviderAvailable } from '../runtime/agent/orchestrator/providers/oauth-credential-probes.mjs';
+import {
+  readProviderAccountPool, registerProviderAccount, newProviderAccountId,
+  changeProviderAccounts, removeProviderAccount,
+} from '../runtime/shared/provider-accounts.mjs';
+import { currentProviderAccountId, withProviderAccount } from '../runtime/shared/provider-auth-binding.mjs';
 
 const API_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'opencode-go', name: 'OpenCode Go API', env: 'OPENCODE_API_KEY', url: 'https://opencode.ai' }),
@@ -59,7 +65,9 @@ const OAUTH_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'grok-oauth', name: 'Grok OAuth', desc: 'Mixdog OAuth credentials (Grok Build)', has: hasGrokOAuthCredentials, describe: describeGrokOAuthCredentials, forget: forgetGrokOAuthCredentials, begin: beginGrokOAuthLogin, login: loginGrokOAuth }),
   Object.freeze({ id: 'cursor-oauth', name: 'Cursor OAuth', desc: 'Sign in with your Cursor account', has: hasCursorOAuthCredentials, describe: describeCursorOAuthCredentials, forget: forgetCursorOAuthCredentials, begin: beginCursorOAuthLogin, login: loginCursorOAuth }),
   Object.freeze({ id: 'antigravity-oauth', name: 'Antigravity OAuth', desc: 'Sign in with Google (Gemini + Claude)', has: hasAntigravityOAuthCredentials, describe: describeAntigravityOAuthCredentials, forget: forgetAntigravityOAuthCredentials, begin: beginAntigravityOAuthLogin, login: loginAntigravityOAuth }),
-]);
+// Dev-only entries (cursor-oauth, antigravity-oauth) are dropped unless
+// MIXDOG_DEV_PROVIDERS is set, so they are unknown to settings/login by default.
+].filter((p) => isOAuthProviderAvailable(p.id)));
 
 export const LOCAL_PROVIDERS = Object.freeze([]);
 const BUILTIN_PROVIDER_IDS = new Set(['mixdog-local']);
@@ -284,17 +292,36 @@ export async function loginOAuthProvider(cfgMod, provider) {
   return { provider: id, type: 'oauth', authenticated: Boolean(auth.authenticated), status: auth.status || null };
 }
 
-export async function beginOAuthProviderLogin(cfgMod, provider) {
+export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
   const id = String(provider || '').trim();
   const oauth = OAUTH_BY_ID.get(id);
   if (!oauth) throw new Error(`unknown OAuth provider "${id}"`);
   if (typeof oauth.begin !== 'function') throw new Error(`${id} does not support interactive code login`);
-  const started = await oauth.begin();
+  if (!options || typeof options !== 'object' || Array.isArray(options)
+    || Object.keys(options).some((key) => !['addAccount', 'label', 'accountId'].includes(key))
+    || (options.addAccount !== undefined && typeof options.addAccount !== 'boolean')
+    || (options.label !== undefined && (typeof options.label !== 'string' || options.label.length > 80))) {
+    throw new TypeError('Invalid OAuth account login options.');
+  }
+  const idBefore = currentProviderAccountId(id);
+  if (options.accountId !== undefined && (options.addAccount
+    || !listProviderAccounts(id).accounts.some((account) => account.id === options.accountId))) {
+    throw new TypeError('Account is no longer connected.');
+  }
+  const accountId = options.addAccount === true ? newProviderAccountId() : options.accountId || idBefore;
+  const includeDefault = withProviderAccount(id, 'default', () => Boolean(oauth.describe?.().authenticated));
+  const inAccount = (run) => withProviderAccount(id, accountId, run);
+  if (options.addAccount && readProviderAccountPool(id).accounts.length >= 20) {
+    throw new Error('At most 20 accounts can be connected.');
+  }
+  const started = await inAccount(() => oauth.begin());
+  let cancelled = false;
   const finish = async (result) => {
-    if (!result) return result;
-    const auth = typeof oauth.describe === 'function'
+    if (!result || cancelled) return null;
+    const auth = inAccount(() => typeof oauth.describe === 'function'
       ? oauth.describe()
-      : { authenticated: Boolean(oauth.has()), status: Boolean(oauth.has()) ? 'Set' : 'Not Set' };
+      : { authenticated: Boolean(oauth.has()), status: Boolean(oauth.has()) ? 'Set' : 'Not Set' });
+    if (auth.authenticated) registerProviderAccount(id, accountId, { includeDefault, label: options.label });
     updateConfigProvider(cfgMod, id, { enabled: Boolean(auth.authenticated) });
     return { provider: id, type: 'oauth', authenticated: Boolean(auth.authenticated), status: auth.status || null, result };
   };
@@ -304,13 +331,50 @@ export async function beginOAuthProviderLogin(cfgMod, provider) {
     url: started.url,
     manualUrl: started.manualUrl || null,
     waitForCallback: started.waitForCallback?.then(finish),
-    cancel: started.cancel,
+    cancel: () => { cancelled = true; return inAccount(() => started.cancel?.()); },
     ...(typeof started.completeCode === 'function' ? {
       completeCode: async (code) => {
-        return await finish(await started.completeCode(code));
+        return await finish(await inAccount(() => started.completeCode(code)));
       },
     } : {}),
   };
+}
+
+export function listProviderAccounts(provider) {
+  const oauth = OAUTH_BY_ID.get(provider);
+  if (!oauth) throw new TypeError('Unknown OAuth provider.');
+  const pool = readProviderAccountPool(provider);
+  const accounts = pool.accounts.length ? pool.accounts
+    : withProviderAccount(provider, 'default', () => oauth.describe?.().authenticated)
+      ? [{ id: 'default', label: 'Account 1' }] : [];
+  return {
+    provider, auto: pool.auto !== false, selectedId: pool.selectedId || accounts[0]?.id || null,
+    accounts: accounts.map((row) => {
+      const auth = withProviderAccount(provider, row.id, () => oauth.describe?.() || {});
+      // A provider-side identity (email, account id) helps tell two accounts
+      // apart when the user has not named them; shown as a secondary line.
+      const identity = typeof auth.email === 'string' && auth.email.trim()
+        ? auth.email.trim()
+        : typeof auth.accountId === 'string' && auth.accountId.trim()
+          ? auth.accountId.trim()
+          : null;
+      return {
+        id: row.id, label: row.label, authenticated: auth.authenticated === true,
+        reauthRequired: auth.reauthRequired === true, usage: row.usage || null,
+        blockedUntil: row.blockedUntil || null,
+        ...(identity ? { identity } : {}),
+      };
+    }),
+  };
+}
+
+export function updateProviderAccounts(provider, change) {
+  const current = listProviderAccounts(provider);
+  if (!readProviderAccountPool(provider).accounts.length && current.accounts.length) {
+    registerProviderAccount(provider, 'default', { label: 'Account 1' });
+  }
+  changeProviderAccounts(provider, change);
+  return listProviderAccounts(provider);
 }
 
 export function saveProviderApiKey(cfgMod, provider, secret) {
@@ -355,14 +419,19 @@ export async function loginOpenCodeGoUsage(cfgMod) {
   return saveOpenCodeGoUsageAuth(cfgMod, { workspaceId, authCookie });
 }
 
-export function forgetProviderAuth(cfgModOrProvider, maybeProvider) {
+export function forgetProviderAuth(cfgModOrProvider, maybeProvider, requestedAccountId) {
   const cfgMod = maybeProvider === undefined ? null : cfgModOrProvider;
   const id = String(maybeProvider === undefined ? cfgModOrProvider : maybeProvider || '').trim();
   const oauth = OAUTH_BY_ID.get(id);
   if (oauth) {
     if (typeof oauth.forget !== 'function') throw new Error(`forget is not supported for OAuth provider ${id}`);
-    const result = oauth.forget();
-    if (cfgMod) updateConfigProvider(cfgMod, id, { enabled: false });
+    const accountId = requestedAccountId ?? currentProviderAccountId(id);
+    if (requestedAccountId !== undefined && !listProviderAccounts(id).accounts.some((account) => account.id === accountId)) {
+      throw new TypeError('Account is no longer connected.');
+    }
+    const result = withProviderAccount(id, accountId, () => oauth.forget());
+    const pool = removeProviderAccount(id, accountId);
+    if (cfgMod) updateConfigProvider(cfgMod, id, { enabled: pool.accounts.length > 0 });
     return { provider: id, type: 'oauth', forgotten: true, removed: Boolean(result?.removed) };
   }
   if (!API_PROVIDER_IDS.has(id)) {

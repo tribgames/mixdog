@@ -11,6 +11,8 @@ export type RecordValue = Record<string, unknown>;
 export interface MediaModel {
   id: string;
   label: string;
+  description?: string;
+  requestModel?: string;
   /** Effective controls for this model (lane defaults + model overrides). */
   controls?: MediaControls;
 }
@@ -38,6 +40,9 @@ export interface MediaLane {
   authType: string;
   authProvider: string;
   authenticated: boolean;
+  catalogError?: string;
+  catalogErrorCode?: string;
+  catalogWarning?: string;
   kinds: MediaKind[];
   image: MediaKindSpec | null;
   video: MediaKindSpec | null;

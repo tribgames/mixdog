@@ -27,7 +27,7 @@ import {
 } from "./browser-foreground-lifecycle";
 import {
   BROWSER_VIEWPORT_PRESETS,
-  browserAutoFitZoom,
+  browserViewportZoom,
   browserViewportEmulation,
   readBrowserViewportPreset,
   resolveBrowserViewportPreset,
@@ -37,17 +37,17 @@ import {
 } from "./browser-viewport-mode";
 import { readBrowserZoom, writeBrowserZoom } from "./browser-zoom-level";
 import { BrowserZoomPill } from "./BrowserZoomPill";
+import { BrowserTabStrip } from "./BrowserTabStrip";
 import { OpenSelect } from "./OpenSelect";
 import RemoteBrowserPane from "./RemoteBrowserPane";
+import { IsolatedBrowserView } from "./IsolatedBrowserView";
+import type { BrowserPageElement } from "./browser-page-client";
 import type {
   DesktopBrowserCredentialSuggestion,
   DesktopBrowserHistoryEntry,
+  DesktopBrowserTab,
 } from "../shared/contract";
 import "./desktop/32-browser-pane.css";
-
-/** Shared persistent guest partition; main/browser/host.ts matches guests by
- *  this exact string, so the two literals must stay in sync. */
-const BROWSER_PARTITION = "persist:mixdog-browser";
 
 type WebviewNavigationEvent = Event & { url?: string; isMainFrame?: boolean };
 type WebviewLoadFailureEvent = Event & {
@@ -64,20 +64,6 @@ type BrowserPageFailure = {
   detail: string;
 };
 
-interface WebviewElement extends HTMLElement {
-  src: string;
-  getWebContentsId(): number;
-  loadURL(url: string): Promise<void>;
-  getURL(): string;
-  canGoBack(): boolean;
-  canGoForward(): boolean;
-  goBack(): void;
-  goForward(): void;
-  reload(): void;
-  stop(): void;
-  setZoomFactor(factor: number): void;
-}
-
 export { normalizeAddressInput } from "./browser-address";
 
 export interface BrowserPaneProps {
@@ -86,6 +72,8 @@ export interface BrowserPaneProps {
   foreground: boolean;
   parked?: boolean;
   focusAddressOnActivate?: boolean;
+  expanded?: boolean;
+  onToggleExpanded?(): void;
 }
 
 function DesktopBrowserPane({
@@ -93,15 +81,18 @@ function DesktopBrowserPane({
   active,
   parked = false,
   focusAddressOnActivate = true,
+  expanded = false,
+  onToggleExpanded,
 }: BrowserPaneProps) {
-  const webviewRef = useRef<WebviewElement | null>(null);
-  const appliedViewportPreset = useRef<string | null>(null);
+  const webviewRef = useRef<BrowserPageElement | null>(null);
+  const appliedViewportPreset = useRef(new Map<number, string>());
   const viewportConfigurationRequest = useRef(0);
   const addressRef = useRef<HTMLInputElement | null>(null);
   const addressFocused = useRef(false);
   const [address, setAddress] = useState("");
   const [currentUrl, setCurrentUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [tabs, setTabs] = useState<DesktopBrowserTab[]>([]);
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
   const [addressHasFocus, setAddressHasFocus] = useState(false);
@@ -117,6 +108,16 @@ function DesktopBrowserPane({
   const desktopApi = window.mixdogDesktop;
   const ownerSessionId = sessionId;
   const viewportPreset = resolveBrowserViewportPreset(viewportPresetId);
+  useEffect(() => {
+    if (!active || !expanded || !onToggleExpanded || importOpen) return undefined;
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) return;
+      event.preventDefault();
+      onToggleExpanded();
+    };
+    window.addEventListener("keydown", onEscape);
+    return () => window.removeEventListener("keydown", onEscape);
+  }, [active, expanded, onToggleExpanded, importOpen]);
   // Device metrics the agent's `emulate` command put on this session's guest.
   // The pane frames the page at that size, centered, exactly like a picker
   // preset — otherwise the emulated page lays out top-left inside the full
@@ -124,15 +125,21 @@ function DesktopBrowserPane({
   // echoes back through the same event and reads as "no override".
   const [agentViewport, setAgentViewport] =
     useState<{ width: number; height: number } | null>(null);
+  const agentViewports = useRef(new Map<number, { width: number; height: number } | null>());
   useEffect(() => window.mixdogDesktop?.onBrowserGuestViewportChanged?.((change) => {
     if (change.sessionId !== ownerSessionId) return;
+    let currentId: number;
+    try { currentId = webviewRef.current!.getWebContentsId(); } catch { return; }
+    const pageId = change.webContentsId ?? currentId;
     const preset = resolveBrowserViewportPreset(
       readBrowserViewportPreset(window.localStorage, ownerSessionId).id,
     );
     const ownPreset = change.viewport !== null
       && change.viewport.width === preset.width
       && change.viewport.height === preset.height;
-    setAgentViewport(ownPreset ? null : change.viewport);
+    const viewport = ownPreset ? null : change.viewport;
+    agentViewports.current.set(pageId, viewport);
+    if (pageId === currentId) setAgentViewport(viewport);
   }), [ownerSessionId]);
   const frameWidth = agentViewport?.width ?? viewportPreset.width;
   const frameHeight = agentViewport?.height ?? viewportPreset.height;
@@ -144,6 +151,22 @@ function DesktopBrowserPane({
     readBrowserZoom(window.localStorage, sessionId));
   const changeZoomLevel = useCallback((level: number) => {
     setZoomLevel(writeBrowserZoom(window.localStorage, ownerSessionId, level));
+  }, [ownerSessionId]);
+  useEffect(() => {
+    const view = webviewRef.current;
+    if (!view) return;
+    const shortcut = (event: Event) => {
+      const action = (event as Event & { shortcut: string }).shortcut;
+      if (action === 'address') {
+        addressRef.current?.focus();
+        addressRef.current?.select();
+      } else if (['zoom-in', 'zoom-out', 'zoom-reset'].includes(action)) {
+        setZoomLevel(previous => writeBrowserZoom(window.localStorage, ownerSessionId,
+          action === 'zoom-reset' ? 1 : previous * (action === 'zoom-in' ? 1.1 : 1 / 1.1)));
+      }
+    };
+    view.addEventListener('browser-shortcut', shortcut);
+    return () => view.removeEventListener('browser-shortcut', shortcut);
   }, [ownerSessionId]);
   // A device frame taller or wider than the pane scales down to fit, staying
   // centered on both axes (user: 상하좌우 가운데 정렬 — PC·모바일 공통). The
@@ -233,15 +256,16 @@ function DesktopBrowserPane({
       const url = (event as WebviewNavigationEvent).url || "";
       const inPage = event.type === "did-navigate-in-page"
         && (event as WebviewNavigationEvent).isMainFrame === false;
-      if (!url || url === "about:blank" || inPage) {
+      if (inPage) {
         syncNavigationState();
         return;
       }
-      setCurrentUrl(url);
+      const displayed = url === "about:blank" ? "" : url;
+      setCurrentUrl(displayed);
       setPageFailure(null);
       setCredentialMenuOpen(false);
       setCredentialStatus("idle");
-      if (!addressFocused.current) setAddress(url);
+      if (!addressFocused.current) setAddress(displayed);
       syncNavigationState();
       refreshCredentialSuggestions();
     };
@@ -285,6 +309,17 @@ function DesktopBrowserPane({
     });
     const onResponsive = () => setPageFailure((failure) =>
       failure?.kind === "unresponsive" ? null : failure);
+    const syncTabs = () => setTabs(view.getTabs());
+    const onAttach = () => {
+      addressFocused.current = false;
+      setAddressHasFocus(false);
+      setAgentViewport(agentViewports.current.get(view.getWebContentsId()) ?? null);
+      setPageFailure(null);
+      setHistorySuggestions([]);
+    };
+    view.addEventListener("tabs-changed", syncTabs);
+    view.addEventListener("did-attach", onAttach);
+    syncTabs();
     view.addEventListener("did-navigate", onNavigate);
     view.addEventListener("did-navigate-in-page", onNavigate);
     view.addEventListener("did-start-loading", onStartLoading);
@@ -295,6 +330,8 @@ function DesktopBrowserPane({
     view.addEventListener("unresponsive", onUnresponsive);
     view.addEventListener("responsive", onResponsive);
     return () => {
+      view.removeEventListener("tabs-changed", syncTabs);
+      view.removeEventListener("did-attach", onAttach);
       view.removeEventListener("did-navigate", onNavigate);
       view.removeEventListener("did-navigate-in-page", onNavigate);
       view.removeEventListener("did-start-loading", onStartLoading);
@@ -320,19 +357,6 @@ function DesktopBrowserPane({
     const view = webviewRef.current;
     if (!view) return false;
     const configKey = `${ownerSessionId}\u0000${preset.id}`;
-    if (appliedViewportPreset.current === configKey) return true;
-    // Metrics and touch apply live; only a user-agent change needs the page
-    // to load again. Reloading on every size step blanked the page for a
-    // beat (user: 폰 해상도 바꿀 때 튄다, 배경이 잠깐 보인다).
-    const previousUserAgent = appliedViewportPreset.current
-      ? resolveBrowserViewportPreset(appliedViewportPreset.current.split("\u0000")[1]).userAgent
-      : null;
-    const userAgentChanged = previousUserAgent !== (preset.userAgent ?? null);
-    const configure = desktopApi?.browserConfigureGuestViewport;
-    if (!configure) {
-      appliedViewportPreset.current = configKey;
-      return true;
-    }
     let webContentsId = 0;
     try {
       webContentsId = view.getWebContentsId();
@@ -340,6 +364,20 @@ function DesktopBrowserPane({
       return false;
     }
     if (!Number.isSafeInteger(webContentsId) || webContentsId <= 0) return false;
+    const previousPreset = appliedViewportPreset.current.get(webContentsId);
+    if (previousPreset === configKey) return true;
+    // Metrics and touch apply live; only a user-agent change needs the page
+    // to load again. Reloading on every size step blanked the page for a
+    // beat (user: 폰 해상도 바꿀 때 튄다, 배경이 잠깐 보인다).
+    const previousUserAgent = previousPreset
+      ? resolveBrowserViewportPreset(previousPreset.split("\u0000")[1]).userAgent
+      : null;
+    const userAgentChanged = previousUserAgent !== (preset.userAgent ?? null);
+    const configure = desktopApi?.browserConfigureGuestViewport;
+    if (!configure) {
+      appliedViewportPreset.current.set(webContentsId, configKey);
+      return true;
+    }
     const request = ++viewportConfigurationRequest.current;
     try {
       await configure(
@@ -352,7 +390,7 @@ function DesktopBrowserPane({
       return false;
     }
     if (request !== viewportConfigurationRequest.current) return false;
-    appliedViewportPreset.current = configKey;
+    appliedViewportPreset.current.set(webContentsId, configKey);
     if (reload && userAgentChanged) {
       try {
         if (view.getURL() && view.getURL() !== "about:blank") view.reload();
@@ -361,8 +399,8 @@ function DesktopBrowserPane({
     return true;
   }, [desktopApi, ownerSessionId]);
 
-  // Auto fits desktop-width sites to the pane. Device presets keep zoom at one
-  // and apply actual UA/touch/device metrics through the Browser CDP host.
+  // Normal browsing preserves the user's zoom as the pane resizes. Fit is an
+  // explicit mode; device presets retain their actual UA/touch/device metrics.
   const desiredZoom = useRef(1);
   useEffect(() => {
     if (!active) return undefined;
@@ -376,7 +414,7 @@ function DesktopBrowserPane({
       } catch { /* guest not attached yet; dom-ready reapplies */ }
     };
     const syncZoom = (force = false) => {
-      const zoom = (fixedViewport ? 1 : browserAutoFitZoom(view.clientWidth)) * zoomLevel;
+      const zoom = fixedViewport ? zoomLevel : browserViewportZoom(viewportPreset, view.clientWidth, zoomLevel);
       const changed = Math.abs(zoom - desiredZoom.current) >= 0.01;
       if (changed) desiredZoom.current = zoom;
       if (changed || force) applyZoom();
@@ -475,6 +513,13 @@ function DesktopBrowserPane({
 
   return <div className="browser-pane" data-pane-instance={sessionId}
     data-surface-active={active || parked ? "true" : "false"}>
+    <BrowserTabStrip tabs={tabs} expanded={expanded} onToggleExpanded={onToggleExpanded}
+      onSelect={async id => { await webviewRef.current?.selectTab(id); }}
+      onClose={async id => { await webviewRef.current?.closeTab(id); }}
+      onCreate={async () => {
+        await webviewRef.current?.createTab();
+        addressRef.current?.focus();
+      }} />
     <div className="browser-pane-toolbar">
       <button type="button" className="browser-pane-nav-button"
         disabled={!canGoBack}
@@ -619,12 +664,12 @@ function DesktopBrowserPane({
           height: `${frameHeight}px`,
           transform: frameScale < 1 ? `scale(${frameScale})` : undefined,
         } : undefined}>
-        <webview ref={(element) => {
-          webviewRef.current = element as unknown as WebviewElement | null;
+        <IsolatedBrowserView ref={(element) => {
+          webviewRef.current = element;
         }}
           className={`browser-pane-webview${importOpen ? " is-import-open" : ""}${historySuggestions.length ? " is-history-open" : ""}${credentialMenuOpen ? " is-credential-open" : ""}${pageFailure ? " is-failed" : ""}`}
-          src="about:blank"
-          partition={BROWSER_PARTITION} />
+          sessionId={ownerSessionId}
+          active={active && !importOpen && !pageFailure} />
         {/* about:blank paints Chromium's default white; until a real page is
             committed the pane stays in the app theme instead. */}
         {!currentUrl && <div className="browser-pane-empty" aria-hidden="true">

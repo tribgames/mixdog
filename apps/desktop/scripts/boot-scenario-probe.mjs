@@ -517,7 +517,7 @@ async function seedScenario(profilePath, scenario, port) {
       const persistSeed = () => {
         const focusedLeafId = scenario.focusedLeafId || "boot-pane";
         const defaultLeftViews = [
-          "agents", "sessions", "schedules", "studio", "workflows",
+          "agents", "sessions", "schedules",
           "search", "extensions", "projects", "webhooks",
         ];
         const preferredLeftView = scenario.sideView || "";
@@ -1332,9 +1332,8 @@ async function measureScenario(profilePath, scenario, port, temperature) {
         const rail = [...document.querySelectorAll(".workbench-side-icon-bar.is-vertical > button")];
         for (const button of rail) {
           const label = button.getAttribute("aria-label") || "";
-          // Studio is a launcher: it opens a workspace tab, not a panel; the
-          // view already showing would FOLD on a re-click.
-          if (/studio|스튜디오/i.test(label) || button.getAttribute("aria-current") === "page") continue;
+          // The view already showing would FOLD on a re-click.
+          if (button.getAttribute("aria-current") === "page") continue;
           // Every left destination — Sessions included — renders inside the
           // left WorkbenchSidePanel; the section for the clicked view is
           // the body that must paint.

@@ -62,6 +62,7 @@ const CAPABILITY_ARITY = {
   setRecapEnabled: [1, 1], getToolModuleSettings: [0, 0], setWebSearchEnabled: [1, 1], setMemoryToolsEnabled: [1, 1],
   setBuiltinToolEnabled: [2, 2], installBuiltinFeature: [1, 1], installLocalProviderModel: [1, 1],
   startLocalProviderInstallation: [1, 2], cancelLocalProviderInstallation: [1, 1], setLocalProviderIdleTtl: [1, 1],
+  setLocalProviderContext: [2, 2],
   getLocalProviderModelDetails: [1, 1], startLocalProviderModelMaintenance: [2, 2], deleteLocalProviderModel: [1, 1],
   getVoiceStatus: [0, 0], toggleVoice: [1, 1],
   agentControl: [0, 2], taskControl: [0, 1], goalControl: [0, 1], toolsStatus: [0, 1], selectTools: [1, 1], getSystemShell: [0, 0],
@@ -81,14 +82,15 @@ const CAPABILITY_ARITY = {
   getAgentDefinition: [1, 1], saveAgentDefinition: [1, 1], deleteAgentDefinition: [1, 1],
   listThemes: [0, 0], getTheme: [0, 0], setTheme: [1, 2], setAgentRoute: [2, 2],
   listProviders: [0, 0], listProviderModels: [0, 1], getProviderSetup: [0, 1],
+  getProviderAccounts: [1, 1], updateProviderAccounts: [2, 2],
   getUsageDashboard: [0, 1], consumeCodexRateLimitResetCredit: [1, 1],
   getSessionReviewDiff: [0, 0], getTurnReviewDiff: [0, 0], revertTurnReview: [0, 1], revertTurnReviewFile: [1, 2],
   getOnboardingStatus: [0, 0], skipOnboarding: [0, 0],
-  completeOnboarding: [0, 1], loginOAuthProvider: [1, 1], beginOAuthProviderLogin: [1, 1],
+  completeOnboarding: [0, 1], loginOAuthProvider: [1, 1], beginOAuthProviderLogin: [1, 2],
   getOAuthProviderLoginStatus: [1, 1], completeOAuthProviderLogin: [2, 2], cancelOAuthProviderLogin: [1, 1],
   saveProviderApiKey: [2, 2], saveOpenCodeGoUsageAuth: [1, 1], loginOpenCodeGoUsage: [0, 0],
   saveOpenAIUsageSessionKey: [1, 1], authenticateProvider: [2, 2],
-  forgetProviderAuth: [1, 1], getChannelSetup: [0, 0],
+  forgetProviderAuth: [1, 2], getChannelSetup: [0, 0],
   setWebhookConfig: [1, 1],
   saveSchedule: [1, 1], deleteSchedule: [1, 1], setScheduleEnabled: [2, 2], runScheduleNow: [1, 1], saveWebhook: [1, 1],
   deleteWebhook: [1, 1], setWebhookEnabled: [2, 2], clear: [0, 0], transcribeAudio: [1, 1],
@@ -96,7 +98,7 @@ const CAPABILITY_ARITY = {
   listMediaLanes: [0, 0], listMediaAssets: [0, 1], readMediaAsset: [1, 2],
   cacheMediaThumbnail: [2, 2],
   resolveMediaFile: [1, 2],
-  getMediaJob: [1, 1], startMediaJob: [1, 1],
+  getMediaJob: [1, 1], getMediaDefault: [1, 1], setMediaDefault: [1, 1], startMediaJob: [1, 1],
   cancelMediaJob: [1, 1], deleteMediaAsset: [1, 1], openMediaAsset: [1, 1],
   openMediaFolder: [0, 1],
 } as const satisfies Record<DesktopCapability, readonly [number, number]>;
@@ -386,6 +388,12 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
     else if (args[1] !== undefined) throw new TypeError('runtime installation does not accept modelId.');
   }
   if (capability === 'cancelLocalProviderInstallation') requiredString(args[0], 'jobId', 128);
+  if (capability === 'setLocalProviderContext') {
+    requiredString(args[0], 'modelId', 512);
+    if (args[1] !== null && (!Number.isSafeInteger(args[1]) || Number(args[1]) < 512)) {
+      throw new TypeError('Context size must be null (automatic) or an integer of at least 512 tokens.');
+    }
+  }
   if (capability === 'getLocalProviderModelDetails' || capability === 'startLocalProviderModelMaintenance') requiredString(args[0], 'modelId', 512);
   if (capability === 'deleteLocalProviderModel') requiredString(args[0], 'confirmationToken', 128);
   if (capability === 'startLocalProviderModelMaintenance' && args[1] !== 'verify' && args[1] !== 'repair') {

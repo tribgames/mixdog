@@ -5,6 +5,7 @@ import {
 } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
 import type { BrowserHost } from './browser/host';
+import { normalizeBrowserPageControl } from '../shared/browser-page-control';
 
 type Handle = (
   channel: string,
@@ -20,10 +21,23 @@ interface BrowserIpcOptions {
     | 'setGuestActive'
     | 'configureGuestViewport'
     | 'browserCredentialSuggestions'
-    | 'browserCredentialFill'>;
+    | 'browserCredentialFill'
+    | 'browserPageFrame'
+    | 'browserPageControl'>;
 }
 
 export function registerBrowserIpc({ handle, browserHost }: BrowserIpcOptions): void {
+  handle(DESKTOP_IPC.browserPageFrame, (_event, sessionId, previousId) => {
+    if (!browserHost) throw new Error('Browser Use is unavailable.');
+    if (previousId !== undefined && (typeof previousId !== 'string' || previousId.length > 160)) {
+      throw new TypeError('Browser frame id is invalid.');
+    }
+    return browserHost.browserPageFrame(requiredSessionId(sessionId), previousId as string | undefined);
+  });
+  handle(DESKTOP_IPC.browserPageControl, (_event, sessionId, input) => {
+    if (!browserHost) throw new Error('Browser Use is unavailable.');
+    return browserHost.browserPageControl(requiredSessionId(sessionId), normalizeBrowserPageControl(input));
+  });
   handle(DESKTOP_IPC.browserSetActiveGuest, (_event, sessionId, webContentsId, active) => {
     if (!browserHost) throw new Error('Browser Use is unavailable in this app surface.');
     const ownerSessionId = requiredSessionId(sessionId);

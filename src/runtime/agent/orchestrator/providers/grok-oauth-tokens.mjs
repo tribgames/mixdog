@@ -316,9 +316,14 @@ export function forgetGrokOAuthCredentials() {
     return { removed };
 }
 
-export let _refreshInFlight = null;
-export function _getRefreshInFlight() { return _refreshInFlight; }
-export function _setRefreshInFlight(promise) { _refreshInFlight = promise; return promise; }
+const _refreshesInFlight = new Map();
+export function _getRefreshInFlight() { return _refreshesInFlight.get(getOwnTokenPath()) || null; }
+export function _setRefreshInFlight(promise) {
+    const path = getOwnTokenPath();
+    if (promise) _refreshesInFlight.set(path, promise);
+    else _refreshesInFlight.delete(path);
+    return promise;
+}
 async function _postRefresh(tokens) {
     const tokenEndpoint = tokens.token_endpoint
         ? assertTrustedXaiEndpoint(tokens.token_endpoint, 'token endpoint')

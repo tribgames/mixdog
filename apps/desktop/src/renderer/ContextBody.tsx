@@ -1,6 +1,8 @@
 import { nonNegativeNumber, resolveContextDisplayUsage } from './context-usage';
 import { t } from './i18n';
 import { record } from './record-utils';
+// @ts-expect-error Shared presentation contract has no separate declaration file.
+import { contextMeasurementStats, contextMeasurementLabel } from '../../../../src/ui/context-measurement.mjs';
 
 type Row = Record<string, unknown>;
 
@@ -31,22 +33,20 @@ export function ContextBody({ status, snapshot }: { status: unknown; snapshot: u
   const request = record(context.request);
   const schema = record(request.toolSchemaBreakdown);
   const compaction = record(context.compaction);
-  // Keep the expanded surface byte-for-byte aligned with the header hover: the
-  // same published gauge number (provider baseline + calibrated growth) wins,
-  // and the resolved auto-compact trigger is the denominator before the full
-  // context window.
+  // The headline is measured input. Category estimates stay separate and are
+  // never rescaled to look like provider-measured per-category token counts.
   const usage = resolveContextDisplayUsage({
     sessionId: state.sessionId || context.sessionId || (context.contextWindow ? 'context' : ''),
-    stats: state.stats,
-    fallbackUsedTokens: context.usedTokens ?? context.currentEstimatedTokens,
+    stats: Object.hasOwn(record(state.stats), 'currentContextSource')
+      || Object.hasOwn(record(state.stats), 'currentContextTokens')
+      ? state.stats : contextMeasurementStats(context),
     autoCompactTokenLimit: state.autoCompactTokenLimit || compaction.triggerTokens,
     displayContextWindow: state.displayContextWindow || context.contextWindow,
-    contextWindow: state.contextWindow || context.rawContextWindow,
+    contextWindow: state.contextWindow || context.effectiveContextWindow || context.contextWindow,
   });
   const used = usage.used;
   const windowTokens = usage.limit;
   const rawWindowTokens = nonNegativeNumber(context.rawContextWindow || state.contextWindow || context.contextWindow || windowTokens);
-  const freeTokens = windowTokens ? Math.max(0, windowTokens - used) : 0;
   const usedPercent = contextPercent(used, windowTokens) || 0;
   const rawCategories = [
     { key: 'system', label: t('System prompt'), tokens: tokenBuckets(semantic, ['system', 'workflow', 'workspace', 'environment', 'other']) },
@@ -57,17 +57,7 @@ export function ContextBody({ status, snapshot }: { status: unknown; snapshot: u
     { key: 'skills', label: t('Skills'), tokens: tokenBuckets(schema, ['skills']) },
     { key: 'messages', label: t('Messages'), tokens: tokenBuckets(semantic, ['chat', 'assistant', 'toolResults']) },
   ];
-  // ONE scale for the whole panel. The header meters provider-reported usage
-  // (baseline-backed, provider-calibrated) while the buckets are raw o200k
-  // estimates of the same projection, so the two disagree by the calibration
-  // factor. Project the buckets onto the header total: rows + free space then
-  // always add up to the window instead of leaving a phantom gap.
-  const rawCategorizedTokens = rawCategories.reduce((sum, category) => sum + category.tokens, 0);
-  const categoryScale = rawCategorizedTokens > 0 && used > 0 ? used / rawCategorizedTokens : 1;
-  const categories = rawCategories.map((category) => ({
-    ...category,
-    tokens: Math.round(category.tokens * categoryScale),
-  }));
+  const categories = rawCategories;
   const categorizedTokens = categories.reduce((sum, category) => sum + category.tokens, 0);
   const autoCompactBufferTokens = Math.max(0, rawWindowTokens - windowTokens);
   const estimatedFreeTokens = Math.max(0, windowTokens - categorizedTokens);
@@ -81,14 +71,16 @@ export function ContextBody({ status, snapshot }: { status: unknown; snapshot: u
     <div className="context-card">
       <section className="context-usage-overview" aria-label={t('Context usage')}>
         <div className="context-usage-heading">
-          <strong>{usage.percent}% used</strong>
-          <span>{compactTokens(used)} / {compactTokens(windowTokens)} · {compactTokens(freeTokens)} free</span>
+          <strong>{t(contextMeasurementLabel(usage.source))}</strong>
+          <span>{used == null ? '—' : compactTokens(used)} / {compactTokens(windowTokens)}
+            {usage.percent != null ? ` · ${usage.percent}%` : ''}</span>
         </div>
         <div className="context-main-bar" role="img"
           aria-label={t('{{percent}}% context used', { percent: usage.percent })}>
           <span style={{ width: `${usedPercent}%` }} />
         </div>
       </section>
+      <p>{t('Input includes cached tokens. Output appears in the next measured request.')}</p>
       <section className="context-mix" aria-labelledby="context-mix-title">
         <h3 id="context-mix-title">{t('Estimated usage by category')}</h3>
         <div className="context-stack-bar" role="img" aria-label={t('Context composition')}>

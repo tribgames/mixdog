@@ -281,6 +281,15 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   }
   const catalog = sortedCatalogByMeasuredUsage([...byName.values()]);
   const defaultNames = defaultDeferredToolNames(catalog, mode);
+  // Explicit dependencies of loaded skills stay eager across provider/policy
+  // rebuilds, but only while the current filtered catalog and mode admit them.
+  for (const tool of catalog) {
+    if (session.skillLoadedTools?.includes(tool.name)
+      && (mode !== 'readonly' || isReadonlySelectable(tool))
+      && (!Array.isArray(session.schemaAllowedTools) || session.schemaAllowedTools.includes(tool.name))) {
+      defaultNames.add(tool.name);
+    }
+  }
   const storedNames = providerMode === 'native' ? [] : storedDeferredToolNames(session);
   let selectedNames = providerMode === 'full' || providerMode === 'manifest' || providerMode === 'canonical'
     ? sortedNamesByMeasuredUsage(catalog.map((tool) => clean(tool?.name)).filter(Boolean))
@@ -557,7 +566,7 @@ export function reconcileDeferredMcpToolCatalog(session, liveMcpTools, options =
   return [...added.map((entry) => entry.name), ...removed];
 }
 
-export function selectDeferredTools(session, names, mode) {
+export function selectDeferredTools(session, names, mode, { exact = false } = {}) {
   // Resolve against the union of the boot-frozen catalog and the late-connected
   // MCP catalog so load_tool can load a late tool. Native providers register it
   // independently; canonical fallback providers already expose the full array.
@@ -581,7 +590,7 @@ export function selectDeferredTools(session, names, mode) {
   const already = [];
   const blocked = [];
   const missing = [];
-  for (const rawName of expandSelectionNames(names)) {
+  for (const rawName of exact ? [...new Set(names)] : expandSelectionNames(names)) {
     const requestedName = clean(rawName);
     const tool = byName.get(requestedName) || byName.get(requestedName.toLowerCase());
     const name = clean(tool?.name);

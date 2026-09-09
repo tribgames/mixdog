@@ -17,6 +17,7 @@ export const DESKTOP_IPC = {
   openMediaAsset: 'mixdog:open-media-asset',
   openMediaFolder: 'mixdog:open-media-folder',
   openExternal: 'mixdog:open-external',
+  openLocalFileLink: 'mixdog:open-local-file-link',
   renameProject: 'mixdog:rename-project',
   removeProject: 'mixdog:remove-project',
   readInstructions: 'mixdog:read-instructions',
@@ -79,6 +80,8 @@ export const DESKTOP_IPC = {
   browserOpenRequested: 'mixdog:browser-open-requested',
   browserSessionReleased: 'mixdog:browser-session-released',
   browserSetActiveGuest: 'mixdog:browser-set-active-guest',
+  browserPageFrame: 'mixdog:browser-page-frame',
+  browserPageControl: 'mixdog:browser-page-control',
   browserConfigureGuestViewport: 'mixdog:browser-configure-guest-viewport',
   browserGuestViewportChanged: 'mixdog:browser-guest-viewport-changed',
   browserRemoteViewerChanged: 'mixdog:browser-remote-viewer-changed',
@@ -205,6 +208,8 @@ export interface DesktopTranscriptItem extends Readonly<Record<string, unknown>>
   detail?: string;
   at?: number;
   model?: string;
+  /** Actual route ID; model remains the human-readable transcript label. */
+  modelId?: string;
   provider?: string;
   agent?: string;
 }
@@ -596,6 +601,7 @@ export const DESKTOP_CAPABILITIES = [
   'startLocalProviderInstallation',
   'cancelLocalProviderInstallation',
   'setLocalProviderIdleTtl',
+  'setLocalProviderContext',
   'getLocalProviderModelDetails',
   'startLocalProviderModelMaintenance',
   'deleteLocalProviderModel',
@@ -666,6 +672,8 @@ export const DESKTOP_CAPABILITIES = [
   'listProviders',
   'listProviderModels',
   'getProviderSetup',
+  'getProviderAccounts',
+  'updateProviderAccounts',
   'getUsageDashboard',
   'consumeCodexRateLimitResetCredit',
   'getOnboardingStatus',
@@ -698,6 +706,8 @@ export const DESKTOP_CAPABILITIES = [
   'cacheMediaThumbnail',
   'resolveMediaFile',
   'getMediaJob',
+  'getMediaDefault',
+  'setMediaDefault',
   'startMediaJob',
   'cancelMediaJob',
   'deleteMediaAsset',
@@ -744,6 +754,7 @@ export const DESKTOP_READ_CAPABILITIES = [
   'listProviderModels',
   'getProviderSetup',
   'getUsageDashboard',
+  'getProviderAccounts',
   'getOnboardingStatus',
   'getOAuthProviderLoginStatus',
   'getChannelSetup',
@@ -752,6 +763,7 @@ export const DESKTOP_READ_CAPABILITIES = [
   'readMediaAsset',
   'resolveMediaFile',
   'getMediaJob',
+  'getMediaDefault',
 ] as const satisfies ReadonlyArray<DesktopCapability>;
 
 export type DesktopReadCapability = typeof DESKTOP_READ_CAPABILITIES[number];
@@ -876,6 +888,7 @@ export interface DesktopBrowserViewportConfig {
 
 export interface DesktopBrowserGuestViewportChange {
   sessionId: string;
+  webContentsId?: number;
   viewport: { width: number; height: number } | null;
 }
 
@@ -889,10 +902,15 @@ export interface DesktopBrowserOpenRequest {
   sessionId: string;
   /** False creates or retains the surface without opening its session dock. */
   reveal?: boolean;
+  /** Hide only: never create or release pages; overrides reveal. */
+  hide?: boolean;
 }
 
 export interface DesktopRemoteBrowserFrame {
   frameId: string;
+  /** Stable across image updates; changes when the page/document is replaced.
+   * Optional for compatibility with remote clients attached to older hosts. */
+  documentId?: string;
   url: string;
   title: string;
   loading: boolean;
@@ -905,6 +923,52 @@ export interface DesktopRemoteBrowserFrame {
     data: string;
   };
 }
+
+/** Local display client. The document token is scoped to the session-owned
+ * page, so queued human input cannot land in a replacement document. */
+export interface DesktopBrowserTab {
+  id: string;
+  title: string;
+  url: string;
+  active: boolean;
+  loading: boolean;
+  kind: 'page' | 'popup' | 'background';
+}
+
+export interface DesktopBrowserPageFrame extends DesktopRemoteBrowserFrame {
+  webContentsId: number;
+  documentId: string;
+  viewportWidth: number;
+  viewportHeight: number;
+  /** Native surface dimensions, separate from encoded HiDPI pixels. Optional
+   * for clients that are still connected to an older desktop host. */
+  surfaceWidth?: number;
+  surfaceHeight?: number;
+  fault?: string;
+  tabs?: DesktopBrowserTab[];
+  dialog?: { id: string; type: string; message: string; defaultPrompt?: string };
+  fileChooser?: { id: string; multiple: boolean };
+}
+
+export type DesktopBrowserPageAction =
+  | { type: 'answer-dialog'; requestId: string; accept: boolean; promptText?: string }
+  | { type: 'choose-files'; requestId: string; cancel?: boolean }
+  | { type: 'new-tab' }
+  | { type: 'select-tab' | 'close-tab'; tabId: string }
+  | { type: 'navigate'; url: string }
+  | { type: 'back' | 'forward' | 'reload' | 'stop' }
+  | { type: 'resize'; width: number; height: number }
+  | { type: 'zoom'; factor: number }
+  | { type: 'text'; text: string }
+  | { type: 'key'; key: string }
+  | {
+      type: 'pointer'; phase: 'mouseMoved' | 'mousePressed' | 'mouseReleased';
+      x: number; y: number; button: 'none' | 'left' | 'middle' | 'right';
+      buttons: number; modifiers: number; clickCount: number;
+    }
+  | { type: 'wheel'; x: number; y: number; deltaX: number; deltaY: number };
+
+export type DesktopBrowserPageControl = DesktopBrowserPageAction & { documentId: string };
 
 export type DesktopRemoteBrowserControl =
   | { type: 'navigate'; url: string }
@@ -924,8 +988,8 @@ export type DesktopRemoteBrowserControl =
       deltaX: number;
       deltaY: number;
     }
-  | { type: 'text'; frameId: string; text: string }
-  | { type: 'key'; frameId: string; key: string };
+  | { type: 'text'; frameId: string; documentId?: string; text: string }
+  | { type: 'key'; frameId: string; documentId?: string; key: string };
 
 /** Extensions → Built-in: system Git dependency used by the first-party tool. */
 export interface DesktopGitCliStatus {
@@ -1589,6 +1653,8 @@ export interface DesktopApi {
   openMediaAsset?(assetId: string): Promise<void>;
   openMediaFolder?(assetId: string): Promise<void>;
   openExternal(url: string): Promise<void>;
+  /** Desktop-only document link opener, confined to the conversation's Project. */
+  openLocalFileLink?(projectPath: string, href: string): Promise<void>;
   /** Settings → About: gh-CLI star state for the mixdog repo. Desktop-only;
    *  the remote shim omits both and the Star button falls back to the repo
    *  link. */
@@ -1923,15 +1989,23 @@ export interface DesktopApi {
   onBrowserOpenRequested?(
     listener: (request: DesktopBrowserOpenRequest) => void,
   ): () => void;
-  /** A deleted conversation releases its parked Browser surface. */
+  /** Runtime unload frees pixels but retains the session's dock selection. */
   onBrowserSessionReleased?(
-    listener: (sessionId: string) => void,
+    listener: (sessionId: string, reason?: 'unloaded' | 'gone') => void,
   ): () => void;
   /** Bind one persistent guest to its owning conversation session. */
   browserSetActiveGuest?(
     sessionId: string,
     webContentsId: number,
     active: boolean,
+  ): Promise<void>;
+  browserPageFrame?(
+    sessionId: string,
+    previousFrameId?: string,
+  ): Promise<DesktopBrowserPageFrame>;
+  browserPageControl?(
+    sessionId: string,
+    input: DesktopBrowserPageControl,
   ): Promise<void>;
   /** Apply pane-owned device emulation to the exact visible Browser guest. */
   browserConfigureGuestViewport?(

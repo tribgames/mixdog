@@ -4,6 +4,8 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import { SessionGoalIsland } from './SessionGoalIsland.tsx';
+import { PaneGoalIsland } from './app-snapshot-views.tsx';
+import { defaultSessionLaneStore } from './session-lane-store.ts';
 import { goalDisplayStatus, goalElapsedLabel } from './session-goal-presentation.ts';
 import { t } from './i18n.ts';
 
@@ -50,6 +52,36 @@ test('a paused Goal shows reply activity without inventing approval or elapsed w
   }
 });
 
+test('background shell execution stays visible without resuming a paused Goal', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const goal = Object.freeze({
+    id: 'shell-goal', status: 'paused', title: 'Background work', timeUsedMs: 12_000,
+  });
+  const render = (shellJobs, toolApproval = null, currentGoal = goal) => act(async () => {
+    root.render(React.createElement(SessionGoalIsland, {
+      snapshot: { sessionId: 'shell-session', busy: false, goal: currentGoal, shellJobs, toolApproval },
+    }));
+  });
+  const activity = () => host.querySelector('[role="img"]').getAttribute('aria-label');
+  try {
+    await render({ count: 1 });
+    assert.equal(activity(), t('Responding'));
+    assert.match(host.textContent, /0:12/);
+    await render({ jobs: [{ taskId: 'running-shell' }] }, { id: 'other-approval' });
+    assert.equal(activity(), t('Responding'));
+    await render({ count: 1 }, { id: 'other-approval' }, { ...goal, status: 'active' });
+    assert.equal(activity(), t('Working'));
+    await render({ count: 0, jobs: [] });
+    assert.equal(activity(), t('Paused'));
+    assert.equal(goal.status, 'paused');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 test('active child work remains visible while a separate approval is waiting', () => {
   assert.equal(goalDisplayStatus({ status: 'paused' }, { busy: false }, true), 'responding');
   assert.equal(goalDisplayStatus({ status: 'active' }, { busy: true, toolApproval: { id: 'approval' } }), 'paused');
@@ -57,8 +89,38 @@ test('active child work remains visible while a separate approval is waiting', (
   assert.equal(goalDisplayStatus({ status: 'paused' }, { busy: true, toolApproval: { id: 'approval' } }, true), 'responding');
 });
 
+test('Goal icon follows approval release and command execution through the live session lane', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const sessionId = 'goal-icon-sync';
+  const goal = Object.freeze({ id: 'sync-goal', status: 'paused', timeUsedMs: 12_000 });
+  const base = { sessionId, goal, busy: true, commandBusy: false };
+  const publish = (execution) => act(async () => {
+    defaultSessionLaneStore.apply({ sessionId, snapshot: { ...base, ...execution } });
+  });
+  const activity = () => host.querySelector('[role="img"]').getAttribute('aria-label');
+  try {
+    await publish({ toolApproval: { id: 'approval', name: 'apply_patch' } });
+    await act(async () => {
+      root.render(React.createElement(PaneGoalIsland, { sessionId, hidden: false }));
+    });
+    assert.equal(activity(), t('Paused'));
+    await publish({ toolApproval: null });
+    assert.equal(activity(), t('Responding'), 'approval release alone refreshes the icon');
+    await publish({ busy: false, commandBusy: true, toolApproval: null });
+    assert.equal(activity(), t('Responding'), 'command execution keeps the icon running');
+    await publish({ busy: false, commandBusy: false, toolApproval: null });
+    assert.equal(activity(), t('Paused'), 'settled execution restores the paused icon');
+  } finally {
+    await act(async () => root.unmount());
+    defaultSessionLaneStore.clear();
+    host.remove();
+  }
+});
+
 test('terminal Goal states do not become reply activity merely because the session is busy', () => {
   for (const status of ['complete', 'blocked', 'usage_limited', 'duration_reached']) {
-    assert.equal(goalDisplayStatus({ status }, { busy: true }, true), status);
+    assert.equal(goalDisplayStatus({ status }, { busy: true, shellJobs: { count: 1 } }, true), status);
   }
 });

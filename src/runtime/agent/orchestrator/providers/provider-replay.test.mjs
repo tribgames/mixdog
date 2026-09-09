@@ -257,7 +257,7 @@ test('provider replay survives disk projection and contributes to context size',
     );
 });
 
-test('fresh-context projection removes native calls whose tool outputs were removed', () => {
+test('fresh-context projection retains native calls together with their tool outputs', () => {
     const callId = 'call_compact_replay_orphan';
     const compacted = freshContextCompactMessages([
         { role: 'system', content: 'system rules stay mandatory' },
@@ -294,8 +294,8 @@ test('fresh-context projection removes native calls whose tool outputs were remo
         (message) => message?.role === 'assistant'
             && message.content === 'running the older shell command',
     );
-    assert.equal(projectedAssistant, undefined);
-    assert.equal(JSON.stringify(compacted.messages).includes('providerReplay'), false);
+    assert.ok(projectedAssistant?.providerReplay);
+    assert.equal(compacted.messages.find(message => message.toolCallId === callId)?.content, 'background task started');
 
     const wire = convertMessagesToResponsesInput(
         compacted.messages,
@@ -303,6 +303,6 @@ test('fresh-context projection removes native calls whose tool outputs were remo
     );
     assert.equal(
         wire.some((item) => item?.type === 'function_call' && item.call_id === callId),
-        false,
+        true,
     );
 });

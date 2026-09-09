@@ -25,20 +25,25 @@ test('office is a first-class built-in tool with stateful document actions', () 
     assert.equal(Object.hasOwn(TOOL_DEFS[0].inputSchema.properties, removed), false);
   }
   assert.match(TOOL_DEFS[0].description, /\bsecure\b/);
-  assert.match(TOOL_DEFS[0].description, /Direct:/);
-  assert.match(TOOL_DEFS[0].description, /finalize:true/);
-  assert.match(TOOL_DEFS[0].description, /all known operations in one ordered array/);
-  assert.match(TOOL_DEFS[0].description, /Inspect unfamiliar existing files first/);
-  assert.match(TOOL_DEFS[0].description, /no snapshot unless/);
-  assert.match(TOOL_DEFS[0].description, /Describe only unknown/);
+  assert.match(TOOL_DEFS[0].description, /untrusted data/);
+  // Method and policy live in the format skills; the description is contract only.
+  assert.doesNotMatch(
+    TOOL_DEFS[0].description,
+    /Inspect unfamiliar|Split only|Describe only|same turn|design\.content|never runs VBA|Keep review/,
+  );
   const deferredLead = TOOL_DEFS[0].description.slice(0, 220);
-  assert.match(deferredLead, /finalize:true/);
   assert.match(deferredLead, /XLSX\/CSV\/TSV set_range/);
   assert.match(TOOL_DEFS[0].inputSchema.properties.action.description, /\bsecure\b/);
-  assert.match(TOOL_DEFS[0].inputSchema.properties.operations.description, /every operation whose inputs are known/);
-  assert.match(TOOL_DEFS[0].inputSchema.properties.operations.description, /Call describe only when/);
+  assert.doesNotMatch(TOOL_DEFS[0].inputSchema.properties.action.description, /media tool/);
+  assert.match(TOOL_DEFS[0].inputSchema.properties.operations.description, /per the format skill/);
+  assert.doesNotMatch(
+    TOOL_DEFS[0].inputSchema.properties.operations.description,
+    /every operation whose inputs|compose_document|fill_template|Unicode font/,
+  );
   assert.equal(TOOL_DEFS[0].inputSchema.properties.finalize.type, 'boolean');
-  assert.match(TOOL_DEFS[0].inputSchema.properties.review.description, /Keep enabled for deliverables/);
+  assert.equal(TOOL_DEFS[0].inputSchema.properties.review.type, 'boolean');
+  assert.doesNotMatch(TOOL_DEFS[0].inputSchema.properties.review.description, /deliverables/);
+  assert.equal(TOOL_DEFS[0].inputSchema.properties.acknowledgeUntrustedContent.type, 'boolean');
   assert.ok(TOOL_DEFS[0].inputSchema.properties.mode.enum.includes('visible'));
   assert.ok(TOOL_DEFS[0].inputSchema.properties.mode.enum.includes('attach'));
   assert.match(TOOL_DEFS[0].inputSchema.properties.mode.description, /auto defaults to background/);
@@ -49,7 +54,7 @@ test('office is a first-class built-in tool with stateful document actions', () 
     TOOL_DEFS[0].description,
     ...Object.values(TOOL_DEFS[0].inputSchema.properties).map((property) => property.description || ''),
   ].reduce((total, description) => total + description.length, 0);
-  assert.ok(descriptionChars <= 5000, `Office schema descriptions grew to ${descriptionChars} characters`);
+  assert.ok(descriptionChars <= 3500, `Office schema descriptions grew to ${descriptionChars} characters`);
   assert.ok(JSON.stringify(TOOL_DEFS[0].inputSchema).length <= 7000, 'Office input schema exceeded its size budget');
 });
 

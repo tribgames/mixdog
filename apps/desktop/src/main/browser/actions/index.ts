@@ -1,7 +1,7 @@
 /**
  * The page-addressed action registry. Every name in the public contract that
- * targets a page resolves to exactly one handler here; the three session
- * bookkeeping actions (list_tabs, downloads, close_tab) never reach a page
+ * targets a page resolves to exactly one handler here; the session
+ * bookkeeping actions (list_tabs, downloads, close_tab, hide) never reach a page
  * and are answered by the host before dispatch.
  */
 import { BROWSER_ACTIONS } from '../../../../../../src/runtime/browser-bridge/browser-action-contract.mjs';

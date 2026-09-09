@@ -51,17 +51,17 @@ test('checkbox recovery is allowed before input but a rerender after clicking ne
         },
       });
       const context = {
-        guest, command: { action: 'check', ref: 'p1-s1-e1', checked: true },
+        guest, command: { action: 'fill', ref: 'p1-s1-e1', checked: true },
         refRecovery: reply.refRecoveryFor(guest),
         services: { state, reply, refActions }, actionSnapshot: async () => ({ text: 'observed' }),
       };
       if (phase === 'before') {
-        const result = await formActions.check(context);
+        const result = await formActions.fill(context);
         assert.match(result.text, /Automatic ref recovery before input dispatch/);
         assert.equal(snapshots, 1);
         assert.equal(dom.window.document.querySelector('input').checked, true);
       } else {
-        await assert.rejects(formActions.check(context), /input may have executed and was not replayed/);
+        await assert.rejects(formActions.fill(context), /input may have executed and was not replayed/);
         assert.equal(snapshots, 0);
         assert.equal(state.peek(guest).refSet, undefined);
       }

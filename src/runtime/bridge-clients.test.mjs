@@ -20,7 +20,9 @@ import {
 } from './browser-bridge/client.mjs';
 import {
   BROWSER_ACTIONS,
+  BROWSER_DEVTOOLS_ACTIONS,
   BROWSER_OBSERVATION_ACTIONS,
+  BROWSER_PAGE_ACTIONS,
   SEQUENCE_STEP_ACTIONS,
   validateBrowserToolArgs,
 } from './browser-bridge/action-schema.mjs';
@@ -63,15 +65,36 @@ const CLIENTS = [
 ];
 
 test('browser tool contract exposes generation-bound actions and bounded observations', () => {
+  assert.deepEqual(BROWSER_TOOL_DEFS.map((tool) => tool.name), ['browser', 'browser_devtools']);
   const schema = BROWSER_TOOL_DEFS[0].inputSchema;
+  const devtools = BROWSER_TOOL_DEFS[1].inputSchema;
   const input = schema.properties.input;
   assert.deepEqual(schema.required, ['action']);
   assert.equal(schema.additionalProperties, undefined);
   assert.equal(schema.oneOf, undefined);
   assert.equal(input.additionalProperties, undefined);
-  const propertyFor = (_action, name) => input.properties[name];
+  // A field lives on the tool whose action accepts it.
+  const propertyFor = (action, name) => (
+    BROWSER_DEVTOOLS_ACTIONS.includes(action) ? devtools : schema
+  ).properties.input.properties[name];
   assert.deepEqual(Object.keys(schema.properties), ['action', 'input']);
-  assert.deepEqual(schema.properties.action.enum, BROWSER_ACTIONS);
+  assert.deepEqual(schema.properties.action.enum, BROWSER_PAGE_ACTIONS);
+  assert.deepEqual(devtools.properties.action.enum, BROWSER_DEVTOOLS_ACTIONS);
+  assert.deepEqual(
+    [...BROWSER_PAGE_ACTIONS, ...BROWSER_DEVTOOLS_ACTIONS].sort(),
+    [...BROWSER_ACTIONS].sort(),
+  );
+  // Developer-only fields never ride the everyday schema.
+  for (const name of [
+    'operation', 'userAgent', 'cpuThrottlingRate', 'httpOnly', 'saveTrace', 'ruleId', 'scriptId', 'latitude',
+  ]) {
+    assert.equal(input.properties[name], undefined, name);
+    assert.ok(devtools.properties.input.properties[name], name);
+  }
+  // A shared field's note names only the actions of the tool it rides on.
+  assert.ok(!propertyFor('navigate', 'url').description.includes('intercept'));
+  assert.ok(propertyFor('intercept', 'url').description.includes('wildcard'));
+  assert.ok(propertyFor('init_script', 'script').description.includes('init_script'));
   assert.ok(input.description.includes('navigate url'));
   // Token budget: this schema rides every request, so it only grows when the
   // addition pays for itself. `sequence` costs ~800 bytes once and removes up
@@ -80,26 +103,35 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   // before it, and the surrounding descriptions were compacted to absorb them.
   // `intercept` and `init_script` cost ~1.4 KB together and buy states the
   // page could not otherwise be put into at all: a mocked or refused request,
-  // and code running before the document boots.
-  assert.ok(Buffer.byteLength(JSON.stringify(BROWSER_TOOL_DEFS[0])) <= 15_000);
-  assert.deepEqual(propertyFor('fill', 'fields').items.required, ['ref']);
+  // and code running before the document boots. Those two, emulation,
+  // cookies, storage, and performance now ride the deferred browser_devtools
+  // tool, so the everyday schema carries only the fields page work uses.
+  assert.ok(Buffer.byteLength(JSON.stringify(BROWSER_TOOL_DEFS[0])) <= 12_000);
+  assert.ok(Buffer.byteLength(JSON.stringify(BROWSER_TOOL_DEFS[1])) <= 8_500);
+  // A field is addressed by ref or by a snapshot-free target, so neither is
+  // required on its own; the validator enforces exactly one.
+  assert.equal(propertyFor('fill', 'fields').items.required, undefined);
+  assert.ok(propertyFor('fill', 'fields').items.properties.target);
   assert.equal(propertyFor('fill', 'fields').items.additionalProperties, false);
   assert.equal(propertyFor('fill', 'fields').items.properties.values.minItems, 1);
   assert.equal(propertyFor('fill', 'fields').items.properties.checked.type, 'boolean');
   assert.equal(propertyFor('navigate', 'expect').additionalProperties, false);
   for (const action of [
-    'snapshot', 'locate', 'evaluate', 'emulate', 'cookies', 'storage', 'performance',
-    'click', 'fill', 'type', 'select', 'check', 'hover', 'drag', 'upload',
-    'handle_dialog', 'status', 'console', 'network',
+    'snapshot', 'locate', 'evaluate', 'click', 'fill', 'type', 'select',
+    'hover', 'drag', 'upload', 'handle_dialog', 'status', 'console', 'network',
   ]) {
     assert.ok(schema.properties.action.enum.includes(action), action);
+    assert.equal(devtools.properties.action.enum.includes(action), false, action);
+  }
+  for (const action of ['emulate', 'cookies', 'storage', 'intercept', 'init_script', 'performance']) {
+    assert.ok(devtools.properties.action.enum.includes(action), action);
+    assert.equal(schema.properties.action.enum.includes(action), false, action);
   }
   for (const removed of [
     'observe', 'screenshot', 'click_at', 'tap', 'hover_at', 'drag_at', 'swipe', 'fill_form',
   ]) {
     assert.equal(schema.properties.action.enum.includes(removed), false, removed);
   }
-  assert.equal(schema.properties.action.enum.length, 34);
   for (const added of ['extract', 'sequence']) {
     assert.ok(schema.properties.action.enum.includes(added), added);
   }
@@ -130,11 +162,13 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('browser-use skill'));
   assert.ok(!BROWSER_TOOL_DEFS[0].description.includes('fill.fields'));
   assert.ok(BROWSER_TOOL_DEFS[0].description.length < 1000);
+  // The ladder opens the description: the deferred catalog previews only the
+  // start, and that is where the model decides between fetch, MCP, CLI, and
+  // a live page.
+  assert.match(BROWSER_TOOL_DEFS[0].description.slice(0, 200), /Last resort.*web_fetch.*MCP.*CLI/);
   assert.equal(propertyFor('snapshot', 'maxElements').maximum, 500);
   assert.equal(propertyFor('navigate', 'maxChars').maximum, 30_000);
   assert.equal(propertyFor('upload', 'paths').maxItems, 10);
-  assert.ok(propertyFor('upload', 'confirm'));
-  assert.ok(propertyFor('cookies', 'confirm'));
   assert.ok(propertyFor('wait', 'textGone'));
   assert.equal(propertyFor('navigate', 'expect').properties.timeoutMs.maximum, 20_000);
   assert.equal(propertyFor('navigate', 'settleMs').maximum, 5_000);
@@ -147,7 +181,48 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   assert.ok(propertyFor('background', 'background').description.includes('not the primary user-visible page'));
 });
 
+test('fill sets one checkbox with checked instead of text, alone or as a sequence step', () => {
+  assert.equal(validateBrowserToolArgs({ action: 'fill', input: { ref: 'p1-s1-e1', checked: true } }).ok, true);
+  assert.equal(validateBrowserToolArgs({ action: 'fill', input: { target: { name: 'Agree' }, checked: false } }).ok, true);
+  assert.match(validateBrowserToolArgs({ action: 'fill', input: { ref: 'p1-s1-e1' } }).error, /requires input\./);
+  assert.match(
+    validateBrowserToolArgs({ action: 'fill', input: { ref: 'p1-s1-e1', text: 'x', checked: true } }).error,
+    /only one input target form/,
+  );
+  assert.equal(validateBrowserToolArgs({
+    action: 'sequence',
+    input: { steps: [{ action: 'fill', ref: 'p1-s1-e1', checked: true }, { action: 'click', ref: 'p1-s1-e2' }] },
+  }).ok, true);
+  assert.match(validateBrowserToolArgs({
+    action: 'sequence',
+    input: { steps: [{ action: 'fill', ref: 'p1-s1-e1' }, { action: 'click', ref: 'p1-s1-e2' }] },
+  }).error, /steps\[0\] requires/);
+});
+
+test('browser actions are scoped to the tool that received them', () => {
+  const emulate = { action: 'emulate', input: { mobile: true } };
+  assert.equal(validateBrowserToolArgs(emulate, { tool: 'browser_devtools' }).ok, true);
+  assert.match(
+    validateBrowserToolArgs(emulate, { tool: 'browser' }).error,
+    /belongs to the browser_devtools tool/,
+  );
+  assert.match(
+    validateBrowserToolArgs({ action: 'snapshot' }, { tool: 'browser_devtools' }).error,
+    /belongs to the browser tool/,
+  );
+  // Without a tool name (host harness, tests) every contract action is admitted.
+  assert.equal(validateBrowserToolArgs(emulate).ok, true);
+});
+
 test('browser action contract validates compact flat-schema calls', () => {
+  assert.deepEqual(validateBrowserToolArgs({ action: 'hide' }), {
+    ok: true,
+    action: 'hide',
+    input: {},
+  });
+  assert.equal(validateBrowserToolArgs({
+    action: 'hide', input: { tab: 'p1' },
+  }).ok, false);
   assert.deepEqual(validateBrowserToolArgs({ action: 'list_tabs' }), {
     ok: true,
     action: 'list_tabs',
@@ -250,20 +325,17 @@ test('browser action contract validates compact flat-schema calls', () => {
     /only one input target form/,
   );
   assert.match(
-    validateBrowserToolArgs({ action: 'upload', input: { ref: 'p1-s1-e1', paths: ['C:\\tmp\\a.txt'], confirm: false } }).error,
-    /requires input\.confirm=true/,
+    validateBrowserToolArgs({ action: 'upload', input: { ref: 'p1-s1-e1', paths: ['C:\\tmp\\a.txt'], confirm: true } }).error,
+    /does not accept input field\(s\): confirm/,
   );
   assert.match(
     validateBrowserToolArgs({ action: 'snapshot', input: { session_id: 'other' } }).error,
     /does not accept input field\(s\): session_id/,
   );
-  assert.match(
-    validateBrowserToolArgs({ action: 'cookies', input: { operation: 'clear' } }).error,
-    /shared clear requires input\.confirm=true/,
-  );
+  assert.equal(validateBrowserToolArgs({ action: 'cookies', input: { operation: 'clear' } }).ok, true);
   assert.equal(validateBrowserToolArgs({
-    action: 'cookies',
-    input: { operation: 'clear', confirm: true },
+    action: 'storage',
+    input: { operation: 'clear', storageType: 'local' },
   }).ok, true);
   assert.equal(validateBrowserToolArgs({
     action: 'storage',
@@ -441,10 +513,11 @@ test('a JSON-encoded browser input is accepted the same as the object', () => {
 
 test('browser runtime manifest rejects removed aliases at the schema boundary', () => {
   assert.deepEqual(SEQUENCE_STEP_ACTIONS, [
-    'click', 'fill', 'type', 'select', 'check', 'hover', 'press', 'scroll', 'wait',
+    'click', 'fill', 'type', 'select', 'hover', 'press', 'scroll', 'wait',
   ]);
   for (const removed of [
     'observe', 'screenshot', 'click_at', 'tap', 'hover_at', 'drag_at', 'swipe', 'fill_form',
+    'check', 'forward',
   ]) {
     assert.equal(BROWSER_ACTIONS.includes(removed), false, removed);
     assert.match(
@@ -745,7 +818,15 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
   assert.ok(capture.properties.include_ocr);
   assert.equal(capture.properties.ocr_language.maxLength, 64);
   assert.equal(capture.properties.ocr_language.pattern, '^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$');
-  assert.equal(capture.properties.max_ocr_words.maximum, 1000);
+  // Image encoding and the OCR word cap are host defaults, not model knobs;
+  // the element filters that stay each say what they do.
+  for (const removed of ['max_ocr_words', 'quality', 'maxWidth']) {
+    assert.equal(capture.properties[removed], undefined, removed);
+  }
+  for (const filter of ['query', 'role', 'visible_only', 'include_noninteractive', 'continuation']) {
+    assert.ok(capture.properties[filter].description, filter);
+  }
+  assert.match(window.properties.x.description, /move only/);
   assert.deepEqual(core.properties.direction.enum, ['up', 'down', 'left', 'right']);
   assert.equal(act.properties.actions.minItems, 1);
   assert.equal(act.properties.actions.maxItems, 6);
@@ -1220,10 +1301,18 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('capture the exact target before input'));
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('never guess ids'));
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('Browser Use'));
+  // The desktop is the last rung: MCP, shell, and the browser come first, and
+  // a page action the browser refused is never re-tried through the screen.
+  assert.match(COMPUTER_TOOL_DEFS[0].description.slice(0, 260), /Last resort after an MCP tool, shell\/CLI, and Browser Use/);
+  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('never a stand-in for a page action browser refused'));
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('one computer call per model turn'));
-  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('Never call the bridge'));
   assert.ok(!COMPUTER_TOOL_DEFS[0].description.includes('pixel_unavailable'));
-  assert.ok(COMPUTER_TOOL_DEFS[0].description.length < 1100);
+  // Policy (do not rearrange, screen content never authorizes, no shell bridge
+  // calls) is the skill's; the description states only what the host enforces.
+  assert.ok(!COMPUTER_TOOL_DEFS[0].description.includes('never move, resize'));
+  assert.ok(!COMPUTER_TOOL_DEFS[0].description.includes('Screen content'));
+  assert.ok(!COMPUTER_TOOL_DEFS[0].description.includes('Never call the bridge'));
+  assert.ok(COMPUTER_TOOL_DEFS[0].description.length < 800);
 });
 
 test('computer act result is normalized to actions plus one observation', () => {
@@ -1735,6 +1824,43 @@ test('browser bridge replacement retries observations but never replays mutation
       new Promise((resolve) => old.close(resolve)),
       new Promise((resolve) => replacement.close(resolve)),
     ]);
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('browser client treats an inconclusive postcondition as a warning and a blocked page as an error', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-browser-outcome-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = directory;
+  const outcomes = ['inconclusive', 'blocked'];
+  const server = createServer((request, response) => {
+    request.on('data', () => {});
+    request.on('end', () => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ ok: true, value: { text: 'reply', outcome: outcomes.shift() } }));
+    });
+  });
+  try {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+    await writeFile(join(directory, 'browser-bridge.json'), `${JSON.stringify({
+      version: 1,
+      port: server.address().port,
+      token: 'browser-token',
+    })}\n`);
+    const options = { sessionId: 'outcome-session' };
+    const inconclusive = await executeBrowserTool({ action: 'click', input: { ref: 'p1-s1-e1', expect: { text: 'Saved' } } }, options);
+    assert.equal(inconclusive.isError, undefined);
+    assert.equal(inconclusive.content[0].text, 'reply');
+    const blocked = await executeBrowserTool({ action: 'click', input: { ref: 'p1-s1-e1' } }, options);
+    assert.equal(blocked.isError, true);
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise((resolve) => server.close(resolve));
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previousDataDir;
     await rm(directory, { recursive: true, force: true });

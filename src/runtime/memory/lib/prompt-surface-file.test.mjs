@@ -45,3 +45,14 @@ test('empty input writes nothing and missing file reads as null', () => withDir(
   assert.equal(readPromptSurfaceFile(dir), null)
   assert.equal(renderPromptSurfaceDigest(null), '')
 }))
+
+test('argument-level contracts survive snapshots and invalidate their fingerprint', () => withDir(async (dir) => {
+  const tool = { name: 'office', description: 'Edit documents.', inputSchema: {
+    properties: { mode: { description: 'Background does not activate a window.' } },
+  } }
+  const first = await writePromptSurfaceSnapshot(dir, { tools: [tool] })
+  assert.match(renderPromptSurfaceDigest(readPromptSurfaceFile(dir)), /Background does not activate a window/)
+  tool.inputSchema.properties.mode.description = 'Visible requires an explicit request.'
+  const second = await writePromptSurfaceSnapshot(dir, { tools: [tool] })
+  assert.notEqual(first.hash, second.hash)
+}))

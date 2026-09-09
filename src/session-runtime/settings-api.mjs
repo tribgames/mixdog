@@ -7,12 +7,16 @@
 // setProfile -> this.getProfile) keep working when spread into the facade.
 
 import {
+  BRIDGE_FIRST_USE_IDS,
   INSTALLABLE_BUILTIN_IDS,
+  builtinFirstUseApproval,
   builtinInstalled,
+  setBuiltinFirstUseApprovalInConfig,
   setBuiltinInstalledInConfig,
 } from './builtin-features.mjs';
 import { LOCAL_PROVIDER_ID } from '../runtime/local-provider/managed-runtime.mjs';
 import { createLocalProviderSettings } from './local-provider-settings.mjs';
+import { getEmbeddingInfo } from '../runtime/memory/lib/embedding-provider.mjs';
 
 function setLocalProviderEnabledInConfig(configLike, enabled) {
   const next = { ...(configLike || {}) };
@@ -267,7 +271,11 @@ export function createSettingsApi({
       const localProviderRuntimeInstalled = localProvider?.runtime?.installed === true;
       return {
         webSearch: { enabled: webSearchEnabled() },
-        memory: { enabled: memoryToolsEnabledFn(), installed: builtinInstalled(config, 'memory') },
+        memory: {
+          enabled: memoryToolsEnabledFn(),
+          installed: builtinInstalled(config, 'memory'),
+          info: getEmbeddingInfo(),
+        },
         git: { enabled: gitToolsEnabledFn(), installed: builtinInstalled(config, 'git') },
         office: { enabled: officeToolsEnabledFn(), installed: builtinInstalled(config, 'office') },
         localProvider: {
@@ -302,6 +310,19 @@ export function createSettingsApi({
       invalidateContextStatusCache();
       await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();
+    },
+    /** Once-per-session approval before the first Browser Use or Computer Use
+     *  call. The setting is read at each call, so it applies at once. */
+    async setBridgeFirstUseApproval(name, enabled) {
+      if (!BRIDGE_FIRST_USE_IDS.includes(name)) {
+        throw new TypeError('First-use approval applies to browser or computer.');
+      }
+      saveConfigAndAdopt(setBuiltinFirstUseApprovalInConfig({ ...getConfig() }, name, enabled !== false));
+      return {
+        name,
+        firstUseApproval: builtinFirstUseApproval(getConfig(), name),
+        appliesTo: 'the next first use in any session, including this one',
+      };
     },
     async setBuiltinToolEnabled(name, enabled) {
       if (name !== 'git' && name !== 'office' && name !== 'localProvider') {

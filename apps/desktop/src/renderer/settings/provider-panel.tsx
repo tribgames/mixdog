@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { X, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import type { DesktopApi } from '../../shared/contract';
@@ -7,6 +7,7 @@ import { ErrorNotice } from '../ErrorNotice';
 import { registerMobileBack } from '../mobile-back';
 import { record } from '../record-utils';
 import { useOAuthUsageRefresh } from './use-oauth-usage-refresh';
+import { ProviderAccountsList, PROVIDER_ACCOUNTS_CHANGED } from '../ProviderAccountsList';
 import {
   ActionButton,
   Group,
@@ -39,14 +40,30 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
     return status || (provider.authenticated ? 'Connected' : 'Not connected');
   };
   return <>
-    <Group title="OAuth providers">{oauthProviders.length ? oauthProviders.map((provider) => <ResourceRow key={String(provider.id)} title={providerLabel(provider)}
-      description={String(provider.detail || '')}
-      status={providerStatus(provider)}
-      actions={<><OAuthControl api={api} provider={provider} disabled={busy} run={run} />
-        {(provider.authenticated || provider.reauthRequired) && <ActionButton danger disabled={busy} onClick={() => {
-          confirm({ title: 'Forget provider authentication?', description: t('Remove the saved authentication for {{name}}.', { name: providerLabel(provider) }),
-            confirmLabel: 'Forget', danger: true, onConfirm: () => void run('forgetProviderAuth', [provider.id]) });
-        }}>Forget</ActionButton>}</>} />) : <ListEmpty text={loading ? 'Loading providers…' : 'No OAuth providers available.'} />}</Group>
+    {/* One card PER provider: sharing a single card ran "OpenAI's accounts →
+        Anthropic header" as one continuous list (user: 프로바이더별 분리된
+        느낌이 없다). The section keeps the shared heading; each provider owns
+        its own bordered body. */}
+    <section className="settings-group settings-provider-cards">
+      <header><h3>{t('OAuth providers')}</h3></header>
+      {oauthProviders.length ? oauthProviders.map((provider) => <div className="settings-group-body" key={String(provider.id)}>
+        <ProviderAccountsList api={api} provider={String(provider.id)} title={providerLabel(provider)}
+      onChange={() => void run('getProviderSetup', [{ force: true }])}
+      renderActions={(account) => <>
+        {(!account.authenticated || account.reauthRequired) &&
+          <OAuthControl api={api} provider={provider} disabled={busy} run={run} accountId={account.id} />}
+        <ActionButton danger disabled={busy} onClick={() => {
+          confirm({ title: 'Disconnect account?', description: t('Remove the saved authentication for {{name}}.', { name: t(account.label) }),
+            confirmLabel: 'Disconnect', danger: true, onConfirm: async () => {
+              await run('forgetProviderAuth', [provider.id, account.id]);
+              window.dispatchEvent(new window.Event(PROVIDER_ACCOUNTS_CHANGED));
+            } });
+        }}>Disconnect</ActionButton>
+      </>}
+      headerAction={<OAuthControl api={api} provider={provider} disabled={busy} run={run} addAccount />}
+        />
+      </div>) : <div className="settings-group-body"><ListEmpty text={loading ? 'Loading providers…' : 'No OAuth providers available.'} /></div>}
+    </section>
     <Group title="API-key providers">{apiProviders.length ? apiProviders.map((provider) => <ResourceRow key={String(provider.id)} title={providerLabel(provider)}
       description={String(provider.detail || provider.envName || '')}
       status={providerStatus(provider)}
@@ -73,12 +90,14 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
   </>;
 }
 
-export function OAuthControl({ api, provider, disabled, run, onComplete }: {
+export function OAuthControl({ api, provider, disabled, run, onComplete, addAccount = false, accountId }: {
   api: PanelContext['api'];
   provider: RecordValue;
   disabled: boolean;
   run: PanelContext['run'];
   onComplete?: () => void;
+  addAccount?: boolean;
+  accountId?: string;
 }) {
   const [flow, setFlow] = useState<RecordValue | null>(null);
   const [error, setError] = useState('');
@@ -143,6 +162,7 @@ export function OAuthControl({ api, provider, disabled, run, onComplete }: {
         return;
       }
       setFlow((current) => String(current?.flowId || '') === flowId ? null : current);
+      window.dispatchEvent(new window.Event(PROVIDER_ACCOUNTS_CHANGED));
       onCompleteRef.current?.();
     });
   }, [flowId, flowState, providerId]);
@@ -150,7 +170,9 @@ export function OAuthControl({ api, provider, disabled, run, onComplete }: {
     setError('');
     completedFlowRef.current = '';
     try {
-      const next = await run<RecordValue>('beginOAuthProviderLogin', [providerId], `oauth-begin-${providerId}`, false, false, 'throw');
+      const next = await run<RecordValue>('beginOAuthProviderLogin',
+        addAccount ? [providerId, { addAccount: true }] : accountId ? [providerId, { accountId }] : [providerId],
+        `oauth-begin-${providerId}`, false, false, 'throw');
       if (next) setFlow(record(next));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
@@ -172,7 +194,10 @@ export function OAuthControl({ api, provider, disabled, run, onComplete }: {
     return registerMobileBack(() => closeRef.current());
   }, [flowOpen]);
   return <>
-    <ActionButton disabled={disabled} onClick={() => void start()}>{provider.authenticated || provider.reauthRequired ? 'Reconnect' : 'Connect'}</ActionButton>
+    {addAccount ? <button type="button" className="provider-account-add-button" disabled={disabled}
+      aria-label={t('Add account')} title={t('Add account')} onClick={() => void start()}>
+      <Plus size={15} aria-hidden="true" />
+    </button> : <ActionButton disabled={disabled} onClick={() => void start()}>{accountId ? 'Reconnect' : 'Connect'}</ActionButton>}
     {!flow && error && <ErrorNotice error={error} />}
     {flow && <div className="settings-oauth-layer" onMouseDown={(event) => {
       if (event.target === event.currentTarget) close();

@@ -26,6 +26,7 @@ const {
     shouldCompactForSession,
 } = await import('../loop/compact-policy.mjs');
 const { estimateMessagesTokens } = await import('../context-utils.mjs');
+const { sessionContextMeasurement } = await import('../../../../../ui/context-measurement.mjs');
 
 function createSession(sessionId, messages) {
     return {
@@ -118,6 +119,7 @@ test('restart restores the durable 132K provider anchor instead of jumping to a 
     assert.equal(recovery.recovered, true);
     assert.equal(recovery.contextStateRestored, true);
     assert.equal(restarted.contextPressureBaselineSource, 'checkpoint_provider');
+    assert.equal(sessionContextMeasurement(restarted).tokens, 131_500);
 
     const decision = contextDecision(restarted);
     assert.ok(decision.estimate > 476_000, `expected incident-scale estimate, got ${decision.estimate}`);
@@ -210,6 +212,7 @@ test('post-compact replacement and its pressure snapshot recover as one canonica
     assert.equal(recovery.contextStateRestored, true);
     assert.deepEqual(restarted.messages, compacted);
     assert.equal(restarted.contextPressureBaselineSource, 'checkpoint_post_compact');
+    assert.equal(sessionContextMeasurement(restarted).source, 'pending');
     assert.equal(restarted.contextUsageSnapshot.usedTokens, 23_000);
     assert.equal(restarted.usageMetricsTurnId, 'turn-compact');
     assert.equal(restarted.usageMetricsEpoch, 4);

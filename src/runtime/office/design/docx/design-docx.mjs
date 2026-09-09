@@ -7,6 +7,7 @@ import {
   addDocxSectionTable,
 } from './design-docx-components.mjs';
 import { plainObject } from '../../shared/values.mjs';
+import { documentTypography } from './document-typography.mjs';
 
 function normalizeSectionTable(table) {
   if (table == null) return [];
@@ -32,7 +33,7 @@ function normalizeSectionTable(table) {
 export function expandDocxDocument(operation, design, state, backend, composition) {
   const output = [];
   const colors = design.tokens.colors;
-  const type = design.tokens.typography;
+  const type = documentTypography(operation, design.tokens.typography);
   const format = design.format;
   const compositionId = String(composition?.id || 'decision-brief');
   const compactMemo = compositionId === 'compact-memo';
@@ -64,12 +65,18 @@ export function expandDocxDocument(operation, design, state, backend, compositio
       op: 'append_text',
       text: String(text),
       style,
-      properties,
+      properties: {
+        alignment: 'left',
+        keepWithNext: false,
+        widowControl: true,
+        ...(type.eastAsia ? { nameEastAsia: type.eastAsia } : {}),
+        ...properties,
+      },
     });
     return state.paragraph;
   };
-  if (decisionBrief) {
-    append('EXECUTIVE DECISION BRIEF', 'Normal', {
+  if (operation.eyebrow) {
+    append(operation.eyebrow, 'Normal', {
       name: type.data,
       size: 8.5,
       bold: true,
@@ -81,7 +88,7 @@ export function expandDocxDocument(operation, design, state, backend, compositio
   }
   append(operation.title, 'Title', {
     name: type.display,
-    size: Number(operation.titleSize) || format.title + (editorialReport ? 3 : compactMemo ? -1 : 0),
+    size: Number(operation.titleSize) || Math.min(24, format.title),
     bold: true,
     color: colors.ink,
     spacingBefore: 0,
@@ -107,14 +114,14 @@ export function expandDocxDocument(operation, design, state, backend, compositio
     });
   }
   if (operation.summary) {
-    if (decisionBrief || evidenceBrief) {
+    if (operation.summaryLabel && (decisionBrief || evidenceBrief)) {
       addDocxDecisionCallout(
         output,
         state,
         strings(operation.summary).join(' '),
         design,
         {
-          label: String(operation.summaryLabel || (decisionBrief ? 'DECISION REQUEST' : 'KEY FINDING')),
+          label: String(operation.summaryLabel),
           emphasis: decisionBrief ? 'inverse' : 'accent',
         },
       );
@@ -137,15 +144,9 @@ export function expandDocxDocument(operation, design, state, backend, compositio
   const sections = Array.isArray(operation.sections) ? operation.sections : [];
   for (const [sectionIndex, section] of sections.entries()) {
     const sectionKind = String(section.kind || '').trim().toLowerCase();
-    const spreadBreak = section.pageBreak === true
-      || (
-        section.pageBreak !== false
-        && decisionBrief
-        && sections.length >= 4
-        && sectionIndex === Math.ceil(sections.length / 2)
-      );
-    if (editorialReport || decisionBrief) {
-      append(`${String(sectionIndex + 1).padStart(2, '0')} / ${String(section.eyebrow || sectionKind || 'EVIDENCE').toUpperCase()}`, 'Normal', {
+    const spreadBreak = section.pageBreak === true;
+    if (section.eyebrow) {
+      append(String(section.eyebrow), 'Normal', {
         name: type.data,
         size: 8,
         bold: true,
@@ -158,17 +159,17 @@ export function expandDocxDocument(operation, design, state, backend, compositio
     }
     append(section.heading || section.title, Number(section.level) === 2 ? 'Heading 2' : 'Heading 1', {
       name: type.display,
-      size: (Number(section.level) === 2 ? format.heading2 : format.heading1) + (editorialReport ? 1 : 0),
+      size: Number(section.level) === 2 ? format.heading2 : format.heading1,
       bold: true,
-      color: section.accent === false || evidenceBrief ? colors.ink : colors.accent,
-      spacingBefore: editorialReport || decisionBrief
+      color: section.accent === true ? colors.accent : colors.ink,
+      spacingBefore: section.eyebrow
         ? 0
         : compactMemo
           ? (Number(section.level) === 2 ? 6 : 10)
           : Number(section.level) === 2 ? 9 : 14,
       spacingAfter: editorialReport ? 7 : 5,
       keepWithNext: true,
-      pageBreakBefore: spreadBreak && !(editorialReport || decisionBrief),
+      pageBreakBefore: spreadBreak && !section.eyebrow,
     });
     for (const paragraph of strings(section.paragraphs || section.body)) {
       append(paragraph, 'Normal', {
@@ -224,7 +225,7 @@ export function expandDocxDocument(operation, design, state, backend, compositio
       op: 'add_page_numbers',
       includeTotal: true,
       alignment: 'center',
-      ...(operation.footer ? { prefix: `${String(operation.footer)} · Page ` } : {}),
+      ...(operation.footer ? { prefix: `${String(operation.footer)} · `, separator: ' / ' } : { prefix: '', separator: ' / ' }),
     });
   } else if (operation.footer) {
     output.push({ op: 'set_header_footer', header: false, text: String(operation.footer) });

@@ -50,15 +50,15 @@ export async function init(db, dims, embeddingIdentity = null) {
   `)
   await db.query(`
     INSERT INTO category_score_params(category, grade, decay) VALUES
-      ('rule', 2.0, 0.0),
-      ('constraint', 1.9, 0.06),
-      ('decision', 1.8, 0.15),
+      ('rule', 1.6, 0.25),
+      ('constraint', 1.6, 0.25),
+      ('decision', 1.6, 0.25),
       ('fact', 1.6, 0.25),
-      ('goal', 1.5, 0.30),
-      ('preference', 1.4, 0.35),
-      ('task', 1.1, 0.45),
-      ('issue', 1.0, 0.50)
-    ON CONFLICT (category) DO NOTHING
+      ('goal', 1.6, 0.25),
+      ('preference', 1.6, 0.25),
+      ('task', 1.6, 0.25),
+      ('issue', 1.6, 0.25)
+    ON CONFLICT (category) DO UPDATE SET grade = EXCLUDED.grade, decay = EXCLUDED.decay
   `)
 
   // SQL function mirrors src/memory/lib/memory-score.mjs computeEntryScore.

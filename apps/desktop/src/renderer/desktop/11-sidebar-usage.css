@@ -37,44 +37,18 @@
    list's min-content blow the 280px popup open and clip the right column
    (user: 다 틀어져 있다). */
 .sidebar-usage > * { min-width: 0; }
-.sidebar-usage-heading {
+/* Title row = .session-panel-header (09-sidebar-chrome.css): the popup only
+   adds its bottom hairline and the panel's 12px text inset. Pin then + sit in
+   the shared 28px action slot (user: 사이드 메뉴들이랑 크기·구성 통일). */
+.sidebar-usage-heading.session-panel-header {
   min-width: 0;
-  display: flex;
-  align-items: center;
-  min-height: 34px;
-  padding: 0 8px 0 12px;
+  padding: 0 4px 0 12px;
   border-bottom: 1px solid var(--mx-border-muted);
 }
-.sidebar-usage-heading > b {
-  color: var(--mx-text);
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-semibold);
-  line-height: var(--mx-line-minor);
-  letter-spacing: var(--mx-tracking-tight);
-}
-/* Pin toggle rides the title row's right edge (user: 타이틀 오른쪽 핀모드). */
-.sidebar-usage-heading > .sidebar-usage-pin {
-  margin-left: auto;
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--mx-radius-md);
-  color: var(--mx-text-muted);
-  background: transparent;
-  cursor: pointer;
-}
-.sidebar-usage-heading > .sidebar-usage-pin:hover,
-.sidebar-usage-heading > .sidebar-usage-pin:focus-visible {
-  color: var(--mx-text);
-  background: var(--mx-hover);
-  outline: 0;
-}
+.sidebar-usage-heading.session-panel-header::after { display: none; }
 /* Diagonal pushpin (user: 대각핀): a tilted pin reading. */
-.sidebar-usage-heading > .sidebar-usage-pin svg { transform: rotate(45deg); }
-.sidebar-usage-heading > .sidebar-usage-pin.is-active { color: var(--mx-text-accent); }
+.sidebar-usage-heading .sidebar-usage-pin svg { transform: rotate(45deg); }
+.sidebar-usage-heading .sidebar-usage-pin.is-active { color: var(--mx-text-accent); }
 .sidebar-usage-list {
   display: grid;
   gap: 0;

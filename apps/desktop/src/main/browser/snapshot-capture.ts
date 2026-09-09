@@ -12,6 +12,7 @@ import {
   type AccessibilityPageInfo,
   type AccessibilityTargetSnapshot,
   type BrowserSnapshotPayload as SnapshotPayload,
+  type FileInputFacts,
 } from './accessibility';
 import type { BrowserCdpPort } from './cdp';
 import type { BrowserCommand } from './command';
@@ -19,8 +20,53 @@ import type { GuestSlot } from './guest-state';
 import { redactBrowserText } from './redaction';
 import { createBrowserRefSet, type BrowserRefSet } from './ref-recovery';
 import { browserSnapshotExpression } from './snapshot-scripts';
+import { timedBrowserOperation } from './timing';
+import { createBrowserReadPool, settleBrowserReads } from './parallel-read';
 
 const MAX_ACCESSIBILITY_TARGETS = 32;
+
+interface DomSnapshotDocument {
+  nodes?: {
+    backendNodeId?: number[];
+    nodeName?: number[];
+    attributes?: number[][];
+  };
+  layout?: { nodeIndex?: number[]; bounds?: number[][] };
+}
+
+/** File inputs by backend node, read from the DOM snapshot's attributes: the
+ *  accessibility tree calls them buttons, which hides that `upload` is the
+ *  gesture they want and whether they take one file or several. */
+export function fileInputsFromDomSnapshot(
+  strings: string[],
+  documents: DomSnapshotDocument[],
+): Map<number, FileInputFacts> {
+  const fileInputs = new Map<number, FileInputFacts>();
+  for (const document of documents) {
+    const backendNodeIds = document.nodes?.backendNodeId || [];
+    const nodeNames = document.nodes?.nodeName || [];
+    const attributes = document.nodes?.attributes || [];
+    nodeNames.forEach((nameIndex, nodeIndex) => {
+      if (String(strings[nameIndex] || '').toUpperCase() !== 'INPUT') return;
+      const pairs = attributes[nodeIndex] || [];
+      let type = '';
+      let accept = '';
+      let multiple = false;
+      for (let index = 0; index + 1 < pairs.length; index += 2) {
+        const attributeName = String(strings[pairs[index]] || '').toLowerCase();
+        const attributeValue = String(strings[pairs[index + 1]] ?? '');
+        if (attributeName === 'type') type = attributeValue.trim().toLowerCase();
+        else if (attributeName === 'accept') accept = attributeValue.replace(/\s+/g, ' ').trim();
+        else if (attributeName === 'multiple') multiple = true;
+      }
+      const backendNodeId = backendNodeIds[nodeIndex];
+      if (type === 'file' && Number.isFinite(backendNodeId)) {
+        fileInputs.set(backendNodeId, { accept, multiple });
+      }
+    });
+  }
+  return fileInputs;
+}
 
 /** One ref, bound to the CDP node and target session that produced it. */
 export interface AccessibilityRef {
@@ -102,9 +148,11 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
       })),
     ];
     const snapshotsPromise = (async (): Promise<AccessibilityTargetSnapshot[]> => {
-      await Promise.allSettled(targets.map((target) => target.ready));
-      return await Promise.all(targets.map(async ({ sessionId }) => {
+      const read = createBrowserReadPool();
+      return await settleBrowserReads(targets.map(async ({ sessionId, ready }) => {
       try {
+        await ready;
+        return await read(async () => {
         let layoutError = '';
         const [axTree, domSnapshot] = await Promise.all([
           cdp.call<{ nodes?: AccessibilityNode[] }>(
@@ -115,10 +163,8 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
             { sessionId },
           ),
           cdp.call<{
-              documents?: Array<{
-                nodes?: { backendNodeId?: number[] };
-                layout?: { nodeIndex?: number[]; bounds?: number[][] };
-              }>;
+              documents?: DomSnapshotDocument[];
+              strings?: string[];
           }>(
             guest,
             'DOMSnapshot.captureSnapshot',
@@ -127,10 +173,11 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
             { sessionId },
           ).catch((error) => {
             layoutError = redactBrowserText((error as Error).message || String(error));
-            return { documents: [] };
+            return { documents: [], strings: [] };
           }),
         ]);
         const bounds = new Map<number, number[]>();
+        const fileInputs = fileInputsFromDomSnapshot(domSnapshot.strings || [], domSnapshot.documents || []);
         for (const document of domSnapshot.documents || []) {
           const backendNodeIds = document.nodes?.backendNodeId || [];
           const nodeIndexes = document.layout?.nodeIndex || [];
@@ -147,8 +194,10 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
           sessionId,
           nodes: axTree.nodes || [],
           bounds,
+          fileInputs,
           ...(layoutError ? { layoutError } : {}),
         };
+        });
       } catch (error) {
         return {
           sessionId,
@@ -402,6 +451,6 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
     callAccessibilityRef,
     evaluateRefScript,
     frameOffsetForSession,
-    captureSnapshotPayload,
+    captureSnapshotPayload: timedBrowserOperation('snapshot', captureSnapshotPayload),
   };
 }

@@ -79,6 +79,24 @@ function inspect(name: string, frames: Sample[], session: string, tail = true) {
   };
 }
 
+/** Composer-dock geometry: the chrome above the input commits each real
+ *  change exactly once. `expectedHeights` counts the distinct transcript
+ *  viewport heights the frames may paint (1 = nothing moved). */
+function inspectDock(name: string, frames: Sample[], session: string, expectedHeights: number) {
+  const result = inspect(name, frames, session);
+  const shown = frames.filter((value) => value?.shown && value.session === session);
+  const heights = [...new Set(shown.map((value) => value!.height))];
+  if (heights.length !== expectedHeights) {
+    result.failures.push(`viewport committed ${heights.length} height(s) ${JSON.stringify(heights)}, expected ${expectedHeights}`);
+  }
+  // A legitimate one-time change moves the rows by exactly that change; only
+  // an unchanged dock must keep every row still.
+  if (expectedHeights > 1) {
+    result.failures = result.failures.filter((failure) => !failure.startsWith("visible rows move"));
+  }
+  return result;
+}
+
 function history(id: string, mixed = false): Snapshot {
   const items: TranscriptItem[] = [];
   for (let n = 0; n < 30; n++) {
@@ -103,14 +121,17 @@ export async function runTranscriptMotionProbe(root: Root) {
   // App gates session data on this module's readiness. Keep that production
   // prerequisite while still observing React's first lazy-body commit.
   await preloadMarkdownBody();
+  let capability: (request: unknown) => Promise<{ value: unknown }> = async () => ({ value: null });
   (window as any).mixdogDesktop = {
     rendererDiagnostic: noop,
     perfLog: noop,
-    invokeCapability: async () => ({ value: null }),
+    invokeCapability: (request: unknown) => capability(request),
   };
   const cases: ReturnType<typeof inspect>[] = [];
   let width = 620;
   let session = "";
+  // Only the composer-dock scenario lets the review bar ask its worker.
+  let reviewActive = false;
   let acknowledge: ((value: boolean) => void) | undefined;
   let submissionId = "";
   const submit = (_content: unknown, options?: { id?: string }) => {
@@ -128,7 +149,7 @@ export async function runTranscriptMotionProbe(root: Root) {
         onNewTask={noop} onClearProject={noop} onResumeSession={noop} onOpenSessions={noop}
         onOpenProjects={noop} projects={[]} showProjectSelector={false}
         activeProjectPath="C:/Project/demo" activeProjectLabel="demo" onSelectProject={noop}
-        onOpenCommandSurface={noop} reviewActive={false} />
+        onOpenCommandSurface={noop} reviewActive={reviewActive} />
     </div>,
   );
   const enter = async (name: string, snapshot: Snapshot, prepared = true) => {
@@ -211,11 +232,76 @@ export async function runTranscriptMotionProbe(root: Root) {
       result.failures.push("background append rearmed follow while reading");
     }
     cases.push(result);
+
+    // Chrome above the composer (Goal capsule + turn-review bar) commits its
+    // geometry ONCE per real change. The bar's authoritative worker read lands
+    // AFTER the transcript is shown and must fill the reserved slot; Goal
+    // republications that carry a new object or only clock fields must not
+    // move a row; clearing the Goal moves the rows exactly once.
+    const patch = "diff --git a/demo.txt b/demo.txt\n--- a/demo.txt\n+++ b/demo.txt\n@@ -1 +1 @@\n-before\n+after";
+    const chrome = history("motion-chrome", true);
+    chrome.items = [
+      ...(chrome.items ?? []),
+      { id: "chrome-user", kind: "user", text: "Change demo.txt" },
+      { id: "chrome-patch", kind: "tool", name: "apply_patch", args: {}, result: "Updated demo.txt", uiDiff: patch },
+      { id: "chrome-done", kind: "turndone", text: "Done" },
+    ] as TranscriptItem[];
+    const goal = { id: "goal-chrome", status: "active", title: "Chrome goal", objective: "Keep chrome stable", tasks: [] };
+    (chrome as any).goal = goal;
+    // The probe window is hidden; the review bar only asks its worker on a
+    // visible document, so the entry must look visible to exercise the late
+    // result. Restored before the root unmounts.
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+    let resolved = false;
+    let requests = 0;
+    capability = () => new Promise((done) => {
+      requests += 1;
+      // Land strictly AFTER the transcript is on screen: the late result is
+      // the case under test, not a read that beats the reveal.
+      let shownFrames = 0;
+      const tick = () => {
+        if (geometry()?.shown) shownFrames += 1;
+        if (shownFrames < 3) {
+          requestAnimationFrame(tick);
+          return;
+        }
+        resolved = true;
+        done({ value: {
+          authoritative: true, checkpointId: "chrome-user", snapshotKind: "worktree",
+          files: [{ path: "demo.txt", status: "M", additions: 1, deletions: 1 }], patch, agents: [],
+        } });
+      };
+      requestAnimationFrame(tick);
+    });
+    session = String(chrome.sessionId);
+    reviewActive = true;
+    publish(chrome);
+    flushSync(render);
+    const chromeFrames = await samples(24);
+    const chromeEntry = inspectDock("async-chrome-entry", chromeFrames, session, 1);
+    if (!resolved) chromeEntry.failures.push(`review worker never resolved (requests=${requests}, reserved=${document.querySelector(".turn-review-slot")?.getAttribute("data-reserved")})`);
+    if (!document.querySelector(".turn-review-bar")) chromeEntry.failures.push("review bar missing after worker resolution");
+    if (!document.querySelector(".session-goal-island")) chromeEntry.failures.push("goal capsule missing on entry");
+    cases.push(chromeEntry);
+    const republish = async (name: string, next: Snapshot, expectedHeights: number, capsule: boolean) => {
+      const before = geometry();
+      flushSync(() => publish(next));
+      const frames = [before, ...await samples(6)];
+      const result = inspectDock(name, frames, session, expectedHeights);
+      if (Boolean(document.querySelector(".session-goal-island")) !== capsule) {
+        result.failures.push(capsule ? "goal capsule disappeared" : "goal capsule survived a cleared goal");
+      }
+      cases.push(result);
+    };
+    await republish("goal-republished-new-object", { ...chrome, goal: { ...goal } } as Snapshot, 1, true);
+    await republish("goal-clock-only", { ...chrome, goal: { ...goal, timeUsedMs: 5_000, snapshotAt: Date.now() } } as Snapshot, 1, true);
+    await republish("goal-cleared-once", { ...chrome, goal: null } as Snapshot, 2, false);
     return {
       failures: cases.flatMap((value) => value.failures.map((failure) => `${value.name}: ${failure}`)),
       cases,
     };
   } finally {
+    delete (document as { visibilityState?: unknown }).visibilityState;
     flushSync(() => root.render(null));
     defaultSessionLaneStore.clear();
   }

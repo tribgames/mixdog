@@ -212,15 +212,35 @@ const OAUTH_PROBE_STATES = new Map([
   ['antigravity-oauth', antigravityOAuthState],
 ]);
 
+// Dev-only OAuth providers. Hidden and treated as "no credentials" unless the
+// MIXDOG_DEV_PROVIDERS flag (1 / true / yes / on) is set in the environment.
+// Default OFF for shipped installs; a developer machine opts in via the env.
+export const DEV_ONLY_OAUTH_PROVIDERS = Object.freeze(new Set(['cursor-oauth', 'antigravity-oauth']));
+
+function devProvidersFlagEnabled() {
+  const raw = String(process.env.MIXDOG_DEV_PROVIDERS || '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+}
+
+/** False only for a dev-only OAuth provider while MIXDOG_DEV_PROVIDERS is unset. */
+export function isOAuthProviderAvailable(name) {
+  if (!DEV_ONLY_OAUTH_PROVIDERS.has(String(name || ''))) return true;
+  return devProvidersFlagEnabled();
+}
+
 /**
  * Tri-state credential probe: 'present' | 'absent' | 'unreadable'.
  *
  * Callers that must tell a deliberate logout ('absent') from a momentary FS
  * failure ('unreadable') use this; `has*OAuthCredentials()` remains the plain
  * "can we use it right now" boolean and is exactly `state === 'present'`.
+ * A dev-only provider behind an unset MIXDOG_DEV_PROVIDERS always reads
+ * 'absent', so the registry never enables or self-heals it.
  */
 export function oauthCredentialProbeState(name) {
-  const probe = OAUTH_PROBE_STATES.get(String(name || ''));
+  const id = String(name || '');
+  if (!isOAuthProviderAvailable(id)) return 'absent';
+  const probe = OAUTH_PROBE_STATES.get(id);
   if (!probe) return 'absent';
   try { return probe(); } catch { return 'unreadable'; }
 }
@@ -228,5 +248,5 @@ export function oauthCredentialProbeState(name) {
 export function hasAnthropicOAuthCredentials() { return anthropicOAuthState() === 'present'; }
 export function hasOpenAIOAuthCredentials() { return openAIOAuthState() === 'present'; }
 export function hasGrokOAuthCredentials() { return grokOAuthState() === 'present'; }
-export function hasAntigravityOAuthCredentials() { return antigravityOAuthState() === 'present'; }
-export function hasCursorOAuthCredentials() { return cursorOAuthState() === 'present'; }
+export function hasAntigravityOAuthCredentials() { return oauthCredentialProbeState('antigravity-oauth') === 'present'; }
+export function hasCursorOAuthCredentials() { return oauthCredentialProbeState('cursor-oauth') === 'present'; }

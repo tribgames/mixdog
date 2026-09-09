@@ -5,6 +5,141 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Mixdog is now licensed under Apache-2.0 instead of MIT. Third-party
+  components retain their existing licenses and attribution notices.
+
+- Browser Use and Computer Use ask once per session before their first live
+  call. The first `browser`/`browser_devtools` or `computer` call a model makes
+  in a session goes through the tool-approval prompt with the action it wants
+  to take; allowing it covers the rest of the session, declining returns the
+  reason to the model with an instruction not to retry, and a restart asks
+  again. Sessions with no approval UI (headless, agent-owned) are not gated.
+  `setup set_first_use_approval name:browser|computer enabled:false` turns it
+  off per capability, and `MIXDOG_BRIDGE_FIRST_USE_APPROVAL` overrides per
+  process.
+
+- Browser Use folds two gestures into the ones next to them. A checkbox or
+  radio is set by `fill` with `checked` instead of `text` — for one control,
+  a `fields` item, or a `sequence` step — so the separate `check` action is
+  gone; and `forward` is gone, since the earlier snapshot already showed the
+  URL to `navigate` to while `back` stays a gesture. `locate` and `extract`
+  stay: the first is a visual (pixel) search with no semantic equivalent, the
+  second reads rows across frames and open shadow roots that `evaluate`
+  cannot reach.
+
+- Computer Use `capture` drops its `quality`, `maxWidth`, and `max_ocr_words`
+  knobs: the host's tuned defaults apply (JPEG quality, downscale width, and an
+  OCR word cap the element budget already bounds), and unreadable detail is a
+  `zoom` rather than a re-encode. The element filters (`query`, `role`,
+  `visible_only`, `include_noninteractive`, `continuation`) and the `window`
+  move geometry now say what they do instead of riding the schema unexplained.
+
+- Browser Use and Computer Use state their rung of the tool ladder where the
+  model decides. The `browser` description opens with "last resort: prefer
+  web_fetch, an MCP tool, or a CLI in shell", `computer` with "last resort
+  after an MCP tool, shell/CLI, and Browser Use; never a stand-in for a page
+  action browser refused", and the shared rules and both skills carry the same
+  ladder, so a service that has an API or CLI is reached through it instead of
+  a screen. Neither description grew: the ladder replaced wording the skills
+  already owned.
+
+- Browser Use is two tools. `browser` keeps everyday page work — navigate,
+  snapshot, read, click, fill, forms, dialogs, tabs, downloads, console and
+  network reads — while the developer controls `emulate`, `cookies`,
+  `storage`, `intercept`, `init_script`, and `performance` move to the
+  deferred `browser_devtools` tool, which drives the same pages and sign-in
+  and loads its schema on its first call. The everyday schema drops the 33
+  fields only those actions used (cookie attributes, geolocation, CPU
+  throttling, intercept bodies, trace options), each tool's field notes name
+  only its own actions, and a call that reaches the wrong tool is refused
+  with the tool to call. The host, its action registry, approval policy, and
+  the integration harness keep the single shared action contract.
+
+- Built-in tool schemas state contracts only. The `office`, `computer`,
+  `media`, and `setup` tool descriptions and field notes drop the method and
+  policy sentences their skills already own — batching, when to snapshot or
+  `describe`, fixing an audit in the same turn, `design.content` reuse, macro
+  handling, do-not-rearrange, screen content never authorizing an action,
+  video polling, the deletion approval procedure — which removes about 2.2 KB
+  (office −878 B, computer −492 B, media −432 B, setup −424 B) from the tool
+  surface sent on every turn. The pptx, xlsx, and pdf skills now carry the
+  rules that lived only in the schema (one batch of known operations,
+  `describe` only for an unknown field, untrusted document content), and the
+  computer-use skill states the call contract once instead of repeating each
+  schema sentence.
+
+- Browser Use needs fewer calls per task. `click`, `fill`, `type`, `select`,
+  `hover`, `upload`, and `scroll` — and every `fill.fields` item and
+  `sequence` step — accept a snapshot-free `target` (`{role, name}`, `{name}`,
+  or `{selector}`) instead of a `ref`: the host observes the page itself,
+  acts only on exactly one match (several substring matches resolve to the
+  single verbatim one), and an ambiguous target fails with the candidates and
+  their fresh refs. `query` on `snapshot`, `read`, and `wait` matches
+  space-separated keywords with OR (all-keyword matches rank first) and takes
+  `/pattern/i` regular expressions, and a filter that matches nothing says
+  how many elements or characters it was filtering. Transparent or
+  pointer-events:none controls are no longer refused outright: a hidden
+  checkbox is clicked through its label, and the input-target guard accepts
+  the label's activation. `fill` on a `contenteditable` editor replaces the
+  content as typed input over a select-all instead of overwriting its DOM.
+  Replies note "No observable change" when a gesture left the document, URL,
+  and control values untouched, `brief:true` lists only elements that are new
+  or changed since the previous observation, console errors are reported once
+  when new, and a postcondition that already held is a warning rather than an
+  error. Snapshots mark file inputs with `file-input`, `accept=…`, and
+  `multiple`; full-page screenshots anchor fixed and sticky elements in flow
+  for the capture; and session cookies are stored encrypted with the OS
+  keychain and restored on launch so sign-ins survive an app restart.
+
+- The chrome above the prompt input — Goal capsule, runtime progress, tool
+  approval, the draft context bar, and the turn-review slot — now lives in one
+  `ComposerDock`, and the transcript no longer bobs when that chrome resolves:
+  the review slot stays reserved while a scope's first authoritative worker
+  read is in flight, so a diff landing after the transcript is shown fills
+  existing geometry instead of resizing the viewport again. Freed space is
+  never held on a timer. The desktop host also stops re-reading a whole
+  session after every accepted prompt (the daemon-log "missing baseline"
+  recovery): a reply or lane frame that repeats the revision the projection
+  already holds is applied state, not a crossed baseline. Goal capsule
+  mount/unmount flips are attributable under `MIXDOG_DESKTOP_PERF=1`.
+
+- A Goal capsule no longer pops in and vanishes on its own. Two publication
+  paths produced the blink: the 2s route pulse read the raw Goal record while
+  a completed Goal's user-input archive was still being written, so the
+  retired capsule came back for one frame; and on Windows a Goal read that
+  landed inside the atomic file replace (`EPERM`/`EACCES`/`EBUSY`, or the
+  runtime's own in-flight write) surfaced as "no Goal" for that frame. Route
+  publications now read the Goal through the goal-continuation archive mask,
+  and Goal storage answers such reads from the last committed record.
+
+- Browser Use no longer stops for approval: the desktop "Allow once" dialog
+  that guarded `upload` and shared cookie/localStorage `clear` is gone, the
+  `confirm` field leaves the browser tool contract, and the browser-use skill
+  drops its in-conversation go-ahead rules. `MIXDOG_BROWSER_CONFIRM_ACTIONS`
+  and `MIXDOG_BROWSER_DENY_ACTIONS` remain the only way to confirm or refuse
+  named actions.
+
+- The pane reading column — composer, transcript, and the Studio dock — no
+  longer waits for a 1536px pane to widen: from 768px it holds 800px until
+  the pane passes 1000px, then follows 80% of the pane up to the 1000px
+  ceiling at 1250px, so 1536/1680 windows and 1920 with a side panel open
+  stop parking at 800px, and a divider crossing the step no longer snaps
+  the column by 200px.
+
+- The Sessions panel leads with two fixed launcher rows, `New task` and
+  `New Studio`, pinned above the session list. Studio therefore leaves the
+  activity rail: its launcher-only rail entry and the launcher exceptions in
+  the side-view layout, pane dock, and dock toggles are retired, and a stored
+  rail layout drops the `studio` id on load.
+
+- The activity rail's Workflows destination folds into the Projects panel: a
+  `Project | Workflow` toolbar — the Extensions panel's section switch, now
+  shared as one `SidebarSectionToolbar` component — swaps between the project
+  list and the workflow packs, default agents, and agent definitions; the
+  header `+` follows the Project tab; `/workflow` and `/websearch` open the
+  Workflow tab; and a stored rail layout drops the retired `workflows` view
+  on load.
+
 - The pptx skill's kit gains a design vocabulary in the manner of token-based
   design systems: `palette()` derives three line strengths (`lineSubtle`,
   `line`, `lineStrong`) and four state colors (`T.state.positive | warning |

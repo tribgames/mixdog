@@ -352,8 +352,23 @@ export async function pruneOffloadSession(sessionId, getMessages) {
     let serialized;
     try { serialized = JSON.stringify(getMessages()); } catch { return; }
     const haystack = process.platform === 'win32' ? serialized.toLowerCase() : serialized;
+    // Compact archives may themselves reference older archives or offloaded
+    // results. Keep the reachable graph, not just directly visible files.
+    const reachable = new Set(haystack.match(/\b[a-f0-9]{64}\.txt\b/g) || []);
+    const pending = [...reachable];
+    for (let i = 0; i < pending.length; i += 1) {
+        let text;
+        try { text = await readFile(join(dir, pending[i]), 'utf8'); }
+        catch { return; } // An unreadable root must not destroy recovery evidence.
+        for (const name of text.match(/\b[a-f0-9]{64}\.txt\b/g) || []) {
+            if (reachable.has(name)) continue;
+            reachable.add(name);
+            pending.push(name);
+        }
+    }
     await Promise.all(candidates
         .filter(({ name, filePath }) => {
+            if (reachable.has(name)) return false;
             const normalizedPath = normalizeOutputPath(filePath);
             const needles = [normalizedPath, name];
             return !needles.some((needle) => {

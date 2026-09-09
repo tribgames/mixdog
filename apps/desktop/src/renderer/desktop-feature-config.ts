@@ -8,7 +8,6 @@
 export type DesktopFeatureId =
   | "sessions"
   | "projects"
-  | "workflows"
   | "extensions"
   | "schedules"
   | "webhooks"
@@ -22,7 +21,6 @@ export type DesktopFeatureId =
 export const DESKTOP_FEATURES: Readonly<Record<DesktopFeatureId, boolean>> = {
   sessions: true,
   projects: true,
-  workflows: true,
   extensions: true,
   schedules: true,
   webhooks: false,
@@ -37,7 +35,6 @@ export const DESKTOP_FEATURES: Readonly<Record<DesktopFeatureId, boolean>> = {
 export type DesktopSidebarDestination =
   | "sessions"
   | "projects"
-  | "workflows"
   | "extensions"
   | "schedules"
   | "webhooks";

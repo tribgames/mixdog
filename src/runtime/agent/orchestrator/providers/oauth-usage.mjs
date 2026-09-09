@@ -8,6 +8,8 @@ import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { num, round, cleanString } from './lib/usage-primitives.mjs';
+import { currentProviderAccountId } from '../../../shared/provider-auth-binding.mjs';
+import { ACCOUNT_PROVIDERS, recordProviderAccountUsage } from '../../../shared/provider-accounts.mjs';
 
 const CACHE_FILE = 'gateway-oauth-usage-cache.json';
 const LIVE_CACHE_TTL_MS = 60_000;
@@ -34,7 +36,13 @@ function providerKey(routeInfo = {}) {
 }
 
 function routeKey(routeInfo = {}) {
-  return `${providerKey(routeInfo)}\u0001${String(routeInfo?.model || '')}`;
+  return `${cacheProviderKey(routeInfo)}\u0001${String(routeInfo?.model || '')}`;
+}
+
+function cacheProviderKey(routeInfo = {}) {
+  const provider = providerKey(routeInfo);
+  const accountId = routeInfo.accountId || currentProviderAccountId(provider);
+  return accountId === 'default' ? provider : `${provider}\u0002${accountId}`;
 }
 
 function cacheModelId(value) {
@@ -111,7 +119,8 @@ function invalidateOAuthUsageSnapshots(provider) {
   const providerOnly = String(provider || '').toLowerCase();
   if (!providerOnly) return;
   const routePrefix = `${providerOnly}\u0001`;
-  const owned = (key) => key === providerOnly || String(key).startsWith(routePrefix);
+  const owned = (key) => key === providerOnly || String(key).startsWith(routePrefix)
+    || String(key).startsWith(`${providerOnly}\u0002`);
   for (const key of [...memoryCache.keys()]) {
     if (owned(key)) memoryCache.delete(key);
   }
@@ -180,7 +189,7 @@ function newestProviderSnapshot(entries, provider, ttlMs) {
 
 export function readCachedOAuthUsageSnapshot(routeInfo, options = {}) {
   const key = routeKey(routeInfo);
-  const providerOnlyKey = providerKey(routeInfo);
+  const providerOnlyKey = cacheProviderKey(routeInfo);
   const diskTtlMs = options?.allowStale === true
     ? STALE_DISK_CACHE_TTL_MS
     : DISK_CACHE_TTL_MS;
@@ -780,8 +789,11 @@ async function fetchGrokUsage(providerObj, routeInfo) {
 export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () => {}, options = {}) {
   const provider = providerKey(routeInfo);
   if (!provider.includes('oauth') && provider !== 'cursor-api') return null;
+  const accountId = routeInfo.accountId || providerObj?.providerAccountId || currentProviderAccountId(provider);
+  routeInfo = { ...routeInfo, accountId };
+  if (typeof providerObj?.forAccount === 'function') providerObj = providerObj.forAccount(accountId);
   const key = routeKey(routeInfo);
-  const providerOnly = providerKey(routeInfo);
+  const providerOnly = cacheProviderKey(routeInfo);
   const force = options?.force === true;
   if (!force) {
     const cached = freshSnapshot(memoryCache.get(key), LIVE_CACHE_TTL_MS)
@@ -805,7 +817,7 @@ export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () =
         snapshot = await providerObj.getUsageSnapshot();
       }
     } catch (err) {
-      if (provider === 'anthropic-oauth') snapshot = latestClaudeStatuslineUsage();
+      if (provider === 'anthropic-oauth' && accountId === 'default') snapshot = latestClaudeStatuslineUsage();
       if (!snapshot) {
         warnThrottled(log, `oauth-usage:${provider}`, `gateway ${provider} usage fetch unavailable: ${err?.message || err}`);
       }
@@ -817,10 +829,16 @@ export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () =
       return null;
     }
 
+    if (ACCOUNT_PROVIDERS.includes(provider)) {
+      try { recordProviderAccountUsage(provider, accountId, snapshot); }
+      catch (error) { log(`Account usage could not be saved: ${error.message}`); }
+    }
+
     const model = cacheModelId(routeInfo?.model) || cacheModelId(snapshot.model);
     const providerSnapshot = {
       ...snapshot,
       provider: routeInfo?.provider || snapshot.provider || provider,
+      accountId,
       cachedAt: Date.now(),
     };
     delete providerSnapshot.model;
@@ -830,7 +848,7 @@ export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () =
       : providerSnapshot;
 
     if (model) {
-      const normalizedKey = `${provider}\u0001${model}`;
+      const normalizedKey = `${providerOnly}\u0001${model}`;
       memoryCache.set(normalizedKey, routeSnapshot);
       writeSnapshotCache(normalizedKey, routeSnapshot);
     }

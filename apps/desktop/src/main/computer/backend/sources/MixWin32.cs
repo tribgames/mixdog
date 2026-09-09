@@ -244,6 +244,21 @@ public static class MixMsaa {
 }
 
 public class MixWin32 {
+  public static Action<int, int, bool, string> PointerProgress;
+  public static int PointerEventsGenerated;
+  public static int PointerEventsFailed;
+  static void ReportPointer(int x, int y, bool held, string phase = null) {
+    var report = PointerProgress;
+    if (report != null) {
+      PointerEventsGenerated++;
+      try { report(x, y, held, phase ?? (held ? "drag" : "move")); }
+      catch { PointerEventsFailed++; }
+    }
+  }
+  public static void ReportCurrentPointer(string phase) {
+    POINT point = Cursor();
+    ReportPointer(point.x, point.y, false, phase);
+  }
   [DllImport("user32.dll", EntryPoint = "mouse_event")] static extern void MouseEventNative(uint f, int dx, int dy, int d, IntPtr e);
   [StructLayout(LayoutKind.Sequential)] struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
   [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO info);
@@ -266,7 +281,19 @@ public class MixWin32 {
   }
   public static void mouse_event(uint f, int dx, int dy, int d, IntPtr e) {
     if ((f & (0x0002 | 0x0008 | 0x0020 | 0x0800 | 0x1000)) != 0) MixInputObservation.AssertContinue();
+    bool down = (f & (0x0002 | 0x0008 | 0x0020)) != 0;
+    if (down && PointerProgress != null) {
+      POINT point = Cursor();
+      ReportPointer(point.x, point.y, false, "prepare");
+      System.Threading.Thread.Sleep(120);
+      MixInputObservation.AssertContinue();
+    }
     MouseEventNative(f, dx, dy, d, MixInputObservation.Marker);
+    if ((f & (WHEEL | HWHEEL)) != 0) ReportCurrentPointer("scroll");
+    if (down || (f & (0x0004 | 0x0010 | 0x0040)) != 0) {
+      POINT point = Cursor();
+      ReportPointer(point.x, point.y, down, down ? "press" : "release");
+    }
   }
   /// Milliseconds since input not tagged by this host's workers.
   /// int.MaxValue when the most recent input on record is an injection.
@@ -770,14 +797,18 @@ public class MixWin32 {
     uint flags = PointerModifiers(modifiers);
     SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags), PointParam(start.x, start.y));
     SendMessageChecked(target, WM_LBUTTONDOWN, new UIntPtr(flags | MK_LBUTTON), PointParam(start.x, start.y));
+    ReportPointer(screenX1, screenY1, true);
     for (int step = 1; step <= 12; step++) {
       int x = screenX1 + (screenX2 - screenX1) * step / 12;
       int y = screenY1 + (screenY2 - screenY1) * step / 12;
       POINT p = ClientPoint(target, x, y);
       SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags | MK_LBUTTON), PointParam(p.x, p.y));
+      ReportPointer(x, y, true);
+      System.Threading.Thread.Sleep(20);
     }
     POINT end = ClientPoint(target, screenX2, screenY2);
     SendMessageChecked(target, WM_LBUTTONUP, new UIntPtr(flags), PointParam(end.x, end.y));
+    ReportPointer(screenX2, screenY2, false);
     return WindowId(target);
   }
   public static string BackgroundWheel(
@@ -795,9 +826,21 @@ public class MixWin32 {
     SendMessageChecked(target, horizontal ? WM_MOUSEHWHEEL : WM_MOUSEWHEEL, new UIntPtr(packed), PointParam(screenX, screenY));
     return WindowId(target);
   }
+  public static bool SupportsBackgroundKeyboardClass(string name) {
+    return !String.Equals(name, "ApplicationFrameWindow", StringComparison.OrdinalIgnoreCase)
+      && !String.Equals(name, "Windows.UI.Core.CoreWindow", StringComparison.OrdinalIgnoreCase);
+  }
   static IntPtr KeyboardTarget(IntPtr top, IntPtr preferred) {
     if (!IsWindowHandle(top)) {
       throw new InvalidOperationException("stale_target|background keyboard target is stale or invalid");
+    }
+    // Packaged application hosts do not route posted keyboard messages to
+    // their application input pipeline. Use semantic value operations or
+    // explicitly authorized foreground input instead of a silent no-op.
+    string topClass = ClassNameOf(top);
+    if (!SupportsBackgroundKeyboardClass(topClass)) {
+      throw new InvalidOperationException(
+        "background_unsupported|packaged application keyboard messages are unsupported; use semantic controls or explicit foreground delivery");
     }
     if (preferred != IntPtr.Zero) {
       if (!BelongsToTop(top, preferred)) {
@@ -1031,6 +1074,31 @@ public class MixWin32 {
     if (!SetProcessDpiAwarenessContext(new IntPtr(-4))) SetProcessDPIAware();
   }
   public const uint LDOWN = 0x02, LUP = 0x04, RDOWN = 0x08, RUP = 0x10, WHEEL = 0x0800, HWHEEL = 0x1000, MDOWN = 0x20, MUP = 0x40;
+  public static POINT CursorMotionPoint(int x1, int y1, int x2, int y2, int step, int steps) {
+    double t = Math.Max(0, Math.Min(1, (double)step / Math.Max(1, steps)));
+    double eased = t * t * (3 - 2 * t);
+    POINT p = new POINT();
+    p.x = (int)Math.Round(x1 + (x2 - x1) * eased);
+    p.y = (int)Math.Round(y1 + (y2 - y1) * eased);
+    return p;
+  }
+  public static void GlideCursor(IntPtr target, int x, int y) {
+    MixInputObservation.AssertContinue();
+    POINT start = Cursor();
+    double distance = Math.Sqrt(Math.Pow(x - start.x, 2) + Math.Pow(y - start.y, 2));
+    int steps = Math.Max(1, (int)Math.Ceiling(Math.Min(650, Math.Max(240, distance * .25)) / 16));
+    for (int step = 1; step <= steps; step++) {
+      MixInputObservation.AssertContinue();
+      AssertDragTarget(target, x, y);
+      POINT point = CursorMotionPoint(start.x, start.y, x, y, step, steps);
+      if (!SetCursorPos(point.x, point.y)) throw new InvalidOperationException("input_delivery_failed: pointer movement was rejected");
+      POINT actual = Cursor();
+      ReportPointer(actual.x, actual.y, false, "move");
+      System.Threading.Thread.Sleep(16);
+    }
+    MixInputObservation.AssertContinue();
+    AssertDragTarget(target, x, y);
+  }
   public static void Click(int x, int y) {
     SetCursorPos(x, y); System.Threading.Thread.Sleep(40);
     mouse_event(LDOWN,0,0,0,IntPtr.Zero); mouse_event(LUP,0,0,0,IntPtr.Zero);
@@ -1063,21 +1131,25 @@ public class MixWin32 {
   public static void Drag(int x1, int y1, int x2, int y2, IntPtr target) {
     AssertDragTarget(target, x1, y1);
     AssertDragTarget(target, x2, y2);
-    SetCursorPos(x1, y1); System.Threading.Thread.Sleep(60);
+    GlideCursor(target, x1, y1); System.Threading.Thread.Sleep(60);
     AssertDragTarget(target, x1, y1);
     mouse_event(LDOWN,0,0,0,IntPtr.Zero);
     try {
+      ReportPointer(x1, y1, true);
       System.Threading.Thread.Sleep(150);
       for (int i = 1; i <= 12; i++) {
         int x = x1 + (x2 - x1) * i / 12, y = y1 + (y2 - y1) * i / 12;
         AssertDragTarget(target, x, y);
         SetCursorPos(x, y);
+        ReportPointer(x, y, true);
         System.Threading.Thread.Sleep(20);
       }
       System.Threading.Thread.Sleep(80);
       AssertDragTarget(target, x2, y2);
     } finally {
       mouse_event(LUP,0,0,0,IntPtr.Zero);
+      POINT released = Cursor();
+      ReportPointer(released.x, released.y, false);
     }
   }
   // Named MouseWheel: PowerShell resolves members case-insensitively, so a

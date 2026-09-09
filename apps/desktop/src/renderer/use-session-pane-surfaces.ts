@@ -31,6 +31,13 @@ export function useSessionPaneSurfaces() {
       withSessionSideSurface(current, sessionId, surface));
   }, []);
 
+  const hideBrowserSurface = useCallback((sessionId: string) => {
+    pendingBrowserAutoReveal.current.delete(sessionId);
+    setSessionSideSurfaces((current) => current.get(sessionId) === "browser"
+      ? withSessionSideSurface(current, sessionId, null)
+      : current);
+  }, []);
+
   const setSessionPanelView = useCallback((
     sessionId: string,
     view: SessionSidePanelView | null,
@@ -61,16 +68,14 @@ export function useSessionPaneSurfaces() {
     browserSurfaces.setRemoteViewed(String(change?.sessionId || ""), change?.active === true);
   }), [browserSurfaces]);
 
-  useEffect(() => window.mixdogDesktop?.onBrowserSessionReleased?.((sessionId) => {
-    pendingBrowserAutoReveal.current.delete(sessionId);
-    setSessionSideSurfaces((current) => current.get(sessionId) === "browser"
-      ? withSessionSideSurface(current, sessionId, null)
-      : current);
+  useEffect(() => window.mixdogDesktop?.onBrowserSessionReleased?.((sessionId, reason) => {
+    if (reason !== "unloaded") hideBrowserSurface(sessionId);
     browserSurfaces.release(sessionId);
-  }), [browserSurfaces]);
+  }), [browserSurfaces, hideBrowserSurface]);
 
   return {
     browserSurfaces,
+    hideBrowserSurface,
     pendingBrowserAutoReveal,
     releaseDeletedSessionSurfaces,
     sessionDiffs,

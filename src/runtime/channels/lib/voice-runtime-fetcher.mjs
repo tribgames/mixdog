@@ -26,7 +26,7 @@ import { createHash } from 'crypto'
 import {
   chmodSync, closeSync,
   createReadStream, createWriteStream, existsSync, mkdirSync, openSync,
-  readFileSync, readdirSync, rmSync, writeFileSync,
+  readFileSync, readdirSync, rmSync, statSync, writeFileSync,
 } from 'fs'
 import { setTimeout as sleep } from 'timers/promises'
 import { join, dirname } from 'path'
@@ -745,6 +745,29 @@ function resolveManagedFfmpegPath(dataDir) {
     if (existsSync(p)) return p
   }
   return null
+}
+
+// Describe the resolved files, not the latest manifest's runtime version:
+// an older installed runtime may still be in use after an app update.
+export function voiceRuntimeInfo(runtime) {
+  let model = null
+  try {
+    model = manifestModelEntry(JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8')), runtime.modelId)
+  } catch { /* installed metadata remains useful without the bundled manifest */ }
+  const whisper = String(runtime.whisperCmd || '').match(/[\\/]whisper-([^-\\/]+)-([^\\/]+)[\\/]/)
+  const ffmpeg = String(runtime.ffmpegPath || '').match(/[\\/]ffmpeg-runtime[\\/]ffmpeg-([^\\/]+)[\\/]/)
+  let modelBytes = model?.size || 0
+  if (runtime.modelPath) {
+    try { modelBytes = statSync(runtime.modelPath).size } catch { modelBytes = 0 }
+  }
+  return {
+    engine: 'whisper.cpp',
+    runtimeVersion: whisper?.[1] || '',
+    acceleration: whisper?.[2] || '',
+    model: runtime.modelName || model?.id || '',
+    modelBytes,
+    ffmpegVersion: ffmpeg?.[1] || '',
+  }
 }
 
 export function resolveVoiceRuntime(dataDir, { modelId = 'standard' } = {}) {

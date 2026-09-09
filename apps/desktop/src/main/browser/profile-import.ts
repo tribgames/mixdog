@@ -12,11 +12,18 @@ import { execFile, spawn } from 'node:child_process';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { promisify } from 'node:util';
 import { app, safeStorage, type Session } from 'electron';
+import type { BrowserCookieJar } from './cookie-jar';
 import {
   nativeBrowserImporterPath,
   resolvePackagedBrowserImporter,
   type NativeBrowserImporter,
 } from './profile-import-native';
+import {
+  CookieImportError,
+  importBrowserCookies,
+  parseBrowserCookieReport,
+} from './profile-import-cookies';
+export type { BrowserImportCookie } from './profile-import-cookies';
 
 const CHROME_SOURCE_ID = 'chrome';
 const HISTORY_LIMIT = 10_000;
@@ -101,18 +108,6 @@ interface ChromeLocalState {
   };
 }
 
-export interface BrowserImportCookie {
-  name?: unknown;
-  value?: unknown;
-  domain?: unknown;
-  path?: unknown;
-  expires?: unknown;
-  httpOnly?: unknown;
-  secure?: unknown;
-  session?: unknown;
-  sameSite?: unknown;
-}
-
 interface NativeCredential {
   url?: unknown;
   username?: unknown;
@@ -124,12 +119,13 @@ export interface BrowserProfileImportOptions {
   userDataDirectory: string;
   temporaryDirectory: string;
   partition: Session;
+  cookieJar?: BrowserCookieJar;
   nativeImporterPath?: string;
   chromeExecutablePath?: string;
   chromeUserDataDirectory?: string;
   prepareChromeForImport?: () => Promise<void>;
   readNativeCredentials?: (profileId: string) => Promise<NativeCredential[]>;
-  readNativeCookies?: (profileId: string) => Promise<BrowserImportCookie[]>;
+  readNativeCookies?: (profileId: string) => Promise<unknown>;
 }
 
 export interface BrowserProcessCloseTarget {
@@ -341,15 +337,6 @@ function chromeTimeToUnixMilliseconds(value: unknown): number {
   const micros = Number(value);
   if (!Number.isFinite(micros) || micros <= 0) return 0;
   return Math.max(0, Math.trunc(micros / 1_000 - CHROME_EPOCH_OFFSET_MS));
-}
-
-function cookieSameSite(value: unknown): Electron.CookiesSetDetails['sameSite'] | undefined {
-  switch (String(value || '').toLowerCase()) {
-    case 'strict': return 'strict';
-    case 'lax': return 'lax';
-    case 'none': return 'no_restriction';
-    default: return undefined;
-  }
 }
 
 async function readEncryptedChildJson(
@@ -638,9 +625,10 @@ export class BrowserProfileImportService {
           counts[item] = count;
           onProgress({ jobId: request.jobId, item, state: 'completed', count });
         } catch (error) {
+          if (error instanceof CookieImportError) counts[item] = error.imported;
           const message = cleanError(error);
           errors[item] = message;
-          onProgress({ jobId: request.jobId, item, state: 'failed', error: message });
+          onProgress({ jobId: request.jobId, item, state: 'failed', count: counts[item], error: message });
         }
       }
       return { jobId: request.jobId, counts, errors };
@@ -650,43 +638,25 @@ export class BrowserProfileImportService {
   }
 
   private async importCookies(profileId: string): Promise<number> {
-    const cookies = this.options.readNativeCookies
+    const output = this.options.readNativeCookies
       ? await this.options.readNativeCookies(profileId)
       : await this.readNativeCookies(profileId);
-    let imported = 0;
-    for (const cookie of cookies) {
-      const name = String(cookie.name || '');
-      const value = String(cookie.value || '');
-      const domain = String(cookie.domain || '');
-      const cookiePath = String(cookie.path || '/') || '/';
-      const host = domain.replace(/^\./, '');
-      if (!name || !host || !/^[a-z0-9.-]+$/i.test(host)) continue;
-      const secure = cookie.secure === true;
-      const sameSite = cookieSameSite(cookie.sameSite);
-      try {
-        await this.options.partition.cookies.set({
-          url: `${secure ? 'https' : 'http'}://${host}${cookiePath.startsWith('/') ? cookiePath : '/'}`,
-          name,
-          value,
-          domain,
-          path: cookiePath,
-          secure,
-          httpOnly: cookie.httpOnly === true,
-          ...(sameSite ? { sameSite } : {}),
-          ...(cookie.session !== true && Number(cookie.expires) > 0
-            ? { expirationDate: Number(cookie.expires) }
-            : {}),
-        });
-        imported += 1;
-      } catch {
-        // One invalid/expired cookie must not discard the rest of the profile.
+    const report = parseBrowserCookieReport(output);
+    return await importBrowserCookies({ cookies: this.options.cookieJar || this.options.partition.cookies }, report.cookies, async (existing) => {
+      if (!safeStorage.isEncryptionAvailable()) {
+        throw new Error('Windows credential encryption is unavailable; cookie import was not started.');
       }
-    }
-    await this.options.partition.flushStorageData();
-    return imported;
+      const backupDirectory = join(this.options.userDataDirectory, 'browser-import-backups');
+      await mkdir(backupDirectory, { recursive: true });
+      await writeFile(
+        join(backupDirectory, `cookies-${Date.now()}-${randomUUID()}.bin`),
+        safeStorage.encryptString(JSON.stringify({ version: 1, cookies: existing })),
+        { mode: 0o600, flag: 'wx' },
+      );
+    }, report.failures);
   }
 
-  private async readNativeCookies(profileId: string): Promise<BrowserImportCookie[]> {
+  private async readNativeCookies(profileId: string): Promise<unknown> {
     const importer = await this.nativeImporter('cookies');
     if (!importer) {
       throw new Error('The packaged native browser importer is not installed.');
@@ -699,13 +669,7 @@ export class BrowserProfileImportService {
       profileId,
       '--json',
     ], importer.sha256);
-    if (!Array.isArray(output)) {
-      throw new Error('Native cookie importer returned an invalid result.');
-    }
-    if (output.length > 1_000_000) {
-      throw new Error('Native cookie importer returned too many cookies.');
-    }
-    return output as BrowserImportCookie[];
+    return output;
   }
 
   private async importHistory(profileId: string, jobId: string): Promise<number> {

@@ -248,6 +248,9 @@ export class AnthropicProvider {
                   ...(effortProjection ? [EFFORT_CONFIGURATION_BETA] : []),
                 ].join(','),
             };
+        const requestHeaders = betaHeaders || opts.requestHeaders
+            ? { ...(betaHeaders || {}), ...(opts.requestHeaders || {}) }
+            : null;
 
         const MAX_MIDSTREAM_RETRIES = ANTHROPIC_MAX_MIDSTREAM_RETRIES;
         let firstAttemptError = null;
@@ -356,7 +359,7 @@ export class AnthropicProvider {
                 const message = await withRetry(
                     async ({ signal: attemptSignal }) => this.client.messages.create(nonStreamingParams, {
                         signal: attemptSignal,
-                        ...(betaHeaders ? { headers: betaHeaders } : {}),
+                        ...(requestHeaders ? { headers: requestHeaders } : {}),
                     }),
                     {
                         signal: lifetime.signal,
@@ -454,7 +457,7 @@ export class AnthropicProvider {
                         async ({ signal: attemptSignal }) => {
                             const res = await this.client.messages.create(params, {
                                 signal: attemptSignal,
-                                ...(betaHeaders ? { headers: betaHeaders } : {}),
+                                ...(requestHeaders ? { headers: requestHeaders } : {}),
                             }).asResponse();
                             if (!res.ok) {
                                 const text = await res.text().catch(() => '');

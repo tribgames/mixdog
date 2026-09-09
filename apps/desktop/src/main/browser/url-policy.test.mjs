@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { normalizeAgentUrl, normalizePageUrl } from './url-policy.ts';
+import { normalizeAgentUrl, normalizePageUrl, normalizeRestoredPageUrl } from './url-policy.ts';
 
 test('browser URL policy blocks credentials, metadata, and private networks but keeps loopback', () => {
   assert.equal(normalizeAgentUrl('example.com'), 'https://example.com/');
@@ -36,4 +36,22 @@ test('browser URL policy blocks credentials, metadata, and private networks but 
   assert.throws(() => normalizePageUrl('https://user:pass@example.com'), /embedded credentials/);
   assert.throws(() => normalizePageUrl('http://169.254.169.254/latest/meta-data'), /metadata/);
   assert.throws(() => normalizePageUrl('file:///C:/Users/example/secrets.txt'), /only http\(s\)/);
+});
+
+test('session restoration accepts an internal blank tab alongside web tabs without relaxing navigation admission', () => {
+  const policy = { allowedDomains: ['gamerscroll.com'] };
+  assert.deepEqual(
+    ['about:blank', 'https://gamerscroll.com/rankings/'].map(url => normalizeRestoredPageUrl(url, policy)),
+    ['about:blank', 'https://gamerscroll.com/rankings/'],
+  );
+  for (const normalize of [normalizeAgentUrl, normalizePageUrl]) {
+    assert.throws(() => normalize('about:blank', policy), /only http\(s\)/);
+  }
+  for (const url of ['about:config', 'about:blank#fragment', 'file:///C:/secrets.txt', 'javascript:alert(1)', 'data:text/html,test']) {
+    assert.throws(() => normalizeRestoredPageUrl(url, policy), /only http\(s\)/);
+  }
+  assert.throws(() => normalizeRestoredPageUrl('https://outside.test', policy), /domain policy/);
+  assert.throws(() => normalizeRestoredPageUrl('http://192.168.1.1'), /private or internal/);
+  assert.throws(() => normalizeRestoredPageUrl('http://169.254.169.254/latest/meta-data'), /metadata/);
+  assert.throws(() => normalizeRestoredPageUrl('https://user:pass@gamerscroll.com'), /embedded credentials/);
 });

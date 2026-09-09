@@ -141,10 +141,10 @@ export function evaluateOfficeChecklist({
   if (visualRequired) {
     defaults.push({
       id: 'full-render-coverage',
-      label: 'Every rendered page or slide was included in visual review.',
+      label: 'Every page or slide has a rendered image; visual acceptance is recorded separately.',
       required: true,
-      status: visualCoverage?.complete === true ? 'pass' : 'fail',
-      evidence: visualCoverage?.complete === true
+      status: visualCoverage?.complete === true && Number(visualCoverage.total) > 0 ? 'pass' : 'fail',
+      evidence: visualCoverage?.complete === true && Number(visualCoverage.total) > 0
         ? [`${visualCoverage.reviewed}/${visualCoverage.total}`]
         : ['visual coverage is incomplete'],
     });

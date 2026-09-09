@@ -34,16 +34,24 @@ export interface BrowserDialogReportHost {
 
 export function createBrowserDialogReport(host: BrowserDialogReportHost) {
   const { diagnostics: diagnosticsFor, cdp, pageId: stablePageId } = host;
+  const answering = new WeakSet<PendingBrowserDialog>();
   async function handleDialog(
     guest: WebContents,
     accept: boolean,
     promptText: string,
     signal?: AbortSignal,
+    beforeDispatch?: () => void,
   ): Promise<void> {
     const diagnostics = diagnosticsFor(guest);
     const pending = diagnostics.pendingDialog;
     if (!pending) throw new Error('no JavaScript dialog is currently open');
-    const target = { sessionId: pending.sessionId };
+    if (answering.has(pending)) throw new Error('Browser dialog is already being answered.');
+    answering.add(pending);
+    const target = { sessionId: pending.sessionId, beforeDispatch: () => {
+      beforeDispatch?.();
+      if (diagnostics.pendingDialog !== pending) throw new Error('Browser dialog changed; answer was not sent.');
+    } };
+    try {
     if (pending.bridgeRequestId) {
       await cdp.call(
         guest,
@@ -55,7 +63,8 @@ export function createBrowserDialogReport(host: BrowserDialogReportHost) {
     } else {
       await cdp.call(guest, 'Page.handleJavaScriptDialog', { accept, promptText }, signal, target);
     }
-    diagnostics.pendingDialog = null;
+    if (diagnostics.pendingDialog === pending) diagnostics.pendingDialog = null;
+    } finally { answering.delete(pending); }
   }
 
   function diagnosticsResult(guest: WebContents): BrowserCommandResult {

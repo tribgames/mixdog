@@ -173,15 +173,3 @@ export function noteProviderFailure(state, provider, errorMessage, errorKind, { 
 // Selection is config-driven (no preference cache, no historical ranking).
 // We only honor active cooldownUntil set by noteProviderFailure so callers
 // don't spin on a known-rate-limited extractor within the same window.
-export function rankScrapeExtractors(_host, state, defaults) {
-  const nowTime = Date.now()
-  const active = []
-  const cooling = []
-  for (const extractor of defaults) {
-    const info = state?.providers?.[extractor]
-    const until = info?.cooldownUntil ? new Date(info.cooldownUntil).getTime() : 0
-    if (Number.isFinite(until) && until > nowTime) cooling.push(extractor)
-    else active.push(extractor)
-  }
-  return active.length > 0 ? [...active, ...cooling] : cooling
-}

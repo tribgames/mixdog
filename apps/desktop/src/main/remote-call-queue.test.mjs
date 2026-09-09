@@ -4,6 +4,45 @@ import { createRemoteCallQueue } from './remote-call-queue.ts';
 
 const deferred = () => Promise.withResolvers();
 
+test('terminal input bypasses unrelated work while terminal lifecycle stays ordered', async () => {
+  const queue = createRemoteCallQueue();
+  const unrelated = deferred();
+  const ready = deferred();
+  const seen = [];
+  const slow = queue.run('getVoiceStatus', async () => { await unrelated.promise; });
+  const ensure = queue.run('termEnsure', async () => {
+    seen.push('ensure');
+    await ready.promise;
+  });
+  const writes = ['한', '글', '\r'].map((data) =>
+    queue.run('termWrite', async () => { seen.push(data); }));
+  const resize = queue.run('termResize', async () => { seen.push('resize'); });
+  const dispose = queue.run('termDispose', async () => { seen.push('dispose'); });
+  await Promise.resolve();
+  assert.deepEqual(seen, ['ensure']);
+  ready.resolve();
+  await Promise.all([ensure, ...writes, resize, dispose]);
+  assert.deepEqual(seen, ['ensure', '한', '글', '\r', 'resize', 'dispose']);
+  unrelated.resolve();
+  await slow;
+  queue.close();
+});
+
+test('disconnect rejects queued terminal input without replaying it', async () => {
+  const queue = createRemoteCallQueue();
+  const gate = deferred();
+  const running = queue.run('termEnsure', async () => { await gate.promise; });
+  let writes = 0;
+  const queued = queue.run('termWrite', async () => { writes += 1; });
+  const rejected = assert.rejects(queued, /disconnected/);
+  await Promise.resolve();
+  queue.close();
+  gate.resolve();
+  await Promise.all([running, rejected]);
+  await assert.rejects(queue.run('termWrite', async () => { writes += 1; }), /disconnected/);
+  assert.equal(writes, 0);
+});
+
 test('a slow read does not block another read; mutations remain ordered barriers', async () => {
   const queue = createRemoteCallQueue(2);
   const slow = deferred();

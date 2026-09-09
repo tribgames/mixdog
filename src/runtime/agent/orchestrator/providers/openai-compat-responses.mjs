@@ -90,7 +90,10 @@ export async function sendCompatResponses(provider, messages, useModel, tools, o
         streamed = await withRetry(
             async ({ signal: attemptSignal }) => {
                 const stream = await withRetry(
-                    ({ signal: openSignal }) => provider.client.responses.create(params, { signal: openSignal }),
+                    ({ signal: openSignal }) => provider.client.responses.create(params, {
+                        signal: openSignal,
+                        ...(opts.requestHeaders ? { headers: opts.requestHeaders } : {}),
+                    }),
                     {
                         signal: attemptSignal,
                         maxAttempts: 1,

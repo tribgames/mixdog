@@ -90,6 +90,8 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
     '/node_modules/mixdog/src/runtime/office/quality/visual-diff.mjs',
     '/node_modules/mixdog/src/runtime/office/com/office-com-host.ps1',
     '/node_modules/mixdog/src/runtime/office/com/office-com-session-host.ps1',
+    '/node_modules/mixdog/src/runtime/office/com/office-com-cleanup.ps1',
+    '/node_modules/mixdog/src/runtime/office/com/office-word-formatting.ps1',
     '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx',
     '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx.mixdog.json',
     '/node_modules/@huggingface/transformers/package.json',
@@ -134,6 +136,8 @@ test('built runtime archive metadata and emitted native sidecar agree', async ()
     ...nativeBinaryEntries,
     '/node_modules/mixdog/src/runtime/office/com/office-com-host.ps1',
     '/node_modules/mixdog/src/runtime/office/com/office-com-session-host.ps1',
+    '/node_modules/mixdog/src/runtime/office/com/office-com-cleanup.ps1',
+    '/node_modules/mixdog/src/runtime/office/com/office-word-formatting.ps1',
     '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx',
     '/node_modules/mixdog/src/runtime/office/design/library/templates/mixdog-executive.pptx.mixdog.json',
   ])];

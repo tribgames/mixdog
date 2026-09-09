@@ -1,8 +1,8 @@
 /**
  * The remote (mobile) view of a session's visible page: a de-duplicated JPEG
- * frame the client polls for, and the gestures it sends back. Gestures are
- * bound to the frame they were made on so a stale screen never drives the
- * wrong page.
+ * frame the client polls for, and the gestures it sends back. Pointer input
+ * is frame-bound; keyboard input is document-bound so normal typing does
+ * not depend on a new screenshot arriving between characters.
  */
 import type { WebContents } from 'electron';
 
@@ -15,6 +15,7 @@ import type { BrowserGuestStateStore } from './guest-state';
 import { type BrowserUrlPolicy, normalizePageUrl } from './url-policy';
 import { browserImagePointToCss, type createBrowserInputDriver } from './input';
 import type { BrowserScreenshotCapture } from './screenshot';
+import { remoteBrowserDocumentId, sendRemoteBrowserKeyboard } from './remote-keyboard';
 
 export interface BrowserRemoteControlHost {
   state: BrowserGuestStateStore;
@@ -53,13 +54,15 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     noteRemoteViewer?.(sessionId);
     const guest = await ensureGuest(sessionId, { reveal: false });
     await cdp.waitForInitialDocument(guest);
+    const documentId = remoteBrowserDocumentId(state, guest);
     const revision = await host.revision?.(guest);
     const capture = await captureScreenshot(guest, false, {
       format: 'jpeg',
       quality: 58,
     });
     const record = state.for(guest);
-    if (revision !== await host.revision?.(guest)) {
+    if (revision !== await host.revision?.(guest)
+      || documentId !== remoteBrowserDocumentId(state, guest)) {
       throw new Error('Remote Browser Use page changed during capture; wait for a fresh frame.');
     }
     const previous = record.remoteFrame;
@@ -85,6 +88,7 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
     const history = guest.navigationHistory;
     return {
       frameId: current.frameId,
+      documentId,
       url,
       title: guest.getTitle(),
       loading: guest.isLoadingMainFrame(),
@@ -102,6 +106,10 @@ export function createBrowserRemoteControl(host: BrowserRemoteControlHost) {
   ): Promise<void> {
     noteRemoteViewer?.(sessionId);
     const guest = await ensureGuest(sessionId, { reveal: false });
+    if ((control.type === 'text' || control.type === 'key') && control.documentId !== undefined) {
+      await sendRemoteBrowserKeyboard({ state, cdp }, guest, control);
+      return;
+    }
     if (['tap', 'swipe', 'scroll', 'text', 'key'].includes(control.type)) {
       const frame = state.peek(guest)?.remoteFrame;
       if (!frame || !('frameId' in control) || control.frameId !== frame.frameId) {

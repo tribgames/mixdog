@@ -168,12 +168,12 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /Defer only ambiguous or result-dependent changes/i);
   assert.match(full, /Commit, push, release, and deployment happen only on the user's explicit\s+request/i);
   assert.match(full, /past facts recorded in prior work or sessions→`recall`/i);
-  assert.match(full, /Use judgment to decide whether a durable memory should be stored/i);
-  assert.match(full, /Omit `project_id` for the current Project, use `"common"` for shared memory/i);
+  assert.match(full, /show its exact content and scope/i);
+  assert.match(full, /Never promote inferred lessons into standing instructions/i);
   const headings = ['# General', '# Tool Workflow', '# Research', '# Exploration', '# Editing', '# Execution', '# Verification', '# Delivery', '# Memory'];
   assert.deepEqual(headings.map((heading) => full.indexOf(heading)), headings.map((heading) => full.indexOf(heading)).toSorted((a, b) => a - b));
   assert.ok(DEFERRED_DEFAULT_LEAD_TOOLS.includes('git'));
-  assert.ok(DEFERRED_DEFAULT_LEAD_TOOLS.includes('goal'));
+  assert.equal(DEFERRED_DEFAULT_LEAD_TOOLS.includes('goal'), false);
   assert.equal(DEFERRED_DEFAULT_LEAD_TOOLS.includes('git_stage'), false);
   assert.deepEqual(LEAD_DISALLOWED_TOOLS, [
     'get_goal', 'create_goal', 'set_goal_tasks', 'update_goal',
@@ -287,13 +287,14 @@ test('Agent base tools keep every Lead tool except agent regardless of agentHidd
   );
 });
 
-test('Goal is always active on the native Lead tool surface', () => {
+test('Goal is deferred but remains discoverable on the native Lead tool surface', () => {
   const surface = surfaceFor({
     standalone: GOAL_TOOL_DEFS,
     provider: 'openai-oauth',
   }).activeToolSurface();
-  assert.deepEqual(surface.tools.map((tool) => tool.name), ['goal']);
-  assert.equal(surface.deferredCallableTools.includes('goal'), true);
+  assert.deepEqual(surface.tools.map((tool) => tool.name), []);
+  assert.equal(surface.deferredCallableTools.includes('goal'), false);
+  assert.equal(surface.deferredToolCatalog.some((tool) => tool.name === 'goal'), true);
   assert.equal((surface.deferredToolCatalog || []).some((tool) => tool.name === 'create_goal'), false);
 });
 
@@ -326,7 +327,7 @@ test('headless tool profile keeps task-scoped tools and removes persistent or in
   }
   assert.equal(activeNames.has('office'), false);
   assert.equal(activeNames.has('git_stage'), false);
-  for (const name of ['goal', 'agent', 'memory', 'recall', 'cwd', 'Skill', 'browser', 'computer']) {
+  for (const name of ['goal', 'agent', 'memory', 'recall', 'cwd', 'Skill', 'browser', 'browser_devtools', 'computer']) {
     assert.equal(catalogNames.has(name), false, `${name} should be absent`);
     assert.equal(activeNames.has(name), false, `${name} should not be active`);
   }

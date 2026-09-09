@@ -55,7 +55,7 @@ import {
 import { buildSourceControlCommitMenu } from "./source-control-history-menu";
 import { sourceControlCommitSelection } from "./source-control-commit-selection";
 import { useSourceControlFiles } from "./use-source-control-files";
-import { useSurfaceActive } from "./surface-activity";
+import { useSurfaceActive, useSurfaceNavigationReset } from "./surface-activity";
 import {
   DEFAULT_BRANCH_NAMES,
   EMPTY_SUMMARY,
@@ -172,6 +172,14 @@ export function SourceControlDock({
   // surface the user has left. Outside a provider (standalone SourceControlDock
   // mounts, tests) the default is active, so nothing changes.
   const surfaceActive = useSurfaceActive();
+  useSurfaceNavigationReset(active && surfaceActive, () => {
+    setView("changes");
+    setSelectedCommit("");
+    setOpenCommitFile("");
+    setContextMenu(null);
+    setBranchPickerOpen(false);
+    setMergeMode(false);
+  });
   const visibleContextMenu = surfaceActive ? contextMenu : null;
   const branchPickerVisible = branchPickerOpen && surfaceActive;
   useEffect(() => {

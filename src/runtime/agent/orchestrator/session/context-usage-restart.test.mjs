@@ -10,7 +10,7 @@ import {
 } from './loop/compact-policy.mjs';
 import { readStoredSessionTranscript } from './store-summary-reader.mjs';
 
-test('cold transcript reads preserve the canonical post-compact usage snapshot', async (t) => {
+test('cold transcript reads wait for measured input after compaction', async (t) => {
     const dataDir = await mkdtemp(join(tmpdir(), 'mixdog-context-restart-'));
     const previousDataDir = process.env.MIXDOG_DATA_DIR;
     process.env.MIXDOG_DATA_DIR = dataDir;
@@ -65,8 +65,10 @@ test('cold transcript reads preserve the canonical post-compact usage snapshot',
     const first = await readStoredSessionTranscript(id);
     const second = await readStoredSessionTranscript(id);
     assert.equal(first.preparedContextProjection, true);
-    assert.equal(first.stats.currentEstimatedContextTokens, 35_000);
-    assert.equal(second.stats.currentEstimatedContextTokens, 35_000);
+    assert.equal(first.stats.currentContextTokens, null);
+    assert.equal(second.stats.currentContextTokens, null);
+    assert.equal(first.stats.currentContextSource, 'pending');
+    assert.equal(second.stats.currentContextSource, 'pending');
     assert.equal(first.autoCompactTokenLimit, second.autoCompactTokenLimit);
     assert.equal(first.displayContextWindow, second.displayContextWindow);
 });

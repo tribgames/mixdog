@@ -7,6 +7,7 @@
     "platforms": {
       "win32-x64-nvidia": {
         "executable": "llama-server.exe",
+        "backend": "CUDA 12.4",
         "downloadBytes": 641907910,
         "assets": [
           {

@@ -2,6 +2,7 @@
 // chunk (MarkdownBody) and the worker AST renderer (MarkdownAstBody) build
 // their overrides here so links, tables, and code cards never diverge.
 import React, { type ComponentType, type ReactNode } from "react";
+import { MarkdownLink } from "./MarkdownLink";
 
 export type MarkdownCopyControl = ComponentType<{
   value: string;
@@ -23,26 +24,7 @@ function nodeText(node: ReactNode): string {
 
 export function markdownComponents(CopyControl: MarkdownCopyControl) {
   return {
-    a({ href, children }: { href?: string; children?: ReactNode }) {
-      const raw = String(href || "").trim();
-      const target = /^www\./i.test(raw) ? `https://${raw}` : raw;
-      const external = /^https?:\/\//i.test(target);
-      if (!external) return <a href={href}>{children}</a>;
-      return <a href={target} onClick={(event) => {
-        // 좌클릭만 시스템 브라우저로 연다. 보조 버튼·수식키 조합은 건드리지 않는다.
-        if (event.button !== undefined && event.button !== 0) return;
-        if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-        event.preventDefault();
-        const api = window.mixdogDesktop;
-        if (api?.openExternal) {
-          void api.openExternal(target).catch(() => {
-            try { window.open(target, "_blank", "noopener"); } catch { /* 무시 */ }
-          });
-          return;
-        }
-        try { window.open(target, "_blank", "noopener"); } catch { /* 무시 */ }
-      }}>{children}</a>;
-    },
+    a: MarkdownLink,
     table({ children }: { children?: ReactNode }) {
       return <div className="markdown-table" role="region" aria-label="Scrollable table"
         data-scrollable tabIndex={0}>

@@ -7,6 +7,7 @@
 import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { executeBrowserTool } from '../runtime/browser-bridge/client.mjs';
+import { createBridgeFirstUseGate } from './bridge-first-use-gate.mjs';
 import { executeComputerTool } from '../runtime/computer-bridge/client.mjs';
 import { executeOfficeTool } from '../runtime/office/index.mjs';
 import { executeMediaTool } from '../runtime/media/tool.mjs';
@@ -40,8 +41,23 @@ export function createInternalToolExecutor({
   applyResolvedCwd,
   skillToolContent,
 }) {
+  const bridgeFirstUseGate = createBridgeFirstUseGate({ getConfig: () => rt.config });
   return async (name, args, callerCtx = {}) => {
     const callerCwd = clean(callerCtx?.callerCwd) || rt.currentCwd;
+    // Browser Use and Computer Use ask the user once per session before their
+    // first live call; the answer is the tool result when it is no.
+    const firstUseDenial = async () => {
+      const denial = await bridgeFirstUseGate({
+        name,
+        args,
+        cwd: callerCwd,
+        sessionId: callerCtx?.sessionId || callerCtx?.callerSessionId || rt.session?.id,
+        toolCallId: callerCtx?.toolCallId || null,
+        toolApprovalHook: callerCtx?.toolApprovalHook,
+        invocationSource: callerCtx?.invocationSource,
+      });
+      return denial ? { content: [{ type: 'text', text: denial }], isError: true } : null;
+    };
     if (callerCtx?.invocationSource === 'model-tool') {
       if ((name === 'web_search' || name === 'web_fetch') && !webSearchEnabled()) {
         throw new Error('web search is disabled in settings; start a new session to refresh the tool list');
@@ -50,11 +66,16 @@ export function createInternalToolExecutor({
         throw new Error('memory tools are disabled in settings; background memory and manual core memory remain available');
       }
     }
-    if (name === 'browser') {
+    // `browser` and `browser_devtools` are one bridge; the tool name only
+    // scopes which actions the validator admits.
+    if (name === 'browser' || name === 'browser_devtools') {
       if (callerCtx?.invocationSource === 'model-tool' && featureEnvOverride('MIXDOG_FEATURE_BROWSER') === false) {
         throw new Error('the browser tool is disabled in this environment');
       }
+      const denied = await firstUseDenial();
+      if (denied) return denied;
       return await executeBrowserTool(args, {
+        tool: name,
         sessionId: callerCtx?.sessionId || callerCtx?.callerSessionId || rt.session?.id,
         turnId: callerCtx?.turnId || rt.session?.usageMetricsTurnId,
         signal: callerCtx?.signal || rt.session?.controller?.signal || null,
@@ -64,6 +85,8 @@ export function createInternalToolExecutor({
       if (callerCtx?.invocationSource === 'model-tool' && featureEnvOverride('MIXDOG_FEATURE_COMPUTER') === false) {
         throw new Error('the computer tool is disabled in this environment');
       }
+      const denied = await firstUseDenial();
+      if (denied) return denied;
       return await executeComputerTool(args, {
         sessionId: callerCtx?.sessionId || callerCtx?.callerSessionId || rt.session?.id,
         cwd: callerCwd,
@@ -144,7 +167,7 @@ export function createInternalToolExecutor({
       }, null, 2);
     }
     if (name === 'Skill') {
-      return skillToolContent(args?.name);
+      return skillToolContent(args?.name, activeToolSurface(), rt.mode);
     }
     if (name === 'goal' || name === 'get_goal' || name === 'create_goal' || name === 'set_goal_tasks' || name === 'update_goal') {
       return await goalRuntime.executeTool(name, args || {}, {

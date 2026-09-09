@@ -19,6 +19,7 @@ import {
 import { readBridgeDiscovery } from '../bridge-discovery.mjs';
 import { MAX_COMPUTER_REQUEST_BYTES, readComputerBridgeJson, validateComputerReply } from './limits.mjs';
 import { computerActionHas } from './actions.mjs';
+import { continuePendingComputerWork, isPendingComputerWork } from './pending-continuation.mjs';
 
 const DISCOVERY_FILE = 'computer-bridge.json';
 // Desktop UI Automation queries and input dispatch can be slow; sit above the
@@ -71,7 +72,7 @@ export function canonicalComputerResultText(text, args) {
       ? value.steps.map((row, index) => {
           const normalized = { ...row };
           normalized.type = args.input?.actions?.[index]?.type || normalized.action;
-          normalized.status = ['succeeded', 'failed', 'skipped'].includes(normalized.status)
+          normalized.status = ['succeeded', 'failed', 'skipped', 'pending', 'uncertain'].includes(normalized.status)
             ? normalized.status
             : normalized.ok === false ? 'failed' : 'succeeded';
           delete normalized.action;
@@ -240,10 +241,39 @@ export async function executeComputerTool(rawArgs, context = {}) {
     const message = String(body?.error || `computer bridge request failed (HTTP ${response.status})`);
     return { content: [{ type: 'text', text: formatComputerToolError(message, args) }], isError: true };
   }
-  const value = body.value || {};
+  let value = body.value || {};
   try { validateComputerReply(value); }
   catch (error) {
     return { content: [{ type: 'text', text: `Error: ${error.message}; input may have executed and was not replayed` }], isError: true };
+  }
+  if (isPendingComputerWork(value)) {
+    try {
+      value = await continuePendingComputerWork(value, command, async (readCommand) => {
+        const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+        const pendingResponse = await fetch(`http://127.0.0.1:${bridge.port}/command`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${bridge.token}` },
+          body: JSON.stringify({ ...readCommand, ...(sessionId ? { session_id: sessionId } : {}) }),
+          signal: context.signal ? AbortSignal.any([timeout, context.signal]) : timeout,
+        });
+        const pendingBody = await readComputerBridgeJson(pendingResponse);
+        if (readCommand.action === 'capture' && pendingBody?.ok === false
+          && pendingResponse.status !== 401 && pendingResponse.status !== 403
+          && /^computer_user_control_active(?::|$)/.test(String(pendingBody.error || ''))) {
+          // Control can change between Resume and the read-only capture.
+          // Keep the original progress and wait again; never resubmit input.
+          return { text: JSON.stringify({ ok: false, status: 'paused',
+            code: 'computer_user_intervention_pending' }) };
+        }
+        if (!pendingResponse.ok || !pendingBody?.ok) throw new Error('computer_pending_connection_lost');
+        validateComputerReply(pendingBody.value);
+        return pendingBody.value;
+      }, context.signal);
+    } catch (error) {
+      if (context.signal?.aborted && sessionId) await abortComputerSession(sessionId);
+      return { content: [{ type: 'text',
+        text: 'Error: pending computer work was interrupted; no input was replayed. Inspect fresh state before continuing.' }], isError: true };
+    }
   }
   const text = canonicalComputerResultText(String(value.text || 'OK'), args);
   const content = [{

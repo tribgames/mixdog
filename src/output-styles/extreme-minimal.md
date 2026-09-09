@@ -7,10 +7,8 @@ aliases: extreme, extreme-simple, one-line, mono
 
 ## Depth Variation
 
-Extreme minimal — final decision or answer.
-
-- Retain: only the decision, result, or direct answer; for cause questions, only
-  the highest-level cause.
-- Omit: headings, labels, lists, explanation, evidence, scope, caveats, recap,
-  and follow-up; add one only when the user explicitly asks for it.
-- Shape: one or two short sentences; do not pack omitted detail into them.
+- Give the direct answer or result; for a cause question, give the
+  determining cause.
+- Omit supporting explanation and secondary consequences unless requested.
+- Usually use one or two short sentences. Summarize rather than packing
+  a report into long sentences.

@@ -1,4 +1,5 @@
 import type { WebContents } from 'electron';
+import { measureBrowserMouseEvent, timedBrowserOperation } from './timing';
 
 export type BrowserInputOutcome = 'completed' | 'dialog';
 export type BrowserMouseButton = 'left' | 'right' | 'middle';
@@ -76,14 +77,20 @@ export function assertBrowserKeyDoesNotAccessClipboard(rawKey: string): void {
   }
 }
 
-export function createBrowserInputDriver(send: SendBrowserInput) {
+export function createBrowserInputDriver(
+  send: SendBrowserInput,
+  options: { allowClipboard?: boolean } = {},
+) {
   async function pressKey(
     guest: WebContents,
     rawKey: string,
     signal?: AbortSignal,
   ): Promise<void> {
-    assertBrowserKeyDoesNotAccessClipboard(rawKey);
-    const parts = String(rawKey || '').trim().split('+').map((part) => part.trim()).filter(Boolean);
+    if (!options.allowClipboard) assertBrowserKeyDoesNotAccessClipboard(rawKey);
+    const raw = String(rawKey || '').trim();
+    const plus = raw.endsWith('+');
+    const parts = (plus ? raw.slice(0, -1) : raw).split('+').map((part) => part.trim()).filter(Boolean);
+    if (plus) parts.push('+');
     const keyName = parts.pop() || '';
     const modifierNames = new Set(parts.map((part) => part.toLowerCase()));
     const modifierBits = normalizeModifierMask([...modifierNames]);
@@ -91,12 +98,15 @@ export function createBrowserInputDriver(send: SendBrowserInput) {
     const printable = keyName.length === 1
       ? {
         key: modifierNames.has('shift') ? keyName.toUpperCase() : keyName,
-        code: /[a-z]/i.test(keyName) ? `Key${keyName.toUpperCase()}` : `Digit${keyName}`,
-        keyCode: keyName.toUpperCase().charCodeAt(0),
+        code: keyName === '+' ? 'Equal' : /[a-z]/i.test(keyName) ? `Key${keyName.toUpperCase()}` : `Digit${keyName}`,
+        keyCode: keyName === '+' ? 187 : keyName.toUpperCase().charCodeAt(0),
         text: modifierBits === 0 ? keyName : undefined,
       }
       : null;
-    const spec = KEY_TABLE[normalized] || printable;
+    const functionKey = /^f([1-9]|1\d|2[0-4])$/.test(normalized)
+      ? { key: normalized.toUpperCase(), code: normalized.toUpperCase(), keyCode: 111 + Number(normalized.slice(1)), text: undefined }
+      : null;
+    const spec = KEY_TABLE[normalized] || printable || functionKey;
     if (!spec) {
       throw new Error(`unsupported key "${rawKey}"; use a character, modifier combination, or one of: ${Object.keys(KEY_TABLE).join(', ')}`);
     }
@@ -130,19 +140,20 @@ export function createBrowserInputDriver(send: SendBrowserInput) {
   ): Promise<void> {
     const { x, y } = cssPoint({ x: cssX, y: cssY });
     const base = { x, y, button, clickCount, modifiers };
-    if (await send(
+    if (await measureBrowserMouseEvent('mouseMoved', () => send(
       guest,
       'Input.dispatchMouseEvent',
       { ...base, type: 'mouseMoved', button: 'none' },
       signal,
-    ) === 'dialog') return;
-    if (await send(
+    )) === 'dialog') return;
+    if (await measureBrowserMouseEvent('mousePressed', () => send(
       guest,
       'Input.dispatchMouseEvent',
       { ...base, type: 'mousePressed' },
       signal,
-    ) === 'dialog') return;
-    await send(guest, 'Input.dispatchMouseEvent', { ...base, type: 'mouseReleased' }, signal);
+    )) === 'dialog') return;
+    await measureBrowserMouseEvent('mouseReleased', () =>
+      send(guest, 'Input.dispatchMouseEvent', { ...base, type: 'mouseReleased' }, signal));
   }
 
   async function hoverAt(
@@ -260,12 +271,12 @@ export function createBrowserInputDriver(send: SendBrowserInput) {
   }
 
   return {
-    pressKey,
-    clickAt,
-    hoverAt,
-    dragAt,
-    tapAt,
-    swipeAt,
-    scrollAt,
+    pressKey: timedBrowserOperation('input', pressKey),
+    clickAt: timedBrowserOperation('input', clickAt),
+    hoverAt: timedBrowserOperation('input', hoverAt),
+    dragAt: timedBrowserOperation('input', dragAt),
+    tapAt: timedBrowserOperation('input', tapAt),
+    swipeAt: timedBrowserOperation('input', swipeAt),
+    scrollAt: timedBrowserOperation('input', scrollAt),
   };
 }

@@ -16,6 +16,8 @@ export function withTimeout(controller, timeoutMs) {
 export function buildHeaders() {
   return {
     'User-Agent': `mixdog-web-search/${PKG_VERSION}`,
+    Accept: 'text/html, application/xhtml+xml, text/markdown, text/plain, application/json;q=0.9, */*;q=0.5',
+    'Accept-Language': 'en, ko;q=0.9',
   }
 }
 
@@ -32,7 +34,6 @@ export function isFatalHttpPathPolicyError(error) {
   const msg = error instanceof Error ? error.message : String(error)
   if (/response body too large|page content too large|Content-Length=.*> cap=/i.test(msg)) return true
   if (/Blocked non-text content-type/i.test(msg)) return true
-  if (/cross-host redirect blocked/i.test(msg)) return true
   if (/Blocked request to private|Blocked non-HTTP|Blocked URL with userinfo/i.test(msg)) return true
   if (/DNS returned no addresses/i.test(msg)) return true
   if (/Too many redirects/i.test(msg)) return true
@@ -43,17 +44,18 @@ async function readBodyWithCap(response, maxBytes) {
   // Reject non-text content-types early; decode by content-type charset.
   const contentType = (response.headers.get('content-type') || '').toLowerCase()
   if (contentType) {
-    const isText = contentType.includes('text/') || contentType.includes('/html') ||
+    const isText = contentType.startsWith('text/') || contentType.includes('/html') ||
       contentType.includes('/xml') || contentType.includes('/json') ||
+      /\+(?:json|xml)\b/.test(contentType) ||
       contentType.includes('javascript') || contentType.includes('application/x-www-form-urlencoded')
     if (!isText) {
       // Cancel body before throwing so the underlying socket isn't held
-      // until GC — fetchHtml's caller would otherwise leak the connection.
+      // until GC — fetchDocument's caller would otherwise leak the connection.
       try { await response.body?.cancel() } catch {}
       throw new Error(`Blocked non-text content-type: ${contentType.split(';')[0].trim()}`)
     }
   }
-  const charsetMatch = contentType.match(/charset=([\w-]+)/i)
+  const charsetMatch = contentType.match(/charset=["']?([\w-]+)/i)
   const charset = charsetMatch ? charsetMatch[1] : 'utf-8'
 
   const contentLength = Number(response.headers.get('content-length') || 0)
@@ -65,7 +67,7 @@ async function readBodyWithCap(response, maxBytes) {
   if (!reader) {
     // Fallback for environments without a readable stream — post-check length.
     const text = await response.text()
-    if (text.length > maxBytes) {
+    if (Buffer.byteLength(text, 'utf8') > maxBytes) {
       // response.text() already drained the body, but guard symmetrically.
       try { await response.body?.cancel() } catch {}
       throw new Error(`response body too large: ${text.length} bytes > cap=${maxBytes}`)
@@ -88,7 +90,9 @@ async function readBodyWithCap(response, maxBytes) {
   } finally {
     try { reader.releaseLock() } catch {}
   }
-  const decoder = new TextDecoder(charset, { fatal: false })
+  let decoder
+  try { decoder = new TextDecoder(charset, { fatal: false }) }
+  catch { decoder = new TextDecoder('utf-8') }
   let text = ''
   for (const chunk of chunks) text += decoder.decode(chunk, { stream: true })
   text += decoder.decode()
@@ -294,68 +298,24 @@ function headersToCdpPairs(headers) {
   headers.forEach((value, name) => {
     const lower = name.toLowerCase()
     if (CDP_FORBIDDEN_RESPONSE_HEADERS.has(lower)) return
+    if (lower === 'set-cookie' && headers.getSetCookie) return
     out.push({ name, value })
   })
+  for (const value of headers.getSetCookie?.() || []) out.push({ name: 'set-cookie', value })
   return out
 }
 
 /**
- * Pinned fetch for a paused Chromium request: validate each hop, follow redirects,
- * return bytes for Fetch.fulfillRequest. Chromium never performs its own DNS/connect.
+ * Return one validated HTTP response to Chromium. The browser owns redirects,
+ * cookie scoping and method rewriting; each subsequent hop is intercepted again.
  */
-const ENTITY_HEADERS = new Set([
-  'content-type',
-  'content-length',
-  'content-encoding',
-  'content-language',
-  'content-location',
-])
-
-function withoutEntityHeaders(headers) {
-  const out = {}
-  for (const [name, value] of Object.entries(headers || {})) {
-    if (ENTITY_HEADERS.has(name.toLowerCase())) continue
-    out[name] = value
-  }
-  return out
-}
-
-export async function fetchPinnedForPausedRequest(url, { signal, method = 'GET', headers = {}, body } = {}) {
-  let currentMethod = (method || 'GET').toUpperCase()
-  let currentHeaders = { ...headers }
-  let currentBody = body
-  let currentUrl = url
-  for (let hops = 0; ; hops++) {
-    assertPublicUrl(currentUrl)
-    const response = await pinnedFetch(currentUrl, {
-      signal,
-      method: currentMethod,
-      headers: currentHeaders,
-      body: currentBody,
-      redirect: 'manual',
-    })
-    if (REDIRECT_STATUSES.has(response.status)) {
-      try { await response.body?.cancel() } catch {}
-      if (hops >= MAX_REDIRECTS) {
-        throw new Error(`Too many redirects (max ${MAX_REDIRECTS})`)
-      }
-      const location = response.headers.get('location')
-      if (!location) {
-        throw new Error(`Redirect ${response.status} without Location header`)
-      }
-      currentUrl = new URL(location, currentUrl).toString()
-      // Redirect method/body rewrite (fetch spec): 303 always, and 301/302 for
-      // anything other than GET/HEAD, become a bodyless GET. 307/308 preserve
-      // BOTH — so the body has to be replayed instead of dropped, which is what
-      // the previous `hops === 0` body gate did while keeping POST.
-      if (response.status === 303
-        || ((response.status === 301 || response.status === 302)
-          && currentMethod !== 'GET' && currentMethod !== 'HEAD')) {
-        currentMethod = 'GET'
-        currentBody = undefined
-        currentHeaders = withoutEntityHeaders(currentHeaders)
-      }
-      continue
+export async function fetchPinnedForPausedRequest(url, { signal, method = 'GET', headers = {}, body, request = pinnedFetch } = {}) {
+  assertPublicUrl(url)
+  const response = await request(url, { signal, method, headers, body, redirect: 'manual' })
+  try {
+    const location = response.headers.get('location')
+    if (REDIRECT_STATUSES.has(response.status) && location) {
+      assertPublicUrl(new URL(location, url).href)
     }
     const respBody = await readBodyBytesWithCap(response, MAX_BODY_BYTES)
     return {
@@ -363,10 +323,32 @@ export async function fetchPinnedForPausedRequest(url, { signal, method = 'GET',
       responseHeaders: headersToCdpPairs(response.headers),
       body: respBody,
     }
+  } catch (error) {
+    try { await response.body?.cancel() } catch {}
+    throw error
   }
 }
 
-export async function fetchHtml(url, timeoutMs, signal) {
+export function parseRetryAfter(value, now = Date.now()) {
+  if (!value?.trim()) return 0
+  const seconds = Number(value)
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000)
+  const date = Date.parse(value)
+  return Number.isFinite(date) ? Math.max(0, date - now) : 0
+}
+
+export function assertDocumentResponse(status, headers, url) {
+  const challenged = headers.get('cf-mitigated') === 'challenge'
+  if (!challenged && status >= 200 && status < 300) return
+  const error = new Error(challenged ? 'Challenge response (cf-mitigated: challenge)' : `HTTP ${status}`)
+  error.status = status
+  error.url = url
+  error.retryAfterMs = parseRetryAfter(headers.get('retry-after'))
+  if (challenged) error.code = 'BLOCKED_CONTENT'
+  throw error
+}
+
+export async function fetchDocument(url, timeoutMs, signal, { request = pinnedFetch, session = {} } = {}) {
   const controller = new AbortController()
   const timer = withTimeout(controller, timeoutMs)
   // Propagate an external (tool-call) abort into the local timeout controller
@@ -379,18 +361,35 @@ export async function fetchHtml(url, timeoutMs, signal) {
       signal.addEventListener('abort', onExternalAbort, { once: true })
     }
   }
-  const originalHost = new URL(url).hostname.replace(/^www\./, '')
   try {
     let currentUrl = url
+    const redirects = []
     for (let hops = 0; ; hops++) {
       // pinnedFetch resolves+validates the host once and forces the
       // connection to the validated IP — closes the validate-then-fetch
       // TOCTOU / DNS-rebinding window that bare `fetch` left open.
-      const response = await pinnedFetch(currentUrl, {
+      assertPublicUrl(currentUrl)
+      const headers = buildHeaders()
+      const cookies = session.jar?.getCookieStringSync(currentUrl)
+      if (cookies) headers.Cookie = cookies
+      const response = await request(currentUrl, {
         signal: controller.signal,
-        headers: buildHeaders(),
+        headers,
         redirect: 'manual',
       })
+      const setCookies = response.headers.getSetCookie?.() || []
+      if (setCookies.length) {
+        try {
+          if (!session.jar) {
+            const { CookieJar } = await import('jsdom')
+            session.jar = new CookieJar()
+          }
+          for (const cookie of setCookies) session.jar.setCookieSync(cookie, currentUrl, { ignoreError: true })
+        } catch (error) {
+          try { await response.body?.cancel() } catch {}
+          throw error
+        }
+      }
       if (REDIRECT_STATUSES.has(response.status)) {
         // Drain the redirect response body so the socket isn't held until GC.
         try { await response.body?.cancel() } catch {}
@@ -403,21 +402,24 @@ export async function fetchHtml(url, timeoutMs, signal) {
         }
         const nextUrl = new URL(location, currentUrl).toString()
         assertPublicUrl(nextUrl)
-        const nextHost = new URL(nextUrl).hostname.replace(/^www\./, '')
-        if (nextHost !== originalHost) {
-          throw new Error(`cross-host redirect blocked (redirected_to: ${nextUrl})`)
-        }
+        redirects.push({ url: currentUrl, status: response.status, location: nextUrl })
         currentUrl = nextUrl
         continue
       }
-      if (!response.ok) {
-        // Drain the error response body before propagating.
+      try {
+        assertDocumentResponse(response.status, response.headers, currentUrl)
+      } catch (error) {
         try { await response.body?.cancel() } catch {}
-        const err = new Error(`HTTP ${response.status}`)
-        err.status = response.status
-        throw err
+        throw error
       }
-      return await readBodyWithCap(response, MAX_BODY_BYTES)
+      return {
+        url: currentUrl,
+        requestedUrl: url,
+        status: response.status,
+        contentType: response.headers.get('content-type') || '',
+        body: await readBodyWithCap(response, MAX_BODY_BYTES),
+        redirects,
+      }
     }
   } finally {
     clearTimeout(timer)
@@ -426,7 +428,7 @@ export async function fetchHtml(url, timeoutMs, signal) {
 }
 
 // Parse a short-delay <meta http-equiv="refresh" content="N; url=..."> from
-// the document head. Browsers treat these as redirects, but fetchHtml only
+// the document head. Browsers treat these as redirects, but fetchDocument only
 // follows HTTP-level (3xx) redirects — without this, a stub page like
 // tree-sitter.github.io (tiny body + meta refresh) is returned as the
 // "article". Long-delay refreshes (>5s) are page auto-reloads, not

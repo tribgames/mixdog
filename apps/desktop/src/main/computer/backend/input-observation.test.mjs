@@ -28,6 +28,16 @@ $ledger.Record($true, 0)
 if ($ledger.ForeignSequence -ne 1 -or $ledger.LatestTick -ne 0) { throw 'tick wrap changed provenance' }
 $ledger.Record($false, 0)
 if ($ledger.ForeignSequence -ne 2) { throw 'same-tick external event was missed' }
+foreach ($name in @('ApplicationFrameWindow', 'Windows.UI.Core.CoreWindow', 'applicationframewindow')) {
+  if ([MixWin32]::SupportsBackgroundKeyboardClass($name)) { throw "unsupported keyboard host accepted: $name" }
+}
+if (-not [MixWin32]::SupportsBackgroundKeyboardClass('Edit')) { throw 'native edit keyboard route blocked' }
+$start = [MixWin32]::CursorMotionPoint(-1200, -300, 3100, 1050, 0, 20)
+$middle = [MixWin32]::CursorMotionPoint(-1200, -300, 3100, 1050, 10, 20)
+$end = [MixWin32]::CursorMotionPoint(-1200, -300, 3100, 1050, 20, 20)
+if ($start.x -ne -1200 -or $start.y -ne -300) { throw 'physical motion start mismatch' }
+if ($middle.x -le $start.x -or $middle.x -ge $end.x) { throw 'physical motion has no intermediate travel' }
+if ($end.x -ne 3100 -or $end.y -ne 1050) { throw 'physical motion endpoint mismatch' }
 [Console]::WriteLine('ledger passed')
 `);
     const { stdout } = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')], {

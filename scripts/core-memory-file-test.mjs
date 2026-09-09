@@ -34,13 +34,18 @@ test('refresh migrates PG rows and session reads common plus project scope from 
           { core_summary: 'other generated', project_id: 'beta', score: 3, last_seen_at: 30 },
         ] },
   }
+  db.transaction = run => run({
+    query: async sql => sql.includes('FROM core_entries') ? db.query(sql) : { rows: [] },
+  })
 
   const migrated = await refreshCoreMemoryFile(db, root)
   const payload = readSessionCoreMemoryPayload(root, project)
 
   assert.equal(migrated.written, true)
-  assert.deepEqual(payload.userLines, ['[id=1] common rule', '[id=2] alpha rule'])
-  assert.deepEqual(payload.dbLines, ['alpha generated', 'common generated'])
+  assert.match(payload.userLines[0], /^\[project=common id=1 index_revision=\S+\] common rule$/)
+  assert.match(payload.userLines[1], /^\[project=alpha id=1 index_revision=\S+\] alpha rule$/)
+  assert.deepEqual(payload.dbLines, [])
+  assert.equal(readCoreMemoryFile(root).generated.length, 3)
 })
 
 test('atomic revision guard rejects an older snapshot', async (t) => {
@@ -78,6 +83,7 @@ test('session core context reads the file without starting memory runtime', asyn
   })
   await writeCoreMemoryFileSnapshot(root, {
     curated: [{ id: 1, summary: 'instant context', project_id: null }],
+    generated: [{ summary: 'automatic lesson must stay searchable only', project_id: null }],
   })
   let memoryStarts = 0
   const plugins = createCwdPlugins({
@@ -93,6 +99,6 @@ test('session core context reads the file without starting memory runtime', asyn
     clean: (value) => String(value ?? '').trim(),
   })
 
-  assert.equal(await plugins.loadCoreMemoryContext(), '- [id=1] instant context')
+  assert.equal(await plugins.loadCoreMemoryContext(), '- instant context')
   assert.equal(memoryStarts, 0)
 })

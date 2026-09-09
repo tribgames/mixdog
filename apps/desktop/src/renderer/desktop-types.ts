@@ -8,6 +8,7 @@ export type TranscriptItem = RecordValue & {
   text?: string;
   at?: number;
   model?: string;
+  modelId?: string;
   provider?: string;
   agent?: string;
   name?: string;

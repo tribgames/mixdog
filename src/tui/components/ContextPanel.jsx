@@ -5,6 +5,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
+import { contextPercent, contextMeasurementLabel } from '../../ui/context-measurement.mjs';
 
 function truncateText(value, width) {
   const text = String(value || '');
@@ -30,6 +31,7 @@ function finiteNumber(value) {
 }
 
 function formatTokens(value) {
+  if (value == null) return '—';
   const n = finiteNumber(value);
   if (n <= 0) return '0';
   if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}m`;
@@ -39,6 +41,7 @@ function formatTokens(value) {
 }
 
 function percent(value, total) {
+  if (value == null) return null;
   const n = finiteNumber(value);
   const d = finiteNumber(total);
   if (d <= 0) return null;
@@ -48,10 +51,7 @@ function percent(value, total) {
 function percentLabel(value, total) {
   const pct = percent(value, total);
   if (pct === null) return 'N/A';
-  // Match the footer/statusline display: sub-1% keeps one decimal, otherwise
-  // show the floored percentage so /context and the statusline do not disagree
-  // by 1% around half-percent boundaries.
-  return `${pct > 0 && pct < 1 ? pct.toFixed(1) : Math.floor(pct)}%`;
+  return `${contextPercent(value, total)}%`;
 }
 
 function usageColor(pct) {
@@ -161,13 +161,13 @@ function ContextUsageView({ detail, columns }) {
   const cache = detail?.cache || {};
   const semantic = messages.semantic || {};
   const schema = request.toolSchemaBreakdown || {};
-  const usedTokens = finiteNumber(usage.usedTokens);
+  const usedTokens = usage.usedTokens == null ? null : finiteNumber(usage.usedTokens);
   const windowTokens = finiteNumber(usage.windowTokens);
   const rawWindowTokens = finiteNumber(usage.rawWindowTokens) || windowTokens;
-  const freeTokens = windowTokens ? Math.max(0, windowTokens - usedTokens) : finiteNumber(usage.freeTokens);
+  const freeTokens = usedTokens != null && windowTokens ? Math.max(0, windowTokens - usedTokens) : null;
   const usedPct = percent(usedTokens, windowTokens);
   const summaryText = `${formatTokens(usedTokens)} / ${formatTokens(windowTokens)} · ${formatTokens(freeTokens)} free`;
-  const pctText = `${percentLabel(usedTokens, windowTokens)} used`;
+  const pctText = usedTokens == null ? '—' : `${percentLabel(usedTokens, windowTokens)} used`;
   const barWidth = Math.max(12, Math.min(34, innerWidth - stringWidth(summaryText) - stringWidth(pctText) - 5));
   const systemPromptTokens = semanticTokens(semantic, ['system', 'workflow', 'workspace', 'environment', 'other']);
   const systemToolsTokens = bucketTokens(schema, ['code', 'web', 'mutation', 'channels', 'setup', 'other', 'control', 'session']);
@@ -181,6 +181,7 @@ function ContextUsageView({ detail, columns }) {
     compaction.reserveTokens ? `reserve ${formatTokens(compaction.reserveTokens)}` : '',
   ]);
   const sourceLine = metricValue([
+    contextMeasurementLabel(usage.measurementSource),
     usage.effective ? `effective ${formatTokens(windowTokens)}` : `window ${formatTokens(windowTokens)}`,
     usage.rawWindowTokens && usage.rawWindowTokens !== usage.windowTokens ? `raw ${formatTokens(usage.rawWindowTokens)}` : '',
   ]);

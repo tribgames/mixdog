@@ -14,11 +14,15 @@ export function createUserWaitService(options: {
   lifecycle: SessionLifecycle;
   callPowerShell: (request: Record<string, unknown>, timeout?: number) => Promise<PowerShellResponse>;
   enabled: () => boolean;
+  recordDiagnostic?: (sessionId: string, record: Record<string, unknown>) => void;
 }) {
   const path = join(options.directory, 'computer-idle-resume.json');
   const manager = createComputerUserWait({
     coordinator: computerUseCoordinator,
     enabled: options.enabled,
+    diagnostic: (code, elapsedMs) => options.recordDiagnostic?.(USER_WAIT_SESSION_ID, {
+      action: 'input_idle_state', stage: 'observation', ok: false, code, ms: elapsedMs,
+    }),
     resume: (generation, signal, recheck) => options.lifecycle.resumeAfterTakeover(generation, signal, recheck),
     observe: async () => {
       const response = await options.callPowerShell({

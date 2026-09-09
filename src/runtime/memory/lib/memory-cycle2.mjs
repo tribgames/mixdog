@@ -9,7 +9,9 @@ import { flushEmbeddingDirty } from './memory-embed.mjs'
 import { refreshHotActive } from './memory.mjs'
 import { backfillCoreEmbeddings, nominateCoreCandidates } from './core-memory-store.mjs'
 import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
-import { __mixdogMemoryLog, throwIfAborted, isStoreFault } from './memory-cycle2-shared.mjs'
+import { __mixdogMemoryLog, throwIfAborted, isStoreFault, resourceDir } from './memory-cycle2-shared.mjs'
+import { collectMemoryAuthority, pendingAuthorityReview } from './memory-authority-review.mjs'
+import { computeEntryScore, syncMemoryScorePolicy } from './memory-score.mjs'
 import {
   applyBatchStatusVerdicts, clampPendingPromotions, blockTransientPromotions, applySimpleStatus, applyUpdate, applyLineage, applyMerge, runPhaseMerge,
 } from './memory-cycle2-mutations.mjs'
@@ -225,6 +227,7 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
     ? Math.max(0, Number(config.active_floor))
     : CYCLE2_ACTIVE_MIN_FLOOR
   const nowMs = Date.now()
+  await syncMemoryScorePolicy(db)
 
   const stats = {
     promoted: 0, archived: 0, merged: 0,
@@ -256,7 +259,11 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
   )
   throwIfAborted(signal)
   const activeCount = Number(activeCountRes.rows[0]?.c ?? 0)
-  const reviewActiveRows = activeCount > activeTargetCap
+  const authorityReviewBefore = dataDir
+    ? await pendingAuthorityReview(db, collectMemoryAuthority(resourceDir(), dataDir), nowMs)
+    : null
+  const overCap = activeCount > activeTargetCap
+  const reviewActiveRows = overCap || authorityReviewBefore !== null
 
   // Shared floor-demotion budget: the number of active rows that may be
   // archived this cycle before the active pool would breach the minimum
@@ -314,7 +321,8 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
     SELECT id, ts, element, category, summary, score, last_seen_at, project_id, status, reviewed_at, concept_id, supersedes_id
     FROM entries
     WHERE is_root = 1
-      AND (status = 'pending' OR ($2::boolean AND status = 'active'))
+      AND (status = 'pending' OR ($2::boolean AND status = 'active'
+        AND ($3::bigint IS NULL OR reviewed_at IS NULL OR reviewed_at < $3)))
     ORDER BY
       CASE WHEN $2::boolean THEN CASE status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 END
            ELSE CASE status WHEN 'pending' THEN 0 WHEN 'active' THEN 1 END
@@ -325,7 +333,7 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
       score ${scoreDir},
       id ASC
     LIMIT $1
-  `, [pendingLimit, reviewActiveRows])
+  `, [pendingLimit, reviewActiveRows, overCap ? null : authorityReviewBefore])
   throwIfAborted(signal)
   const rows = rowsRes.rows
 
@@ -361,6 +369,18 @@ async function _runCycle2Impl(db, config = {}, options = {}, dataDir = null) {
     for (const r of recheckRes.rows) {
       if (!seen.has(Number(r.id))) rows.push(r)
     }
+  }
+
+  // Re-score only this bounded review batch; historical records migrate as
+  // they are reviewed rather than through an unbounded rewrite.
+  if (rows.length) {
+    for (const row of rows) row.score = computeEntryScore(row.category, row.last_seen_at ?? row.ts, nowMs)
+    await db.query(`
+      UPDATE entries e SET score = scores.score
+      FROM unnest($1::bigint[], $2::real[]) AS scores(id, score)
+      WHERE e.id = scores.id
+    `, [rows.map(row => row.id), rows.map(row => row.score)])
+    stats.rescore.updated = rows.length
   }
 
   // Active snapshot for prompt context (do-not-duplicate reference).

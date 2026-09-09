@@ -72,6 +72,36 @@ function deferred() {
   return { promise, resolve };
 }
 
+test('cold session creation waits asynchronously for shared credentials and respects shutdown', async () => {
+  const warm = deferred();
+  const events = [];
+  let warmCalls = 0;
+  const host = createInlineSessionRuntimeHost({
+    warmKeychain: async () => { warmCalls += 1; await warm.promise; },
+    loadLocalModule: async () => createFakeLocalModule(events),
+  });
+  const first = host.create({ sessionId: 'cold-a' });
+  const second = host.create({ sessionId: 'cold-b' });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(warmCalls, 1);
+  assert.deepEqual(events, []);
+  warm.resolve();
+  await Promise.all([first, second]);
+  assert.deepEqual(events.map((event) => event[1].sessionId), ['cold-a', 'cold-b']);
+  await host.close('done');
+
+  const pendingWarm = deferred();
+  const closingHost = createInlineSessionRuntimeHost({
+    warmKeychain: () => pendingWarm.promise,
+    loadLocalModule: async () => { throw new Error('must not load after close'); },
+  });
+  const pending = closingHost.create();
+  const rejected = assert.rejects(pending, /session runtime host is closed/);
+  await closingHost.close('cancelled during warm-up');
+  pendingWarm.resolve();
+  await rejected;
+});
+
 test('inline host keeps session actors in the daemon process and releases them', async () => {
   const events = [];
   const host = createInlineSessionRuntimeHost({

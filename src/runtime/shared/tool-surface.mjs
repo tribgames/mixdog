@@ -147,6 +147,7 @@ export function displayToolName(name, args = {}) {
     case 'fetch':
       return 'Fetch';
     case 'browser':
+    case 'browser_devtools':
       return 'Browser';
     case 'computer':
       return 'Computer';
@@ -297,7 +298,8 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         return formatCountedUnit(collectionCount(a.url, a.uri), 'URL', 'URLs');
       }
       return truncateToolText(a.url || a.uri || '', max);
-    case 'browser': {
+    case 'browser':
+    case 'browser_devtools': {
       const call = bridgeToolCall(args);
       return compactParts([
         call.action,
@@ -609,6 +611,7 @@ export function toolWorkUnit(name, args = {}, category = '') {
     case 'web_fetch':
       return unitDescriptor('Web Research', { count: queryCount(a, 'url', 'urls', 'uri', 'uris') || 1, active: 'Fetching', done: 'Fetched', noun: 'URL', pluralNoun: 'URLs' });
     case 'browser':
+    case 'browser_devtools':
       return unitDescriptor('Browser', { count: 1, active: 'Browsing', done: 'Browsed', noun: 'action' });
     case 'computer':
       return unitDescriptor('Computer', { count: 1, active: 'Operating', done: 'Operated', noun: 'action' });

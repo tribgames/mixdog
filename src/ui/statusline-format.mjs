@@ -8,6 +8,7 @@
 import { colorEnabled, rgb, rgbSgr } from './ansi.mjs';
 import { displayModelName, shortenModelName } from './model-display.mjs';
 import { getModelMetadataSync } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
+import { contextMeasurementLabel } from './context-measurement.mjs';
 
 // Token window used to compute a fallback context% from our own session usage.
 // The live gateway (when up) overrides this with the real route's window. This
@@ -53,13 +54,14 @@ export function formatModelSegment({ provider, model, effort, fast, cols }) {
 
 /** Display label for context % (clamped to 100); raw pct still drives bar/color thresholds. */
 export function contextPctDisplayLabel(ctxPct) {
+  if (ctxPct == null) return '—';
   const pct = Number(ctxPct);
   if (!Number.isFinite(pct) || pct <= 0) return '0';
-  if (pct > 0 && pct < 1) return String(Math.round(pct * 10) / 10);
-  return String(Math.floor(Math.min(100, pct)));
+  return String(Math.round(Math.min(100, pct) * 10) / 10);
 }
 
-export function formatContextSegment(ctxPct, cols) {
+export function formatContextSegment(ctxPct, cols, source = 'pending') {
+  if (ctxPct == null) return statusSubtle(contextMeasurementLabel(source));
   const raw = Number(ctxPct);
   const pct = Number.isFinite(raw) ? Math.max(0, raw) : 0;
   const barPct = clampPct(pct);

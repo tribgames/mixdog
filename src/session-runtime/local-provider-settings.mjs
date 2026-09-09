@@ -1,5 +1,6 @@
 import { localIdleTtlSeconds } from '../runtime/local-provider/request-queue.mjs';
 import { createLocalModelApi } from './local-model-api.mjs';
+import { setLocalProviderContext } from '../runtime/local-provider/server.mjs';
 
 export function createLocalProviderSettings({
   getConfig, saveConfigAndAdopt, getLocalProviderStatus, prepareLocalProviderModel,
@@ -10,6 +11,11 @@ export function createLocalProviderSettings({
     status: () => ({ installationCommandError: commandError }),
     methods: {
       ...createLocalModelApi({ refreshLocalProviderCatalog }),
+      async setLocalProviderContext(modelId, tokens) {
+        await setLocalProviderContext(modelId, tokens);
+        await refreshLocalProviderCatalog?.();
+        return this.getToolModuleSettings();
+      },
       async installLocalProviderModel(modelId) {
         await prepareLocalProviderModel?.(modelId);
         await refreshLocalProviderCatalog?.();

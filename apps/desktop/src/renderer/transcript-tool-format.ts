@@ -338,7 +338,9 @@ export function toolActivityTitle(
       return t("Fetch");
     case "load_tool": return t("Load");
     case "task": return t("Task");
-    case "browser": return t("Browser Use");
+    case "browser":
+    case "browser_devtools":
+      return t("Browser Use");
     case "computer": return t("Computer Use");
     case "office": return t("Document work");
     case "agent":

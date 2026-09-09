@@ -193,20 +193,21 @@ export function createInputResolution(host: InputResolutionHost) {
     };
   }
 
-  /** Prove the desktop was handed back after foreground input: the window that
-   *  held focus holds it again and the cursor sits where the user left it. One
-   *  reassertion is allowed, and what actually happened is always reported. */
+  /** Verify handoff without conflating a refused input with failed cleanup.
+   * Visible input retains target focus and the physical pointer destination. */
   async function verifyInputRecovery(
     command: ComputerCommand,
     targetWindowId: string | undefined,
     inputRecovery: InputRecoveryState,
     timings: Record<string, number>,
+    nativeResult: Record<string, unknown> = {},
   ): Promise<Record<string, unknown>> {
     let current: InputRecoveryState | undefined;
     let reasserted = false;
     let restoredTarget = '';
     let readbackError = '';
-    const preserveFocusForFollowup = FOCUS_CONTINUATION_ACTIONS.has(
+    const preserveCursor = command.delivery === 'foreground';
+    const preserveFocusForFollowup = command.action === 'focus_window' || FOCUS_CONTINUATION_ACTIONS.has(
       String(command.action || ''),
     ) || (command.delivery === 'foreground' && ['key', 'type'].includes(command.action));
     try {
@@ -231,11 +232,20 @@ export function createInputResolution(host: InputResolutionHost) {
           ...(readbackError ? { readback_error: readbackError } : {}),
         };
       }
+      // An explicitly refused input that left focus where it was needs no
+      // restoration to an older session focus. The action's own refusal is
+      // still returned by the reply builder; this only closes cleanup.
+      if (nativeResult.delivery_accepted === false
+        && current.foregroundWindowId === inputRecovery.foregroundWindowId
+        && current.cursorX === inputRecovery.cursorX && current.cursorY === inputRecovery.cursorY) {
+        return { ok: true, recovery_skipped: true, focus_unchanged: true,
+          input_not_dispatched: true, cursor_restored: true, reasserted: false };
+      }
       const focusDrifted = !current
         || current.foregroundWindowId !== inputRecovery.restoreWindowId;
-      const cursorDrifted = !current
+      const cursorDrifted = !preserveCursor && (!current
         || current.cursorX !== inputRecovery.cursorX
-        || current.cursorY !== inputRecovery.cursorY;
+        || current.cursorY !== inputRecovery.cursorY);
       if (!current || cursorDrifted || (focusDrifted && !preserveFocusForFollowup)) {
         const recoveryStartedAt = performance.now();
         const restored = await callPowerShell({
@@ -243,8 +253,8 @@ export function createInputResolution(host: InputResolutionHost) {
           window_id: targetWindowId,
           restore_window_id: inputRecovery.restoreWindowId,
           restore_owner_window_id: inputRecovery.restoreOwnerWindowId,
-          cursor_x: inputRecovery.cursorX,
-          cursor_y: inputRecovery.cursorY,
+          cursor_x: preserveCursor ? current.cursorX : inputRecovery.cursorX,
+          cursor_y: preserveCursor ? current.cursorY : inputRecovery.cursorY,
           restore_focus: !preserveFocusForFollowup,
           expected_input_tick: current.inputTick,
           expected_input_monitor_id: current.inputMonitorId,
@@ -290,7 +300,8 @@ export function createInputResolution(host: InputResolutionHost) {
       const cursorRestored = current.cursorX === inputRecovery.cursorX
         && current.cursorY === inputRecovery.cursorY;
       return {
-        ok: (focusRestored || focusPreservedForFollowup) && cursorRestored,
+        ok: (focusRestored || focusPreservedForFollowup) && (cursorRestored || preserveCursor),
+        cursor_preserved: preserveCursor,
         focus_restored: focusRestored,
         focus_preserved_for_followup: focusPreservedForFollowup,
         focus_recovery: focusPreservedForFollowup ? 'session_release' : 'immediate',

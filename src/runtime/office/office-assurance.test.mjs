@@ -498,7 +498,7 @@ test('semantic composers emit editorial rhythm, dashboard print setup, and nativ
           table: [['항목', '판정'], ['투자', '승인']],
         },
         { heading: '핵심 실적', paragraphs: ['성과 흐름을 확인했습니다.'] },
-        { heading: '재검토 기준', paragraphs: ['정량 gate로 재판정합니다.'] },
+        { heading: '재검토 기준', eyebrow: '재검토', pageBreak: true, paragraphs: ['정량 gate로 재판정합니다.'] },
         { heading: '실행 계획', paragraphs: ['30일 안에 실행합니다.'] },
       ],
     }],
@@ -507,7 +507,7 @@ test('semantic composers emit editorial rhythm, dashboard print setup, and nativ
   assert.ok(word.operations.some((entry) => entry.op === 'append_text' && entry.properties.keepWithNext));
   assert.ok(word.operations.some((entry) => entry.op === 'fit_table'));
   assert.equal(
-    word.operations.find((entry) => entry.op === 'append_text' && entry.text === '03 / EVIDENCE')?.properties.pageBreakBefore,
+    word.operations.find((entry) => entry.op === 'append_text' && entry.text === '재검토')?.properties.pageBreakBefore,
     true,
   );
 

@@ -20,6 +20,7 @@ import {
   snapshotProviderRequestTools,
 } from './tool-catalog.mjs';
 import { scopedProviderRequestTools } from './provider-request-tools.mjs';
+import { sessionContextMeasurement } from '../ui/context-measurement.mjs';
 
 // Mirrors the tool-list portion of the Anthropic adapters without changing
 // their wire serialization. Other native-deferred providers expose the
@@ -209,6 +210,7 @@ export function createContextStatus({
         effectiveContextWindowPercent: null,
         usedTokens: 0,
         usedSource: 'empty',
+        measurement: sessionContextMeasurement(session, false),
         currentEstimatedTokens: 0,
         lastApiRequestTokens: 0,
         lastApiRequestStale: false,
@@ -344,6 +346,9 @@ export function createContextStatus({
       effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
       usedTokens,
       usedSource: resolvedGauge.source,
+      // Pressure remains private to compaction/diagnostics. Every display
+      // consumes this measured-input contract instead of the pressure gauge.
+      measurement: sessionContextMeasurement(session, hasConversationActivity),
       currentEstimatedTokens: usedTokens,
       lastApiRequestTokens: lastContextTokens || 0,
       lastApiRequestStale: lastUsageStale,

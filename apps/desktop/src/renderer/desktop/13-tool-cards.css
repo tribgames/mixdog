@@ -2,6 +2,109 @@
    Loaded in fixed order from ../desktop.css; the cascade depends on that
    order, so rules must never move between layers or be re-sorted. */
 /* Tool / diff / approval surfaces use the same v2 layers. */
+.transcript-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 8px 0;
+}
+.transcript-artifact-media {
+  width: min(100%, 420px);
+  min-width: 0;
+  margin: 0;
+}
+.transcript-artifact-image {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+}
+/* Generated media shares the attachment-chip grammar (22-markdown
+   .message-image-chip): layer-1 fill + 1px ring + md radius, so a produced
+   image reads as the same kind of object as an attached one. */
+.transcript-artifact-image img,
+.transcript-artifact-media video {
+  display: block;
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 1px var(--mx-border-muted);
+}
+/* Caption row: name on the left, icon-only actions (03-titlebar .icon-button)
+   on the right — the same transparent icon + tooltip grammar as the response
+   copy control, never a native grey text button. */
+.transcript-artifact-media figcaption {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 28px;
+  padding-top: 4px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.transcript-artifact-media figcaption > span {
+  flex: 1;
+  min-width: 0;
+  margin-right: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transcript-artifact-media figcaption > .icon-button {
+  flex-shrink: 0;
+  color: var(--mx-icon-muted);
+}
+.transcript-artifact-media figcaption > .icon-button:hover,
+.transcript-artifact-media figcaption > .icon-button:focus-visible { color: var(--mx-icon); }
+/* Non-media artifact: one chip-toned row (icon · name · action hint), the
+   whole row is the link. */
+.transcript-artifact-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  background: var(--mx-bg-layer-1);
+  box-shadow: inset 0 0 0 1px var(--mx-border-muted);
+  text-decoration: none;
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-meta);
+  transition: background var(--mx-motion-ink);
+}
+.transcript-artifact-file:hover { background: var(--mx-hover); }
+.transcript-artifact-file:focus-visible { outline: 2px solid var(--mx-focus); outline-offset: 2px; }
+.transcript-artifact-file > svg { flex-shrink: 0; color: var(--mx-icon); }
+.transcript-artifact-file > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transcript-artifact-file > small { flex-shrink: 0; color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
+.transcript-artifact-preview {
+  max-width: 95vw;
+  max-height: 95vh;
+  padding: 40px 12px 12px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-lg, 10px);
+  background: var(--mx-surface);
+}
+.transcript-artifact-preview::backdrop { background: rgb(0 0 0 / 75%); }
+.transcript-artifact-preview > .icon-button { position: absolute; top: 6px; right: 6px; }
+.transcript-artifact-preview > img {
+  display: block;
+  max-width: 90vw;
+  max-height: 85vh;
+  object-fit: contain;
+}
 .tool-card {
   width: 100%;
   padding: 4px 0;
@@ -34,7 +137,9 @@
 }
 .tool-activity[data-surface="desktop"] .tool-activity-title { gap: 6px; }
 .tool-activity[data-surface="desktop"] .tool-activity-title b,
-.tool-activity[data-surface="desktop"] .tool-activity-title small {
+.tool-activity[data-surface="desktop"] .tool-activity-title small,
+.tool-activity[data-surface="desktop"] .tool-activity-category-title b,
+.tool-activity[data-surface="desktop"] .tool-activity-category-title small {
   font-family: var(--mx-font-sans);
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
@@ -88,20 +193,10 @@
   gap: 6px;
   overflow: hidden;
 }
-.tool-activity-category-title b,
-.tool-activity-category-title small {
-  font-family: var(--mx-font-sans);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-meta);
-}
-/* A category header leads its items, so it sits on the operational row too
-   rather than a rung below it. */
+/* Category labels share the outer activity header's typography. */
 .tool-activity-category-title b {
   color: var(--mx-text-muted);
-  font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-medium);
-  letter-spacing: var(--mx-tracking-tight);
-  line-height: var(--mx-line-ui);
 }
 .tool-activity-category-title small {
   flex: 0 0 auto;

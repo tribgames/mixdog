@@ -5,12 +5,15 @@ import { appendComputerRunRecord, computerRunRecord } from '../session/run-log';
 import { computerLogError } from '../session/log-privacy';
 import { assertSafeComputerSessionId } from '../input/guards';
 import { beginComputerOperation } from '../../human-only-approval';
-import { isComputerLifecycleControl, READ_ACTIONS, requiresForegroundLane } from './action-sets';
+import { computerDeliveryMode, isComputerLifecycleControl, READ_ACTIONS, requiresForegroundLane } from './action-sets';
 import { isComputerRecoveryRead } from './recovery-reads';
 import { createComputerCommandBudget } from './command-budget';
-import type { ExecutionState } from './execution-state';
+import type { ActiveExecution, ExecutionState } from './execution-state';
+import { PausedComputerWork, pendingWorkReply, pausedWorkReply } from './pending-work';
 
 class PausedBeforeDispatch extends Error {}
+class PauseWaitExpired extends Error {}
+const MAX_PAUSE_WAIT_MS = 15_000;
 
 /** Park requests outside the desktop lane and the active-operation drain.
  * A queued mutation resumes with fresh evidence, never with its old input. */
@@ -22,10 +25,16 @@ export function createComputerCommandQueue(options: {
   recaptureRequiredReply(command: ComputerCommand, error: unknown): Promise<ComputerCommandResult | null>;
   takeOver(reason: string): void;
   recordDiagnostic?: (sessionId: string, record: Record<string, unknown>) => void;
+  /** Internal/test seam; never changes the user's idle-resume setting. */
+  pauseWaitMs?: number;
 }) {
   const { coordinator, execution, sessionIdFor, runCommand, recaptureRequiredReply } = options;
   const { commandChainsBySession, sessionAbortEpochs, activeExecutionsBySession, executionContext } = execution;
   const budget = createComputerCommandBudget();
+  const pauseWaitMs = options.pauseWaitMs ?? MAX_PAUSE_WAIT_MS;
+  if (!Number.isFinite(pauseWaitMs) || pauseWaitMs < 0 || pauseWaitMs > MAX_PAUSE_WAIT_MS) {
+    throw new Error('computer_pause_wait_invalid: paused request wait must be 0..15000ms');
+  }
   const wakeups = new Map<string, Set<() => void>>();
   const active = new Set<Promise<void>>();
   let foregroundChain: Promise<unknown> = Promise.resolve();
@@ -38,7 +47,7 @@ export function createComputerCommandQueue(options: {
     }
   }
 
-  function waitUntilRunnable(sessionId: string, epoch: number): Promise<void> {
+  function waitUntilRunnable(sessionId: string, epoch: number, deadline: number): Promise<void> {
     assertEpoch(sessionId, epoch);
     const snapshot = coordinator.snapshot();
     if (!snapshot.userControlActive) {
@@ -50,8 +59,12 @@ export function createComputerCommandQueue(options: {
     }
     return new Promise<void>((resolve, reject) => {
       let unsubscribe = () => {};
+      let settled = false;
       const callbacks = wakeups.get(sessionId) || new Set<() => void>();
       const finish = (error?: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         unsubscribe();
         callbacks.delete(check);
         if (!callbacks.size) wakeups.delete(sessionId);
@@ -59,17 +72,28 @@ export function createComputerCommandQueue(options: {
         else resolve();
       };
       const check = () => {
+        if (settled) return;
         try {
           assertEpoch(sessionId, epoch);
           const current = coordinator.snapshot();
-          if (current.userControlActive) return;
+          if (current.userControlActive) {
+            if (!['user_input_active', 'user_pause'].includes(current.takeoverReason || '')) {
+              coordinator.assertAutomationAllowed();
+            }
+            return;
+          }
           coordinator.assertAutomationAllowed();
           finish();
         } catch (error) { finish(error); }
       };
       callbacks.add(check);
       wakeups.set(sessionId, callbacks);
+      const timer = setTimeout(() => {
+        check();
+        if (!settled) finish(new PauseWaitExpired());
+      }, Math.max(0, deadline - performance.now()));
       unsubscribe = coordinator.subscribe(check);
+      if (settled) unsubscribe();
       check();
     });
   }
@@ -104,13 +128,16 @@ export function createComputerCommandQueue(options: {
     return run;
   }
 
-  async function executeAttempt(command: ComputerCommand, epoch: number, generation: number): Promise<ComputerCommandResult> {
+  async function executeAttempt(command: ComputerCommand, epoch: number, generation: number, pending?: PausedComputerWork): Promise<ComputerCommandResult> {
     const sessionId = sessionIdFor(command);
     const foreground = requiresForegroundLane(command);
     const releaseApproval = beginComputerOperation();
-    const state = { sessionId, aborted: false };
+    const state: ActiveExecution = { sessionId, aborted: false };
     const startedAt = performance.now();
     const assertRunnable = () => {
+      if (state.aborted && state.failureCode) {
+        throw new Error(`${state.failureCode}: input recovery failed; inspect the recovery diagnostic`);
+      }
       assertEpoch(sessionId, epoch);
       if (state.aborted) throw new Error('computer_session_aborted: command stopped by session cancellation');
     };
@@ -120,20 +147,28 @@ export function createComputerCommandQueue(options: {
         coordinator.beginCommand({
           sessionId, action: String(command.action || 'computer'),
           target: String(command.window || command.window_id || command.app || ''),
-          mode: foreground ? 'foreground' : 'background',
+          mode: computerDeliveryMode(command),
         });
         activeExecutionsBySession.set(sessionId, state);
         return executionContext.run(state, async () => {
           if (generation !== coordinator.snapshot().takeoverGeneration
             && !READ_ACTIONS.has(String(command.action)) && !isComputerRecoveryRead(String(command.action))) {
-            throw new Error('computer_resume_recapture_required: queued work resumed; review the fresh target before sending new input');
+            pending ||= new PausedComputerWork({ completed: 0 });
           }
-          return runCommand(foreground && lastInjectionTick !== null
+          if (pending) {
+            const fresh = await recaptureRequiredReply(command, pending);
+            if (!fresh) throw new Error('computer_pending_observation_unavailable: cannot observe the pending target');
+            return pendingWorkReply(command, fresh, pending.progress);
+          }
+          state.progress = { completed: 0, inFlight: 0 };
+          const result = await runCommand(foreground && lastInjectionTick !== null
             ? { ...command, known_injection_tick: lastInjectionTick } : command);
+          if (!Array.isArray(command.steps)) state.progress = { completed: 1 };
+          return result;
         });
       };
       const outcome = foreground
-        ? await runForegroundExclusive(sessionId, operation, { assertRunnable })
+        ? await runForegroundExclusive(sessionId, operation, { assertRunnable, requireFreshAfterWait: pending ? false : undefined })
         : await operation();
       assertRunnable();
       coordinator.assertAutomationAllowed();
@@ -147,9 +182,21 @@ export function createComputerCommandQueue(options: {
       return outcome;
     } catch (error) {
       if (error instanceof PausedBeforeDispatch) throw error;
+      if (state.aborted && state.failureCode) {
+        error = new Error(`${state.failureCode}: input recovery failed; inspect the recovery diagnostic`);
+      }
       const code = computerLogError(error);
       if (['user_input_active', 'input_cleanup_unconfirmed', 'input_observation_unavailable'].includes(code)) {
         options.takeOver(code);
+      }
+      const paused = coordinator.snapshot();
+      if (paused.userControlActive
+        && ['user_input_active', 'user_pause'].includes(paused.takeoverReason || '')
+        && !READ_ACTIONS.has(String(command.action))
+        && !isComputerRecoveryRead(String(command.action))) {
+        // Throw out of the active lane before waiting: cleanup and resume
+        // must be able to drain it. Only progress survives, never stale refs.
+        throw pending || new PausedComputerWork(state.progress || { completed: 0 });
       }
       const record = { ...computerRunRecord(command, startedAt), ok: false, error: code };
       appendComputerRunRecord(sessionId, record);
@@ -190,6 +237,7 @@ export function createComputerCommandQueue(options: {
     const epoch = sessionAbortEpochs.get(sessionId) || 0;
     const snapshot = coordinator.snapshot();
     const generation = snapshot.userControlActive ? -1 : snapshot.takeoverGeneration ?? 0;
+    const pauseDeadline = performance.now() + pauseWaitMs;
     coordinator.queueCommand({
       sessionId, action: String(command.action || 'computer'),
       target: String(command.window || command.window_id || command.app || ''),
@@ -198,8 +246,18 @@ export function createComputerCommandQueue(options: {
     coordinator.touchTargets(sessionId);
     const previous = commandChainsBySession.get(sessionId) || Promise.resolve();
     const run = previous.then(async () => {
+      let pending: PausedComputerWork | undefined;
       for (;;) {
-        await waitUntilRunnable(sessionId, epoch);
+        try {
+          await waitUntilRunnable(sessionId, epoch, pauseDeadline);
+        } catch (error) {
+          if (!(error instanceof PauseWaitExpired)) throw error;
+          options.recordDiagnostic?.(sessionId, {
+            action: command.action, stage: 'paused', ok: true, input_replayed: false,
+          });
+          return pausedWorkReply(command, pending?.progress || { completed: 0 },
+            coordinator.snapshot().takeoverReason || 'user_pause');
+        }
         assertEpoch(sessionId, epoch);
         // A pause can arrive between the waiter resolving and this continuation.
         if (coordinator.snapshot().userControlActive) continue;
@@ -207,9 +265,10 @@ export function createComputerCommandQueue(options: {
         const settled = new Promise<void>((resolve) => { finish = resolve; });
         active.add(settled);
         try {
-          return await executeAttempt(command, epoch, generation);
+          return await executeAttempt(command, epoch, generation, pending);
         } catch (error) {
-          if (!(error instanceof PausedBeforeDispatch)) throw error;
+          if (error instanceof PausedComputerWork) pending = error;
+          else if (!(error instanceof PausedBeforeDispatch)) throw error;
         } finally {
           active.delete(settled);
           finish();
@@ -223,6 +282,9 @@ export function createComputerCommandQueue(options: {
       if (commandChainsBySession.get(sessionId) === tail) {
         commandChainsBySession.delete(sessionId);
         sessionAbortEpochs.delete(sessionId);
+        // A command finishing is not the agent task finishing. The runtime's
+        // execution_end/session_abort closes visible activity at turn settlement.
+        // In particular, waiting and thinking between commands retain the task.
       }
     });
     return run;

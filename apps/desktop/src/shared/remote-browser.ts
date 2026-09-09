@@ -44,6 +44,15 @@ export function normalizeRemoteBrowserControl(value: unknown): DesktopRemoteBrow
     if (!frameId) throw new TypeError("remote browser control requires a frame id.");
     return frameId;
   };
+  const keyboardIdentity = (): { frameId: string; documentId?: string } => {
+    const frameId = requiredFrameId();
+    if (input.documentId === undefined) return { frameId };
+    if (typeof input.documentId !== "string" || input.documentId.length > 64
+      || !/^p[1-9]\d*:\d+$/u.test(input.documentId)) {
+      throw new TypeError("remote browser document id is invalid.");
+    }
+    return { frameId, documentId: input.documentId };
+  };
   if (type === "navigate") {
     if (typeof input.url !== "string" || input.url.length < 1 || input.url.length > 4_096) {
       throw new TypeError("remote browser url is invalid.");
@@ -87,13 +96,13 @@ export function normalizeRemoteBrowserControl(value: unknown): DesktopRemoteBrow
     if (typeof input.text !== "string" || input.text.length < 1 || input.text.length > 2_000) {
       throw new TypeError("remote browser text is invalid.");
     }
-    return { type, frameId: requiredFrameId(), text: input.text };
+    return { type, ...keyboardIdentity(), text: input.text };
   }
   if (type === "key") {
     if (typeof input.key !== "string" || input.key.length < 1 || input.key.length > 64) {
       throw new TypeError("remote browser key is invalid.");
     }
-    return { type, frameId: requiredFrameId(), key: input.key };
+    return { type, ...keyboardIdentity(), key: input.key };
   }
   throw new TypeError(`unknown remote browser control "${type || "(none)"}".`);
 }

@@ -15,7 +15,12 @@ let progressPrinted = false;
 
 try {
   await build({
-    entryPoints: [fileURLToPath(new URL('../src/main/browser/host.integration.ts', import.meta.url))],
+    entryPoints: [fileURLToPath(new URL(
+      process.argv.includes('--cdp-lifecycle')
+        ? '../src/main/browser/cdp-lifecycle.integration.ts'
+        : '../src/main/browser/host.integration.ts',
+      import.meta.url,
+    ))],
     outfile: output,
     bundle: true,
     plugins: [computerSourceEsbuildPlugin()],
@@ -53,7 +58,9 @@ try {
     process.stdout.write(progress);
     progressPrinted = true;
   }
-  if (exitCode !== 0 || !progress.includes('integration passed')) {
+  const successMarker = env.MIXDOG_BROWSER_MOUSE_PROBE_ONLY === '1'
+    ? 'mouse dispatch probe passed' : 'integration passed';
+  if (exitCode !== 0 || !progress.includes(successMarker)) {
     throw new Error(`browser host integration failed before its success marker (exit ${exitCode})`);
   }
 } finally {

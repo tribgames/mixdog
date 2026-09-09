@@ -1,5 +1,5 @@
 const NON_BUDGETED_ACTIONS = new Set([
-  'list_tabs', 'downloads', 'status', 'console', 'network', 'handle_dialog', 'close_tab',
+  'list_tabs', 'downloads', 'status', 'console', 'network', 'handle_dialog', 'close_tab', 'hide',
 ]);
 
 export function resolveBrowserActionsPerTurn(raw: unknown): number {

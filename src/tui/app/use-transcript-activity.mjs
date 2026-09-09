@@ -106,7 +106,7 @@ export function useTranscriptActivity({ state }) {
     return {
       currentContextSource: s.currentContextSource ?? null,
       currentEstimatedContextTokens: s.currentEstimatedContextTokens ?? 0,
-      currentContextTokens: s.currentContextTokens ?? 0,
+      currentContextTokens: s.currentContextTokens ?? null,
       contextTokens: s.contextTokens ?? 0,
       latestPromptTokens: s.latestPromptTokens ?? 0,
       latestInputTokens: s.latestInputTokens ?? 0,

@@ -175,13 +175,7 @@ function namedToolActivityUnit(
     if (skill) return { unitKey: `Skill|${skill}`, label: `${t("Skill")} ${skill}` };
   }
   if (category === "Media") {
-    const media = asRecord(surface.args) || {};
-    if (String(media.action || "").toLowerCase() === "generate") {
-      return String(media.kind || "").toLowerCase() === "video"
-        ? { unitKey: "Media|video", label: t("Video generation") }
-        : { unitKey: "Media|image", label: t("Image generation") };
-    }
-    return { unitKey: "Media|lookup", label: t("Media lookup") };
+    return { unitKey: "Media", label: localizedToolActivityCategory(category) };
   }
   if (category === "Browser" || category === "Computer" || category === "Office") {
     return { unitKey: category, label: localizedToolActivityCategory(category) };
@@ -237,7 +231,7 @@ export function desktopToolActivityModeledName(name: unknown, args: unknown): st
 export function desktopToolActivityCategory(name: unknown, args: unknown): string {
   const modeledName = desktopToolActivityModeledName(name, args);
   const surface = formatToolSurface(modeledName, args);
-  if (surface.normalizedName === "browser") return "Browser";
+  if (surface.normalizedName === "browser" || surface.normalizedName === "browser_devtools") return "Browser";
   if (surface.normalizedName === "computer") return "Computer";
   if (surface.normalizedName === "office") return "Office";
   if (surface.normalizedName === "media") return "Media";

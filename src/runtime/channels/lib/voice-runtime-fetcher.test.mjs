@@ -4,11 +4,36 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 
-import { resolveVoiceRuntime, selectVoiceModelId } from './voice-runtime-fetcher.mjs'
+import { resolveVoiceRuntime, selectVoiceModelId, voiceRuntimeInfo } from './voice-runtime-fetcher.mjs'
 
 test('managed voice always uses the standard multilingual model', () => {
   assert.equal(selectVoiceModelId(), 'standard')
   assert.equal(selectVoiceModelId({ model: 'korean', language: 'ko' }), 'standard')
+})
+
+test('voice info reports resolved runtime versions and model bytes, not the newer bundled runtime', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-voice-info-'))
+  try {
+    const modelPath = join(root, 'custom-model.bin')
+    await writeFile(modelPath, 'weights')
+    const info = voiceRuntimeInfo({
+      modelId: 'standard', modelName: 'custom-model.bin', modelPath,
+      whisperCmd: join(root, 'voice-runtime', 'whisper-1.7.6-cublas-11.8', 'Release', 'whisper-cli.exe'),
+      ffmpegPath: join(root, 'ffmpeg-runtime', 'ffmpeg-6.0-custom', 'ffmpeg.exe'),
+    })
+    assert.deepEqual(info, {
+      engine: 'whisper.cpp', runtimeVersion: '1.7.6', acceleration: 'cublas-11.8',
+      model: 'custom-model.bin', modelBytes: 7, ffmpegVersion: '6.0-custom',
+    })
+    const absent = voiceRuntimeInfo({ modelId: 'standard' })
+    assert.equal(absent.runtimeVersion, '')
+    assert.equal(absent.acceleration, '')
+    assert.equal(absent.ffmpegVersion, '')
+    assert.ok(absent.model)
+    assert.ok(absent.modelBytes > 0)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('voice manifest contains no language-specific model', async () => {

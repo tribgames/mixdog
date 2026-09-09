@@ -12,6 +12,7 @@ import { createLocalServerProcess } from './server-process.mjs';
 import { detectLocalProviderHardware, selectLocalProviderGpu } from './hardware.mjs';
 import { createLocalRequestQueue, DEFAULT_LOCAL_IDLE_TTL_SECONDS } from './request-queue.mjs';
 import { recordLocalModelLoad } from './model-state.mjs';
+import { localContextSettings, saveLocalContext, validateLocalContext } from './context-settings.mjs';
 
 const server = createLocalServerProcess({
   onExit(diagnostic) {
@@ -36,6 +37,24 @@ export function stopLocalProviderServer() {
   return requests.stop();
 }
 
+export async function setLocalProviderContext(modelId, tokens, { dataDir = resolvePluginData() } = {}) {
+  const entry = localProviderModelEntry(modelId, dataDir);
+  if (!entry) throw new TypeError('Unknown local model.');
+  validateLocalContext(entry, tokens);
+  return requests.run(async (signal) => {
+    const previous = localContextSettings(entry, dataDir).configuredContextWindow;
+    const state = server.status();
+    const reload = state.activeModel === entry.id && (state.running || state.starting);
+    saveLocalContext(entry, tokens, dataDir);
+    try {
+      if (reload) await ensureLocalProviderServer(modelId, { dataDir, signal });
+    } catch (error) {
+      saveLocalContext(entry, previous, dataDir);
+      throw error;
+    }
+  });
+}
+
 export async function ensureLocalProviderServer(modelId, {
   dataDir = resolvePluginData(),
   signal,
@@ -43,6 +62,7 @@ export async function ensureLocalProviderServer(modelId, {
   signal?.throwIfAborted();
   const entry = localProviderModelEntry(modelId, dataDir);
   if (!entry) throw new Error(`[local-provider] unknown model: ${modelId}`);
+  const contextWindow = localContextSettings(entry, dataDir).contextWindow;
   const executable = localProviderRuntimeExecutable(dataDir);
   const weights = localProviderModelPath(entry, dataDir);
   if (!executable || !existsSync(executable)) {
@@ -56,7 +76,7 @@ export async function ensureLocalProviderServer(modelId, {
     process.once('exit', () => server.killOnOwnerExit());
   }
   return server.ensure({
-    key: `${executable}|${weights}`,
+    key: `${executable}|${weights}|${contextWindow}`,
     modelId: entry.id,
     executable,
     cwd: localProviderRuntimeDirectory(dataDir),
@@ -84,7 +104,7 @@ export async function ensureLocalProviderServer(modelId, {
     '--api-key', apiKey,
     '--model', weights,
     '--alias', entry.id,
-    '--ctx-size', String(entry.contextWindow),
+    '--ctx-size', String(contextWindow),
     '--parallel', '1',
     '--split-mode', 'none',
     '--main-gpu', '0',

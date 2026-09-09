@@ -35,16 +35,16 @@ async function fixture(t) {
     return { root, write, rules };
 }
 
-test('removing the newest common-instructions source reveals the legacy fallback', async (t) => {
+test('legacy instruction files never enter the memory-only prompt path', async (t) => {
     const { write, rules } = await fixture(t);
     write('data/user-workflow.md', 'LEGACY_FALLBACK');
     const current = write('data/instructions.md', 'DELETED_INSTRUCTION', '2031-01-01');
 
-    assert.match(rules._buildLeadMetaContext(), /DELETED_INSTRUCTION/);
+    assert.doesNotMatch(rules._buildLeadMetaContext(), /DELETED_INSTRUCTION|LEGACY_FALLBACK/);
     unlinkSync(current);
     const after = rules._buildLeadMetaContext();
     assert.doesNotMatch(after, /DELETED_INSTRUCTION/);
-    assert.match(after, /LEGACY_FALLBACK/);
+    assert.doesNotMatch(after, /LEGACY_FALLBACK/);
 });
 
 test('every rules layer detects edits hidden by newer sources and timestamp rollback', async (t) => {

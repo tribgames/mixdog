@@ -20,6 +20,7 @@ export function createComputerUserWait(options: {
   resume: (generation: number, signal: AbortSignal, recheck: () => Promise<boolean>) => Promise<void>;
   enabled: () => boolean;
   now?: () => number;
+  diagnostic?: (code: string, elapsedMs: number) => void;
 }) {
   const now = options.now ?? (() => performance.now());
   const waiters = new Map<string, (status: string) => void>();
@@ -31,6 +32,7 @@ export function createComputerUserWait(options: {
   let baseline: IdleObservation | undefined;
   let quietSince = now();
   let attempt: AbortController | undefined;
+  let observationFailures = 0;
 
   const reset = () => { baseline = undefined; quietSince = now(); attempt?.abort(); };
   const publish = (remaining?: number) => options.coordinator.setIdleResume(seconds, remaining);
@@ -41,6 +43,15 @@ export function createComputerUserWait(options: {
     && isIdleResumePause(options.coordinator.snapshot());
   const same = (a: IdleObservation, b: IdleObservation) =>
     a.monitor === b.monitor && a.sequence === b.sequence;
+  const observationFailed = (code: string, elapsedMs: number) => {
+    reset();
+    observationFailures++;
+    options.diagnostic?.(code, elapsedMs);
+    publish(seconds);
+    // At most two retries per takeover, including failures at the final check.
+    // A valid sample never restores time accrued before an uncertain sample.
+    if (observationFailures >= 3) options.coordinator.pauseForUser('input_observation_unavailable');
+  };
 
   async function sample(): Promise<void> {
     if (inFlight || !eligible()) return;
@@ -51,8 +62,7 @@ export function createComputerUserWait(options: {
       const value = await options.observe();
       if (!eligible() || generation !== currentGeneration) return;
       if (!valid(value) || now() - sampledAt > 2_000) {
-        reset();
-        options.coordinator.pauseForUser('input_observation_unavailable');
+        observationFailed(!valid(value) ? 'idle_observation_invalid' : 'idle_observation_slow', now() - sampledAt);
         return;
       }
       if (value.held) { reset(); publish(seconds); return; }
@@ -69,16 +79,20 @@ export function createComputerUserWait(options: {
       await options.resume(currentGeneration, signal, async () => {
         const started = now();
         const last = await options.observe();
+        if (!signal.aborted && eligible() && currentGeneration === generation
+          && (now() - started > 2_000 || !valid(last))) {
+          observationFailed(!valid(last) ? 'idle_observation_invalid' : 'idle_observation_slow', now() - started);
+          return false;
+        }
         return !signal.aborted && eligible() && currentGeneration === generation
           && now() - started <= 2_000 && valid(last) && !last.held && same(expected, last)
           && last.idleMs >= seconds * 1000;
       });
     } catch (error) {
       if (eligible() && generation === currentGeneration) {
-        reset();
         if (!/computer_resume_(stale|cancelled)/.test(String(error))) {
-          options.coordinator.pauseForUser('input_observation_unavailable');
-        }
+          observationFailed('idle_observation_error', now() - sampledAt);
+        } else reset();
       }
     } finally {
       attempt = undefined;
@@ -94,10 +108,14 @@ export function createComputerUserWait(options: {
   const unsubscribe = options.coordinator.subscribe((snapshot) => {
     if (snapshot.takeoverGeneration !== generation) {
       generation = snapshot.takeoverGeneration ?? 0;
+      observationFailures = 0;
       reset();
     }
     if (!snapshot.userControlActive && snapshot.cleanupState === 'ready') {
       for (const finish of [...waiters.values()]) finish('resumed');
+    }
+    if (snapshot.userControlActive && snapshot.takeoverReason === 'user_stop') {
+      for (const finish of [...waiters.values()]) finish('cancelled');
     }
     if (!isIdleResumePause(snapshot)) {
       reset();
@@ -120,6 +138,7 @@ export function createComputerUserWait(options: {
       }
       if (disposed || signal?.aborted) return Promise.resolve('cancelled');
       const current = options.coordinator.snapshot();
+      if (current.userControlActive && current.takeoverReason === 'user_stop') return Promise.resolve('cancelled');
       if (!current.userControlActive && current.cleanupState === 'ready') return Promise.resolve('resumed');
       if (waiters.has(sessionId) || waiters.size >= 16) {
         return Promise.reject(new Error('computer_capacity_exhausted: user wait already active or full'));

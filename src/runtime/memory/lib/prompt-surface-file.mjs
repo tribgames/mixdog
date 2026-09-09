@@ -35,7 +35,8 @@ function normalizeTools(tools) {
     const description = String(tool?.description ?? '').replace(/\s+/g, ' ').trim()
     if (!name || !description || seen.has(name)) continue
     seen.add(name)
-    out.push({ name, description })
+    const schema = tool?.inputSchema ?? tool?.parameters
+    out.push({ name, description, ...(schema && typeof schema === 'object' ? { inputSchema: schema } : {}) })
   }
   return out
 }
@@ -50,7 +51,7 @@ export function buildPromptSurfaceSnapshot({ rules, tools } = {}) {
 export function promptSurfaceHash(snapshot) {
   const h = createHash('sha256')
   for (const section of snapshot?.rules ?? []) h.update(section).update('\u0000')
-  for (const tool of snapshot?.tools ?? []) h.update(tool.name).update('\u0001').update(tool.description).update('\u0000')
+  for (const tool of snapshot?.tools ?? []) h.update(tool.name).update('\u0001').update(tool.description).update(JSON.stringify(tool.inputSchema ?? null)).update('\u0000')
   return h.digest('hex')
 }
 
@@ -92,7 +93,7 @@ export function renderPromptSurfaceDigest(surface) {
   })
   if (surface.tools.length > 0) {
     parts.push('# Source: live session tool descriptions\n' +
-      surface.tools.map(t => `- ${t.name}: ${t.description}`).join('\n'))
+      surface.tools.map(t => `- ${t.name}: ${t.description}${t.inputSchema ? `\nInput contract: ${JSON.stringify(t.inputSchema)}` : ''}`).join('\n'))
   }
   return parts.join('\n\n---\n\n')
 }

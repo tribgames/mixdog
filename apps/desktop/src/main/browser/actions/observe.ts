@@ -120,8 +120,15 @@ export const observationActions = defineBrowserActions({
         : READ_DEFAULT_CHARS,
     );
     const offset = Math.max(0, Number.isFinite(command.offset) ? Math.trunc(command.offset as number) : 0);
-    const query = String(command.query || '').trim().toLowerCase();
+    const query = String(command.query || '').trim();
     const page = await services.documents.readPage(guest, query, maxChars, offset, signal);
+    if (query && !page.total) {
+      return {
+        text: `No line matched query ${JSON.stringify(redactBrowserText(query))} on ${redactBrowserUrl(page.url)}; `
+          + `the page text is ${page.unfilteredTotal.toLocaleString()} characters. Keywords match with OR and `
+          + '/pattern/i is a regular expression; call read without query or with one keyword.',
+      };
+    }
     const shownThrough = Math.min(page.total, page.offset + page.text.length);
     const truncated = shownThrough < page.total
       ? `\n\n[truncated: showing ${page.offset.toLocaleString()}–${shownThrough.toLocaleString()} of ${page.total.toLocaleString()} characters; continue with offset:${shownThrough}]`

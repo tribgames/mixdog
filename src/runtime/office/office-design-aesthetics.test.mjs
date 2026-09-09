@@ -270,7 +270,7 @@ test('the render review reads the pages behind a contact sheet, not the sheet', 
   assert.ok(review.aesthetics.pages.every((entry) => entry.backgroundLuminance < 0.2 || entry.backgroundLuminance > 0.9), 'every measured page is a deck page, not the grey sheet');
 });
 
-test('release quality score combines render evidence, structural penalties, and confidence', () => {
+test('PPTX diagnostics retain measured differences without approving the visual design', () => {
   const clean = scoreOfficeReleaseQuality({
     format: 'pptx',
     aesthetics: { score: 0.73 },
@@ -289,9 +289,12 @@ test('release quality score combines render evidence, structural penalties, and 
     structuralAvailable: true,
     planCoverage: 1,
   });
-  assert.equal(clean.version, 2);
+  assert.equal(clean.version, 3);
   assert.equal(clean.confidence, 1);
-  assert.equal(clean.releaseReady, true);
+  assert.equal(clean.releaseReady, false);
+  assert.equal(clean.automatedReady, true);
+  assert.equal(clean.visualReview.status, 'not-reviewed');
+  assert.equal(clean.scoreMeaning, 'automated-diagnostics-not-design-quality');
   assert.equal(flawed.releaseReady, false);
   assert.ok(flawed.score < clean.score);
   assert.ok(flawed.dimensions.structural < clean.dimensions.structural);

@@ -467,6 +467,7 @@ test('Local Provider shows hardware and chat installation guidance before runtim
     assert.match(detail.textContent, /No models installed/);
     assert.match(detail.textContent, /Install through chat/);
     assert.match(detail.textContent, /b10621 · 0\.6 GB/);
+    assert.match(detail.textContent, /Available runtime/);
   } finally {
     await act(async () => root.unmount());
     host.remove();

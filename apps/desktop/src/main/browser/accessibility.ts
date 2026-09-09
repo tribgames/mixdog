@@ -33,7 +33,17 @@ export interface BrowserSnapshotPayload {
   headings: string[];
   text: string;
   query: string;
+  /** Interactive elements on the page before the query filter, so a filter
+   *  that matched nothing can say what it was filtering. */
+  unfilteredElements?: number;
   warnings?: string[];
+}
+
+/** What a file input accepts, read from the DOM because the accessibility
+ *  tree only reports it as a button. */
+export interface FileInputFacts {
+  accept: string;
+  multiple: boolean;
 }
 
 export interface AccessibilityNode {
@@ -51,8 +61,18 @@ export interface AccessibilityTargetSnapshot {
   sessionId?: string;
   nodes: AccessibilityNode[];
   bounds: Map<number, number[]>;
+  fileInputs?: Map<number, FileInputFacts>;
   error?: string;
   layoutError?: string;
+}
+
+/** States that tell an agent to reach a file input through `upload`. */
+export function fileInputStates(facts: FileInputFacts | undefined): string[] {
+  if (!facts) return [];
+  const states = ['file-input'];
+  if (facts.accept) states.push(`accept=${facts.accept.slice(0, 120)}`);
+  if (facts.multiple) states.push('multiple');
+  return states;
 }
 
 export interface AccessibilityPageInfo {
@@ -111,12 +131,13 @@ export function buildAccessibilitySnapshot(options: {
   maxElements: number;
   textChars: number;
 }): { payload: BrowserSnapshotPayload; refs: AccessibilitySnapshotRef[] } {
-  const query = String(options.query || '').trim().toLowerCase();
+  const query = String(options.query || '').trim();
   const headings: string[] = [];
   const warnings: string[] = [];
   const crossFrameText: string[] = [];
   const seenCrossFrameText = new Set<string>();
   let crossFrameTextChars = 0;
+  let unfilteredElements = 0;
   const candidates: Array<{
     backendNodeId: number;
     sessionId?: string;
@@ -182,6 +203,8 @@ export function buildAccessibilitySnapshot(options: {
           states.push(`${property}=${compactState}`);
         }
       }
+      states.push(...fileInputStates(target.fileInputs?.get(backendNodeId)));
+      unfilteredElements += 1;
       const box = target.bounds.get(backendNodeId);
       const inViewport = box
         ? box[0] + box[2] > 0
@@ -265,6 +288,7 @@ export function buildAccessibilitySnapshot(options: {
       headings,
       text,
       query,
+      unfilteredElements,
       ...(warnings.length ? { warnings } : {}),
     },
     refs,

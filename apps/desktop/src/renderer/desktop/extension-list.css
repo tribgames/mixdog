@@ -114,16 +114,30 @@
   opacity: var(--mx-op-disabled);
   cursor: default;
 }
+/* Two-row grid: the icon leads the TITLE line and the description runs under
+   BOTH icon and title from the icon's own left edge (user: 아이콘을 윗줄에
+   넣을 거면 설명줄을 아이콘과 같은 왼쪽선에). The copy wrapper dissolves
+   (display: contents) so title and description place themselves on the grid. */
+.session-sidebar-panels .schedules-row.utilities-row.extensions-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  column-gap: 8px;
+  row-gap: 3px;
+  align-items: center;
+}
 .extensions-row > .extensions-row-icon {
-  align-self: center;
+  grid-area: 1 / 1;
   display: grid;
   place-items: center;
   width: 16px;
   height: 16px;
-  flex: 0 0 16px;
   color: var(--mx-icon-muted);
 }
 .extensions-row > .extensions-row-icon > svg { width: 16px; height: 16px; }
+.extensions-row > .utilities-row-copy { display: contents; }
+.extensions-row .sidebar-resource-title { grid-area: 1 / 2; }
+.extensions-row .utilities-row-copy > small { grid-column: 1 / 3; grid-row: 2; }
+.extensions-row > .utilities-row-chevron { grid-area: 1 / 3 / 3 / 4; }
 /* A disabled entry only dims its icon so the list still reads as one column;
    enabling lives in the detail card (user: 토글버튼 빼고). */
 .extensions-row[data-enabled="false"] .extensions-row-icon { opacity: var(--mx-op-disabled); }

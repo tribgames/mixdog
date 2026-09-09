@@ -8,6 +8,7 @@ import type { WebContents } from 'electron';
 import { OFFSCREEN_VIEWPORT } from '../command';
 import { normalizeModifierMask, normalizeMouseButton } from '../input';
 import { mutateRef } from './ref-mutation';
+import { actionRef } from './target';
 import { type BrowserActionContext, defineBrowserActions } from './types';
 
 function pointerKind(command: BrowserActionContext['command'], action: string): 'mouse' | 'touch' {
@@ -47,11 +48,12 @@ export const pointerActions = defineBrowserActions({
   async click(context) {
     const { guest, command, signal, services } = context;
     const pointer = pointerKind(command, 'click');
-    const semantic = Boolean(command.ref);
-    const point = await targetPoint(context, command.ref, command.x, command.y, 'click');
+    const ref = await actionRef(context);
+    const semantic = Boolean(ref);
+    const point = await targetPoint(context, ref, command.x, command.y, 'click');
     const button = normalizeMouseButton(command.button);
     const modifiers = normalizeModifierMask(command.modifiers);
-    const effectiveRef = command.ref && (context.refRecovery.replacements.get(command.ref) || command.ref);
+    const effectiveRef = ref && (context.refRecovery.replacements.get(ref) || ref);
     const finishGuard = effectiveRef
       ? await services.refPoints.guardRef(guest, effectiveRef, signal)
       : undefined;
@@ -81,8 +83,9 @@ export const pointerActions = defineBrowserActions({
 
   async hover(context) {
     const { guest, command, signal, services } = context;
-    const semantic = Boolean(command.ref);
-    const point = await targetPoint(context, command.ref, command.x, command.y, 'hover');
+    const ref = await actionRef(context);
+    const semantic = Boolean(ref);
+    const point = await targetPoint(context, ref, command.x, command.y, 'hover');
     services.state.invalidateInteraction(guest);
     await services.input.hoverAt(guest, point.x, point.y, signal);
     return finish(context, semantic);
@@ -123,7 +126,7 @@ export const pointerActions = defineBrowserActions({
     const dx = Number.isFinite(command.dx) ? Math.trunc(command.dx as number) : 0;
     const dy = Number.isFinite(command.dy) ? Math.trunc(command.dy as number) : null;
     const effectiveDy = dy === null && command.dx !== undefined ? 0 : dy;
-    const semantic = Boolean(command.ref);
+    const semantic = Boolean(command.ref) || (command.target !== undefined && command.target !== null);
     const coordinate = command.snapshotId !== undefined
       || command.x !== undefined
       || command.y !== undefined;
@@ -149,7 +152,7 @@ export const pointerActions = defineBrowserActions({
     if (semantic) {
       await mutateRef(
         context,
-        command.ref as string,
+        (await actionRef(context)) as string,
         (ref) => snapshots.evaluateRefScript(
           guest,
           ref,

@@ -2,6 +2,7 @@
  * src/tui/session/session-api-ext.mjs - part of the public session runtime session object.
  */
 import { listThemes, getThemeSetting, setThemeSetting } from '../theme.mjs';
+import { contextMeasurementStats } from '../../ui/context-measurement.mjs';
 import { resetAllStreamingMarkdownStablePrefixes } from '../markdown/streaming-markdown.mjs';
 import { toolResultText } from './tool-result-text.mjs';
 import { completionCardFromExecution, parseModelVisibleCompletionWrapper, parseSyntheticAgentMessage } from './agent-envelope.mjs';
@@ -17,6 +18,7 @@ import {
   isTranscriptCancelledStatusText,
 } from '../../runtime/shared/tool-execution-contract.mjs';
 import { toolResultTerminalStatus } from '../../runtime/shared/tool-status.mjs';
+import { transcriptRouteMetadataFields } from '../../runtime/shared/transcript-metadata.mjs';
 
 export function restoredTranscriptMetadata(message) {
   const value = message?.meta?.transcript;
@@ -39,9 +41,7 @@ export function restoredTranscriptMetadata(message) {
     : null;
   return {
     ...(Number.isFinite(Number(value.at)) ? { at: Number(value.at) } : {}),
-    ...(typeof value.model === 'string' && value.model ? { model: value.model } : {}),
-    ...(typeof value.provider === 'string' && value.provider ? { provider: value.provider } : {}),
-    ...(typeof value.agent === 'string' && value.agent ? { agent: value.agent } : {}),
+    ...transcriptRouteMetadataFields(value),
     ...(typeof value.sender === 'string' && value.sender ? { sender: value.sender } : {}),
     ...(completion ? { completion } : {}),
   };
@@ -249,8 +249,10 @@ function mergeRestoredToolItems(items) {
 }
 
 function restoredMessageItemUpperBound(message) {
-  if (message?.role === 'user') return 1;
-  if (message?.role !== 'assistant') return 0;
+  const boundaries = Array.isArray(message?.meta?.sessionInheritances)
+    ? message.meta.sessionInheritances.length : 0;
+  if (message?.role === 'user') return 1 + boundaries;
+  if (message?.role !== 'assistant') return boundaries;
   const calls = Array.isArray(message?.tool_calls) ? message.tool_calls
     : Array.isArray(message?.toolCalls) ? message.toolCalls : [];
   const content = message?.content;
@@ -258,7 +260,7 @@ function restoredMessageItemUpperBound(message) {
     ? content.length > 0
     : Array.isArray(content) && content.length > 0;
   const hasCompletion = Boolean(message?.meta?.transcript?.completion);
-  return Number(hasContent) + Number(hasCompletion) + calls.length;
+  return Number(hasContent) + Number(hasCompletion) + calls.length + boundaries;
 }
 
 function restoredUserTranscriptItems(message, nextId) {
@@ -359,6 +361,20 @@ function restoreTranscriptRange(messages, start, sessionId) {
     } else if (message?.role === 'tool') {
       attachRestoredToolResult(message, pendingToolCalls);
     }
+    for (const boundary of Array.isArray(message?.meta?.sessionInheritances)
+      ? message.meta.sessionInheritances : []) {
+      if (!boundary?.sessionId || !boundary?.provider || !boundary?.modelId) continue;
+      items.push({
+        kind: 'statusdone',
+        id: restoredId(),
+        status: 'inherited',
+        label: 'Session inherited',
+        detail: 'Continuing with the previous context.',
+        provider: boundary.provider,
+        modelId: boundary.modelId,
+        at: boundary.at,
+      });
+    }
   }
   return mergeRestoredToolItems(items);
 }
@@ -402,29 +418,8 @@ export function restoreTranscriptItems(messages, {
 
 export function sessionContextSnapshotProjection(session, contextStatus) {
   if (!contextStatus) return {};
-  const usedSource = String(contextStatus.usedSource || '').toLowerCase();
-  const estimatedTokens = Math.max(0, Number(
-    contextStatus.currentEstimatedTokens
-    ?? contextStatus.usedTokens
-    ?? 0,
-  ));
-  const lastApiRequestTokens = Math.max(0, Number(
-    contextStatus.lastApiRequestTokens
-    ?? contextStatus.usage?.lastContextTokens
-    ?? 0,
-  ));
   return {
-    stats: {
-      currentContextTokens: usedSource === 'last_api_request'
-        ? lastApiRequestTokens
-        : 0,
-      currentEstimatedContextTokens: estimatedTokens,
-      // Carry the runtime's own provenance instead of flattening every
-      // projection to `estimated`: a cold pane must be able to tell a measured
-      // prompt from a local guess.
-      currentContextSource: usedSource || (estimatedTokens > 0 ? 'estimated' : null),
-      currentContextUpdatedAt: Date.now(),
-    },
+    stats: contextMeasurementStats(contextStatus),
     contextWindow: Math.max(
       0,
       Number(session?.contextWindow || contextStatus.effectiveContextWindow || 0),
@@ -735,11 +730,13 @@ export function createSessionApiB(bag) {
         set({ commandBusy: false });
       }
     },
-    beginOAuthProviderLogin: async (provider) => {
+    getProviderAccounts: (provider) => runtime.getProviderAccounts(provider),
+    updateProviderAccounts: (provider, change) => runtime.updateProviderAccounts(provider, change),
+    beginOAuthProviderLogin: async (provider, options) => {
       if (getState().commandBusy) throw new Error('command busy');
       set({ commandBusy: true });
       try {
-        const result = oauthFlows.register(await runtime.beginOAuthProviderLogin(provider));
+        const result = oauthFlows.register(await runtime.beginOAuthProviderLogin(provider, options));
         pushNotice(`provider oauth started: ${result.provider}`, 'info');
         return result;
       } finally {
@@ -786,8 +783,8 @@ export function createSessionApiB(bag) {
         set({ commandBusy: false });
       }
     },
-    forgetProviderAuth: (provider) => {
-      const result = runtime.forgetProviderAuth(provider);
+    forgetProviderAuth: (provider, accountId) => {
+      const result = runtime.forgetProviderAuth(provider, accountId);
       pushNotice(`provider auth forgotten: ${result.provider}`, 'info');
       return true;
     },
@@ -798,6 +795,8 @@ export function createSessionApiB(bag) {
     // Media studio (image/video generation). Reads stay quiet; only the
     // generation start posts a notice so the TUI shows background work.
     listMediaLanes: () => runtime.listMediaLanes?.(),
+    getMediaDefault: (kind) => runtime.getMediaDefault?.(kind),
+    setMediaDefault: (input) => runtime.setMediaDefault?.(input),
     listMediaAssets: (options) => runtime.listMediaAssets?.(options),
     readMediaAsset: (id, options) => runtime.readMediaAsset?.(id, options),
     cacheMediaThumbnail: (id, input) => runtime.cacheMediaThumbnail?.(id, input),

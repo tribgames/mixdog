@@ -50,7 +50,11 @@ import { useComposerShareIntake } from "./use-composer-share-intake";
 import { useComposerQueue } from "./use-composer-queue";
 import { useComposerSubmission } from "./use-composer-submission";
 import { useComposerKeyboard } from "./use-composer-keyboard";
+import { useComposerFocus } from "./use-composer-focus";
 import { ComposerPalette } from "./ComposerPalette";
+import { ComposerAddMenu } from './ComposerAddMenu';
+import { CapabilityIcon } from './CapabilityIcon';
+import { shouldRemoveSelectedSkill, skillTitle, useComposerSkill } from './composer-skill';
 export {
   PROJECT_CONTEXT_LOCAL,
   ProjectContextSelector,
@@ -235,6 +239,7 @@ export const Composer = memo(function Composer({
   const [selectorIndex, setSelectorIndex] = useState(0);
   const [persistedHistory, setPersistedHistory] = useState(() => readPromptHistory(historyScope));
   const activeIdentityScope = useRef(identityScope);
+  const skillSelection = useComposerSkill(identityScope);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const paletteAnchor = useRef<HTMLFormElement>(null);
   // Chromium does not report `KeyboardEvent.isComposing` consistently across
@@ -275,7 +280,6 @@ export const Composer = memo(function Composer({
     requestVoiceInstall: useCallback(() => onOpenSettings('voice'), [onOpenSettings]),
     onTranscriptSubmit: useCallback(() => { voiceSubmitPending.current = true; }, []),
   });
-  const wasTransitioning = useRef(transitioning);
   const historyNavigation = useRef({ index: -1, seed: '' });
   const historySeedAttachments = useRef<ComposerAttachment[]>([]);
   const {
@@ -516,39 +520,7 @@ export const Composer = memo(function Composer({
     if (!transitioning) return;
     setDraggingFiles(false);
   }, [transitioning]);
-  useEffect(() => {
-    if (wasTransitioning.current && !transitioning && !touchPrimaryPointer()) {
-      window.setTimeout(() => {
-        if (document.activeElement?.classList.contains("session-header-title-input")) return;
-        textarea.current?.focus({ preventScroll: true });
-      }, 0);
-    }
-    wasTransitioning.current = transitioning;
-  }, [transitioning]);
-  useEffect(() => {
-    if (focusRequest <= 0 || transitioning || touchPrimaryPointer()) return undefined;
-    const timer = window.setTimeout(() => {
-      if (document.activeElement?.classList.contains("session-header-title-input")) return;
-      textarea.current?.focus({ preventScroll: true });
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [focusRequest, transitioning]);
-  // First-paint focus (user): the app boot surface must land with the caret
-  // already in the composer so typing works immediately. Mount-only — later
-  // focus moves belong to the focusRequest/transition effects above, and an
-  // element the user already focused is never stolen from.
-  useEffect(() => {
-    if (touchPrimaryPointer()) return undefined;
-    const timer = window.setTimeout(() => {
-      const active = document.activeElement;
-      const typing = active instanceof HTMLElement
-        && (active.tagName === "TEXTAREA" || active.tagName === "INPUT" || active.isContentEditable);
-      if (typing) return;
-      textarea.current?.focus({ preventScroll: true });
-    }, 0);
-    return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only by design
-  }, []);
+  useComposerFocus({ textarea, transitioning, focusRequest, paneActive });
 
   useEffect(() => setSlashIndex(0), [slashQuery]);
   useEffect(() => setMentionIndex(0), [mentionMatch?.query]);
@@ -611,7 +583,7 @@ export const Composer = memo(function Composer({
     return () => window.removeEventListener('mixdog:composer-draft', receiveDraft);
   }, []);
 
-  const invokeCapability = useCallback(async <T,>(capability: DesktopCapability, args: unknown[] = []) => {
+  const invokeCapabilityResult = useCallback(async <T,>(capability: DesktopCapability, args: unknown[] = []) => {
     // Every command this composer issues belongs to the session IT paints —
     // the queue ×/Edit, /clear, /compact. Focus decides nothing.
     const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<T>({
@@ -619,9 +591,14 @@ export const Composer = memo(function Composer({
       args,
       ...(sessionId ? { sessionId } : {}),
     }));
-    if (result?.snapshot !== undefined) applySnapshot(result.snapshot);
-    return result?.value;
+    // Session commands already publish through the ordered session lane.
+    // Their unversioned reply snapshot can arrive after a newer live frame;
+    // replaying it here resurrected /compact's finished command spinner.
+    if (!sessionId && result?.snapshot !== undefined) applySnapshot(result.snapshot);
+    return result;
   }, [applySnapshot, invokeResult, sessionId]);
+  const invokeCapability = useCallback(async <T,>(capability: DesktopCapability, args: unknown[] = []) =>
+    (await invokeCapabilityResult<T>(capability, args))?.value, [invokeCapabilityResult]);
   const {
     restoring,
     setRestoring,
@@ -704,16 +681,11 @@ export const Composer = memo(function Composer({
         invocationFailed = true;
         return undefined;
       }
-      const result = await invokeResult(() => window.mixdogDesktop.invokeCapability<T>({
-        capability,
-        args,
-        ...(sessionId ? { sessionId } : {}),
-      }));
+      const result = await invokeCapabilityResult<T>(capability, args);
       if (result === undefined) {
         invocationFailed = true;
         return undefined;
       }
-      if (result.snapshot !== undefined) applySnapshot(result.snapshot);
       return result.value;
     };
     const [token, ...tail] = raw.trim().slice(1).split(/\s+/);
@@ -916,6 +888,8 @@ export const Composer = memo(function Composer({
     submit,
     abort,
     onQueuedRestored,
+    selectedSkill: skillSelection.name,
+    onSkillSubmitted: skillSelection.submitted,
   });
   const onSubmit = (event: FormEvent) => { event.preventDefault(); void send('', 'form-submit'); };
   const { selectMention, onKeyDown, onKeyUp } = useComposerKeyboard({
@@ -1077,7 +1051,22 @@ export const Composer = memo(function Composer({
       {attachments.length > 0 && <div className="composer-attachments" aria-label={t("Attachments")}>
         {attachments.map((attachment) => <div className={`attachment-chip ${attachment.kind}`} key={attachment.id}>
           {attachment.kind === 'image'
-            ? <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
+            ? <button type="button" className="attachment-open"
+              aria-label={t("Open image")} title={attachment.name}
+              onClick={async () => {
+                setAttachmentError('');
+                try {
+                  const api = window.mixdogDesktop;
+                  if (!api?.openAttachmentImage) throw new Error('Unable to open image: image viewer is unavailable.');
+                  await api.openAttachmentImage(
+                    `data:${attachment.mimeType};base64,${attachment.data}`, attachment.name,
+                  );
+                } catch (error) {
+                  setAttachmentError(error instanceof Error ? error.message : String(error));
+                }
+              }}>
+              <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
+            </button>
             : <span><MxIcon name="open-file" size={16} /></span>}
           <span data-tooltip={attachment.name}>{attachment.name}</span>
           <button type="button" aria-label={t("Remove {{name}}", { name: attachment.name })}
@@ -1109,6 +1098,12 @@ export const Composer = memo(function Composer({
           </>}
         </div>
       </div>}
+      <div className="composer-input-row">
+      {skillSelection.name && <span className="composer-selected-skill">
+        <button type="button" onClick={() => textarea.current?.focus()} title={skillSelection.name}>
+          <CapabilityIcon name={skillSelection.name} /><span>{t(skillTitle(skillSelection.name))}</span>
+        </button>
+      </span>}
       <textarea ref={textarea} value={draft} onChange={(event) => {
         // Perf diagnostics (MIXDOG_DESKTOP_PERF=1): keystroke→paint latency,
         // logged only when a frame is actually slow.
@@ -1138,7 +1133,20 @@ export const Composer = memo(function Composer({
         setComposerFocused(false);
       }}
         onPointerDown={() => { escapeClearAtRef.current = 0; }}
-        onSelect={(event) => setCaretOffset(event.currentTarget.selectionStart)} onKeyDown={onKeyDown} onKeyUp={onKeyUp}
+        onSelect={(event) => setCaretOffset(event.currentTarget.selectionStart)} onKeyDown={event => {
+          if (shouldRemoveSelectedSkill({
+            selected: skillSelection.name, key: event.key,
+            start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd,
+            composing: composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229,
+            repeat: event.repeat, modified: event.ctrlKey || event.metaKey || event.altKey,
+          })) {
+            event.preventDefault();
+            event.stopPropagation();
+            skillSelection.select('');
+            return;
+          }
+          onKeyDown(event);
+        }} onKeyUp={onKeyUp}
         onPaste={(event) => {
           const itemFiles = Array.from(event.clipboardData.items || [])
             .filter((item) => item.kind === 'file')
@@ -1169,12 +1177,19 @@ export const Composer = memo(function Composer({
           ? `composer-mention-option-${mentionIndex}`
           : slashOpen && slashCommands.length ? `composer-slash-option-${slashIndex}` : undefined}
         aria-label={t("Message Mixdog")} />
+      </div>
       <div className="composer-footer">
         <input ref={fileInput} type="file" hidden multiple
           accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,text/*,.md,.mdx,.txt,.log,.json,.jsonl,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.mjs,.cjs,.ts,.tsx,.mts,.cts,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.cc,.c,.h,.hh,.hpp,.sh,.zsh,.ps1,.bat,.cmd,.sql,.css,.scss,.sass,.html,.htm,.vue,.svelte,.env,.ini,.conf,.cfg,.gql,.graphql"
           onChange={(event) => { if (event.currentTarget.files) void attachFiles(event.currentTarget.files); event.currentTarget.value = ''; }} />
-        <button type="button" className="composer-tool" disabled={transitioning} aria-label={t("Attach files")} data-tooltip={t("Attach images, PDFs, or text files")} data-tooltip-side="top"
-        onClick={() => fileInput.current?.click()}><MxIcon name="plus" size={16} /></button>
+        <ComposerAddMenu key={identityScope} anchor={paletteAnchor} sessionId={sessionId}
+          disabled={transitioning || !paneActive} goalDisabled={turnBusy || commandBusy || submitting}
+          onAttach={() => fileInput.current?.click()}
+          onSkill={name => {
+            skillSelection.select(name); setSlashDismissedDraft(draft); setMentionDismissed(mentionSignature);
+            queueMicrotask(() => textarea.current?.focus());
+          }}
+          onGoal={executeSlash} onMore={() => onOpenSettings('skills')} />
         <ModelSelector provider={provider} model={model} effort={effort} fast={fast} fastCapable={fastCapable}
           modelParameters={modelParameters}
           contextPercent={contextPercent}

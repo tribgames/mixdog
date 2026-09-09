@@ -7,10 +7,8 @@ aliases: verbose, full
 
 ## Depth Variation
 
-Detailed — concrete explanation.
-
-- Retain: the answer and every established layer that materially aids
-  understanding—mechanism, evidence, trade-offs, implications, and useful
-  examples. Deepen the subject rather than widening it.
-- Omit: unsupported speculation and unrequested fixes, recommendations, or
-  adjacent lessons.
+- Explain the reasoning, mechanisms, evidence, trade-offs, and implications
+  supporting the answer. Include relevant examples and edge cases.
+- Develop the requested subject fully, without speculation or detail that
+  does not improve understanding.
+- Organize longer explanations into sections.

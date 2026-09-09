@@ -28,6 +28,22 @@ test("remote browser controls admit only bounded navigation and human input", ()
     },
   );
   assert.equal(normalizeRemoteBrowserFrameId("rbf_a9"), "rbf_a9");
+  for (const command of [{ type: "text", text: "hello" }, { type: "key", key: "Backspace" }]) {
+    assert.deepEqual(
+      normalizeRemoteBrowserControl({ ...command, frameId: "rbf_a9", documentId: "p2:17" }),
+      { ...command, frameId: "rbf_a9", documentId: "p2:17" },
+    );
+    assert.deepEqual(
+      normalizeRemoteBrowserControl({ ...command, frameId: "rbf_a9" }),
+      { ...command, frameId: "rbf_a9" },
+    );
+    for (const documentId of ["", "p0:1", "p2", "p2:17\n", 17, null, "p2:" + "1".repeat(64)]) {
+      assert.throws(
+        () => normalizeRemoteBrowserControl({ ...command, frameId: "rbf_a9", documentId }),
+        /document id is invalid/,
+      );
+    }
+  }
   assert.throws(
     () => normalizeRemoteBrowserControl({ type: "text", text: "x".repeat(2_001) }),
     /text is invalid/,

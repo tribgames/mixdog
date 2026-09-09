@@ -1,21 +1,21 @@
 import fs from 'fs'
 
-import { Readability } from '@mozilla/readability'
 import { isWSL } from '../../shared/wsl.mjs'
 import { startChildGuardian } from '../../shared/child-guardian.mjs'
 import {
   normalizeUrl,
   assertPublicUrl,
-  assertResolvedIps,
 } from './ssrf-guard.mjs'
 import {
   buildHeaders,
   MAX_BODY_BYTES,
-  isFatalHttpPathPolicyError,
   fetchPinnedForPausedRequest,
-  fetchHtml,
+  fetchDocument,
+  assertDocumentResponse,
   _metaRefreshTarget,
 } from './http-fetch.mjs'
+import { extractDocument } from './document-content.mjs'
+import { abortable, runFetchPipeline } from './fetch-pipeline.mjs'
 
 // Facade re-exports: SSRF-guard and HTTP-fetch clusters moved to dedicated
 // modules; keep the original public surface resolving unchanged for importers.
@@ -27,17 +27,7 @@ export {
 } from './ssrf-guard.mjs'
 export { isFatalHttpPathPolicyError } from './http-fetch.mjs'
 
-// Lazy heavy deps: importing jsdom (~400ms) and puppeteer-core (~130ms) at
-// module load added ~540ms to the first web search even when the request never
-// scraped HTML. Load them on first actual use and cache the resolved binding so
-// repeat calls pay nothing. The web-search runtime itself is already dynamically
-// imported, so this keeps that first-use cost proportional to what the request
-// truly needs (a plain fetch path touches neither).
-let _JSDOM = null
-async function loadJSDOM() {
-  if (!_JSDOM) ({ JSDOM: _JSDOM } = await import('jsdom'))
-  return _JSDOM
-}
+// Browser automation is loaded only when the HTTP path needs rendering.
 let _puppeteer = null
 async function loadPuppeteer() {
   if (!_puppeteer) _puppeteer = (await import('puppeteer-core')).default
@@ -46,11 +36,8 @@ async function loadPuppeteer() {
 import {
   noteProviderFailure,
   noteProviderSuccess,
-  rankScrapeExtractors,
   classifyProviderError,
 } from './state.mjs'
-
-const DEFAULT_EXTRACTORS = ['readability', 'puppeteer']
 
 const COMMON_BROWSER_PATHS = (() => {
   const platform = process.platform
@@ -116,140 +103,20 @@ export function getScrapeCapabilities() {
   }
 }
 
-function buildContentPayload(url, title, content, extractor, extra = {}) {
-  // Whitespace-normalize extracted text so blank-line runs from page layout
-  // don't eat the caller's maxLength window. Per-line interior spacing is
-  // preserved (code blocks / <pre> stay intact) — only trailing spaces and
-  // 3+ consecutive newlines are collapsed.
-  const normalized = (content || '')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-  if (!normalized) {
-    throw new Error(`${extractor} returned empty content`)
-  }
-  return {
-    url,
-    title: (title || '').trim(),
-    content: normalized,
-    excerpt: normalized.slice(0, 240),
-    extractor,
-    ...extra,
-  }
-}
-
-function collapseTextForDetection(value) {
-  return String(value || '').replace(/\s+/g, ' ').trim()
-}
-
-function isKnownJavascriptGateUrl(url) {
-  try {
-    const parsed = new URL(String(url || ''))
-    const path = `${parsed.pathname}${parsed.search}`.toLowerCase()
-    return path.includes('/httpservice/retry/enablejs') || path.includes('enablejs')
-  } catch {
-    return false
-  }
-}
-
-function classifyJavascriptRenderingPlaceholder(page) {
-  if (!page || typeof page !== 'object') return null
-  if (isKnownJavascriptGateUrl(page.url)) return 'javascript-required placeholder URL'
-
-  const title = collapseTextForDetection(page.title)
-  const content = collapseTextForDetection(page.content)
-  const sample = `${title}\n${content}`.slice(0, 5000)
-  if (!/javascript/i.test(sample)) return null
-
-  const strongPlaceholder = [
-    /you need to enable javascript to run this app/i,
-    /please enable javascript/i,
-    /(?:enable|turn on) javascript/i,
-    /javascript\s+(?:is\s+)?(?:disabled|required)/i,
-    /javascript\s+must\s+be\s+enabled/i,
-    /requires? javascript/i,
-  ].some(pattern => pattern.test(sample))
-  const browserInstructionNames = ['chrome', 'edge', 'firefox', 'safari', 'opera']
-    .filter(name => new RegExp(`\\b${name}\\b`, 'i').test(sample))
-    .length
-  if (!strongPlaceholder && browserInstructionNames < 3) return null
-
-  // A long article can legitimately discuss JavaScript requirements. Only
-  // auto-render compact placeholder/shell pages, plus the canonical React app
-  // shell phrase regardless of surrounding boilerplate.
-  if (content.length <= 4000 || /you need to enable javascript to run this app/i.test(sample)) {
-    return 'javascript-required placeholder content'
-  }
-  return null
-}
-
-async function extractReadableArticle(url, html) {
-  const JSDOM = await loadJSDOM()
-  const dom = new JSDOM(html, { url })
-  try {
-    const doc = dom.window.document
-    // <head> social/preview images: Readability + textContent strip every tag,
-    // so og:image / twitter:image never survive text extraction. Capture them
-    // here and prepend as labelled lines so callers get the image URL without a
-    // second (native) fetch — closes the readability-drops-meta gap.
-    const metaImg = (sel) => doc.querySelector(sel)?.getAttribute('content')?.trim() || ''
-    const ogImage = metaImg('meta[property="og:image"]') || metaImg('meta[name="og:image"]') || metaImg('meta[property="og:image:url"]')
-    const twImage = metaImg('meta[name="twitter:image"]') || metaImg('meta[property="twitter:image"]') || metaImg('meta[name="twitter:image:src"]')
-    const _imgLines = []
-    if (ogImage) _imgLines.push(`og:image: ${ogImage}`)
-    if (twImage && twImage !== ogImage) _imgLines.push(`twitter:image: ${twImage}`)
-    const imgPrefix = _imgLines.length ? `${_imgLines.join('\n')}\n\n` : ''
-    const reader = new Readability(doc)
-    const article = reader.parse()
-    if (article?.textContent?.trim()) {
-      return buildContentPayload(
-        url,
-        article.title || doc.title || '',
-        imgPrefix + article.textContent,
-        'readability',
-      )
-    }
-
-    // Readability failed to find an article; fall back to the raw body text.
-    // body.textContent concatenates script/style/template content and chrome
-    // (nav/header/footer/aside) verbatim, which floods the result with noise.
-    // Drop those non-content elements first so the fallback yields readable
-    // prose rather than inlined JS/CSS and boilerplate.
-    const body = dom.window.document.body
-    let bodyText = ''
-    if (body) {
-      for (const node of body.querySelectorAll('script, style, noscript, template, nav, header, footer, aside, [hidden], [aria-hidden="true"]')) {
-        node.remove()
-      }
-      bodyText = body.textContent?.trim() || ''
-    }
-    if (!bodyText) {
-      throw new Error('readability returned no readable body')
-    }
-
-    return buildContentPayload(
-      url,
-      doc.title || '',
-      imgPrefix + bodyText,
-      'dom-text',
-    )
-  } finally {
-    dom.window.close()
-  }
-}
-
 async function scrapeWithReadability(url, timeoutMs, signal) {
-  let currentUrl = url
-  let html = await fetchHtml(currentUrl, timeoutMs, signal)
-  // Bounded meta-refresh chase: each hop re-enters fetchHtml, so the
-  // SSRF/public-URL validation applies to every target.
-  for (let hop = 0; hop < 3; hop += 1) {
-    const target = _metaRefreshTarget(html, currentUrl)
+  const redirects = []
+  const session = {}
+  let document = await fetchDocument(url, timeoutMs, signal, { session })
+  for (let hop = 0; ; hop++) {
+    redirects.push(...document.redirects)
+    const html = /(?:text\/html|application\/xhtml\+xml)/i.test(document.contentType)
+    const target = html ? _metaRefreshTarget(document.body, document.url) : null
     if (!target) break
-    currentUrl = target
-    html = await fetchHtml(currentUrl, timeoutMs, signal)
+    if (hop >= 3) throw new Error('Too many redirects (meta refresh)')
+    redirects.push({ url: document.url, location: target, status: 'meta-refresh' })
+    document = await fetchDocument(target, timeoutMs, signal, { session })
   }
-  return await extractReadableArticle(currentUrl, html)
+  return { ...(await extractDocument(document.url, document.body, document.contentType)), httpStatus: document.status, redirects }
 }
 
 function resolveBrowserLaunchOptions() {
@@ -328,10 +195,8 @@ async function _acquirePoolSlot(signal) {
   }
 }
 
-function _releasePoolSlot() {
-  _poolActive = Math.max(0, _poolActive - 1)
-  _poolLastActivity = Date.now()
-  _notifyPoolWaiter()
+function schedulePoolIdleClose() {
+  if (_poolIdleTimer) clearTimeout(_poolIdleTimer)
   if (_poolActive === 0 && _poolBrowser) {
     _poolIdleTimer = setTimeout(() => {
       if (_poolActive === 0 && _poolBrowser) {
@@ -340,7 +205,15 @@ function _releasePoolSlot() {
         closeBrowserBounded(b).catch(() => {})
       }
     }, PUPPETEER_POOL_IDLE_MS)
+    _poolIdleTimer.unref?.()
   }
+}
+
+function _releasePoolSlot() {
+  _poolActive = Math.max(0, _poolActive - 1)
+  _poolLastActivity = Date.now()
+  _notifyPoolWaiter()
+  schedulePoolIdleClose()
 }
 
 async function _getPoolBrowser() {
@@ -364,6 +237,7 @@ async function _getPoolBrowser() {
         browser.on('disconnected', () => {
           if (_poolBrowser === browser) _poolBrowser = null
         })
+        schedulePoolIdleClose()
         return browser
       })
       .finally(() => {
@@ -378,6 +252,8 @@ async function _getPoolBrowser() {
 // performs its own DNS for response bytes. Redirects and subresources each
 // re-enter requestPaused and are validated again (fail-closed on block).
 async function installPuppeteerSsrfGate(_page, cdp, signal) {
+  const { frameTree } = await cdp.send('Page.getFrameTree')
+  const gate = { documentError: null }
   await cdp.send('Fetch.enable', {
     handleAuthRequests: false,
     patterns: [{ urlPattern: '*', requestStage: 'Request' }],
@@ -391,20 +267,20 @@ async function installPuppeteerSsrfGate(_page, cdp, signal) {
           await cdp.send('Fetch.failRequest', { requestId, errorReason: 'Failed' })
           return
         }
-        const reqHeaders = { ...buildHeaders() }
+        const reqHeaders = new Headers(buildHeaders())
         if (Array.isArray(request.headers)) {
           for (const entry of request.headers) {
-            if (entry?.name) reqHeaders[entry.name] = entry.value ?? ''
+            if (entry?.name) reqHeaders.set(entry.name, entry.value ?? '')
           }
         } else if (request.headers && typeof request.headers === 'object') {
           for (const [name, value] of Object.entries(request.headers)) {
-            reqHeaders[name] = value
+            reqHeaders.set(name, value)
           }
         }
         const fetchOpts = {
           signal,
           method: request.method || 'GET',
-          headers: reqHeaders,
+          headers: Object.fromEntries(reqHeaders),
         }
         if (request.postData) fetchOpts.body = request.postData
         const result = await fetchPinnedForPausedRequest(reqUrl, fetchOpts)
@@ -414,13 +290,15 @@ async function installPuppeteerSsrfGate(_page, cdp, signal) {
           responseHeaders: result.responseHeaders,
           body: result.body.toString('base64'),
         })
-      } catch {
+      } catch (error) {
+        if (event.resourceType === 'Document' && event.frameId === frameTree.frame.id) gate.documentError = error
         try {
           await cdp.send('Fetch.failRequest', { requestId, errorReason: 'Failed' })
         } catch {}
       }
     })()
   })
+  return gate
 }
 
 // Bounded browser teardown: browser.close() can hang if the Chromium process
@@ -444,6 +322,14 @@ async function closeBrowserBounded(browser, timeoutMs = 5000) {
   }
 }
 
+export async function closeScrapeBrowserPool() {
+  if (_poolIdleTimer) clearTimeout(_poolIdleTimer)
+  _poolIdleTimer = null
+  const browser = _poolBrowser
+  _poolBrowser = null
+  await closeBrowserBounded(browser)
+}
+
 async function withPuppeteerPage(signal, fn) {
   await _acquirePoolSlot(signal)
   let browser
@@ -453,7 +339,7 @@ async function withPuppeteerPage(signal, fn) {
   let onExternalAbort
   try {
     try {
-      browser = await _getPoolBrowser()
+      browser = await abortable(_getPoolBrowser(), signal)
     } catch (error) {
       throw new Error(`puppeteer launch failed: ${error instanceof Error ? error.message : String(error)}`)
     }
@@ -477,13 +363,16 @@ async function withPuppeteerPage(signal, fn) {
     if (signal?.aborted) throw signal.reason || new Error('aborted')
     cdp = await page.createCDPSession()
     if (signal?.aborted) throw signal.reason || new Error('aborted')
-    await installPuppeteerSsrfGate(page, cdp, signal)
+    await page.setBypassServiceWorker(true)
+    const gate = await installPuppeteerSsrfGate(page, cdp, signal)
     if (signal?.aborted) throw signal.reason || new Error('aborted')
-    return await fn(page)
+    try { return await fn(page) }
+    catch (error) { throw gate.documentError || error }
   } finally {
     if (onExternalAbort && signal) signal.removeEventListener('abort', onExternalAbort)
-    try { await page?.close() } catch {}
-    try { await context?.close() } catch {}
+    try {
+      await abortable(Promise.allSettled([page?.close(), context?.close()]), AbortSignal.timeout(2000))
+    } catch {}
     _releasePoolSlot()
   }
 }
@@ -491,101 +380,55 @@ async function withPuppeteerPage(signal, fn) {
 async function scrapeWithPuppeteer(url, timeoutMs, signal) {
   return withPuppeteerPage(signal, async (page) => {
     const resp = await page.goto(url, {
-      waitUntil: 'networkidle2',
+      waitUntil: 'domcontentloaded',
       timeout: timeoutMs,
     })
-    if (!resp || !resp.ok()) {
-      const status = resp?.status?.() ?? 'unknown'
-      const err = new Error(`HTTP ${status}`)
-      err.status = typeof status === 'number' ? status : undefined
-      throw err
+    if (!resp) throw new Error('Browser navigation returned no HTTP response')
+    assertDocumentResponse(resp.status(), new Headers(resp.headers()), page.url())
+    // Wait for useful DOM content, not analytics or long-lived connections.
+    try {
+      await page.waitForFunction(() => {
+        const text = (document.querySelector('main,[role="main"],article') || document.body)?.innerText?.trim() || ''
+        return Boolean(text)
+      }, { timeout: Math.min(5000, Math.max(1, timeoutMs / 3)), polling: 100 })
+    } catch (error) {
+      signal?.throwIfAborted()
+      if (error.name !== 'TimeoutError') throw error
+    }
+    try {
+      await page.waitForNetworkIdle({ idleTime: 400, concurrency: 2, timeout: Math.min(2500, Math.max(1, timeoutMs / 4)) })
+    } catch (error) {
+      signal?.throwIfAborted()
+      if (error.name !== 'TimeoutError') throw error
     }
     const finalUrl = page.url()
     assertPublicUrl(finalUrl)
-    await assertResolvedIps(new URL(finalUrl).hostname)
     const html = await page.content()
     const htmlBytes = Buffer.byteLength(html, 'utf8')
     if (htmlBytes > MAX_BODY_BYTES) {
       throw new Error(`puppeteer page content too large: ${htmlBytes} bytes > cap=${MAX_BODY_BYTES}`)
     }
-    try {
-      return {
-        ...(await extractReadableArticle(finalUrl, html)),
-        extractor: 'puppeteer',
-      }
-    } catch {
-      const bodyText = await page.evaluate(() => document.body?.innerText || '')
-      return buildContentPayload(finalUrl, await page.title(), bodyText, 'puppeteer')
+    return {
+      ...(await extractDocument(finalUrl, html, 'text/html')),
+      extractor: 'puppeteer',
+      httpStatus: resp.status(),
     }
   })
 }
 
-async function tryExtractor(extractor, url, timeoutMs, signal) {
-  switch (extractor) {
-    case 'readability':
-      return scrapeWithReadability(url, timeoutMs, signal)
-    case 'puppeteer':
-      return scrapeWithPuppeteer(url, timeoutMs, signal)
-    default:
-      throw new Error(`Unknown extractor: ${extractor}`)
-  }
-}
-
 async function scrapeUrl(url, timeoutMs, usageState, signal) {
   const normalizedUrl = normalizeUrl(url)
-  const host = new URL(normalizedUrl).host
-  const extractors = rankScrapeExtractors(host, usageState, DEFAULT_EXTRACTORS)
-  const failures = []
-
-  for (let i = 0; i < extractors.length; i += 1) {
-    const extractor = extractors[i]
-    if (extractor === 'puppeteer') {
-      try {
-        await fetchHtml(normalizedUrl, timeoutMs, signal)
-      } catch (error) {
-        if (isFatalHttpPathPolicyError(error)) {
-          const message = error instanceof Error ? error.message : String(error)
-          failures.push({ extractor: 'http-policy', error: message })
-          const err = error instanceof Error ? error : new Error(message)
-          err.failures = failures
-          throw err
-        }
-      }
-    }
-    try {
-      const page = await tryExtractor(extractor, normalizedUrl, timeoutMs, signal)
-      const placeholderReason = classifyJavascriptRenderingPlaceholder(page)
-      if (placeholderReason) {
-        if (extractor !== 'puppeteer' && extractors.slice(i + 1).includes('puppeteer')) {
-          failures.push({ extractor, error: `${placeholderReason}; retrying puppeteer` })
-          continue
-        }
-        throw new Error(`${extractor} returned ${placeholderReason}`)
-      }
-      noteProviderSuccess(usageState, extractor)
-      return {
-        ...page,
-        triedExtractors: extractors,
-        failures,
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      failures.push({ extractor, error: message })
-      if (extractor === 'readability' && isFatalHttpPathPolicyError(error)) {
-        const err = error instanceof Error ? error : new Error(message)
-        err.failures = failures
-        throw err
-      }
-      const errorKind = classifyProviderError(error)
-      // A status carried by the error came from the target page, so it is a
-      // property of that site — not of `readability`/`puppeteer`, which hold no
-      // credentials at all.
-      const siteScoped = Number.isFinite(Number(error?.status)) || /\bHTTP\s+\d{3}\b/.test(message)
-      noteProviderFailure(usageState, extractor, message, errorKind, { siteScoped })
-    }
-  }
-
-  throw new Error(`All extractors failed for ${normalizedUrl}: ${failures.map(item => `${item.extractor}: ${item.error}`).join(' | ')}`)
+  return runFetchPipeline(normalizedUrl, {
+    timeoutMs, signal,
+    http: (budget, abort) => scrapeWithReadability(normalizedUrl, budget, abort),
+    browser: (budget, abort) => scrapeWithPuppeteer(normalizedUrl, budget, abort),
+    onAttempt(stage, error) {
+      if (!usageState) return
+      const provider = stage === 'http' ? 'readability' : stage
+      if (!error) noteProviderSuccess(usageState, provider)
+      else noteProviderFailure(usageState, provider, error.message, classifyProviderError(error), { siteScoped: true })
+    },
+  })
 }
 
 export async function scrapeUrls(urls, timeoutMs, usageState, signal) {
@@ -598,6 +441,9 @@ export async function scrapeUrls(urls, timeoutMs, usageState, signal) {
     return {
       url: urls[index],
       error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      errorCode: result.reason?.code || 'FETCH_FAILED',
+      failures: result.reason?.failures || [],
+      attempts: result.reason?.attempts || [],
     }
   })
 }

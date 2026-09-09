@@ -33,8 +33,22 @@
  *    after Chromium's per-move write and before paint: one painted author
  *    per frame, so the flicker of the old per-move co-authoring never
  *    returns, and native autoscroll keeps advancing the edge the caret sits
- *    on.
+ *    on. Release keeps the fence and pins until one final frame corrects
+ *    Chromium's last write, then hands the settled range to virtualization.
  */
+
+import {
+  caretFromPoint,
+  clampTranscriptSelectionPoint,
+  nearestTranscriptSelectionRow,
+  transcriptSelectionPointerRegion,
+} from "./transcript-selection-caret";
+
+export {
+  clampTranscriptSelectionPoint,
+  nearestTranscriptSelectionRow,
+  transcriptSelectionPointerRegion,
+} from "./transcript-selection-caret";
 
 export type TranscriptSelectionEndpoint = { key: unknown; index: number };
 export type TranscriptSelectionPin = {
@@ -44,85 +58,10 @@ export type TranscriptSelectionPin = {
 
 const ROW_SELECTOR = ".transcript-virtual-row";
 
-export function transcriptSelectionPointerRegion(
-  pointerX: number,
-  pointerY: number,
-  left: number,
-  top: number,
-  right: number,
-  bottom: number,
-): "inside" | "above" | "below" | "side" {
-  if (pointerY < top) return "above";
-  if (pointerY > bottom) return "below";
-  if (pointerX < left || pointerX > right) return "side";
-  return "inside";
-}
-
-/** Inset from the viewport edge where the clamped caret is read. Two pixels
- *  keeps the point on the edge row instead of the scroller's own border. */
-const CLAMP_EDGE_INSET = 2;
-
-/** The point inside the viewport whose caret a pointer outside it should
- *  extend to: each axis is clamped independently, so a pointer below the
- *  viewport keeps its column and one beside it keeps its line. */
-export function clampTranscriptSelectionPoint(
-  pointerX: number,
-  pointerY: number,
-  left: number,
-  top: number,
-  right: number,
-  bottom: number,
-): { x: number; y: number } {
-  const clamp = (value: number, min: number, max: number) => (
-    max <= min ? min : Math.min(Math.max(value, min), max)
-  );
-  return {
-    x: clamp(pointerX, left + CLAMP_EDGE_INSET, right - CLAMP_EDGE_INSET),
-    y: clamp(pointerY, top + CLAMP_EDGE_INSET, bottom - CLAMP_EDGE_INSET),
-  };
-}
-
-/** The row a pointer at `y` should extend into: the one it overlaps, else the
- *  nearest by vertical distance. Row gaps, the scroller's own padding and the
- *  reserved scrollbar gutter carry no text, and Chromium resolves such points
- *  to the first/last mounted row instead — the jump seen right at the
- *  viewport's edges, before the pointer has even left it (user: 창과 창밖의
- *  경계랑 컴포저와의 경계에서 튄다). */
-export function nearestTranscriptSelectionRow<T extends { top: number; bottom: number }>(
-  rows: readonly T[],
-  y: number,
-): T | null {
-  let best: T | null = null;
-  let bestDistance = Infinity;
-  for (const row of rows) {
-    const distance = y < row.top ? row.top - y : y > row.bottom ? y - row.bottom : 0;
-    if (distance < bestDistance) {
-      best = row;
-      bestDistance = distance;
-    }
-  }
-  return best;
-}
-
 /** How far each inward attempt steps along the line and how many are made:
  *  enough to clear a row's horizontal padding and the floating jump pill. */
 const INWARD_STEP_PX = 16;
 const INWARD_ATTEMPTS = 8;
-
-type CaretPoint = { node: Node; offset: number };
-
-function caretFromPoint(x: number, y: number): CaretPoint | null {
-  const doc = document as Document & {
-    caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null;
-    caretRangeFromPoint?: (x: number, y: number) => Range | null;
-  };
-  if (typeof doc.caretPositionFromPoint === "function") {
-    const position = doc.caretPositionFromPoint(x, y);
-    return position ? { node: position.offsetNode, offset: position.offset } : null;
-  }
-  const range = doc.caretRangeFromPoint?.(x, y);
-  return range ? { node: range.startContainer, offset: range.startOffset } : null;
-}
 
 /** Only the primary button's release ends a selection gesture; a move that
  *  arrives without it means the release happened outside the renderer. */
@@ -153,6 +92,7 @@ export function attachTranscriptSelectionDrag(
   const { root, rowKeyAt, setPin, onAutoScroll } = options;
 
   let selecting = false;
+  let finishing = false;
   let seed: TranscriptSelectionEndpoint | null = null;
   let lastPointer = { x: 0, y: 0 };
   let lastScrollTop = 0;
@@ -218,6 +158,8 @@ export function attachTranscriptSelectionDrag(
   const extendToNearestRowCaret = (view: DOMRect) => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return;
+    // A new selection elsewhere before the final frame belongs to that surface.
+    if (!endpointForNode(selection.anchorNode)) return;
     const point = clampTranscriptSelectionPoint(
       lastPointer.x, lastPointer.y, view.left, view.top, view.right, view.bottom);
     const row = nearestTranscriptSelectionRow(textRowBoxes(), point.y);
@@ -240,9 +182,10 @@ export function attachTranscriptSelectionDrag(
     outsideFrame = 0;
     if (!selecting) return;
     const view = contentBox();
-    if (pointerRegion(view) === "inside" && rowUnderPointer()) return;
-    extendToNearestRowCaret(view);
-    outsideFrame = window.requestAnimationFrame(syncOutside);
+    const needsCorrection = pointerRegion(view) !== "inside" || !rowUnderPointer();
+    if (needsCorrection) extendToNearestRowCaret(view);
+    if (finishing) finishSelection();
+    else if (needsCorrection) outsideFrame = window.requestAnimationFrame(syncOutside);
   };
   const scheduleOutsideSync = () => {
     if (!outsideFrame) outsideFrame = window.requestAnimationFrame(syncOutside);
@@ -254,6 +197,8 @@ export function attachTranscriptSelectionDrag(
 
   /** Pin from the range the document holds right now. */
   const syncPin = () => {
+    // Do not publish Chromium's transient release fallback to virtualization.
+    if (finishing) return;
     // Every composer keystroke moves the caret and fires selectionchange.
     // Reading the Selection forces style + layout over the whole document,
     // and a caret in a text field is never a transcript range.
@@ -282,13 +227,28 @@ export function attachTranscriptSelectionDrag(
   const finishSelection = () => {
     if (!selecting) return;
     selecting = false;
+    finishing = false;
     seed = null;
     cancelOutsideSync();
     markSelecting(false);
     syncPin();
   };
+  const requestFinish = () => {
+    if (!selecting || finishing) return;
+    // pointerup is captured before Chromium finishes its native range write.
+    // Reuse the edge frame instead of cancelling the last correction.
+    finishing = true;
+    scheduleOutsideSync();
+  };
+  const handlePointerUp = (event: PointerEvent) => {
+    if (!selecting || finishing || event.button !== 0) return;
+    lastPointer = { x: event.clientX, y: event.clientY };
+    requestFinish();
+  };
   const handlePointerDown = (event: PointerEvent) => {
     if (event.button !== 0) return;
+    // A fresh press supersedes any deferred finish without rewriting its range.
+    finishSelection();
     const target = event.target as Node | null;
     if (isTextFieldElement(target instanceof Element ? target : null)) return;
     const endpoint = endpointForNode(target);
@@ -303,9 +263,10 @@ export function attachTranscriptSelectionDrag(
     setPin({ anchor: endpoint, focus: endpoint });
   };
   const handlePointerMove = (event: PointerEvent) => {
-    if (!selecting) return;
+    if (!selecting || finishing) return;
     if (!transcriptSelectionPrimaryButtonDown(event.buttons)) {
-      finishSelection();
+      // The release was outside; a returning hover is not its final coordinate.
+      requestFinish();
       return;
     }
     lastPointer = { x: event.clientX, y: event.clientY };
@@ -315,26 +276,27 @@ export function attachTranscriptSelectionDrag(
     const top = root.scrollTop;
     const delta = top - lastScrollTop;
     lastScrollTop = top;
-    if (!selecting || !delta || !pointerOutsideVertically()) return;
+    if (!selecting || finishing || !delta || !pointerOutsideVertically()) return;
     onAutoScroll(delta);
   };
 
   root.addEventListener("pointerdown", handlePointerDown, true);
   root.addEventListener("scroll", handleScroll, { passive: true });
   document.addEventListener("pointermove", handlePointerMove, true);
-  document.addEventListener("pointerup", finishSelection, true);
-  document.addEventListener("pointercancel", finishSelection, true);
+  document.addEventListener("pointerup", handlePointerUp, true);
+  document.addEventListener("pointercancel", requestFinish, true);
   document.addEventListener("selectionchange", syncPin);
-  window.addEventListener("blur", finishSelection);
+  window.addEventListener("blur", requestFinish);
   return () => {
     root.removeEventListener("pointerdown", handlePointerDown, true);
     root.removeEventListener("scroll", handleScroll);
     document.removeEventListener("pointermove", handlePointerMove, true);
-    document.removeEventListener("pointerup", finishSelection, true);
-    document.removeEventListener("pointercancel", finishSelection, true);
+    document.removeEventListener("pointerup", handlePointerUp, true);
+    document.removeEventListener("pointercancel", requestFinish, true);
     document.removeEventListener("selectionchange", syncPin);
-    window.removeEventListener("blur", finishSelection);
+    window.removeEventListener("blur", requestFinish);
     selecting = false;
+    finishing = false;
     seed = null;
     cancelOutsideSync();
     markSelecting(false);

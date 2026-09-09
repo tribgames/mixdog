@@ -1,10 +1,9 @@
 //! Offline Chrome cookie decryption.
 //!
-//! Reads the profile `Cookies` SQLite database and decrypts each
-//! `encrypted_value`. Chrome uses one OSCrypt master key per version:
-//! `v20` (App-Bound) values carry a 32-byte domain-hash metadata prefix that
-//! must be stripped after AES-256-GCM; `v10` values do not; anything else is a
-//! legacy DPAPI blob.
+//! Reads the profile cookie database without conflating the database schema
+//! with its encryption version. Every encrypted value in schema 24 or newer
+//! is domain-bound, including v10 values. Failures are counted, never omitted
+//! from the encrypted import report or converted into replacement characters.
 
 use std::path::{Path, PathBuf};
 
@@ -13,7 +12,8 @@ use anyhow::{anyhow, Result};
 use chromium_importer::chromium::crypt_unprotect_data;
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
-use zeroize::Zeroize;
+use sha2::{Digest, Sha256};
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::keys;
 
@@ -21,8 +21,9 @@ use crate::keys;
 const CHROME_EPOCH_OFFSET_SECS: i64 = 11_644_473_600;
 const IV_SIZE: usize = 12;
 const TAG_SIZE: usize = 16;
-/// App-Bound (v20) cookie plaintext is prefixed with a 32-byte domain hash.
-const V20_METADATA_PREFIX: usize = 32;
+const DOMAIN_BOUND_SCHEMA: i64 = 24;
+const DOMAIN_HASH_SIZE: usize = 32;
+const MAX_COOKIES: usize = 1_000_000;
 
 /// A decrypted cookie shaped for the desktop importer's `cookies.set` loop.
 #[derive(Serialize)]
@@ -39,6 +40,15 @@ pub struct Cookie {
     pub expires: Option<f64>,
     #[serde(rename = "sameSite", skip_serializing_if = "Option::is_none")]
     pub same_site: Option<String>,
+    #[serde(rename = "partitionKey", skip_serializing_if = "Option::is_none")]
+    pub partition_key: Option<CookiePartitionKey>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CookiePartitionKey {
+    top_level_site: String,
+    has_cross_site_ancestor: bool,
 }
 
 impl Drop for Cookie {
@@ -51,13 +61,48 @@ struct RawCookie {
     host_key: String,
     name: String,
     path: String,
+    value: Zeroizing<Vec<u8>>,
     encrypted_value: Vec<u8>,
+    top_frame_site_key: String,
+    has_cross_site_ancestor: Option<i64>,
     is_secure: i64,
     is_httponly: i64,
     has_expires: i64,
     is_persistent: i64,
     expires_utc: i64,
     samesite: i64,
+}
+
+impl RawCookie {
+    fn expired(&self, now: f64) -> bool {
+        self.has_expires != 0 && self.is_persistent != 0
+            && self.expires_utc as f64 / 1_000_000.0 - CHROME_EPOCH_OFFSET_SECS as f64 <= now
+    }
+}
+
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CookieImportFailures {
+    decryption: usize,
+    domain_mismatch: usize,
+    invalid_encoding: usize,
+    invalid_partition: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CookieImportReport {
+    version: u8,
+    source_count: usize,
+    expired: usize,
+    cookies: Vec<Cookie>,
+    failures: CookieImportFailures,
+}
+
+enum DecodeError {
+    Decryption,
+    DomainMismatch,
+    InvalidEncoding,
 }
 
 #[derive(Default)]
@@ -69,34 +114,60 @@ pub struct DecryptKeys {
 /// An owned copy of the cookie database. Reading a copy avoids touching the
 /// live profile and keeps working even if Chrome left a journal behind.
 pub struct CookieDb {
+    schema_version: i64,
     raws: Vec<RawCookie>,
 }
 
 impl CookieDb {
     fn from_connection(conn: &Connection) -> Result<Self> {
-        let mut statement = conn.prepare(
-            "SELECT host_key, name, path, encrypted_value, is_secure, is_httponly, \
-             has_expires, is_persistent, expires_utc, samesite FROM cookies",
+        let schema_version: i64 = conn.query_row(
+            "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'version'",
+            [],
+            |row| row.get(0),
         )?;
+        if schema_version < 1 {
+            return Err(anyhow!("cookie database schema version is invalid"));
+        }
+        let columns = conn
+            .prepare("PRAGMA table_info(cookies)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let has_partition = columns.iter().any(|name| name == "top_frame_site_key");
+        let partition_column = if has_partition { "top_frame_site_key" } else { "''" };
+        let ancestor_column = if columns.iter().any(|name| name == "has_cross_site_ancestor") {
+            "has_cross_site_ancestor"
+        } else {
+            "NULL"
+        };
+        let mut statement = conn.prepare(&format!(
+            "SELECT host_key, name, path, encrypted_value, value, is_secure, is_httponly, \
+             has_expires, is_persistent, expires_utc, samesite, {partition_column}, {ancestor_column} FROM cookies",
+        ))?;
         let rows = statement.query_map([], |row| {
             Ok(RawCookie {
                 host_key: row.get(0)?,
                 name: row.get(1)?,
                 path: row.get(2)?,
                 encrypted_value: row.get(3)?,
-                is_secure: row.get(4)?,
-                is_httponly: row.get(5)?,
-                has_expires: row.get(6)?,
-                is_persistent: row.get(7)?,
-                expires_utc: row.get(8)?,
-                samesite: row.get(9)?,
+                value: Zeroizing::new(row.get_ref(4)?.as_bytes()?.to_vec()),
+                is_secure: row.get(5)?,
+                is_httponly: row.get(6)?,
+                has_expires: row.get(7)?,
+                is_persistent: row.get(8)?,
+                expires_utc: row.get(9)?,
+                samesite: row.get(10)?,
+                top_frame_site_key: row.get(11)?,
+                has_cross_site_ancestor: row.get(12)?,
             })
         })?;
         let mut raws = Vec::new();
         for row in rows {
+            if raws.len() == MAX_COOKIES {
+                return Err(anyhow!("cookie database exceeds the import limit"));
+            }
             raws.push(row?);
         }
-        Ok(Self { raws })
+        Ok(Self { schema_version, raws })
     }
 
     pub fn load(db_path: &Path) -> Result<Self> {
@@ -107,10 +178,13 @@ impl CookieDb {
 
     /// Which encryption versions are present, so only the needed keys — and
     /// only the UAC prompt for v20 — are requested.
-    pub fn versions_present(&self) -> (bool, bool) {
+    pub fn versions_present(&self, now: f64) -> (bool, bool) {
         let mut v10 = false;
         let mut v20 = false;
         for raw in &self.raws {
+            if raw.expired(now) {
+                continue;
+            }
             if raw.encrypted_value.starts_with(b"v20") {
                 v20 = true;
             } else if raw.encrypted_value.starts_with(b"v10") {
@@ -120,18 +194,47 @@ impl CookieDb {
         (v10, v20)
     }
 
-    pub fn decrypt(self, keys: &DecryptKeys) -> Vec<Cookie> {
+    pub fn decrypt(self, keys: &DecryptKeys, now: f64) -> CookieImportReport {
+        let source_count = self.raws.len();
+        let mut expired = 0;
         let mut cookies = Vec::with_capacity(self.raws.len());
+        let mut failures = CookieImportFailures::default();
         for raw in self.raws {
-            let Some(value) = decrypt_value(&raw.encrypted_value, keys) else {
+            if raw.expired(now) {
+                expired += 1;
                 continue;
+            }
+            let partition_key = if raw.top_frame_site_key.is_empty() {
+                None
+            } else {
+                // Missing ancestry cannot be guessed: it distinguishes cookies
+                // even when their top-level site, name and domain are identical.
+                let Some(ancestor @ (0 | 1)) = raw.has_cross_site_ancestor else {
+                    failures.invalid_partition += 1;
+                    continue;
+                };
+                Some(CookiePartitionKey {
+                    top_level_site: raw.top_frame_site_key.clone(),
+                    has_cross_site_ancestor: ancestor == 1,
+                })
+            };
+            let value = match decode_value(&raw, self.schema_version, keys) {
+                Ok(value) => value,
+                Err(error) => {
+                    match error {
+                        DecodeError::Decryption => failures.decryption += 1,
+                        DecodeError::DomainMismatch => failures.domain_mismatch += 1,
+                        DecodeError::InvalidEncoding => failures.invalid_encoding += 1,
+                    }
+                    continue;
+                }
             };
             let session = raw.has_expires == 0 || raw.is_persistent == 0;
             let expires = if session {
                 None
             } else {
-                let seconds = (raw.expires_utc / 1_000_000) - CHROME_EPOCH_OFFSET_SECS;
-                (seconds > 0).then_some(seconds as f64)
+                // Keep past/zero expiries past: they must never become sessions.
+                Some(raw.expires_utc as f64 / 1_000_000.0 - CHROME_EPOCH_OFFSET_SECS as f64)
             };
             let same_site = match raw.samesite {
                 0 => Some("none".to_string()),
@@ -149,45 +252,52 @@ impl CookieDb {
                 session,
                 expires,
                 same_site,
+                partition_key,
             });
         }
-        cookies
+        CookieImportReport { version: 2, source_count, expired, cookies, failures }
     }
 }
 
-fn decrypt_gcm(key: &[u8], blob: &[u8], strip_prefix: usize) -> Result<Vec<u8>> {
+fn decrypt_gcm(key: &[u8], blob: &[u8]) -> Result<Vec<u8>> {
     if blob.len() < IV_SIZE + TAG_SIZE {
         return Err(anyhow!("cookie ciphertext is too short"));
     }
     let cipher = Aes256Gcm::new_from_slice(key)?;
     let nonce = Nonce::try_from(&blob[..IV_SIZE])?;
-    let mut plaintext = cipher
+    let plaintext = cipher
         .decrypt(&nonce, &blob[IV_SIZE..])
         .map_err(|e| anyhow!("cookie decryption failed: {}", e))?;
-    if strip_prefix > 0 {
-        if plaintext.len() < strip_prefix {
-            plaintext.zeroize();
-            return Err(anyhow!("cookie plaintext shorter than its metadata prefix"));
-        }
-        plaintext.drain(..strip_prefix);
-    }
     Ok(plaintext)
 }
 
-fn decrypt_value(encrypted: &[u8], keys: &DecryptKeys) -> Option<String> {
+fn decode_value(raw: &RawCookie, schema_version: i64, keys: &DecryptKeys) -> Result<String, DecodeError> {
+    let encrypted = &raw.encrypted_value;
+    if encrypted.is_empty() {
+        return std::str::from_utf8(&raw.value)
+            .map(str::to_owned)
+            .map_err(|_| DecodeError::InvalidEncoding);
+    }
     let bytes = if encrypted.starts_with(b"v20") {
-        decrypt_gcm(keys.v20.as_deref()?, &encrypted[3..], V20_METADATA_PREFIX)
+        decrypt_gcm(keys.v20.as_deref().ok_or(DecodeError::Decryption)?, &encrypted[3..])
     } else if encrypted.starts_with(b"v10") {
-        decrypt_gcm(keys.v10.as_deref()?, &encrypted[3..], 0)
-    } else if encrypted.is_empty() {
-        Ok(Vec::new())
+        decrypt_gcm(keys.v10.as_deref().ok_or(DecodeError::Decryption)?, &encrypted[3..])
     } else {
         crypt_unprotect_data(encrypted, 0).map_err(|e| anyhow!("legacy cookie DPAPI failed: {}", e))
     };
-    let mut bytes = bytes.ok()?;
-    let value = String::from_utf8_lossy(&bytes).into_owned();
-    bytes.zeroize();
-    Some(value)
+    let bytes = Zeroizing::new(bytes.map_err(|_| DecodeError::Decryption)?);
+    let value = if schema_version >= DOMAIN_BOUND_SCHEMA {
+        let expected = Sha256::digest(raw.host_key.as_bytes());
+        if !bytes.starts_with(&expected) {
+            return Err(DecodeError::DomainMismatch);
+        }
+        &bytes[DOMAIN_HASH_SIZE..]
+    } else {
+        bytes.as_slice()
+    };
+    std::str::from_utf8(value)
+        .map(str::to_owned)
+        .map_err(|_| DecodeError::InvalidEncoding)
 }
 
 fn chrome_user_data_dir() -> Result<PathBuf> {
@@ -265,7 +375,8 @@ fn copy_db_to_temp(src: &Path) -> Result<TempCookieDb> {
     for suffix in ["-wal", "-shm"] {
         let journal = sibling(src, suffix);
         if journal.exists() {
-            let _ = std::fs::copy(&journal, sibling(&temp.base, suffix));
+            std::fs::copy(&journal, sibling(&temp.base, suffix))
+                .map_err(|_| anyhow!("failed to copy cookie database journal"))?;
         }
     }
     Ok(temp)
@@ -273,7 +384,7 @@ fn copy_db_to_temp(src: &Path) -> Result<TempCookieDb> {
 
 /// Decrypt every cookie for a Chrome profile, requesting elevation only when a
 /// v20 (App-Bound) cookie is present.
-pub async fn import_chrome_cookies(profile: &str) -> Result<Vec<Cookie>> {
+pub async fn import_chrome_cookies(profile: &str) -> Result<CookieImportReport> {
     let user_data = chrome_user_data_dir()?;
     let local_state = user_data.join("Local State");
     let profile_dir = user_data.join(profile);
@@ -282,7 +393,10 @@ pub async fn import_chrome_cookies(profile: &str) -> Result<Vec<Cookie>> {
 
     let temp = copy_db_to_temp(&source)?;
     let db = CookieDb::load(temp.path())?;
-    let (needs_v10, needs_v20) = db.versions_present();
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| anyhow!("system clock is before the cookie expiry epoch"))?
+        .as_secs_f64();
+    let (needs_v10, needs_v20) = db.versions_present(now);
 
     let mut keys = DecryptKeys::default();
     if needs_v10 {
@@ -296,7 +410,7 @@ pub async fn import_chrome_cookies(profile: &str) -> Result<Vec<Cookie>> {
         keys.v20 = Some(keys::v20_key(&local_state, helper).await?);
     }
 
-    Ok(db.decrypt(&keys))
+    Ok(db.decrypt(&keys, now))
 }
 
 #[cfg(test)]
@@ -314,37 +428,122 @@ mod tests {
         out
     }
 
+    fn fixture(schema: i64, partition_column: bool) -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);").unwrap();
+        conn.execute("INSERT INTO meta VALUES ('version', ?)", [schema.to_string()]).unwrap();
+        conn.execute_batch(&format!(
+            "CREATE TABLE cookies (
+                host_key TEXT, name TEXT, path TEXT, value TEXT, encrypted_value BLOB,
+                is_secure INTEGER, is_httponly INTEGER, has_expires INTEGER,
+                is_persistent INTEGER, expires_utc INTEGER, samesite INTEGER {}
+            );",
+            if partition_column {
+                ", top_frame_site_key TEXT DEFAULT '', has_cross_site_ancestor INTEGER DEFAULT 1"
+            } else { "" }
+        )).unwrap();
+        conn
+    }
+
+    fn insert(conn: &Connection, domain: &str, plaintext: &str, encrypted: &[u8]) {
+        conn.execute(
+            "INSERT INTO cookies (host_key, name, path, value, encrypted_value,
+                is_secure, is_httponly, has_expires, is_persistent, expires_utc, samesite)
+             VALUES (?, 'SID', '/', ?, ?, 1, 1, 0, 0, 0, 0)",
+            rusqlite::params![domain, plaintext, encrypted],
+        ).unwrap();
+    }
+
     #[test]
-    fn v20_strips_the_32_byte_domain_prefix() {
+    fn database_schema_controls_domain_binding_for_both_encryption_versions() {
         let key = [0x42_u8; 32];
-        let mut plaintext = vec![0xAB_u8; V20_METADATA_PREFIX];
-        plaintext.extend_from_slice(b"session=secret-value");
-        let blob = encrypt_v(b"v20", &key, &plaintext);
-        let keys = DecryptKeys {
-            v10: None,
-            v20: Some(key.to_vec()),
-        };
-        assert_eq!(
-            decrypt_value(&blob, &keys).as_deref(),
-            Some("session=secret-value")
-        );
+        let keys = DecryptKeys { v10: Some(key.to_vec()), v20: Some(key.to_vec()) };
+        for schema in [23, 24, 25] {
+            for encryption in [b"v10", b"v20"] {
+                let conn = fixture(schema, schema >= 24);
+                let mut plaintext = if schema >= 24 {
+                    Sha256::digest(b".example.test").to_vec()
+                } else {
+                    Vec::new()
+                };
+                plaintext.extend_from_slice(b"exact-session-token");
+                insert(&conn, ".example.test", "", &encrypt_v(encryption, &key, &plaintext));
+                let report = CookieDb::from_connection(&conn).unwrap().decrypt(&keys, 1_000_000.0);
+                assert_eq!(report.source_count, 1);
+                assert_eq!(report.cookies.len(), 1);
+                assert_eq!(report.cookies[0].value, "exact-session-token");
+                assert_eq!(report.cookies[0].domain, ".example.test");
+            }
+        }
     }
 
     #[test]
-    fn v10_keeps_the_full_plaintext() {
-        let key = [0x24_u8; 32];
-        let blob = encrypt_v(b"v10", &key, b"token=abc");
-        let keys = DecryptKeys {
-            v10: Some(key.to_vec()),
-            v20: None,
-        };
-        assert_eq!(decrypt_value(&blob, &keys).as_deref(), Some("token=abc"));
+    fn plaintext_empty_values_and_expiry_are_preserved_without_decryption() {
+        let conn = fixture(24, true);
+        insert(&conn, "plain.example.test", "plain-token", b"");
+        insert(&conn, "empty.example.test", "", b"");
+        insert(&conn, "expired.example.test", "", b"v20-invalid-expired-token");
+        conn.execute("UPDATE cookies SET has_expires=1, is_persistent=1, expires_utc=0
+            WHERE host_key='expired.example.test'", []).unwrap();
+        let db = CookieDb::from_connection(&conn).unwrap();
+        assert_eq!(db.versions_present(1_000_000.0), (false, false));
+        let report = db.decrypt(&DecryptKeys::default(), 1_000_000.0);
+        assert_eq!(report.cookies.len(), 2);
+        assert_eq!(report.cookies[0].value, "plain-token");
+        assert_eq!(report.cookies[1].value, "");
+        assert!(report.cookies[0].session);
+        assert_eq!(report.expired, 1);
+        assert_eq!(report.failures.decryption, 0);
     }
 
     #[test]
-    fn missing_key_skips_the_cookie() {
-        let key = [0x24_u8; 32];
-        let blob = encrypt_v(b"v20", &key, &[0_u8; V20_METADATA_PREFIX]);
-        assert!(decrypt_value(&blob, &DecryptKeys::default()).is_none());
+    fn failures_are_categorized_without_corrupting_or_broadening_cookies() {
+        let key = [0x42_u8; 32];
+        let conn = fixture(24, true);
+        let mut valid = Sha256::digest(b".example.test").to_vec();
+        valid.extend_from_slice(b"good-token");
+        insert(&conn, ".example.test", "", &encrypt_v(b"v10", &key, &valid));
+        insert(&conn, "other.example.test", "", &encrypt_v(b"v10", &key, &valid));
+        insert(&conn, ".example.test", "", &encrypt_v(b"v20", &key, &valid));
+        insert(&conn, ".example.test", "", &encrypt_v(b"v10", &key, b"short"));
+        let mut invalid = Sha256::digest(b".example.test").to_vec();
+        invalid.push(0xff);
+        insert(&conn, ".example.test", "", &encrypt_v(b"v10", &key, &invalid));
+        insert(&conn, "partitioned.example.test", "partition-only-token", b"");
+        conn.execute("UPDATE cookies SET top_frame_site_key='https://top.example.test', has_cross_site_ancestor=2
+            WHERE host_key='partitioned.example.test'", []).unwrap();
+        let report = CookieDb::from_connection(&conn).unwrap().decrypt(&DecryptKeys {
+            v10: Some(key.to_vec()), v20: None,
+        }, 1_000_000.0);
+        assert_eq!(report.source_count, 6);
+        assert_eq!(report.cookies.len(), 1);
+        assert_eq!(report.cookies[0].value, "good-token");
+        assert_eq!(report.failures.decryption, 1);
+        assert_eq!(report.failures.domain_mismatch, 2);
+        assert_eq!(report.failures.invalid_encoding, 1);
+        assert_eq!(report.failures.invalid_partition, 1);
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["version"], 2);
+        assert_eq!(json["sourceCount"], 6);
+        assert_eq!(json["failures"]["invalidPartition"], 1);
+    }
+
+    #[test]
+    fn partitioned_values_keep_the_top_level_site_and_ancestry() {
+        let conn = fixture(24, true);
+        insert(&conn, "widget.example.test", "embedded-session", b"");
+        insert(&conn, "widget.example.test", "same-site-session", b"");
+        conn.execute("UPDATE cookies SET top_frame_site_key='https://shop.example.test',
+            has_cross_site_ancestor=1 WHERE rowid=1", []).unwrap();
+        conn.execute("UPDATE cookies SET top_frame_site_key='https://shop.example.test',
+            has_cross_site_ancestor=0 WHERE rowid=2", []).unwrap();
+        let report = CookieDb::from_connection(&conn).unwrap().decrypt(&DecryptKeys::default(), 1_000_000.0);
+        assert_eq!(report.cookies.len(), 2);
+        let cross = report.cookies[0].partition_key.as_ref().unwrap();
+        let same = report.cookies[1].partition_key.as_ref().unwrap();
+        assert_eq!(cross.top_level_site, "https://shop.example.test");
+        assert!(cross.has_cross_site_ancestor);
+        assert!(!same.has_cross_site_ancestor);
+        assert_eq!(report.failures.invalid_partition, 0);
     }
 }

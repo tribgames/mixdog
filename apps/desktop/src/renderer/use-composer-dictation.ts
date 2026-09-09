@@ -144,20 +144,12 @@ export function useComposerDictation({
     if (dictationPreparing.current) return;
     dictationPreparing.current = true;
     try {
-      const voiceStatus = await invokeResult(() =>
-        window.mixdogDesktop.invokeCapability<VoiceStatus>({
-          capability: "getVoiceStatus",
-          args: [],
-        }));
-      if (!voiceStatus) return;
-      if (voiceStatus.value?.installed !== true) {
+      // Installation status is already refreshed on mount and runtime changes.
+      // Never put a server round trip ahead of microphone capture: on remote
+      // connections that wait silently discarded the start of the utterance.
+      if (!dictationInstalled) {
         requestVoiceInstall();
         showNotice("Install voice transcription from Extensions first.");
-        return;
-      }
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      if (!devices.some((device) => device.kind === "audioinput")) {
-        showNotice("No microphone was detected. Connect one and try again.");
         return;
       }
       // Transcription needs intelligibility, not fidelity: engines resample to
@@ -187,7 +179,6 @@ export function useComposerDictation({
         meter: null as DictationMeter | null,
       };
       dictationSession.current = session;
-      session.meter = startLevelMeter(stream, dictationLevelRef);
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) session.chunks.push(event.data);
       };
@@ -226,7 +217,11 @@ export function useComposerDictation({
               setDraft((current) => current
                 ? `${current}${/\s$/.test(current) ? "" : " "}${text}`
                 : text);
-              window.setTimeout(() => textarea.current?.focus(), 0);
+              // Editing a transcript needs the caret; sending it directly does
+              // not (and must not reopen the mobile keyboard).
+              if (!session.submitOnStop) {
+                window.setTimeout(() => textarea.current?.focus(), 0);
+              }
               // Only a take that produced words is allowed to send itself. A
               // silent or failed transcription falls back to the ordinary
               // draft, so nothing is ever posted blind.
@@ -238,6 +233,7 @@ export function useComposerDictation({
         })();
       };
       recorder.start();
+      session.meter = startLevelMeter(stream, dictationLevelRef);
       session.stopTimer = window.setTimeout(() => {
         try {
           recorder.stop();
@@ -263,6 +259,7 @@ export function useComposerDictation({
       dictationPreparing.current = false;
     }
   }, [
+    dictationInstalled,
     dictationState,
     invokeResult,
     onTranscriptSubmit,

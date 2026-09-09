@@ -1,5 +1,5 @@
 import { Check, FileDiff, Undo2, X } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { t } from "./i18n";
 import { ErrorNotice } from "./ErrorNotice";
 import { GitDiffBody } from "./ReviewPane";
@@ -10,6 +10,7 @@ import {
   type TranscriptItem,
   writeDiffStyle,
 } from "./desktop-types";
+import { reviewScopePending } from "./composer-dock-reservation";
 import { parseUnifiedDiff, turnReviewScope } from "./renderer-logic.mjs";
 import { RendererLruCache } from "./renderer-lru-cache";
 import { registerIdleReclaim } from "./idle-reclaim";
@@ -250,12 +251,18 @@ function summarizeTurnReviewOperations(items: TranscriptItem[], turnStart: numbe
   };
 }
 
-export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId, active = true, busy = false }: {
+export const TurnReviewBar = memo(function TurnReviewBar({
+  items, cwd, sessionId, active = true, busy = false, onPendingChange,
+}: {
   items: TranscriptItem[];
   cwd?: string;
   sessionId?: string;
   active?: boolean;
   busy?: boolean;
+  /** True while this scope's FIRST authoritative worker read is still in
+   *  flight: the bar may still appear, change, or leave when it lands, so the
+   *  host can keep its slot reserved until then. Delivered before paint. */
+  onPendingChange?: (pending: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [openFile, setOpenFile] = useState("");
@@ -349,6 +356,10 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
   // Only probe once the transcript shows turn activity: a fresh/empty session
   // has no child review and passive mounts must not fire capability calls.
   const hasTurnActivity = reviewScope.hasActivity;
+  // The scope whose authoritative read has come back (or could not run). A
+  // scope already answered in the shared cache is settled from its first
+  // render, so revisiting a session never re-reserves the slot.
+  const [settledScope, setSettledScope] = useState("");
   const refreshAgentReviews = useCallback(async (refreshWorktree = false) => {
     const api = window.mixdogDesktop as {
       invokeCapability?: (request: {
@@ -357,9 +368,18 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
         sessionId?: string;
       }) => Promise<{ value?: unknown }>;
     } | undefined;
-    if (!sessionId || !api?.invokeCapability) return;
     const requestedScope = turnScopeKey;
-    if (document.visibilityState === "hidden") return;
+    const settle = () => {
+      if (activeScope.current === requestedScope) setSettledScope(requestedScope);
+    };
+    if (!sessionId || !api?.invokeCapability) {
+      settle();
+      return;
+    }
+    if (document.visibilityState === "hidden") {
+      settle();
+      return;
+    }
     if (capabilityRequestInFlight.current) {
       const pending = pendingCapabilityRefresh.current;
       pendingCapabilityRefresh.current = {
@@ -451,6 +471,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
       // refresh retries. A transient read must never permanently lock Revert.
     } finally {
       capabilityRequestInFlight.current = false;
+      settle();
       const pending = pendingCapabilityRefresh.current;
       pendingCapabilityRefresh.current = null;
       if (pending && activeScope.current === pending.scopeKey) {
@@ -459,6 +480,20 @@ export const TurnReviewBar = memo(function TurnReviewBar({ items, cwd, sessionId
     }
   }, [sessionId, turnScopeKey]);
   refreshAgentReviewsRef.current = refreshAgentReviews;
+  const reviewPending = reviewScopePending({
+    active,
+    hasTurnActivity,
+    sessionId: String(sessionId || ""),
+    scopeKey: turnScopeKey,
+    settledScope,
+    cached: leadReviewCheckpointIdCache.has(turnScopeKey),
+  });
+  // Layout effect: the host reads this in the same pre-paint pass, so the
+  // reservation and the resolved bar land in one committed frame.
+  useLayoutEffect(() => {
+    onPendingChange?.(reviewPending);
+  }, [onPendingChange, reviewPending]);
+  useLayoutEffect(() => () => onPendingChange?.(false), [onPendingChange]);
   // Refresh on turn boundaries, not every streaming transcript publication.
   const turnBoundaryKey = useMemo(() => {
     for (let index = items.length - 1; index >= 0; index--) {

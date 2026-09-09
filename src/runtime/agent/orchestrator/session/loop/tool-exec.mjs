@@ -287,13 +287,13 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
     }
     return await (async () => {
     if (name === 'Skill') {
-        return viewSkill(cwd, args?.name);
+        return viewSkill(cwd, args?.name, sessionRef);
     }
     if (name === 'skills_list') {
         return buildSkillsListResponse(cwd);
     }
     if (name === 'skill_view') {
-        return viewSkill(cwd, args?.name);
+        return viewSkill(cwd, args?.name, sessionRef);
     }
     if (isMcpTool(name)) {
         const mcpScopeId = sessionRef?.mcpScopeId || null;

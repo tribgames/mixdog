@@ -28,6 +28,7 @@ import {
 } from "./desktop-types";
 import { PaneSurfaceCover } from "./PaneSurfaceGate";
 import { defaultSessionLaneStore, useSessionLane } from "./session-lane-store";
+import { useSessionLaneRead } from "./use-session-lane-read";
 import { asRecord } from "./text-format";
 import { t } from "./i18n";
 import {
@@ -181,8 +182,13 @@ export const PaneConversation = memo(function PaneConversation({
     desktopConversationShellSnapshotsEqual,
     !hidden,
   );
-  const [readUnavailable, setReadUnavailable] = useState(false);
-  const [readRetry, setReadRetry] = useState(0);
+  const { readUnavailable, retryRead } = useSessionLaneRead({
+    sessionId,
+    hasLane: lane !== null,
+    hidden,
+    reconcileOnMount,
+    read: requestSessionRead,
+  });
   const coverIdRef = useRef(sessionId || "draft");
   const originSessionRef = useRef(sessionId || "");
   const markdownPending = conversationMarkdownPending({
@@ -190,19 +196,6 @@ export const PaneConversation = memo(function PaneConversation({
     coverId: coverIdRef.current,
     hasMeasurements: Boolean(readTranscriptVirtualSnapshot(sessionId)?.measurements?.length),
   });
-  useEffect(() => {
-    // Fill a cold lane once. A session that already has rows is skipped
-    // inside requestSessionRead; a focused resume already filled its target.
-    if (!sessionId || !reconcileOnMount) return undefined;
-    let current = true;
-    setReadUnavailable(false);
-    void requestSessionRead(sessionId).then((accepted) => {
-      if (current && !accepted && defaultSessionLaneStore.get(sessionId) === null) {
-        setReadUnavailable(true);
-      }
-    });
-    return () => { current = false; };
-  }, [readRetry, reconcileOnMount, sessionId]);
   const laneReady = hidden || !sessionId || (!markdownPending && lane !== null);
   const { coverKey, promotingFromDraft } = conversationCoverIdentity(
     coverIdRef.current,
@@ -345,7 +338,7 @@ export const PaneConversation = memo(function PaneConversation({
         <div className="session-unavailable-card">
           <strong>{t("Session unavailable")}</strong>
           <span>{t("The transcript could not be loaded.")}</span>
-          <button type="button" onClick={() => setReadRetry((value) => value + 1)}>{t("Retry")}</button>
+          <button type="button" onClick={retryRead}>{t("Retry")}</button>
         </div>
       </div>
       : null}

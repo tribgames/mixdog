@@ -232,7 +232,7 @@ test("submission hook commits accepted text and restores interrupted text", asyn
   }
 });
 
-test("keyboard hook restores prompt history and inserts project mentions", async () => {
+test("keyboard hook restores history, inserts mentions, and scrolls only appended newlines", async () => {
   let current;
   function Harness() {
     const [draft, setDraft] = useState("");
@@ -344,6 +344,36 @@ test("keyboard hook restores prompt history and inserts project mentions", async
     await act(async () => current.setDraft(""));
     await act(async () => current.selectMention("src/App.tsx"));
     assert.equal(current.draft, "@src/App.tsx ");
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 0)));
+
+    // JSDOM has no layout; provide an overflowing textarea's measured height.
+    Object.defineProperty(textarea, "scrollHeight", { configurable: true, get: () => 480 });
+    for (const caret of [11, 5]) {
+      await act(async () => current.setDraft("first\nlast!"));
+      textarea.setSelectionRange(caret, caret);
+      textarea.scrollTop = 20;
+      prevented = false;
+      await act(async () => {
+        current.onKeyDown({
+          key: "Enter",
+          currentTarget: textarea,
+          nativeEvent: { isComposing: false, keyCode: 13 },
+          shiftKey: false,
+          ctrlKey: true,
+          metaKey: false,
+          altKey: false,
+          repeat: false,
+          preventDefault: () => { prevented = true; },
+          stopPropagation() {},
+        });
+      });
+      await act(async () => new Promise((resolve) => window.setTimeout(resolve, 0)));
+      assert.equal(prevented, true);
+      assert.equal(current.draft, caret === 11 ? "first\nlast!\n" : "first\n\nlast!");
+      assert.equal(textarea.selectionStart, caret + 1);
+      assert.equal(textarea.selectionEnd, caret + 1);
+      assert.equal(textarea.scrollTop, caret === 11 ? 480 : 20);
+    }
   } finally {
     await mounted.cleanup();
   }

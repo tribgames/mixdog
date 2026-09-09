@@ -174,10 +174,12 @@ test('live turn display policy suppresses Goal/load controls without hiding ordi
   assert.equal(transcriptToolCallDisplayMode('Skill', { name: 'docx' }, builtin), 'hidden-control');
 });
 
-test('surface replacement preserves Goal state while an explicit user cancellation still pauses', () => {
+test('surface replacement and steering preserve Goal state while an explicit user cancellation still pauses', () => {
   assert.equal(preserveGoalStateAfterTurn({ cancelled: true, stale: true }), true);
   assert.equal(preserveGoalStateAfterTurn({ cancelled: true, pendingSessionReset: true }), true);
   assert.equal(preserveGoalStateAfterTurn({ cancelled: true, disposed: true }), true);
+  assert.equal(preserveGoalStateAfterTurn({ cancelled: true, interruptedForSteering: true }), true);
   assert.equal(preserveGoalStateAfterTurn({ cancelled: true }), false);
   assert.equal(preserveGoalStateAfterTurn({ cancelled: false, stale: true }), false);
+  assert.equal(preserveGoalStateAfterTurn({ interruptedForSteering: true }), false);
 });

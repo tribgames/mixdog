@@ -67,8 +67,36 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     pendingFileChooser,
     clearFileChooser,
   } = host;
-  const { prepareRef } = createBrowserRefAccess(host);
+  const { prepareRef, callRef } = createBrowserRefAccess(host);
   const { selectRef, selectCustomRef } = createBrowserRefSelection(host);
+  /** A rich editor owns its DOM: writing textContent bypasses its model and
+   *  the next render drops the text. Select everything and insert the new
+   *  text as typed input instead, the way a person replaces it. */
+  async function replaceContentEditable(
+    guest: WebContents,
+    ref: string,
+    text: string,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    if (text) {
+      await cdp.sendCdpInput(guest, await cdp.guestDebugger(guest), 'Input.insertText', { text }, signal);
+    } else {
+      await browserInput.pressKey(guest, 'Backspace', signal);
+    }
+    const actual = await callRef<string>(
+      guest,
+      ref,
+      'function() { return String(this.innerText ?? this.textContent ?? ""); }',
+      [],
+      signal,
+    );
+    const compact = (value: string) => String(value || '').replace(/\s+/g, ' ').trim();
+    if (compact(text) && !compact(actual)) {
+      throw new Error('the editor did not keep the inserted text; click into it first or use type');
+    }
+    return redactBrowserText(actual);
+  }
+
   async function fillRef(
     guest: WebContents,
     ref: string,
@@ -79,6 +107,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
       error?: string;
       value?: string;
       sensitive?: boolean;
+      contentEditable?: boolean;
     }>(guest, ref, `function(text) {
       const el = this;
       if (!el || !el.isConnected) return { error: 'stale' };
@@ -99,15 +128,24 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
         return { value: type === 'password' ? '' : el.value, sensitive: type === 'password' };
       }
       if (el.isContentEditable) {
-        el.textContent = text;
-        el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-        return { value: text };
+        const doc = el.ownerDocument;
+        const range = doc.createRange();
+        range.selectNodeContents(el);
+        const selection = doc.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return { contentEditable: true };
       }
       return { error: 'element is not editable' };
     }`, [text], signal);
     const outcome = accessibility.handled
       ? accessibility.value
-      : await evaluate<{ error?: string; value?: string; sensitive?: boolean }>(guest, `(() => {
+      : await evaluate<{
+        error?: string;
+        value?: string;
+        sensitive?: boolean;
+        contentEditable?: boolean;
+      }>(guest, `(() => {
         const record = window.__mixdogAgentSnapshot?.refs?.get(${JSON.stringify(ref)});
         const el = record?.element || record;
         if (!el || !el.isConnected) return { error: 'stale' };
@@ -129,9 +167,13 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
           return { value: type === 'password' ? '' : el.value, sensitive: type === 'password' };
         }
         if (el.isContentEditable) {
-          el.textContent = text;
-          el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-          return { value: text };
+          const doc = el.ownerDocument;
+          const range = doc.createRange();
+          range.selectNodeContents(el);
+          const selection = doc.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+          return { contentEditable: true };
         }
         return { error: 'element is not editable' };
       })()`, signal);
@@ -140,6 +182,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
         ? `ref ${ref} is stale or unknown; take a fresh snapshot first`
         : outcome.error);
     }
+    if (outcome?.contentEditable) return replaceContentEditable(guest, ref, text, signal);
     if (outcome?.sensitive && text) host.rememberSecret?.(guest, text);
     return outcome?.sensitive ? '[REDACTED]' : redactBrowserText(outcome?.value ?? '');
   }
@@ -376,6 +419,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     chooser: PendingFileChooser,
     paths: string[],
     signal?: AbortSignal,
+    beforeDispatch?: () => void,
   ): Promise<void> {
     if (!chooser.backendNodeId) {
       clearFileChooser(guest);
@@ -389,9 +433,14 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
       'DOM.setFileInputFiles',
       { files: paths, backendNodeId: chooser.backendNodeId },
       signal,
-      { sessionId: chooser.sessionId },
+      { sessionId: chooser.sessionId, beforeDispatch: () => {
+        beforeDispatch?.();
+        if (pendingFileChooser(guest) !== chooser) throw new Error('Browser file chooser changed; files were not sent.');
+        // Claim before dispatch so a concurrent answer cannot send twice.
+        clearFileChooser(guest);
+      } },
     );
-    clearFileChooser(guest);
+    if (pendingFileChooser(guest) === chooser) clearFileChooser(guest);
   }
 
   /** Click an element that is not itself a file input and wait for the
@@ -425,10 +474,9 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     guest: WebContents,
     ref: string | undefined,
     paths: string[],
-    confirmed: boolean,
     signal?: AbortSignal,
+    beforeDispatch?: () => void,
   ): Promise<void> {
-    if (!confirmed) throw new Error('upload requires confirm:true after the user approved the exact absolute paths');
     if (!paths.length || paths.length > 10) throw new Error('upload requires 1–10 file paths');
     for (const path of paths) {
       if (!isAbsolute(path)) throw new Error(`upload path must be absolute: ${path}`);
@@ -438,7 +486,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     if (!ref) {
       const chooser = pendingFileChooser(guest);
       if (!chooser) throw new Error('upload requires ref unless the page has opened a file chooser');
-      await answerFileChooser(guest, chooser, paths, signal);
+      await answerFileChooser(guest, chooser, paths, signal, beforeDispatch);
       return;
     }
     const object = await resolveRefObject(guest, ref, signal);

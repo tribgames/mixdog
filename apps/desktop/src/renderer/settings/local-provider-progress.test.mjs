@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
-import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://mixdog.test/', pretendToBeVisual: true });
@@ -18,6 +17,7 @@ Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { us
 window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 window.mixdogDesktop = { setTitleBarDimmed() {}, rendererDiagnostic() {} };
 
+const { createRoot } = await import('react-dom/client');
 const { BuiltInFeaturesPanel } = await import('./built-in-features-panel.tsx');
 
 function deferred() {
@@ -80,6 +80,37 @@ test('runtime progress from a chat installation stays live without a UI install 
     await mounted.render(current);
     assert.ok(document.querySelector('[data-feature-id="localProvider"] input'));
     assert.equal(document.querySelector('[data-feature-id="localProvider"] [role="progressbar"]'), null);
+  } finally {
+    await mounted.dispose();
+  }
+});
+
+test('context input validates numbers, applies explicitly, and supports automatic reset', async () => {
+  const current = status({
+    installed: true, enabled: true, runtime: { installed: true }, running: true, activeModel: 'installed',
+    models: [{ id: 'installed', name: 'Managed model', installed: true, contextWindow: 8192,
+      configuredContextWindow: 8192, defaultContextWindow: 32768, maxContextWindow: 262144 }],
+  });
+  const calls = [];
+  const mounted = await mount({ readCapabilities: async () => [{ ok: true, value: { localProvider: current } }] },
+    current, async (capability, args) => { calls.push([capability, args]); return {}; });
+  const button = (text) => [...document.querySelectorAll('button')].find((node) => node.textContent === text);
+  const input = () => document.querySelector('input[inputmode="numeric"]');
+  const enter = async (value) => act(async () => {
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(input(), value);
+    input().dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  });
+  try {
+    await enter('262145');
+    assert.equal(input().getAttribute('aria-invalid'), 'true');
+    assert.equal(button('Apply and reload').disabled, true);
+    await enter('16384');
+    assert.deepEqual(calls, []);
+    await act(async () => button('Apply and reload').click());
+    assert.deepEqual(calls[0], ['setLocalProviderContext', ['installed', 16384]]);
+    await act(async () => button('Automatic (recommended)').click());
+    await act(async () => button('Apply and reload').click());
+    assert.deepEqual(calls[1], ['setLocalProviderContext', ['installed', null]]);
   } finally {
     await mounted.dispose();
   }

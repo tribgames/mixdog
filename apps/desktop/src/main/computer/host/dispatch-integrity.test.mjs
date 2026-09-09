@@ -19,9 +19,32 @@ const { createCommandRouter } = await import('./command-router.ts');
 const { createComputerExecutionPolicy } = await import('./execution-policy.ts');
 const { createCaptureEngine } = await import('../observation/capture.ts');
 const { createComputerCommandBudget } = await import('./command-budget.ts');
+const { computerUseCoordinator } = await import('../session/coordinator.ts');
 
 // The command router refuses every command off Windows before any routing runs.
 const WINDOWS_ONLY = { skip: process.platform !== 'win32' };
+
+test('semantic input does not move a duplicate display pointer before native dispatch', WINDOWS_ONLY, async () => {
+  let dispatched = 0;
+  computerUseCoordinator.beginCommand({ sessionId: 'test', action: 'invoke', mode: 'background' });
+  const router = createCommandRouter({
+    isObserveOnly: () => false, sessionIdFor: () => 'test',
+    framesBySession: new Map(), elementTargetsBySession: new Map(), observedWindowBySession: new Map(),
+    lastCaptureBySession: new Map(), sessionRecoveryBySession: new Map(),
+    assertExecutionNotAborted() {}, resolveElementAliases: command => command,
+    resolveInputTarget: async () => ({ targetWindowId: 'hwnd:0x1', allowedWindowIds: ['hwnd:0x1'], cursorX: 3100, cursorY: 1200 }),
+    claimComputerTargets: async () => {}, readComputerWindows: async () => [],
+    callPowerShell: async () => {
+      dispatched++;
+      assert.equal(computerUseCoordinator.snapshot().cursors.length, 0);
+      throw new Error('fixture_native_dispatch');
+    },
+  });
+  try {
+    await assert.rejects(router.runCommand({ action: 'invoke', window_id: 'hwnd:0x1', ref: 's1:e0' }), /fixture_native_dispatch/);
+    assert.equal(dispatched, 1);
+  } finally { computerUseCoordinator.reset(); }
+});
 
 test('observation-only routing refuses every input family before backend dispatch', WINDOWS_ONLY, async () => {
   let dispatched = 0;

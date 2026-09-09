@@ -256,13 +256,19 @@ test('state and SOM automatically use OCR only when semantic accessibility is em
   assert.equal(shouldUseOcrFallback('vision', false, true), true);
 });
 
-test('foreground-lock failures recommend pixel activation instead of permissions', () => {
+test('foreground-lock failures request user focus instead of another input attempt', () => {
   assert.equal(
     recommendedRecovery('key', 'suspected_noop', 'foreground_unavailable', 'foreground', null),
-    'pixel',
+    'user',
   );
   assert.equal(
     recommendedRecovery('click', 'suspected_noop', 'foreground_changed', 'foreground', null),
-    'pixel',
+    'user',
   );
+});
+
+test('an uncertain background effect requests evidence instead of switching delivery', () => {
+  for (const action of ['invoke', 'click', 'drag', 'scroll', 'type', 'key']) {
+    assert.equal(recommendedRecovery(action, 'suspected_noop', undefined, 'background', null), 'recapture');
+  }
 });

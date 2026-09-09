@@ -36,9 +36,10 @@ import { ApprovalCard } from "./ApprovalCard";
 import { Composer, ProjectContextSelector, WorkflowSelect } from "./Composer";
 import { BrandTile } from "./WorkspaceEmptyState";
 import { EMPTY_TRANSCRIPT_ITEMS, type RecordValue, type Snapshot, type TranscriptItem } from "./desktop-types";
-import { SessionGoalHost } from "./SessionGoalIsland";
+import { ComposerDock } from "./ComposerDock";
 import { asRecord } from "./text-format";
 import { TranscriptList } from "./TranscriptList";
+import { MarkdownProjectContext } from "./MarkdownLink";
 import {
   appendLiveTranscriptRows,
   isCompletionTranscriptItem,
@@ -54,24 +55,8 @@ import {
 } from "./transcript-virtual-cache";
 import { useTranscriptHistory } from "./use-transcript-history";
 import { LiveActivity, resetToolDisclosureScope, ToolActivityGroup, TranscriptRow } from "./TranscriptView";
-import { TurnReviewBar } from "./TurnReview";
 import { useTranscriptFollow } from "./use-transcript-follow";
 import { useTranscriptReveal } from "./use-transcript-reveal";
-// @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { classifyToolCategory } from "../../../../src/runtime/shared/tool-surface.mjs";
-
-
-/** Does this tool row belong to work that can CHANGE files? The shared
- *  classifier owns the answer (Patch = apply_patch and its aliases), an
- *  aggregate card carries its categories as a count map, and a card that
- *  already published a uiDiff has touched files by definition. */
-function toolTouchesFiles(item: TranscriptItem | null | undefined): boolean {
-  if (!item || item.kind !== "tool") return false;
-  if (typeof item.uiDiff === "string" && item.uiDiff) return true;
-  const categories = asRecord(item.categories);
-  if (categories && Object.hasOwn(categories, "Patch")) return true;
-  return classifyToolCategory(String(item.name || "")) === "Patch";
-}
 
 export type PendingPromptItem = TranscriptItem & {
   id: string | number;
@@ -341,28 +326,6 @@ export function Conversation({
   const suppressDraftSubmitPaintHandoff = useRef(false);
   const draftModeRef = useRef(draftMode);
   draftModeRef.current = draftMode;
-  // Draft-only composer context bar: when the surface promotes to a session
-  // the bar collapses over ~140ms (CSS) before unmounting, instead of
-  // vanishing in one frame and dropping the composer 34px.
-  const [contextBarPhase, setContextBarPhase] = useState<"open" | "collapsing" | "closed">(
-    showProjectSelector ? "open" : "closed",
-  );
-  useEffect(() => {
-    if (showProjectSelector) {
-      setContextBarPhase("open");
-      return undefined;
-    }
-    // Only this pane's OWN draft->session promotion earns the soft collapse —
-    // ordinary session renders and tab switches must drop the bar instantly
-    // (session chrome asserts its absence).
-    if (!suppressDraftSubmitPaintHandoff.current) {
-      setContextBarPhase("closed");
-      return undefined;
-    }
-    setContextBarPhase((current) => current === "open" ? "collapsing" : current);
-    const timer = window.setTimeout(() => setContextBarPhase("closed"), 180);
-    return () => window.clearTimeout(timer);
-  }, [showProjectSelector]);
   // Pane-local session runtime addressing: abort and tool approvals always target the
   // session THIS surface renders, never the globally active route.
   const routeSessionIdRef = useRef("");
@@ -566,26 +529,6 @@ export function Conversation({
       ? [...settledItems, ...transcriptPendingPromptItems]
       : settledItems,
     [settledItems, transcriptPendingPromptItems],
-  );
-  // A turn that can actually produce a diff reserves the collapsed review row,
-  // so a result arriving mid-stream fills existing geometry instead of
-  // shrinking the transcript viewport. Reserving it for EVERY live turn left a
-  // conversation-only turn floating an empty 36px plate above the input
-  // (user: DIFF가 없는 경우에도 스크립트가 좀 떠있네).
-  const turnTouchesFiles = useMemo(() => {
-    for (let index = reviewItems.length - 1; index >= 0; index--) {
-      const item = reviewItems[index];
-      if (!item) continue;
-      if (item.kind === "user") break;
-      if (toolTouchesFiles(item)) return true;
-    }
-    return toolTouchesFiles(activeStreamingTail);
-  }, [activeStreamingTail, reviewItems]);
-  const reviewSlotReserved = turnTouchesFiles && Boolean(
-    snapshot.busy
-    || snapshot.commandBusy
-    || activeStreamingTail
-    || optimisticActivityStartedAt
   );
   // Close previous-turn chrome with the optimistic row. The goal owns a
   // separate snapshot lane, so its mask must survive transcript settlement;
@@ -1037,6 +980,9 @@ export function Conversation({
               shell mounted first made the virtual core resolve its end anchor
               against an empty list and again on the 0 -> N row swap — the
               visible up/down bounce on entering a session. */}
+          <MarkdownProjectContext.Provider value={String(
+            routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || "",
+          )}>
           {showTranscriptTimeline && <TranscriptList key={transcriptIdentity.current} sessionKey={transcriptSessionKey}
             rows={transcriptRows} viewport={viewport} content={content}
             shouldAnchorBottom={shouldAnchorTranscriptBottom}
@@ -1045,6 +991,7 @@ export function Conversation({
             onSelectionAutoScroll={handleTranscriptSelectionAutoScroll}
             setAnchorBottomRef={setTranscriptAnchorBottomRef}
             scrollToEndRef={scrollToEndRef} renderRow={renderTranscriptRow} />}
+          </MarkdownProjectContext.Provider>
         </div>
       </div>
       {showJump && itemCount > 0 && <button type="button" className="jump-to-latest"
@@ -1063,34 +1010,32 @@ export function Conversation({
         <ArrowDown size={14} />{t("Jump to latest")}
       </button>}
       </div>
-      {!readOnly && <div className="composer-region">
-        <SessionGoalHost placement="composer" submissionId={goalSubmissionId}>{goalIsland}</SessionGoalHost>
-        {runtimeProgressSlot ?? (Boolean(asRecord(snapshot.progressHint)?.text)
+      {/* Everything above the input (Goal, progress, approval, context bar,
+          review) lives in the dock, which owns how each slot's geometry
+          commits against the transcript viewport. */}
+      {!readOnly && <ComposerDock
+        goalIsland={goalIsland}
+        goalSubmissionId={goalSubmissionId}
+        runtimeProgress={runtimeProgressSlot ?? (Boolean(asRecord(snapshot.progressHint)?.text)
           ? <div className="runtime-progress" role="status">
             {String(asRecord(snapshot.progressHint)?.text)}
           </div>
           : null)}
-        {snapshot.toolApproval && (
-          <div className="composer-approval-row">
-            <ApprovalCard key={approvalInstanceKey(snapshot.toolApproval.id)}
-              approval={snapshot.toolApproval}
-              resolve={(approved) => {
-                const host = window.mixdogDesktop;
-                const sessionId = routeSessionIdRef.current;
-                const approvalId = String(snapshot.toolApproval?.id || "");
-                return sessionId
-                  ? host.resolveToolApprovalForSession(sessionId, approvalId, { approved })
-                  : Promise.resolve(false);
-              }} />
-          </div>
-        )}
-        {/* Draft-only context bar leaves with a 140ms collapse instead of an
-            instant unmount: removing its 34px in the promotion frame dropped
-            the composer in one visible jerk (measured layout shift; user:
-            첫 프롬 직후 화면이 한 번 툭 튐). */}
-        {(showProjectSelector || contextBarPhase !== "closed")
-          && <div className={`composer-context-bar${showProjectSelector
-            ? "" : " composer-context-bar-collapsing"}`}>
+        approval={snapshot.toolApproval
+          ? <ApprovalCard key={approvalInstanceKey(snapshot.toolApproval.id)}
+            approval={snapshot.toolApproval}
+            resolve={(approved) => {
+              const host = window.mixdogDesktop;
+              const sessionId = routeSessionIdRef.current;
+              const approvalId = String(snapshot.toolApproval?.id || "");
+              return sessionId
+                ? host.resolveToolApprovalForSession(sessionId, approvalId, { approved })
+                : Promise.resolve(false);
+            }} />
+          : null}
+        showProjectSelector={showProjectSelector}
+        softCollapseContextBar={suppressDraftSubmitPaintHandoff}
+        contextBar={<>
           <ProjectContextSelector projects={projects}
             activePath={activeProjectPath} activeLabel={activeProjectLabel}
             disabled={transitioning || Boolean(snapshot.busy)}
@@ -1099,18 +1044,15 @@ export function Conversation({
             disabled={transitioning || (!draftMode && Boolean(routeSnapshot.busy || routeSnapshot.commandBusy))}
             invokeResult={composerInvokeResult} applySnapshot={composerApplySnapshot}
             onDraftChange={onDraftWorkflow} />
-        </div>}
-        {/* Review sits attached ABOVE the input (user: 채팅창 위에 붙어야 한다).
-            It is not a timeline row: as scroll content it read as a detached
-            card floating over the composer. */}
-        <div className="turn-review-slot"
-          data-reserved={reviewSlotReserved ? "true" : "false"}>
-          <TurnReviewBar items={reviewItems}
-            active={reviewActive}
-            busy={Boolean(snapshot.busy || routeSnapshot.commandBusy)}
-            sessionId={draftMode ? "" : String(sessionAddress || routeSnapshot.sessionId || "")}
-            cwd={String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || "")} />
-        </div>
+        </>}
+        reviewItems={reviewItems}
+        reviewStreamingTail={activeStreamingTail}
+        reviewTurnLive={Boolean(snapshot.busy || snapshot.commandBusy
+          || activeStreamingTail || optimisticActivityStartedAt)}
+        reviewActive={reviewActive}
+        reviewBusy={Boolean(snapshot.busy || routeSnapshot.commandBusy)}
+        reviewSessionId={draftMode ? "" : String(sessionAddress || routeSnapshot.sessionId || "")}
+        reviewCwd={String(routeSnapshot.currentProject || routeSnapshot.project || routeSnapshot.cwd || "")}>
         <Composer
           turnBusy={Boolean(snapshot.busy)}
           commandBusy={!draftMode && Boolean(routeSnapshot.commandBusy)}
@@ -1160,7 +1102,7 @@ export function Conversation({
           onOpenCommandSurface={composerOnOpenCommandSurface}
           paneActive={reviewActive}
           dropTargetRef={conversation} />
-      </div>}
+      </ComposerDock>}
     </section>
   );
 }

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { EventEmitter } from 'node:events';
+import { createBrowserChangeLatch } from './document-changes.ts';
 import { JSDOM } from 'jsdom';
 import { createBrowserDocuments, BROWSER_DOCUMENT_ROOTS } from './documents.ts';
 import { BrowserGuestStateStore } from './guest-state.ts';
@@ -14,7 +16,7 @@ import { createBrowserRefActions } from './ref-actions.ts';
 import { normalizeAgentUrl, assertResolvedAddressAllowed } from './url-policy.ts';
 import { createBrowserDownloads } from './downloads.ts';
 
-const page = () => ({ getURL: () => 'https://fixture.example/', getTitle: () => 'Fixture', getZoomFactor: () => 1 });
+const page = () => Object.assign(new EventEmitter(), { getURL: () => 'https://fixture.example/', getTitle: () => 'Fixture', getZoomFactor: () => 1, isLoading: () => false });
 test('canonical IPv4-mapped private and metadata addresses are rejected', () => {
   for (const address of ['::ffff:192.168.1.1', '::ffff:c0a8:101', '::ffff:a9fe:a9fe', '0:0:0:0:0:ffff:0a00:0001']) {
     assert.throws(() => normalizeAgentUrl(`http://[${address}]/`), /private|metadata/);
@@ -72,7 +74,10 @@ test('failed observation cannot satisfy textGone and blocked sequence steps neve
   const waited = await flowActions.wait({
     guest, command: { action: 'wait', textGone: 'Saving' },
     services: {
-      documents: { pageText: async () => { if (++probes === 1) throw new Error('context destroyed'); return 'Saved'; } },
+      documents: {
+        observeChanges: async () => ({ latch: createBrowserChangeLatch(), close: async () => {} }),
+        pageText: async () => { if (++probes === 1) throw new Error('context destroyed'); return 'Saved'; },
+      },
       reply: { snapshotResult: async () => ({ text: 'Saved' }) },
     },
   });
@@ -162,7 +167,7 @@ test('document traversal includes open shadow roots and uses child target contex
   const documents = createBrowserDocuments({
     sessions: () => new Map([['child', { type: 'iframe', frameId: 'child-frame' }]]),
     cdp: {
-      guestDebugger: async () => ({}),
+      guestDebugger: async () => new EventEmitter(),
       call: async (_guest, method, params, _signal, options) => {
         calls.push([method, options?.sessionId]);
         if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: options?.sessionId ? 'child-frame' : 'root' } } };

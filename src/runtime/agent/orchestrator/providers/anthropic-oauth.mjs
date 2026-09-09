@@ -11,6 +11,7 @@ import {
     traceAgentUsage,
 } from '../agent-trace.mjs';
 import { createAbortController } from '../../../shared/abort-controller.mjs';
+import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { resolveAnthropicMaxTokens } from './anthropic-max-tokens.mjs';
 import { prepareAnthropicImages } from './lib/anthropic-image-input.mjs';
 import {
@@ -136,7 +137,7 @@ function anthropicQuotaError(status, headers, bodyText = '') {
 }
 
 let _modelRefreshInFlight = null;
-let _oauthRefreshInFlight = null;
+const _oauthRefreshes = new Map();
 // No in-memory credential cache: the canonical credentials file is the
 // single source of truth. Cross-process refresh_token rotation by another
 // concurrent reader would invalidate any cached copy here and produce
@@ -473,14 +474,15 @@ export class AnthropicOAuthProvider {
         }
         if (!this.credentials && disk) this.credentials = disk;
 
-        if (_oauthRefreshInFlight) {
-            const shared = await _oauthRefreshInFlight;
+        const refreshKey = disk?.path || boundProviderAuthPath('anthropic-oauth') || 'default';
+        if (_oauthRefreshes.has(refreshKey)) {
+            const shared = await _oauthRefreshes.get(refreshKey);
             this.credentials = shared;
             if (!force || shared?.accessToken !== currentToken) return this.credentials;
         }
 
         const startingCreds = this.credentials || disk;
-        _oauthRefreshInFlight = (async () => {
+        const refresh = (async () => {
             const latest = loadCredentials() || startingCreds;
             const latestValidAfter = Date.now() + (force ? 0 : TOKEN_REFRESH_SKEW_MS);
             if (latest?.accessToken && latest.accessToken !== currentToken
@@ -510,9 +512,10 @@ export class AnthropicOAuthProvider {
                 }
                 throw err;
             }
-        })().finally(() => { _oauthRefreshInFlight = null; });
+        })().finally(() => { _oauthRefreshes.delete(refreshKey); });
+        _oauthRefreshes.set(refreshKey, refresh);
 
-        this.credentials = await _oauthRefreshInFlight;
+        this.credentials = await refresh;
         return this.credentials;
     }
 

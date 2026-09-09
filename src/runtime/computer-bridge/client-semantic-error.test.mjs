@@ -6,7 +6,10 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { executeComputerTool } from './client.mjs';
 
-test('semantic computer failure is an error while preserving its fresh observation image', async () => {
+for (const resumed of [false, true]) {
+test(resumed
+  ? 'resumed pending work preserves uncertainty without becoming a tool error'
+  : 'semantic computer failure is an error while preserving its fresh observation image', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-computer-semantic-error-'));
   const previousDataDir = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = directory;
@@ -14,7 +17,7 @@ test('semantic computer failure is an error while preserving its fresh observati
     request.resume();
     request.on('end', () => {
       const text = JSON.stringify({
-        ok: false,
+        ok: resumed,
         action: 'sequence',
         completed_steps: 0,
         total_steps: 2,
@@ -23,17 +26,22 @@ test('semantic computer failure is an error while preserving its fresh observati
             index: 1,
             action: 'invoke',
             ok: false,
-            status: 'failed',
+            status: resumed ? 'uncertain' : 'failed',
             code: 'foreground_unavailable',
           },
           {
             index: 2,
             action: 'type',
-            status: 'skipped',
+            status: resumed ? 'pending' : 'skipped',
             reason: 'foreground_unavailable',
           },
         ],
-        code: 'foreground_unavailable',
+        code: resumed ? 'computer_resume_recapture_required' : 'foreground_unavailable',
+        ...(resumed ? {
+          status: 'resumed',
+          input_replayed: false,
+          recovery: { next: 'continue_from_observation' },
+        } : {}),
         capture_after: {
           ok: true,
           action: 'capture',
@@ -77,14 +85,15 @@ test('semantic computer failure is an error while preserving its fresh observati
         ],
       },
     });
-    assert.equal(result.isError, true);
+    assert.equal(result.isError === true, !resumed);
     assert.equal(result.content[1].type, 'image');
     const value = JSON.parse(result.content[0].text);
     assert.equal(value.action, 'act');
     assert.equal(value.completed_actions, 0);
-    assert.deepEqual(value.actions.map((row) => row.status), ['failed', 'skipped']);
+    assert.deepEqual(value.actions.map((row) => row.status),
+      resumed ? ['uncertain', 'pending'] : ['failed', 'skipped']);
     assert.equal(value.observation.frame_id, 'frame:2');
-    assert.equal(value.recovery.next, 'foreground_pointer');
+    assert.equal(value.recovery.next, resumed ? 'continue_from_observation' : 'user');
   } finally {
     server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));
@@ -93,3 +102,4 @@ test('semantic computer failure is an error while preserving its fresh observati
     await rm(directory, { recursive: true, force: true });
   }
 });
+}

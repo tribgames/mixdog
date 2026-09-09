@@ -2,8 +2,51 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildAccessibilitySnapshot } from './accessibility.ts';
+import { fileInputsFromDomSnapshot } from './snapshot-capture.ts';
 
 const property = (name, value) => ({ name, value: { value } });
+
+test('file inputs carry accept and multiple, keywords match with OR, and an empty filter counts the page', () => {
+  const build = (query) => buildAccessibilitySnapshot({
+    snapshotId: 'p3-s1',
+    pageInfo: {
+      url: 'https://example.test/', title: 'Upload', scrollY: 0, scrollHeight: 600,
+      viewportHeight: 600, viewportWidth: 800, text: 'Upload',
+    },
+    targets: [{
+      nodes: [
+        { nodeId: 'choose', role: { value: 'button' }, name: { value: 'Choose files' }, backendDOMNodeId: 7 },
+        { nodeId: 'cancel', role: { value: 'button' }, name: { value: 'Cancel' }, backendDOMNodeId: 8 },
+      ],
+      bounds: new Map(),
+      fileInputs: new Map([[7, { accept: 'image/png', multiple: true }]]),
+    }],
+    query,
+    maxElements: 10,
+    textChars: 100,
+  }).payload;
+  const plain = build(undefined);
+  assert.deepEqual(plain.elements[0].states, ['file-input', 'accept=image/png', 'multiple']);
+  assert.equal(plain.elements[1].states, undefined);
+  assert.equal(plain.unfilteredElements, 2);
+  const none = build('nothing');
+  assert.deepEqual(none.elements, []);
+  assert.equal(none.unfilteredElements, 2);
+  assert.deepEqual(build('cancel files').elements.map((entry) => entry.name), ['Cancel', 'Choose files']);
+  assert.deepEqual(build('/^choose/i').elements.map((entry) => entry.name), ['Choose files']);
+});
+
+test('DOM snapshot attributes identify file inputs by backend node', () => {
+  const strings = ['INPUT', 'type', 'file', 'accept', ' .pdf ', 'multiple', '', 'DIV', 'text'];
+  const fileInputs = fileInputsFromDomSnapshot(strings, [{
+    nodes: {
+      backendNodeId: [10, 11, 12],
+      nodeName: [0, 0, 7],
+      attributes: [[1, 2, 3, 4, 5, 6], [1, 8], []],
+    },
+  }]);
+  assert.deepEqual([...fileInputs.entries()], [[10, { accept: '.pdf', multiple: true }]]);
+});
 
 test('accessibility snapshot keeps actionable refs, cross-frame text, hierarchy, and degradation warnings', () => {
   const result = buildAccessibilitySnapshot({

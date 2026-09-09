@@ -4,15 +4,13 @@ import { useEffect, useState } from "react";
 import type { ExtensionsSection } from "./extension-sections";
 import { t } from "./i18n";
 import { SidebarPanelAction } from "./session-sidebar";
+import { SidebarSectionToolbar, type SidebarToolbarSection } from "./sidebar-section-toolbar";
 import { CapabilitySettings } from "./settings/CapabilitySettings";
+import { useSurfaceNavigationReset } from "./surface-activity";
 import "./settings/settings.css";
 import "./desktop/31-extensions.css";
 
-const SECTIONS: ReadonlyArray<{
-  id: ExtensionsSection;
-  label: string;
-  icon: typeof Plus;
-}> = [
+const SECTIONS: ReadonlyArray<SidebarToolbarSection<ExtensionsSection>> = [
   { id: "plugins", label: "Plugin", icon: Blocks },
   { id: "skills", label: "Skill", icon: Sparkles },
 ];
@@ -32,6 +30,10 @@ export function ExtensionsPane({
   onSectionChange(section: ExtensionsSection): void;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
+  useSurfaceNavigationReset(active, () => {
+    setCreateOpen(false);
+    onSectionChange("plugins");
+  });
   const api = window.mixdogDesktop ?? {};
   // The header's + belongs to the VISIBLE section: switching tabs drops a
   // half-filled form instead of carrying it into a different resource kind.
@@ -50,18 +52,8 @@ export function ExtensionsPane({
       {/* Title and primary actions live in the sidebar panel header. */}
       <SidebarPanelAction active={active} label={t(CREATE_LABEL[section])} icon={Plus}
         onClick={() => setCreateOpen((open) => !open)} />
-      <div className="extensions-section-toolbar" aria-label={t("Extension type")}>
-        {SECTIONS.map((item) => {
-          const Icon = item.icon;
-          return <button type="button" key={item.id}
-            className={section === item.id ? "active" : ""}
-            aria-pressed={section === item.id}
-            onClick={() => onSectionChange(item.id)}>
-            <Icon size={14} aria-hidden="true" />
-            <span>{t(item.label)}</span>
-          </button>;
-        })}
-      </div>
+      <SidebarSectionToolbar label={t("Extension type")} sections={SECTIONS}
+        active={section} onChange={onSectionChange} />
       <CapabilitySettings api={api} category={section}
         createOpen={createOpen}
         onCreateOpenChange={setCreateOpen} />

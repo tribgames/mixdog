@@ -1,9 +1,10 @@
-/* Shared row grammar for select, overflow and session menus.
+/* Shared row grammar for select and overflow menus.
    Imported by layer 16; each owner keeps only its positioning and semantics. */
 html[data-mixdog-mobile-tabs] { --mx-menu-row-height: 44px; }
 
 .mx-menu-item,
-:where(.row-overflow-menu, .session-row-menu) > button {
+.row-overflow-menu > button {
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
   min-height: var(--mx-menu-row-height);
@@ -24,26 +25,26 @@ html[data-mixdog-mobile-tabs] { --mx-menu-row-height: 44px; }
   transition: background-color var(--mx-motion-ink), color var(--mx-motion-ink);
 }
 .mx-menu-item > svg,
-:where(.row-overflow-menu, .session-row-menu) > button > svg {
+.row-overflow-menu > button > svg {
   flex-shrink: 0;
 }
 .mx-menu-item:hover:not(:disabled),
 .mx-menu-item[data-active="true"]:not(:disabled),
-:where(.row-overflow-menu, .session-row-menu) > button:hover:not(:disabled) {
+.row-overflow-menu > button:hover:not(:disabled) {
   background: var(--mx-hover);
 }
 .mx-menu-item:focus-visible,
-:where(.row-overflow-menu, .session-row-menu) > button:focus-visible {
+.row-overflow-menu > button:focus-visible {
   outline: 0;
   background: var(--mx-hover);
   box-shadow: var(--mx-list-focus-ring);
 }
 .mx-menu-item:active:not(:disabled),
-:where(.row-overflow-menu, .session-row-menu) > button:active:not(:disabled) {
+.row-overflow-menu > button:active:not(:disabled) {
   background: var(--mx-pressed);
 }
 .mx-menu-item:disabled,
-:where(.row-overflow-menu, .session-row-menu) > button:disabled {
+.row-overflow-menu > button:disabled {
   opacity: var(--mx-op-disabled);
   cursor: default;
 }

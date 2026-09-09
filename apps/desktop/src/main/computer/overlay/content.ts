@@ -1,7 +1,7 @@
 import { overlayStyles } from './content-styles';
 
 export const OVERLAY_WIDTH = 280;
-export const OVERLAY_HEIGHT = 80;
+export const OVERLAY_HEIGHT = 88;
 
 export function overlayHtml(locale: string): string {
   const ko = locale.toLowerCase().startsWith('ko');
@@ -28,6 +28,9 @@ export function overlayScript(locale = 'en'): string {
       const resume = action() === 'resume';
       document.body.dataset.paused = String(state.paused);
       document.body.dataset.error = String(failed || Boolean(state.attention));
+      const title = failed ? ${JSON.stringify(ko ? '요청 실패' : 'Request failed')}
+        : state.title || ${JSON.stringify(ko ? 'Mixdog 사용 중' : 'Mixdog using')};
+      document.getElementById('title').textContent = title;
       button.disabled = resume && !state.canResume;
       button.setAttribute('aria-label', resume
         ? ${JSON.stringify(ko ? '재개' : 'Resume')} : ${JSON.stringify(ko ? '일시중지' : 'Pause')});

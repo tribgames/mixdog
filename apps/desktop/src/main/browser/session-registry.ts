@@ -43,7 +43,8 @@ export class BrowserSessionRegistry {
     const sessionId = this.sessionByGuest.get(guest);
     this.sessionByGuest.delete(guest);
     if (!sessionId || this.activeBySession.get(sessionId) !== guest) return;
-    const fallback = this.visibleGuests(sessionId)[0];
+    const fallback = this.visibleGuests(sessionId)[0]
+      ?? [...this.backgroundPages(sessionId).values()].find(page => !page.guest.isDestroyed())?.guest;
     if (fallback) this.activeBySession.set(sessionId, fallback);
     else this.activeBySession.delete(sessionId);
   }
@@ -88,9 +89,16 @@ export class BrowserSessionRegistry {
     return this.sessionByGuest.get(guest);
   }
 
+  guestForSession(sessionId: string, webContentsId: number): WebContents | null {
+    return this.visibleGuests(sessionId).find(guest => guest.id === webContentsId)
+      ?? [...this.backgroundPages(sessionId).values()]
+        .find(page => !page.guest.isDestroyed() && page.guest.id === webContentsId)?.guest
+      ?? null;
+  }
+
   currentGuest(sessionId: string): WebContents | null {
     const current = this.activeBySession.get(sessionId);
-    if (current && !current.isDestroyed()) return current;
+    if (current && !current.isDestroyed() && this.sessionByGuest.get(current) === sessionId) return current;
     this.activeBySession.delete(sessionId);
     return null;
   }
@@ -141,6 +149,12 @@ export class BrowserSessionRegistry {
     pages.delete(name);
     if (removed && this.sessionByGuest.get(removed.guest) === sessionId) {
       this.sessionByGuest.delete(removed.guest);
+    }
+    if (removed && this.activeBySession.get(sessionId) === removed.guest) {
+      const fallback = this.visibleGuests(sessionId)[0]
+        ?? [...pages.values()].find(page => !page.guest.isDestroyed())?.guest;
+      if (fallback) this.activeBySession.set(sessionId, fallback);
+      else this.activeBySession.delete(sessionId);
     }
     if (!pages.size) this.backgroundsBySession.delete(sessionId);
   }

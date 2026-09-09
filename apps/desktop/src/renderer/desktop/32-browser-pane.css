@@ -12,40 +12,72 @@
   background: var(--mx-workspace-sheet);
 }
 
-/* Session browser roots live independently of pane tabs. Their container
-   stays under one display:contents host and is positioned over the active
-   slot, avoiding Electron webview reparenting. */
-.session-browser-slot,
-.session-browser-surface-container {
-  width: 100%;
-  height: 100%;
+.browser-tab-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
-  min-height: 0;
+  flex: none;
+  padding: 4px 8px 0;
+  border-bottom: 1px solid var(--mx-border-muted);
 }
 
-.session-browser-parking-host {
-  display: contents;
+.browser-tab-list {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: 3px;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
-.session-browser-surface-container {
-  position: fixed;
-  overflow: hidden;
-  z-index: 31;
-  pointer-events: auto;
+.browser-tab {
+  display: flex;
+  align-items: center;
+  flex: 0 1 200px;
+  min-width: 112px;
+  height: 30px;
+  padding-right: 3px;
+  border-radius: 7px 7px 0 0;
+  color: var(--mx-text-muted);
 }
 
-.session-browser-surface-container[data-parked="true"] {
-  z-index: -1;
-  pointer-events: none;
-}
-/* Remotely viewed while parked: inside the window so Chromium keeps composing
-   the guest's frames for the phone's captures, beneath every UI layer and
-   near-transparent so nothing shows through a gap. Fully transparent would
-   let the compositor drop the surface again. */
-.session-browser-surface-container[data-parked="true"][data-remote-viewed="true"] {
-  opacity: 0.02;
+.browser-tab.is-active {
+  min-width: 144px;
+  color: var(--mx-text);
+  background: var(--mx-surface-plate);
+  box-shadow: inset 0 -2px var(--mx-focus);
 }
 
+.browser-tab:hover { background: var(--mx-hover); }
+
+.browser-tab-select,
+.browser-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.browser-tab-select {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 7px;
+  font-size: var(--mx-font-meta);
+}
+
+.browser-tab-select svg { flex: none; }
+.browser-tab-select span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.browser-tab-select small { flex: none; color: var(--mx-text-faint); }
+.browser-tab-close { width: 22px; height: 22px; flex: none; border-radius: 4px; }
+.browser-tab-close:hover { background: var(--mx-hover); color: var(--mx-text); }
+.browser-tab-select:focus-visible,
+.browser-tab-close:focus-visible { outline: 2px solid var(--mx-focus); outline-offset: -2px; }
 /* Electron guests can stay alive but stop repainting after display:none.
    Keep the pane mounted; the guest layer itself is parked below at 1px while
    inactive so it cannot composite over the visible Studio/editor surface. */
@@ -166,6 +198,14 @@
 
 .browser-pane-address:focus {
   border-color: var(--mx-focus);
+}
+
+/* Pointer focus keeps the address field's normal frame; Tab navigation
+   retains the shared keyboard focus ring. */
+html[data-mx-input="pointer"] .browser-pane-address:focus {
+  border-color: var(--mx-border-muted);
+  outline: none;
+  box-shadow: none;
 }
 
 .browser-pane-viewport-picker {

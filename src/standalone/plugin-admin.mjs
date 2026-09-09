@@ -15,6 +15,7 @@ import {
 } from '../runtime/shared/atomic-file.mjs';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import { pluginManifest } from '../runtime/shared/plugin-manifest.mjs';
+import { pluginMetadata } from '../runtime/shared/plugin-metadata.mjs';
 import { clean } from '../runtime/shared/clean.mjs';
 import { readJsonSafe } from '../runtime/shared/json-file.mjs';
 
@@ -235,6 +236,7 @@ function enrichEntry(entry) {
     title: clean(manifest.title) || clean(manifest.displayName) || clean(entry.title) || name,
     version: clean(manifest.version) || clean(entry.version) || null,
     description: clean(manifest.description) || clean(entry.description),
+    ...pluginMetadata(manifest),
     exists: Boolean(root && existsSync(root)),
   };
 }

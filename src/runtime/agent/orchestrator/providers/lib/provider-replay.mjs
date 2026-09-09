@@ -32,6 +32,7 @@ export function cloneProviderReplay(replay) {
         return undefined;
     }
     const cloned = createProviderReplay(replay.provider, replay.items);
+    if (typeof replay.accountId === 'string') cloned.accountId = replay.accountId;
     // Adapter-owned request context is persisted with the original response,
     // but is never part of the provider-visible output items.
     if (replay.requestContext && typeof replay.requestContext === 'object'

@@ -8,6 +8,7 @@ import type {
   DesktopSubmitOptions,
 } from "../shared/contract";
 import { reportComposerAction } from "./composer-diagnostics";
+import { skillTitle, withSelectedSkill } from './composer-skill';
 import type { RecordValue } from "./desktop-types";
 import { asRecord } from "./text-format";
 import {
@@ -55,6 +56,8 @@ export function useComposerSubmission({
   submit,
   abort,
   onQueuedRestored,
+  selectedSkill = '',
+  onSkillSubmitted,
 }: {
   turnBusy: boolean;
   commandBusy: boolean;
@@ -86,6 +89,8 @@ export function useComposerSubmission({
   submit(content: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<unknown>;
   abort(options?: DesktopAbortOptions): Promise<unknown>;
   onQueuedRestored?(ids: string[]): void;
+  selectedSkill?: string;
+  onSkillSubmitted?(name: string): void;
 }) {
   const send = useCallback(async (
     slashOverride = "",
@@ -206,8 +211,8 @@ export function useComposerSubmission({
         ]
         : expandedText;
       const committedAttachments = [...used];
-      const retryKey = submissionRetryKey(expandedText, committedAttachments);
-      const submittedDisplayText = expandedText.trim();
+      const retryKey = submissionRetryKey(JSON.stringify([selectedSkill, expandedText]), committedAttachments);
+      const submittedDisplayText = [selectedSkill ? `[${skillTitle(selectedSkill)}]` : '', expandedText.trim()].filter(Boolean).join(' ');
       const priorRetry = submissionRetryRef.current;
       const submissionId = priorRetry?.key === retryKey
         ? priorRetry.id
@@ -227,7 +232,7 @@ export function useComposerSubmission({
       };
       let accepted: unknown;
       try {
-        accepted = await submit(content, {
+        accepted = await submit(withSelectedSkill(content, selectedSkill), {
           id: submissionId,
           ...(submittedDisplayText ? { displayText: submittedDisplayText } : {}),
           ...(Object.keys(pastedImages).length ? { pastedImages } : {}),
@@ -239,6 +244,7 @@ export function useComposerSubmission({
         throw error;
       }
       if (accepted === true) {
+        if (selectedSkill) onSkillSubmitted?.(selectedSkill);
         resolveComposerSubmissionRecovery(submissionId);
         if (submissionRetryRef.current?.id === submissionId) submissionRetryRef.current = null;
         rememberPrompt(expandedText, committedAttachments);
@@ -281,6 +287,8 @@ export function useComposerSubmission({
     textarea,
     transitioningRef,
     turnBusy,
+    selectedSkill,
+    onSkillSubmitted,
   ]);
 
   const stop = useCallback(async (preserveDraft = false, submissionId = "") => {

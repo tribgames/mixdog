@@ -21,6 +21,35 @@ function fixture(send) {
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
+test('local input admission is checked again after transport cleanup and immediately before dispatch', async () => {
+  const running = deferred();
+  const started = deferred();
+  const calls = [];
+  const { guest, cdp, debug } = fixture(method => {
+    calls.push(method);
+    if (method === 'Input.dispatchMouseEvent') { started.resolve(); return running.promise; }
+    return Promise.resolve({});
+  });
+  const controller = new AbortController();
+  const previous = cdp.sendCdp(guest, debug, 'Input.dispatchMouseEvent', {}, 1000, controller.signal);
+  await started.promise;
+  controller.abort(new Error('interrupted'));
+  await assert.rejects(previous, /interrupted/);
+  let current = true;
+  const input = cdp.sendCdpInput(guest, debug, 'Input.insertText', { text: 'old edit' }, undefined, undefined,
+    () => { if (!current) throw new Error('Browser page changed; input was not sent.'); });
+  const rejected = assert.rejects(input, /page changed/);
+  try {
+    await tick();
+    current = false;
+    running.resolve({});
+    await rejected;
+    assert.deepEqual(calls, ['Input.dispatchMouseEvent']);
+    await cdp.sendCdpInput(guest, debug, 'Input.insertText', { text: 'fresh' }, undefined, undefined, () => {});
+    assert.deepEqual(calls, ['Input.dispatchMouseEvent', 'Input.insertText']);
+  } finally { running.resolve({}); }
+});
+
 test('already-cancelled CDP operations dispatch nothing', async () => {
   const controller = new AbortController();
   controller.abort(new Error('cancelled before dispatch'));

@@ -341,9 +341,11 @@ for (const field of ["model", "effort"]) {
       assertChosen();
       await act(async () => paint({ ...initial, busy: true, spinner: { text: "working" } }));
       assertChosen();
-      await act(async () => paint(pendingSnapshot));
-      assertChosen();
+      const completedRequest = request;
       await choose(false);
+      assert.notEqual(request, completedRequest,
+        "a completed mutation must allow another selection even before its snapshot paints");
+      await act(async () => paint(pendingSnapshot));
       await act(async () => request.reject(new Error("route update failed")));
       assertChosen();
     } finally {

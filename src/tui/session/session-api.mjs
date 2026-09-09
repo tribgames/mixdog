@@ -9,6 +9,7 @@ import { buildDoctorReport } from '../app/doctor.mjs';
 import { recomputePromptHistory } from './prompt-history.mjs';
 import { appendPromptHistory, buildMergedPromptHistory, loadPromptHistory, promptHistoryKey } from '../prompt-history-store.mjs';
 import { hydratePastedAttachments } from '../../runtime/attachments/store.mjs';
+import { abortGoalTurn } from './goal-turn-state.mjs';
 
 export function createSessionApi(bag) {
   const api = { ...createSessionApiA(bag), ...createSessionApiB(bag) };
@@ -381,6 +382,7 @@ export function createSessionApiA(bag) {
     startLocalProviderInstallation: (phase, modelId) => runtime.startLocalProviderInstallation(phase, modelId),
     cancelLocalProviderInstallation: (jobId) => runtime.cancelLocalProviderInstallation(jobId),
     setLocalProviderIdleTtl: (seconds) => runtime.setLocalProviderIdleTtl(seconds),
+    setLocalProviderContext: (modelId, tokens) => runtime.setLocalProviderContext(modelId, tokens),
     getLocalProviderModelDetails: (modelId) => runtime.getLocalProviderModelDetails(modelId),
     startLocalProviderModelMaintenance: (modelId, operation) => runtime.startLocalProviderModelMaintenance(modelId, operation),
     deleteLocalProviderModel: (token) => runtime.deleteLocalProviderModel(token),
@@ -738,15 +740,18 @@ export function createSessionApiA(bag) {
       return rules;
     },
     memoryControl: async (args = {}, options = {}) => {
-      if (getState().commandBusy) return null;
-      set({ commandBusy: true });
+      // Project panels prefetch multiple scopes. Reads do not own the command
+      // lock and must neither be dropped nor release another command's lock.
+      const readOnlyList = args.op === 'list' && (args.action == null || args.action === 'core');
+      if (!readOnlyList && getState().commandBusy) return null;
+      if (!readOnlyList) set({ commandBusy: true });
       try {
         const result = await runtime.memoryControl(args);
         const text = String(result || '').trim() || '(empty memory result)';
         if (!options.silent) pushNotice(text, 'info');
         return result;
       } finally {
-        set({ commandBusy: false });
+        if (!readOnlyList) set({ commandBusy: false });
       }
     },
     recall: async (query, args = {}) => {
@@ -858,6 +863,9 @@ export function createSessionApiA(bag) {
         return result;
       } finally {
         set({ commandBusy: false, commandStatus: null });
+        // A command reply reads the published snapshot, not the draft. Commit
+        // completion before the awaiting service constructs that reply.
+        flushEmitImmediate();
       }
     },
     abort: (options = {}) => {
@@ -916,7 +924,7 @@ export function createSessionApiA(bag) {
           (entry) => entry?.abortDiscardOnAbort !== true && entry?.mode !== 'pending-resume',
         )
         : [];
-      const aborted = runtime.abort(hasPendingSteering ? 'interrupt' : 'user-cancel');
+      const aborted = abortGoalTurn(runtime, flags, hasPendingSteering);
       if (restoreState) {
         if (aborted !== false && Array.isArray(restoreState.discardExecutionPendingResumeKeys)) {
           discardExecutionPendingResume?.(restoreState.discardExecutionPendingResumeKeys);

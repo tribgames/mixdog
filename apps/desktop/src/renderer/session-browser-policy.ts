@@ -12,7 +12,7 @@ export type SessionBrowserRevealPlan = {
 export function browserSurfaceRequestShouldReveal(
   request: DesktopBrowserOpenRequest,
 ): boolean {
-  return request.reveal !== false;
+  return request.hide !== true && request.reveal !== false;
 }
 
 /**

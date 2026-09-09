@@ -37,21 +37,20 @@ import {
 import { viewGroupContainerDropProps } from "./view-group-layout";
 
 export type ActivityRailSurface =
-  "projects" | "workflows" | "schedules" | "webhooks" | "settings";
+  "projects" | "schedules" | "webhooks" | "settings";
 export function ActivityRail({
   activeSurface,
   sidebarOpen,
   onToggleSessions,
   onOpenProjects,
   onPrefetchProjects,
-  onOpenWorkflows,
-  onPrefetchWorkflows,
   onOpenSchedules,
   onPrefetchSchedules,
   onOpenWebhooks,
   onPrefetchWebhooks,
   onCloseActiveSurface,
   onOpenSettings,
+  onOpenProviders,
   onPrefetchSettings,
   usageApi,
   viewGroups,
@@ -64,14 +63,13 @@ export function ActivityRail({
   onToggleSessions(): void;
   onOpenProjects(): void;
   onPrefetchProjects?(): void;
-  onOpenWorkflows(): void;
-  onPrefetchWorkflows?(): void;
   onOpenSchedules(): void;
   onPrefetchSchedules?(): void;
   onOpenWebhooks(): void;
   onPrefetchWebhooks?(): void;
   onCloseActiveSurface(): void;
   onOpenSettings(): void;
+  onOpenProviders?(): void;
   onPrefetchSettings?(): void;
   /** Overridable only for tests; the rail warms usage through the host API. */
   usageApi?: UsageApi;
@@ -101,8 +99,6 @@ export function ActivityRail({
   }> = ([
     { id: "projects", label: "Open projects", tooltip: "Projects", icon: "folder",
       onOpen: onOpenProjects, onPrefetch: onPrefetchProjects },
-    { id: "workflows", label: "Open workflows", tooltip: "Workflows", icon: "type-hierarchy",
-      onOpen: onOpenWorkflows, onPrefetch: onPrefetchWorkflows },
     { id: "schedules", label: "Open schedules", tooltip: "Schedules", icon: "calendar",
       onOpen: onOpenSchedules, onPrefetch: onPrefetchSchedules },
     { id: "webhooks", label: "Open webhooks", tooltip: "Webhooks", icon: "plug",
@@ -187,7 +183,7 @@ export function ActivityRail({
     }
     const dismiss = (event: PointerEvent) => {
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest(".rail-usage-popup, .sidebar-usage-toggle")) return;
+      if (target?.closest(".rail-usage-popup, .sidebar-usage-toggle, [data-provider-account-overlay]")) return;
       setUsageOpen(false);
     };
     const keydown = (event: KeyboardEvent) => {
@@ -343,6 +339,7 @@ export function ActivityRail({
         {/* The popup shares the rail's host API so its open-time revalidation
             hits the same store entry the rail already prewarmed. */}
         <SidebarUsage sidebarOpen api={usageApi}
+          onAddProviders={() => { setUsageOpen(false); (onOpenProviders || onOpenSettings)(); }}
           pinned={usagePinned} onTogglePin={toggleUsagePin} />
       </div>}
     </aside>

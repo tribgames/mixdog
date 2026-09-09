@@ -1038,6 +1038,9 @@ export function createSessionService({
       sessionsById.delete(entry.indexedSessionId);
     }
     entry.busy = false;
+    // Publish before asynchronous disposal: a newly resumed incarnation must
+    // never receive a delayed teardown belonging to this old runtime.
+    if (sessionId) desktopServices.notifySessionRuntimeReleased(sessionId, reason);
     try { await entry.runtime.dispose?.(reason, { keepBackgroundWork }); }
     catch (err) { log(`session dispose failed session=${sessionId}: ${err?.message || err}`); }
     if (announce && sessionId) {

@@ -12,6 +12,8 @@ import {
   prepareChromeForImport,
   type BrowserImportProgress,
 } from './profile-import';
+import { verifyCookieImport } from './profile-import-cookies.integration';
+import { verifyPartitionedCookieImport } from './cookie-jar.integration';
 
 const execFileAsync = promisify(execFile);
 process.stdout.write('browser profile import integration loaded\n');
@@ -137,6 +139,8 @@ public static class MixdogBrowserCloseFixture {
       ...partition,
       cookies: {
         ...partition.cookies,
+        get: partition.cookies.get.bind(partition.cookies),
+        flushStore: partition.cookies.flushStore.bind(partition.cookies),
         set: async (cookie: unknown) => {
           importedCookies.push(cookie);
         },
@@ -159,7 +163,12 @@ public static class MixdogBrowserCloseFixture {
     },
     readNativeCookies: async (profileId) => {
       assert.equal(profileId, 'Default');
-      return [{
+      return {
+        version: 2,
+        sourceCount: 1,
+        expired: 0,
+        failures: { decryption: 0, domainMismatch: 0, invalidEncoding: 0, invalidPartition: 0 },
+        cookies: [{
         name: 'session',
         value: 'secret-cookie-value',
         domain: '.example.test',
@@ -168,7 +177,8 @@ public static class MixdogBrowserCloseFixture {
         httpOnly: true,
         session: true,
         sameSite: 'Lax',
-      }];
+        }],
+      };
     },
   });
 
@@ -320,7 +330,13 @@ public static class MixdogBrowserCloseFixture {
       announcePreparation();
       await preparationRelease;
     },
-    readNativeCookies: async () => [],
+    readNativeCookies: async () => ({
+      version: 2,
+      sourceCount: 0,
+      expired: 0,
+      cookies: [],
+      failures: { decryption: 0, domainMismatch: 0, invalidEncoding: 0, invalidPartition: 0 },
+    }),
   });
   const firstImport = raceService.importProfile({
     jobId: 'racejob1234',
@@ -343,6 +359,40 @@ public static class MixdogBrowserCloseFixture {
   releasePreparation();
   await firstImport;
 
+  const partialService = new BrowserProfileImportService({
+    userDataDirectory: join(destinationUserData, 'partial'),
+    temporaryDirectory,
+    partition,
+    chromeExecutablePath: chromeExecutable,
+    chromeUserDataDirectory: sourceUserData,
+    prepareChromeForImport: async () => {},
+    readNativeCookies: async () => ({
+      version: 2,
+      sourceCount: 3,
+      expired: 0,
+      cookies: [{
+        domain: 'partial.example.test', name: 'SID', value: 'private-partial-token', session: true,
+      }],
+      failures: { decryption: 1, domainMismatch: 0, invalidEncoding: 0, invalidPartition: 1 },
+    }),
+  });
+  const partialProgress: BrowserImportProgress[] = [];
+  const partial = await partialService.importProfile({
+    jobId: 'partialfixture123',
+    sourceId: 'chrome',
+    profileId: 'Default',
+    items: ['cookies'],
+    administratorApproved: true,
+  }, (update) => partialProgress.push(update));
+  assert.equal(partial.counts.cookies, 1);
+  assert.match(partial.errors.cookies || '', /2 failed/);
+  assert.match(partial.errors.cookies || '', /1 decryption/);
+  assert.equal(partialProgress.at(-1)?.state, 'failed');
+  assert.equal(partialProgress.at(-1)?.count, 1);
+  assert.doesNotMatch(JSON.stringify([partial, partialProgress]), /private-partial-token|partial\.example\.test/);
+
+  await verifyCookieImport();
+  await verifyPartitionedCookieImport();
   process.stdout.write('browser profile import integration passed\n');
 }
 

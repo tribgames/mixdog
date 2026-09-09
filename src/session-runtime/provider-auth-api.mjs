@@ -8,8 +8,12 @@ import {
   saveOpenCodeGoUsageAuth,
   loginOpenCodeGoUsage,
   saveProviderApiKey,
+  listProviderAccounts,
+  updateProviderAccounts,
 } from '../standalone/provider-admin.mjs';
 import { resetProviderAdmissionCooldowns } from '../runtime/agent/orchestrator/providers/admission-scheduler.mjs';
+import { getProvider } from '../runtime/agent/orchestrator/providers/registry.mjs';
+import { fetchOAuthUsageSnapshot } from '../runtime/agent/orchestrator/providers/oauth-usage.mjs';
 
 // Provider auth / catalog / preset surface. Extracted verbatim from the runtime
 // API object; the stateless admin helpers are imported directly and the runtime
@@ -52,7 +56,43 @@ export function createProviderAuthApi({
     try { resetProviderAdmissionCooldowns(); } catch { /* best-effort */ }
   }
 
+  // One in-flight usage sweep per provider; a reopened picker reuses it.
+  const accountUsageSweeps = new Map();
+
   return {
+    // The account roster is a local file read: it must paint the moment the
+    // picker opens (user: 불러오는 중이 계속 뜬다). The roster never blocks on
+    // the keychain or on live quota fetches; the persisted per-account usage
+    // is returned as-is and a bounded background sweep refreshes it, which
+    // lands in the next read.
+    getProviderAccounts(providerId) {
+      const pool = listProviderAccounts(providerId);
+      const provider = getProvider(providerId);
+      if (provider?.forAccount && !accountUsageSweeps.has(providerId)) {
+        const sweep = (async () => {
+          try {
+            await awaitKeychainPrewarm();
+            for (let offset = 0; offset < pool.accounts.length; offset += 4) {
+              await Promise.all(pool.accounts.slice(offset, offset + 4).map((account) =>
+                fetchOAuthUsageSnapshot({ provider: providerId, accountId: account.id },
+                  provider.forAccount(account.id)).catch(() => null)));
+            }
+          } finally {
+            accountUsageSweeps.delete(providerId);
+          }
+        })();
+        accountUsageSweeps.set(providerId, sweep);
+      }
+      return pool;
+    },
+    async updateProviderAccounts(providerId, change) {
+      await awaitKeychainPrewarm();
+      const result = updateProviderAccounts(providerId, change);
+      reloadFullConfig();
+      invalidateProviderCaches();
+      warmProviderModelCache();
+      return result;
+    },
     listProviders() {
       return renderProviderStatus(displayConfig());
     },
@@ -107,9 +147,9 @@ export function createProviderAuthApi({
       warmProviderModelCache();
       return result;
     },
-    async beginOAuthProviderLogin(providerId) {
+    async beginOAuthProviderLogin(providerId, options = {}) {
       await awaitKeychainPrewarm();
-      const result = await beginOAuthProviderLogin(cfgMod, providerId);
+      const result = await beginOAuthProviderLogin(cfgMod, providerId, options);
       reloadFullConfig();
       return {
         ...result,
@@ -166,8 +206,8 @@ export function createProviderAuthApi({
       invalidateProviderCaches();
       return result;
     },
-    forgetProviderAuth(providerId) {
-      const result = forgetProviderAuth(cfgMod, providerId);
+    forgetProviderAuth(providerId, accountId) {
+      const result = forgetProviderAuth(cfgMod, providerId, accountId);
       reloadFullConfig();
       invalidateProviderCaches();
       releaseAdmissionCooldowns();

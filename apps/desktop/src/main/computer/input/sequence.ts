@@ -1,4 +1,6 @@
 import type { ComputerCommand } from '../shared/types';
+import { computerTimings } from '../shared/timings';
+import { computerCursorFeedback } from '../shared/cursor-feedback';
 
 interface SequenceWindowTransition {
   next_target?: { id?: string };
@@ -12,6 +14,7 @@ export async function executeComputerSequenceSteps(
     command: ComputerCommand,
     index: number,
   ) => Promise<Record<string, unknown>>,
+  onCompleted?: (completed: number) => void,
 ): Promise<{
   rows: Array<Record<string, unknown>>;
   completedSteps: number;
@@ -27,6 +30,7 @@ export async function executeComputerSequenceSteps(
   for (let index = 0; index < stepCommands.length; index += 1) {
     const stepCommand = stepCommands[index];
     const stepAction = String(stepCommand.action || '');
+    const stepStartedAt = performance.now();
     let payload: Record<string, unknown>;
     try {
       payload = await executeStep(stepCommand, index);
@@ -43,12 +47,20 @@ export async function executeComputerSequenceSteps(
         verdict: { decision: 'escalate', recommended: 'inspect_failed_step' },
       };
     }
+    // The outer queue owns pause, cleanup and resume. Turning this into a
+    // normal failed row would bypass that queue and drop the pending request.
+    if (payload.code === 'user_input_active') {
+      throw new Error('user_input_active: sequence yielded during input; dispatch outcome is uncertain');
+    }
     const transition = payload.window_transition as SequenceWindowTransition | undefined;
     lastTransition = transition || null;
     if (transition?.next_target?.id) finalWindowId = transition.next_target.id;
     const verdict = payload.verdict as Record<string, unknown> | undefined;
     const failed = payload.ok === false || verdict?.decision === 'escalate';
-    if (!failed) completedSteps += 1;
+    if (!failed) {
+      completedSteps += 1;
+      onCompleted?.(completedSteps);
+    }
     rows.push({
       index: index + 1,
       action: stepAction,
@@ -57,6 +69,12 @@ export async function executeComputerSequenceSteps(
       effect: payload.effect || 'unverifiable',
       verified: payload.verified === true,
       path: payload.path || 'unknown',
+      ...(typeof payload.delivery_accepted === 'boolean' ? { delivery_accepted: payload.delivery_accepted } : {}),
+      ...(payload.cursor_feedback ? { cursor_feedback: computerCursorFeedback(payload.cursor_feedback) } : {}),
+      timings_ms: {
+        ...computerTimings(payload.timings_ms),
+        execution_ms: Number((performance.now() - stepStartedAt).toFixed(2)),
+      },
       ...(payload.message && failed ? { message: payload.message } : {}),
       ...(payload.code ? { code: payload.code } : {}),
       verdict: payload.verdict || null,

@@ -94,10 +94,10 @@ export function wordRunProperties(properties = {}) {
   const size = Number(properties.size ?? properties.fontSize);
   const half = Number.isFinite(size) && size > 0 ? Math.max(2, Math.round(size * 2)) : 0;
   return [
-    properties.name ? `<w:rFonts w:ascii="${xmlEncode(properties.name)}" w:hAnsi="${xmlEncode(properties.name)}" w:eastAsia="${xmlEncode(properties.name)}"/>` : '',
-    properties.bold === true ? '<w:b/>' : '',
-    properties.italic === true ? '<w:i/>' : '',
-    properties.underline === true ? '<w:u w:val="single"/>' : '',
+    properties.name || properties.nameEastAsia ? `<w:rFonts${properties.name ? ` w:ascii="${xmlEncode(properties.name)}" w:hAnsi="${xmlEncode(properties.name)}"` : ''}${properties.nameEastAsia ? ` w:eastAsia="${xmlEncode(properties.nameEastAsia)}"` : ''}/>` : '',
+    properties.bold !== undefined ? `<w:b w:val="${properties.bold ? '1' : '0'}"/>` : '',
+    properties.italic !== undefined ? `<w:i w:val="${properties.italic ? '1' : '0'}"/>` : '',
+    properties.underline !== undefined ? `<w:u w:val="${properties.underline ? 'single' : 'none'}"/>` : '',
     properties.color ? `<w:color w:val="${xmlEncode(String(properties.color).replace(/^#/, ''))}"/>` : '',
     half ? `<w:sz w:val="${half}"/><w:szCs w:val="${half}"/>` : '',
   ].join('');
@@ -242,16 +242,18 @@ export function paragraphFormatXml(properties = {}, numbering = null) {
   const border = properties.border || null;
   const tabs = Array.isArray(properties.tabStops) ? properties.tabStops : [];
   return [
-    properties.keepWithNext === true ? '<w:keepNext/>' : '',
-    properties.pageBreakBefore === true ? '<w:pageBreakBefore/>' : '',
+    properties.keepWithNext !== undefined ? `<w:keepNext w:val="${properties.keepWithNext ? '1' : '0'}"/>` : '',
+    properties.keepTogether !== undefined ? `<w:keepLines w:val="${properties.keepTogether ? '1' : '0'}"/>` : '',
+    properties.pageBreakBefore !== undefined ? `<w:pageBreakBefore w:val="${properties.pageBreakBefore ? '1' : '0'}"/>` : '',
+    properties.widowControl !== undefined ? `<w:widowControl w:val="${properties.widowControl ? '1' : '0'}"/>` : '',
     numbering
       ? `<w:numPr><w:ilvl w:val="${Math.max(0, Math.min(2, Number(numbering.level) || 0))}"/>`
         + `<w:numId w:val="${numbering.numId}"/></w:numPr>`
       : '',
     border ? `<w:pBdr><w:${xmlEncode(border.side || 'bottom')} w:val="${xmlEncode(border.style || 'single')}" w:sz="${Math.max(1, Number(border.size) || 4)}" w:space="${Math.max(0, Number(border.space) || 1)}" w:color="${xmlEncode(String(border.color || 'auto').replace(/^#/, ''))}"/></w:pBdr>` : '',
-    tabs.length ? `<w:tabs>${tabs.map((tab) => `<w:tab w:val="${xmlEncode(tab.alignment || 'left')}" w:pos="${pointsToTwips(tab.position || 0)}"${tab.leader ? ` w:leader="${xmlEncode(tab.leader)}"` : ''}/>`).join('')}</w:tabs>` : '',
+    properties.tabStops !== undefined ? `<w:tabs>${tabs.map((tab) => `<w:tab w:val="${xmlEncode(tab.alignment || 'left')}" w:pos="${pointsToTwips(tab.position || 0)}"${tab.leader ? ` w:leader="${xmlEncode(tab.leader)}"` : ''}/>`).join('')}</w:tabs>` : '',
     (properties.spacingBefore !== undefined || properties.spacingAfter !== undefined || properties.lineSpacing !== undefined)
-      ? `<w:spacing${properties.spacingBefore !== undefined ? ` w:before="${Math.max(0, Math.round(Number(properties.spacingBefore) * 20))}"` : ''}${properties.spacingAfter !== undefined ? ` w:after="${Math.max(0, Math.round(Number(properties.spacingAfter) * 20))}"` : ''}${properties.lineSpacing !== undefined ? ` w:line="${Math.max(1, Math.round(Number(properties.lineSpacing) * 20))}" w:lineRule="auto"` : ''}/>`
+      ? `<w:spacing${properties.spacingBefore !== undefined ? ` w:before="${Math.max(0, Math.round(Number(properties.spacingBefore) * 20))}"` : ''}${properties.spacingAfter !== undefined ? ` w:after="${Math.max(0, Math.round(Number(properties.spacingAfter) * 20))}"` : ''}${properties.lineSpacing !== undefined ? ` w:line="${Math.max(1, Math.round(Number(properties.lineSpacing) * 20))}" w:lineRule="atLeast"` : ''}/>`
       : '',
     properties.alignment ? `<w:jc w:val="${xmlEncode(properties.alignment)}"/>` : '',
   ].join('');

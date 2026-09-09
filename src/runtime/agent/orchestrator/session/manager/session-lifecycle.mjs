@@ -113,8 +113,6 @@ function initialCompactionConfig(compaction = {}, contextMeta = {}) {
         // Preserve percent/ratio-named config so the shared policy can honor
         // agent and main/user buffer settings.
         ...preserveBufferConfigFields(compaction),
-        keepTokens: positiveInt(compaction?.keepTokens ?? compaction?.keep?.tokens),
-        preserveRecentTokens: positiveInt(compaction?.preserveRecentTokens),
         reservedTokens: positiveInt(compaction?.reservedTokens),
         boundaryTokens: contextMeta.compactBoundaryTokens,
     };
@@ -287,7 +285,9 @@ export function createSession(opts) {
     const wantsGitStartupLine = toolsForRouting.some((tool) => tool?.name === 'git');
     const shellEnvironmentContext = [
         sessionCwdLine
-            ? `- Cwd: ${sessionCwdLine} — the active Project root; relative paths and shell commands resolve here.`
+            ? (ownerIsAgent
+                ? `- Cwd: ${sessionCwdLine} — the active Project root; relative paths and shell commands resolve here.`
+                : '- Relative paths and shell commands resolve in the active Project shown by Session Cwd.')
             : '',
         `- Shell: ${process.platform === 'win32' ? 'PowerShell' : 'Bash'}. Use ${process.platform === 'win32' ? 'PowerShell' : 'Bash'} syntax unless the user specifies otherwise.`,
         // A startup inventory of PATH binaries used to sit here; see

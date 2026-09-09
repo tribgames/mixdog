@@ -29,6 +29,7 @@ import {
 } from "./transcript-measure";
 import { isRemoteBrowserRenderer } from "./remote-ui-projection";
 import { isMobileRemoteSurface } from "./mobile-surface";
+import { createTranscriptEndPin } from "./transcript-end-pin";
 import {
   attachTranscriptSelectionDrag,
   type TranscriptSelectionEndpoint,
@@ -233,6 +234,14 @@ export function TranscriptList({
     // Grow the spacer before a programmatic write so Chrome cannot clamp the
     // requested offset against the previous total height.
     scrollToFn: (offset, options, instance) => {
+      if (instance.options.anchorTo === "end" || instance.options.followOnAppend) {
+        // Core measurements can request several opposing offsets while the
+        // prompt/Goal/diff commit is still changing geometry. They share the
+        // final native pin, never an intermediate elementScroll followed by
+        // another corrective write.
+        endPin.request();
+        return;
+      }
       if (spacer.current) spacer.current.style.height = `${instance.getTotalSize()}px`;
       elementScroll(offset, options, instance);
       // Report the offset that actually landed (and the requested one, which a
@@ -296,40 +305,15 @@ export function TranscriptList({
   }, [pumpDeferredResizes]);
   const virtualizerRef = useRef(virtualizer);
   virtualizerRef.current = virtualizer;
-  const scrollToEndQueued = useRef(false);
-  const pinFollowEnd = useRef(() => {});
-  pinFollowEnd.current = () => {
-    // ONE end: the native wheel stop. Wrap, streamed script, and new rows
-    // all land here. Same-tick callers share the write so a measure after
-    // append cannot pin again and walk the tail down.
-    if (hasScrollGestureRef.current() || scrollToEndQueued.current) return;
-    scrollToEndQueued.current = true;
-    queueMicrotask(() => {
-      scrollToEndQueued.current = false;
-      if (hasScrollGestureRef.current()) return;
-      const instance = virtualizerRef.current;
-      if (spacer.current) spacer.current.style.height = `${instance.getTotalSize()}px`;
-      const element = viewport.current;
-      if (!element) return;
-      const max = Math.max(0, element.scrollHeight - element.clientHeight);
-      const core = instance as unknown as {
-        scrollOffset: number | null;
-        scrollAdjustments: number;
-        _iosDeferredAdjustment: number;
-        _deferredFlushTimerId: number | null;
-        targetWindow: (Window & typeof globalThis) | null;
-      };
-      if (core._deferredFlushTimerId != null && core.targetWindow) {
-        core.targetWindow.clearTimeout(core._deferredFlushTimerId);
-        core._deferredFlushTimerId = null;
-      }
-      core._iosDeferredAdjustment = 0;
-      core.scrollAdjustments = 0;
-      core.scrollOffset = max;
-      if (Math.abs(element.scrollTop - max) >= 1) element.scrollTop = max;
-      markProgrammaticScrollRef.current?.(element.scrollTop, max);
-    });
-  };
+  const endPin = useMemo(() => createTranscriptEndPin({
+    getVirtualizer: () => virtualizerRef.current,
+    getViewport: () => viewport.current,
+    getSpacer: () => spacer.current,
+    hasReaderGesture: () => hasScrollGestureRef.current(),
+    markProgrammaticScroll: (top, intended) =>
+      markProgrammaticScrollRef.current?.(top, intended),
+  }), [viewport]);
+  useLayoutEffect(() => () => endPin.cancel(), [endPin]);
   // React re-renders reuse one virtualizer instance. Patch resizeItem exactly
   // once instead of wrapping the previous wrapper again on every render.
   const patchedVirtualizer = useRef<Virtualizer<HTMLDivElement, HTMLDivElement> | null>(null);
@@ -338,7 +322,7 @@ export function TranscriptList({
     const resizeItem = virtualizer.resizeItem;
     baseResizeItem.current = resizeItem;
     virtualizer.scrollToEnd = () => {
-      pinFollowEnd.current();
+      endPin.request();
     };
     virtualizer.resizeItem = (index, size) => {
       const element = viewport.current;
@@ -376,7 +360,7 @@ export function TranscriptList({
       }
       resizeItem(index, size);
       if (virtualizer.options.followOnAppend || virtualizer.options.anchorTo === "end") {
-        pinFollowEnd.current();
+        endPin.request();
       }
     };
   }
@@ -448,7 +432,7 @@ export function TranscriptList({
 
   useLayoutEffect(() => {
     const scrollToEnd = () => {
-      pinFollowEnd.current();
+      endPin.request();
     };
     scrollToEndRef.current = scrollToEnd;
     return () => {
@@ -456,7 +440,7 @@ export function TranscriptList({
         scrollToEndRef.current = () => {};
       }
     };
-  }, [scrollToEndRef]);
+  }, [endPin, scrollToEndRef]);
 
   useLayoutEffect(() => {
     if (!setAnchorBottomRef) return undefined;

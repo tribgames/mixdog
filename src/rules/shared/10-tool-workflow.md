@@ -38,6 +38,13 @@
   facets. Do not abandon a viable approach after one failure or leave the
   required deliverable half-finished. Report a blocker when no deterministic
   next action remains.
-- Use only named tools present in the current tool surface; deferred tools
-  auto-load on a direct call, and when their exact arguments are not visible,
-  call `load_tool` first and read the surfaced schema.
+- Use only named tools present in the current tool surface. When an available
+  skill's trigger matches the task, reuse its body if already present in the
+  current context; otherwise call `Skill` first. It injects the body and full
+  definitions of available linked tools into the next model request.
+  Do not reload a skill merely because another task or turn matches its trigger;
+  call it again only when its body is absent from the current context.
+  Do not call `load_tool` again for tools reported as loaded.
+  Without a matching skill, use the tool directly. Deferred tools auto-load on
+  direct calls; if their exact arguments are unknown, call `load_tool` first
+  and follow the returned schema.

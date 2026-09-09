@@ -7,6 +7,7 @@ import type { ComputerCommand, PowerShellResponse } from '../shared/types';
 import type { ResolvedInputTarget } from './input-resolution';
 import type { CommandRouterHost } from './command-router';
 import type { ComputerExecutionPolicy } from './execution-policy';
+import { sequenceStepRequest } from './sequence-dispatch';
 
 type DispatchHost = Pick<CommandRouterHost,
   'callPowerShell' | 'callPowerShellElevated' | 'sessionIdFor' | 'readWindowIntegrity'
@@ -16,7 +17,7 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
   const { callPowerShell, callPowerShellElevated, sessionIdFor,
     readWindowIntegrity, readComputerWindows, assertExecutionNotAborted } = host;
   return async function dispatchInput(
-    command: ComputerCommand, action: string, target: ResolvedInputTarget,
+    command: ComputerCommand, action: string, target: ResolvedInputTarget, batchSequenceStep = false,
   ): Promise<PowerShellResponse> {
     const { targetWindowId, physicalX, physicalY, physicalToX, physicalToY, allowedWindowIds } = target;
     const authorizeDispatch = async () => {
@@ -85,7 +86,12 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
     const authority = await authorizeDispatch();
     const response = usePrivilegedWorker
       ? await callPowerShellElevated({ ...powerShellRequest, ...authority })
-      : await callPowerShell({ ...powerShellRequest, ...authority }, action === 'invoke_menu' ? 3_000 : undefined);
+      : await callPowerShell(
+        batchSequenceStep
+          ? sequenceStepRequest({ ...powerShellRequest, ...authority })
+          : { ...powerShellRequest, ...authority },
+        action === 'invoke_menu' ? 3_000 : undefined,
+      );
     if (usePrivilegedWorker && response.result) {
       response.result.path = `uac_elevated_${String(response.result.path || 'foreground_input')}`;
       response.result.privilege = {

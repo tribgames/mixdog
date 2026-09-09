@@ -12,6 +12,7 @@ import {
   validateBrowserToolArgs,
 } from './action-schema.mjs';
 import { readBridgeDiscovery, readBridgeDiscoveryDetail } from '../bridge-discovery.mjs';
+import { traceBrowserTiming } from './timing.mjs';
 
 const DISCOVERY_FILE = 'browser-bridge.json';
 /** Ceiling above the bridge's own per-action timeouts (navigation settle,
@@ -50,7 +51,11 @@ function unavailableMessage() {
 
 class BrowserBridgeResponseError extends Error {}
 
-async function requestBridge(discovery, encodedPayload, signal) {
+async function requestBridge(discovery, encodedPayload, signal, timingContext) {
+  const started = performance.now();
+  let body;
+  let status;
+  try {
   const response = await fetch(`http://127.0.0.1:${discovery.port}/command`, {
     method: 'POST',
     headers: {
@@ -60,6 +65,7 @@ async function requestBridge(discovery, encodedPayload, signal) {
     body: encodedPayload,
     signal,
   });
+  status = response.status;
   const contentLength = Number(response.headers.get('content-length'));
   if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
     await response.body?.cancel().catch(() => {});
@@ -68,11 +74,15 @@ async function requestBridge(discovery, encodedPayload, signal) {
     );
   }
   try {
-    return { body: await response.json(), status: response.status };
+    body = await response.json();
+    return { body, status: response.status };
   } catch {
     throw new BrowserBridgeResponseError(
       `browser bridge returned an invalid response (HTTP ${response.status})`,
     );
+  }
+  } finally {
+    traceBrowserTiming(timingContext, performance.now() - started, body, status);
   }
 }
 
@@ -89,7 +99,7 @@ function uncertainMutation(message) {
 /** Execute one `browser` tool call. Returns MCP-shaped content so the
  *  internal-tools normalizer forwards text and screenshot images as-is. */
 export async function executeBrowserTool(args, options = {}) {
-  const validated = validateBrowserToolArgs(args);
+  const validated = validateBrowserToolArgs(args, { tool: options.tool });
   if (!validated.ok) {
     return { content: [{ type: 'text', text: `Error: ${validated.error}` }], isError: true };
   }
@@ -125,6 +135,7 @@ export async function executeBrowserTool(args, options = {}) {
         options.signal
           ? AbortSignal.any([AbortSignal.timeout(REQUEST_TIMEOUT_MS), options.signal])
           : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        { sessionId, turnId: payload.turn_id, action: validated.action },
       );
       break;
     } catch (error) {
@@ -220,8 +231,10 @@ export async function executeBrowserTool(args, options = {}) {
       });
     }
   }
+  // An inconclusive outcome (a postcondition that already held) is a warning
+  // in the reply text, not a failure: the action itself executed once.
   return {
     content,
-    ...(value.outcome === 'blocked' || value.outcome === 'inconclusive' ? { isError: true } : {}),
+    ...(value.outcome === 'blocked' ? { isError: true } : {}),
   };
 }

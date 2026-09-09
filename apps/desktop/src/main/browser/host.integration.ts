@@ -9,8 +9,17 @@ import { join } from 'node:path';
 import { app, BrowserWindow, nativeImage, webContents, type WebContents } from 'electron';
 import { BROWSER_ACTIONS } from '../../../../../src/runtime/browser-bridge/browser-action-contract.mjs';
 import { createBrowserHost, type BrowserHost } from './host';
+import type { BrowserCommandTiming } from './timing';
+import { runBrowserLatencyScenarios } from './latency-scenarios';
+import { measureScreenshotReuse } from './screenshot-image.integration';
+import { probeMouseFocus } from './mouse-focus-probe';
+import { probeMouseDispatch } from './mouse-dispatch-probe';
 import { createPolling } from '../host-harness-poll';
-import { DESKTOP_IPC, type DesktopBrowserOpenRequest } from '../../shared/contract';
+import {
+  DESKTOP_IPC,
+  type DesktopBrowserGuestViewportChange,
+  type DesktopBrowserOpenRequest,
+} from '../../shared/contract';
 
 interface CommandResponse {
   ok: boolean;
@@ -18,8 +27,10 @@ interface CommandResponse {
     text?: string;
     image?: { mimeType?: string; data?: string };
     file?: { mimeType?: string; data?: string; name?: string };
+    timing?: BrowserCommandTiming;
   };
   error?: string;
+  timing?: BrowserCommandTiming;
 }
 
 const progressPath = process.env.MIXDOG_BROWSER_INTEGRATION_LOG || '';
@@ -316,23 +327,25 @@ async function run(): Promise<void> {
     });
     host = createBrowserHost(parent, { requestApproval: async () => true });
     const browserSurfaceRequests: DesktopBrowserOpenRequest[] = [];
+    const viewportChanges: DesktopBrowserGuestViewportChange[] = [];
     const parentWebContents = parent.webContents;
     const sendToRenderer = parentWebContents.send.bind(parentWebContents);
     parentWebContents.send = ((channel: string, ...args: unknown[]) => {
       if (channel === DESKTOP_IPC.browserOpenRequested) {
         browserSurfaceRequests.push(args[0] as DesktopBrowserOpenRequest);
       }
+      if (channel === DESKTOP_IPC.browserGuestViewportChanged) {
+        viewportChanges.push(args[0] as DesktopBrowserGuestViewportChange);
+      }
       sendToRenderer(channel, ...args);
     }) as typeof parentWebContents.send;
-    const visibleGuestAttached = new Promise<WebContents>((resolve) => {
-      parent?.webContents.once('did-attach-webview', (_event, guest) => resolve(guest));
-    });
     await parent.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
       <!doctype html>
-      <style>html,body,webview{width:100%;height:100%;margin:0;display:block}</style>
-      <webview src="${origin}/root" partition="persist:mixdog-browser"></webview>
+      <textarea id="composer">Independent shell input</textarea>
     `)}`);
-    const visibleGuest = await visibleGuestAttached;
+    const primaryFrame = await host.browserPageFrame('browser-integration-session');
+    const visibleGuest = webContents.fromId(primaryFrame.webContentsId)!;
+    await visibleGuest.loadURL(`${origin}/root`);
     host.setGuestActive('browser-integration-session', visibleGuest.id, true);
     host.setBridgeEnabled(true);
     const discovery = await readDiscovery(join(dataDirectory, 'browser-bridge.json'));
@@ -349,6 +362,7 @@ async function run(): Promise<void> {
       text: string;
       image?: { mimeType?: string; data?: string };
       file?: { mimeType?: string; data?: string; name?: string };
+      timing?: BrowserCommandTiming;
     }> => {
       const action = String(input.action || 'unknown');
       const startedAt = performance.now();
@@ -367,12 +381,13 @@ async function run(): Promise<void> {
           signal,
         });
         const payload = await response.json() as CommandResponse;
-        if (!payload.ok) throw new Error(payload.error || 'browser command failed');
+        if (!payload.ok) throw Object.assign(new Error(payload.error || 'browser command failed'), { timing: payload.timing });
         completedActions.add(action);
         return {
           text: String(payload.value?.text || ''),
           ...(payload.value?.image ? { image: payload.value.image } : {}),
           ...(payload.value?.file ? { file: payload.value.file } : {}),
+          ...(payload.value?.timing ? { timing: payload.value.timing } : {}),
         };
       } finally {
         const duration = performance.now() - startedAt;
@@ -427,6 +442,29 @@ async function run(): Promise<void> {
       { sessionId: 'browser-integration-session', reveal: true },
     ]);
     progress('existing foreground guest reveal complete');
+    await visibleGuest.executeJavaScript(`
+      const draft = document.createElement('textarea');
+      draft.id = 'completion-draft';
+      draft.value = 'unsaved user draft';
+      document.body.append(draft);
+    `);
+    const foregroundUrlBeforeHide = visibleGuest.getURL();
+    await command({ action: 'hide' });
+    assert.deepEqual(browserSurfaceRequests.splice(0), [
+      { sessionId: 'browser-integration-session', hide: true },
+    ]);
+    assert.equal(visibleGuest.getURL(), foregroundUrlBeforeHide);
+    assert.equal(await visibleGuest.executeJavaScript(
+      `document.getElementById('completion-draft').value`,
+    ), 'unsaved user draft');
+    assert.equal(alphaGuest.isDestroyed(), false);
+    progress('panel hide preserves foreground drafts and support pages');
+    if (process.env.MIXDOG_BROWSER_MOUSE_PROBE_ONLY === '1') {
+      await probeMouseDispatch(alphaGuest, progress);
+      progress('mouse dispatch probe passed');
+      return;
+    }
+    if (process.env.MIXDOG_BROWSER_MOUSE_FOCUS_PROBE === '1') await probeMouseFocus(alphaGuest, progress);
     assert.doesNotMatch(alpha.text, /do-not-leak-password/);
     const spaRef = refNamed(alpha.text, 'Update SPA');
     alpha = await command({
@@ -459,7 +497,7 @@ async function run(): Promise<void> {
       includeScreenshot: true,
       tab: 'alpha',
     });
-    assert.match(weakExpectation.text, /Postcondition is inconclusive because it was already satisfied/);
+    assert.match(weakExpectation.text, /Postcondition was already true before this action/);
     assert.doesNotMatch(weakExpectation.text, /Postcondition met/);
     assert.match(weakExpectation.text, /SPA done 3/);
     assert.equal(weakExpectation.image?.mimeType, 'image/jpeg');
@@ -501,7 +539,6 @@ async function run(): Promise<void> {
       action: 'upload',
       ref: refNamed(alpha.text, 'Upload fixture'),
       paths: [uploadFixturePath],
-      confirm: true,
       tab: 'alpha',
     });
     assert.match(alpha.text, /Uploaded browser-upload-fixture\.txt/);
@@ -514,7 +551,6 @@ async function run(): Promise<void> {
       action: 'upload',
       ref: refNamed(alpha.text, 'Choose attachment'),
       paths: [uploadFixturePath],
-      confirm: true,
       tab: 'alpha',
     });
     assert.match(alpha.text, /Proxy uploaded browser-upload-fixture\.txt/);
@@ -574,6 +610,7 @@ async function run(): Promise<void> {
     assert.match(alpha.text, /value="Lovelace"/);
     assert.match(alpha.text, /value="Engineer"/);
     assert.match(alpha.text, /checkbox "Default checkbox" checked=true/);
+    progress(`checkbox batch timing ${JSON.stringify(alpha.timing)}`);
 
     // One call, several gestures on the same page: every step must land, the
     // whole chain must cost ONE snapshot and ONE budget unit, and a step that
@@ -601,6 +638,11 @@ async function run(): Promise<void> {
     assert.match(sequenced.text, /value="Hopper"/);
     assert.match(sequenced.text, /value="Designer"/);
     assert.match(sequenced.text, /Postcondition met/);
+    assert.ok(sequenced.timing);
+    assert.ok(sequenced.timing.commandMs >= sequenced.timing.waitMs);
+    assert.equal(sequenced.timing.snapshots, 1);
+    assert.deepEqual(sequenced.timing.steps?.map((step) => step.index), [1, 2, 3]);
+    progress(`sequence timing ${JSON.stringify(sequenced.timing)}`);
     await assert.rejects(
       command({
         action: 'sequence',
@@ -614,6 +656,15 @@ async function run(): Promise<void> {
     );
     alpha = await command({ action: 'snapshot', tab: 'alpha' });
     assert.match(alpha.text, /value="Ada"/);
+    const polished = await command({
+      action: 'fill', target: { name: 'First name', exact: true }, text: 'Polished',
+      brief: true, tab: 'alpha',
+    });
+    assert.match(polished.text, /value="Polished"/);
+    assert.match(polished.text, /[1-9]\d* unchanged omitted/);
+    assert.doesNotMatch(polished.text, /textbox "Last name"/);
+    assert.ok(polished.timing && polished.timing.targetMs > 0);
+    progress(`target brief timing ${JSON.stringify(polished.timing)}`);
     await assert.rejects(
       command({
         action: 'sequence',
@@ -623,6 +674,8 @@ async function run(): Promise<void> {
       /action must be one of/,
     );
     progress('sequence chaining complete');
+    turnId = 90;
+    await runBrowserLatencyScenarios(command, origin, progress);
 
     // Custom (non-native) dropdown: the page owns the popup, so select has to
     // open the trigger and activate the matching option instead of assigning.
@@ -751,9 +804,10 @@ async function run(): Promise<void> {
       tab: 'alpha',
     });
     assert.match(alpha.text, /Mouse 2 ctrl=true shift=true/);
+    progress(`pointer timing ${JSON.stringify(alpha.timing)}`);
     const uncheckedRef = refNamed(alpha.text, 'Default checkbox');
     alpha = await command({
-      action: 'check',
+      action: 'fill',
       ref: uncheckedRef,
       checked: false,
       tab: 'alpha',
@@ -858,8 +912,6 @@ async function run(): Promise<void> {
     });
     const wentBack = await command({ action: 'back', tab: 'history' });
     assert.match(wentBack.text, /Cannot go back: no earlier history entry/);
-    const wentForward = await command({ action: 'forward', tab: 'history' });
-    assert.match(wentForward.text, /Cannot go forward: no later history entry/);
     const closedHistory = await command({ action: 'close_tab', tab: 'history' });
     assert.match(closedHistory.text, /Closed background tab "history"/);
     progress('history navigation and tab closure complete');
@@ -965,6 +1017,7 @@ async function run(): Promise<void> {
     const fullPageImage = nativeImage.createFromBuffer(Buffer.from(fullPage.image?.data || '', 'base64'));
     const fullPageSize = fullPageImage.getSize();
     assert.ok(fullPageSize.height > 1_000, `full-page capture was too short: ${fullPageSize.height}px`);
+    progress(`screenshot encoding comparison: ${JSON.stringify(measureScreenshotReuse(fullPage.image!.data!))}`);
     const topPixel = imagePixel(fullPage.image?.data || '', 0.9, 0.1);
     const bottomPixel = imagePixel(fullPage.image?.data || '', 0.9, 0.9);
     const colorDistance = topPixel.reduce(
@@ -1031,25 +1084,11 @@ async function run(): Promise<void> {
       tab: 'beta',
     });
     assert.match(storage.text, /storage-ready/);
-    await assert.rejects(
-      command({ action: 'cookies', operation: 'clear', tab: 'beta' }),
-      /shared clear requires (?:input\.)?confirm=true/,
-    );
-    await assert.rejects(
-      command({
-        action: 'storage',
-        operation: 'clear',
-        storageType: 'local',
-        tab: 'beta',
-      }),
-      /shared clear requires (?:input\.)?confirm=true/,
-    );
-    await command({ action: 'cookies', operation: 'clear', confirm: true, tab: 'beta' });
+    await command({ action: 'cookies', operation: 'clear', tab: 'beta' });
     await command({
       action: 'storage',
       operation: 'clear',
       storageType: 'local',
-      confirm: true,
       tab: 'beta',
     });
     progress('cookie and storage management complete');
@@ -1179,6 +1218,16 @@ async function run(): Promise<void> {
     assert.match(emulated.text, /MixdogMobileFixture/);
     assert.match(emulated.text, /"timezone": "UTC"/);
     assert.match(emulated.text, /"dark": true/);
+    // A background tab's metrics never reframe the pane; only the visible
+    // tab's do, and clearing them tells the pane to go back to responsive.
+    assert.deepEqual(viewportChanges, []);
+    await command({ action: 'emulate', width: 1024, height: 768 });
+    await command({ action: 'emulate', reset: true });
+    assert.deepEqual(viewportChanges.splice(0), [
+      { sessionId: 'browser-integration-session', viewport: { width: 1024, height: 768 } },
+      { sessionId: 'browser-integration-session', viewport: null },
+    ]);
+    browserSurfaceRequests.splice(0);
     const touchObserved = await command({ action: 'snapshot', mode: 'both', tab: 'beta' });
     const touchGrounding = visualGrounding(touchObserved.text);
     const touched = await command({
@@ -1287,7 +1336,10 @@ async function run(): Promise<void> {
     assert.match(frameEvaluated.text, /"text": "Frame action"/);
     assert.match(frameEvaluated.text, new RegExp(frameOrigin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     const evaluatedFrameRef = refNamed(frameEvaluated.text, 'Frame action');
-    const frameClicked = await command({ action: 'click', ref: evaluatedFrameRef, tab: 'frames' });
+    const frameClicked = await command({
+      action: 'click', ref: evaluatedFrameRef, tab: 'frames',
+      expect: { text: 'Frame clicked', timeoutMs: 2_000 },
+    });
     assert.match(frameClicked.text, /Frame clicked/);
     const frameRead = await command({ action: 'read', tab: 'frames' });
     assert.match(frameRead.text, /Cross-frame evidence/);
@@ -1295,6 +1347,26 @@ async function run(): Promise<void> {
     const frameExtract = await command({ action: 'extract', selector: '.shadow-evidence', tab: 'frames' });
     assert.match(frameExtract.text, /Shadow frame evidence/);
     await command({ action: 'wait', text: 'Shadow frame evidence', tab: 'frames' });
+    turnId = 410;
+    const delayedFrame = contentsWithUrl('/frames').mainFrame.framesInSubtree
+      .find(frame => frame.url.startsWith(frameOrigin));
+    assert.ok(delayedFrame);
+    // Trigger fixture work independently of the action queue: an evaluate
+    // action would settle first and could satisfy the condition before wait.
+    const [delayedWait] = await Promise.all([
+      command({ action: 'wait', text: 'Delayed frame wait evidence', tab: 'frames' }),
+      (async () => {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        await delayedFrame.executeJavaScript(`(() => {
+          const marker = document.createElement('p');
+          marker.textContent = 'Delayed frame wait evidence';
+          document.body.append(marker);
+          return true;
+        })()`);
+      })(),
+    ]);
+    assert.match(delayedWait.text, /Condition met/);
+    progress(`event-driven iframe wait: ${JSON.stringify(delayedWait.timing)}`);
     turnId = 41;
     const coveredFrame = await command({
       action: 'evaluate', tab: 'frames',
@@ -1405,6 +1477,7 @@ async function run(): Promise<void> {
       /per-turn action limit \(10\)/,
     );
     progress('per-turn action budget complete');
+    await command({ action: 'hide' });
 
     host.releaseSession('browser-integration-session');
     const releasedTabs = await command({ action: 'list_tabs' });

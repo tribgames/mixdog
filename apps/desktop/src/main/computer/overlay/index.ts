@@ -12,6 +12,7 @@ import { registerComputerUseInternalWindow } from './internal-windows';
 import { overlayHtml, overlayScript, OVERLAY_WIDTH, OVERLAY_HEIGHT } from './content';
 import { createComputerOverlayController, type ComputerUseOverlayControls } from './controls';
 import { bindComputerOverlayControls } from './ipc-controls';
+import { renderComputerOverlayWindows } from './render-windows';
 export type { ComputerUseOverlayControls } from './controls';
 
 const OVERLAY_FADE_OUT_MS = 180;
@@ -194,16 +195,13 @@ export function createComputerUseOverlay(
       return;
     }
     repositionAll();
-    const serialized = JSON.stringify(presentation).replaceAll('<', '\\u003c');
-    await Promise.all(liveEntries().map(async (entry) => {
-      if (serialized !== entry.lastRenderedPresentation) {
-        await entry.window.webContents.executeJavaScript(
-          `window.mixdogComputerOverlay?.(${JSON.stringify({ ...presentation, renderRevision: currentRender }).replaceAll('<', '\\u003c')})`,
-        );
-        if (currentRender === renderRevision) entry.lastRenderedPresentation = serialized;
-      }
-      if (!entry.window.isVisible()) entry.window.showInactive();
-    }));
+    await renderComputerOverlayWindows(
+      liveEntries(), presentation, currentRender,
+      () => !disposed
+        && currentRender === renderRevision
+        && latestSnapshot.revision === revision
+        && latestPresentation.visible,
+    );
   };
 
   const unsubscribe = computerUseCoordinator.subscribe((snapshot) => {

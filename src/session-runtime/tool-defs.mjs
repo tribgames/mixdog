@@ -13,7 +13,7 @@ export const TOOL_SEARCH_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'Fetch the full schema of named deferred tools so they can be called. The result returns each matched tool as one <function>{"description": "...", "name": "...", "parameters": {...}}</function> line inside a <functions> block, the same encoding as the tool list at the top of the prompt; read that definition and call the tool exactly as it declares. Direct calls auto-load, so a pre-call is only needed when the exact arguments are unknown.',
+  description: 'Load full schemas for exact deferred tool names. Returns function descriptions and parameter schemas.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -56,7 +56,7 @@ export const SKILL_TOOL = {
     openWorldHint: false,
     agentHidden: false,
   },
-  description: 'Load a named SKILL.md into context.',
+  description: 'Load a named SKILL.md only when its body is absent from the current context. Reuse an already-present body across tasks and turns without calling Skill again.',
   inputSchema: {
     type: 'object',
     properties: {

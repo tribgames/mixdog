@@ -1,6 +1,9 @@
 # NOTICE
 
-Mixdog itself is MIT-licensed (see `LICENSE`). The sections below cover the
+Mixdog
+Copyright (c) 2026 tribgames
+
+Mixdog itself is licensed under Apache-2.0 (see `LICENSE`). The sections below cover the
 third-party code and data that Mixdog actually carries, kept here in one place
 so the individual source files stay free of scattered attribution comments.
 
@@ -115,5 +118,5 @@ the derived files. Full license text: `LICENSES/Apache-2.0.txt`
 
 The Windows password importer is a separate process built from the
 pinned source and Mixdog wrapper recorded in
-`LICENSES/browser-import-NOTICE.txt`. It is not linked into the MIT desktop
+`LICENSES/browser-import-NOTICE.txt`. It is not linked into the Apache-2.0 desktop
 application. Its complete GPL text ships beside the two native executables.

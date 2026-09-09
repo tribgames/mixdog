@@ -197,8 +197,6 @@ export async function runSessionCompaction(session, opts = {}) {
                     reserveTokens,
                     contextWindow,
                     boundaryTokens: boundary,
-                    keepTokens: positiveInt(session.compaction?.keepTokens ?? session.compaction?.keep?.tokens),
-                    preserveRecentTokens: positiveInt(session.compaction?.preserveRecentTokens),
                     handoffTimeoutMs: handoffSummaryTimeoutMs(session, beforeMessageTokens),
                 },
                 sessionId: resolvedSessionId,

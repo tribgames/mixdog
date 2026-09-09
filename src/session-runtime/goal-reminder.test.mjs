@@ -7,7 +7,7 @@ import {
   prependGoalReminderToLatestUserMessage,
   snapshotPendingGoalReminder,
 } from './goal-reminder.mjs';
-import { goalStateReminder, goalTaskLines } from './goal-text.mjs';
+import { continuationPrompt, goalStateReminder, goalTaskLines } from './goal-text.mjs';
 
 const goal = (overrides = {}) => ({
   id: 'goal_1',
@@ -43,6 +43,28 @@ test('post-compaction Goal reminder renders durable state once and clears on acc
   assert.ok(session.pendingGoalReminder);
   assert.equal(acknowledgePendingGoalReminder(session, snapshot.revision), true);
   assert.equal(snapshotPendingGoalReminder(session, { readGoal: () => goal() }), null);
+});
+
+test('compaction preserves exact duration and elapsed time instead of losing the time commitment', () => {
+  for (const status of ['active', 'paused']) {
+    const session = { id: `sess_goal_time_${status}` };
+    const current = goal({ status, timeLimitMs: 3_600_000, timeUsedMs: 615_000 });
+    markPendingGoalReminder(session, 'compaction');
+    const snapshot = snapshotPendingGoalReminder(session, { readGoal: () => current });
+    for (const text of [snapshot.content, continuationPrompt(current)]) {
+      assert.match(text, /Requested duration: 1h \(3600000 ms\)/);
+      assert.match(text, /Time elapsed: 11m \(615000 ms\)/);
+      assert.match(text, /Time remaining: 50m \(2985000 ms\)/);
+    }
+    assert.equal(snapshot.goal.status, status);
+    assert.equal(snapshot.goal.timeLimitMs, 3_600_000);
+  }
+  const untimed = goal({ timeLimitMs: 0, timeUsedMs: 615_000 });
+  for (const text of [goalStateReminder(untimed), continuationPrompt(untimed)]) {
+    assert.match(text, /Duration: none/);
+    assert.match(text, /Time elapsed: 11m \(615000 ms\)/);
+    assert.doesNotMatch(text, /Requested duration:|Time remaining:/);
+  }
 });
 
 test('a finished or missing Goal drops the pending reminder instead of re-reading it', () => {

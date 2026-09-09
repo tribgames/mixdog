@@ -236,7 +236,7 @@ export function forgetAntigravityOAuthCredentials() {
     } catch { return false; }
 }
 
-let _refreshInFlight = null;
+const _refreshesInFlight = new Map();
 
 export function shouldRefresh(tokens, nowMs = Date.now()) {
     if (!tokens?.access_token) return true;
@@ -251,8 +251,9 @@ export function shouldRefresh(tokens, nowMs = Date.now()) {
  * token endpoint does not return them.
  */
 export function refreshTokens({ fetchFn = fetch } = {}) {
-    if (_refreshInFlight) return _refreshInFlight;
-    _refreshInFlight = (async () => {
+    const path = getOwnTokenPath();
+    if (_refreshesInFlight.has(path)) return _refreshesInFlight.get(path);
+    const refresh = (async () => {
         const current = loadTokens();
         if (!current?.refresh_token) throw new Error('[antigravity-oauth] no refresh token — run /login');
         const res = await fetchFn(TOKEN_URL, {
@@ -289,8 +290,9 @@ export function refreshTokens({ fetchFn = fetch } = {}) {
         };
         saveTokens(next);
         return next;
-    })().finally(() => { _refreshInFlight = null; });
-    return _refreshInFlight;
+    })().finally(() => { _refreshesInFlight.delete(path); });
+    _refreshesInFlight.set(path, refresh);
+    return refresh;
 }
 
 /** Current credentials, refreshed when they are at or near expiry. */

@@ -10,10 +10,12 @@ import { SHELL_OUTPUT_DISK_CAP } from '../shell-exec-output.mjs';
 
 // Bootstrap: pre-warm scriptblock compilation while parked, re-decode stdin
 // as UTF-8 (console input encoding would mangle non-ASCII), then dot-source
-// the fed script so exit codes, $LASTEXITCODE and terminating errors behave
-// exactly like `-Command <script>`.
-const STANDBY_BOOTSTRAP = "$null = . ([scriptblock]::Create('$null')); [Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); . ([scriptblock]::Create([Console]::In.ReadToEnd()))";
-const STANDBY_ARGS = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', STANDBY_BOOTSTRAP];
+// the fed script. Dot-sourcing itself can reset $? after a failed external
+// script (including npm.ps1), so preserve the final status inside the block.
+// Explicit exit codes still exit immediately; ordinary failure maps to 1,
+// matching -Command rather than leaking an earlier $LASTEXITCODE.
+const STANDBY_BOOTSTRAP = "$null = . ([scriptblock]::Create('$null')); [Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); . ([scriptblock]::Create([Console]::In.ReadToEnd() + \"`nif (-not `$?) { exit 1 }\"))";
+export const STANDBY_ARGS = ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', STANDBY_BOOTSTRAP];
 const _configuredIdleMs = Number(process.env.MIXDOG_SHELL_WARM_STANDBY_IDLE_MS);
 const STANDBY_TTL_MS = Number.isFinite(_configuredIdleMs) && _configuredIdleMs >= 100
     ? Math.floor(_configuredIdleMs)

@@ -16,6 +16,7 @@ import {
 import { createRoot, type Root } from "react-dom/client";
 
 import { BrowserPane } from "./lazy-widgets";
+import "./session-browser-surfaces.css";
 
 type BrowserSurfaceSlot = {
   active: boolean;
@@ -24,6 +25,7 @@ type BrowserSurfaceSlot = {
 
 type BrowserSurface = {
   sessionId: string;
+  expanded: boolean;
   container: HTMLDivElement;
   root: Root;
   slots: Map<HTMLDivElement, BrowserSurfaceSlot>;
@@ -34,6 +36,8 @@ export type SessionBrowserSurfaceRenderProps = {
   active: boolean;
   foreground: boolean;
   parked: boolean;
+  expanded: boolean;
+  onToggleExpanded(): void;
 };
 
 export type SessionBrowserSurfaceRenderer = (
@@ -91,7 +95,10 @@ export function useSessionBrowserSurfaces(
       host.appendChild(surface.container);
     }
     const selected = preferredSlot(surface);
-    const rect = selected?.[0].getBoundingClientRect();
+    const expanded = surface.expanded && selected?.[1].foreground === true;
+    const rect = (expanded ? selected?.[0].closest(".main-panel") : null)?.getBoundingClientRect()
+      ?? selected?.[0].getBoundingClientRect();
+    surface.container.dataset.expanded = expanded ? "true" : "false";
     const visible = Boolean(selected && rect && rect.width >= 1 && rect.height >= 1);
     if (visible && rect) {
       surface.container.style.left = `${rect.left}px`;
@@ -102,6 +109,7 @@ export function useSessionBrowserSurfaces(
       surface.container.removeAttribute("aria-hidden");
       return selected;
     }
+    surface.expanded = false;
     const remoteViewed = remoteViewers.current.has(surface.sessionId);
     surface.container.style.left = remoteViewed ? "0" : "-10000px";
     surface.container.style.top = "0";
@@ -117,7 +125,7 @@ export function useSessionBrowserSurfaces(
     return null;
   }, []);
 
-  const commit = useCallback((surface: BrowserSurface) => {
+  const commit = useCallback((surface: BrowserSurface): void => {
     const selected = position(surface);
     const active = Boolean(selected);
     const foreground = selected?.[1].foreground === true;
@@ -126,6 +134,11 @@ export function useSessionBrowserSurfaces(
       active,
       foreground,
       parked: !active,
+      expanded: surface.expanded && foreground,
+      onToggleExpanded: () => {
+        surface.expanded = !surface.expanded;
+        commit(surface);
+      },
     }));
   }, [position, renderBrowserSurface]);
 
@@ -136,6 +149,7 @@ export function useSessionBrowserSurfaces(
     container.dataset.browserSessionId = sessionId;
     const surface: BrowserSurface = {
       sessionId,
+      expanded: false,
       container,
       root: createRoot(container),
       slots: new Map(),
@@ -175,7 +189,7 @@ export function useSessionBrowserSurfaces(
   const release = useCallback((sessionId: string) => {
     const surface = surfaces.current.get(sessionId);
     if (!surface) return;
-    surface.root.unmount();
+    queueMicrotask(() => surface.root.unmount());
     surface.container.remove();
     surfaces.current.delete(sessionId);
   }, []);
@@ -196,7 +210,10 @@ export function useSessionBrowserSurfaces(
   }, [commit]);
 
   useEffect(() => () => {
-    for (const surface of surfaces.current.values()) surface.root.unmount();
+    for (const surface of surfaces.current.values()) {
+      surface.container.remove();
+      queueMicrotask(() => surface.root.unmount());
+    }
     surfaces.current.clear();
   }, []);
 
@@ -260,6 +277,8 @@ export function SessionBrowserSlot({
       ? new ResizeObserver(schedule)
       : null;
     observer?.observe(node);
+    const workspace = node.closest(".main-panel");
+    if (workspace) observer?.observe(workspace);
     window.addEventListener("resize", schedule);
     // The phone dock SLIDES in: only the slot's position changes during the
     // transform, so a mid-slide rect would pin the guest off-screen. Any

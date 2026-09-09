@@ -129,6 +129,10 @@ export async function renderOfficePreview(session, args, cwd, {
   const version = Number(session.snapshotVersion || 0);
   const result = {
     session: session.id, backend: session.backend, output: requested.output, format: 'pdf',
+    renderer: session.format === 'pdf' ? 'pdfjs'
+      : session.backend === 'microsoft-office-com'
+        ? ({ docx: 'Microsoft Word', xlsx: 'Microsoft Excel', pptx: 'Microsoft PowerPoint' }[session.format])
+        : 'LibreOffice',
     pageCount: rendered.pageCount, visualCoverage: rendered.visualCoverage,
     images: rendered.images.map(({ data, pageImages, ...image }) => image),
     _images: rendered.images,

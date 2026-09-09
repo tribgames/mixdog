@@ -1,12 +1,19 @@
 ---
 name: pdf
 description: Create, read, search, mark up, fill, merge, secure, or OCR a PDF with the office tool.
-when_to_use: '"PDF", "PDF 읽어", "PDF 만들어", "PDF 합쳐", "PDF 폼 채워", "OCR", "PDF 표 뽑아", "PDF 하이라이트/링크", "PDF 암호"; load before the first office call on a PDF; not for Word/slides.'
+when_to_use: 'PDF creation, reading, editing, OCR, forms, security, and table extraction; not Word/slides.'
 metadata:
   requires: office
+dependencies:
+  tools:
+    - type: tool
+      value: office
 ---
 
 # PDF (office tool)
+
+Use `office` to create, read, search, annotate, fill, merge, secure, and OCR
+PDFs or extract their content. Read this guide before the first PDF operation.
 
 A PDF is a fixed rendering to read faithfully or a small document to produce from blocks; a rich deliverable is made in Word or PowerPoint and exported. Units are points with the origin at the bottom-left (A4 = 595.28 × 841.89, 1 inch = 72 pt); pages are 1-based.
 
@@ -19,18 +26,19 @@ A PDF is a fixed rendering to read faithfully or a small document to produce fro
 6. Close a read-only session when done; anything that changed the file ends with `action:'finalize' session:<id> review:true`.
 
 ## Create
-- `office action:'create' path:<file.pdf> format:'pdf' blocks:[...] fields:[...] properties:{ title, author, subject, keywords, pageSize:'a4'|'letter'|[w,h], orientation, margin, fontPath, pageNumbers, footer } finalize:true`.
+- Plan the reading purpose, type hierarchy, margins and page flow, then specify block styles directly. The writer supplies flow, not an art direction. `design.profile` explicitly opts into a preset; otherwise it does not inject a palette or redesign supplied blocks. A representative page is optional when it resolves a real design uncertainty.
+- `office action:'create' path:<file.pdf> format:'pdf' blocks:[...] fields:[...] properties:{ title, author, subject, keywords, pageSize:'a4'|'letter'|[w,h], orientation, margin, fontPath, pageNumbers, footer }`, then render and review before finalizing.
 - Blocks: `{ type:'heading', text, level:1-3, size }`, `{ type:'paragraph', text, size, color, after }` (`\n` breaks a line; unspaced text wraps by character), `{ type:'table', rows, columnWidths:[weights], rowHeight, fontSize }` (first row is the header and repeats after a page break; cells wrap and rows grow), `{ type:'image', path, width, height, align:'center'|'right' }` (PNG or JPEG; fits the text width unless sized), `{ type:'pagebreak' }`. The writer flows and paginates; `pageNumbers` is on for multi-page output (`N / total`, bottom right) unless set `false`.
 - Fonts: the standard fonts cover Latin only. Korean, CJK, Cyrillic, or Greek text embeds a Unicode font found on the system (Malgun Gothic on Windows, Nanum/DejaVu/Noto on Linux); `properties.fontPath` chooses one, the result's `font.path` says which was used, and `action:'detect'` names it beforehand as `portable.pdfUnicodeFont`. When none is installed the call fails with the hint: ask for a font file rather than transliterating.
 - Form fields: `{ name, type:'text|checkbox|radio|dropdown|optionlist', page, x, y, width, height, value, options, multiline, maxLength, fontSize, required, readOnly }`; the layout is linted before writing — missing or duplicate names and out-of-page boxes fail, overlaps and boxes too small to use (under 24 × 12 pt typed, 8 × 8 pt marks) come back as `formIssues` on the result.
 
 ## Edit
-`action:'batch' session:<id> operations:[...]`; put every known operation in one batch. Results carry `changed` plus the evidence of each edit (`pages`, `pagesAdded`, `filled`, `output`, `bytesAfter`).
+`action:'batch' session:<id> operations:[...]`; put every known operation in one batch and split only when a later input depends on an earlier result; `describe format:'pdf' operation:<op>` only when a field is unknown. Results carry `changed` plus the evidence of each edit (`pages`, `pagesAdded`, `filled`, `output`, `bytesAfter`).
 - Pages: `rotate_pages` (`rotation` in 90° steps added to the current rotation; `absolute:true` sets it), `delete_pages` (at least one page stays), `move_page` (`page`, `index`), `extract_pages` (`pages`, `output:<new.pdf>` keeps the session document whole; without `output` the document becomes that subset), `split_pages` (`every`, `output:<dir>`; one numbered file per page or group, document unchanged), `merge_pdf` (`sources:[path | { path, pages, title }]` appended in order, `index` to insert before a page, `bookmarks:true` for an outline entry per source; sources must be unencrypted), `add_bookmark` (`title`, `page`).
 - Marks: `add_text` / `watermark` (`text`, `x`, `y`, `size`, `color`, `opacity`, `rotation`, `align:'center'|'right'`; a watermark centres itself when `x`/`y` are omitted), `stamp_image` (`path`, `x`, `y`, `width`; fits inside the margins unless sized), `highlight` (`find:<text>` marks every case-insensitive match on `pages` — `wholeWord:true` when "Page 7" must not hit "Page 70", `regex:true` for a pattern, `first:true` for the first match only — or one box `page, x, y, width, height`; `color`, `opacity`; multiply blend keeps the text legible), `add_link` (`find` or a box, plus `url` or `toPage`; `urls:true` makes every http(s) address in the text open itself). Page numbers on an existing file: `add_text text:'{page} / {pages}' align:'center' y:24 size:9` on every page. Keep text as text; stamp an image only for a signature or logo.
 - Forms: `fill_form` with `values:{ name: value }` — text strings, checkbox `true|false`, radio and dropdown by option text, optionlist an array. Unknown names or options fail listing what exists, so read `fields` from the snapshot first. `flatten:true` bakes the values in and the form stops being editable; do that only when asked. `add_form_field`, `flatten_form`. `preview_fields` (`output:<copy.pdf>`, `boxes:[{ page, x, y, width, height, label }]`) writes a copy with every field — and any box you propose for a form without fields — outlined and named; render that copy and look before filling or adding fields.
 - Files and metadata: `add_attachment` (`path`, `name`, `description`), `extract_attachment` (`name`, `output`; an attachment added in an earlier batch), `set_metadata` (`properties:{ title, author, subject, keywords, creator }`), `compress` (object streams only; images are not resampled, so `bytesAfter` stays close to `bytesBefore`).
-Finish with `action:'finalize' session:<id> review:true`; read the output path, page count, and issues from the result.
+Finish with `action:'finalize' session:<id> review:true` and `design:{ reviewed:true, reviewToken:<current render token>, critique:[{ page:1, verdict:'pass', note:<page-specific observations> }, ...] }`. Inspect every page for reading order, spacing, clipping and legibility; record visible keep/fix findings, correct material issues and rerender. A clean file check or a filled checklist is not design approval. The recorded review belongs to the agent, not the user. Read the saved path and issues; read-only inspection ends with `close`.
 
 ## Secure
 - `action:'secure' security:'encrypt' path password ownerPassword output:<file.pdf>` writes an AES-256 copy (`ownerPassword` defaults to `password`); `security:'decrypt'` reverses it with the password. Both need qpdf on the machine (`detect` → `portable.pdfSecurity.available`; PATH or `MIXDOG_QPDF_PATH`); when it is missing say so instead of leaving the file unprotected.

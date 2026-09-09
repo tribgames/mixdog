@@ -9,6 +9,8 @@ import {
   BROWSER_SEQUENCE_STEP_ACTIONS,
 } from '../../../../../src/runtime/browser-bridge/browser-action-contract.mjs';
 import type { BrowserPostcondition, BrowserPostconditionInput } from './postcondition';
+import type { BrowserRefSet } from './ref-recovery';
+import type { BrowserTargetSpec } from './target-resolve';
 
 /** Must match the renderer BrowserPane's <webview partition>. */
 export const BROWSER_PARTITION = 'persist:mixdog-browser';
@@ -52,18 +54,26 @@ export const READ_ONLY_ACTIONS: ReadonlySet<string> = new Set(
  *  host re-checks so a malformed bridge call can never drive an odd action. */
 export const SEQUENCE_STEP_ACTIONS: ReadonlySet<string> = new Set(BROWSER_SEQUENCE_STEP_ACTIONS);
 /** Bookkeeping actions that address a session, never a page. */
-export const TABLESS_ACTIONS: ReadonlySet<string> = new Set(['list_tabs', 'downloads', 'close_tab']);
+export const TABLESS_ACTIONS: ReadonlySet<string> = new Set(['list_tabs', 'downloads', 'close_tab', 'hide']);
 /** Actions that may run while a JavaScript dialog blocks the page. Anything
  *  else would queue behind the dialog and fire after it closes, so the host
  *  refuses it up front instead of dispatching a ghost gesture. */
 export const DIALOG_TOLERANT_ACTIONS: ReadonlySet<string> = new Set([
   'handle_dialog', 'status', 'console', 'network',
 ]);
+/** Gestures whose reply says when the page did not react to them. Navigation
+ *  and evaluation change the page by definition, so they are left out. */
+export const EFFECT_REPORT_ACTIONS: ReadonlySet<string> = new Set([
+  'click', 'fill', 'type', 'select', 'hover', 'drag', 'upload',
+  'handle_dialog', 'press', 'scroll', 'sequence',
+]);
 
 export interface BrowserCommand {
   action: string;
   url?: string;
   ref?: string;
+  /** Snapshot-free element target; an alternative to ref. */
+  target?: BrowserTargetSpec;
   targetRef?: string;
   snapshotId?: string;
   x?: number;
@@ -144,13 +154,13 @@ export interface BrowserCommand {
   promptText?: string;
   fields?: Array<{
     ref?: string;
+    target?: BrowserTargetSpec;
     text?: string;
     value?: string;
     values?: string[];
     checked?: boolean;
   }>;
   paths?: string[];
-  confirm?: boolean;
   /** extract: CSS selector matching the repeated rows to collect. */
   selector?: string;
   /** extract: attribute names copied from every match. */
@@ -159,6 +169,7 @@ export interface BrowserCommand {
   steps?: Array<{
     action?: string;
     ref?: string;
+    target?: BrowserTargetSpec;
     text?: string;
     values?: string[];
     checked?: boolean;
@@ -183,6 +194,8 @@ export interface BrowserCommand {
   settleMs?: number;
   /** Attach a screenshot bound to the final fresh snapshotId. */
   includeScreenshot?: boolean;
+  /** Reply with only what changed since the previous observation. */
+  brief?: boolean;
   /** inline keeps the screenshot in the reply; file writes it beside the run. */
   image_output?: string;
   /** Tab target: "v1"/"v2"… = visible tabs (list_tabs order); any other name
@@ -198,6 +211,8 @@ export interface BrowserCommand {
 
 export interface BrowserCommandResult {
   text: string;
+  /** Bridge diagnostics; never appended to the model's page content. */
+  timing?: import('./timing').BrowserCommandTiming;
   outcome?: 'completed' | 'blocked' | 'inconclusive';
   image?: { mimeType: string; data: string };
   file?: { mimeType: string; data: string; name: string };
@@ -209,6 +224,10 @@ export interface BrowserSnapshotResultOptions {
   settleAction?: boolean;
   includeScreenshot?: boolean;
   targetIsBackground?: boolean;
+  /** The observation the gesture started from, for change reporting. */
+  baseline?: BrowserRefSet;
+  /** Report comparison before internal target resolution narrows the ref set. */
+  reportBaseline?: BrowserRefSet;
 }
 
 export function normalizeBrowserAction(command: Pick<BrowserCommand, 'action'>): string {

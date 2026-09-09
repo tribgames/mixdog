@@ -238,6 +238,10 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
         const name = requireEnum(args.name, ['git', 'office', 'localProvider'], 'name');
         return await rt.setBuiltinToolEnabled(name, requireBoolean(args.enabled));
       }
+      case 'set_first_use_approval': {
+        const name = requireEnum(args.name, ['browser', 'computer'], 'name');
+        return await rt.setBridgeFirstUseApproval(name, requireBoolean(args.enabled));
+      }
       case 'install_builtin': {
         const name = requireEnum(args.name, ['git', 'memory', 'office', 'localProvider'], 'name');
         return await rt.installBuiltinFeature(name);

@@ -267,7 +267,12 @@ export function StudioPane({
       })
       .finally(() => setGallerySettled(true));
     const catalog = (callCapability(api, 'listMediaLanes') as Promise<MediaLane[] | undefined>)
-      .then((rows) => setLanes(Array.isArray(rows) ? rows : []))
+      .then((rows) => {
+        const next = Array.isArray(rows) ? rows : [];
+        setLanes(next);
+        const errors = next.map((lane) => lane.catalogError).filter(Boolean);
+        if (errors.length) throw new Error(errors.join('\n'));
+      })
       .finally(() => setCatalogSettled(true));
     const settled = await Promise.allSettled([gallery, catalog]);
     const failed = settled.find((result) => result.status === 'rejected');
@@ -348,6 +353,24 @@ export function StudioPane({
   // model against the active contract now so the previous kind's label never
   // reaches a paint.
   const activeModel = resolveStudioModel(spec, model);
+
+  // What this pane shows is the runtime's default: an agent `media` call that
+  // omits lane/model runs on it. Pushed once per settled (kind, lane, model)
+  // so a picker flicker never spams the daemon, and a failure never touches
+  // the pane — the draft cache below is local and stays authoritative here.
+  const pushedDefault = useRef('');
+  useEffect(() => {
+    if (!active || !lane || !activeModel || lane.id !== laneId || model !== activeModel) return;
+    const key = `${kind}|${lane.id}|${activeModel}`;
+    if (pushedDefault.current === key) return;
+    pushedDefault.current = key;
+    try {
+      void Promise.resolve(callCapability(api, 'setMediaDefault', [{ kind, lane: lane.id, model: activeModel }]))
+        .catch(() => {});
+    } catch {
+      // A host without the capability keeps the local selection only.
+    }
+  }, [active, activeModel, api, kind, lane, laneId, model]);
 
   // Keep lane/model selection valid whenever the kind or catalog changes.
   useEffect(() => {
@@ -786,8 +809,10 @@ export function StudioPane({
     return (kindSpec?.models || []).map((option) => ({
       lane: entry.id,
       laneLabel: entry.label,
+      authType: entry.authType,
       model: option.id,
       label: option.label,
+      description: option.description,
     }));
   }), [available, kind]);
   const handleResultsScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
@@ -1008,6 +1033,14 @@ export function StudioPane({
         {/* Progress AND job failures live on the pending tile; the banner is
             only for pane-level errors. */}
         <InlineErrors messages={[error].filter(Boolean)} />
+        {lanes.some((entry) => entry.catalogError || entry.catalogWarning) && (
+          <button type="button" disabled={loading} onClick={() => { setLoading(true); void load(); }}>
+            {t('Retry')}
+          </button>
+        )}
+        {lanes.filter((entry) => entry.catalogWarning).map((entry) => (
+          <p className="studio-status" role="status" key={entry.id}>{entry.label}: {entry.catalogWarning}</p>
+        ))}
         <StudioComposer
           dropping={dropping}
           kind={kind}

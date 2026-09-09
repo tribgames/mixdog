@@ -4,6 +4,9 @@
  * one of those refs back into a safe click coordinate. Both are plain strings
  * so they can be unit-tested in a DOM without Electron.
  */
+import { BROWSER_SEMANTIC_MATCH_SOURCE } from './semantic-query';
+import { BROWSER_STABLE_RECT } from './stable-rect';
+
 const DEFAULT_SNAPSHOT_MAX_ELEMENTS = 160;
 const MAX_SNAPSHOT_ELEMENTS = 500;
 const DEFAULT_SNAPSHOT_TEXT_CHARS = 2_400;
@@ -31,13 +34,15 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
       MAX_SNAPSHOT_TEXT_CHARS,
       Math.max(200, Math.trunc(options.textChars || DEFAULT_SNAPSHOT_TEXT_CHARS)),
     ),
-    query: String(options.query || '').trim().toLowerCase(),
+    query: String(options.query || '').trim(),
     viewportOnly: options.viewportOnly === true,
   };
   return `(() => {
     const config = ${JSON.stringify(config)};
+    const rankMatch = (${BROWSER_SEMANTIC_MATCH_SOURCE});
     const refs = new Map();
     window.__mixdogAgentSnapshot = { id: config.snapshotId, refs };
+    let unfilteredElements = 0;
     const compact = (value, max) => String(value == null ? '' : value)
       .replace(/\\s+/g, ' ').trim().slice(0, max);
     const interactiveRoles = new Set([
@@ -125,8 +130,11 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
         states.push('scrollable=' + (scrollsY ? 'y' : '') + (scrollsX ? 'x' : ''));
       }
       if (el.disabled || el.getAttribute('aria-disabled') === 'true') states.push('disabled');
-      if (el.checked === true || el.getAttribute('aria-checked') === 'true') states.push('checked');
-      if (el.checked === false || el.getAttribute('aria-checked') === 'false') states.push('unchecked');
+      // Every input carries a checked property; only a checkable one means it.
+      const inputType = (el.tagName || '').toLowerCase() === 'input' ? String(el.type || '').toLowerCase() : '';
+      const checkable = inputType === 'checkbox' || inputType === 'radio' || el.hasAttribute('aria-checked');
+      if (checkable && (el.checked === true || el.getAttribute('aria-checked') === 'true')) states.push('checked');
+      if (checkable && (el.checked === false || el.getAttribute('aria-checked') === 'false')) states.push('unchecked');
       if (el.selected === true || el.getAttribute('aria-selected') === 'true') states.push('selected');
       if (el.getAttribute('aria-expanded')) {
         states.push('expanded=' + compact(el.getAttribute('aria-expanded'), 80));
@@ -137,6 +145,12 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
       if (el.required || el.getAttribute('aria-required') === 'true') states.push('required');
       if (el.readOnly || el.getAttribute('aria-readonly') === 'true') states.push('readonly');
       if (el.ownerDocument.activeElement === el) states.push('focused');
+      if ((el.tagName || '').toLowerCase() === 'input' && String(el.type || '').toLowerCase() === 'file') {
+        states.push('file-input');
+        const accept = compact(el.getAttribute('accept'), 120);
+        if (accept) states.push('accept=' + accept);
+        if (el.multiple) states.push('multiple');
+      }
       return states;
     };
 
@@ -195,40 +209,12 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
         const sensitive = type === 'password';
         const value = sensitive ? '' : compact(el.value ?? '', 100);
         const href = tag === 'a' ? compact(el.href || el.getAttribute('href') || '', 200) : '';
-        const semanticHref = (() => {
-          try {
-            const parsed = new URL(href, location.href);
-            return (parsed.hostname + decodeURIComponent(parsed.pathname)).toLowerCase();
-          } catch {
-            return href.split(/[?#]/, 1)[0].toLowerCase();
-          }
-        })();
-        const rolePriority = ({
-          link: 40, button: 35, menuitem: 30, menuitemcheckbox: 30,
-          menuitemradio: 30, tab: 25, option: 20, checkbox: 15, radio: 15,
-          switch: 15, combobox: 10, listbox: 10, searchbox: 10, textbox: 10,
-        })[role] || 0;
-        const matches = [
-          ['name', name.toLowerCase(), 400],
-          ['value', value.toLowerCase(), 300],
-          ['role', role.toLowerCase(), 200],
-          ['href', semanticHref, role === 'link' ? 330 : 100],
-        ];
-        const match = config.query
-          ? matches
-            .filter(([, candidate]) => candidate.includes(config.query))
-            .map(([field, candidate, base]) => [
-              field,
-              candidate,
-              base + rolePriority
-                + (candidate === config.query ? 20 : candidate.startsWith(config.query) ? 10 : 0),
-            ])
-            .sort((left, right) => right[2] - left[2])[0]
-          : null;
+        unfilteredElements += 1;
+        const match = config.query ? rankMatch(config.query, { name, value, role, href }) : null;
         if ((!config.query || match) && (!config.viewportOnly || inViewport)) {
           candidates.push({
             order: scanned,
-            matchScore: match ? match[2] : 0,
+            matchScore: match ? match.score : 0,
             el,
             frames,
             entry: {
@@ -240,7 +226,7 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
               sensitive,
               states: stateList(el, style),
               inViewport,
-              ...(match ? { matchField: match[0] } : {}),
+              ...(match ? { matchField: match.field } : {}),
             },
           });
         }
@@ -297,6 +283,7 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
       headings,
       text,
       query: config.query,
+      unfilteredElements,
     };
   })()`;
 }
@@ -310,35 +297,19 @@ export function browserRefPointExpression(ref: string): string {
     if (!snapshot || !el || !el.isConnected) return { error: 'stale' };
     if (el.disabled || el.getAttribute?.('aria-disabled') === 'true') return { error: 'disabled' };
     const ownerWindow = el.ownerDocument?.defaultView || window;
-    const style = ownerWindow.getComputedStyle(el);
-    if (style.display === 'none' || style.visibility === 'hidden'
-      || style.pointerEvents === 'none' || (style.opacity !== '' && Number(style.opacity) === 0)) {
-      return { error: 'not-actionable' };
-    }
-    const nextVisualTick = () => new Promise((resolve) => {
-      let settled = false;
-      let timer;
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve();
-      };
-      timer = setTimeout(finish, 100);
-      requestAnimationFrame(finish);
-    });
-    el.scrollIntoView({ block: 'center', inline: 'center' });
-    for (const frame of frames) frame.scrollIntoView({ block: 'center', inline: 'center' });
-    await nextVisualTick();
-    await nextVisualTick();
-    const first = el.getBoundingClientRect();
-    await nextVisualTick();
-    const rect = el.getBoundingClientRect();
-    if (rect.width < 1 || rect.height < 1) return { error: 'not-visible' };
-    if (Math.abs(first.left - rect.left) > 2 || Math.abs(first.top - rect.top) > 2
-      || Math.abs(first.width - rect.width) > 2 || Math.abs(first.height - rect.height) > 2) {
-      return { error: 'moving' };
-    }
+    const hidden = (node) => {
+      const style = ownerWindow.getComputedStyle(node);
+      return style.display === 'none' || style.visibility === 'hidden';
+    };
+    if (hidden(el)) return { error: 'not-actionable' };
+    const targetRect = await (${BROWSER_STABLE_RECT})(el, frames);
+    if (!targetRect) return { error: 'moving' };
+    // A transparent or 1px control hides behind its label on purpose; the
+    // label is what a person clicks, and clicking it activates the control.
+    const labels = el.labels ? Array.from(el.labels) : [];
+    const candidates = [el, ...labels.filter((label) => (
+      label !== el && label.isConnected && !hidden(label)
+    ))];
     let offsetX = 0;
     let offsetY = 0;
     for (const frame of frames) {
@@ -353,6 +324,7 @@ export function browserRefPointExpression(ref: string): string {
     const controlFor = (value) => value?.matches?.(controlSelector)
       ? value
       : value?.closest?.(controlSelector);
+    const labelControl = (value) => value?.closest?.('label')?.control || null;
     const sameDestination = (left, right) => {
       if (!left || !right || left === right
         || left.matches?.('a[href]') !== true || right.matches?.('a[href]') !== true) return false;
@@ -384,21 +356,30 @@ export function browserRefPointExpression(ref: string): string {
       return hit;
     };
     let covering = null;
-    for (const [rx, ry] of points) {
-      const x = Math.round(Math.min(Math.max(0, window.innerWidth - 1), Math.max(0, offsetX + rect.left + rect.width * rx)));
-      const y = Math.round(Math.min(Math.max(0, window.innerHeight - 1), Math.max(0, offsetY + rect.top + rect.height * ry)));
-      const hit = deepHit(x, y);
-      const targetControl = controlFor(el);
-      const hitControl = controlFor(hit);
-      const related = hit && (
-        hit === el
-        || (el.contains(hit) && (!hitControl || hitControl === targetControl))
-        || (targetControl && hitControl === targetControl)
-        || sameDestination(targetControl, hitControl)
-      );
-      if (related) return { x, y };
-      covering = hit || covering;
+    let visible = false;
+    for (const candidate of candidates) {
+      const rect = candidate === el ? targetRect : candidate.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) continue;
+      visible = true;
+      for (const [rx, ry] of points) {
+        const x = Math.round(Math.min(Math.max(0, window.innerWidth - 1), Math.max(0, offsetX + rect.left + rect.width * rx)));
+        const y = Math.round(Math.min(Math.max(0, window.innerHeight - 1), Math.max(0, offsetY + rect.top + rect.height * ry)));
+        const hit = deepHit(x, y);
+        const targetControl = controlFor(el);
+        const hitControl = controlFor(hit);
+        const related = hit && (
+          hit === el
+          || hit === candidate
+          || (candidate.contains(hit) && (!hitControl || hitControl === targetControl))
+          || (targetControl && hitControl === targetControl)
+          || sameDestination(targetControl, hitControl)
+          || labelControl(hit) === el
+        );
+        if (related) return { x, y };
+        covering = hit || covering;
+      }
     }
+    if (!visible) return { error: 'not-visible' };
     if (covering) {
       const label = covering
         ? ((covering.tagName || 'element').toLowerCase() + ' "'

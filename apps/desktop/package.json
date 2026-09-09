@@ -2,6 +2,7 @@
   "name": "@mixdog/desktop",
   "version": "0.9.161",
   "private": true,
+  "license": "Apache-2.0",
   "description": "Mixdog desktop host for Windows, macOS, and Linux",
   "type": "module",
   "main": "./out/main/index.js",

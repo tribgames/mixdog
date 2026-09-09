@@ -69,6 +69,31 @@ test("all selectable languages render source control and slash labels without a 
   } finally { close(); }
 });
 
+test("project names remain literal in lists and editor titles during automatic translation", async () => {
+  const close = browser();
+  let stop;
+  try {
+    await i18n.changeLanguage("ko");
+    document.body.innerHTML = `
+      <div class="projects-row-label"><b>Homepage</b><small>C:\\Project\\Homepage</small></div>
+      <section class="projects-edit-dialog"><h2>Homepage</h2><button>Save</button></section>
+      <label>Homepage</label>`;
+    stop = installAutoDomI18n();
+    assert.equal(document.querySelector(".projects-row-label b").textContent, "Homepage");
+    assert.equal(document.querySelector("h2").textContent, "Homepage");
+    assert.equal(document.querySelector("button").textContent, "저장");
+    assert.equal(document.querySelector("label").textContent, "홈페이지");
+    document.querySelector(".projects-row-label b").textContent = "Settings";
+    document.querySelector("h2").textContent = "Settings";
+    await tick();
+    assert.equal(document.querySelector(".projects-row-label b").textContent, "Settings");
+    assert.equal(document.querySelector("h2").textContent, "Settings");
+  } finally {
+    stop?.();
+    close();
+  }
+});
+
 test("legacy translation handles dynamic text and subsequent React changes without touching user content", async () => {
   const close = browser();
   let stop;

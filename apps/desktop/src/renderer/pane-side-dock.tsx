@@ -30,7 +30,6 @@ import {
 import { DesktopLoadingSurface } from "./RendererRecovery";
 import { isMobileRemoteSurface } from "./mobile-surface";
 import {
-  isWorkbenchSideLauncher,
   WorkbenchSidePanel,
   type WorkbenchSideTitleDragProps,
   type WorkbenchSideViewDescriptor,
@@ -166,11 +165,10 @@ const CLOSED_ENTRY: PaneSideDockEntry = {
   diff: null,
 };
 
-/** Launchers own no body at all, and the browser's body is a stacked surface,
- *  so neither can be a dock's active panel view or its default. */
+/** The browser's and terminal's bodies are stacked surfaces, so neither can
+ *  be a dock's active panel view or its default. */
 function isPanelView(id: WorkbenchSideViewId): boolean {
-  return !isWorkbenchSideLauncher(id)
-    && id !== PANE_DOCK_BROWSER_SURFACE
+  return id !== PANE_DOCK_BROWSER_SURFACE
     && id !== PANE_DOCK_TERMINAL_SURFACE;
 }
 
@@ -398,7 +396,6 @@ export function usePaneSideDocks({
    *  여는): a panel view lands in the body, the browser lands as its stacked
    *  surface; folding stays with the dock's own toggle/close controls. */
   const select = useCallback((leafId: string, id: WorkbenchSideViewId) => {
-    if (isWorkbenchSideLauncher(id)) return;
     patch(leafId, (entry) => id === PANE_DOCK_BROWSER_SURFACE
       || id === PANE_DOCK_TERMINAL_SURFACE
       ? { ...entry, open: true, surface: id }
@@ -406,7 +403,6 @@ export function usePaneSideDocks({
   }, [patch]);
   /** Ensure the dock is open, optionally landing on a specific child. */
   const open = useCallback((leafId: string, id?: WorkbenchSideViewId) => {
-    if (id && isWorkbenchSideLauncher(id)) return;
     if (id) {
       select(leafId, id);
       return;

@@ -29,6 +29,10 @@ Give the trials neutral identifiers and compare:
   title-to-evidence scale, placement of visual weight, grouping, chart/legend
   integration, and source treatment. A reviewer who only repeats the page's
   facts has checked content, not visual craft.
+- Does the subject have a recognizable presence? In a product pitch, can the
+  reader see the product or a credible output rather than an interchangeable
+  feature list? Judge the chosen treatment against accessible reference pages
+  at the same viewing size, without importing another brand's claims or artwork.
 
 Pick the stronger fit with a visible reason, or reject both. Neither diversity
 nor a larger object inventory is a reason to win. A template or supplied brand
@@ -90,6 +94,14 @@ the visual quality, that is new acceptance evidence: do not defend the page with
 an earlier model pass. Use reference pages at the same viewing size to identify
 specific craft differences, then redesign the affected structure rather than
 rerunning the same review for another approval.
+
+Use three distinct outcomes: mechanical integrity, visual craft, and user
+acceptance. Automatic contrast, color, occupancy, and rhythm statistics are
+diagnostics only; even a perfect score cannot approve the design. For each page,
+write the visible strength and any material weakness before assigning the
+required critique scores. Never infer visual quality from file validity or raise
+scores to satisfy the gate. After deleting a failed visual, inspect the resulting
+composition rather than treating fewer objects as a repair.
 
 Expand the selected direction, then run this same source-and-image review on
 the completed deck. Correct factual loss and material visual defects before

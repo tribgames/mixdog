@@ -89,12 +89,26 @@ test('PDF backend edits and validates without Microsoft Office', async (t) => {
   assert.equal(renderedResult.content[1].type, 'image');
   assert.equal(renderedResult.content[1].source.media_type, 'image/png');
 
+  const pendingReview = value(await executeOfficeTool({
+    action: 'finalize',
+    session: opened.session,
+    output: join(cwd, 'final-preview.pdf'),
+    pages: [1],
+    maxWidth: 640,
+  }, { cwd }));
+  assert.equal(pendingReview.finalized, false);
+  assert.equal(pendingReview.reason, 'visual_review_required');
   const finalizedResult = await executeOfficeTool({
     action: 'finalize',
     session: opened.session,
     output: join(cwd, 'final-preview.pdf'),
     pages: [1],
     maxWidth: 640,
+    design: {
+      reviewed: true,
+      reviewToken: pendingReview.reviewToken,
+      critique: [{ page: 1, verdict: 'pass', note: 'The rotated test page retains its edited text inside the page bounds.' }],
+    },
   }, { cwd });
   const finalized = value(finalizedResult);
   assert.equal(finalized.finalized, true);

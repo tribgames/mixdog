@@ -59,6 +59,8 @@ function Get-SessionState($id) {
       Continuation = $null
       LastFocus = [IntPtr]::Zero
       OriginalFocus = [IntPtr]::Zero
+      OriginalFocusMonitor = ''
+      OriginalFocusSequence = $null
     }
   }
   return $Sessions[$key]
@@ -67,6 +69,16 @@ function Get-SessionState($id) {
 function Get-CurrentSession {
   if ($null -eq $script:CurrentSession) { throw 'computer session is not initialized' }
   return $script:CurrentSession
+}
+
+function Remember-FocusOrigin($state, $previous, $target) {
+  if ($state.OriginalFocus -ne [IntPtr]::Zero -or $previous -eq $target) { return }
+  $observed = [MixInputObservation]::Read()
+  $state.OriginalFocus = $previous
+  if ($observed.Ready) {
+    $state.OriginalFocusMonitor = $observed.Generation
+    $state.OriginalFocusSequence = $observed.Sequence
+  }
 }
 
 function Await-WinRt($operation, [Type]$resultType) {

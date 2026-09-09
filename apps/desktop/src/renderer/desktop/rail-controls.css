@@ -65,7 +65,7 @@
 
 .workbench-search-mode,
 .dock-scm-tab-bar,
-.extensions-section-toolbar {
+.sidebar-section-toolbar {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -77,10 +77,10 @@
   padding: 2px 0 4px;
   background: transparent;
 }
-.extensions-section-toolbar { border-bottom: 1px solid var(--mx-border-muted); }
+.sidebar-section-toolbar { border-bottom: 1px solid var(--mx-border-muted); }
 .workbench-search-mode button,
 .dock-scm-tab,
-.extensions-section-toolbar button {
+.sidebar-section-toolbar button {
   position: relative;
   box-sizing: border-box;
   min-width: 0;
@@ -103,10 +103,10 @@
 }
 .workbench-search-mode button:hover,
 .dock-scm-tab:hover,
-.extensions-section-toolbar button:hover { color: var(--mx-text); background: var(--mx-hover); }
+.sidebar-section-toolbar button:hover { color: var(--mx-text); background: var(--mx-hover); }
 .workbench-search-mode button[aria-selected="true"],
 .dock-scm-tab[aria-checked="true"],
-.extensions-section-toolbar button.active {
+.sidebar-section-toolbar button.active {
   color: var(--mx-text);
   background: transparent;
   box-shadow: none;
@@ -114,7 +114,7 @@
 }
 .workbench-search-mode button[aria-selected="true"]::after,
 .dock-scm-tab[aria-checked="true"]::after,
-.extensions-section-toolbar button.active::after {
+.sidebar-section-toolbar button.active::after {
   position: absolute;
   right: 3px;
   bottom: -4px;
@@ -126,12 +126,12 @@
 }
 .workbench-search-mode button:focus-visible,
 .dock-scm-tab:focus-visible,
-.extensions-section-toolbar button:focus-visible {
+.sidebar-section-toolbar button:focus-visible {
   outline: 1px solid var(--mx-focus);
   outline-offset: -1px;
 }
-.extensions-section-toolbar button > svg { flex: 0 0 auto; }
-.extensions-section-toolbar button > span {
+.sidebar-section-toolbar button > svg { flex: 0 0 auto; }
+.sidebar-section-toolbar button > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

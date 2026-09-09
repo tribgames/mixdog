@@ -44,7 +44,7 @@ export function createCoreMemoryPicker({
       onSelect: () => {},
       onCancel: closeMemoryCorePicker,
     });
-    void store.memoryControl?.({ action: 'core', op: 'list', project_id: '*' }, { silent: true })
+    void store.memoryControl?.({ action: 'core', op: 'list', source: 'curated', project_id: '*' }, { silent: true })
       .then((result) => {
         const coreRows = parseMemoryCoreRows(result);
         const rows = [
@@ -119,7 +119,7 @@ export function createCoreMemoryPicker({
       onSelect: () => {},
       onCancel: () => openMemoryCorePicker(),
     });
-    void store.memoryControl?.({ action: 'core', op: 'list', project_id: '*' }, { silent: true })
+    void store.memoryControl?.({ action: 'core', op: 'list', source: 'curated', project_id: '*' }, { silent: true })
       .then((result) => {
         renderList(parseMemoryCoreRows(result));
       })
@@ -164,6 +164,7 @@ export function createCoreMemoryPicker({
       hint: 'Edit the memory sentence.',
       initialValue: entryItem._summary || entryItem._element || '',
       _id: entryItem._id,
+      _indexRevision: entryItem._indexRevision,
       _projectId: entryItem._projectId ?? null,
       // Only rewrite `element` on edit when the row was already a
       // single-sentence entry (element === summary at load time). Otherwise
@@ -179,6 +180,7 @@ export function createCoreMemoryPicker({
       label: `Memory · Delete #${entryItem._id}?`,
       hint: 'Type "y" to delete this entry, or anything else to cancel.',
       _id: entryItem._id,
+      _indexRevision: entryItem._indexRevision,
       _projectId: entryItem._projectId ?? null,
     });
   };

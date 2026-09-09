@@ -136,7 +136,7 @@ test('allocated runtime capacity bounds both the picker and restored oversized c
     hardware: { gpu: { vendor: 'NVIDIA', memoryBytes: 24 * 1024 ** 3 } },
   });
   const model = status.models[0];
-  assert.equal(model.maxContextWindow, model.contextWindow);
+  assert.equal(model.maxContextWindow, LOCAL_PROVIDER_MANIFEST.models[0].maxContextWindow);
   assert.equal(model.runtimeContextWindow, model.contextWindow);
   const provider = { name: 'mixdog-local', getCachedModelInfo: () => model };
   const restored = resolveSessionContextMeta(provider, model.id, { selectedContextWindow: 262144 });

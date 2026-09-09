@@ -14,26 +14,10 @@ import {
   hasGrokOAuthCredentials,
   hasOpenAIOAuthCredentials,
 } from '../agent/orchestrator/providers/oauth-credential-probes.mjs';
+import { loadMediaModels, projectMediaModels } from './catalog.mjs';
+import { catalogDiagnostic } from './catalog-errors.mjs';
 
 export const MEDIA_KINDS = Object.freeze(['image', 'video']);
-
-const GROK_IMAGE_MODELS = Object.freeze([
-  Object.freeze({ id: 'grok-imagine-image', label: 'Imagine Image' }),
-  Object.freeze({ id: 'grok-imagine-image-quality', label: 'Imagine Image Q' }),
-]);
-// Per-model control overrides: video contracts differ per model (fixed clip
-// lengths on Veo, 1080p only on Grok 1.5, no length knob on Omni), so each
-// entry carries what it actually accepts instead of one lane-wide guess.
-const GROK_VIDEO_MODELS = Object.freeze([
-  Object.freeze({
-    id: 'grok-imagine-video',
-    label: 'Imagine Video',
-    controls: Object.freeze({ resolution: Object.freeze(['480p', '720p']) }),
-  }),
-]);
-// grok-imagine-video-1.5 is intentionally absent: upstream rejects prompt-only
-// text-to-video on it ("Text-to-video is not supported for this model"), and it
-// only works through an image/reference input we do not accept yet.
 
 // Aspect/resolution vocabularies are lane-native: xAI takes aspect_ratio +
 // resolution, Gemini/Codex take pixel sizes. The UI renders whatever the lane
@@ -43,16 +27,12 @@ const GROK_ASPECTS = Object.freeze(['auto', '1:1', '16:9', '9:16', '4:3', '3:4',
 const LANES = Object.freeze([
   Object.freeze({
     id: 'grok-oauth',
-    label: 'Grok Imagine (OAuth)',
+    label: 'Grok Imagine',
     auth: Object.freeze({ type: 'oauth', provider: 'grok-oauth' }),
     image: Object.freeze({
-      models: GROK_IMAGE_MODELS,
-      defaultModel: 'grok-imagine-image',
       controls: Object.freeze({ aspectRatio: GROK_ASPECTS, resolution: Object.freeze(['1k', '2k']), maxReferences: 5 }),
     }),
     video: Object.freeze({
-      models: GROK_VIDEO_MODELS,
-      defaultModel: 'grok-imagine-video',
       controls: Object.freeze({
         aspectRatio: GROK_ASPECTS,
         resolution: Object.freeze(['480p', '720p', '1080p']),
@@ -64,16 +44,12 @@ const LANES = Object.freeze([
   }),
   Object.freeze({
     id: 'xai',
-    label: 'Grok Imagine (API key)',
+    label: 'Grok Imagine',
     auth: Object.freeze({ type: 'api-key', provider: 'xai' }),
     image: Object.freeze({
-      models: GROK_IMAGE_MODELS,
-      defaultModel: 'grok-imagine-image',
       controls: Object.freeze({ aspectRatio: GROK_ASPECTS, resolution: Object.freeze(['1k', '2k']), maxReferences: 5 }),
     }),
     video: Object.freeze({
-      models: GROK_VIDEO_MODELS,
-      defaultModel: 'grok-imagine-video',
       controls: Object.freeze({
         aspectRatio: GROK_ASPECTS,
         resolution: Object.freeze(['480p', '720p', '1080p']),
@@ -84,36 +60,19 @@ const LANES = Object.freeze([
   }),
   Object.freeze({
     id: 'openai-oauth',
-    label: 'ChatGPT Image (OAuth)',
+    label: 'OpenAI Images',
     auth: Object.freeze({ type: 'oauth', provider: 'openai-oauth' }),
     image: Object.freeze({
-      // The hosted image_generation tool runs on the Codex responses backend,
-      // so the id is a chat model driving the tool. The catalog exposes it as
-      // an IMAGE choice (quality vs fast) — listing raw chat models here read
-      // as "why is a chat model in an image picker".
-      models: Object.freeze([
-        Object.freeze({ id: 'gpt-5.6-sol', label: 'GPT Image' }),
-        Object.freeze({ id: 'gpt-5.4-mini', label: 'GPT Image Fast' }),
-      ]),
-      defaultModel: 'gpt-5.6-sol',
       controls: Object.freeze({
-        size: Object.freeze(['auto', '1024x1024', '1536x1024', '1024x1536']),
-        quality: Object.freeze(['auto', 'low', 'medium', 'high']),
         maxReferences: 5,
       }),
     }),
   }),
   Object.freeze({
     id: 'gemini',
-    label: 'Gemini Image (API key)',
+    label: 'Google Gemini',
     auth: Object.freeze({ type: 'api-key', provider: 'gemini' }),
     image: Object.freeze({
-      models: Object.freeze([
-        Object.freeze({ id: 'gemini-3-pro-image', label: 'Nano Banana Pro' }),
-        Object.freeze({ id: 'gemini-3.1-flash-image', label: 'Nano Banana 2' }),
-        Object.freeze({ id: 'gemini-2.5-flash-image', label: 'Nano Banana 2.5' }),
-      ]),
-      defaultModel: 'gemini-3.1-flash-image',
       controls: Object.freeze({
         aspectRatio: Object.freeze(['auto', '1:1', '16:9', '9:16', '4:3', '3:4']),
         // Reference caps the image edit path at 3 inline references.
@@ -121,24 +80,6 @@ const LANES = Object.freeze([
       }),
     }),
     video: Object.freeze({
-      // Omni Flash answers inline on the Interactions API; the Veo trio runs as
-      // a long-running predict. Both are paid-tier only on this key.
-      models: Object.freeze([
-        Object.freeze({
-          id: 'gemini-omni-flash-preview',
-          label: 'Omni Flash',
-          // Omni picks its own clip length; only the frame shape is ours.
-          controls: Object.freeze({
-            resolution: Object.freeze([]),
-            durations: Object.freeze([]),
-            maxReferences: 3,
-          }),
-        }),
-        Object.freeze({ id: 'veo-3.1-fast-generate-preview', label: 'Veo 3.1 Fast' }),
-        Object.freeze({ id: 'veo-3.1-generate-preview', label: 'Veo 3.1' }),
-        Object.freeze({ id: 'veo-3.1-lite-generate-preview', label: 'Veo 3.1 Lite' }),
-      ]),
-      defaultModel: 'gemini-omni-flash-preview',
       controls: Object.freeze({
         aspectRatio: Object.freeze(['16:9', '9:16']),
         resolution: Object.freeze(['720p', '1080p']),
@@ -164,63 +105,93 @@ function laneAuthenticated(lane) {
   return false;
 }
 
-function laneKindView(lane, kind) {
+function laneKindView(lane, kind, models) {
   const spec = lane[kind];
-  if (!spec) return null;
+  if (!spec || !models.length) return null;
   const laneControls = spec.controls || {};
   return {
     // Each model publishes its EFFECTIVE controls (lane defaults + its own
     // overrides) so the UI never offers a knob the model rejects.
-    models: spec.models.map((model) => ({
+    models: models.map((model) => ({
       id: model.id,
       label: model.label,
+      ...(model.description ? { description: model.description } : {}),
+      ...(model.requestModel ? { requestModel: model.requestModel } : {}),
       controls: JSON.parse(JSON.stringify({ ...laneControls, ...(model.controls || {}) })),
     })),
-    defaultModel: spec.defaultModel,
+    defaultModel: models[0].id,
     controls: JSON.parse(JSON.stringify(laneControls)),
   };
 }
 
-/** Lane catalog with live auth state; the caller filters on `authenticated`. */
-export function listMediaLanes() {
-  return LANES.map((lane) => ({
-    id: lane.id,
-    label: lane.label,
-    authType: lane.auth.type,
-    authProvider: lane.auth.provider,
-    authenticated: laneAuthenticated(lane),
-    kinds: MEDIA_KINDS.filter((kind) => Boolean(lane[kind])),
-    image: laneKindView(lane, 'image'),
-    video: laneKindView(lane, 'video'),
-  }));
+export function createMediaLaneCatalog({
+  loadModels = loadMediaModels,
+  authenticated = laneAuthenticated,
+} = {}) {
+  async function laneView(lane) {
+    const signedIn = authenticated(lane);
+    const view = {
+      id: lane.id, label: lane.label,
+      authType: lane.auth.type, authProvider: lane.auth.provider,
+      authenticated: signedIn, kinds: [], image: null, video: null,
+    };
+    if (!signedIn) return view;
+    try {
+      const rows = await loadModels(lane.id);
+      const models = projectMediaModels(lane.id, rows);
+      if (rows.catalogWarning) view.catalogWarning = rows.catalogWarning;
+      for (const kind of MEDIA_KINDS) {
+        view[kind] = laneKindView(lane, kind, models[kind]);
+        if (view[kind]) view.kinds.push(kind);
+      }
+    } catch (error) {
+      const diagnostic = catalogDiagnostic(error);
+      if (diagnostic.code === 'MEDIA_BILLING_BLOCKED') {
+        // Unusable connections are absent from public catalogs. Keep only a
+        // sanitized internal reason, never the upstream body or account id.
+        try {
+          console.warn(`[media] catalog excluded lane=${lane.id} code=${diagnostic.code}`);
+        } catch { /* diagnostics must not affect catalog availability */ }
+        return null;
+      }
+      view.catalogErrorCode = diagnostic.code;
+      view.catalogError = `${lane.label} (${lane.auth.type === 'oauth' ? 'Account' : 'API key'}): ${diagnostic.message}`;
+    }
+    return view;
+  }
+
+  return {
+    /** Live catalog shared by Studio and the model-facing media tool. */
+    async listMediaLanes() {
+      return (await Promise.all(LANES.map(laneView))).filter(Boolean);
+    },
+    async resolveMediaRequest({ lane: laneId, kind, model } = {}) {
+      const kindName = String(kind || '').trim();
+      if (!MEDIA_KINDS.includes(kindName)) {
+        throw mediaError(`unsupported media kind "${kindName}"`, 'MEDIA_KIND_UNSUPPORTED');
+      }
+      const definition = LANE_BY_ID.get(String(laneId || '').trim());
+      if (!definition) throw mediaError(`unknown media lane "${laneId}"`, 'MEDIA_LANE_UNKNOWN');
+      if (!definition[kindName]) throw mediaError(`${definition.id} does not support ${kindName}`, 'MEDIA_KIND_UNSUPPORTED');
+      const lane = await laneView(definition);
+      if (!lane) {
+        throw mediaError('The selected media model is not available.', 'MEDIA_MODEL_UNSUPPORTED');
+      }
+      if (!lane.authenticated) {
+        throw mediaError(`${lane.label} is not authenticated — sign in from Settings → Providers first`, 'MEDIA_LANE_UNAUTHENTICATED');
+      }
+      if (lane.catalogError) throw mediaError(lane.catalogError, lane.catalogErrorCode || 'MEDIA_CATALOG_UNAVAILABLE', 503);
+      const spec = lane[kindName];
+      const requested = String(model || '').trim() || spec?.defaultModel;
+      if (!spec?.models.some((entry) => entry.id === requested)) {
+        throw mediaError(`model "${requested || ''}" is not available on ${lane.id}/${kindName}`, 'MEDIA_MODEL_UNSUPPORTED');
+      }
+      return { lane, kind: kindName, model: requested, spec };
+    },
+  };
 }
 
-function getMediaLane(laneId) {
-  return LANE_BY_ID.get(String(laneId || '').trim()) || null;
-}
-
-/**
- * Resolve + validate a generation request against the lane contract. Throws a
- * coded error rather than letting an unsupported model reach the network.
- */
-export function resolveMediaRequest({ lane: laneId, kind, model } = {}) {
-  const kindName = String(kind || '').trim();
-  if (!MEDIA_KINDS.includes(kindName)) {
-    throw mediaError(`unsupported media kind "${kindName}"`, 'MEDIA_KIND_UNSUPPORTED');
-  }
-  const lane = getMediaLane(laneId);
-  if (!lane) throw mediaError(`unknown media lane "${laneId}"`, 'MEDIA_LANE_UNKNOWN');
-  const spec = lane[kindName];
-  if (!spec) throw mediaError(`${lane.id} does not support ${kindName}`, 'MEDIA_KIND_UNSUPPORTED');
-  if (!laneAuthenticated(lane)) {
-    throw mediaError(`${lane.label} is not authenticated — sign in from Settings → Providers first`, 'MEDIA_LANE_UNAUTHENTICATED');
-  }
-  const requested = String(model || '').trim() || spec.defaultModel;
-  if (!spec.models.some((entry) => entry.id === requested)) {
-    throw mediaError(`model "${requested}" is not available on ${lane.id}/${kindName}`, 'MEDIA_MODEL_UNSUPPORTED');
-  }
-  return { lane, kind: kindName, model: requested, spec };
-}
+export const { listMediaLanes, resolveMediaRequest } = createMediaLaneCatalog();
 
 export function mediaError(message, code, status = 400) {
   const err = new Error(message);

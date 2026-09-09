@@ -95,11 +95,14 @@ export function summarizeOfficeAudit(issueList, { touched = [] } = {}) {
   };
 }
 
-function nextActionFor(audit) {
+function nextActionFor(audit, format) {
   if (audit.status === 'pass') {
     return 'Audit passed: no measured defect remains. Continue to the render and the visual read; finalize needs both.';
   }
   const count = audit.counts.error + audit.counts.warning;
+  if (['docx', 'xlsx', 'pdf'].includes(format)) {
+    return `Inspect the ${count} reported finding${count === 1 ? '' : 's'} at their document locations. Fix material defects with targeted edits, then inspect the changed result. Keep automated diagnostics separate from visual judgement; neither a fixed round count nor a diagnostic pass decides design acceptance.`;
+  }
   if (audit.round > INLINE_AUDIT_MAX_ROUNDS) {
     return `Audit still fails after ${INLINE_AUDIT_MAX_ROUNDS} fix rounds (${count} measured defect${count === 1 ? '' : 's'}). Stop polishing: report what remains with the deliverable instead of a further pass.`;
   }
@@ -114,7 +117,7 @@ export function recordInlineAuditRound(session, audit) {
   session.inlineAudit ||= { rounds: 0 };
   session.inlineAudit.rounds = audit.status === 'pass' ? 0 : session.inlineAudit.rounds + 1;
   audit.round = session.inlineAudit.rounds;
-  audit.nextAction = nextActionFor(audit);
+  audit.nextAction = nextActionFor(audit, session.format);
   return audit;
 }
 

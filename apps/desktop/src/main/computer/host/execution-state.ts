@@ -3,6 +3,7 @@
  * bridge: what is running, what was aborted, and the input state to restore.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
+import type { ComputerWorkProgress } from './pending-work';
 
 export interface InputRecoveryState {
   targetWindowId: string;
@@ -24,6 +25,8 @@ export interface ActiveExecution {
   sessionId: string;
   aborted: boolean;
   recovery?: InputRecoveryState;
+  progress?: ComputerWorkProgress;
+  failureCode?: string;
 }
 
 export function createExecutionState() {

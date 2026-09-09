@@ -19,12 +19,13 @@ import {
   type SerializableDesktopServiceOptions,
 } from './desktop-service-contract';
 import {
-  createLatestStateMailbox,
   type DesktopServiceInbound,
   type DesktopServiceOutbound,
 } from './desktop-service-protocol';
+import { createSnapshotStateMailbox } from './snapshot-state-mailbox';
 import {
   createSnapshotDeltaEncoder,
+  isNoDelta,
   releaseHiddenSessionStateEntries,
   shouldPublishSessionState,
   type SnapshotDeltaEncoder,
@@ -300,7 +301,6 @@ export async function createDesktopService(
   let serviceClosed = false;
   let viewSyncQueue: Promise<void> = Promise.resolve();
   const visibleSessionIds = new Set<string>();
-  const stateEncoder = createSnapshotDeltaEncoder();
   const sessionStateEncoders = new Map<string, SnapshotDeltaEncoder>();
   const latestSessionStates = new Map<string, SessionSnapshot>();
   const latestSessionProvenance = new Map<string, {
@@ -308,8 +308,8 @@ export async function createDesktopService(
     contentRevision?: number;
   }>();
 
-  const stateMailbox = createLatestStateMailbox<SessionSnapshot>((sequence, snapshot) => {
-    emit({ kind: 'state', sequence, wire: stateEncoder.encode(snapshot) });
+  const stateMailbox = createSnapshotStateMailbox<SessionSnapshot>((sequence, wire) => {
+    emit({ kind: 'state', sequence, wire });
   });
   const postSessionState = (
     update: DesktopSessionStateUpdate,
@@ -336,10 +336,12 @@ export async function createDesktopService(
     sessionStateEncoders.set(sessionId, encoder);
     latestSessionStates.set(sessionId, snapshot);
     latestSessionProvenance.set(sessionId, update);
+    const wire = encoder.encode(snapshot);
+    if (isNoDelta(wire)) return;
     emit({
       kind: 'session-state',
       sessionId,
-      wire: encoder.encode(snapshot),
+      wire,
       frameSource: update.frameSource,
       ...(typeof update.contentRevision === 'number'
         ? { contentRevision: update.contentRevision }
@@ -373,7 +375,6 @@ export async function createDesktopService(
           await host.setVisibleSessions([...visibleSessionIds]);
           await synchronizeViewSnapshot(host, [...visibleSessionIds], (snapshot) => {
             if (serviceClosed) return;
-            stateEncoder.reset();
             stateMailbox.reset(snapshot.snapshot);
             sessionStateEncoders.clear();
             for (const update of snapshot.sessionStates) postSessionState(update);

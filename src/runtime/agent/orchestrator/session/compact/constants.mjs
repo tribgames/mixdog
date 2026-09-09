@@ -3,7 +3,6 @@ import {
     DEFAULT_COMPACTION_BUFFER_TOKENS,
     DEFAULT_COMPACTION_BUFFER_RATIO,
     MAX_COMPACTION_BUFFER_RATIO,
-    DEFAULT_COMPACTION_KEEP_TOKENS,
     normalizeCompactionBufferRatio,
     compactionBufferTokensForBoundary,
 } from '../context-utils.mjs';
@@ -12,16 +11,16 @@ export {
     DEFAULT_COMPACTION_BUFFER_TOKENS,
     DEFAULT_COMPACTION_BUFFER_RATIO,
     MAX_COMPACTION_BUFFER_RATIO,
-    DEFAULT_COMPACTION_KEEP_TOKENS,
     normalizeCompactionBufferRatio,
     compactionBufferTokensForBoundary,
 };
 
 export const SUMMARY_PREFIX_ANCHOR = 'A previous model worked on this task and produced the compacted handoff summary below.';
-export const SUMMARY_PREFIX = `${SUMMARY_PREFIX_ANCHOR} Build on the work already done and avoid duplicating it; treat the summary as authoritative context for continuing the task. The summary covers the full session; only the latest real user instruction is attached after it.`;
+export const SUMMARY_PREFIX = `${SUMMARY_PREFIX_ANCHOR} Build on the work already done and avoid duplicating it. The summary covers the session; retained requests and execution records follow it. Actual tool outcomes take precedence over plans or older claims in the summary.`;
 export const SUMMARY_OUTPUT_TOKENS = 4_096;
-// Unified context-share rule: every derived "how much of the model context
-// may this budget take" ratio uses ONE number — 50%. Consumers:
+// The overall compact target and handoff cap share one ratio — 50%.
+// Execution history has its own smaller cap inside this overall budget.
+// Consumers:
 //   - compact target budget (loop/compact-policy.mjs COMPACT_TARGET_RATIO)
 //   - fresh-context handoff injection cap
 // Keep them in lockstep; do not fork per-consumer ratios without a decision.

@@ -10,6 +10,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -22,6 +23,7 @@ import type {
 } from "../shared/contract";
 import { remoteBrowserImagePoint } from "../shared/remote-browser";
 import { normalizeAddressInput } from "./browser-address";
+import { createRemoteBrowserInputQueue } from "./remote-browser-input";
 import { readBrowserZoom, writeBrowserZoom } from "./browser-zoom-level";
 import { BrowserZoomPill } from "./BrowserZoomPill";
 import { t } from "./i18n";
@@ -58,6 +60,17 @@ export default function RemoteBrowserPane({
   const [actionFailure, setActionFailure] = useState("");
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   const refreshSoon = useCallback(() => wakePoll.current?.(), []);
+  const inputQueue = useMemo(() => createRemoteBrowserInputQueue({
+    send: async (input) => { await api?.remoteBrowserControl?.(ownerSessionId, input); },
+    failure: setActionFailure,
+    settled: refreshSoon,
+  }), [api, ownerSessionId, refreshSoon]);
+
+  useEffect(() => {
+    if (active) inputQueue.activate();
+    else inputQueue.dispose();
+    return () => inputQueue.dispose();
+  }, [active, inputQueue]);
   // Client-side zoom of the frame image (user: 화면 하단 중앙에 확대축소):
   // the desktop keeps sending the same frame; the phone scales and pans it.
   // Tap coordinates read the image's transformed box, so they stay exact.
@@ -142,18 +155,15 @@ export default function RemoteBrowserPane({
 
   const control = useCallback(async (input: DesktopRemoteBrowserControl) => {
     if (!api?.remoteBrowserControl) return;
-    // A submitted gesture consumes its frame. Never silently replay it on a
-    // newer page, and force the next poll to return the full image.
+    // This ref is only the image de-duplication cursor. Input keeps the
+    // displayed frame/document even while the follow-up poll is in flight.
     frameId.current = "";
     setActionFailure("");
-    try {
-      await api.remoteBrowserControl(ownerSessionId, input);
-      refreshSoon();
-    } catch (error) {
-      setActionFailure(error instanceof Error ? error.message : String(error));
-      refreshSoon();
+    if ((input.type === "text" || input.type === "key") && frame?.documentId) {
+      input = { ...input, documentId: frame.documentId };
     }
-  }, [api, ownerSessionId, refreshSoon]);
+    await inputQueue.enqueue(input);
+  }, [api, inputQueue, frame?.documentId]);
 
   const navigate = useCallback((raw: string) => {
     const url = normalizeAddressInput(raw);
@@ -203,13 +213,13 @@ export default function RemoteBrowserPane({
     if (!end) return;
     const distance = Math.hypot(event.clientX - start.clientX, event.clientY - start.clientY);
     if (distance < 9) {
-      void control({ type: "tap", frameId: frameId.current, x: end.x, y: end.y });
+      void control({ type: "tap", frameId: frame?.frameId || "", x: end.x, y: end.y });
       return;
     }
     if (zoomLevel > 1) return;
     void control({
       type: "swipe",
-      frameId: frameId.current,
+      frameId: frame?.frameId || "",
       from: { x: start.x, y: start.y },
       to: end,
     });
@@ -222,7 +232,7 @@ export default function RemoteBrowserPane({
   };
 
   const sendPageText = (text: string) => {
-    if (text) void control({ type: "text", frameId: frameId.current, text });
+    if (text) void control({ type: "text", frameId: frame?.frameId || "", text });
   };
 
   return <div className="browser-pane browser-remote-pane"
@@ -300,7 +310,7 @@ export default function RemoteBrowserPane({
           if (!["Backspace", "Enter", "Tab", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]
             .includes(event.key)) return;
           event.preventDefault();
-          void control({ type: "key", frameId: frameId.current, key: event.key });
+          void control({ type: "key", frameId: frame?.frameId || "", key: event.key });
         }} />
       <button type="button" onClick={() => setKeyboardOpen(false)} aria-label={t("Close")}>
         <X size={15} />
@@ -317,7 +327,7 @@ export default function RemoteBrowserPane({
         event.preventDefault();
         void control({
           type: "scroll",
-          frameId: frameId.current,
+          frameId: frame?.frameId || "",
           ...point,
           deltaX: event.deltaX,
           deltaY: event.deltaY,

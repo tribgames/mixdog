@@ -1,44 +1,33 @@
-// Per-category grade (base score ceiling) and decay rate.
-//
-// grade = baseline ceiling for the category (durability of knowledge type).
-// decay = how fast score drops with age. 0 means immune to age-decay
-//         (rules never decay), higher means faster drop.
-//
-// Pairing: rules/constraints have high grade + low/zero decay (long-term),
-// issues/tasks have low grade + high decay (transient by nature).
-//
-// score = grade * 1 / (1 + ageDays*rate/30)^0.3
-//
-// At ageDays=0: score = grade.
-// As ageDays → ∞: score → 0.
-// rate=0 disables decay entirely → score stays at grade forever.
+// Generated recall records share one aging policy. A classifier's category
+// must not grant an inferred rule permanent priority over user preferences.
+// Standing user-approved memory is managed separately from this score.
 export const CATEGORY_GRADE = {
-  rule:       2.0,
-  constraint: 1.9,
-  decision:   1.8,
+  rule:       1.6,
+  constraint: 1.6,
+  decision:   1.6,
   fact:       1.6,
-  goal:       1.5,
-  preference: 1.4,
-  task:       1.1,
-  issue:      1.0,
+  goal:       1.6,
+  preference: 1.6,
+  task:       1.6,
+  issue:      1.6,
 }
 
-const CATEGORY_DECAY = {
-  rule:       0.0,
-  constraint: 0.06,
-  decision:   0.15,
-  fact:       0.25,
-  goal:       0.30,
-  preference: 0.35,
-  task:       0.45,
-  issue:      0.50,
+const DECAY_RATE = 0.25
+
+export async function syncMemoryScorePolicy(db) {
+  await db.query(`
+    INSERT INTO category_score_params(category, grade, decay)
+    SELECT category, $2::real, $3::real FROM unnest($1::text[]) AS category
+    ON CONFLICT (category) DO UPDATE SET grade = EXCLUDED.grade, decay = EXCLUDED.decay
+    WHERE category_score_params.grade IS DISTINCT FROM EXCLUDED.grade
+       OR category_score_params.decay IS DISTINCT FROM EXCLUDED.decay
+  `, [Object.keys(CATEGORY_GRADE), 1.6, DECAY_RATE])
 }
 
 /**
- * Persisted entry score = grade * decay-curve(ageDays, category-specific rate).
+ * Persisted entry score = grade * decay-curve(ageDays, uniform rate).
  *
  * Returns null on unknown category or non-finite timestamps.
- * rate=0 (rule) yields score = grade with no time component.
  *
  * @param {string} category
  * @param {number|string} lastSeenAt — ms timestamp
@@ -47,12 +36,11 @@ const CATEGORY_DECAY = {
  */
 export function computeEntryScore(category, lastSeenAt, nowMs) {
   const grade = CATEGORY_GRADE[String(category ?? '').toLowerCase()]
-  const rate  = CATEGORY_DECAY[String(category ?? '').toLowerCase()]
-  if (grade == null || rate == null) return null
+  if (grade == null) return null
   if (!Number.isFinite(Number(nowMs))) return null
   const anchor = Number.isFinite(Number(lastSeenAt)) ? Number(lastSeenAt) : Number(nowMs)
   const ageDays = Math.max(0, (Number(nowMs) - anchor) / 86_400_000)
-  const adjustedAge = ageDays * rate
+  const adjustedAge = ageDays * DECAY_RATE
   const decay = 1 / Math.pow(1 + adjustedAge / 30, 0.3)
   return Math.min(grade, grade * decay)
 }

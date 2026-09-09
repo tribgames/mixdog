@@ -54,11 +54,14 @@ export function parseMemoryCoreRows(text) {
         // meta column instead (blank for common).
         return null;
       }
-      const match = raw.match(/^id=(\d+)\s+(.+?)(?:\s+—\s+(.+))?$/);
+      const metadata = raw.match(/^id=\d+\s+source=curated project=(\S+) status=\S+ injection=\S+ excluded=\S+(?: index_revision=(\S+))?\s+/);
+      if (metadata) currentProjectId = metadata[1] === 'COMMON' ? null : metadata[1];
+      const normalized = metadata ? raw.replace(/\s+source=curated project=\S+ status=\S+ injection=\S+ excluded=\S+(?: index_revision=\S+)?/, '') : raw;
+      const match = normalized.match(/^id=(\d+)\s+(.+?)(?:\s+—\s+(.+))?$/);
       if (match) {
         const [, id, element, summary = ''] = match;
         return {
-          value: `core-${id}`,
+          value: `core-${encodeURIComponent(currentProjectId ?? 'common')}-${id}`,
           // Display is summary-first: session injection only ever uses the
           // summary sentence (buildSessionCoreMemoryPayload), so id/element
           // are UI noise. The element stays in the hidden fields for
@@ -69,6 +72,7 @@ export function parseMemoryCoreRows(text) {
           _line: raw,
           _action: 'core-entry',
           _id: Number(id),
+          _indexRevision: metadata?.[2],
           _element: element,
           _summary: summary || element,
           _projectId: currentProjectId,

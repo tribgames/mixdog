@@ -135,11 +135,18 @@ function Assert-RecoveryInputUnchanged($req) {
   }
 }
 
-# Hotkeys ride .NET SendKeys: its SendWait waits for the target to process
-# each key, which raw SendInput batches cannot. SendKeys' lock-key side effect
-# is detected and reverted here.
+# The tagged engine sends the key grammar without changing lock-key state.
 function Send-KeysGuarded($keys) {
   [MixTaggedKeys]::Send([string]$keys)
+}
+
+function Focus-TypingPoint($req, $target, $point) {
+  if ($null -eq $point) { return }
+  if ($req.ref) { $point = Get-ElPoint $req.ref $false }
+  if ($point[2] -ne $target) { throw 'target_mismatch|text target changed after focus; no input sent' }
+  [MixWin32]::GlideCursor($target, $point[0], $point[1])
+  [MixWin32]::Click($point[0], $point[1])
+  Start-Sleep -Milliseconds 80
 }
 
 function Get-NativeElementHandle($el) {
@@ -216,10 +223,8 @@ function Do-Key($req) {
     return New-ActionResult 'key' 'none' 'suspected_noop' $false 'key requires window_id/window or a prior focus_window in this session' 'target_required' 'foreground' $null
   }
   return Invoke-ForegroundInput $target 'key' {
-    if ($null -ne $focusPoint) {
-      [MixWin32]::Click($focusPoint[0], $focusPoint[1])
-      Start-Sleep -Milliseconds 80
-    }
+    Focus-TypingPoint $req $target $focusPoint
+    [MixWin32]::ReportCurrentPointer('type')
     if (([string]$req.keys) -notmatch '[{}^%+~()]') { [MixWin32]::SendText([string]$req.keys) }
     else { Send-KeysGuarded $req.keys }
   }
@@ -277,10 +282,8 @@ function Do-Type($req) {
     return New-ActionResult 'type' 'none' 'suspected_noop' $false 'type requires window_id/window or a prior focus_window in this session' 'target_required' 'foreground' $null
   }
   return Invoke-ForegroundInput $target 'type' {
-    if ($null -ne $focusPoint) {
-      [MixWin32]::Click($focusPoint[0], $focusPoint[1])
-      Start-Sleep -Milliseconds 80
-    }
+    Focus-TypingPoint $req $target $focusPoint
+    [MixWin32]::ReportCurrentPointer('type')
     [MixWin32]::SendText($text)
   }
 }
@@ -521,16 +524,31 @@ function Do-Launch($app) {
 function Release-SessionState {
   $state = Get-CurrentSession
   $current = [MixWin32]::Foreground()
-  if (($state.OriginalFocus -ne [IntPtr]::Zero) -and
+  $observed = [MixInputObservation]::Read()
+  $restored = $false
+  if ($observed.Ready -and $state.OriginalFocusMonitor -eq $observed.Generation -and
+      $null -ne $state.OriginalFocusSequence -and $state.OriginalFocusSequence -eq $observed.Sequence -and
+      ($state.OriginalFocus -ne [IntPtr]::Zero) -and
       ($current -eq $state.LastFocus) -and
       [MixWin32]::IsWindowHandle($state.OriginalFocus)) {
-    [void][MixWin32]::Focus($state.OriginalFocus)
+    try {
+      [MixInputObservation]::BeginExpected($state.OriginalFocusMonitor, $state.OriginalFocusSequence)
+      try {
+        [MixInputObservation]::AssertContinue()
+        $restored = [MixWin32]::Focus($state.OriginalFocus)
+      } finally { [MixInputObservation]::End() }
+    } catch {
+      # Returning focus is optional; uncertainty must leave the user's focus alone.
+      if ($_.Exception.Message -notmatch 'user_input_active|input_observation_unavailable') { throw }
+    }
   }
   $state.Map.Clear()
   $state.Generation = [int]$state.Generation + 1
   $state.LastFocus = [IntPtr]::Zero
   $state.OriginalFocus = [IntPtr]::Zero
-  return @{ text = 'computer session released' }
+  $state.OriginalFocusMonitor = ''
+  $state.OriginalFocusSequence = $null
+  return @{ text = 'computer session released'; focus_restored = $restored }
 }
 
 function Invalidate-RefsForRequest($req) {
@@ -554,12 +572,16 @@ function Handle($req) {
   if ($inputScope) { [MixInputObservation]::Begin() }
   try {
   switch ($req.action) {
+    'sequence_step' { return Invoke-SequenceStep $req }
     'list_windows' { return Do-ListWindows }
     'window_snapshot' { return Do-WindowSnapshot }
     'related_windows' { return Do-RelatedWindows $req }
     'snapshot'     { return Snapshot-Window $req }
     'find'         { return Snapshot-Window $req }
-    'invoke'       { return Invoke-BackgroundSemantic $req.ref { Do-Invoke $req.ref } }
+    'invoke'       {
+      if ($req.delivery -eq 'foreground') { return Do-ClickFamily $req 'click' }
+      return Invoke-BackgroundSemantic $req.ref { Do-Invoke $req.ref }
+    }
     'set_value'    { return Invoke-BackgroundSemantic $req.ref { Do-SetValue $req.ref $req.text } }
     'toggle'       { return Invoke-BackgroundSemantic $req.ref { Do-Toggle $req.ref } }
     'click'        { return Do-ClickFamily $req 'click' }
@@ -621,8 +643,27 @@ while ($true) {
   try {
     $req = $line | ConvertFrom-Json
     $id = [int]$req.id
-    try { $res = Handle $req } finally { Invalidate-RefsForRequest $req }
-    $out = @{ id = $id; ok = $true; result = $res } | ConvertTo-Json -Compress -Depth 6
+    [MixWin32]::PointerEventsGenerated = 0
+    [MixWin32]::PointerEventsFailed = 0
+    if ($req.pointer_feedback -eq $true) {
+      [MixWin32]::PointerProgress = [Action[int,int,bool,string]] {
+        param($x, $y, $held, $phase)
+        $event = @{ id = $id; x = $x; y = $y; held = $held; phase = $phase } | ConvertTo-Json -Compress
+        [Console]::Out.WriteLine('@@MIXDOG_POINTER@@' + $event)
+      }
+    }
+    try { $res = Handle $req } finally {
+      [MixWin32]::PointerProgress = $null
+      Invalidate-RefsForRequest $req
+    }
+    $envelope = @{ id = $id; ok = $true; result = $res }
+    if ($req.pointer_feedback -eq $true) {
+      $envelope.pointer_feedback = @{
+        generated = [MixWin32]::PointerEventsGenerated
+        failed = [MixWin32]::PointerEventsFailed
+      }
+    }
+    $out = $envelope | ConvertTo-Json -Compress -Depth 6
   } catch {
     $failure = $_.Exception
     while ($null -ne $failure.InnerException -and $failure.Message -notmatch '^[a-z][a-z0-9_]+:') {

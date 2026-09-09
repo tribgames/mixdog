@@ -5,7 +5,7 @@ import type { GoalTask, Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { GoalSubmissionContext, useGoalAfterSubmission } from './session-goal-submission';
-import { goalDisplayStatus, goalElapsedLabel, type GoalDisplayStatus } from './session-goal-presentation';
+import { goalDisplayStatus, goalElapsedLabel, goalHasBackgroundWork, type GoalDisplayStatus } from './session-goal-presentation';
 
 export { formatGoalDuration, goalCompletedTimeLabel, goalElapsedLabel, goalTimeLabel } from './session-goal-presentation';
 
@@ -24,9 +24,9 @@ function useGoalClock(active: boolean): number {
 // (`svg.lucide { stroke-width: 1px }`, 02-base.css) outranks presentation
 // attributes anyway, so a per-glyph value is dead weight that would also
 // violate the 1px small-glyph standard if it ever won.
-function GoalGlyph({ status }: { status: GoalDisplayStatus }) {
+function GoalGlyph({ status, working }: { status: GoalDisplayStatus; working: boolean }) {
   if (status === 'complete') return <MxIcon name="check" size={16} />;
-  if (status === 'responding') return <MxIcon name="loading" size={16} />;
+  if (working) return <MxIcon name="loading" size={16} />;
   if (status === 'paused' || status === 'duration_reached') {
     return <MxIcon name="paused" size={16} />;
   }
@@ -71,14 +71,38 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const sessionId = String(snapshot.sessionId || '');
   const agentWorking = liveAgentRows(snapshot).some((agent) => !agent.queued);
+  const backgroundWorking = goalHasBackgroundWork(snapshot, agentWorking);
   const displayStatus = goal ? goalDisplayStatus(goal, snapshot, agentWorking) : 'active';
   const waiting = displayStatus === 'responding'
-    || (displayStatus === 'active' && (agentWorking || Boolean(snapshot.busy && !snapshot.toolApproval)));
+    || (displayStatus === 'active' && (backgroundWorking
+      || Boolean((snapshot.busy || snapshot.commandBusy) && !snapshot.toolApproval)));
   const activityLabel = displayStatus === 'responding' ? t('Responding')
     : displayStatus === 'paused' ? t('Paused')
       : displayStatus === 'active' ? t('Working') : undefined;
 
   useEffect(() => setOpen(false), [sessionId, goal?.id]);
+
+  // Presence diagnostics (MIXDOG_DESKTOP_PERF=1): the capsule sits in the
+  // composer dock, so every mount/unmount moves the transcript by its height.
+  // A flip within one session names its cause — a lane frame that carried no
+  // goal, or the post-submit mask — so a "goal blinked" report is attributable.
+  const rawGoal = snapshot.goal || null;
+  const visible = Boolean(goal);
+  const presence = useRef('');
+  useEffect(() => {
+    const key = `${sessionId}\u0000${visible ? 'shown' : 'hidden'}`;
+    const previous = presence.current;
+    presence.current = key;
+    if (!previous || !sessionId || previous === key) return;
+    if (!previous.startsWith(`${sessionId}\u0000`)) return;
+    try {
+      window.mixdogDesktop?.perfLog?.(
+        `goal-island ${visible ? 'shown' : 'hidden'} session=${sessionId}`
+        + ` frame=${rawGoal ? `${String(rawGoal.id || '')}:${String(rawGoal.status || '')}` : 'null'}`
+        + ` masked=${rawGoal && !visible ? 1 : 0}`,
+      );
+    } catch { /* diagnostics only */ }
+  }, [rawGoal, sessionId, visible]);
 
   // Dismiss on any interaction outside the island (or Escape) so the drawer
   // never lingers over the transcript once attention moves elsewhere.
@@ -123,7 +147,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
           onClick={() => setOpen((value) => !value)}>
           <span className="session-goal-title-region">
             <span className="session-goal-glyph" role={activityLabel ? 'img' : undefined}
-              aria-label={activityLabel} title={activityLabel}><GoalGlyph status={displayStatus} /></span>
+              aria-label={activityLabel} title={activityLabel}><GoalGlyph status={displayStatus} working={waiting} /></span>
             <span className="session-goal-objective" title={objective}>{title}</span>
           </span>
           <span className="session-goal-meta">

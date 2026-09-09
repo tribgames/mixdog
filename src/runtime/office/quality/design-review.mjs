@@ -19,6 +19,8 @@ import {
 import { reviewBriefPromises, reviewFactCoverage, reviewSourceGrounding } from '../authoring/pptx-brief.mjs';
 import { isAdvisoryOfficeIssue } from './quality-pipeline.mjs';
 import { isPptxSpecimenSlide, isPptxStatementSlide } from './pptx-slide-roles.mjs';
+import { usesNativeOfficeDesign } from '../design/native-design.mjs';
+import { reviewNativeDocumentDesign } from './document-design-review.mjs';
 
 // Slide-role inference lives in pptx-slide-roles.mjs; the review re-exports it
 // so callers (render QA, tests) keep one entry point.
@@ -357,6 +359,9 @@ export function reviewOfficeDesign({
   auditProfile = '',
 } = {}) {
   const normalizedFormat = String(format || '').toLowerCase();
+  if (usesNativeOfficeDesign(normalizedFormat, request)) {
+    return reviewNativeDocumentDesign(normalizedFormat, document, auditProfile);
+  }
   const design = resolveOfficeDesign(normalizedFormat, request, { library });
   const compositionReview = reviewOfficeCompositionSequence({
     format: normalizedFormat,

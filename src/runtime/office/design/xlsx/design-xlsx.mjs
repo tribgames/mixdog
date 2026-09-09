@@ -230,26 +230,6 @@ export function expandXlsxSheet(operation, design, composition) {
         verticalAlignment: 'center',
       },
     });
-    if (rows.length) {
-      const latestDataOffset = Math.max(
-        0,
-        rows.length - (isExcelTotalRow(rows.at(-1)) ? 2 : 1),
-      );
-      const latestRow = startRow + (headers.length ? 1 : 0) + latestDataOffset;
-      output.push({
-        op: 'set_style',
-        sheet,
-        range: `A${latestRow}:${dataLastColumn}${latestRow}`,
-        properties: {
-          fontName: type.body,
-          fontSize: format.body,
-          bold: true,
-          color: colors.ink,
-          fillColor: colors.surface,
-          verticalAlignment: 'center',
-        },
-      });
-    }
     if (plainObject(operation.columnFormats) && headers.length) {
       headers.forEach((header, index) => {
         const numberFormat = operation.columnFormats[header] || operation.columnFormats[columnLabel(index + 1)];
@@ -333,7 +313,7 @@ export function expandXlsxSheet(operation, design, composition) {
       design,
       decision,
       gates: operation.gates,
-      actions: operation.actions || operation.insights,
+      actions: operation.actions,
     });
     decisionLastRow = panel.lastRow;
     // The panel sits to the right of the data and may run past the canvas columns (a four-column

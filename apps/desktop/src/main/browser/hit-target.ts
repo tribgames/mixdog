@@ -24,7 +24,12 @@ export const BROWSER_HIT_GUARD = `function(token, stop) {
     const expected = current;
     const listener = event => {
       if (!event.isTrusted) return;
-      if (!event.composedPath().includes(expected)) guard.blocked = true;
+      const path = event.composedPath();
+      // A click on the control's label is the control's own activation path;
+      // custom checkboxes hide the input and show only the label.
+      const viaLabel = path.some((node) => node && node.nodeType === 1
+        && node.tagName === 'LABEL' && node.control === expected);
+      if (!path.includes(expected) && !viaLabel) guard.blocked = true;
       if (guard.blocked) { event.preventDefault(); event.stopImmediatePropagation(); }
     };
     for (const event of events) owner.addEventListener(event, listener, {capture: true, passive: false});

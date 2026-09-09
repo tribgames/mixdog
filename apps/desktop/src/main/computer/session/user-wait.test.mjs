@@ -29,6 +29,7 @@ function fixture(t, reason = 'user_input_active') {
     input() { sequence++; lastInput = Date.now(); },
     hold(value) { held = value; },
     fail() { ready = false; },
+    recover() { ready = true; },
     beforeResume(callback) { beforeResume = callback; },
     counts: () => ({ reads, resumes }),
     async tick(ms = 500) {
@@ -65,7 +66,8 @@ test('held keys/buttons wait without treating ordinary input as an observation f
 for (const reason of ['user_stop', 'user_pause', 'user_takeover', 'input_recovery_unconfirmed', 'input_observation_unavailable', 'screen_locked']) {
   test(`${reason} cannot auto-resume from elapsed time`, async (t) => {
     const f = fixture(t, reason);
-    assert.equal(await (async () => { const p = f.manager.wait('a', 1000); await f.advance(1500); return p; })(), 'timeout');
+    assert.equal(await (async () => { const p = f.manager.wait('a', 1000); await f.advance(1500); return p; })(),
+      reason === 'user_stop' ? 'cancelled' : 'timeout');
     await f.advance(10000);
     assert.deepEqual(f.counts(), { reads: 0, resumes: 0 });
     assert.equal(f.coordinator.snapshot().userControlActive, true);
@@ -79,9 +81,48 @@ test('cleanup must finish before observing and failed observation requires confi
   assert.equal(f.counts().reads, 0);
   finish(true);
   f.fail();
-  await f.tick();
+  await f.advance(1500);
   assert.equal(f.coordinator.snapshot().takeoverReason, 'input_observation_unavailable');
   await f.advance(6000);
+  assert.equal(f.counts().resumes, 0);
+});
+
+test('transient observation loss restarts a full quiet interval without input replay', async (t) => {
+  const f = fixture(t);
+  await f.advance(4000);
+  f.fail();
+  await f.tick();
+  assert.equal(f.coordinator.snapshot().takeoverReason, 'user_input_active');
+  f.recover();
+  await f.advance(5000);
+  assert.equal(f.counts().resumes, 0);
+  await f.tick();
+  assert.equal(f.counts().resumes, 1);
+});
+
+test('intermittent observation failures have a finite per-takeover retry budget', async (t) => {
+  const f = fixture(t);
+  for (let i = 0; i < 3; i++) {
+    f.fail();
+    await f.tick();
+    f.recover();
+    await f.tick();
+  }
+  assert.equal(f.coordinator.snapshot().takeoverReason, 'input_observation_unavailable');
+  const reads = f.counts().reads;
+  await f.advance(10000);
+  assert.equal(f.counts().reads, reads);
+  assert.equal(f.counts().resumes, 0);
+});
+
+test('Stop during observer retry prevents all later automatic recovery', async (t) => {
+  const f = fixture(t);
+  f.fail();
+  await f.tick();
+  f.coordinator.pauseForUser('user_stop');
+  f.recover();
+  await f.advance(10000);
+  assert.equal(f.coordinator.snapshot().takeoverReason, 'user_stop');
   assert.equal(f.counts().resumes, 0);
 });
 

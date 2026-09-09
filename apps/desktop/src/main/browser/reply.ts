@@ -12,8 +12,11 @@ import {
   type BrowserCommand,
   type BrowserCommandResult,
   type BrowserSnapshotResultOptions,
+  EFFECT_REPORT_ACTIONS,
+  normalizeBrowserAction,
   POSTCONDITION_POLL_MS,
 } from './command';
+import { browserDocumentChanged } from './documents';
 import type { TrackedBrowserDownload } from './downloads';
 import type { BrowserGuestStateStore } from './guest-state';
 import {
@@ -30,6 +33,7 @@ import {
 import type { BrowserScreenshotCapture } from './screenshot';
 import { pause } from './settle';
 import { formatSnapshot } from './snapshot-format';
+import { measureBrowserPhase } from './timing';
 
 /** Refs a command may address, and which of them were transparently swapped
  *  for a fresh equivalent before dispatch. */
@@ -38,6 +42,8 @@ export interface BrowserRefRecoveryContext {
   replacements: Map<string, string>;
   attempted: Set<string>;
   notes: string[];
+  /** Snapshot-free targets the host resolved to refs for this command. */
+  resolvedTargets: string[];
 }
 
 export interface BrowserReplyHost {
@@ -46,6 +52,7 @@ export interface BrowserReplyHost {
     guest: WebContents,
     signal?: AbortSignal,
     until?: Promise<unknown>,
+    options?: { background?: boolean; requireQuiet?: boolean },
   ): Promise<unknown>;
   postconditionMatchesGuest(
     guest: WebContents,
@@ -97,11 +104,12 @@ export function createBrowserReply(host: BrowserReplyHost) {
   function reportSnapshot(
     guest: WebContents,
     payload: Parameters<typeof formatSnapshot>[0],
+    briefAgainst?: BrowserRefSet,
   ): string {
     const record = state.for(guest);
     const downloads = unreportedDownloads(downloadsForGuest(guest), record.downloadsReportedAt);
     record.downloadsReportedAt = Date.now();
-    return state.redactText(guest, formatSnapshot(payload, record, { downloads }));
+    return state.redactText(guest, formatSnapshot(payload, record, { downloads, briefAgainst }));
   }
 
   function refRecoveryFor(guest: WebContents): BrowserRefRecoveryContext {
@@ -110,6 +118,7 @@ export function createBrowserReply(host: BrowserReplyHost) {
       replacements: new Map(),
       attempted: new Set(),
       notes: [],
+      resolvedTargets: [],
     };
   }
 
@@ -202,7 +211,7 @@ export function createBrowserReply(host: BrowserReplyHost) {
         await pause(POSTCONDITION_POLL_MS, signal);
       }
     };
-    await Promise.all([
+    await measureBrowserPhase('wait', () => Promise.all([
       options.settleAction
         ? settleAfterAction(
           guest,
@@ -210,30 +219,48 @@ export function createBrowserReply(host: BrowserReplyHost) {
           // A condition that was already true before the gesture proves nothing
           // about this one, so it may never cut the settle short.
           expected && !options.preexistingPostcondition ? postconditionSatisfied : undefined,
+          { background: options.targetIsBackground, requireQuiet: Boolean(expected && options.preexistingPostcondition) },
         )
         : Promise.resolve(),
       settleMs ? pause(settleMs, signal) : Promise.resolve(),
       waitForPostcondition(),
-    ]);
+    ]));
     // Deliberately NOT deduplicated against the previous snapshot. Identical
     // page text is common precisely when a gesture reproduces the same result
     // ("Mouse dragged" twice), and that text is the only evidence the gesture
     // landed. Trading it for tokens would break the verify-after-dispatch
     // contract, so repetition stays.
     const payload = await captureSnapshotPayload(guest, command, signal);
-    const snapshot = reportSnapshot(guest, payload);
+    const action = normalizeBrowserAction(command);
+    const baseline = options.baseline;
+    const snapshot = reportSnapshot(
+      guest,
+      payload,
+      command.brief === true ? options.reportBaseline ?? baseline : undefined,
+    );
     if (expected && !postconditionMatched) {
       throw new Error(
         `Postcondition failed after ${postconditionElapsed}ms; `
-        + `the ${String(command.action || 'browser')} action executed once and was not retried. `
+        + `the ${action || 'browser'} action executed once and was not retried. `
         + `Expected ${describeBrowserPostcondition(expected)}.\n\n${snapshot}`,
       );
     }
+    // A gesture the page ignored looks exactly like one that worked unless
+    // the reply says so; repeating it would not help, a different target
+    // might. Scroll is judged by position, everything else by the document.
+    const reacted = options.settleAction && baseline && EFFECT_REPORT_ACTIONS.has(action)
+      ? browserDocumentChanged(baseline.revision, state.peek(guest)?.refSet?.revision, {
+        includeScroll: action === 'scroll',
+      })
+      : undefined;
+    const unchanged = reacted === false && baseline?.url === payload.url;
     const notes = [
       settleMs && `Explicit settle completed after ${settleMs}ms.`,
       expected && options.preexistingPostcondition
-        ? 'Postcondition is inconclusive because it was already satisfied before input dispatch; action executed once.'
+        ? 'Postcondition was already true before this action, so it proves nothing about it; the action executed once. Verify with a condition only this action makes true.'
         : expected && `Postcondition met after ${postconditionElapsed}ms; action executed once.`,
+      unchanged && `No observable change: the document, URL, and control values are the same as before this ${action}. `
+        + 'Do not repeat the same gesture; check the element\'s states or covering elements, or choose another target.',
     ].filter(Boolean);
     const result: BrowserCommandResult = {
       outcome: expected && options.preexistingPostcondition ? 'inconclusive' : 'completed',
@@ -314,10 +341,16 @@ export function createBrowserReply(host: BrowserReplyHost) {
     result: BrowserCommandResult,
     context: BrowserRefRecoveryContext,
   ): BrowserCommandResult {
-    if (!context.notes.length) return result;
+    const prefix = [
+      context.resolvedTargets.length
+        && `Target resolved before input dispatch: ${context.resolvedTargets.join(', ')}`,
+      context.notes.length
+        && `Automatic ref recovery before input dispatch (no action replay): ${context.notes.join(', ')}`,
+    ].filter(Boolean);
+    if (!prefix.length) return result;
     return {
       ...result,
-      text: `Automatic ref recovery before input dispatch (no action replay): ${context.notes.join(', ')}\n\n${result.text}`,
+      text: `${prefix.join('\n')}\n\n${result.text}`,
     };
   }
 

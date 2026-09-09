@@ -5,6 +5,7 @@ import { mixdogHome, resolvePluginData, mixdogRoot } from '../../../shared/plugi
 import { pluginSkillsRoots } from '../../../shared/plugin-manifest.mjs';
 import { readMarkdownDocument } from '../../../shared/markdown-frontmatter.mjs';
 import { parseSkillDocument } from '../../../shared/skill-document.mjs';
+import { readSkillToolDependencies, skillToolDependenciesRoot } from '../../../shared/skill-tool-dependencies.mjs';
 import { loadConfig, normalizeSkillsConfig } from '../config.mjs';
 import { builtinFeatureActive, withGrandfatheredBuiltins } from '../../../../session-runtime/builtin-features.mjs';
 import { extensionScopesFromConfig, skillAllowedForCwd } from '../../../shared/extension-scopes.mjs';
@@ -135,6 +136,7 @@ export function collectSkills(cwd) {
                     source,
                     plugin,
                     requires: requiredFeatures(skill.frontmatter),
+                    ...readSkillToolDependencies(filePath, skill.frontmatter),
                 });
             }
         }
@@ -180,11 +182,18 @@ function getDisabledSkillNameSet(config = null) {
     return new Set(keys);
 }
 
+// Feature-owned bundle entries follow their parent, including when an older
+// profile still has their former individual OFF preference. User overrides
+// and standalone built-ins retain their independent preference.
+function followsBuiltinFeature(skill) {
+    return skill?.source === 'builtin' && Array.isArray(skill.requires) && skill.requires.length > 0;
+}
+
 export function isSkillDisabled(name, config = null) {
     const n = normalizeSkillNameKey(name);
     if (!n) return false;
-    if (getDisabledSkillNameSet(config).has(n)) return true;
     const skill = collectSkillsCached(null).find((entry) => normalizeSkillNameKey(entry.name) === n);
+    if (!followsBuiltinFeature(skill) && getDisabledSkillNameSet(config).has(n)) return true;
     return Boolean(skill && missingFeature(skill, featureConfig(config)));
 }
 
@@ -207,7 +216,8 @@ export function filterSkillsExcludingDisabled(skills, config = null, cwd = null)
     const scopes = extensionScopesFromConfig(cfg);
     return (Array.isArray(skills) ? skills : []).filter((s) => {
         const key = normalizeSkillNameKey(s?.name);
-        return key && !disabled.has(key) && !missingFeature(s, cfg) && skillAllowedForCwd(scopes, s, cwd);
+        return key && (followsBuiltinFeature(s) || !disabled.has(key))
+            && !missingFeature(s, cfg) && skillAllowedForCwd(scopes, s, cwd);
     });
 }
 
@@ -224,6 +234,7 @@ export function collectSkillsCached(cwd) {
     const key = 'global';
     // Same mixdog-owned dirs collectSkills() reads, used as the freshness gate.
     const skillsDirs = mixdogAssetDirs(null, 'skills');
+    skillsDirs.push(skillToolDependenciesRoot());
     skillsDirs.push(...pluginSkillDirs().map(({ dir }) => dir), ...builtinSkillDirs());
     // registry.json itself gates plugin add/remove: removal deletes the
     // plugin's skills dir (so no dir mtime advances), but saveRegistry()
@@ -284,6 +295,10 @@ export function loadSkillResource(name, cwd) {
             dir: dirname(skill.filePath),
             filePath: skill.filePath,
             source: skill.source || 'global',
+            toolDependencies: skill.toolDependencies || [],
+            declaredToolDependencies: skill.declaredToolDependencies || [],
+            dependencySource: skill.dependencySource || 'none',
+            dependencyIssues: skill.dependencyIssues || [],
         };
     } catch {
         return null;
@@ -334,29 +349,28 @@ function buildSkillStub(name, source) {
  * "latest human prompt" selection does not mistake the skill body for the
  * human's request.
  */
-export function buildSkillToolEnvelope(name, content, skillDir, { source = 'global' } = {}) {
+export function buildSkillToolEnvelope(name, content, skillDir, {
+    source = 'global', toolDependencies = [], dependencyIssues = [],
+} = {}) {
     return {
         __toolEnvelope: true,
         result: buildSkillStub(name, source),
+        ...(toolDependencies.length ? { skillToolDependencies: toolDependencies } : {}),
+        ...(dependencyIssues.length ? { skillDependencyIssues: dependencyIssues } : {}),
         newMessages: [
             { role: 'user', content: buildSkillResultEnvelope(name, content, skillDir), meta: 'skill' },
         ],
     };
 }
 
-// Listing entries are for MATCHING only (full SKILL.md arrives via Skill()).
-// Each entry is `description — when_to_use`: a short capability sentence plus
-// the trigger phrases and boundary. The cap is a word-boundary cut generous
-// enough to keep both halves for a well-formed skill (the authoring rule is
-// description ≤ 100, combined ≤ 250) while trimming anything past that,
-// which the Skill() load supplies anyway.
-const SKILL_MANIFEST_DESC_MAX = 250;
-const SKILL_MANIFEST_DESC_MIN = 60;
-const SKILL_MANIFEST_TRIGGER_SEPARATOR = ' — ';
+// Only selection triggers enter the model's listing. Descriptions belong to
+// the UI; operating instructions arrive in the body through Skill().
+const SKILL_MANIFEST_TRIGGER_MAX = 250;
+const SKILL_MANIFEST_TRIGGER_MIN = 60;
 // Whole-manifest ceiling (~1% of a 200k-token window at 4 chars/token).
 const SKILL_MANIFEST_CHAR_BUDGET = 8_000;
 
-function compactSkillManifestText(value, max = SKILL_MANIFEST_DESC_MAX) {
+function compactSkillManifestText(value, max = SKILL_MANIFEST_TRIGGER_MAX) {
     const text = String(value || '').replace(/\s+/g, ' ').trim();
     const limit = Math.max(1, Math.floor(max));
     if (text.length <= limit) return text;
@@ -366,11 +380,12 @@ function compactSkillManifestText(value, max = SKILL_MANIFEST_DESC_MAX) {
     return `${cut.replace(/[\s,.;:!?/\-]+$/, '')}...`;
 }
 
-/** `description — when_to_use`, or the description alone when no trigger line exists. */
-function skillManifestText(skill) {
-    const description = String(skill?.description || '').trim();
-    const whenToUse = String(skill?.whenToUse || '').trim();
-    return whenToUse ? `${description}${SKILL_MANIFEST_TRIGGER_SEPARATOR}${whenToUse}` : description;
+function skillManifestToolNames(skill) {
+    const dependencies = Array.isArray(skill?.toolDependencies) ? skill.toolDependencies : [];
+    return [...new Set(dependencies
+        .filter((entry) => ['tool', 'mcp'].includes(entry?.type)
+            && /^[A-Za-z0-9_.:-]+$/.test(String(entry?.value || '')))
+        .map((entry) => entry.type === 'mcp' ? `mcp:${entry.value}` : entry.value))];
 }
 
 /**
@@ -382,28 +397,30 @@ export function buildSkillManifest(skills, { limit = 80, charBudget = SKILL_MANI
     const list = (Array.isArray(skills) ? skills : [])
         .map((skill) => ({
             name: String(skill?.name || '').trim(),
-            description: skillManifestText(skill),
+            trigger: String(skill?.whenToUse || '').trim(),
+            linkedTools: skillManifestToolNames(skill),
         }))
         .filter((skill) => skill.name)
         .sort((a, b) => a.name.localeCompare(b.name));
     if (!list.length) return '';
     const max = Math.max(1, Number(limit) || 80);
     const visible = list.slice(0, max);
-    // Names are never truncated; the shared budget only shrinks descriptions,
+    // Names are never truncated; the shared budget only shrinks triggers,
     // evenly, down to the readable floor.
     const budget = Math.max(1_000, Number(charBudget) || SKILL_MANIFEST_CHAR_BUDGET);
-    const nameOverhead = visible.reduce((sum, skill) => sum + skill.name.length + 4, 0);
+    const toolSuffix = (skill) => skill.linkedTools.length ? ` [tools: ${skill.linkedTools.join(', ')}]` : '';
+    const nameOverhead = visible.reduce((sum, skill) => sum + skill.name.length + toolSuffix(skill).length + 4, 0);
     const perEntry = Math.floor((budget - nameOverhead) / visible.length);
-    const descCap = Math.min(
-        SKILL_MANIFEST_DESC_MAX,
-        Math.max(SKILL_MANIFEST_DESC_MIN, Number.isFinite(perEntry) ? perEntry : SKILL_MANIFEST_DESC_MAX),
+    const triggerCap = Math.min(
+        SKILL_MANIFEST_TRIGGER_MAX,
+        Math.max(SKILL_MANIFEST_TRIGGER_MIN, Number.isFinite(perEntry) ? perEntry : SKILL_MANIFEST_TRIGGER_MAX),
     );
-    for (const skill of visible) skill.description = compactSkillManifestText(skill.description, descCap);
+    for (const skill of visible) skill.trigger = compactSkillManifestText(skill.trigger, triggerCap);
     const lines = [
         '# available-skills',
-        'Call Skill({"name":"<skill-name>"}) when a skill description matches the task. Load the skill before following its workflow.',
+        'Selection triggers and linked tools for Skill({"name":"<skill-name>"}). mcp:<server> denotes that server’s tools.',
         '<available_skills>',
-        ...visible.map((skill) => `- ${skill.name}: ${skill.description || 'No description.'}`),
+        ...visible.map((skill) => (skill.trigger ? `- ${skill.name}: ${skill.trigger}` : `- ${skill.name}`) + toolSuffix(skill)),
         ...(list.length > visible.length ? [`- ... ${list.length - visible.length} more skills omitted`] : []),
         '</available_skills>',
     ];
@@ -421,6 +438,24 @@ function sanitizeDeferredToolManifestName(name) {
     if (!text || text.includes('<') || text.includes('>')) return '';
     if (!DEFERRED_TOOL_NAME_SAFE_RE.test(text)) return '';
     return text;
+}
+
+function skillRoutedToolNames(messages) {
+    const names = new Set();
+    for (const message of Array.isArray(messages) ? messages : []) {
+        if (message?.role !== 'system' || typeof message.content !== 'string') continue;
+        for (const block of message.content.matchAll(/<available_skills>([\s\S]*?)<\/available_skills>/g)) {
+            // Use only routes actually visible to this session, not the global
+            // skill catalog (which may include disabled or omitted skills).
+            for (const route of block[1].matchAll(/^- [^:\r\n]+:\s+\S[^\r\n]* \[tools: ([^\]\r\n]+)\]$/gm)) {
+                for (const name of route[1].split(',').map((value) => value.trim())) {
+                    // MCP dependencies name servers, not individual tools.
+                    if (/^[A-Za-z0-9_]+$/.test(name) && !name.startsWith('mcp__')) names.add(name);
+                }
+            }
+        }
+    }
+    return names;
 }
 
 function hasDeferredToolManifestBlock(text) {
@@ -454,7 +489,7 @@ export function buildDeferredToolManifest(entries) {
     list.sort((a, b) => a.name.localeCompare(b.name));
     return [
         '<available-deferred-tools>',
-        'You may call any tool listed below directly by name with its arguments; it auto-loads on first call. When you do not know its exact arguments, call load_tool first to surface the schema.',
+        'Deferred tool names and purposes; schemas load on demand.',
         ...list.map((entry) => (entry.description ? `- ${entry.name}: ${entry.description}` : `- ${entry.name}`)),
         '</available-deferred-tools>',
     ].join('\n');
@@ -560,7 +595,13 @@ export function applyInitialDeferredToolManifestToBp2(session, poolNames, option
         const name = String(tool?.name || '').trim();
         if (name && !descByName.has(name)) descByName.set(name, String(tool?.description || ''));
     }
-    const entries = pool.map((name) => ({ name, description: descByName.get(String(name).trim()) || '' }));
+    const skillRoutedNames = skillRoutedToolNames(session.messages);
+    const entries = pool.map((name) => ({
+        name,
+        description: skillRoutedNames.has(String(name).trim())
+            ? ''
+            : descByName.get(String(name).trim()) || '',
+    }));
     const parts = [];
     const deferredManifest = buildDeferredToolManifest(entries);
     if (deferredManifest) parts.push(deferredManifest);
@@ -665,7 +706,7 @@ export function buildSkillToolDefs(skills, { ownerIsAgentSession = false } = {})
                 openWorldHint: false,
                 agentHidden: false,
             },
-            description: 'Load a named SKILL.md into context.',
+            description: 'Load a named SKILL.md only when its body is absent from the current context. Reuse an already-present body across tasks and turns without calling Skill again.',
             inputSchema: {
                 type: 'object',
                 properties: {

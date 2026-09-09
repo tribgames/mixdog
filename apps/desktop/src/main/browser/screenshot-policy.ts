@@ -85,3 +85,39 @@ export function assertFullPageOutputBounds(
 ): void {
   boundedFullPageRect(scaledScreenshotRect(rect, scale));
 }
+
+/** Fixed and sticky elements are positioned against the viewport, so a
+ *  full-page clip paints a header over the middle of the document. Anchoring
+ *  them in flow for the capture keeps them where the reader expects; the
+ *  inline style is put back exactly as it was. */
+export const FULL_PAGE_LAYOUT_PREPARE = `(() => {
+  if (window.__mixdogFullPageLayout) return 0;
+  const changed = [];
+  const root = document.body || document.documentElement;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+  let scanned = 0;
+  for (let node = walker.currentNode; node; node = walker.nextNode()) {
+    if (++scanned > 5000) break;
+    const position = getComputedStyle(node).position;
+    if (position !== 'fixed' && position !== 'sticky') continue;
+    changed.push({
+      node,
+      value: node.style.getPropertyValue('position'),
+      priority: node.style.getPropertyPriority('position'),
+    });
+    node.style.setProperty('position', position === 'fixed' ? 'absolute' : 'relative', 'important');
+  }
+  window.__mixdogFullPageLayout = changed;
+  return changed.length;
+})()`;
+
+export const FULL_PAGE_LAYOUT_RESTORE = `(() => {
+  const changed = window.__mixdogFullPageLayout;
+  if (!changed) return 0;
+  delete window.__mixdogFullPageLayout;
+  for (const entry of changed) {
+    if (entry.value) entry.node.style.setProperty('position', entry.value, entry.priority);
+    else entry.node.style.removeProperty('position');
+  }
+  return changed.length;
+})()`;

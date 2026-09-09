@@ -1,14 +1,5 @@
-import {
-  Brain,
-  Cpu,
-  FileSpreadsheet,
-  GitBranch,
-  Globe2,
-  Mic,
-  Monitor,
-  Sparkles,
-  type LucideIcon,
-} from 'lucide-react';
+import { CapabilityIcon } from '../CapabilityIcon';
+import { skillDisplayDescription } from '../skill-presentation';
 import { useEffect, useMemo, useState } from 'react';
 
 import type {
@@ -23,7 +14,7 @@ import { CompactSwitch, Group } from './capability-controls';
 import { sectionLoaded, type PanelContext, type RecordValue } from './capability-data';
 import {
   ExtensionDetailDialog,
-  ExtensionFacts,
+  ExtensionAction,
   ExtensionItemList,
   ExtensionItemRow,
   ExtensionNote,
@@ -36,21 +27,12 @@ import {
   type BuiltInFeatureId,
 } from './built-in-feature-registry';
 import { SlotProgress } from './built-in-install-progress';
-import { LocalProviderModels, localProviderFileSize as fileSize } from './local-provider-models';
+import { LocalProviderModels } from './local-provider-models';
+import { BuiltInFeatureInfo, featureRequirement } from './built-in-feature-info';
 import { installationPercent, localProviderInstallation, useLocalProviderStatus } from './local-provider-status';
 import { useLocalProviderActions } from './local-provider-actions';
 import type { LocalProviderActions } from './local-provider-operations';
 import { GitPanel } from './git-panel';
-
-const FEATURE_ICONS: Readonly<Record<BuiltInFeatureId, LucideIcon>> = {
-  git: GitBranch,
-  memory: Brain,
-  browser: Globe2,
-  computer: Monitor,
-  office: FileSpreadsheet,
-  localProvider: Cpu,
-  voice: Mic,
-};
 
 type FeatureAction = {
   id: BuiltInFeatureId;
@@ -90,11 +72,12 @@ type FeatureState = {
   action: FeatureAction | null;
   progressPercent: number | null;
   localProvider: RecordValue;
+  info: RecordValue;
 };
 
 /** Short list badge for the state the row cannot show as a switch. */
 function featureBadge({ ready, installed, available, action, progressPercent }: FeatureState): string {
-  if (!available) return t('Windows only');
+  if (!available) return '';
   if (!ready) return '';
   if (action?.status === 'installing') {
     return progressPercent === null ? t('Installing…') : `${t('Installing…')} ${progressPercent}%`;
@@ -131,55 +114,22 @@ function FeatureControl({ state, onInstall, onToggle }: {
   </span>;
 }
 
-/** External component a feature's Install step brings in; '' when none. */
-function featureRequirement(id: BuiltInFeatureId): string {
-  if (id === 'git') return 'Git CLI · GitHub CLI';
-  if (id === 'office') return 'LibreOffice';
-  if (id === 'localProvider') return t('NVIDIA RTX GPU · 24 GB VRAM');
-  return '';
-}
-
-/** Local Provider is the one feature with live runtime facts worth a list:
- *  runtime build, the GPU it runs on, free memory, and the server state. */
-function localProviderFacts(status: RecordValue): Array<readonly [string, string]> {
-  const runtime = record(status.runtime);
-  const hardware = record(status.hardware);
-  const gpus = Array.isArray(hardware.gpus) ? hardware.gpus.map(record) : [];
-  const gpu = gpus.find((entry) => entry.uuid === record(status.gpu).uuid) || record(hardware.gpu);
-  const memory = (bytes: unknown) => typeof bytes === 'number' ? `${(bytes / 1024 ** 3).toFixed(1)} GiB` : '';
-  const free = memory(gpu.freeMemoryBytes);
-  const total = memory(gpu.memoryBytes);
-  return [
-    ['Runtime', [String(runtime.version || ''), fileSize(runtime.downloadBytes)].filter(Boolean).join(' · ')],
-    ['GPU', String(record(status.gpu).name || gpu.name || t('Not detected'))],
-    ['Available GPU memory', free && total ? `${free} / ${total}` : ''],
-    ['Server', status.starting ? t('Loading model…') : status.running ? t('Running') : t('Stopped')],
-  ];
-}
-
-/** Detail for one built-in feature on the shared card grammar: icon and
- *  title on the header line with the install/enable control, the tagline,
- *  the feature's own sections (GitHub, Commit messages, models…), bundled
- *  skills (each switching on its own), and live facts only where a feature
- *  has any (Local Provider). Status/platform/requirement facts are gone —
- *  the header control already says the state, and the list badge says
- *  "Windows only" (user: 불필요한 표면 정리). */
-function FeatureDetailDialog({ state, disabledSkills, onInstall, onToggle, onSkillToggle, onClose, localActions, api }: {
+/** The parent feature owns activation; bundled skills are read-only children. */
+function FeatureDetailDialog({ state, onInstall, onToggle, onClose, localActions, api, gitStatus, officeDependency }: {
   api: PanelContext['api'];
   state: FeatureState;
-  disabledSkills: ReadonlySet<string>;
+  gitStatus: DesktopGitCliStatus | null;
+  officeDependency: DesktopLibreOfficeStatus | null;
   onInstall(): void;
   onToggle(enabled: boolean): void;
-  onSkillToggle(name: string, enabled: boolean): void;
   onClose(): void;
   localActions: LocalProviderActions;
 }) {
-  const { feature, bundledSkills, busy, action, ready, installed } = state;
-  const Icon = FEATURE_ICONS[feature.id];
+  const { feature, bundledSkills, action, ready, installed } = state;
   const title = t(feature.title);
   const requirement = featureRequirement(feature.id);
   return <ExtensionDetailDialog title={title} onClose={onClose}
-    icon={<Icon size={16} aria-hidden="true" />}
+    icon={<CapabilityIcon kind="builtin" name={feature.id} />}
     tagline={t(feature.description)}
     dataAttributes={{ 'data-feature-id': feature.id }}
     headerControl={<FeatureControl state={state} onInstall={onInstall} onToggle={onToggle} />}>
@@ -197,18 +147,16 @@ function FeatureDetailDialog({ state, disabledSkills, onInstall, onToggle, onSki
       <ExtensionItemList>
         {bundledSkills.map((skill) => {
           const name = String(skill.name);
-          const off = disabledSkills.has(name);
-          return <ExtensionItemRow key={name} icon={<Sparkles size={15} aria-hidden="true" />}
-            title={name} description={String(skill.description || '').trim()}
+          const off = !ready || !installed || !state.enabled || !state.available;
+          return <ExtensionItemRow key={name} icon={<CapabilityIcon name={name} size={15} />}
+            title={name} description={skillDisplayDescription(skill).trim()}
             tone={off ? 'off' : 'ok'}
-            control={<CompactSwitch label={`${name} · ${t('Enabled')}`} checked={!off}
-              disabled={busy} onChange={(next) => onSkillToggle(name, next)} />} />;
+            control={<ExtensionAction disabled>
+              {t('Required tools')}</ExtensionAction>} />;
         })}
       </ExtensionItemList>
     </ExtensionSection>}
-    {feature.id === 'localProvider' && <ExtensionSection title={t('Info')}>
-      <ExtensionFacts facts={localProviderFacts(state.localProvider)} />
-    </ExtensionSection>}
+    <BuiltInFeatureInfo state={state} gitStatus={gitStatus} officeDependency={officeDependency} />
   </ExtensionDetailDialog>;
 }
 
@@ -246,13 +194,6 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api, initia
     }
     return byFeature;
   }, [data.skills]);
-  const disabledSkills = useMemo(() => new Set((Array.isArray(record(data.disabledSkills).disabled)
-    ? record(data.disabledSkills).disabled as unknown[] : []).map(String)), [data.disabledSkills]);
-  const setSkillEnabled = (name: string, next: boolean) => {
-    const nextSet = new Set(disabledSkills);
-    if (next) nextSet.delete(name); else nextSet.add(name);
-    void run('setDisabledSkills', [[...nextSet]]);
-  };
   useEffect(() => {
     if (voice.installed === true) setVoiceInstalled(true);
   }, [voice.installed]);
@@ -409,14 +350,14 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api, initia
         ? installationPercent(localProviderInstallation(localProvider, 'runtime'))
         : feature.id === 'voice' || feature.id === 'memory' ? progress.percent : null,
       localProvider,
+      info: record(feature.id === 'voice' ? voice.info : record(toolModules[feature.id]).info),
     };
   };
   const open = openId ? BUILT_IN_FEATURES.find((feature) => feature.id === openId) : undefined;
   return <Group title="Built-in">
     {BUILT_IN_FEATURES.map((feature) => {
       const state = stateOf(feature);
-      const Icon = FEATURE_ICONS[feature.id];
-      return <ExtensionRow key={feature.id} icon={<Icon size={16} aria-hidden="true" />}
+      return <ExtensionRow key={feature.id} icon={<CapabilityIcon kind="builtin" name={feature.id} />}
         title={t(feature.title)} description={t(feature.description)}
         badge={featureBadge(state)}
         enabled={state.installed && state.enabled}
@@ -426,10 +367,10 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api, initia
     {open && <FeatureDetailDialog key={open.id} state={stateOf(open)}
       api={api}
       localActions={localActions}
-      disabledSkills={disabledSkills}
+      gitStatus={gitStatus}
+      officeDependency={officeDependency}
       onInstall={() => install(open.id)}
       onToggle={(next) => toggle(open.id, next)}
-      onSkillToggle={setSkillEnabled}
       onClose={() => setOpenId(null)} />}
   </Group>;
 }

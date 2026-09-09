@@ -39,6 +39,7 @@ export interface BrowserGuestCdpHost {
 }
 
 export interface BrowserCdpCallOptions {
+  beforeDispatch?: () => void;
   /** Address a child target (frame, worker) instead of the root session. */
   sessionId?: string;
   timeoutMs?: number;
@@ -69,6 +70,7 @@ export interface BrowserGuestCdp {
     timeoutMs?: number,
     signal?: AbortSignal,
     sessionId?: string,
+    beforeDispatch?: () => void,
   ): Promise<T>;
   /** One command against a guest: resolves the attached debugger and applies
    *  the default request timeout. Page services reach CDP through this. */
@@ -88,6 +90,8 @@ export interface BrowserGuestCdp {
     method: string,
     params: Record<string, unknown>,
     signal?: AbortSignal,
+    sessionId?: string,
+    beforeDispatch?: () => void,
   ): Promise<'completed' | 'dialog'>;
   evaluate<T>(
     guest: WebContents,
@@ -108,6 +112,8 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
   const { state, interceptFetchPatterns, matchInterceptRule } = host;
   const debuggerReady = new WeakMap<WebContents, Promise<Electron.Debugger>>();
   const debuggerListeners = new WeakMap<WebContents, (...args: unknown[]) => void>();
+  const debuggerLifetime = new WeakMap<WebContents, AbortController>();
+  const detaching = new WeakSet<WebContents>();
 
   async function bounded<T>(
     promise: Promise<T>,
@@ -159,6 +165,7 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
       options.timeoutMs ?? CDP_REQUEST_TIMEOUT_MS,
       signal,
       options.sessionId,
+      options.beforeDispatch,
     );
   }
 
@@ -168,8 +175,10 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     method: string,
     params: Record<string, unknown>,
     signal?: AbortSignal,
+    sessionId?: string,
+    beforeDispatch?: () => void,
   ): Promise<'completed' | 'dialog'> {
-    const dispatch = sendCdp<void>(guest, cdp, method, params, CDP_REQUEST_TIMEOUT_MS, signal);
+    const dispatch = sendCdp<void>(guest, cdp, method, params, CDP_REQUEST_TIMEOUT_MS, signal, sessionId, beforeDispatch);
     const outcome = dispatch.then(
       () => ({ done: true as const, error: null }),
       (error: unknown) => ({ done: true as const, error }),
@@ -234,35 +243,48 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
   async function initializeTargetSession(
     guest: WebContents,
     cdp: Electron.Debugger,
+    signal: AbortSignal,
     sessionId?: string,
   ): Promise<void> {
     // Dialog interception is the startup safety boundary. Do not make first
     // navigation wait for unrelated observability domains or child targets.
     await Promise.all([
-      sendCdp(guest, cdp, 'Page.enable', {}, CDP_REQUEST_TIMEOUT_MS, undefined, sessionId),
-      sendCdp(guest, cdp, 'Runtime.enable', {}, CDP_REQUEST_TIMEOUT_MS, undefined, sessionId),
+      sendCdp(guest, cdp, 'Page.enable', {}, CDP_REQUEST_TIMEOUT_MS, signal, sessionId),
+      sendCdp(guest, cdp, 'Runtime.enable', {}, CDP_REQUEST_TIMEOUT_MS, signal, sessionId),
+      ...(!sessionId ? [
+        sendCdp(guest, cdp, 'Emulation.setFocusEmulationEnabled', {
+          enabled: true,
+        }, CDP_REQUEST_TIMEOUT_MS, signal),
+      ] : []),
       sendCdp(guest, cdp, 'Page.addScriptToEvaluateOnNewDocument', {
         source: DIALOG_BRIDGE_SCRIPT,
         runImmediately: true,
-      }, CDP_REQUEST_TIMEOUT_MS, undefined, sessionId),
+      }, CDP_REQUEST_TIMEOUT_MS, signal, sessionId),
       sendCdp(guest, cdp, 'Fetch.enable', {
         patterns: fetchPatternsFor(guest),
-      }, CDP_REQUEST_TIMEOUT_MS, undefined, sessionId),
+      }, CDP_REQUEST_TIMEOUT_MS, signal, sessionId),
     ]);
+    signal.throwIfAborted();
+    if (sessionId && !state.for(guest).cdpSessions.has(sessionId)) return;
     void Promise.allSettled([
-      sendCdp(guest, cdp, 'Network.enable', {}, CDP_REQUEST_TIMEOUT_MS, undefined, sessionId),
-      sendCdp(guest, cdp, 'Log.enable', {}, CDP_REQUEST_TIMEOUT_MS, undefined, sessionId),
-      sendCdp(guest, cdp, 'Accessibility.enable', {}, CDP_REQUEST_TIMEOUT_MS, undefined, sessionId),
+      sendCdp(guest, cdp, 'Network.enable', {}, CDP_REQUEST_TIMEOUT_MS, signal, sessionId),
+      sendCdp(guest, cdp, 'Log.enable', {}, CDP_REQUEST_TIMEOUT_MS, signal, sessionId),
+      sendCdp(guest, cdp, 'Accessibility.enable', {}, CDP_REQUEST_TIMEOUT_MS, signal, sessionId),
       // A native file picker would block the window; Chromium reports it as
       // an event instead and `upload` answers it with approved paths.
       sendCdp(guest, cdp, 'Page.setInterceptFileChooserDialog', {
         enabled: true,
-      }, CDP_REQUEST_TIMEOUT_MS, undefined, sessionId),
-      sendCdp(guest, cdp, 'Target.setAutoAttach', {
-        autoAttach: true,
-        waitForDebuggerOnStart: false,
-        flatten: true,
-      }, CDP_REQUEST_TIMEOUT_MS, undefined, sessionId),
+      }, CDP_REQUEST_TIMEOUT_MS, signal, sessionId),
+      // Mitigate the observed TargetHandler::AutoAttach native crash by not
+      // recursively registering auto-attach on child sessions. Flatten only
+      // changes session routing; nested OOPIF coverage is not guaranteed.
+      ...(!sessionId ? [
+        sendCdp(guest, cdp, 'Target.setAutoAttach', {
+          autoAttach: true,
+          waitForDebuggerOnStart: false,
+          flatten: true,
+        }, CDP_REQUEST_TIMEOUT_MS, signal),
+      ] : []),
     ]);
   }
 
@@ -354,17 +376,19 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     const targetInfo = (params.targetInfo && typeof params.targetInfo === 'object'
       ? params.targetInfo
       : {}) as { targetId?: string; type?: string; url?: string };
-    if (!attachedSessionId || targetInfo.type !== 'iframe') return;
+    const lifetime = debuggerLifetime.get(guest);
+    if (!lifetime || lifetime.signal.aborted || !attachedSessionId || targetInfo.type !== 'iframe') return;
+    if (diagnostics.cdpSessions.has(attachedSessionId)) return;
     if (diagnostics.cdpSessions.size >= MAX_CHILD_CDP_SESSIONS) {
+      // Leave the excess session attached but uninitialized: detaching it
+      // mid-navigation could exercise the native crash path. Chromium drops
+      // the session by itself when the frame goes away.
       diagnostics.console.recordError(
-        `CDP child target limit reached (${MAX_CHILD_CDP_SESSIONS}); detached excess iframe`,
+        `CDP child target limit reached (${MAX_CHILD_CDP_SESSIONS}); excess iframe left unobserved`,
       );
-      void cdp.sendCommand('Target.detachFromTarget', {
-        sessionId: attachedSessionId,
-      }).catch(() => undefined);
       return;
     }
-    const ready = initializeTargetSession(guest, cdp, attachedSessionId);
+    const ready = initializeTargetSession(guest, cdp, lifetime.signal, attachedSessionId);
     diagnostics.cdpSessions.set(attachedSessionId, {
       type: String(targetInfo.type || 'iframe'),
       url: redactBrowserUrl(String(targetInfo.url || '').slice(0, 8_000)),
@@ -498,10 +522,16 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
   }
 
   async function guestDebugger(guest: WebContents): Promise<Electron.Debugger> {
+    if (guest.isDestroyed() || detaching.has(guest)) throw new Error('browser page is unavailable');
     const existing = debuggerReady.get(guest);
     if (existing) return existing;
+    const lifetime = new AbortController();
+    debuggerLifetime.set(guest, lifetime);
+    const onDestroyed = () => lifetime.abort(new Error('browser page is unavailable'));
+    guest.once('destroyed', onDestroyed);
     const ready = (async () => {
       await waitForInitialDocument(guest);
+      lifetime.signal.throwIfAborted();
       const cdp = guest.debugger;
       if (!cdp.isAttached()) cdp.attach('1.3');
       const onMessage = (
@@ -516,20 +546,34 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
       debuggerListeners.set(guest, onMessage);
       cdp.on('message', onMessage);
       cdp.once('detach', (_event, reason) => {
+        lifetime.abort(new Error(`CDP detached: ${String(reason || 'unknown reason')}`));
+        guest.removeListener('destroyed', onDestroyed);
+        if (debuggerLifetime.get(guest) !== lifetime) return;
+        debuggerLifetime.delete(guest);
         const listener = debuggerListeners.get(guest);
         if (listener) cdp.removeListener('message', listener);
         debuggerListeners.delete(guest);
         debuggerReady.delete(guest);
         const record = state.for(guest);
+        record.cdpSessions.clear();
         record.performanceTrace?.resolveComplete();
         record.performanceTrace = undefined;
         record.fault = `CDP detached: ${String(reason || 'unknown reason')}`;
       });
-      await initializeTargetSession(guest, cdp);
+      await initializeTargetSession(guest, cdp, lifetime.signal);
       return cdp;
     })();
     debuggerReady.set(guest, ready);
-    ready.catch(() => debuggerReady.delete(guest));
+    ready.catch(() => {
+      if (debuggerReady.get(guest) === ready) debuggerReady.delete(guest);
+      guest.removeListener('destroyed', onDestroyed);
+      if (debuggerLifetime.get(guest) !== lifetime) return;
+      lifetime.abort(new Error('CDP initialization failed'));
+      if (!guest.isDestroyed() && guest.debugger.isAttached()) {
+        try { guest.debugger.detach(); } catch { /* already detached */ }
+      }
+      if (debuggerLifetime.get(guest) === lifetime) debuggerLifetime.delete(guest);
+    });
     return ready;
   }
 
@@ -562,16 +606,24 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     guest: WebContents,
     options: { uninstallScript?: string } = {},
   ): Promise<void> {
-    if (guest.isDestroyed() || !guest.debugger.isAttached()) return;
-    if (options.uninstallScript) {
-      try {
-        await guest.debugger.sendCommand('Runtime.evaluate', {
-          expression: options.uninstallScript,
-          awaitPromise: true,
-        });
-      } catch { /* page may be gone or blocked by a native dialog */ }
+    if (detaching.has(guest)) return;
+    detaching.add(guest);
+    debuggerLifetime.get(guest)?.abort(new Error('CDP detaching'));
+    debuggerReady.delete(guest);
+    try {
+      if (guest.isDestroyed() || !guest.debugger.isAttached()) return;
+      if (options.uninstallScript) {
+        try {
+          await bounded(guest.debugger.sendCommand('Runtime.evaluate', {
+            expression: options.uninstallScript,
+            awaitPromise: true,
+          }), CDP_REQUEST_TIMEOUT_MS, 'browser bridge uninstall');
+        } catch { /* page may be gone or blocked by a native dialog */ }
+      }
+      try { guest.debugger.detach(); } catch { /* already detached */ }
+    } finally {
+      detaching.delete(guest);
     }
-    try { guest.debugger.detach(); } catch { /* already detached */ }
   }
 
   return {

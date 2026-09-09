@@ -95,6 +95,11 @@ export function createGoalContinuation({
   return {
     cancelQueuedGoalContinuations,
     refreshGoalState,
+    /** The Goal as the user should see it right now: the raw record with the
+     *  archive-in-flight mask applied. Route publications read this instead
+     *  of the record, so a retiring completed Goal cannot reappear between
+     *  the user's prompt and its archive write. */
+    visibleGoalStatus: () => visibleGoal(runtime.goalStatus?.() || null),
     scheduleGoalContinuation,
     shouldRunGoalContinuation,
     async onGoalTurnStarted() {
@@ -108,7 +113,7 @@ export function createGoalContinuation({
         typeof detail === 'string' ? { status } : detail,
       ));
       if (goal !== undefined && getState().goal !== goal) set({ goal: goal || null });
-      if (status === 'done' && goal?.status === 'active') scheduleGoalContinuation();
+      if (goal?.status === 'active') scheduleGoalContinuation();
       return goal;
     },
     archiveCompletedGoalOnUserInput() {

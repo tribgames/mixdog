@@ -79,8 +79,6 @@ export function _buildLeadMetaContext() {
     return buildCachedRules('buildLeadMetaContent', 'lead meta context', [
         join(RULES_DIR, 'lead'),
         join(DATA_DIR, 'mixdog-config.json'),
-        join(DATA_DIR, 'instructions.md'),
-        join(DATA_DIR, 'user-workflow.md'),
         join(PLUGIN_ROOT, 'output-styles'),
         join(DATA_DIR, 'output-styles'),
     ], { PLUGIN_ROOT, DATA_DIR });

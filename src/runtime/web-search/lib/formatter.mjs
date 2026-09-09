@@ -66,6 +66,57 @@ function formatCrawl(data) {
     .join('\n\n---\n\n')
 }
 
+const DEFAULT_FETCH_MAX_LENGTH = 50000
+
+export function applyFetchPagination(payload, args) {
+  const fullContent = String(payload?.content ?? '')
+  const totalLength = fullContent.length
+  const startIndex = Math.max(0, Number.isFinite(args?.startIndex) ? args.startIndex : 0)
+  const rawLimit = args?.maxLength
+  const limit = rawLimit === 0
+    ? Infinity
+    : (rawLimit == null ? DEFAULT_FETCH_MAX_LENGTH : Math.max(0, Number(rawLimit)))
+  if (startIndex >= totalLength) {
+    return {
+      ...payload,
+      content: '',
+      bytes: 0,
+      totalLength,
+      range: { startIndex, endIndex: startIndex },
+      hasMore: false,
+      nextStartIndex: null,
+      truncated: false,
+    }
+  }
+  const endIndex = Math.min(totalLength, startIndex + (Number.isFinite(limit) ? limit : totalLength - startIndex))
+  const slice = fullContent.slice(startIndex, endIndex)
+  const hasMore = endIndex < totalLength
+  return {
+    ...payload,
+    content: slice,
+    bytes: Buffer.byteLength(slice, 'utf-8'),
+    totalLength,
+    range: { startIndex, endIndex },
+    hasMore,
+    nextStartIndex: hasMore ? endIndex : null,
+    truncated: hasMore || startIndex > 0,
+  }
+}
+
+function fetchDiagnostics(item) {
+  const lines = []
+  if (item.errorCode) lines.push(`errorCode: ${item.errorCode}`)
+  if (item.attempts?.length) {
+    lines.push(`attempts: ${item.attempts.map(attempt =>
+      `${attempt.stage}=${attempt.code || attempt.status}${Number.isFinite(attempt.elapsedMs) ? ` (${attempt.elapsedMs}ms)` : ''}`,
+    ).join(' -> ')}`)
+  }
+  for (const failure of item.failures || []) {
+    lines.push(`failure: ${failure.extractor}${failure.code ? ` [${failure.code}]` : ''}${failure.status ? ` HTTP ${failure.status}` : ''}: ${failure.error}`)
+  }
+  return lines
+}
+
 function formatFetch(data) {
   const results = data.results || []
   if (!results.length) return '(no fetch results)'
@@ -74,8 +125,9 @@ function formatFetch(data) {
   return cappedNote + results
     .map(item => {
       const url = item.url || ''
+      const diagnostics = fetchDiagnostics(item)
       if (item.status === 'error' || item.error) {
-        return `[${url}]\n(error: ${item.error || 'unknown error'})`
+        return [`[${url}]`, `(error: ${item.error || 'unknown error'})`, ...diagnostics].join('\n')
       }
       const meta = []
       if (Number.isFinite(item.bytes)) meta.push(`${item.bytes} bytes`)
@@ -89,8 +141,8 @@ function formatFetch(data) {
       const header = `${url}${meta.length ? ` (${meta.join(', ')})` : ''}`
       const titleRaw = String(item.title || '').replace(/\s+/g, ' ').trim()
       const titleLine = titleRaw ? `title: ${titleRaw}` : ''
-      const body = String(item.content || '').trim() || '(no content)'
-      return titleLine ? `${header}\n${titleLine}\n${body}` : `${header}\n${body}`
+      const body = item.content == null ? '(no content)' : String(item.content)
+      return [header, titleLine, ...diagnostics].filter(Boolean).join('\n') + '\n\n' + body
     })
     .join('\n\n---\n\n')
 }

@@ -4,6 +4,7 @@ import { applyOfficeCreativeBrief, directOfficeStory } from './design-creative-d
 import { expandDocxDocument } from './docx/design-docx.mjs';
 import { compactDesign, resolveOfficeDesign } from './design-tokens.mjs';
 import { expandXlsxSheet } from './xlsx/design-xlsx.mjs';
+import { nativeDesignReceipt, nativeOfficeDesign, usesNativeOfficeDesign } from './native-design.mjs';
 
 export { officeDesignCatalog, resolveOfficeDesign } from './design-tokens.mjs';
 
@@ -17,6 +18,16 @@ export function expandOfficeDesignOperations({
   snapshotVersion = 0,
 } = {}) {
   const normalizedFormat = String(format || '').toLowerCase();
+  if (usesNativeOfficeDesign(normalizedFormat, request, operations)) {
+    const design = nativeOfficeDesign(normalizedFormat, request);
+    return {
+      operations: operations.map((operation) => bindOfficeContent(operation, design.content).operation),
+      semantic: [],
+      design: nativeDesignReceipt(design),
+      content: summarizeOfficeContentModel(design.content),
+      composition: summarizeOfficeCompositions(normalizedFormat, []),
+    };
+  }
   const resolvedDesign = resolveOfficeDesign(normalizedFormat, request, { library });
   const creative = directOfficeStory(normalizedFormat, operations, resolvedDesign);
   const design = { ...resolvedDesign, creative };
@@ -85,6 +96,13 @@ export function expandOfficeDesignOperations({
 
 
 export function applyPdfDesign(blocks = [], designRequest = {}, { library = null } = {}) {
+  if (usesNativeOfficeDesign('pdf', designRequest)) {
+    return {
+      blocks: structuredClone(blocks),
+      properties: {},
+      design: nativeDesignReceipt(nativeOfficeDesign('pdf', designRequest)),
+    };
+  }
   const design = resolveOfficeDesign('pdf', designRequest, { library });
   const colors = design.tokens.colors;
   const type = design.tokens.typography;

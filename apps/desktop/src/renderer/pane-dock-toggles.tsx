@@ -6,7 +6,6 @@
 // is already showing folds the unit.
 import { t } from "./i18n";
 import {
-  isWorkbenchSideLauncher,
   type WorkbenchSideViewDescriptor,
   type WorkbenchSideViewGroup,
   type WorkbenchSideViewId,
@@ -39,7 +38,7 @@ export function PaneDockToggles({
   const roots = groups
     .map((group) => group[0])
     .filter((root): root is WorkbenchSideViewId =>
-      root !== undefined && descriptors.has(root) && !isWorkbenchSideLauncher(root));
+      root !== undefined && descriptors.has(root));
   if (roots.length === 0) return null;
   return <div className="pane-dock-toggles" role="group" aria-label={t("Utility panel")}>
     {roots.map((root) => {

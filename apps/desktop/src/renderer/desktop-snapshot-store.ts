@@ -62,6 +62,7 @@ const HEADER_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
   "sessionId",
   "busy",
   "commandBusy",
+  "toolApproval",
   "thinking",
   "spinner",
   "commandStatus",
@@ -106,6 +107,8 @@ function snapshotFieldsEqual(
 const HEADER_STATS_FIELDS = [
   "currentContextTokens",
   "currentEstimatedContextTokens",
+  "currentContextSource",
+  "currentContextUpdatedAt",
   "costUsd",
 ] as const;
 

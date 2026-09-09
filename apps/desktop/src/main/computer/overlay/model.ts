@@ -88,6 +88,11 @@ export function computerUseOverlayPresentation(
           : paused && snapshot.takeoverReason === 'user_input_active' && (snapshot.idleResumeSeconds ?? 5) > 0
             ? (ko ? `입력이 멈춘 뒤 ${snapshot.idleResumeRemaining ?? snapshot.idleResumeSeconds ?? 5}초 후 재개합니다.`
               : `Resuming after ${snapshot.idleResumeRemaining ?? snapshot.idleResumeSeconds ?? 5}s without input.`)
+          : confirmation
+            ? (ko ? '입력 복구를 확인하지 못해 자동 재개를 차단했습니다. 상태를 확인해 주세요.' : 'Input recovery is unconfirmed. Automatic resume is blocked; check the current state.')
+          : paused && snapshot.takeoverReason === 'user_stop'
+            ? (ko ? '사용자가 중지했습니다. 자동 재개하지 않습니다. 재개 버튼을 누르면 새 화면부터 확인합니다.'
+               : 'Stopped by the user. Automatic resume is disabled. Resume checks a fresh screen.')
           : paused
             ? (ko ? '일시중지했습니다. 재개하면 새 화면을 확인하고 대기 작업을 이어갑니다.' : 'Paused. Resume checks fresh state before continuing queued work.')
             : '';
@@ -98,6 +103,7 @@ export function computerUseOverlayPresentation(
     visible: sessionIds.length > 0 || paused || failed,
     sessionIds,
     title: confirmation ? (ko ? '확인 필요' : 'Confirmation needed')
+      : paused && snapshot.takeoverReason === 'user_stop' ? (ko ? '중지됨' : 'Stopped')
       : paused ? (ko ? '사용자 조작 중' : 'User controlling')
       : (ko ? 'Mixdog 사용 중' : 'Mixdog using'),
     accent: activity ? sessionColor(activity.sessionId) : SESSION_COLORS[0],

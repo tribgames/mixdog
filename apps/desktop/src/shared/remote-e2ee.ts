@@ -1,17 +1,14 @@
+import {
+  packPlaintext,
+  relayE2EECompressionSupported,
+  unpackPlaintext,
+} from './remote-e2ee-compression';
+export { relayE2EECompressionSupported } from './remote-e2ee-compression';
+
 const E2EE_VERSION = 1 as const;
 const E2EE_CONTEXT = 'mixdog-relay-e2ee-v1';
 const E2EE_BINARY_MAGIC = new Uint8Array([0x4d, 0x58, 0x45, 0x01]);
 const E2EE_BINARY_HEADER_BYTES = 24;
-// Payload compression belongs INSIDE the encrypted envelope. Everything the
-// relay handles is ciphertext, which cannot be compressed, so this is the only
-// place where a transcript's repetition can still be squeezed out — 4-6x on a
-// full snapshot (session switch, reconnect, resync). The first plaintext byte
-// records the encoding, and JSON text can never begin with 0x01, so a peer
-// that predates this still decodes what it receives.
-const E2EE_PLAINTEXT_DEFLATED = 0x01;
-// Under this size a deflate stream saves nothing worth the round of work, and
-// live streaming frames must not pay latency for a few bytes.
-const E2EE_COMPRESS_MIN_BYTES = 512;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -65,89 +62,6 @@ function cryptoApi(): Crypto {
   const value = globalThis.crypto;
   if (!value?.subtle) throw new Error('Web Crypto is unavailable.');
   return value;
-}
-
-interface ByteTransformStream {
-  readable: ReadableStream<Uint8Array>;
-  writable: WritableStream<Uint8Array>;
-}
-
-let compressionSupport: boolean | null = null;
-
-/** Raw-deflate streams are platform-provided (Node 21+, Chrome 103+, Safari
- *  16.4+). A runtime without them keeps exchanging plain JSON, which every
- *  peer still understands. */
-export function relayE2EECompressionSupported(): boolean {
-  if (compressionSupport !== null) return compressionSupport;
-  try {
-    void new CompressionStream('deflate-raw');
-    void new DecompressionStream('deflate-raw');
-    compressionSupport = true;
-  } catch {
-    compressionSupport = false;
-  }
-  return compressionSupport;
-}
-
-async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (!value) continue;
-    chunks.push(value);
-    total += value.byteLength;
-  }
-  const output = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return output;
-}
-
-async function runByteTransform(
-  bytes: Uint8Array,
-  stream: ByteTransformStream,
-): Promise<Uint8Array> {
-  const writer = stream.writable.getWriter();
-  // Writing and reading have to run together: a payload past the stream's
-  // internal queue would otherwise wait on a reader that has not started.
-  const written = writer.write(bytes).then(() => writer.close());
-  const [output] = await Promise.all([collectStream(stream.readable), written]);
-  return output;
-}
-
-/** Plaintext framing: `[0x01][deflate-raw bytes]` when compression paid off,
- *  otherwise the raw JSON bytes — which is byte-for-byte what a peer that
- *  predates compression sends and expects. */
-async function packPlaintext(body: Uint8Array, compress: boolean): Promise<Uint8Array> {
-  if (!compress || body.byteLength < E2EE_COMPRESS_MIN_BYTES) return body;
-  let deflated: Uint8Array;
-  try {
-    deflated = await runByteTransform(
-      body,
-      new CompressionStream('deflate-raw') as unknown as ByteTransformStream,
-    );
-  } catch {
-    return body;
-  }
-  if (deflated.byteLength + 1 >= body.byteLength) return body;
-  const framed = new Uint8Array(deflated.byteLength + 1);
-  framed[0] = E2EE_PLAINTEXT_DEFLATED;
-  framed.set(deflated, 1);
-  return framed;
-}
-
-async function unpackPlaintext(bytes: Uint8Array): Promise<Uint8Array> {
-  if (bytes.byteLength === 0 || bytes[0] !== E2EE_PLAINTEXT_DEFLATED) return bytes;
-  return runByteTransform(
-    bytes.subarray(1),
-    new DecompressionStream('deflate-raw') as unknown as ByteTransformStream,
-  );
 }
 
 function base64UrlEncode(bytes: Uint8Array): string {

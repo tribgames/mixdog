@@ -102,6 +102,7 @@ function Background-Unavailable($action, $message, $windowId, $code = 'backgroun
 
 function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
   $foregroundBefore = [MixWin32]::Foreground()
+  $inputBefore = [MixInputObservation]::Read()
   $result = $null
   try {
     $result = & $operation
@@ -118,7 +119,17 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
       [MixWin32]::IsWindowHandle($foregroundBefore) -and
       $targetTookFocus
     ) {
-      [void][MixWin32]::Focus($foregroundBefore)
+      if ($inputBefore.Ready) {
+        try {
+          [MixInputObservation]::BeginExpected($inputBefore.Generation, $inputBefore.Sequence)
+          try {
+            [MixInputObservation]::AssertContinue()
+            [void][MixWin32]::Focus($foregroundBefore)
+          } finally { [MixInputObservation]::End() }
+        } catch {
+          if ($_.Exception.Message -notmatch 'user_input_active|input_observation_unavailable') { throw }
+        }
+      }
     }
   }
   return $result
@@ -371,7 +382,9 @@ function Get-ElPoint($ref, $requireTopmost = $true) {
 # ref resolves to the occlusion-guarded element center; raw x/y are physical
 # screen coordinates (a raw click hits whatever the model sees on top there).
 function Get-PointArg($req) {
-  if ($req.ref) { return Get-ElPoint $req.ref ($req.delivery -eq 'foreground') }
+  # Resolve identity before activation; the foreground path rechecks live
+  # bounds and occlusion after bringing that exact window forward.
+  if ($req.ref) { return Get-ElPoint $req.ref $false }
   if ($null -eq $req.x -or $null -eq $req.y) { throw "$($req.action) requires ref or x/y screen coordinates" }
   $x = [int]$req.x
   $y = [int]$req.y
@@ -449,11 +462,10 @@ function Invoke-ForegroundInput($targetHandle, $action, $body, [bool]$pointerMay
   }
   $state = Get-CurrentSession
   $previous = [MixWin32]::Foreground()
-  $cursor = [MixWin32]::Cursor()
-  if ($state.OriginalFocus -eq [IntPtr]::Zero -and $previous -ne $targetHandle) {
-    $state.OriginalFocus = $previous
-  }
+  Remember-FocusOrigin $state $previous $targetHandle
   [MixInputObservation]::Begin()
+  $cursorTheme = $null
+  $cursorFeedback = @{ system_theme_applied = $false; system_theme_restored = $false; pointer_moved = $false }
   try {
   $focused = [MixWin32]::Focus($targetHandle)
   if (-not $focused -and -not $pointerMayActivate) {
@@ -469,7 +481,13 @@ function Invoke-ForegroundInput($targetHandle, $action, $body, [bool]$pointerMay
   }
     [MixInputObservation]::AssertContinue()
     Assert-ExecutionAuthorization $script:CurrentRequest $targetHandle
+    $cursorTheme = [MixCursorTheme]::Begin()
+    $cursorFeedback.system_theme_applied = $true
+    $pointerBefore = [MixWin32]::Cursor()
+    [MixInputObservation]::AssertContinue()
     & $body
+    $pointerAfter = [MixWin32]::Cursor()
+    $cursorFeedback.pointer_moved = $pointerBefore.x -ne $pointerAfter.x -or $pointerBefore.y -ne $pointerAfter.y
     # SendKeys-based bodies bypass MixWin32, so stamp the injection here too.
     [MixWin32]::NoteInjection()
     # SendInput only enqueues events. Custom renderers such as Chromium consume
@@ -484,20 +502,19 @@ function Invoke-ForegroundInput($targetHandle, $action, $body, [bool]$pointerMay
     $path = if ($focused) { 'foreground_sendinput' } else { 'foreground_pointer_activation' }
     $result = New-ActionResult $action $path 'unverifiable' $false "$action input dispatched; inspect the fresh capture before treating it as complete" $null 'foreground' ([MixWin32]::WindowId($targetHandle))
     $result.injection_tick = [MixWin32]::LastInjectionTick
+    $result.cursor_feedback = $cursorFeedback
     if ($userWaitMs -gt 0) { $result.user_wait_ms = $userWaitMs }
     return $result
   } finally {
-    # A user who grabbed the mouse after dispatch owns the cursor now; putting
-    # it back under their hand would be the very fight the idle wait avoids.
+    # Visible input leaves the one physical pointer at its destination.
+    # Never jump it back between actions or after user intervention.
     try {
-    if ([MixInputObservation]::CanContinue()) {
-      [void][MixWin32]::SetCursorPos($cursor.x, $cursor.y)
-      # Keep focus for a popup or keyboard follow-up; session_release restores
-      # the original window once the bounded Computer Use chain is finished.
-      [System.Threading.Thread]::Sleep(30)
-      [void][MixWin32]::SetCursorPos($cursor.x, $cursor.y)
+      if ($null -ne $cursorTheme) {
+        $cursorTheme.Dispose()
+        $cursorFeedback.system_theme_restored = $true
+      }
     }
-    } finally { [MixInputObservation]::End() }
+    finally { [MixInputObservation]::End() }
   }
 }
 
@@ -527,6 +544,31 @@ function Test-AllowedPointTarget($candidate, $selectedHandle, $allowedWindowIds)
     }
   }
   return $false
+}
+
+function Invoke-PointerModifiers($modifiers, $body) {
+  $pressed = @()
+  try {
+    foreach ($vk in @(Get-ModifierVks $modifiers)) {
+      [MixWin32]::KeyDown([UInt16]$vk)
+      $pressed += $vk
+    }
+    & $body
+  } finally {
+    $releaseFailed = $false
+    for ($i = $pressed.Count - 1; $i -ge 0; $i--) {
+      try { [MixWin32]::KeyUp([UInt16]$pressed[$i]) } catch { $releaseFailed = $true }
+    }
+    if ($releaseFailed) { throw 'input_cleanup_unconfirmed: pointer modifier release failed' }
+  }
+}
+
+function Invoke-ForegroundWheel($target, $x, $y, $clicks, $horizontal, $modifiers) {
+  [MixWin32]::GlideCursor($target, $x, $y)
+  Invoke-PointerModifiers $modifiers {
+    if ($horizontal) { [MixWin32]::MouseHWheel($clicks) }
+    else { [MixWin32]::MouseWheel($clicks) }
+  }
 }
 
 function Do-ClickFamily($req, $kind) {
@@ -562,6 +604,7 @@ function Do-ClickFamily($req, $kind) {
     }
   }
   return Invoke-ForegroundInput $target $req.action {
+    if ($req.ref) { $p = Get-ElPoint $req.ref $true }
     if ($selectedHandle -ne [IntPtr]::Zero) {
       # Foreground delivery deliberately brings the exact target forward.
       # Revalidate only after that focus settles: checking before focus makes
@@ -571,9 +614,8 @@ function Do-ClickFamily($req, $kind) {
         throw 'target_mismatch|frame point remains covered after exact target focus'
       }
     }
-    $vks = Get-ModifierVks $req.modifiers
-    foreach ($vk in $vks) { [MixWin32]::KeyDown([System.UInt16]$vk) }
-    try {
+    [MixWin32]::GlideCursor($target, $p[0], $p[1])
+    Invoke-PointerModifiers $req.modifiers {
       switch ($kind) {
         'click'  { [MixWin32]::Click($p[0], $p[1]) }
         'double' { [MixWin32]::DoubleClick($p[0], $p[1]) }
@@ -582,8 +624,6 @@ function Do-ClickFamily($req, $kind) {
         'triple' { [MixWin32]::TripleClick($p[0], $p[1]) }
         'move'   { [void][MixWin32]::SetCursorPos($p[0], $p[1]) }
       }
-    } finally {
-      for ($i = $vks.Count - 1; $i -ge 0; $i--) { [MixWin32]::KeyUp([System.UInt16]$vks[$i]) }
     }
   } $true
 }
@@ -622,15 +662,14 @@ function Do-Drag($req) {
     }
     return Invoke-ForegroundInput $info.Handle 'drag' {
       Assert-DragPointTargets $req $info.Handle $x1 $y1 $x2 $y2
-      [MixWin32]::Drag($x1, $y1, $x2, $y2, $info.Handle)
+      Invoke-PointerModifiers $req.modifiers { [MixWin32]::Drag($x1, $y1, $x2, $y2, $info.Handle) }
     } $true
   }
   if (-not $req.to) { throw 'drag requires to (destination ref)' }
   $refRecord = Get-RefRecord $req.ref
   $before = Get-ObservableTargetState $refRecord 'drag'
-  $foreground = $req.delivery -eq 'foreground'
-  $a = Get-ElPoint $req.ref $foreground
-  $b = Get-ElPoint $req.to $foreground
+  $a = Get-ElPoint $req.ref $false
+  $b = Get-ElPoint $req.to $false
   if ($a[2] -ne $b[2]) {
     return New-ActionResult 'drag' 'none' 'suspected_noop' $false 'drag endpoints belong to different windows' 'target_mismatch' $req.delivery $null
   }
@@ -643,9 +682,15 @@ function Do-Drag($req) {
       return Native-BackgroundFailure 'drag' $_.Exception ([MixWin32]::WindowId($a[2]))
     }
   }
-  return Invoke-ForegroundInput $a[2] 'drag' {
-    Assert-DragPointTargets $req $a[2] $a[0] $a[1] $b[0] $b[1]
-    [MixWin32]::Drag($a[0], $a[1], $b[0], $b[1], $a[2])
+  $dragTarget = $a[2]
+  return Invoke-ForegroundInput $dragTarget 'drag' {
+    $a = Get-ElPoint $req.ref $true
+    $b = Get-ElPoint $req.to $true
+    if ($a[2] -ne $dragTarget -or $b[2] -ne $dragTarget) {
+      throw 'target_mismatch|drag endpoints changed after focus; no input sent'
+    }
+    Assert-DragPointTargets $req $dragTarget $a[0] $a[1] $b[0] $b[1]
+    Invoke-PointerModifiers $req.modifiers { [MixWin32]::Drag($a[0], $a[1], $b[0], $b[1], $dragTarget) }
   } $true
 }
 
@@ -693,14 +738,12 @@ function Do-Scroll($req) {
       }
     }
     return Invoke-ForegroundInput $info.Handle 'scroll' {
-      [void][MixWin32]::SetCursorPos($x, $y)
-      if ($horizontal) { [MixWin32]::MouseHWheel($wheelClicks) }
-      else { [MixWin32]::MouseWheel($wheelClicks) }
+      Invoke-ForegroundWheel $info.Handle $x $y $wheelClicks $horizontal $req.modifiers
     } $true
   }
   if ($req.ref) {
     $refRecord = Get-RefRecord $req.ref
-    if ($refRecord.Kind -eq 'uia') {
+    if ($req.delivery -ne 'foreground' -and -not $req.modifiers -and $refRecord.Kind -eq 'uia') {
       $el = $refRecord.Element
       $pat = $null
       # Background path: ScrollPattern scrolls without touching mouse or focus.
@@ -732,11 +775,11 @@ function Do-Scroll($req) {
         return Native-BackgroundFailure 'scroll' $_.Exception ([MixWin32]::WindowId($p[2]))
       }
     }
-    $p = Get-ElPoint $req.ref
+    $p = Get-ElPoint $req.ref $false
     return Invoke-ForegroundInput $p[2] 'scroll' {
-      [void][MixWin32]::SetCursorPos($p[0], $p[1])
-      if ($horizontal) { [MixWin32]::MouseHWheel($wheelClicks) }
-      else { [MixWin32]::MouseWheel($wheelClicks) }
+      $focusedPoint = Get-ElPoint $req.ref $true
+      if ($focusedPoint[2] -ne $p[2]) { throw 'target_mismatch|scroll target changed after focus; no input sent' }
+      Invoke-ForegroundWheel $p[2] $focusedPoint[0] $focusedPoint[1] $wheelClicks $horizontal $req.modifiers
     } $true
   }
   if ($req.delivery -ne 'foreground') {
@@ -757,9 +800,7 @@ function Do-Scroll($req) {
   return Invoke-ForegroundInput $info.Handle 'scroll' {
     $x = [int]($info.X + $info.Width/2)
     $y = [int]($info.Y + $info.Height/2)
-    [void][MixWin32]::SetCursorPos($x, $y)
-    if ($horizontal) { [MixWin32]::MouseHWheel($wheelClicks) }
-    else { [MixWin32]::MouseWheel($wheelClicks) }
+    Invoke-ForegroundWheel $info.Handle $x $y $wheelClicks $horizontal $req.modifiers
   } $true
 }
 
@@ -771,9 +812,7 @@ function Do-Focus($req) {
   Assert-ExecutionAuthorization $req $info.Handle
   $state = Get-CurrentSession
   $previous = [MixWin32]::Foreground()
-  if ($state.OriginalFocus -eq [IntPtr]::Zero -and $previous -ne $info.Handle) {
-    $state.OriginalFocus = $previous
-  }
+  Remember-FocusOrigin $state $previous $info.Handle
   if (-not [MixWin32]::Focus($info.Handle)) {
     return New-ActionResult 'focus_window' 'foreground' 'suspected_noop' $false "could not bring window to foreground: $($info.Title)" 'foreground_unavailable' 'foreground' $info.Id
   }

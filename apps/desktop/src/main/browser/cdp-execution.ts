@@ -45,6 +45,7 @@ export function createBrowserCdpExecution(host: BrowserCdpExecutionHost) {
     timeoutMs = CDP_REQUEST_TIMEOUT_MS,
     signal?: AbortSignal,
     sessionId?: string,
+    beforeDispatch?: () => void,
   ): Promise<T> {
     signal?.throwIfAborted();
     if (!CLEANUP_METHODS.has(method)) {
@@ -53,6 +54,7 @@ export function createBrowserCdpExecution(host: BrowserCdpExecutionHost) {
       while (settling.has(guest)) await waitForIdle(guest, signal);
     }
     signal?.throwIfAborted();
+    beforeDispatch?.();
     const dispatch = cdp.sendCommand(method, params, sessionId) as Promise<T>;
     let interrupted = false;
     const interrupt = () => {

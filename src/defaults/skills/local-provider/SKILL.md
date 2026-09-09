@@ -1,7 +1,11 @@
 ---
 name: local-provider
 description: Find, install, inspect, repair, or remove Mixdog-managed local GGUF models.
-when_to_use: '"로컬 모델", "오프라인 모델", "GGUF", "허깅페이스 모델", GPU-fit model choice, interrupted downloads; not for hosted providers, Mixdog source, or deployment.'
+when_to_use: 'Local/offline GGUF or Hugging Face models, GPU fit, or interrupted downloads; not hosted providers, Mixdog code, or deployment.'
+dependencies:
+  tools:
+    - type: tool
+      value: setup
 ---
 
 # Local Provider

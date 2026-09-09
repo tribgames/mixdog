@@ -41,7 +41,14 @@ export function createInlineSessionRuntimeHost({
   function localModule() {
     localModulePromise ??= measured(
       'session-local-import',
-      () => Promise.resolve().then(loadLocalModule),
+      async () => {
+        // Runtime initialization reads credentials synchronously. Let the
+        // bounded asynchronous keychain warm-up finish first, otherwise cold
+        // DPAPI reads block the daemon's registration and event-stream routes.
+        await prewarmKeychain();
+        if (closed) throw new Error('session runtime host is closed');
+        return loadLocalModule();
+      },
     ).catch((error) => {
       localModulePromise = null;
       throw error;
@@ -64,6 +71,8 @@ export function createInlineSessionRuntimeHost({
   }
 
   async function prepareAgentProviders() {
+    await prewarmKeychain();
+    if (closed) throw new Error('session runtime host is closed');
     const { config, registry } = await agentGraph();
     const providers = config.loadConfig()?.providers || {};
     let signature = null;

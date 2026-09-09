@@ -228,6 +228,17 @@ export function getEmbeddingDtype() {
   return _configuredDtype
 }
 
+// Metadata only: opening Extensions must never load a model or start a worker.
+export function getEmbeddingInfo() {
+  return {
+    model: MODEL_ID,
+    dtype: _configuredDtype,
+    dimensions: cachedDims || getKnownDimsForCurrentModel(),
+    device: _modelReady ? _device : '',
+    engine: 'Transformers.js · ONNX Runtime',
+  }
+}
+
 export function getKnownDimsForCurrentModel() {
   return KNOWN_MODEL_DIMS[MODEL_ID] ?? null
 }

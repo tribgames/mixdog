@@ -95,13 +95,15 @@ function contextMetrics(snapshot: Snapshot) {
   const usage = resolveContextDisplayUsage(snapshot);
   const sessionId = String(snapshot.sessionId || "").trim();
   if (!sessionId) return usage;
+  const cacheKey = `${sessionId}:${snapshot.provider || ""}:${snapshot.model || ""}`;
   const stats = asRecord(snapshot.stats) ?? {};
   const hasContextReading = Object.hasOwn(stats, "currentContextTokens")
-    || Object.hasOwn(stats, "currentEstimatedContextTokens");
-  if (!hasContextReading) return rememberedContextUsage.get(sessionId) ?? usage;
+    || Object.hasOwn(stats, "currentEstimatedContextTokens")
+    || Object.hasOwn(stats, "currentContextSource");
+  if (!hasContextReading) return rememberedContextUsage.get(cacheKey) ?? usage;
   if (usage.limit > 0) {
-    rememberedContextUsage.delete(sessionId);
-    rememberedContextUsage.set(sessionId, usage);
+    rememberedContextUsage.delete(cacheKey);
+    rememberedContextUsage.set(cacheKey, usage);
     while (rememberedContextUsage.size > CONTEXT_USAGE_MEMORY_LIMIT) {
       const oldest = rememberedContextUsage.keys().next().value;
       if (typeof oldest !== "string") break;
@@ -118,7 +120,7 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   /** Runs the handover itself (user: 팝업 안 뜨고 바로 진행되게). Inheritance is
-   *  a mechanical carry — compact, then inject into a fresh session — so the
+   *  a mechanical carry into a fresh session — so the
    *  button IS the decision; the old dialog only restated readings this card
    *  already shows. The host still owns opening the heir's tab. */
   onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
@@ -131,8 +133,8 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
   const context = contextMetrics(snapshot);
   const descriptionId = `context-usage-${String(snapshot.sessionId || "session")}`;
   const tone = !context ? ""
-    : context.percent >= 90 ? "danger"
-      : context.percent >= 70 ? "warning" : "";
+    : (context.percent ?? 0) >= 90 ? "danger"
+      : (context.percent ?? 0) >= 70 ? "warning" : "";
   const [compacting, setCompacting] = useState(false);
   const state = asRecord(snapshot);
   const sessionId = String(state?.sessionId || "").trim();
@@ -147,7 +149,7 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
   // named here in the user's own terms before the call is made.
   const inherit = async () => {
     if (!sessionId || !onInherit || !inheritRoute || inheritBusy) return;
-    if (context && context.limit > 0 && context.used >= context.limit) {
+    if (context && context.limit > 0 && context.used != null && context.used >= context.limit) {
       showDesktopToast(
         t("This conversation no longer fits the model context. Run /compact first."),
         "warn",
@@ -193,12 +195,12 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
     {context && <div className="session-context-popover" id={descriptionId} role="tooltip">
       <div className="context-popover-header">
         <span>{t("Context")}</span>
-        <b>{context.percent}%</b>
+        <b>{context.percent == null ? "—" : `${context.percent}%`}</b>
       </div>
       <div><span>{t("Usage")}</span><b
-        title={context.limit > 0
+        title={context.used == null ? undefined : context.limit > 0
           ? `${context.used.toLocaleString()} / ${context.limit.toLocaleString()}`
-          : context.used.toLocaleString()}>{context.limit > 0
+          : context.used.toLocaleString()}>{context.used == null ? "—" : context.limit > 0
           ? `${formatTokenCount(context.used)} / ${formatTokenCount(context.limit)}`
           : formatTokenCount(context.used)}</b></div>
       {(() => {
@@ -207,12 +209,12 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
           ? <div><span>{t("Cost")}</span><b>${cost >= 1 ? cost.toFixed(2) : cost.toFixed(3)}</b></div>
           : null;
       })()}
-      {/* One action at a time: a model switch offers inheritance (compact +
-          hand over); otherwise plain compaction. */}
+      {/* One action at a time: a model switch offers inheritance;
+          a completed handover or matching model offers plain compaction. */}
       {offerInheritance
         ? <button type="button" className="context-action context-inherit"
           disabled={inheritBusy} onClick={() => { void inherit(); }}>
-          <GitFork size={14} aria-hidden="true" />
+          {inheriting ? <ProgressSpinner size={14} aria-hidden="true" /> : <GitFork size={14} aria-hidden="true" />}
           {inheriting ? t("Inheriting…") : t("Inherit session")}
         </button>
         : <button type="button" className="context-action context-compact" disabled={compactBusy}
@@ -221,6 +223,9 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
           {t("Compact context")}
         </button>}
     </div>}
+    {inheriting && <span role="status" aria-live="polite">
+      {t("Inheriting…")}
+    </span>}
   </div>;
 }
 
@@ -343,6 +348,14 @@ export function CompletionStatus({
 }) {
   const tone = completionTone(item);
   const label = String(item.label || item.status || "");
+  if (item.kind === "statusdone" && item.status === "inherited") {
+    return <div className="compaction-divider" role="status"
+      data-animate={animate ? "true" : undefined}>
+      <GitFork className="compaction-icon" size={16} aria-hidden="true" />
+      <span>{t("Session inherited")}</span>
+      <small>{t("Continuing with the previous context.")}</small>
+    </div>;
+  }
   if (tone === "failed" || tone === "interrupted") {
     const elapsed = formatElapsed(item.elapsedMs);
     const fallback = tone === "failed"

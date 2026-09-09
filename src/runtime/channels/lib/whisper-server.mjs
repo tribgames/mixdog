@@ -6,7 +6,7 @@
 //   There is at most ONE managed whisper-server child, identified by an exact
 //   runtime contract (serverCmd / modelPath / threadCount / host). ensureReady()
 //   guarantees that — when it resolves — a child matching the CURRENT contract is
-//   bound to the fixed port and has loaded its model. Any deviation (contract
+//   bound to its selected port and has loaded its model. Any deviation (contract
 //   change, child death, port stolen) is repaired by deterministically tearing
 //   down and recreating the SAME contract. There is NO fallback to a CLI binary,
 //   to python, to another executable, or to another model. If the contract cannot
@@ -14,35 +14,35 @@
 //
 // States: STOPPED → STARTING → READY → STOPPING → STOPPED, plus DEAD on child exit.
 //
-// Why a FIXED port (not `--port 0`):
+// Why reserve a port before spawn (not `--port 0`):
 //   whisper-server 1.8.4 does not support OS-assigned ephemeral bind. Passing
 //   `--port 0` makes it print `listening at http://127.0.0.1:0` and never bind a
-//   usable port. So we bind a single deterministic port and FAIL CLOSED when it is
-//   occupied by a process we do not positively own. We NEVER scan a port range.
+//   usable port. Prefer 8771, otherwise ask the OS for a free port. A foreign
+//   listener is never killed or reused; verify the spawned child's listener PID.
 //
 // Readiness detection:
 //   The server prints `... listening at http://<host>:<port>` AFTER the model is
 //   loaded, but that line is block-buffered when stdout is a pipe and may not flush
-//   promptly. So readiness is gated on an active TCP connect to the fixed port
+//   promptly. So readiness is gated on an active TCP connect and listener PID
 //   (the socket is bound only after model load completes). When the listening line
-//   IS observed, the parsed port is asserted to equal the fixed port (contract
+//   IS observed, the parsed port is asserted to equal the selected port (contract
 //   invariant); a mismatch is fatal.
 //
 // PID metadata (<dataDir>/voice/whisper-server.pid.json) exists ONLY for cleanup
 // across process restarts. We kill a stale child ONLY when it is positively owned
 // (recorded pid is alive AND its image is whisper-server). A foreign process on the
-// port is never killed — we fail closed instead.
+// port is never killed — we select another port instead.
 
 import net from 'node:net';
 import path from 'node:path';
 import fs from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
+import { selectWhisperPort, whisperListenerOwned } from './whisper-port.mjs';
 
 // ── Tunables (deterministic; no ranges) ──────────────────────────────────────
 const IS_WIN = process.platform === 'win32';
-// Single deterministic port. Override only via env for operator control; never
-// auto-scanned. Fail closed if occupied by a non-owned process.
+// Preferred port. A collision uses an OS-selected port, never a scanned range.
 const FIXED_PORT = (() => {
   const raw = process.env.MIXDOG_WHISPER_SERVER_PORT;
   const n = raw ? Number.parseInt(raw, 10) : NaN;
@@ -76,7 +76,7 @@ const STATE = Object.freeze({
 const mgr = {
   state: STATE.STOPPED,
   child: null,          // ChildProcess handle (non-detached)
-  port: null,           // bound port (== FIXED_PORT when READY)
+  port: null,           // selected port; must belong to the current child
   host: null,
   runtimeKey: null,     // exact contract fingerprint
   contract: null,       // { serverCmd, modelPath, threadCount, host }
@@ -284,6 +284,8 @@ function armIdleTimer() {
 // contract change. Escalates SIGTERM → SIGKILL after a grace window.
 async function teardown(reason) {
   clearIdleTimer();
+  // Clear metadata while the contract still identifies its original location.
+  clearPidMeta();
   const child = mgr.child;
   const pid = child?.pid;
   // Abort all in-flight transcribe requests first.
@@ -304,7 +306,6 @@ async function teardown(reason) {
   mgr.host = null;
   mgr.runtimeKey = null;
   mgr.contract = null;
-  clearPidMeta();
 }
 
 function wireChildExit() {
@@ -322,12 +323,12 @@ function wireChildExit() {
     for (const ctrl of mgr.inflight) { try { ctrl.abort(new Error('whisper-server exited')); } catch {} }
     mgr.inflight.clear();
     detachChildHandlers();
+    clearPidMeta();
     mgr.state = STATE.DEAD;
     mgr.child = null;
     mgr.port = null;
     mgr.runtimeKey = null;
     mgr.contract = null;
-    clearPidMeta();
     mgr.state = STATE.STOPPED;
   });
 }
@@ -338,9 +339,10 @@ async function startServer(contract) {
   mgr.contract = contract;
   mgr.runtimeKey = runtimeKeyOf(contract);
   mgr.host = host;
-  mgr.port = FIXED_PORT;
+  mgr.port = null;
+  mgr.logTail = '';
 
-  // ── Pre-spawn: reclaim a positively-owned stale child, else fail closed. ──
+  // ── Pre-spawn: reclaim only a positively-owned stale child. ──
   const meta = readPidMeta();
   // Prove ownership against OUR contract (modelPath OR --port) before killing.
   // Prefer the recorded meta's own contract fields; fall back to the contract we
@@ -352,20 +354,14 @@ async function startServer(contract) {
     if (isOwnedWhisperServer(meta.pid, ownArgs)) { killPid(meta.pid, true); await delay(500); }
     clearPidMeta();
   }
-  if (await probePort(host, FIXED_PORT)) {
-    // Port held by a process we do NOT positively own → never scan a range,
-    // never kill a foreign process; fail closed.
-    mgr.state = STATE.STOPPED;
-    throw new Error(
-      `whisper-server: fixed port ${FIXED_PORT} on ${host} is occupied by a non-owned process; refusing to start (fail closed)`,
-    );
-  }
+  const port = await selectWhisperPort(host, FIXED_PORT);
+  mgr.port = port;
 
   // ── Spawn ONCE: non-detached, cwd = dirname(serverCmd) for Windows DLL load. ──
   const args = [
     '--model', modelPath,
     '--host', host,
-    '--port', String(FIXED_PORT),
+    '--port', String(port),
     '-t', String(threadCount),
   ];
   const child = spawn(serverCmd, args, {
@@ -385,20 +381,21 @@ async function startServer(contract) {
     if (mgr.state === STATE.DEAD || !mgr.child) {
       throw new Error(`whisper-server died during startup:\n${mgr.logTail.slice(-1000)}`);
     }
-    // Assert the printed bound port matches the fixed contract port when seen.
+    // Assert the printed bound port matches this child's selected port.
     const m = mgr.logTail.match(/listening at https?:\/\/[^\s:/]+:(\d+)/i);
     if (m) {
       const printed = Number.parseInt(m[1], 10);
-      if (printed !== FIXED_PORT) {
+      if (printed !== port) {
         await teardown('port-contract-mismatch');
         mgr.state = STATE.DEAD;
         throw new Error(
-          `whisper-server bound port ${printed} but contract requires ${FIXED_PORT}`,
+          `whisper-server bound port ${printed} but contract requires ${port}`,
         );
       }
     }
-    if (await probePort(host, FIXED_PORT)) {
-      mgr.port = FIXED_PORT;
+    if (await probePort(host, port) && whisperListenerOwned(host, port, child.pid)
+        && mgr.child === child && child.exitCode === null && mgr.state === STATE.STARTING) {
+      mgr.port = port;
       mgr.state = STATE.READY;
       return;
     }
@@ -441,7 +438,11 @@ export async function ensureReady({ serverCmd, modelPath, threadCount, host = '1
     mgr.state = STATE.STOPPED;
   }
 
-  mgr.startPromise = startServer(contract).finally(() => {
+  mgr.startPromise = startServer(contract).catch(async (error) => {
+    await teardown('startup-failure');
+    mgr.state = STATE.STOPPED;
+    throw error;
+  }).finally(() => {
     mgr.startPromise = null;
     // A start that no transcription ever follows must not pin the model either.
     armIdleTimer();
@@ -465,6 +466,11 @@ export async function transcribe(wavPath, { language } = {}) {
   mgr.inflight.add(ctrl);
   try {
     const data = await fs.promises.readFile(wavPath);
+    // Re-check after file I/O: a replacement listener must never receive audio.
+    if (!mgr.child || mgr.state !== STATE.READY
+        || !whisperListenerOwned(host, port, mgr.child.pid)) {
+      throw new Error('whisper-server listener ownership could not be verified');
+    }
     const form = new FormData();
     form.append('file', new Blob([data], { type: 'audio/wav' }), path.basename(wavPath));
     form.append('response_format', 'json'); // → { "text": "..." }

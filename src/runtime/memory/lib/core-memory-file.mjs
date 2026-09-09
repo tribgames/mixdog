@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { updateJsonAtomic } from '../../shared/atomic-file.mjs'
 import { resolveProjectScope } from './project-id-resolver.mjs'
+import { indexedCoreRecord, syncCoreMemoryIndexes } from './core-memory-index.mjs'
 
 const CORE_MEMORY_FILE_VERSION = 1
 const CORE_MEMORY_FILE_NAME = 'core-memory.json'
@@ -27,7 +28,10 @@ export function formatCuratedCoreMemoryLine(row) {
   const summary = String(row?.summary || '').replace(/\s+/g, ' ').trim()
   if (!summary) return ''
   const id = Number(row?.id)
-  return Number.isInteger(id) && id > 0 ? `[id=${id}] ${summary}` : summary
+  const scope = row?.project_id ?? row?.projectId ?? 'common'
+  const version = row?.index_revision ?? row?.indexRevision
+  return Number.isInteger(id) && id > 0 && version
+    ? `[project=${scope} id=${id} index_revision=${version}] ${summary}` : summary
 }
 
 function normalizeCuratedEntry(row) {
@@ -35,6 +39,7 @@ function normalizeCuratedEntry(row) {
   if (!summary) return null
   return {
     id: finiteNumber(row?.id),
+    indexRevision: row?.indexRevision ?? row?.index_revision ?? null,
     summary,
     projectId: normalizeProjectId(row?.projectId ?? row?.project_id),
     updatedAt: finiteNumber(row?.updatedAt ?? row?.updated_at),
@@ -114,6 +119,7 @@ export async function refreshCoreMemoryFile(db, dataDir) {
   // Reserve before querying: if concurrent refreshes complete out of order,
   // the atomic revision guard rejects the stale result.
   const revision = reserveRevision(dataDir)
+  const directory = await syncCoreMemoryIndexes(db)
   const [curatedResult, generatedResult] = await Promise.all([
     db.query(`
       SELECT id, summary, project_id, updated_at
@@ -133,13 +139,17 @@ export async function refreshCoreMemoryFile(db, dataDir) {
         WHERE is_root = 1
           AND status = 'active'
           AND core_summary IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM meta p WHERE p.key = 'memory.generated.policy.' || entries.id::text
+              AND COALESCE((p.value->>'excluded')::boolean, false)
+          )
       ) ranked
       WHERE scope_rank <= 40
       ORDER BY project_id NULLS FIRST, scope_rank ASC
     `),
   ])
   return await writeCoreMemoryFileSnapshot(dataDir, {
-    curated: curatedResult?.rows || [],
+    curated: (curatedResult?.rows || []).map(row => indexedCoreRecord(row, directory)),
     generated: generatedResult?.rows || [],
   }, { revision })
 }
@@ -156,13 +166,12 @@ export function readSessionCoreMemoryPayload(dataDir, cwd) {
       if (a.projectId !== null && b.projectId === null) return 1
       return a.id - b.id
     })
-  const generated = file.generated
-    .filter(inScope)
-    .sort((a, b) => b.score - a.score || b.lastSeenAt - a.lastSeenAt)
   return {
     projectId,
     revision: file.revision,
     userLines: curated.map(formatCuratedCoreMemoryLine).filter(Boolean),
-    dbLines: generated.map((entry) => entry.summary),
+    // Generated records remain searchable; activation is not consent to
+    // install a standing instruction in every new session.
+    dbLines: [],
   }
 }

@@ -1,7 +1,7 @@
 // One Compact implementation:
 //   1) optionally generate a bounded cumulative handoff;
 //   2) rebuild a fresh provider context from protected session injection,
-//      that handoff, a fixed ack, and the latest real user instruction.
+//      the handoff, retained requests, and budgeted execution records.
 import {
     estimateMessagesTokens,
     reconcileDedupStubs,
@@ -22,6 +22,7 @@ import {
     splitProtectedContext,
 } from './messages.mjs';
 import { activeTurnContinuationMessage } from './continuation.mjs';
+import { buildExecutionTail } from './execution-tail.mjs';
 import { effectiveBudget } from './budget.mjs';
 import {
     normalizeIngestRole,
@@ -272,16 +273,23 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
     if (source.live.length === 0 && !(handoffText || opts.allowEmptyHandoff === true)) {
         throw new Error('freshContextCompactMessages: no compactable session history');
     }
-    const latestUser = prependLatestUserContext(
-        latestActualUserInstructionMessage(source.live),
-        opts.latestUserPrefix,
-    );
+    const execution = buildExecutionTail(source.live, {
+        contextWindow: opts.contextWindow || budgetTokens,
+        sessionId: opts.sessionId,
+    });
+    const latestUser = latestActualUserInstructionMessage(source.live);
+    const latestIndex = execution.messages.findLastIndex(message => (
+        message.role === 'user' && message.content === latestUser?.content
+    ));
+    const retainedTail = execution.messages.map((message, index) => (
+        index === latestIndex ? prependLatestUserContext(message, opts.latestUserPrefix) : message
+    ));
     const activeTurnContinuation = latestUser && opts.activeTurn === true
         ? activeTurnContinuationMessage(source.live)
         : null;
     const stableAck = latestUser ? { role: 'assistant', content: '.' } : null;
     const volatileTail = [
-        ...(latestUser ? [latestUser] : []),
+        ...retainedTail,
         ...(activeTurnContinuation ? [activeTurnContinuation] : []),
     ];
     const mandatory = [
@@ -357,8 +365,11 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
         volatileTailTokens: safeEstimateMessagesTokens(volatileTail),
         latestUserRetained: !!latestUser,
         activeTurnContinuation: !!activeTurnContinuation,
-        retainedAssistantToolMessages: 0,
-        retainedProviderReplayMessages: 0,
+        retainedAssistantToolMessages: retainedTail.filter(message => message.toolCalls?.length).length,
+        retainedProviderReplayMessages: retainedTail.filter(message => message.providerReplay).length,
+        toolHistoryBudget: execution.toolBudget,
+        toolHistoryTokens: execution.toolTokens,
+        omittedToolGroups: execution.omittedGroups || 0,
         budgetTokens: budget,
         remainingTokens: budget - mandatoryCost,
         handoffTokenCap: Number.isFinite(handoffTokenCap) && handoffTokenCap > 0
@@ -373,7 +384,7 @@ export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {
         handoffTruncatedInSummary: !!handoffText && !summaryContent.includes(handoffText),
         fileReattached: false,
         tailOptions: {
-            latestActualUserOnly: true,
+            latestActualUserOnly: execution.retainedGroups === 0,
             activeTurnContinuation: !!activeTurnContinuation,
         },
         durationMs: Date.now() - startedAt,

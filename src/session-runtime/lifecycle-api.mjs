@@ -714,6 +714,23 @@ export function createLifecycleApi(deps) {
       }
       target.inheritedFromSessionId = source.id;
       target.updatedAt = Date.now();
+      // Display-only boundary: preserve the carried message and its historical
+      // route, without adding a synthetic message to the model conversation.
+      const boundary = target.messages.at(-1);
+      const inheritance = {
+        sourceSessionId: source.id,
+        sessionId: target.id,
+        provider: target.provider,
+        modelId: target.model,
+        at: target.updatedAt,
+      };
+      boundary.meta = {
+        ...boundary.meta,
+        sessionInheritances: [
+          ...(Array.isArray(boundary.meta?.sessionInheritances) ? boundary.meta.sessionInheritances : []),
+          inheritance,
+        ],
+      };
       if (!clean(target.title) && clean(source.title)) target.title = source.title;
       saveSessionForLifecycle(target, { immediate: true });
       invalidateContextStatusCache();

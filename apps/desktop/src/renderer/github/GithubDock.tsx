@@ -3,12 +3,17 @@ import { PullRequestsPane } from '../PullRequestsPane';
 import { t } from '../i18n';
 import { GithubPanel } from './GithubPanel';
 import { GITHUB_SECTIONS, type GithubSection } from './github-model';
+import { useSurfaceActive, useSurfaceNavigationReset } from '../surface-activity';
 import './github.css';
 
 export function GithubDock(props: ComponentProps<typeof PullRequestsPane>) {
   const [section, setSection] = useState<'pulls' | GithubSection>(
     props.repositoryUrl ? 'pulls' : 'repositories',
   );
+  const active = useSurfaceActive();
+  useSurfaceNavigationReset(active, () => {
+    setSection(props.repositoryUrl ? 'pulls' : 'repositories');
+  });
   return <div className="github-dock">
     <label className="github-navigation">
       <span>GitHub</span>

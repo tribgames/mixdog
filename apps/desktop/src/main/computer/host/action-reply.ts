@@ -4,6 +4,7 @@ import { captureAfterImageIsRedundant, recommendedRecovery, transitionConfirmsSe
 import type { ComputerCommand, ComputerCommandResult, PowerShellResponse } from '../shared/types';
 import type { ComputerWindowRecord, ComputerWindowTransition } from '../shared/window-transition';
 import type { CommandRouterHost } from './command-router';
+import { computerCursorFeedback } from '../shared/cursor-feedback';
 
 export async function buildActionReply(
   captureAfterAction: CommandRouterHost['captureAfterAction'],
@@ -33,10 +34,12 @@ export async function buildActionReply(
       ? { decision: 'done' } : effect === 'suspected_noop' || code ? { decision: 'escalate' } : { decision: 'verify_fresh_state' };
     if (escalation) verdict.recommended = escalation;
     if (inputRecoveryVerification?.ok === false) verdict.decision = 'escalate';
+    const cursorFeedback = computerCursorFeedback(result.cursor_feedback);
     const payload: Record<string, unknown> = {
       ok: !code, action: result.action, message: String(result.text || ''), effect, verified,
       delivery_accepted: result.delivery_accepted === true, goal_verified: result.goal_verified === true || verified,
       path: result.path || 'unknown', delivery,
+      ...(cursorFeedback ? { cursor_feedback: cursorFeedback } : {}),
       ...(transitionVerified ? { verification_source: 'window_transition' } : {}),
       ...(typeof result.state_changed === 'boolean' ? { state_changed: result.state_changed } : {}),
       ...(logicalTargetWindowId || result.window_id ? { window_id: String(logicalTargetWindowId || result.window_id) } : {}),

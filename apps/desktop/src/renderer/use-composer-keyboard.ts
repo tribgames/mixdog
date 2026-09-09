@@ -95,10 +95,15 @@ export function useComposerKeyboard({
   const insertNewline = useCallback((element: HTMLTextAreaElement) => {
     const start = element.selectionStart;
     const end = element.selectionEnd;
+    const atEnd = end === element.value.length;
     draft.set((current) => `${current.slice(0, start)}\n${current.slice(end)}`);
     window.setTimeout(() => {
-      draft.textarea.current?.focus();
-      draft.textarea.current?.setSelectionRange(start + 1, start + 1);
+      if (draft.textarea.current !== element) return;
+      element.focus();
+      element.setSelectionRange(start + 1, start + 1);
+      // Programmatic selection does not scroll like a native newline. Wait
+      // for the controlled value and CSS autosize, then reveal an appended line.
+      if (atEnd) element.scrollTop = element.scrollHeight;
     }, 0);
   }, [draft]);
 

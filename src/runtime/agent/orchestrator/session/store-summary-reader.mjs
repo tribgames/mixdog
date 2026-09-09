@@ -9,6 +9,7 @@
 import { readFileSync, readdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import { sessionContextMeasurement, contextMeasurementStats } from '../../../../ui/context-measurement.mjs';
 // Leaf helpers only (no store.mjs, no workers, no config): the three-way
 // present/absent/unreadable classification and the strict record parser the
 // authoritative store uses, so the cold catalog cannot disagree with it.
@@ -1037,20 +1038,9 @@ async function projectStoredTranscript(sessionId, doc, options) {
     }
     const messages = Array.isArray(session.messages) ? session.messages : [];
     const hasConversationActivity = messages.some((message) => message?.role === 'user');
-    let currentEstimatedContextTokens = 0;
-    if (hasConversationActivity && !preparedContextProjection) {
-        try {
-            const { estimateTranscriptContextUsage } = await import('./context-utils.mjs');
-            currentEstimatedContextTokens = estimateTranscriptContextUsage(
-                messages,
-                Array.isArray(session.tools) ? session.tools : [],
-                { provider: session.provider },
-            );
-        } catch {
-            // Context metering is presentation-only. A cold transcript remains
-            // readable even if its optional estimator cannot be loaded.
-        }
-    }
+    const measuredStats = contextMeasurementStats({
+        measurement: sessionContextMeasurement(session, hasConversationActivity),
+    });
     const contextWindow = positiveNumber(session.contextWindow);
     const rawContextWindow = positiveNumber(session.rawContextWindow, contextWindow);
     const displayContextWindow = positiveNumber(session.compactBoundaryTokens, contextWindow);
@@ -1079,11 +1069,7 @@ async function projectStoredTranscript(sessionId, doc, options) {
             ...preparedContextProjection,
             preparedContextProjection: true,
         } : {
-            stats: {
-                currentContextTokens: 0,
-                currentEstimatedContextTokens,
-                currentContextSource: currentEstimatedContextTokens > 0 ? 'estimated' : null,
-            },
+            stats: measuredStats,
             contextWindow: contextWindow || null,
             rawContextWindow: rawContextWindow || null,
             displayContextWindow: displayContextWindow || null,

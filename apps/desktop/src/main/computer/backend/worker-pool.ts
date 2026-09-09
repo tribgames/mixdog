@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { powershellHostProgram, RESPONSE_MARKER } from './program';
 import { elevatedProgramInvocation } from './elevated-program';
 import { createSessionJobs } from './session-jobs';
+import { recordCursorDiagnostic } from '../overlay/cursor-diagnostics';
 import { assertComputerWorkerCapacity, MAX_COMPUTER_WORKERS } from './worker-capacity';
 import type { PowerShellResponse } from '../shared/types';
 import {
@@ -32,6 +33,7 @@ export interface WorkerPoolHost {
   isDisposed(): boolean;
   onSessionRetired?(sessionId: string, child?: ChildProcessWithoutNullStreams): void;
   maxWorkers?: number;
+  onPointerProgress?(sessionId: string, x: number, y: number, held: boolean, mode: 'background' | 'foreground', phase: string): void;
   /** Injectable process transport for isolated lifecycle tests. */
   spawnProcess?: typeof spawn;
 }
@@ -54,6 +56,9 @@ export function createWorkerPool(host: WorkerPoolHost) {
     reject: (e: Error) => void;
     timer: NodeJS.Timeout;
     child: ChildProcessWithoutNullStreams;
+    sessionId: string;
+    pointerFeedback: boolean;
+    mode: 'background' | 'foreground';
   }>();
   const powerShellBySession = new Map<string, ChildProcessWithoutNullStreams>();
   const workerLastUsedAt = new Map<string, number>();
@@ -104,6 +109,22 @@ export function createWorkerPool(host: WorkerPoolHost) {
     });
     hostWorkers.add(child);
     const receive = createComputerLineDecoder((line) => {
+      if (line.startsWith('@@MIXDOG_POINTER@@')) {
+        recordCursorDiagnostic('received');
+        try {
+          const event = JSON.parse(line.slice('@@MIXDOG_POINTER@@'.length));
+          const entry = pending.get(event.id);
+          if (entry?.child === child && entry.pointerFeedback
+            && Number.isFinite(event.x) && Number.isFinite(event.y) && typeof event.held === 'boolean') {
+            const phase = event.phase ?? (event.held ? 'drag' : 'move');
+            if (['move', 'prepare', 'press', 'release', 'drag', 'scroll', 'type'].includes(phase)) {
+              recordCursorDiagnostic('validated');
+              host.onPointerProgress?.(entry.sessionId, event.x, event.y, event.held, entry.mode, phase);
+            } else recordCursorDiagnostic('invalid_phase');
+          } else recordCursorDiagnostic('discarded_event');
+        } catch { recordCursorDiagnostic('event_handler_failed'); }
+        return;
+      }
       const marker = line.indexOf(RESPONSE_MARKER);
       if (marker >= 0) handlePsLine(line.slice(marker + RESPONSE_MARKER.length), child);
     });
@@ -197,6 +218,16 @@ export function createWorkerPool(host: WorkerPoolHost) {
     }
     const entry = pending.get(parsed.id);
     if (!entry || entry.child !== child) return;
+    const feedback = (parsed as PowerShellResponse & {
+      pointer_feedback?: { generated: number; failed: number };
+    }).pointer_feedback;
+    if (entry.pointerFeedback) {
+      recordCursorDiagnostic('tracked_requests');
+      if (feedback) {
+        recordCursorDiagnostic('source_generated', feedback.generated);
+        recordCursorDiagnostic('source_failed', feedback.failed);
+      } else recordCursorDiagnostic('source_summary_missing');
+    }
     clearTimeout(entry.timer);
     pending.delete(parsed.id);
     entry.resolve(parsed);
@@ -208,7 +239,12 @@ export function createWorkerPool(host: WorkerPoolHost) {
   ): Promise<PowerShellResponse> {
     const sessionId = String(request.session_id || 'default');
     const id = nextId++;
-    const line = `${JSON.stringify({ ...request, id })}\n`;
+    const step = request.step as Record<string, unknown> | undefined;
+    const inputAction = request.action === 'sequence_step' ? step?.action : request.action;
+    const pointerFeedback = (inputAction === 'drag' || (request.delivery === 'foreground'
+      && ['click', 'invoke', 'double_click', 'right_click', 'middle_click', 'triple_click', 'mouse_move', 'scroll', 'key', 'type'].includes(String(inputAction))))
+      && Boolean(host.onPointerProgress);
+    const line = `${JSON.stringify({ ...request, id, pointer_feedback: pointerFeedback })}\n`;
     if (pending.size >= 32 || Buffer.byteLength(line) > MAX_COMPUTER_INTERNAL_REQUEST_BYTES) {
       return Promise.reject(new Error('computer_capacity_exhausted: worker request budget exceeded; input was not dispatched'));
     }
@@ -223,7 +259,8 @@ export function createWorkerPool(host: WorkerPoolHost) {
           new Error(`computer_command_timeout: command exceeded ${commandTimeoutMs}ms; the input host was restarted`),
         );
       }, commandTimeoutMs);
-      pending.set(id, { resolve, reject, timer, child });
+      pending.set(id, { resolve, reject, timer, child, sessionId, pointerFeedback,
+        mode: request.delivery === 'foreground' ? 'foreground' : 'background' });
       try {
         child.stdin.write(line);
       } catch (error) {
@@ -434,6 +471,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
   }
 
   return {
+    inputMarker,
     powerShellBySession,
     workerLastUsedAt,
     adoptWarmedWorker,

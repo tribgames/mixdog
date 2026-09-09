@@ -12,7 +12,6 @@ import {
     toolSchemaSignature,
 } from '../context-utils.mjs';
 import {
-    DEFAULT_COMPACTION_KEEP_TOKENS,
     CONTEXT_SHARE_RATIO,
     COMPACT_TARGET_MIN_TOKENS,
     COMPACT_SAFETY_PERCENT,
@@ -52,11 +51,6 @@ function resolveCompactTargetTokens(boundaryTokens, cfg = {}) {
         || COMPACT_TARGET_MIN_TOKENS);
     const byRatio = Math.max(1, Math.floor(boundary * resolveCompactTargetRatio(cfg)));
     return Math.max(1, Math.min(boundary, Math.max(minTarget, byRatio)));
-}
-function resolveCompactKeepTokens(cfg = {}) {
-    return positiveInt(cfg.keepTokens ?? cfg.keep?.tokens ?? cfg.preserveRecentTokens)
-        || envPositiveInt('MIXDOG_AGENT_COMPACT_KEEP_TOKENS')
-        || DEFAULT_COMPACTION_KEEP_TOKENS;
 }
 
 function compactTriggerMarginTokens(boundaryTokens) {
@@ -130,7 +124,6 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
     const triggerTokens = Math.max(1, baseTriggerTokens - configuredReserve);
     const bufferTokens = Math.max(0, compactBoundaryTokens - triggerTokens);
     const bufferRatio = bufferTokens / compactBoundaryTokens;
-    const keepTokens = resolveCompactKeepTokens(cfg);
     return {
         auto: true,
         boundaryTokens: compactBoundaryTokens,
@@ -146,8 +139,6 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
             : null,
         autoCompactTokenLimit: explicitAutoCompactTokenLimit,
         handoffTimeoutMs: positiveInt(cfg.timeoutMs) || envPositiveInt('MIXDOG_AGENT_COMPACT_TIMEOUT_MS') || 30_000,
-        keepTokens,
-        preserveRecentTokens: positiveInt(cfg.preserveRecentTokens) || envPositiveInt('MIXDOG_AGENT_COMPACT_PRESERVE_RECENT_TOKENS') || keepTokens,
         reserveTokens,
         requestReserveTokens: requestReserve,
         configuredReserveTokens: configuredReserve,
@@ -603,8 +594,6 @@ export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
         effectiveContextWindowPercent: policy.effectiveContextWindowPercent ?? null,
         autoCompactTokenLimit: policy.autoCompactTokenLimit || null,
         handoffTimeoutMs: policy.handoffTimeoutMs || null,
-        keepTokens: policy.keepTokens || null,
-        preserveRecentTokens: policy.preserveRecentTokens || null,
         lastCheckedAt: Date.now(),
         lastBeforeTokens: meta.beforeTokens ?? null,
         lastAfterTokens: meta.afterTokens ?? null,

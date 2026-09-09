@@ -6,16 +6,19 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import {
   createSkillDocument,
+  parseSkillDocument,
   updateSkillDocument,
   validateSkillDescription,
   validateSkillName,
   validateSkillWhenToUse,
 } from '../runtime/shared/skill-document.mjs';
 import { clean } from './session-text.mjs';
+import { normalizeSkillToolDependencies, saveSkillToolDependencies } from '../runtime/shared/skill-tool-dependencies.mjs';
+import { loadSkillToolDependencies } from './skill-tool-loading.mjs';
 
 const DEFAULT_SKILL_BODY = '# Instructions\n\nDescribe how to use this skill.';
 
-export function createSkillsApi({ contextMod, getCwd }) {
+export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
   const globalSkillsRoot = () => resolve(resolvePluginData(), 'skills');
 
   function skillsStatus() {
@@ -43,16 +46,22 @@ export function createSkillsApi({ contextMod, getCwd }) {
     return {
       cwd,
       count: skills.length,
+      tools: getTools().map(({ name }) => ({ name })),
       skills: skills.map((skill) => {
         const source = sourceForSkill(skill);
         return {
           name: skill.name,
+          enabled: !(contextMod.isSkillDisabled?.(skill.name) || contextMod.skillMissingFeature?.(skill.name)),
           description: skill.description || '',
           whenToUse: skill.whenToUse || '',
           filePath: skill.filePath || null,
           source,
           owner: ownerForSkill(skill, source),
           editable: source === 'global',
+          toolDependencies: skill.toolDependencies || [],
+          declaredToolDependencies: skill.declaredToolDependencies || [],
+          dependencySource: skill.dependencySource || 'none',
+          dependencyIssues: skill.dependencyIssues || [],
         };
       }),
     };
@@ -65,10 +74,10 @@ export function createSkillsApi({ contextMod, getCwd }) {
       ? contextMod.loadSkillResource(skillName, getCwd())
       : null;
     if (!res) throw new Error(`skill not found: ${skillName}`);
-    return { name: skillName, content: res.content, dir: res.dir, source: res.source || 'global' };
+    return { ...res, name: skillName, source: res.source || 'global' };
   }
 
-  function skillToolContent(name) {
+  function skillToolContent(name, session = null, mode) {
     const skillName = String(name || '').trim();
     if (!skillName) throw new Error('skill name is required');
     const missingFeature = typeof contextMod.skillMissingFeature === 'function'
@@ -84,7 +93,9 @@ export function createSkillsApi({ contextMod, getCwd }) {
     // The general tool envelope keeps the main/Lead session identical to agent
     // loops: the model-visible tool_result is the short stub and the SKILL.md
     // body is delivered ONCE as a separate injected user message.
-    return contextMod.buildSkillToolEnvelope(skill.name, skill.content, skill.dir, { source: skill.source });
+    return loadSkillToolDependencies(
+      contextMod.buildSkillToolEnvelope(skill.name, skill.content, skill.dir, skill), session, mode,
+    );
   }
 
   function addGlobalSkill(input = {}) {
@@ -92,23 +103,35 @@ export function createSkillsApi({ contextMod, getCwd }) {
     const description = validateSkillDescription(input.description);
     const whenToUse = validateSkillWhenToUse(input.whenToUse);
     const body = String(input.instructions || input.body || DEFAULT_SKILL_BODY);
+    const dependencies = input.toolDependencies === undefined ? undefined
+      : normalizeSkillToolDependencies(input.toolDependencies, { strict: true });
     const dir = join(globalSkillsRoot(), name);
     const filePath = join(dir, 'SKILL.md');
     if (existsSync(filePath)) throw new Error(`skill already exists: ${name}`);
     mkdirSync(dir, { recursive: true });
     writeFileSync(filePath, createSkillDocument({ name, description, whenToUse, body }), 'utf8');
+    if (dependencies !== undefined) saveSkillToolDependencies(filePath, dependencies);
     contextMod.invalidateSkillsCache?.(getCwd());
     return { name, filePath };
   }
 
   function saveSkillDocument(input = {}) {
     const originalName = validateSkillName(input.originalName);
+    const resource = contextMod.loadSkillResource?.(originalName, getCwd());
+    if (!resource?.filePath) throw new Error(`skill not found: ${originalName}`);
+    const dependencies = input.toolDependencies === null ? null
+      : input.toolDependencies === undefined ? undefined
+      : normalizeSkillToolDependencies(input.toolDependencies, { strict: true });
+    if (input.dependenciesOnly === true) {
+      if (dependencies === undefined) throw new Error('Skill tool dependencies are required.');
+      saveSkillToolDependencies(resource.filePath, dependencies);
+      contextMod.invalidateSkillsCache?.(getCwd());
+      return { originalName, name: originalName, filePath: resource.filePath };
+    }
     const name = validateSkillName(input.name);
     const description = validateSkillDescription(input.description);
     const whenToUse = validateSkillWhenToUse(input.whenToUse);
     const body = String(input.instructions || input.body || '');
-    const resource = contextMod.loadSkillResource?.(originalName, getCwd());
-    if (!resource?.filePath) throw new Error(`skill not found: ${originalName}`);
     const resourcePath = resolve(resource.filePath);
     const resourceRelative = relative(globalSkillsRoot(), resourcePath);
     if (!resourceRelative || resourceRelative.startsWith('..') || isAbsolute(resourceRelative)) {
@@ -127,6 +150,13 @@ export function createSkillsApi({ contextMod, getCwd }) {
       throw new Error(`skill folder already exists: ${name}`);
     }
     const source = readFileSync(resource.filePath, 'utf8');
+    const parsed = parseSkillDocument(source);
+    if (name === originalName && description === parsed.description && whenToUse === parsed.whenToUse
+      && body.trim() === parsed.body.trim()) {
+      if (dependencies !== undefined) saveSkillToolDependencies(resource.filePath, dependencies);
+      contextMod.invalidateSkillsCache?.(getCwd());
+      return { originalName, name, filePath: resource.filePath };
+    }
     const updated = updateSkillDocument(source, { name, description, whenToUse, body });
     let filePath = resource.filePath;
     if (nextDir !== currentDir) {
@@ -140,6 +170,10 @@ export function createSkillsApi({ contextMod, getCwd }) {
       }
     } else {
       writeFileSync(filePath, updated, 'utf8');
+    }
+    if (dependencies !== undefined) saveSkillToolDependencies(filePath, dependencies);
+    else if (filePath !== resource.filePath && resource.dependencySource === 'override') {
+      saveSkillToolDependencies(filePath, resource.toolDependencies || []);
     }
     contextMod.invalidateSkillsCache?.(getCwd());
     return { originalName, name, filePath };

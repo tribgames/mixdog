@@ -90,6 +90,7 @@ test('Studio detail opens media, reveals its folder, and navigates with plain ar
   const openedReferences = [];
   const revealed = [];
   const generations = [];
+  const rememberedDefaults = [];
   const referenceValues = new Map();
   const referenceStore = {
     async read(key) { return referenceValues.get(key); },
@@ -136,6 +137,10 @@ test('Studio detail opens media, reveals its folder, and navigates with plain ar
         };
       }
       if (capability === 'getMediaJob') return { value: null, snapshot: null };
+      if (capability === 'setMediaDefault') {
+        rememberedDefaults.push(args[0]);
+        return { value: args[0], snapshot: null };
+      }
       throw new Error(`unexpected capability: ${capability}`);
     },
   };
@@ -150,6 +155,8 @@ test('Studio detail opens media, reveals its folder, and navigates with plain ar
     });
     const tiles = [...host.querySelectorAll('.studio-tile-open')];
     assert.equal(tiles.length, 2);
+    assert.deepEqual(rememberedDefaults, [{ kind: 'image', lane: 'gemini', model: 'image-model' }],
+      'the settled Studio selection is pushed to the runtime once as the media default');
     const referenceButtons = [...host.querySelectorAll('.studio-ref-open')];
     assert.equal(referenceButtons.length, 2);
     await act(async () => referenceButtons[0].click());
@@ -267,6 +274,7 @@ test('Studio becomes ready while its first thumbnail is still loading', async ()
         return { value: { assets: rows, total: rows.length }, snapshot: null };
       }
       if (capability === 'readMediaAsset') return new Promise(() => {});
+      if (capability === 'setMediaDefault') return { value: args[0], snapshot: null };
       throw new Error(`unexpected capability: ${capability}`);
     },
   };

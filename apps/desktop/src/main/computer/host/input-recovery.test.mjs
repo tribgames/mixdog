@@ -31,6 +31,38 @@ test('user input after dispatch is preserved rather than restored over', async (
   assert.deepEqual(calls.map((call) => call.action), ['input_recovery_state']);
 });
 
+test('visible foreground input keeps the real pointer at its destination between actions', async () => {
+  const calls = [];
+  const resolver = createInputResolution({
+    sessionIdFor: () => 'test',
+    callPowerShell: async request => {
+      calls.push(request.action);
+      return { ok: true, result: { ...state, cursor_x: 3100, cursor_y: 1200, synthetic_input: true } };
+    },
+  });
+  const result = await resolver.verifyInputRecovery(
+    { action: 'click', delivery: 'foreground' }, 'hwnd:0x1', original, {});
+  assert.equal(result.ok, true);
+  assert.equal(result.cursor_preserved, true);
+  assert.equal(result.cursor_restored, false);
+  assert.deepEqual(calls, ['input_recovery_state']);
+});
+
+test('explicit focus preparation is not immediately undone by recovery', async () => {
+  const calls = [];
+  const resolver = createInputResolution({
+    sessionIdFor: () => 'test',
+    callPowerShell: async request => {
+      calls.push(request.action);
+      return { ok: true, result: state };
+    },
+  });
+  const result = await resolver.verifyInputRecovery({ action: 'focus_window' }, 'hwnd:0x1', original, {});
+  assert.equal(result.ok, true);
+  assert.equal(result.focus_preserved_for_followup, true);
+  assert.deepEqual(calls, ['input_recovery_state']);
+});
+
 test('only target or observed owner relationship counts as preserved foreground', async () => {
   for (const owned of [true, false]) {
     const resolver = createInputResolution({
@@ -88,6 +120,44 @@ test('observer loss is unknown, not an assertion that the user took control', as
     assert.notEqual(result.user_control, true);
   }
 });
+
+test('refused input preserves pre-action focus rather than forcing the older session focus', async () => {
+  const calls = [];
+  const before = { ...original, foregroundWindowId: 'hwnd:0x3' };
+  const resolver = createInputResolution({
+    sessionIdFor: () => 'test',
+    callPowerShell: async request => {
+      calls.push(request.action);
+      return { ok: true, result: { ...state, foreground_window_id: 'hwnd:0x3', foreground_within_target: false } };
+    },
+  });
+  const result = await resolver.verifyInputRecovery({ action: 'click', delivery: 'foreground' },
+    'hwnd:0x1', before, {}, { delivery_accepted: false, code: 'foreground_unavailable' });
+  assert.equal(result.ok, true);
+  assert.equal(result.input_not_dispatched, true);
+  assert.equal(result.focus_unchanged, true);
+  assert.deepEqual(calls, ['input_recovery_state']);
+  const uncertain = await resolver.verifyInputRecovery({ action: 'click', delivery: 'foreground' },
+    'hwnd:0x1', before, {}, {});
+  assert.equal(uncertain.ok, false);
+});
+
+for (const action of ['mouse_move', 'invoke']) {
+  test(`${action} keeps foreground target ready for subsequent actions`, async () => {
+    const calls = [];
+    const resolver = createInputResolution({
+      sessionIdFor: () => 'test',
+      callPowerShell: async request => {
+        calls.push(request.action);
+        return { ok: true, result: state };
+      },
+    });
+    const result = await resolver.verifyInputRecovery({ action, delivery: 'foreground' }, 'hwnd:0x1', original, {});
+    assert.equal(result.ok, true);
+    assert.equal(result.focus_preserved_for_followup, true);
+    assert.deepEqual(calls, ['input_recovery_state']);
+  });
+}
 
 test('a keyboard-opened owned dialog retains focus for follow-up without restoring another window', async () => {
   const calls = [];

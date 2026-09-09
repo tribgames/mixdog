@@ -27,6 +27,19 @@ const diagnostics = (overrides = {}) => ({
   ...overrides,
 });
 
+test('an empty filter says what it filtered, and console errors are reported once when new', () => {
+  const text = formatSnapshot(payload({ query: 'nothing', unfilteredElements: 42 }), diagnostics());
+  assert.match(text, /No interactive element matched the filter; the page has 42 interactive element\(s\)/);
+  assert.doesNotMatch(formatSnapshot(payload({ query: 'save', elements: [{ ref: 'p1-s1-e1', role: 'button', name: 'Save', tag: 'ax' }] }), diagnostics()), /No interactive element/);
+  const asked = [];
+  const withNew = formatSnapshot(payload(), diagnostics({
+    console: { recentErrors: () => ['old'], newErrors: (limit) => { asked.push(limit); return ['fresh']; } },
+  }));
+  assert.match(withNew, /New console errors: fresh/);
+  assert.doesNotMatch(withNew, /Recent console errors|: old/);
+  assert.deepEqual(asked, [3]);
+});
+
 test('snapshot header names an error status for the document, never a success', () => {
   const failed = formatSnapshot(payload(), diagnostics({
     network: { documentStatus: () => ({ status: 404, statusText: 'Not Found' }) },
@@ -43,7 +56,7 @@ test('snapshot reports a pending file chooser and how to answer it', () => {
     pendingFileChooser: { mode: 'selectMultiple' },
   }));
   assert.match(text, /Pending file chooser \(multiple files\)/);
-  assert.match(text, /call upload with paths and confirm:true/);
+  assert.match(text, /call upload with paths \(no ref needed\)/);
   assert.doesNotMatch(formatSnapshot(payload(), diagnostics()), /file chooser/);
 });
 

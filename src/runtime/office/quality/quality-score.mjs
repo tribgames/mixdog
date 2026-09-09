@@ -1,4 +1,6 @@
 import { clamp } from '../shared/values.mjs';
+import { assessPresentationAcceptance } from './presentation-acceptance.mjs';
+import { assessDocumentAcceptance, DOCUMENT_VISUAL_CHECKS } from './document-acceptance.mjs';
 
 const HARD_WARNING_CODES = new Set([
   'blank_page',
@@ -61,8 +63,8 @@ export function scoreOfficeReleaseQuality({
   const blocking = issueList.filter((issue) => ['error', 'warning'].includes(
     String(issue?.severity || '').toLowerCase(),
   ));
-  return {
-    version: 2,
+  const quality = {
+    version: normalizedFormat === 'pptx' ? 3 : 2,
     score: rounded(score),
     confidence: rounded(clamp(confidence)),
     releaseReady: blocking.length === 0 && score >= 0.7,
@@ -79,4 +81,11 @@ export function scoreOfficeReleaseQuality({
       blockingIssueCount: blocking.length,
     },
   };
+  // Preserve diagnostic scores for comparison, but never present pixel statistics
+  // as an aesthetic verdict. Finalize supplies the independently checked review.
+  return normalizedFormat === 'pptx'
+    ? { ...quality, ...assessPresentationAcceptance(quality.evidence) }
+    : DOCUMENT_VISUAL_CHECKS[normalizedFormat]
+      ? { ...quality, ...assessDocumentAcceptance(quality.evidence) }
+      : quality;
 }

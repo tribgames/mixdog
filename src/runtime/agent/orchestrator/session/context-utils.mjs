@@ -12,7 +12,6 @@ export {
     DEFAULT_COMPACTION_BUFFER_RATIO,
     DEFAULT_MAIN_COMPACTION_BUFFER_RATIO,
     MAX_COMPACTION_BUFFER_RATIO,
-    DEFAULT_COMPACTION_KEEP_TOKENS,
     normalizeCompactionBufferRatio,
     resolveBufferRatioCandidate,
     resolveCompactBufferRatio,

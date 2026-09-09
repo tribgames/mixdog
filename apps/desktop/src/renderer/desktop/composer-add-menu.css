@@ -1,0 +1,42 @@
+/* The + menu rides the shared .slash-palette shell, which sizes every button
+   as ONE 28px line for slash/mention rows. These rows carry a title AND a
+   description, so the height, the span nowrap/muted ink, and the grid columns
+   from the palette skin must all be released here or the two lines overflow
+   their 28px box and collide with the next row. */
+.composer-add-menu { padding: 6px; overflow-y: auto; }
+.composer-add-menu [role="menuitem"] {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  height: auto; min-height: 36px; padding: 7px 10px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--mx-text); text-align: left;
+  font-size: var(--mx-font-ui); line-height: var(--mx-line-ui);
+}
+.composer-add-menu [role="menuitem"]:hover,
+.composer-add-menu [role="menuitem"]:focus-visible { background: var(--mx-hover); outline: none; }
+.composer-add-menu [role="menuitem"]:disabled { opacity: .45; }
+.composer-add-menu [role="menuitem"] > svg { flex: 0 0 16px; }
+.composer-add-menu [role="menuitem"] > span {
+  min-width: 0; flex: 1; display: block;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--mx-text); font-size: var(--mx-font-ui);
+}
+.composer-add-menu b { display: block; font-weight: var(--mx-weight-medium, 500); line-height: 20px; color: var(--mx-text); }
+.composer-add-menu small {
+  display: block; margin-top: 2px; line-height: 17px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--mx-text-muted); font-size: var(--mx-font-meta);
+}
+.composer-add-heading, .composer-add-menu p {
+  padding: 8px 10px 4px; margin: 0; color: var(--mx-text-faint); font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-semibold); letter-spacing: var(--mx-tracking-wide); text-transform: uppercase; text-align: left;
+}
+.composer-add-menu p { text-transform: none; font-weight: var(--mx-weight-regular); font-size: var(--mx-font-meta); letter-spacing: 0; color: var(--mx-text-muted); }
+.composer-add-menu .composer-add-divider { height: .5px; margin: 4px 6px; background: var(--mx-border-muted); }
+.composer-add-menu .composer-add-error { color: var(--mx-text); }
+.composer-input-row { display: flex; align-items: flex-start; min-width: 0; }
+.composer-input-row textarea { flex: 1; min-width: 0; width: 100%; }
+.composer-input-row:has(.composer-selected-skill) textarea { padding-left: 6px; }
+.composer-selected-skill {
+  display: flex; align-items: center; gap: 4px; flex: 0 1 auto; max-width: 35%;
+  margin: 16px 0 0 var(--composer-text-inset); line-height: var(--mx-line-body);
+}
+.composer-selected-skill > button { display: flex; align-items: center; gap: 5px; padding: 0; border: 0; background: none; color: var(--mx-text); min-width: 0; }
+.composer-selected-skill > button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

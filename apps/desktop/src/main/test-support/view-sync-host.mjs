@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionHost } from '../session-host.ts';
 
-export async function viewSyncHost() {
+export async function viewSyncHost({ runTurns = false } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-view-sync-'));
   const previousDataDirectory = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = directory;
@@ -13,16 +13,19 @@ export async function viewSyncHost() {
   const full = (record) => ({
     sessionId: record.id, revision: record.revision, full: record.snapshot,
   });
-  const put = (id, text) => {
+  const putSnapshot = (id, snapshot) => {
     const old = records.get(id);
     const record = {
       id, revision: (old?.revision ?? 0) + 1, submissions: old?.submissions ?? new Set(),
-      snapshot: { sessionId: id, busy: false, items: [{ id: 'answer', kind: 'assistant', text }], queued: [] },
+      snapshot: { ...snapshot, sessionId: id },
     };
     records.set(id, record);
     for (const sink of sinks) sink({ type: 'session-state', ...full(record) });
     return record;
   };
+  const put = (id, text) => putSnapshot(id, {
+    busy: false, items: [{ id: 'answer', kind: 'assistant', text }], queued: [],
+  });
   const runtime = {
     async attachSessionClient({ onFrame }) {
       sinks.add(onFrame);
@@ -55,9 +58,29 @@ export async function viewSyncHost() {
           if (!record.submissions.has(options.id)) {
             state.submits++;
             record.submissions.add(options.id);
-            put(sessionId, String(prompt));
+            if (runTurns) {
+              putSnapshot(sessionId, {
+                ...record.snapshot,
+                busy: true,
+                items: [...record.snapshot.items, { id: options.id, kind: 'user', text: String(prompt) }],
+              });
+            } else {
+              put(sessionId, String(prompt));
+            }
           }
           return { ...full(records.get(sessionId)), accepted: true };
+        },
+        async abort({ sessionId }) {
+          const record = records.get(sessionId);
+          const prompt = record.snapshot.items.at(-1);
+          if (!runTurns || prompt?.kind !== 'user') return { ...full(record), aborted: false };
+          putSnapshot(sessionId, {
+            ...record.snapshot, busy: false, items: record.snapshot.items.slice(0, -1),
+          });
+          return {
+            ...full(records.get(sessionId)), aborted: true, restoreText: prompt.text,
+            restoredSubmissionIds: [prompt.id],
+          };
         },
         async configure() { throw new Error('Unexpected configuration'); },
         async close() { sinks.delete(onFrame); },
@@ -71,7 +94,7 @@ export async function viewSyncHost() {
   const options = { userDataPath: directory, resourcesPath: directory, appPath: directory, packaged: false };
   const host = await SessionHost.create(options, runtime);
   return {
-    host, runtime, options, directory, records, state, put,
+    host, runtime, options, directory, records, state, put, putSnapshot,
     async close() {
       await host.dispose();
       if (previousDataDirectory === undefined) delete process.env.MIXDOG_DATA_DIR;

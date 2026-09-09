@@ -24,11 +24,9 @@ export type RowOverflowMenuItem = {
 export function RowOverflowMenu({
   label,
   items,
-  width = 132,
 }: {
   label: string;
   items: RowOverflowMenuItem[];
-  width?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [path, setPath] = useState<number[]>([]);
@@ -49,6 +47,7 @@ export function RowOverflowMenu({
   useMobileBack(menuOpen, () => setOpen(false));
   const menuItems = path.reduce<RowOverflowMenuItem[]>((current, index) =>
     current[index]?.children ?? current, items);
+  const hasCheckItems = menuItems.some((item) => item.checked !== undefined);
 
   useEffect(() => {
     if (!menuOpen) return undefined;
@@ -88,7 +87,6 @@ export function RowOverflowMenu({
   // late on dense panels.
   const placement = positionRowMenu(
     menuOpen ? anchorBounds.current : null,
-    width,
     menuItems.length + (path.length ? 1 : 0),
     menuItems.filter((item) => item.separatorBefore).length,
     window.innerWidth,
@@ -181,9 +179,9 @@ export function RowOverflowMenu({
             item.onSelect?.();
             if (item.closeOnSelect !== false) setOpen(false);
           }}>
-          <span className="row-overflow-check">
+          {hasCheckItems && <span className="row-overflow-check">
             {item.checked && <Check size={14} aria-hidden="true" />}
-          </span>
+          </span>}
           <span className="row-overflow-label">{t(item.label)}</span>
           {submenu && <ChevronRight className="row-overflow-submenu" size={14} aria-hidden="true" />}
         </button>;

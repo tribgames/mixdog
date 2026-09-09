@@ -7,7 +7,7 @@ import {
     canonicalizeAgentRouteStorage,
 } from '../../shared/agent-route-config.mjs';
 import { OPENAI_COMPAT_PRESETS } from './providers/openai-compat-presets.mjs';
-import { oauthCredentialProbeState } from './providers/oauth-credential-probes.mjs';
+import { oauthCredentialProbeState, isOAuthProviderAvailable } from './providers/oauth-credential-probes.mjs';
 
 // Thin wrapper around resolvePluginData so callers in this orchestrator tree
 // can import a single helper without reaching into shared/.
@@ -190,12 +190,14 @@ export function buildDefaultConfig(options = {}) {
     // stored in mixdog-config.json — enabled at runtime from the presence of
     // Mixdog-owned credentials.
     providers['grok-oauth'] = oauthEntry('grok-oauth');
+    // Dev-only providers (MIXDOG_DEV_PROVIDERS): omitted entirely from the
+    // default config while the flag is unset so they never surface in settings.
     // Experimental direct Cursor wire provider. It remains disabled unless a
     // Mixdog-owned login or CURSOR_ACCESS_TOKEN is present.
-    providers['cursor-oauth'] = oauthEntry('cursor-oauth');
+    if (isOAuthProviderAvailable('cursor-oauth')) providers['cursor-oauth'] = oauthEntry('cursor-oauth');
     // Google Antigravity (Cloud Code Assist). Gemini and Claude behind one
     // Google login; enabled only once a login has stored tokens + project.
-    providers['antigravity-oauth'] = oauthEntry('antigravity-oauth');
+    if (isOAuthProviderAvailable('antigravity-oauth')) providers['antigravity-oauth'] = oauthEntry('antigravity-oauth');
     // First-party local inference is installed and toggled from Built-in.
     providers['mixdog-local'] = { enabled: false };
     return {

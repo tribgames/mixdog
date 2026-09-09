@@ -7,9 +7,8 @@ aliases: default, concise, handoff
 
 ## Depth Variation
 
-Simple — concise summary.
-
-- Retain: the answer, core causal sequence, strongest evidence, direct
-  consequences, and material scope or caveat. Keep it self-contained.
-- Omit: secondary evidence, implementation detail, examples, edge cases,
-  adjacent implications, and unrequested remediation.
+- Give a self-contained summary: answer, core causal sequence, strongest
+  evidence, and direct consequences.
+- Omit secondary evidence, implementation detail, and extended examples
+  unless requested.
+- Use short paragraphs or a compact list.

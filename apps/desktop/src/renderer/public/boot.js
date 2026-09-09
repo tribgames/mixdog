@@ -124,32 +124,117 @@ if (mixdogInstalledApp) {
     }, 400);
   };
   // A bundle that never boots must not leave a blank band on screen.
-  mixdogGateTimer = setTimeout(function () { window.mixdogRevealApp(); }, 8000);
+  mixdogGateTimer = setTimeout(function () { window.mixdogRevealApp(); }, 30000);
 }
 
 // Surface bundle failures on remote browsers where devtools may be unavailable.
 (function () {
   var errors = [];
-  function overlay() {
-    if (!document.body || document.getElementById('mixdog-boot-error')) return;
+  var settled = false;
+  var deadlineReached = false;
+  var previousFocus = null;
+  function clearOverlay() {
+    var layer = document.getElementById('mixdog-boot-error');
+    if (layer) {
+      var restoreFocus = layer.contains(document.activeElement);
+      layer.remove();
+      if (restoreFocus && previousFocus && previousFocus.isConnected) previousFocus.focus();
+    }
+  }
+  function hasStarted() {
     var root = document.getElementById('root');
-    if (root && root.childElementCount > 0) return;
+    return Boolean(root && root.childElementCount > 0);
+  }
+  var observer = new MutationObserver(function () {
+    if (hasStarted()) {
+      settled = true;
+      clearOverlay();
+      observer.disconnect();
+    } else if (document.getElementById('mixdog-remote-pairing')) {
+      clearOverlay();
+    }
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  function overlay() {
+    if (!deadlineReached || !document.body || settled || hasStarted()) return;
     // A browser tab never mounts the app: remote-shim draws the install guide
     // (or the approval wait) beside #root, so an empty root there is the
     // expected state, not a bundle that failed. Painting the failure overlay
     // over that guide after the timer is what the user saw as "No error
     // captured" a few seconds after the guide appeared.
-    if (document.getElementById('mixdog-remote-pairing')) return;
+    if (document.getElementById('mixdog-remote-pairing')) {
+      clearOverlay();
+      return;
+    }
     // The boot gate hides #root, so a failure message must not sit behind a
     // reveal that will never arrive.
     if (window.mixdogRevealApp) window.mixdogRevealApp();
-    var div = document.createElement('div');
-    div.id = 'mixdog-boot-error';
-    div.style.cssText = 'position:fixed;inset:0;z-index:99999;padding:24px;overflow:auto;'
-      + 'background:#111114;color:#e9e9e9;font:400 13px/19px monospace;white-space:pre-wrap;';
-    div.textContent = 'Mixdog failed to start.\n\n'
-      + (errors.join('\n\n') || 'No error captured - the app bundle may not have loaded.');
-    document.body.appendChild(div);
+    var korean = /^ko\b/i.test(String(
+      typeof mixdogLanguageValue === 'string' ? mixdogLanguageValue : navigator.language,
+    ));
+    var div = document.getElementById('mixdog-boot-error');
+    if (!div) {
+      div = document.createElement('div');
+      div.id = 'mixdog-boot-error';
+      div.style.cssText = 'position:fixed;inset:0;z-index:99999;padding:24px;overflow:auto;'
+        + 'display:grid;place-items:center;background:rgba(0,0,0,.45);'
+        + 'color:#e9e9e9;font:400 14px/22px system-ui,sans-serif;';
+      var card = document.createElement('div');
+      card.setAttribute('role', 'alertdialog');
+      card.setAttribute('aria-modal', 'true');
+      card.setAttribute('aria-labelledby', 'mixdog-boot-title');
+      card.setAttribute('aria-describedby', 'mixdog-boot-description');
+      card.style.cssText = 'box-sizing:border-box;width:100%;max-width:400px;'
+        + 'padding:24px;border:1px solid #444;border-radius:16px;background:#202024;';
+      var title = document.createElement('h2');
+      title.id = 'mixdog-boot-title';
+      title.style.cssText = 'margin:0 0 12px;font-size:18px;';
+      title.textContent = korean ? '연결이 지연되고 있습니다' : 'Connection is taking longer than expected';
+      var description = document.createElement('p');
+      description.id = 'mixdog-boot-description';
+      description.textContent = korean
+        ? '30초 안에 앱을 시작하지 못했습니다. 조금 더 기다리거나 다시 시도해 주세요.'
+        : 'The app could not start within 30 seconds. You can keep waiting or try again.';
+      var details = document.createElement('details');
+      details.hidden = true;
+      var summary = document.createElement('summary');
+      summary.textContent = korean ? '오류 상세 보기' : 'Error details';
+      var errorText = document.createElement('pre');
+      errorText.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:180px;overflow:auto;';
+      details.appendChild(summary);
+      details.appendChild(errorText);
+      var retry = document.createElement('button');
+      retry.type = 'button';
+      retry.textContent = korean ? '다시 시도' : 'Try again';
+      retry.style.cssText = 'width:100%;margin-top:16px;padding:12px;border:0;border-radius:8px;'
+        + 'background:#e9e9e9;color:#171719;font:inherit;cursor:pointer;';
+      retry.addEventListener('click', function () { window.location.reload(); });
+      card.appendChild(title);
+      card.appendChild(description);
+      card.appendChild(details);
+      card.appendChild(retry);
+      // Keep keyboard focus inside the modal while recovery remains pending.
+      card.addEventListener('keydown', function (event) {
+        if (event.key !== 'Tab') return;
+        if (details.hidden) {
+          event.preventDefault();
+          retry.focus();
+        } else if (event.shiftKey && document.activeElement === summary) {
+          event.preventDefault();
+          retry.focus();
+        } else if (!event.shiftKey && document.activeElement === retry) {
+          event.preventDefault();
+          summary.focus();
+        }
+      });
+      div.appendChild(card);
+      previousFocus = document.activeElement;
+      document.body.appendChild(div);
+      retry.focus();
+    }
+    var detailPanel = div.querySelector('details');
+    detailPanel.hidden = errors.length === 0;
+    div.querySelector('pre').textContent = errors.join('\n\n');
   }
   window.addEventListener('error', function (event) {
     var target = event.target;
@@ -180,6 +265,10 @@ if (mixdogInstalledApp) {
   window.addEventListener('unhandledrejection', function (event) {
     var reason = event.reason;
     errors.push('unhandledrejection: ' + String((reason && (reason.stack || reason.message)) || reason));
+    setTimeout(overlay, 400);
   });
-  setTimeout(overlay, 7000);
+  setTimeout(function () {
+    deadlineReached = true;
+    overlay();
+  }, 30000);
 })();

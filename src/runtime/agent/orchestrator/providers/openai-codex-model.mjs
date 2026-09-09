@@ -85,6 +85,11 @@ export function _normalizeCodexModel(m) {
         supportVerbosity: m?.support_verbosity === true,
         defaultVerbosity: m?.default_verbosity || null,
         supportsReasoningSummaries: m?.supports_reasoning_summaries === true,
+        ...(typeof m?.supports_image_generation === 'boolean'
+            ? { supportsImageGeneration: m.supports_image_generation } : {}),
+        ...(Array.isArray(m?.supported_tools) ? {
+            supportedTools: m.supported_tools.map(tool => typeof tool === 'string' ? tool : tool?.type).filter(Boolean),
+        } : {}),
         serviceTiers,
         defaultServiceTier: m?.default_service_tier || null,
         additionalSpeedTiers,

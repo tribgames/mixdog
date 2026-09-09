@@ -29,7 +29,7 @@ import { t } from "./i18n";
 import { ProgressSpinner } from "./ProgressSpinner";
 import { GitFileDiff } from "./ReviewPane";
 import { OpenSelect } from "./OpenSelect";
-import { useSurfaceActive } from "./surface-activity";
+import { useSurfaceActive, useSurfaceNavigationReset } from "./surface-activity";
 import { RowOverflowMenu } from "./RowOverflowMenu";
 import { ScmPathText } from "./ScmPathText";
 import { ScmStatusIcon, type ScmStatusKind } from "./ScmStatusIcon";
@@ -239,6 +239,10 @@ export function PullRequestsPane({
   // answer cannot repaint a surface the user has left. The rows already loaded
   // stay on screen, so re-entry is instant.
   const surfaceActive = useSurfaceActive();
+  useSurfaceNavigationReset(surfaceActive, () => {
+    setListView("open");
+    setCreateOpen(false);
+  });
   const listEpoch = useRef(0);
   const loadedProject = useRef<string | null>(null);
 

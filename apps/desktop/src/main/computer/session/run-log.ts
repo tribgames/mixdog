@@ -82,6 +82,8 @@ export function computerRunRecord(
     const diagnostic = diagnosticRecord(payload);
     record.input_recovery = diagnostic.recovery;
     record.timings_ms = diagnostic.timings_ms;
+    if (diagnostic.capture_timings_ms) record.capture_timings_ms = diagnostic.capture_timings_ms;
+    if (diagnostic.step_timings) record.step_timings = diagnostic.step_timings;
     for (const key of [
       'effect', 'verified', 'goal_verified', 'code', 'path', 'escalation',
       'window_id', 'pixel_status', 'accessibility_status',

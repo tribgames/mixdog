@@ -23,5 +23,15 @@ export function isComputerLifecycleControl(command: ComputerCommand): boolean {
 
 export function requiresForegroundLane(command: ComputerCommand): boolean {
   const action = String(command.action || '');
-  return command.delivery === 'foreground' || computerActionHas(action, 'foreground');
+  return command.delivery === 'foreground' || computerActionHas(action, 'foreground')
+    || computerActionHas(action, 'focusGuard')
+    || (action === 'sequence' && Array.isArray(command.steps)
+      && command.steps.some(step => computerActionHas(String(step.action || ''), 'focusGuard')));
+}
+
+/** Resource serialization does not change the chosen input delivery. */
+export function computerDeliveryMode(command: ComputerCommand): 'background' | 'foreground' {
+  return command.delivery === 'foreground'
+    || (command.delivery !== 'background' && computerActionHas(String(command.action || ''), 'foreground'))
+    ? 'foreground' : 'background';
 }

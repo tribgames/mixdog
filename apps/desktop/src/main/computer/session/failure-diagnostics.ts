@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
+import { computerStepTimings, computerTimings } from '../shared/timings';
+import { computerCursorFeedback } from '../shared/cursor-feedback';
 
 const MAX_BUNDLES = 20;
 const MAX_SESSIONS = 32;
@@ -26,13 +28,21 @@ export function diagnosticRecord(input: Record<string, unknown>): Record<string,
   }
   if (typeof input.ms === 'number' && Number.isFinite(input.ms)) result.ms = Math.max(0, input.ms);
   const recovery = object(input.input_recovery ?? input.recovery);
-  result.recovery = Object.fromEntries(['ok', 'user_control', 'recovery_skipped', 'focus_preserved_for_followup', 'recapture_available']
+  result.recovery = Object.fromEntries(['ok', 'user_control', 'recovery_skipped', 'focus_preserved_for_followup', 'recapture_available',
+    'focus_restored', 'focus_unchanged', 'input_not_dispatched', 'cursor_preserved', 'cursor_restored', 'reasserted']
     .filter((key) => typeof recovery[key] === 'boolean').map((key) => [key, recovery[key]]));
-  const timings = object(input.timings_ms);
-  result.timings_ms = Object.fromEntries([
-    'total_ms', 'delivery_ms', 'before_windows_ms', 'post_capture_ms', 'recovery_ms',
-  ].filter((key) => typeof timings[key] === 'number' && Number.isFinite(timings[key]))
-    .map((key) => [key, timings[key]]));
+  const native = object(input.native_result);
+  result.native_result = Object.fromEntries([
+    ...['code', 'path', 'effect', 'delivery'].filter(key => category(native[key])).map(key => [key, native[key]]),
+    ...['delivery_accepted', 'verified', 'goal_verified'].filter(key => typeof native[key] === 'boolean').map(key => [key, native[key]]),
+  ]);
+  result.cursor_feedback = computerCursorFeedback(input.cursor_feedback ?? native.cursor_feedback) ?? {};
+  result.timings_ms = computerTimings(input.timings_ms);
+  const observation = object(input.capture_after ?? input.observation);
+  const captureTimings = computerTimings(input.capture_timings_ms ?? observation.timings_ms);
+  if (Object.keys(captureTimings).length) result.capture_timings_ms = captureTimings;
+  const steps = computerStepTimings(input.step_timings ?? input.steps ?? input.actions);
+  if (steps.length) result.step_timings = steps;
   return result;
 }
 

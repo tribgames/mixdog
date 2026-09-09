@@ -1,6 +1,8 @@
 import { Bot, ChevronDown, ChevronRight } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { InitialSurface } from './InitialSurface';
+import { AgentGroupsMenu, useHiddenAgentGroups } from './agent-group-visibility';
+import { RowOverflowMenu } from './RowOverflowMenu';
 import { beginBootSurface, reportBootSurfaceReady } from './boot-metrics';
 
 import type { DesktopAgentPoolRow, DesktopApi, DesktopSessionSummary } from '../shared/contract';
@@ -809,6 +811,7 @@ function AgentActivityTree({
 
 export function AgentActivityPane({
   active,
+  showGroupActions = false,
   sessions,
   sessionsReady = true,
   unreadSessionIds,
@@ -817,6 +820,7 @@ export function AgentActivityPane({
   onOpenSession,
 }: {
   active: boolean;
+  showGroupActions?: boolean;
   sessions: readonly DesktopSessionSummary[];
   sessionsReady?: boolean;
   activeSessionIds?: readonly string[];
@@ -835,6 +839,7 @@ export function AgentActivityPane({
   );
   const [clock, setClock] = useState(() => Date.now());
   const [collapsedOwnerIds, setCollapsedOwnerIds] = useState<Set<string>>(() => new Set());
+  const { hiddenOwnerIds, hideGroup } = useHiddenAgentGroups();
   const orderRef = useRef<Map<string, number>>(new Map());
   useEffect(() => {
     startAgentPool(poolStore);
@@ -905,14 +910,14 @@ export function AgentActivityPane({
   if (loading) return <div className="schedules-page agent-activity-page">
     <InitialSurface />
   </div>;
-  if (groups.length === 0) return <div className="schedules-page agent-activity-page">
-    <p className="schedules-empty agent-activity-empty">
-      <Bot size={28} aria-hidden="true" />
-      <span>{t('No agents are running.')}</span>
-    </p>
-  </div>;
+  const visibleGroups = groups.filter((group) => !hiddenOwnerIds.has(group.ownerId));
   return <div className="schedules-page agent-activity-page">
-    {groups.map((group) => {
+    {showGroupActions && <div className="agent-group-toolbar"><AgentGroupsMenu /></div>}
+    {visibleGroups.length === 0 && <p className="schedules-empty agent-activity-empty">
+      <Bot size={28} aria-hidden="true" />
+      <span>{groups.length > 0 ? t('All agent groups are hidden.') : t('No agents are running.')}</span>
+    </p>}
+    {visibleGroups.map((group) => {
       const title = sessionSummaryTitle(group.session);
       const expanded = !collapsedOwnerIds.has(group.ownerId);
       const setGroupCollapsed = (collapsed: boolean): void =>
@@ -935,6 +940,11 @@ export function AgentActivityPane({
               {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
             </span>
           </button>
+          <RowOverflowMenu label={t('Actions for {{title}}', { title })} items={[{
+            id: 'hide-agent-group',
+            label: t('Hide this group'),
+            onSelect: () => hideGroup(group.ownerId),
+          }]} />
         </div>
         <AgentActivityTree
           group={group}

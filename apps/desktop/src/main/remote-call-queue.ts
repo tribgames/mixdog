@@ -1,4 +1,7 @@
-// Only explicitly read-only operations may overlap. Unknown methods and all
+// Only explicitly read-only operations may overlap within the general lane.
+// Terminal lifecycle/input operations have their own ordered lane so unrelated
+// filesystem, voice, or session work cannot hold a keystroke behind it.
+// Unknown methods and all other
 // mutations are barriers: reads after a write observe that write, and writes
 // never overtake an earlier operation or replay on recovery.
 const PARALLEL_READS = new Set([
@@ -8,7 +11,25 @@ const PARALLEL_READS = new Set([
   'gitStatus', 'gitDiff', 'gitLog', 'gitBranches', 'gitShow', 'gitShowDiff',
 ]);
 
+const TERMINAL_METHODS = new Set([
+  'termEnsure', 'termProfiles', 'termWrite', 'termResize', 'termDispose',
+]);
+
 export function createRemoteCallQueue(concurrency = 4) {
+  const general = createCallLane(concurrency);
+  const terminal = createCallLane(1);
+  return {
+    run(method: string, task: () => Promise<void>): Promise<void> {
+      return (TERMINAL_METHODS.has(method) ? terminal : general).run(method, task);
+    },
+    close(): void {
+      general.close();
+      terminal.close();
+    },
+  };
+}
+
+function createCallLane(concurrency: number) {
   type Entry = {
     read: boolean;
     run: () => Promise<void>;

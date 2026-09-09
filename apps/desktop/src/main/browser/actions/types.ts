@@ -22,10 +22,12 @@ import type { createBrowserPerformanceCommands } from '../performance';
 import type { BrowserPostcondition } from '../postcondition';
 import type { createBrowserRefActions } from '../ref-actions';
 import type { createBrowserRefPoints } from '../ref-points';
+import type { BrowserRefSet } from '../ref-recovery';
 import type { BrowserRefRecoveryContext, createBrowserReply } from '../reply';
 import type { createBrowserScreenshotService } from '../screenshot';
 import type { createBrowserSettle } from '../settle';
 import type { createBrowserSnapshotCapture } from '../snapshot-capture';
+import type { createBrowserTargetResolver } from '../target-resolve';
 import type { createBrowserUrlAdmission } from '../url-admission';
 
 export interface BrowserActionServices {
@@ -47,6 +49,7 @@ export interface BrowserActionServices {
   network: ReturnType<typeof createBrowserNetworkReports>;
   dialogs: ReturnType<typeof createBrowserDialogReport>;
   urls: ReturnType<typeof createBrowserUrlAdmission>;
+  targets: ReturnType<typeof createBrowserTargetResolver>;
   downloadsForSession(sessionId: string): TrackedBrowserDownload[];
   /** Re-enter the dispatcher for one step of a running sequence. */
   runCommand(command: BrowserCommand, signal?: AbortSignal): Promise<BrowserCommandResult>;
@@ -65,8 +68,11 @@ export interface BrowserActionContext {
   preexistingPostcondition: boolean;
   hasScreenshotOptions: boolean;
   refRecovery: BrowserRefRecoveryContext;
+  /** The observation the gesture starts from; the reply compares the settled
+   *  page against it to say whether anything changed. */
+  effectBaseline: { current: BrowserRefSet | undefined };
   /** The settled, verified snapshot reply for a completed gesture — or the
-   *  cheap DOM-quiet stub while a sequence step runs. */
+   *  bounded rendering checkpoint while a sequence step runs. */
   actionSnapshot(): Promise<BrowserCommandResult>;
   services: BrowserActionServices;
 }

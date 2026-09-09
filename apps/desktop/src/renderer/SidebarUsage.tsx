@@ -1,4 +1,4 @@
-import { Pin } from "lucide-react";
+import { Pin, Plus } from "lucide-react";
 import {
   useEffect,
   useRef,
@@ -27,6 +27,7 @@ import {
   usageResetPresentation,
 } from "./usage-reset-time";
 import { useUsageResetVerification } from "./use-usage-reset-verification";
+import { ProviderAccountPicker } from "./ProviderAccountPicker";
 
 const SIDEBAR_CODEX_RESET_ATTEMPT_KEY = "mixdog.desktop.codex-reset-attempt.v1";
 const SIDEBAR_CODEX_RESET_TIMEOUT_MS = 90_000;
@@ -260,6 +261,7 @@ export function SidebarUsage({
   sidebarOpen = true,
   pinned = false,
   onTogglePin,
+  onAddProviders,
 }: {
   api?: UsageApi;
   sidebarOpen?: boolean;
@@ -267,6 +269,7 @@ export function SidebarUsage({
    *  per-brand icon + % stack (user: 핀모드). */
   pinned?: boolean;
   onTogglePin?(): void;
+  onAddProviders?(): void;
 }) {
   // The popup mounts and unmounts with the flyout; the snapshot, the in-flight
   // request and the refresh cadence all live in the shared store, so opening
@@ -365,7 +368,7 @@ export function SidebarUsage({
       setResetNotice(result.status === "offerChanged"
         ? t("Reset availability changed. Review the latest Codex usage.")
         : outcome === "reset"
-        ? t("Rate limits reset.")
+        ? ""
         : outcome === "alreadyRedeemed"
         ? t("Reset already applied.")
         : outcome === "nothingToReset"
@@ -385,19 +388,25 @@ export function SidebarUsage({
   };
 
   return (
-    <section ref={section} className="sidebar-usage" aria-label={t("Usage")}>
-      <header className="sidebar-usage-heading">
-        <b>{t("Usage")}</b>
-        {onTogglePin && <button type="button"
-          className={`sidebar-usage-pin ${pinned ? "is-active" : ""}`}
-          aria-pressed={pinned}
-          aria-label={pinned ? t("Unpin usage from the rail") : t("Pin usage to the rail")}
-          title={pinned ? t("Unpin usage from the rail") : t("Pin usage to the rail")}
-          onClick={onTogglePin}>
-          {/* Diagonal pushpin; the
-              tilt comes from the CSS rotate on .sidebar-usage-pin svg. */}
-          <Pin size={14} aria-hidden="true" />
-        </button>}
+    <section ref={section} className="sidebar-usage" aria-label={t("Providers")}>
+      {/* Same title-row grammar as the rail panels (Sessions/Projects…):
+          36px header, 28px action boxes, 16px glyphs. */}
+      <header className="sidebar-usage-heading session-panel-header">
+        <span className="session-panel-title">{t("Providers")}</span>
+        <div className="session-panel-header-actions">
+          {onTogglePin && <button type="button"
+            className={`session-panel-action sidebar-usage-pin ${pinned ? "is-active" : ""}`}
+            aria-pressed={pinned}
+            aria-label={pinned ? t("Unpin usage from the rail") : t("Pin usage to the rail")}
+            data-tooltip={pinned ? t("Unpin usage from the rail") : t("Pin usage to the rail")}
+            onClick={onTogglePin}>
+            {/* Diagonal pushpin; the tilt comes from the CSS rotate. */}
+            <Pin size={16} aria-hidden="true" />
+          </button>}
+          <button type="button" className="session-panel-action sidebar-provider-add"
+            aria-label={t("Connect provider")} data-tooltip={t("Connect provider")} disabled={!onAddProviders}
+            onClick={onAddProviders}><Plus size={16} aria-hidden="true" /></button>
+        </div>
       </header>
       <PaneSurfaceGate ready={!awaitingFirstUsage} label={t("Loading usage…")}
         fallback={<InitialSurface />}>
@@ -410,6 +419,7 @@ export function SidebarUsage({
           const windows = quotaWindows(row);
           const available = Object.keys(row).length > 0;
           const connected = subscriptionConnected(row);
+          if (!connected) return null;
           return <div className="sidebar-usage-row" key={subscription.key}
             data-usage-provider={subscription.key}>
             <span className="sidebar-usage-line">
@@ -417,6 +427,7 @@ export function SidebarUsage({
                 <ProviderIcon provider={subscription.provider} />
               </span>
               <b>{subscription.label}</b>
+              {subscription.provider.endsWith('-oauth') && <ProviderAccountPicker api={api} provider={subscription.provider} />}
               {windows.length === 0 && <small>{!available && awaitingFirstUsage ? t("Loading…")
                 : connected ? t("Connected") : t("Not connected")}</small>}
             </span>

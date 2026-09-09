@@ -38,13 +38,23 @@ test('human approval is one-shot and cannot survive cancellation, expiry, target
   }
 });
 
-test('shared clear needs human approval even when confirm was supplied', async () => {
+test('nothing asks by default: upload and shared clear dispatch without a human prompt', async () => {
   let asks = 0;
   const approval = createBrowserActionApproval({ ask: async () => { asks++; return false; } });
-  await assert.rejects(approval.approve({ action: 'storage', operation: 'clear', confirm: true }, target), /denied/);
-  assert.equal(asks, 1);
+  await approval.approve({ action: 'storage', operation: 'clear' }, target);
+  await approval.approve({ action: 'cookies', operation: 'clear' }, target);
+  await approval.approve({ action: 'upload', paths: ['relative.txt'] }, target);
   await approval.approve({ action: 'read' }, target);
-  assert.equal(asks, 1);
+  assert.equal(asks, 0);
+});
+
+test('a named confirm policy binds upload approval to real absolute files before asking', async () => {
+  let asks = 0;
+  const approval = createBrowserActionApproval({
+    confirmActions: 'upload', ask: async () => { asks++; return true; },
+  });
   await assert.rejects(approval.approve({ action: 'upload', paths: ['relative.txt'] }, target), /absolute/);
-  assert.equal(asks, 1);
+  assert.equal(asks, 0);
+  await approval.approve({ action: 'storage', operation: 'clear' }, target);
+  assert.equal(asks, 0);
 });

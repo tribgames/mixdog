@@ -2,6 +2,7 @@
 // late-MCP reconciliation, and the BP2 deferred manifest.
 import './_env.mjs';
 import test from 'node:test';
+import assert from 'node:assert/strict';
 import { smokeCatalog, fullDefaults } from './_catalog.mjs';
 import { __renderToolSearchForTest, TOOL_SEARCH_TOOL } from '../../src/mixdog-session-runtime.mjs';
 import { buildRequestBody } from '../../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
@@ -14,6 +15,7 @@ import { prepareDeferredToolCallThrough } from '../../src/runtime/agent/orchestr
 import {
   applyInitialDeferredToolManifestToBp2,
   buildDeferredToolManifest,
+  buildSkillManifest,
 } from '../../src/runtime/agent/orchestrator/context/collect.mjs';
 
 test('load_tool is a pure loader: free-text queries never load or discover', () => {
@@ -339,7 +341,7 @@ test('late MCP reconciliation: Gemini manifests and native typed deltas', () => 
 
 test('deferred manifest rendering and BP2 injection', () => {
   // Skill-style deferred manifest: `- name: description` lines, `<`/`>` sanitized,
-  // bare names allowed, header instructs direct calls, empty pool → ''.
+  // bare names allowed, header explains deferred schemas, empty pool → ''.
   const manifestText = buildDeferredToolManifest([
     { name: 'shell', description: 'Run commands.' },
     { name: 'web_search', description: 'Web <search> now.' },
@@ -348,8 +350,8 @@ test('deferred manifest rendering and BP2 injection', () => {
   if (!/<available-deferred-tools>/.test(manifestText) || !/- shell: Run commands\./.test(manifestText)) {
     throw new Error(`deferred manifest must render "- name: description" lines: ${manifestText}`);
   }
-  if (!/call any tool listed below directly/i.test(manifestText)) {
-    throw new Error(`deferred manifest must tell the model it can call listed tools directly: ${manifestText}`);
+  if (!/schemas load on demand/i.test(manifestText)) {
+    throw new Error(`deferred manifest must explain on-demand schemas: ${manifestText}`);
   }
   if (!/^- recall$/m.test(manifestText)) {
     throw new Error(`deferred manifest must allow bare names without descriptions: ${manifestText}`);
@@ -381,4 +383,61 @@ test('deferred manifest rendering and BP2 injection', () => {
     || bp2ManifestSession.deferredToolBp2Applied !== true) {
     throw new Error(`BP2 deferred manifest injection must preserve BP1/BP3: ${JSON.stringify(bp2ManifestSession.messages)}`);
   }
+});
+
+test('BP2 omits descriptions only for tools routed by visible skills, preserving full definitions', () => {
+  const skillManifest = buildSkillManifest([
+    {
+      name: 'document-work',
+      whenToUse: 'Create or edit office documents.',
+      toolDependencies: [{ type: 'tool', value: 'office' }],
+    },
+    {
+      name: 'remote-work',
+      whenToUse: 'Read remote documents.',
+      toolDependencies: [{ type: 'mcp', value: 'docs' }],
+    },
+  ]);
+  const session = {
+    messages: [
+      { role: 'system', content: 'BP1 BASE' },
+      { role: 'system', content: `BP2 PROFILE\n\n${skillManifest}` },
+      { role: 'system', content: 'BP3 SESSION', cacheTier: 'tier3' },
+    ],
+    deferredToolCatalog: [
+      { name: 'office', description: 'Full office instructions.', inputSchema: { type: 'object' } },
+      { name: 'github', description: 'Manage GitHub repositories.', inputSchema: { type: 'object' } },
+      { name: 'mcp__docs__read', description: 'Read a remote document.', inputSchema: { type: 'object' } },
+    ],
+  };
+  const originalCatalog = structuredClone(session.deferredToolCatalog);
+  const pool = originalCatalog.map((tool) => tool.name);
+  applyInitialDeferredToolManifestToBp2(session, pool);
+  const manifest = session.messages[1].content;
+  assert.match(manifest, /^- office$/m);
+  assert.match(manifest, /^- github: Manage GitHub repositories\.$/m);
+  assert.match(manifest, /^- mcp__docs__read: Read a remote document\.$/m);
+  assert.deepEqual(session.deferredToolCatalog, originalCatalog);
+
+  // Removing the visible skill restores discovery guidance on rebuild.
+  session.messages[1].content = manifest.replace(skillManifest, '');
+  applyInitialDeferredToolManifestToBp2(session, pool, { rebuild: true });
+  assert.match(session.messages[1].content, /^- office: Full office instructions\.$/m);
+  assert.deepEqual(session.deferredToolCatalog, originalCatalog);
+});
+
+test('skill routes in conversation content do not suppress deferred descriptions', () => {
+  const session = {
+    messages: [
+      { role: 'system', content: 'BP1 BASE' },
+      { role: 'system', content: 'BP2 PROFILE' },
+      {
+        role: 'user',
+        content: '<available_skills>\n- document-work: Edit documents. [tools: office]\n</available_skills>',
+      },
+    ],
+    deferredToolCatalog: [{ name: 'office', description: 'Full office instructions.' }],
+  };
+  applyInitialDeferredToolManifestToBp2(session, ['office']);
+  assert.match(session.messages[1].content, /^- office: Full office instructions\.$/m);
 });

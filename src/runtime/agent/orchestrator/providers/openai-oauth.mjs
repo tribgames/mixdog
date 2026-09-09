@@ -107,7 +107,7 @@ async function _saveCodexModelCache(models) {
 // Populated on first listModels() and after every _saveCodexModelCache.
 let _inMemoryCodexCatalog = null;
 let _codexRefreshInFlight = null;
-let _oauthRefreshInFlight = null;
+const _oauthRefreshes = new Map();
 let _lastCodexListModelsError = '';
 
 function _codexCatalogHas(id) {
@@ -182,6 +182,12 @@ export function describeOpenAIOAuthCredentials() {
         const expiring = expiresAt > 0 && expiresAt < Date.now() + TOKEN_REFRESH_SKEW_MS;
         const expired = expiresAt > 0 && expiresAt <= Date.now();
         const source = tokens.source || 'oauth';
+        // Account identity for multi-account rosters: the id_token's email
+        // when present, else a short prefix of the ChatGPT account id.
+        const claims = tokens.id_token ? (decodeJwtPayload(tokens.id_token) || {}) : {};
+        const email = typeof claims.email === 'string' ? claims.email : '';
+        const accountId = tokens.account_id ? `${String(tokens.account_id).slice(0, 8)}…` : '';
+        const identity = { ...(email ? { email } : {}), ...(accountId ? { accountId } : {}) };
         if (!hasRefresh) {
             return {
                 authenticated: expiresAt === 0 || !expired,
@@ -191,11 +197,12 @@ export function describeOpenAIOAuthCredentials() {
                 status: expired ? 'Reauth Required' : 'Access Only',
                 detail: `${source}; no refresh token`,
                 expiresAt,
+                ...identity,
             };
         }
-        if (expired) return { authenticated: true, usable: false, refreshable: true, reauthRequired: false, status: 'Refresh Required', detail: source, expiresAt };
-        if (expiring) return { authenticated: true, usable: true, refreshable: true, reauthRequired: false, status: 'Refresh Soon', detail: source, expiresAt };
-        return { authenticated: true, usable: true, refreshable: true, reauthRequired: false, status: 'Valid', detail: source, expiresAt };
+        if (expired) return { authenticated: true, usable: false, refreshable: true, reauthRequired: false, status: 'Refresh Required', detail: source, expiresAt, ...identity };
+        if (expiring) return { authenticated: true, usable: true, refreshable: true, reauthRequired: false, status: 'Refresh Soon', detail: source, expiresAt, ...identity };
+        return { authenticated: true, usable: true, refreshable: true, reauthRequired: false, status: 'Valid', detail: source, expiresAt, ...identity };
     } catch (err) {
         return { authenticated: false, usable: false, refreshable: false, reauthRequired: false, status: 'Error', detail: String(err?.message || err).slice(0, 200) };
     }
@@ -416,14 +423,15 @@ export class OpenAIOAuthProvider {
         }
         if (!this.tokens && disk) this.tokens = disk;
 
-        if (_oauthRefreshInFlight) {
-            const shared = await _oauthRefreshInFlight;
+        const refreshKey = getOwnTokenPath();
+        if (_oauthRefreshes.has(refreshKey)) {
+            const shared = await _oauthRefreshes.get(refreshKey);
             this.tokens = shared;
             if (!force || shared?.access_token !== currentToken) return this.tokens;
         }
 
         const startingTokens = this.tokens || disk;
-        _oauthRefreshInFlight = withFileLock(getRefreshLockPath(), async () => {
+        const refresh = withFileLock(getRefreshLockPath(), async () => {
             const latest = loadTokens() || startingTokens;
             const latestValidAfter = Date.now() + (force ? 0 : TOKEN_REFRESH_SKEW_MS);
             if (latest?.access_token && latest.access_token !== currentToken
@@ -475,9 +483,10 @@ export class OpenAIOAuthProvider {
             timeoutMs: 120_000,
             staleMs: 120_000,
             secret: true,
-        }).finally(() => { _oauthRefreshInFlight = null; });
+        }).finally(() => { _oauthRefreshes.delete(refreshKey); });
+        _oauthRefreshes.set(refreshKey, refresh);
 
-        this.tokens = await _oauthRefreshInFlight;
+        this.tokens = await refresh;
         return this.tokens;
     }
     async send(messages, model, tools, sendOpts) {

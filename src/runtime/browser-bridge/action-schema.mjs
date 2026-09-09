@@ -1,19 +1,32 @@
 import { splitBridgeToolArgs } from '../shared/bridge-tool-args.mjs';
 import {
   BROWSER_ACTIONS,
+  BROWSER_DEVTOOLS_ACTIONS,
   BROWSER_OBSERVATION_ACTIONS,
+  BROWSER_PAGE_ACTIONS,
   BROWSER_SEQUENCE_STEP_ACTIONS,
+  browserToolForAction,
 } from './browser-action-contract.mjs';
 
 /** Actions that only observe the page. Naming them on the tool surface lets a
  *  caller repeat or overlap them without wondering whether they change state;
  *  the host enforces the same list when it decides what may run concurrently. */
-export { BROWSER_ACTIONS, BROWSER_OBSERVATION_ACTIONS };
+export {
+  BROWSER_ACTIONS,
+  BROWSER_DEVTOOLS_ACTIONS,
+  BROWSER_OBSERVATION_ACTIONS,
+  BROWSER_PAGE_ACTIONS,
+};
 
 const PAGE_TARGET = ['tab', 'background'];
 const SNAPSHOT_FILTERS = ['query', 'viewportOnly', 'maxElements', 'maxChars'];
 const SCREENSHOT_OPTIONS = ['fullPage', 'format', 'quality', 'image_output'];
-const POST_ACTION = ['expect', 'settleMs'];
+const POST_ACTION = ['expect', 'settleMs', 'brief'];
+/** Snapshot-free element target: role and/or accessible name, or a CSS selector. */
+const TARGET_FIELDS = new Set(['role', 'name', 'selector', 'exact', 'nth']);
+/** Actions whose query is keywords-or-regex over page content; the others
+ *  (network, console, locate) keep their own substring or visual semantics. */
+const QUERY_SYNTAX_ACTIONS = new Set(['snapshot', 'read', 'wait']);
 const POST_ACTION_SNAPSHOT = [
   ...PAGE_TARGET, ...SNAPSHOT_FILTERS, 'includeScreenshot', ...SCREENSHOT_OPTIONS, ...POST_ACTION,
 ];
@@ -43,31 +56,35 @@ const CONTRACT_ROWS = [
   ]),
   contract('cookies', [
     ...PAGE_TARGET, 'operation', 'url', 'name', 'value', 'domain', 'path',
-    'secure', 'httpOnly', 'sameSite', 'expirationDate', 'confirm',
+    'secure', 'httpOnly', 'sameSite', 'expirationDate',
   ]),
-  contract('storage', [...PAGE_TARGET, 'operation', 'storageType', 'name', 'value', 'confirm']),
+  contract('storage', [...PAGE_TARGET, 'operation', 'storageType', 'name', 'value']),
   contract('performance', [...PAGE_TARGET, 'operation', 'reload', 'saveTrace']),
   contract(
     'click',
     [
-      ...POST_ACTION_SNAPSHOT, 'ref', 'snapshotId', 'x', 'y', 'pointer',
+      ...POST_ACTION_SNAPSHOT, 'ref', 'target', 'snapshotId', 'x', 'y', 'pointer',
       'button', 'modifiers', 'doubleClick',
     ],
-    [['ref'], ['snapshotId', 'x', 'y']],
+    [['ref'], ['target'], ['snapshotId', 'x', 'y']],
   ),
+  // One control takes text or a checked state; a batch takes fields.
   contract(
     'fill',
-    [...POST_ACTION_SNAPSHOT, 'ref', 'text', 'fields', 'submit'],
-    [['ref', 'text'], ['fields']],
+    [...POST_ACTION_SNAPSHOT, 'ref', 'target', 'text', 'checked', 'fields', 'submit'],
+    [['ref', 'text'], ['target', 'text'], ['ref', 'checked'], ['target', 'checked'], ['fields']],
   ),
-  contract('type', [...POST_ACTION_SNAPSHOT, 'ref', 'text', 'submit'], ['ref', 'text']),
+  contract(
+    'type',
+    [...POST_ACTION_SNAPSHOT, 'ref', 'target', 'text', 'submit'],
+    [['ref', 'text'], ['target', 'text']],
+  ),
   // Without values, select reads the control's options instead of choosing.
-  contract('select', [...POST_ACTION_SNAPSHOT, 'ref', 'values'], ['ref']),
-  contract('check', [...POST_ACTION_SNAPSHOT, 'ref', 'checked'], ['ref']),
+  contract('select', [...POST_ACTION_SNAPSHOT, 'ref', 'target', 'values'], [['ref'], ['target']]),
   contract(
     'hover',
-    [...POST_ACTION_SNAPSHOT, 'ref', 'snapshotId', 'x', 'y'],
-    [['ref'], ['snapshotId', 'x', 'y']],
+    [...POST_ACTION_SNAPSHOT, 'ref', 'target', 'snapshotId', 'x', 'y'],
+    [['ref'], ['target'], ['snapshotId', 'x', 'y']],
   ),
   contract(
     'drag',
@@ -79,14 +96,16 @@ const CONTRACT_ROWS = [
   ),
   // ref is optional: without it upload answers the file chooser the page has
   // already opened; with a non-file ref it clicks that element to open one.
-  contract('upload', [...POST_ACTION_SNAPSHOT, 'ref', 'paths', 'confirm'], ['paths', 'confirm']),
+  contract('upload', [...POST_ACTION_SNAPSHOT, 'ref', 'target', 'paths'], ['paths']),
   contract('handle_dialog', [...POST_ACTION_SNAPSHOT, 'accept', 'promptText']),
   contract('press', [...POST_ACTION_SNAPSHOT, 'key'], ['key']),
   // text brings the first match into view when its position is unknown.
   contract('scroll', [
-    ...POST_ACTION_SNAPSHOT, 'ref', 'snapshotId', 'x', 'y', 'dx', 'dy', 'text',
+    ...POST_ACTION_SNAPSHOT, 'ref', 'target', 'snapshotId', 'x', 'y', 'dx', 'dy', 'text',
   ]),
-  contract(['back', 'forward'], POST_ACTION_SNAPSHOT),
+  // Forward history is reached by navigating to the URL the caller already
+  // saw; only back needs a gesture of its own.
+  contract('back', POST_ACTION_SNAPSHOT),
   // One call, several gestures on the SAME page. Steps address elements by ref
   // only: coordinates are bound to a snapshot the earlier steps invalidate.
   contract('sequence', [...POST_ACTION_SNAPSHOT, 'steps'], ['steps']),
@@ -110,34 +129,76 @@ const CONTRACT_ROWS = [
   contract('close_tab', ['tab'], ['tab']),
   contract('downloads', ['downloadId', 'wait', 'attach', 'timeoutMs']),
   contract('open', PAGE_TARGET),
+  contract('hide'),
 ];
 
 /** Steps a sequence may run. Everything here is deterministic on one page;
  *  navigation, uploads, and dialogs stay single calls so their fresh snapshot
  *  is always inspected before the next decision. */
 const SEQUENCE_STEP_FIELDS = Object.freeze({
-  click: ['ref'],
-  fill: ['ref', 'text', 'submit'],
-  type: ['ref', 'text', 'submit'],
-  select: ['ref', 'values'],
-  check: ['ref', 'checked'],
-  hover: ['ref'],
+  click: ['ref', 'target'],
+  fill: ['ref', 'target', 'text', 'checked', 'submit'],
+  type: ['ref', 'target', 'text', 'submit'],
+  select: ['ref', 'target', 'values'],
+  hover: ['ref', 'target'],
   press: ['key'],
-  scroll: ['ref', 'dx', 'dy'],
+  scroll: ['ref', 'target', 'dx', 'dy'],
   wait: ['text', 'textGone', 'url', 'timeoutMs'],
 });
 const SEQUENCE_STEP_REQUIRED = Object.freeze({
-  click: [['ref']],
-  fill: [['ref', 'text']],
-  type: [['ref', 'text']],
-  select: [['ref', 'values']],
-  check: [['ref']],
-  hover: [['ref']],
+  click: [['ref'], ['target']],
+  fill: [['ref', 'text'], ['target', 'text'], ['ref', 'checked'], ['target', 'checked']],
+  type: [['ref', 'text'], ['target', 'text']],
+  select: [['ref', 'values'], ['target', 'values']],
+  hover: [['ref'], ['target']],
   press: [['key']],
   scroll: [],
   wait: [['text'], ['textGone'], ['url']],
 });
 export const SEQUENCE_STEP_ACTIONS = BROWSER_SEQUENCE_STEP_ACTIONS;
+
+/** A target names one element by role and/or accessible name, or by a CSS
+ *  selector; the host insists on exactly one match at dispatch time. */
+function validateTargetSpec(spec, at) {
+  if (!spec || typeof spec !== 'object' || Array.isArray(spec)) {
+    return `${at} must be an object with role, name, and/or selector`;
+  }
+  const unsupported = Object.keys(spec).filter((name) => !TARGET_FIELDS.has(name));
+  if (unsupported.length) return `${at} does not accept field(s): ${unsupported.join(', ')}`;
+  for (const [name, limit] of [['role', 60], ['name', 500], ['selector', 4_096]]) {
+    if (Object.hasOwn(spec, name) && (typeof spec[name] !== 'string' || spec[name].length > limit)) {
+      return `${at}.${name} must be a string of at most ${limit} characters`;
+    }
+  }
+  if (Object.hasOwn(spec, 'exact') && typeof spec.exact !== 'boolean') return `${at}.exact must be a boolean`;
+  if (Object.hasOwn(spec, 'nth') && (!Number.isInteger(spec.nth) || spec.nth < 1 || spec.nth > 500)) {
+    return `${at}.nth must be an integer from 1 to 500`;
+  }
+  const present = (name) => typeof spec[name] === 'string' && spec[name].trim().length > 0;
+  if (!present('role') && !present('name') && !present('selector')) {
+    return `${at} requires role, name, and/or selector`;
+  }
+  if (spec.exact === true && !present('name')) return `${at}.exact applies to name`;
+  return '';
+}
+
+/** Keywords match with OR; `/pattern/` or `/pattern/i` is a regular
+ *  expression and must compile. Other flags change matching semantics the
+ *  page-side matcher does not implement, so they are refused. */
+function validateQuerySyntax(query, at) {
+  if (typeof query !== 'string') return '';
+  const regex = /^\/(.+)\/([a-z]*)$/s.exec(query.trim());
+  if (!regex) return '';
+  if (regex[2].replace(/i/g, '').length) {
+    return `${at} regular expression accepts only the i flag`;
+  }
+  try {
+    new RegExp(regex[1], regex[2].includes('i') ? 'i' : '');
+  } catch (error) {
+    return `${at} regular expression is invalid: ${error.message}`;
+  }
+  return '';
+}
 
 function validateSequenceSteps(steps) {
   if (!Array.isArray(steps) || steps.length < 2 || steps.length > 6) {
@@ -162,6 +223,11 @@ function validateSequenceSteps(steps) {
     const requirements = SEQUENCE_STEP_REQUIRED[stepAction];
     if (requirements.length && !requirements.some((names) => names.every(present))) {
       return `${at} requires ${requirements.map((names) => names.join('+')).join(' or ')}`;
+    }
+    if (present('ref') && present('target')) return `${at} accepts ref or target, not both`;
+    if (Object.hasOwn(step, 'target')) {
+      const targetError = validateTargetSpec(step.target, `${at}.target`);
+      if (targetError) return targetError;
     }
     if (stepAction === 'select'
       && (!Array.isArray(step.values) || !step.values.length
@@ -199,32 +265,50 @@ if (
 const CONTRACT_BY_ACTION = new Map(
   CONTRACT_ROWS.flatMap((row) => row.actions.map((action) => [action, row])),
 );
-const REQUIRED_SUMMARY = CONTRACT_ROWS
-  .filter(({ requiredAny }) => requiredAny.length)
-  .map(({ actions, requiredAny }) => (
-    `${actions.join('/')} ${requiredAny.map((names) => names.join('+')).join(' or ')}`
-  ))
-  .join('; ');
+function requiredSummary(actions) {
+  const wanted = new Set(actions);
+  return CONTRACT_ROWS
+    .filter(({ actions: rowActions, requiredAny }) => (
+      requiredAny.length && rowActions.some((name) => wanted.has(name))
+    ))
+    .map(({ actions: rowActions, requiredAny }) => (
+      `${rowActions.filter((name) => wanted.has(name)).join('/')} ${requiredAny.map((names) => names.join('+')).join(' or ')}`
+    ))
+    .join('; ');
+}
 
-export function buildBrowserInputSchema(flatSchema) {
+/** One tool's input schema from the shared flat field list: the action enum is
+ *  the tool's own subset and only the fields those actions accept ride along,
+ *  so the default `browser` tool never carries a cookie attribute or a CPU
+ *  throttle it cannot use. */
+export function buildBrowserInputSchema(flatSchema, actions = BROWSER_ACTIONS) {
   const properties = flatSchema?.properties || {};
   const { action, ...inputProperties } = properties;
+  const fieldNames = new Set(
+    actions.flatMap((name) => CONTRACT_BY_ACTION.get(name)?.fields || []),
+  );
+  const scoped = Object.fromEntries(
+    Object.entries(inputProperties).filter(([name]) => fieldNames.has(name)),
+  );
   return {
     type: 'object',
     description: 'Choose one Browser Use action and pass only its fields in input.',
     properties: {
-      action: { ...action, enum: BROWSER_ACTIONS },
+      action: { ...action, enum: [...actions] },
       input: {
         type: 'object',
-        description: `Fields for the selected action. Required: ${REQUIRED_SUMMARY}. Omit input when no fields are needed.`,
-        properties: inputProperties,
+        description: `Fields for the selected action. Required: ${requiredSummary(actions)}. Omit input when no fields are needed.`,
+        properties: scoped,
       },
     },
     required: ['action'],
   };
 }
 
-export function validateBrowserToolArgs(args) {
+/** `options.tool` names the tool that received the call; an action that
+ *  belongs to the other browser tool is refused with the tool to call, so a
+ *  model that guessed the wrong surface learns the split from the error. */
+export function validateBrowserToolArgs(args, options = {}) {
   if (!args || typeof args !== 'object' || Array.isArray(args)) {
     return { ok: false, error: 'browser arguments must be an object' };
   }
@@ -232,6 +316,14 @@ export function validateBrowserToolArgs(args) {
   const actionContract = CONTRACT_BY_ACTION.get(action);
   if (!actionContract) {
     return { ok: false, error: `unknown browser action "${action || '(empty)'}"` };
+  }
+  const tool = String(options?.tool || '').trim();
+  const owner = browserToolForAction(action);
+  if (tool && tool !== owner) {
+    return {
+      ok: false,
+      error: `browser action "${action}" belongs to the ${owner} tool; call ${owner} with the same input`,
+    };
   }
 
   const { hasNestedInput, input: rawInput, strayRootFields } = splitBridgeToolArgs(args);
@@ -315,6 +407,14 @@ export function validateBrowserToolArgs(args) {
   const hasValue = (name) => (
     Object.hasOwn(input, name) && input[name] !== undefined && input[name] !== null
   );
+  if (Object.hasOwn(input, 'target')) {
+    const targetError = validateTargetSpec(input.target, `browser action "${action}" input.target`);
+    if (targetError) return { ok: false, error: targetError };
+  }
+  if (QUERY_SYNTAX_ACTIONS.has(action) && Object.hasOwn(input, 'query')) {
+    const queryError = validateQuerySyntax(input.query, `browser action "${action}" input.query`);
+    if (queryError) return { ok: false, error: queryError };
+  }
   const matchingRequirements = actionContract.requiredAny.filter(
     (names) => names.every(hasValue),
   );
@@ -326,10 +426,14 @@ export function validateBrowserToolArgs(args) {
       }`,
     };
   }
-  const touchedRequirements = actionContract.requiredAny.filter(
-    (names) => names.some((name) => Object.hasOwn(input, name)),
-  );
-  if (touchedRequirements.length > 1) {
+  // Exactly one target form: a second complete form, or a field that belongs
+  // only to another form (ref beside snapshotId), is a contradiction.
+  const matched = new Set(matchingRequirements[0] || []);
+  const strayForm = actionContract.requiredAny.some((names) => (
+    names !== matchingRequirements[0]
+    && names.some((name) => Object.hasOwn(input, name) && !matched.has(name))
+  ));
+  if (matchingRequirements.length > 1 || strayForm) {
     return { ok: false, error: `browser action "${action}" accepts only one input target form` };
   }
   if (action === 'navigate' && !hasValue('url') && input.reload !== true) {
@@ -339,7 +443,8 @@ export function validateBrowserToolArgs(args) {
     if (!Array.isArray(input.fields) || !input.fields.length || input.fields.length > 30) {
       return { ok: false, error: 'browser action "fill" input.fields requires 1 to 30 items' };
     }
-    const allowedFieldNames = new Set(['ref', 'text', 'value', 'values', 'checked']);
+    const allowedFieldNames = new Set(['ref', 'target', 'text', 'value', 'values', 'checked']);
+    let targetedFields = 0;
     for (let index = 0; index < input.fields.length; index += 1) {
       const field = input.fields[index];
       if (!field || typeof field !== 'object' || Array.isArray(field)) {
@@ -352,8 +457,15 @@ export function validateBrowserToolArgs(args) {
           error: `browser action "fill" input.fields[${index}] does not accept field(s): ${unsupportedFieldNames.join(', ')}`,
         };
       }
-      if (typeof field.ref !== 'string' || !field.ref.trim()) {
-        return { ok: false, error: `browser action "fill" input.fields[${index}] requires ref` };
+      const hasRef = typeof field.ref === 'string' && field.ref.trim().length > 0;
+      const hasTarget = Object.hasOwn(field, 'target');
+      if (hasRef === hasTarget) {
+        return { ok: false, error: `browser action "fill" input.fields[${index}] requires ref or target, not both` };
+      }
+      if (hasTarget) {
+        const targetError = validateTargetSpec(field.target, `browser action "fill" input.fields[${index}].target`);
+        if (targetError) return { ok: false, error: targetError };
+        targetedFields += 1;
       }
       const hasText = typeof field.text === 'string';
       const hasValue = typeof field.value === 'string';
@@ -369,16 +481,21 @@ export function validateBrowserToolArgs(args) {
           error: `browser action "fill" input.fields[${index}] requires exactly one of text/value, values, or checked`,
         };
       }
-      if (field.ref.length > 128
+      if ((hasRef && field.ref.length > 128)
         || (hasText && field.text.length > 100_000)
         || (hasValue && field.value.length > 100_000)
         || (hasValues && field.values.some((value) => value.length > 4_096))) {
         return { ok: false, error: `browser action "fill" input.fields[${index}] is too large` };
       }
     }
+    // Targets resolve against one fresh observation that retires the caller's
+    // refs, so a batch is addressed one way or the other.
+    if (targetedFields && targetedFields !== input.fields.length) {
+      return { ok: false, error: 'browser action "fill" input.fields must use ref for every item or target for every item' };
+    }
   }
   if (action === 'scroll') {
-    const targetForms = [['ref'], ['snapshotId', 'x', 'y'], ['text']];
+    const targetForms = [['ref'], ['target'], ['snapshotId', 'x', 'y'], ['text']];
     const touchedTargets = targetForms.filter(
       (names) => names.some((name) => Object.hasOwn(input, name)),
     );
@@ -423,26 +540,6 @@ export function validateBrowserToolArgs(args) {
       ok: false,
       error: 'browser action "click" pointer=touch does not accept button, modifiers, or doubleClick',
     };
-  }
-  if (action === 'upload' && input.confirm !== true) {
-    return { ok: false, error: 'browser action "upload" requires input.confirm=true after path approval' };
-  }
-  if (action === 'cookies' || action === 'storage') {
-    const operation = String(input.operation || 'list').trim().toLowerCase();
-    const sharedClear = operation === 'clear'
-      && (action === 'cookies' || String(input.storageType || 'local').toLowerCase() === 'local');
-    if (sharedClear && input.confirm !== true) {
-      return {
-        ok: false,
-        error: `browser action "${action}" shared clear requires input.confirm=true after explicit approval`,
-      };
-    }
-    if (!sharedClear && Object.hasOwn(input, 'confirm')) {
-      return {
-        ok: false,
-        error: `browser action "${action}" input.confirm belongs only to shared clear`,
-      };
-    }
   }
   if (action === 'sequence') {
     const error = validateSequenceSteps(input.steps);

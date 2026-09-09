@@ -497,7 +497,14 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 messages,
                 session: sessionRef,
             });
-            if (!_fixedProviderToolSurface) {
+            // Keep ordinary requests stable, but a loaded skill promises its
+            // declared schemas on the very next request, not the next turn.
+            const skillToolsAdded = _fixedProviderToolSurface
+                && (sessionRef?.skillLoadedTools || []).some((name) => {
+                    const previous = _fixedProviderToolSurface.find((tool) => tool.name === name);
+                    return !previous || previous.deferLoading === true || previous.defer_loading === true;
+                });
+            if (!_fixedProviderToolSurface || skillToolsAdded) {
                 _fixedProviderToolSurface = _candidateSendTools;
             }
             sendTools = _fixedProviderToolSurface;

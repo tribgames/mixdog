@@ -15,23 +15,23 @@ const surfaces = [
     normalize: normalizeSidebarViewGroups,
     moveGroup: moveSidebarViewGroup,
     moveView: moveSidebarView,
-    stored: [["workflows", "projects", "workflows"], ["unknown", "schedules"]],
-    normalized: [["workflows", "projects"], ["schedules"], ["extensions"], ["webhooks"]],
+    stored: [["extensions", "projects", "extensions"], ["unknown", "schedules"]],
+    normalized: [["extensions", "projects"], ["schedules"], ["webhooks"]],
     groupMove: {
-      groups: [["projects", "workflows"], ["schedules"], ["webhooks"]],
+      groups: [["projects", "extensions"], ["schedules"], ["webhooks"]],
       root: "projects",
       target: "webhooks",
       placement: "after",
-      expected: [["schedules"], ["webhooks"], ["projects", "workflows"]],
+      expected: [["schedules"], ["webhooks"], ["projects", "extensions"]],
     },
     stack: {
-      groups: [["projects"], ["workflows"], ["schedules"], ["webhooks"]],
+      groups: [["projects"], ["extensions"], ["schedules"], ["webhooks"]],
       view: "projects",
-      onto: "workflows",
-      combined: [["workflows", "projects"], ["schedules"], ["webhooks"]],
+      onto: "extensions",
+      combined: [["extensions", "projects"], ["schedules"], ["webhooks"]],
       extractBeside: "webhooks",
       extractPlacement: "before",
-      extracted: [["workflows"], ["schedules"], ["projects"], ["webhooks"]],
+      extracted: [["extensions"], ["schedules"], ["projects"], ["webhooks"]],
     },
   },
 ];
@@ -63,6 +63,6 @@ test("a view combines under its target and extracts back to a standalone group",
 });
 
 test("a combined container root stays put when dropped on its own child", () => {
-  const groups = [["workflows", "projects"], ["schedules"], ["webhooks"]];
-  assert.deepEqual(moveSidebarView(groups, "workflows", "projects", "inside"), groups);
+  const groups = [["extensions", "projects"], ["schedules"], ["webhooks"]];
+  assert.deepEqual(moveSidebarView(groups, "extensions", "projects", "inside"), groups);
 });

@@ -354,7 +354,12 @@ export function applyAskTerminalUsageTotals(session, result, options = {}) {
         session.totalUncachedInputTokens = (session.totalUncachedInputTokens || 0) + uncachedInputTokens;
     }
     const _lastTurn = result.lastTurnUsage || result.usage || {};
-    if (_lastTurn.mainUsageAvailable === false) {
+    const measuredInput = Number(_lastTurn.mainInputTokens ?? _lastTurn.inputTokens) || 0;
+    const measuredCache = providerInputExcludesCache(session.provider)
+        ? (Number(_lastTurn.mainCachedTokens ?? _lastTurn.cachedTokens) || 0)
+            + (Number(_lastTurn.mainCacheWriteTokens ?? _lastTurn.cacheWriteTokens) || 0)
+        : 0;
+    if (_lastTurn.mainUsageAvailable === false || measuredInput + measuredCache <= 0) {
         session.lastInputTokens = null;
         session.lastOutputTokens = null;
         session.lastCachedReadTokens = null;
@@ -440,7 +445,9 @@ export async function persistIterationMetrics(delta) {
         // Window snapshot updated per iteration so agent type=list reflects the
         // most-recent provider-reported input size even for short dispatches
         // that finish before askSession's terminal save lands.
-        if (contextUsageAvailable === false) {
+        const measuredPrompt = (Number(contextInputTokens) || 0) + (providerInputExcludesCache(session.provider)
+            ? (Number(contextCachedReadTokens) || 0) + (Number(contextCacheWriteTokens) || 0) : 0);
+        if (contextUsageAvailable === false || measuredPrompt <= 0) {
             session.lastInputTokens = null;
             session.lastOutputTokens = null;
             session.lastCachedReadTokens = null;

@@ -51,13 +51,15 @@ function recoveryForCode(code, args) {
       guidance: 'Computer Use yielded to the user. Call wait_for_user for bounded waiting. Ordinary physical input may resume after the host-configured quiet interval (default 5 seconds); explicit stops and uncertain cleanup/observation require the user. Timeout does not authorize input. After resumed, capture fresh state; never replay interrupted input. Manual Resume is also available on the overlay.',
     };
   }
-  if (code === 'input_observation_unavailable' || code === 'input_recovery_unconfirmed') {
+  if (code === 'input_observation_unavailable' || code === 'input_recovery_unconfirmed'
+    || code === 'computer_cursor_unavailable') {
     return {
       code, next: 'diagnose',
       guidance: 'Input or recovery could not be verified. Do not repeat the mutation. Diagnose the exact target and inspect fresh state only when user control is not active.',
     };
   }
-  if (code === 'computer_cleanup_pending' || code === 'computer_abort_cleanup_unconfirmed') {
+  if (code === 'computer_cleanup_pending' || code === 'computer_abort_cleanup_unconfirmed'
+    || code === 'input_cleanup_unconfirmed' || code === 'privileged_worker_cleanup_unconfirmed') {
     return {
       code, next: 'user',
       guidance: 'Worker exit and input release are not confirmed. Do not resume or reset the guard; wait for cleanup. Failed cleanup requires an explicitly approved host restart.',
@@ -74,21 +76,21 @@ function recoveryForCode(code, args) {
     return {
       code,
       next: 'user',
-      guidance: 'Foreground control changed during dispatch, so Computer Use paused for the user. Wait for an explicit resume.',
+      guidance: 'Focus changed during dispatch. Do not pull it back or retry input automatically. Check user control, then obtain fresh state when control is available.',
     };
   }
   if (code === 'foreground_unavailable') {
     return {
       code,
-      next: 'foreground_pointer',
-      guidance: 'This is a Windows foreground-lock failure, not a permission error. Activate the fresh target with a foreground pointer action, then retry keyboard input only after it is focused.',
+      next: 'user',
+      guidance: `Windows did not grant foreground focus. Ask the user to activate ${target}, then capture fresh state. Do not substitute background input or repeat the failed gesture.`,
     };
   }
   if (code.startsWith('background_')) {
     return {
       code,
-      next: 'foreground',
-      guidance: `Capture ${target} again and retry the action with delivery="foreground".`,
+      next: 'capture',
+      guidance: `Capture ${target} and inspect whether any input was delivered. Consider foreground only if no input was sent and visible control is within the user's scope; never silently change delivery or replay uncertain input.`,
     };
   }
   if (code === 'pixel_unavailable' || code === 'observation_unavailable') {

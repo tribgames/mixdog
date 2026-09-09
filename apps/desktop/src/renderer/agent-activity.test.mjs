@@ -58,6 +58,57 @@ function installDom() {
   };
 }
 
+test("Agent groups can be hidden, stay hidden through pool pushes and remounts, and be restored", async () => {
+  const dom = installDom();
+  let push;
+  const touched = [];
+  const pool = ["lead-a", "lead-b"].map((id) => ({
+    agent: "lead", sessionId: id, ownerSessionId: id,
+    status: "running", stage: "running",
+  }));
+  window.mixdogDesktop = new Proxy({
+    async listAgentPool() { return pool; },
+    subscribeAgentPool(listener) { push = listener; return () => {}; },
+  }, {
+    get(target, key) { touched.push(key); return target[key]; },
+  });
+  const sessions = pool.map(({ sessionId }) => ({
+    id: sessionId, title: sessionId, preview: "", updatedAt: 1, messageCount: 1,
+  }));
+  const renderPane = () => React.createElement(AgentActivityPane, {
+    active: false, sessions, showGroupActions: true,
+  });
+  const click = async (selector) => {
+    const button = document.querySelector(selector);
+    assert.ok(button, selector);
+    await act(async () => button.click());
+  };
+  try {
+    await act(async () => dom.root.render(renderPane()));
+    await click('[data-agent-owner-session-id="lead-a"] .row-overflow-trigger');
+    await click('[data-action-id="hide-agent-group"]');
+    assert.equal(document.querySelector('[data-agent-owner-session-id="lead-a"]'), null);
+    assert.ok(document.querySelector('[data-agent-owner-session-id="lead-b"]'));
+    assert.deepEqual(JSON.parse(window.localStorage.getItem("mixdog.agent-hidden-groups")), ["lead-a"]);
+    await act(async () => push([...pool]));
+    await act(async () => dom.root.render(null));
+    await act(async () => dom.root.render(renderPane()));
+    assert.equal(document.querySelector('[data-agent-owner-session-id="lead-a"]'), null);
+    await click('[data-agent-owner-session-id="lead-b"] .row-overflow-trigger');
+    await click('[data-action-id="hide-agent-group"]');
+    assert.match(document.body.textContent, /All agent groups are hidden/);
+    await click('.agent-group-toolbar .row-overflow-trigger');
+    await click('[data-action-id="restore-agent-groups"]');
+    assert.equal(document.querySelectorAll('[data-agent-owner-session-id]').length, 2);
+    assert.deepEqual(JSON.parse(window.localStorage.getItem("mixdog.agent-hidden-groups")), []);
+    assert.deepEqual([...new Set(touched)].filter((key) => key !== "perfLog").sort(),
+      ["listAgentPool", "subscribeAgentPool"]);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
 test("Agents owner list is independent from the selected session", () => {
   assert.deepEqual(agentActivitySessionIds([
     { id: "lead", leadWorking: true },
@@ -297,6 +348,32 @@ test("the context card offers inheritance only after the selected model changes"
       sourceSessionId: "lead-inherit",
       route: { provider: "cursor", model: "gpt-5.6" },
     }]);
+    const compacted = [];
+    window.mixdogDesktop = {
+      invokeCapability: async (request) => { compacted.push(request); },
+    };
+    await act(async () => {
+      dom.root.render(React.createElement(SessionStatusIsland, {
+        snapshot: {
+          ...changed,
+          sessionId: "same-claude",
+          provider: "anthropic-oauth",
+          model: "claude-fable-5-1",
+          items: [{
+            kind: "assistant", provider: "anthropic-oauth", model: "Claude Fable 5.1", text: "done",
+          }],
+        },
+        onInherit: async (...args) => { inherited.push(args); },
+      }));
+    });
+    assert.equal(document.querySelector(".context-inherit"), null);
+    assert.ok(document.querySelector(".context-compact"));
+    await act(async () => {
+      document.querySelector(".context-compact")
+        .dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+    });
+    assert.deepEqual(compacted, [{ capability: "compact", sessionId: "same-claude" }]);
+    assert.equal(inherited.length, 1);
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
@@ -310,7 +387,7 @@ test("the context island retains its authoritative reading across incomplete sta
       dom.root.render(React.createElement(SessionStatusIsland, {
         snapshot: {
           sessionId: "context-sticky",
-          stats: { currentEstimatedContextTokens: 50 },
+          stats: { currentContextTokens: 50, currentContextSource: "last_api_request" },
           displayContextWindow: 100,
         },
       }));
@@ -738,25 +815,24 @@ test("new task header ignores the previous session lane cache", async () => {
         displayContextWindow: 1_000_000,
       },
     }));
-    assert.match(document.body.textContent, /51%/);
+    assert.match(document.body.textContent, /51\.7%/);
 
     // A compact completion can change only the header stats while the
     // transcript frame stays identical. The pane-owned status subscription
-    // must repaint from the post-compact estimate without waiting for another
-    // transcript item.
+    // must invalidate the measurement without waiting for another transcript item.
     await act(async () => {
       defaultSessionLaneStore.apply({
         sessionId: "session-context",
         frameSource: "live",
         snapshot: {
           sessionId: "session-context",
-          stats: { currentEstimatedContextTokens: 18_000 },
+          stats: { currentContextTokens: null, currentContextSource: "pending", currentEstimatedContextTokens: 18_000 },
           displayContextWindow: 384_000,
         },
       });
       await new Promise((resolve) => window.setTimeout(resolve, 20));
     });
-    assert.match(document.body.textContent, /4%/);
+    assert.doesNotMatch(document.body.textContent, /4%|18K/i);
 
     // routeState republishes the derived window fields as 0 whenever its route
     // comparison misses. A 0 denominator is "unresolved", not "no window": the
@@ -768,7 +844,7 @@ test("new task header ignores the previous session lane cache", async () => {
         frameSource: "live",
         snapshot: {
           sessionId: "session-context",
-          stats: { currentEstimatedContextTokens: 192_000 },
+          stats: { currentContextTokens: 192_000, currentContextSource: "last_api_request" },
           contextWindow: 0,
           displayContextWindow: 0,
           autoCompactTokenLimit: 0,
@@ -784,8 +860,7 @@ test("new task header ignores the previous session lane cache", async () => {
         sessionId: "",
       }));
     });
-    assert.match(document.body.textContent, /0%/);
-    assert.doesNotMatch(document.body.textContent, /51%/);
+    assert.doesNotMatch(document.body.textContent, /0%|51\.7%|50%/);
   } finally {
     await act(async () => dom.root.unmount());
     defaultSessionLaneStore.clear();

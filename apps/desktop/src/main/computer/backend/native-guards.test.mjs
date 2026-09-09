@@ -131,3 +131,71 @@ if ([MixInputObservation]::Depth -ne 0 -or [MixInputObservation]::Starts -ne 1 -
 `, { 'runtime.ps1': PS_RUNTIME });
   assert.equal(output, 'scoped');
 });
+
+test('foreground feedback reports completed theme restoration and restores on body failure', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const output = await isolatedProgram(String.raw`
+$ErrorActionPreference='Stop'
+Add-Type @'
+using System;
+public static class MixInputObservation {
+  public static int Depth;
+  public static void Begin() { Depth++; }
+  public static void AssertContinue() {}
+  public static void End() { Depth--; }
+}
+public sealed class MixCursorTheme : IDisposable {
+  public static int Restores;
+  public static MixCursorTheme Begin() { return new MixCursorTheme(); }
+  public void Dispose() { Restores++; }
+}
+public class PointValue { public int x,y; }
+public static class MixWin32 {
+  public static int X=10;
+  public static PointValue Cursor() { return new PointValue {x=X,y=20}; }
+  public static IntPtr Foreground() { return new IntPtr(1); }
+  public static bool Focus(IntPtr target) { return true; }
+  public static bool IsWindowHandle(IntPtr target) { return target != IntPtr.Zero; }
+  public static string WindowId(IntPtr target) { return "hwnd:0x1"; }
+  public static int LastInjectionTick { get { return 1; } }
+  public static void NoteInjection() {}
+}
+'@
+. (Join-Path $env:AUDIT_DIRECTORY 'input.ps1')
+$script:state=@{OriginalFocus=[IntPtr]2;LastFocus=[IntPtr]1}
+function Get-CurrentSession { return $script:state }
+function Wait-UserInputIdle { return 0 }
+function Remember-FocusOrigin($state,$previous,$target) {}
+function Assert-ExecutionAuthorization($req,$target) {}
+$result=Invoke-ForegroundInput ([IntPtr]1) 'click' { [MixWin32]::X=30 }
+if (-not $result.cursor_feedback.system_theme_applied -or -not $result.cursor_feedback.system_theme_restored -or
+    -not $result.cursor_feedback.pointer_moved) { throw 'feedback did not reflect completed action lifecycle' }
+try { Invoke-ForegroundInput ([IntPtr]1) 'click' { throw 'fixture failure' }; throw 'missing failure' } catch {
+  if ($_.Exception.Message -ne 'fixture failure') { throw }
+}
+if ([MixCursorTheme]::Restores -ne 2 -or [MixInputObservation]::Depth -ne 0) { throw 'theme or intervention scope leaked' }
+[Console]::WriteLine('FEEDBACK_RESTORED')
+`, { 'input.ps1': PS_INPUT });
+  assert.equal(output, 'FEEDBACK_RESTORED');
+});
+
+test('detached watchdog launcher runs with a hidden console and no desktop input', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const output = await isolatedProgram(String.raw`
+$ErrorActionPreference='Stop'
+Add-Type -AssemblyName Accessibility
+Add-Type -AssemblyName System.Drawing
+Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition (
+  [IO.File]::ReadAllText((Join-Path $env:AUDIT_DIRECTORY 'native.cs')))
+$receipt=Join-Path $env:AUDIT_DIRECTORY 'launched'
+$program="[IO.File]::WriteAllText('" + $receipt.Replace("'","''") + "','ready')"
+[MixCursorTheme]::LaunchDetachedWatchdog($program)
+$clock=[Diagnostics.Stopwatch]::StartNew()
+while (-not [IO.File]::Exists($receipt) -and $clock.ElapsedMilliseconds -lt 5000) { Start-Sleep -Milliseconds 25 }
+if (-not [IO.File]::Exists($receipt)) { throw 'detached watchdog did not start' }
+[Console]::WriteLine([IO.File]::ReadAllText($receipt))
+`, { 'native.cs': MIXDOG_HOST_CSHARP });
+  assert.equal(output, 'ready');
+});

@@ -2,6 +2,7 @@ import { discoverPluginMcp } from './plugin-mcp.mjs';
 import { featureEnvOverride, memoryToolsEnabled } from './config-helpers.mjs';
 import { readSessionCoreMemoryPayload } from '../runtime/memory/lib/core-memory-file.mjs';
 import { saveSession } from '../runtime/agent/orchestrator/session/store.mjs';
+import { pluginMetadata } from '../runtime/shared/plugin-metadata.mjs';
 
 // cwd-plugins.mjs — cwd resolution/apply + plugins-status + core-memory context,
 // extracted from mixdog-session-runtime.mjs. Dependency-injected factory that
@@ -177,6 +178,7 @@ export function createCwdPlugins({
         title: clean(manifest.title) || clean(manifest.displayName) || clean(entry.title) || name,
         version: clean(manifest.version) || clean(entry.version) || null,
         description: clean(manifest.description) || clean(entry.description),
+        ...pluginMetadata(manifest),
         marketplace: null,
         source: clean(entry.sourceType) === 'local' ? 'local' : 'registry',
         sourceUrl: clean(entry.source),
@@ -220,7 +222,6 @@ export function createCwdPlugins({
     const lines = [];
     for (const value of [
       ...(Array.isArray(payload.userLines) ? payload.userLines : []),
-      ...(Array.isArray(payload.dbLines) ? payload.dbLines : []),
     ]) {
       const text = clean(value).replace(/\s+/g, ' ');
       if (!text) continue;

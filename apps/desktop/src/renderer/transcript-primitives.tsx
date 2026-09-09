@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { type TranscriptItem } from "./desktop-types";
 import { t } from "./i18n";
 import { MxIcon } from "./MxIcon";
@@ -66,22 +66,43 @@ export function CopyControl({ value, label, className, tooltipSide = "top" }: {
   tooltipSide?: "top" | "bottom" | "left" | "right";
 }) {
   const copiedTimer = useRef<number | undefined>(undefined);
-  const [copied, setCopied] = useState(false);
-  useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
+  const generation = useRef(0);
+  const pending = useRef(false);
+  const [status, setStatus] = useState<"idle" | "pending" | "copied" | "failed">("idle");
+  useLayoutEffect(() => {
+    pending.current = false;
+    setStatus("idle");
+    return () => {
+      generation.current += 1;
+      window.clearTimeout(copiedTimer.current);
+    };
+  }, [value]);
   const copy = async () => {
+    if (!value || pending.current) return;
+    const requestGeneration = generation.current;
+    pending.current = true;
+    window.clearTimeout(copiedTimer.current);
+    setStatus("pending");
     try {
       await copyTextToClipboard(value);
-      setCopied(true);
-      window.clearTimeout(copiedTimer.current);
-      copiedTimer.current = window.setTimeout(() => setCopied(false), 1_600);
+      if (requestGeneration !== generation.current) return;
+      setStatus("copied");
+      copiedTimer.current = window.setTimeout(() => setStatus("idle"), 1_600);
     } catch {
-      setCopied(false);
+      if (requestGeneration !== generation.current) return;
+      setStatus("failed");
+    } finally {
+      if (requestGeneration === generation.current) pending.current = false;
     }
   };
+  const copied = status === "copied";
+  const feedback = copied ? t("Copied") : status === "failed" ? t("Copy failed") : "";
   return <button type="button" className={className} onClick={() => void copy()}
-    aria-label={copied ? t("Copied") : t(label)} data-copied={copied || undefined}
-    data-tooltip={copied ? t("Copied") : t("Copy")} data-tooltip-side={tooltipSide}>
+    disabled={!value || status === "pending"} aria-busy={status === "pending" || undefined}
+    aria-label={feedback || t(label)} data-copied={copied || undefined}
+    data-tooltip={feedback || t(label)} data-tooltip-side={tooltipSide}>
     {copied ? <MxIcon name="check" size={14} /> : <MxIcon name="copy" size={14} />}
+    <span className="sr-only" role="status" aria-live="polite">{feedback}</span>
   </button>;
 }
 

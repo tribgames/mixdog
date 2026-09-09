@@ -382,6 +382,21 @@
   object-fit: cover;
   border-radius: var(--mx-radius-md);
 }
+.composer-attachments > div.image .attachment-open {
+  display: flex;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+  cursor: zoom-in;
+}
+.composer-attachments > div.image .attachment-open:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -2px;
+}
 .composer-attachments > div.image > span:nth-child(2) {
   position: absolute;
   right: 0;
@@ -397,6 +412,7 @@
   white-space: nowrap;
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
+  pointer-events: none;
 }
 .composer-attachments .attachment-remove {
   width: 20px;

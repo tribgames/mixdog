@@ -3,18 +3,27 @@ import { t } from './i18n';
 
 export type GoalDisplayStatus = NonNullable<GoalSnapshot['status']> | 'responding';
 
+type GoalExecutionSnapshot = Pick<Snapshot, 'busy' | 'commandBusy' | 'toolApproval' | 'shellJobs'>;
+
+export function goalHasBackgroundWork(snapshot: GoalExecutionSnapshot, agentWorking = false): boolean {
+  return agentWorking
+    || Number(snapshot.shellJobs?.count) > 0
+    || Boolean(snapshot.shellJobs?.jobs?.length);
+}
+
 // Execution and durable intent are different facts. A reply can be in flight
 // while the Goal still awaits a decision; never turn that into durable approval.
 export function goalDisplayStatus(
   goal: GoalSnapshot,
-  snapshot: Pick<Snapshot, 'busy' | 'toolApproval'>,
+  snapshot: GoalExecutionSnapshot,
   agentWorking = false,
 ): GoalDisplayStatus {
   const status = goal.status || 'active';
   if (status !== 'active' && status !== 'paused') return status;
-  const executing = Boolean(snapshot.busy && !snapshot.toolApproval) || agentWorking;
+  const backgroundWorking = goalHasBackgroundWork(snapshot, agentWorking);
+  const executing = Boolean((snapshot.busy || snapshot.commandBusy) && !snapshot.toolApproval) || backgroundWorking;
   if (status === 'paused' && executing) return 'responding';
-  if (snapshot.toolApproval && !agentWorking) return 'paused';
+  if (snapshot.toolApproval && !backgroundWorking) return 'paused';
   return status;
 }
 

@@ -1,9 +1,11 @@
 import { callMicrosoftOffice, closeMicrosoftOfficeSession } from '../com/com-adapter.mjs';
-import { recalculateLibreOfficeWorkbook } from '../portable/portable-ooxml.mjs';
+import { recalculateForReview } from './office-recalculation.mjs';
 import { summarizeOfficeCompositions } from '../design/composition-system.mjs';
 import { recordOfficeCompositionHistory } from '../design/library/design-library.mjs';
 import { documentSessionKey, documentSessions, isMicrosoftOfficeSession, sessions } from './office-core.mjs';
 import { pptxVisualReviewAcknowledged, reviewPptxVisualCritique } from '../quality/design-review-critique.mjs';
+import { assessPresentationAcceptance } from '../quality/presentation-acceptance.mjs';
+import { assessDocumentAcceptance, reviewDocumentPages } from '../quality/document-acceptance.mjs';
 import { validate } from './office-actions-inspect.mjs';
 import { qa } from './office-actions-render.mjs';
 
@@ -75,16 +77,11 @@ export async function finalize(session, args, cwd, signal) {
       stepMetrics[`${name}Ms`] = Math.max(0, Number((performance.now() - startedAt).toFixed(2)));
     }
   };
-  const authored = session.authored === true;
+  const authored = session.authored === true || session.design?.authoring === 'native';
   const failOn = String(args.failOn || (session.created && !authored ? 'warning' : 'error')).toLowerCase();
   const requiresVisualReview = session.format === 'pptx'
     && session.designState?.requiresVisualReview === true;
-  const recalculation = session.backend === 'mixdog-ooxml' && session.format === 'xlsx'
-    ? await timedStep('recalculation', async () => await recalculateLibreOfficeWorkbook(session.target, {
-        force: Number(session.snapshotVersion || 0) > 0,
-        signal,
-      }))
-    : null;
+  const recalculation = await timedStep('recalculation', () => recalculateForReview(session, signal));
   if (recalculation?.needed && !recalculation.recalculated) {
     return {
       ok: false,
@@ -118,6 +115,25 @@ export async function finalize(session, args, cwd, signal) {
     coverageComplete: session.designState?.renderedCoverage?.complete === true,
     critiqueOk: visualCritique?.ok === true,
   });
+  if (session.format === 'pptx' && review?.review?.quality) {
+    const quality = review.review.quality;
+    Object.assign(quality, assessPresentationAcceptance(quality.evidence, {
+      acknowledged: visualReviewAcknowledged,
+      critique: visualCritique,
+    }));
+  }
+  const documentVisualReview = reviewDocumentPages(session.format, args.design, {
+    ...session.designState,
+    snapshotVersion: session.snapshotVersion,
+  });
+  if (documentVisualReview && review) {
+    review.visualReview = documentVisualReview;
+    if (review.review?.quality) {
+      Object.assign(review.review.quality, assessDocumentAcceptance(
+        review.review.quality.evidence, documentVisualReview,
+      ));
+    }
+  }
   if (review) delete review._images;
   const issuesAfter = review?.issuesAfter || [];
   const blockingIssues = issuesAfter.filter((issue) => blocksFinalize(issue, { failOn, authored }));
@@ -169,6 +185,22 @@ export async function finalize(session, args, cwd, signal) {
       reviewToken,
       visualCritique,
       nextAction: 'Inspect every rendered slide and submit one distinct critique per slide with verdict, hierarchy, balance, legibility, cohesion, evidence, note, and fixes. Polish any failed slide, render again if changed, then finalize with the review token.',
+      _images: reviewImages,
+    };
+  }
+  if (documentVisualReview && args.review !== false && !documentVisualReview.acknowledged) {
+    return {
+      ok: false,
+      finalized: false,
+      session: session.id,
+      reason: 'visual_review_required',
+      failOn,
+      recalculation,
+      review,
+      stepMetrics,
+      reviewToken,
+      visualReview: documentVisualReview,
+      nextAction: `Inspect the actual pages for ${documentVisualReview.checks.join(', ')}. Record specific keep/fix observations, not checkbox assertions. Correct material issues and rerender. Then submit design.reviewed:true, design.reviewToken and design.critique with one {page, verdict:'pass', note} per page; unresolved fixes cannot be accepted. This records agent review, not user approval.`,
       _images: reviewImages,
     };
   }

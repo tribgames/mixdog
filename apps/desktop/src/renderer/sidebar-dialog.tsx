@@ -1,5 +1,5 @@
 import { LoaderCircle, X } from 'lucide-react';
-import { useEffect, useId, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
 import { t } from './i18n';
@@ -26,6 +26,34 @@ export function SidebarDialogLayer({ onClose, children }: {
     }}>
     {children}
   </div>, document.body);
+}
+
+/** A dialog scoped to the PANE that raised it (user: 골 설정 뜨는 게 PANE
+ *  중앙에 뜨는 게 낫지 않을까). The card portals into the anchor's `.pane-cell`
+ *  and centers there; the scrim covers only that pane, so sibling panes stay
+ *  visible and usable, and the title bar is not dimmed. Falls back to the
+ *  window-level layer when the anchor is not inside a pane. */
+export function PaneDialogLayer({ anchor, onClose, children }: {
+  anchor: RefObject<HTMLElement | null>;
+  onClose(): void;
+  children: ReactNode;
+}) {
+  const [pane] = useState<HTMLElement | null>(
+    () => anchor.current?.closest<HTMLElement>('.pane-cell') ?? null,
+  );
+  useMobileBack(true, onClose);
+  useEffect(() => (pane ? undefined : acquireTitleBarDim()), [pane]);
+  return createPortal(<div className={pane ? 'pane-dialog-layer' : 'schedules-dialog-layer'}
+    onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}
+    onKeyDown={(event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }
+    }}>
+    {children}
+  </div>, pane ?? document.body);
 }
 
 /** Immediate acknowledgement while a clicked row fetches its editor payload. */

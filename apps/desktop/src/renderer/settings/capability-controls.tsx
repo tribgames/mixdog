@@ -7,6 +7,8 @@ import { registerMobileBack } from '../mobile-back';
 import { OpenSelect } from '../OpenSelect';
 import { modelDisplayName, providerDisplayName } from '../provider-display';
 import { record } from '../record-utils';
+// @ts-expect-error Shared presentation contract has no separate declaration file.
+import { contextMeasurementStats, measuredContextUsage, contextMeasurementLabel } from '../../../../../src/ui/context-measurement.mjs';
 // The primitives translate their OWN string props: every settings panel that
 // renders through Group/Rows/ActionButton gets localized titles without each
 // call site wrapping literals. Dynamic values (model names, provider labels)
@@ -209,18 +211,22 @@ export function ContextStatusView({ value }: { value: unknown }) {
   const request = record(context.request);
   const usage = record(context.usage);
   if (context.error) return <ErrorNotice error={context.error} role="status" />;
-  const used = Number(context.usedTokens || context.currentEstimatedTokens || 0);
-  const window = Number(context.contextWindow || 0);
-  const percent = window > 0 ? Math.min(100, Math.max(0, Math.round((used / window) * 100))) : 0;
+  const measured = measuredContextUsage({
+    stats: contextMeasurementStats(context),
+    contextWindow: context.effectiveContextWindow || context.contextWindow,
+  });
+  const { used, limit: window, percent } = measured;
   return <div className="settings-status-stack">
     <ResourceRow title={`${context.model
       ? modelDisplayName(String(context.model), String(context.provider || ''))
       : 'No model'} · ${context.provider ? providerDisplayName(String(context.provider)) : 'No provider'}`}
       description={String(context.cwd || 'No active project')} meta={String(context.toolMode || 'default tools')} />
-    {window > 0 && <div className="settings-context-meter" aria-label={`Context ${percent}% used`}>
-      <span style={{ width: `${percent}%` }} /><small>{count(used)} / {count(window)} tokens · {percent}%</small></div>}
+    {window > 0 && <div className="settings-context-meter" aria-label={t(contextMeasurementLabel(measured.source))}>
+      <span style={{ width: `${percent ?? 0}%` }} /><small>
+        {t(contextMeasurementLabel(measured.source))} · {used == null ? '—' : count(used)} / {count(window)}
+        {percent == null ? '' : ` · ${percent}%`}</small></div>}
     <MetricGrid items={[
-      { label: 'Free tokens', value: count(context.freeTokens) },
+      { label: 'Free tokens', value: used == null ? '—' : count(Math.max(0, window - used)) },
       { label: 'Messages', value: count(messages.total ?? messages.count) },
       { label: 'Tool schema', value: `${count(request.toolSchemaTokens)} tokens` },
       { label: 'Request reserve', value: `${count(request.reserveTokens)} tokens` },

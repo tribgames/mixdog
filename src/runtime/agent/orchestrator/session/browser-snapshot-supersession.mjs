@@ -25,7 +25,7 @@ export function supersedeBrowserSnapshots(messages) {
     if (message?.role !== 'assistant' || !Array.isArray(message.toolCalls)) continue;
     for (const call of message.toolCalls) {
       const name = String(call?.name || call?.function?.name || '').toLowerCase();
-      if (name === 'browser' && call?.id) browserCallIds.add(call.id);
+      if ((name === 'browser' || name === 'browser_devtools') && call?.id) browserCallIds.add(call.id);
     }
   }
   const locations = [];

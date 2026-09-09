@@ -10,6 +10,9 @@ import type { WebContents } from 'electron';
 import type { BrowserCommandResult } from './command';
 import type { BrowserNetworkLedger } from './network';
 import type { BrowserPostcondition } from './postcondition';
+import { timedBrowserOperation } from './timing';
+import { createBrowserDomQuiet } from './dom-quiet';
+import { browserRenderCheckpoint } from './render-checkpoint';
 
 export interface BrowserSettleDiagnostics {
   network: BrowserNetworkLedger;
@@ -19,6 +22,7 @@ export interface BrowserSettleDiagnostics {
 export interface BrowserSettleHost {
   diagnostics(guest: WebContents): BrowserSettleDiagnostics;
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T>;
+  renderCheckpoint?(guest: WebContents, background: boolean, signal?: AbortSignal): Promise<void>;
   pageText(guest: WebContents, signal?: AbortSignal): Promise<string>;
   /** How long the page must stay quiet before a gesture counts as settled. */
   quietMs: number;
@@ -78,27 +82,11 @@ export function createBrowserSettle(host: BrowserSettleHost) {
     });
   }
 
-  async function waitForDomQuiet(guest: WebContents, signal?: AbortSignal): Promise<void> {
-    await evaluate<void>(guest, `(() => new Promise((resolve) => {
-      let quietTimer;
-      const finish = () => {
-        observer.disconnect();
-        clearTimeout(hardTimer);
-        clearTimeout(quietTimer);
-        resolve();
-      };
-      const arm = () => {
-        clearTimeout(quietTimer);
-        quietTimer = setTimeout(finish, ${ACTION_SETTLE_QUIET_MS});
-      };
-      const observer = new MutationObserver(arm);
-      observer.observe(document.documentElement, {
-        subtree: true, childList: true, attributes: true, characterData: true,
-      });
-      const hardTimer = setTimeout(finish, ${ACTION_SETTLE_DOM_TIMEOUT_MS});
-      arm();
-    }))()`, signal);
-  }
+  const waitForDomQuiet = createBrowserDomQuiet({
+    evaluate,
+    quietMs: ACTION_SETTLE_QUIET_MS,
+    timeoutMs: ACTION_SETTLE_DOM_TIMEOUT_MS,
+  });
 
   async function waitForNetworkQuiet(guest: WebContents, signal?: AbortSignal): Promise<void> {
     const diagnostics = diagnosticsFor(guest);
@@ -130,6 +118,7 @@ export function createBrowserSettle(host: BrowserSettleHost) {
     guest: WebContents,
     signal?: AbortSignal,
     until?: Promise<unknown>,
+    options: { background?: boolean; requireQuiet?: boolean } = {},
   ): Promise<void> {
     const stopOnAbort = () => {
       if (!guest.isDestroyed() && guest.isLoading()) {
@@ -147,9 +136,18 @@ export function createBrowserSettle(host: BrowserSettleHost) {
     );
     try {
       if (diagnosticsFor(guest).pendingDialog) return;
+      // Uniform for individual gestures and batches: flush queued rendering,
+      // then wait only when actual load/network work remains. A future timer
+      // has no knowable completion time; explicit expect/settleMs own that
+      // dependency and are still awaited independently by reply.
+      const checkpoint = await stepSettleResult(guest, signal, options.background);
+      if (checkpoint.outcome === 'blocked') return;
+      if (checkpoint.outcome !== 'completed') throw new Error(checkpoint.text);
+      if (!options.requireQuiet && !guest.isLoading()
+        && diagnosticsFor(guest).network.recentInflight().length === 0) return;
       const observed = Promise.allSettled([
         waitForLoadSettle(guest, ACTION_SETTLE_LOAD_TIMEOUT_MS, settleSignal),
-        waitForDomQuiet(guest, settleSignal),
+        waitForDomQuiet(guest, signal, until),
         waitForNetworkQuiet(guest, settleSignal),
       ]);
       // Racing the group, not just aborting it: allSettled still waits for any
@@ -163,22 +161,30 @@ export function createBrowserSettle(host: BrowserSettleHost) {
     }
   }
 
-  /** Between sequence steps only the DOM has to stop moving. Full load and
-   *  network quiet is what makes a single gesture cost ~400ms, and paying it
-   *  per step would defeat the point of batching them. */
+  /** Let input handlers and their rendering work run without waiting for
+   * unrelated DOM mutations. The next gesture still owns its target's
+   * actionability checks; the final reply waits for pending load/network work.
+   * Hidden pages may throttle animation frames, so the checkpoint is bounded. */
   async function stepSettleResult(
     guest: WebContents,
     signal?: AbortSignal,
+    background = false,
   ): Promise<BrowserCommandResult> {
+    if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
     if (!diagnosticsFor(guest).pendingDialog) {
       try {
-        await waitForDomQuiet(guest, signal);
+        if (host.renderCheckpoint) await host.renderCheckpoint(guest, background, signal);
+        else await evaluate<void>(guest, browserRenderCheckpoint(background), signal);
       } catch (error) {
         if (signal?.aborted) throw signal.reason || error;
-        // A page can disappear between sequence steps. The next action reports
-        // that state; only caller cancellation must stop the sequence here.
+        return {
+          outcome: 'inconclusive',
+          text: 'The browser input executed, but its rendering checkpoint failed; input was not replayed.'
+            + ` ${error instanceof Error ? error.message : String(error)}`,
+        };
       }
     }
+    if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
     const dialog = diagnosticsFor(guest).pendingDialog;
     return dialog
       ? { outcome: 'blocked', text: `A ${dialog.type} dialog is blocking the sequence.` }
@@ -205,11 +211,11 @@ export function createBrowserSettle(host: BrowserSettleHost) {
 
   return {
     pause,
-    waitForLoadSettle,
+    waitForLoadSettle: timedBrowserOperation('wait', waitForLoadSettle),
     waitForDomQuiet,
     waitForNetworkQuiet,
     settleAfterAction,
-    stepSettleResult,
+    stepSettleResult: timedBrowserOperation('wait', stepSettleResult),
     postconditionMatchesGuest,
   };
 }

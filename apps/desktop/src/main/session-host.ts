@@ -454,6 +454,14 @@ export class SessionHost implements DesktopService {
           : rebuilt;
       }
     } else if (value?.patch && typeof value.patch === 'object') {
+      // The live lane usually delivers the same revision BEFORE the action
+      // reply that carries it as a patch: the reply's baseline then reads as
+      // crossed even though the projection already holds exactly this state.
+      // Recovering there re-read every session in FULL on every submit
+      // (daemon log: "missing baseline" after each accepted prompt).
+      if (prior && Number.isFinite(revision) && revision === prior.revision) {
+        return this.snapshotWithRemoteSession(prior.snapshot);
+      }
       if (!prior || Number(value.baseRevision) !== prior.revision) {
         this.recoverMissingSessionBaseline(id);
         return this.snapshotWithRemoteSession(prior?.snapshot
@@ -550,6 +558,10 @@ export class SessionHost implements DesktopService {
     if (frame.type !== 'session-state') return;
     const prior = this.sessionProjections.get(sessionId);
     if (prior && Number(frame.revision) < prior.revision) return;
+    // An action reply can land first and apply this revision as its patch;
+    // the lane frame that follows is the same state and must not read as a
+    // crossed baseline.
+    if (prior && frame.patch && Number(frame.revision) === prior.revision) return;
     if (frame.resyncRequired === true
       || (frame.patch && (!prior || Number(frame.baseRevision) !== prior.revision))) {
       void this.readSession(sessionId).catch(() => undefined);

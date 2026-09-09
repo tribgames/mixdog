@@ -9,26 +9,29 @@ export function captureRowMenuAnchor(element: HTMLElement) {
   };
 }
 
+/* Same ceiling as .mx-menu so every popup menu shares one width grammar. */
+export const ROW_MENU_MAX_WIDTH = 368;
+
+// The panel sizes itself to its labels (user: ⋯ 팝업 너비가 제각각), so the
+// caller never knows the width. Anchoring the RIGHT edge to the trigger keeps
+// the menu under the ⋯ glyph whatever the content measures; maxWidth stops it
+// from running off the left edge of the viewport.
 export function positionRowMenu(
   anchor: ReturnType<typeof captureRowMenuAnchor> | null,
-  requestedWidth: number,
   rowCount: number,
   separatorCount: number,
   viewportWidth: number,
   viewportHeight: number,
 ) {
-  const width = Math.min(requestedWidth, Math.max(0, viewportWidth - 16));
   const height = Math.min(
     (anchor?.rowHeight || 32) * rowCount + 2 * (anchor?.inset || 6) + 2 + separatorCount * 4,
     Math.max(0, viewportHeight - 16),
   );
-  const left = Math.max(8, Math.min(
-    (anchor?.bounds.right || width + 8) - width,
-    viewportWidth - width - 8,
-  ));
+  const right = Math.max(8, viewportWidth - (anchor?.bounds.right ?? viewportWidth - 8));
+  const maxWidth = Math.max(0, Math.min(ROW_MENU_MAX_WIDTH, viewportWidth - right - 8));
   const below = (anchor?.bounds.bottom || 8) + 4;
   const top = below + height <= viewportHeight - 8
     ? below
     : Math.max(8, (anchor?.bounds.top || height + 12) - height - 4);
-  return { left, top, width };
+  return { right, top, maxWidth };
 }

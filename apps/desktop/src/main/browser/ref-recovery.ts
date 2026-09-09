@@ -10,6 +10,9 @@ export interface BrowserRefFingerprint {
   role: string;
   name: string;
   href: string;
+  /** Value and states are remembered for change reports, not for recovery. */
+  value?: string;
+  states?: string[];
 }
 
 export interface BrowserRefSet {
@@ -41,7 +44,20 @@ function fingerprint(
     role: element.role,
     name: element.name,
     href: element.href || '',
+    value: element.value || '',
+    states: element.states || [],
   };
+}
+
+/** A key that treats two elements as the same thing in the same state. */
+export function browserRefStateKey(entry: {
+  role: string;
+  name: string;
+  href?: string;
+  value?: string;
+  states?: string[];
+}): string {
+  return JSON.stringify([entry.role, entry.name, entry.href || '', entry.value || '', [...(entry.states || [])].sort()]);
 }
 
 export function createBrowserRefSet(payload: BrowserSnapshotPayload): BrowserRefSet {

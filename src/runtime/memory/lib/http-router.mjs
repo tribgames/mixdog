@@ -113,18 +113,6 @@ export function createHttpRouter({
   async function buildSessionCoreMemoryPayload(cwd) {
     const db = getDb()
     const projectId = resolveProjectScope(typeof cwd === 'string' && cwd ? cwd : null)
-    const generatedScopeClause = projectId !== null
-      ? `project_id IS NULL OR project_id = $1`
-      : `project_id IS NULL`
-    const dbRows = (await db.query(`
-      SELECT core_summary
-      FROM entries
-      WHERE is_root = 1
-        AND status = 'active'
-        AND core_summary IS NOT NULL
-        AND (${generatedScopeClause})
-      ORDER BY score DESC, last_seen_at DESC
-    `, projectId !== null ? [projectId] : [])).rows
     const commonRows = (await db.query(
       `SELECT id, summary FROM core_entries WHERE project_id IS NULL AND (status IS NULL OR status = 'active') ORDER BY id ASC`
     )).rows
@@ -136,7 +124,7 @@ export function createHttpRouter({
       : []
     return {
       projectId,
-      dbLines: dbRows.map(r => String(r.core_summary || '').trim()).filter(Boolean),
+      dbLines: [],
       userLines: [
         ...commonRows.map(formatCuratedCoreMemoryLine).filter(Boolean),
         ...scopedRows.map(formatCuratedCoreMemoryLine).filter(Boolean),

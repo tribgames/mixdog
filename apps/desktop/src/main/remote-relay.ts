@@ -1440,16 +1440,18 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
           }
           // Decryption stays ordered; independent reads execute concurrently.
           // Count the frame until execution finishes, not merely until decode.
+          const callQueuedAt = Date.now();
           execution = client.callQueue.run(String(call?.method ?? ''), async () => {
             if (activeClients.get(envelope.clientId as string) !== client) return;
             const callStartedAt = Date.now();
+            const queueMs = callStartedAt - callQueuedAt;
             const response = await executeRemoteFrame(methods, clearFrame);
             const callMs = Date.now() - callStartedAt;
             const method = typeof call?.method === 'string' && Object.hasOwn(methods, call.method)
               ? call.method : 'unknown';
-            if (callMs >= SLOW_REMOTE_CALL_MS) {
+            if (callMs + queueMs >= SLOW_REMOTE_CALL_MS) {
               console.error(`[mixdog-remote-slow-call] method=${method}`
-                + ` ms=${callMs} queuedBehind=${client.pendingFrames}`);
+                + ` ms=${callMs} queueMs=${queueMs} queuedBehind=${client.pendingFrames}`);
             }
             let responseBytes = 0;
             if (response !== undefined && activeClients.get(envelope.clientId as string) === client) {
@@ -1559,7 +1561,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       broadcastEncrypted({ event: 'termData', payload: event }, true, readsLane('terminal'));
     }
     terminalBuffer.acknowledge(event.id, event.data.length);
-  }, 16);
+  }, { delayMs: 16, leadingEdge: true });
   const terminalReaderAttached = (): boolean => {
     for (const state of activeClients.values()) {
       if (state.channel && readsLane('terminal')(state)) return true;

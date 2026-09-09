@@ -1,6 +1,6 @@
 import { __mixdogMemoryLog } from './memory-log.mjs';
 
-// Cycle 3 — user-curated core memory review.
+// Cycle 3 — separate generated-summary and protected user-curated reviews.
 //
 // Walks every row in core_entries (via listCore('*')), retrieves the related
 // current memory for each row using searchRelevantHybrid, packs both into a
@@ -43,6 +43,7 @@ import {
   isSafeConsolidation, findElementConflict,
 } from './memory-cycle3-guards.mjs'
 import { markCycleRequest, consumeCycleRequests, resolveCoalesceMaxDrains, scheduleCoalescedCycleRetry, makeCycleRequestSignature, resolveCoalesceMaxRetries } from './memory-cycle-requests.mjs'
+import { reviewGeneratedMemories } from './memory-cycle3-generated.mjs'
 
 const CYCLE3_PROMPT_MAX_BYTES = 160_000
 
@@ -187,6 +188,11 @@ function mergeCycle3Results(a, b) {
   return {
     ...a,
     ...b,
+    generated: {
+      ...a.generated, ...b.generated,
+      ...Object.fromEntries(['reviewed', 'kept', 'excluded', 'proposedExcluded', 'held']
+        .map(key => [key, Number(a.generated?.[key] || 0) + Number(b.generated?.[key] || 0)])),
+    },
     reviewed: Number(a.reviewed || 0) + Number(b.reviewed || 0),
     kept: Number(a.kept || 0) + Number(b.kept || 0),
     updated: Number(a.updated || 0) + Number(b.updated || 0),
@@ -319,6 +325,20 @@ export async function runCycle3(db, config, dataDir, options = {}) {
 }
 
 async function _runCycle3Impl(db, config, dataDir, options = {}) {
+  if (!dataDir) throw new Error('runCycle3: dataDir required')
+  const generated = await reviewGeneratedMemories(db, {
+    callLlm: prompt => invokeCycle3Maintenance(prompt, options),
+    rulesDigest: loadCurrentRulesDigest(dataDir),
+    apply: resolveApplyMode(config, options) !== 'proposal',
+    signal: options.signal,
+    limit: config?.cycle3?.generated_batch_size,
+  })
+  __mixdogMemoryLog(`[cycle3-generated] reviewed=${generated.reviewed} excluded=${generated.excluded} error=${generated.error ?? 'none'}\n`)
+  const curated = await reviewCuratedCore(db, config, dataDir, options)
+  return { ...curated, generated }
+}
+
+async function reviewCuratedCore(db, config, dataDir, options = {}) {
   const signal = options?.signal
   const applyMode = resolveApplyMode(config, options)
   const confirmed = applyMode === 'confirmed'

@@ -213,8 +213,8 @@ export function addCore(dataDir, input, projectId) {
 export function editCore(dataDir, id, patch) {
   return serializeCoreMutation(() => _editCoreImpl(dataDir, id, patch))
 }
-export function deleteCore(dataDir, id) {
-  return serializeCoreMutation(() => _deleteCoreImpl(dataDir, id))
+export function deleteCore(dataDir, id, options = {}) {
+  return serializeCoreMutation(() => _deleteCoreImpl(dataDir, id, options))
 }
 export function archiveCore(dataDir, id, expect = null) {
   return serializeCoreMutation(() => _archiveCoreImpl(dataDir, id, expect))
@@ -242,7 +242,7 @@ async function _addCoreImpl(dataDir, input, projectId) {
     await client.query(`SET LOCAL lock_timeout = '5s'`)
     const poolKey = `core:${projectId == null ? 'COMMON' : projectId}`
     await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [poolKey])
-    const candidates = await _findTopKCore(client, projectId, embedding, null, { forUpdate: true })
+    const candidates = input.verbatim === true ? [] : await _findTopKCore(client, projectId, embedding, null, { forUpdate: true })
     const mergeTarget = await _resolveMergeTarget(candidates, { element: el, summary: sm })
     if (mergeTarget) {
       const r = await client.query(
@@ -378,7 +378,7 @@ async function _editCoreImpl(dataDir, id, patch) {
         || Number(fresh.updated_at ?? 0) !== Number(cur.updated_at ?? 0)) {
       throw new Error(`core entry id=${numId} changed concurrently — re-read and retry`)
     }
-    const candidates = await _findTopKCore(client, newProjectId, embedding, numId, { forUpdate: true })
+    const candidates = patch.verbatim === true ? [] : await _findTopKCore(client, newProjectId, embedding, numId, { forUpdate: true })
     const mergeTarget = await _resolveMergeTarget(candidates, { element: newElement, summary: newSummary })
     if (mergeTarget) {
       const r = await client.query(
@@ -420,11 +420,14 @@ async function _editCoreImpl(dataDir, id, patch) {
   }
 }
 
-async function _deleteCoreImpl(dataDir, id) {
+async function _deleteCoreImpl(dataDir, id, options = {}) {
   const numId = Number(id)
   if (!Number.isInteger(numId) || numId <= 0) throw new Error('integer id > 0 required')
   const db = _getDb(dataDir)
-  const r = await db.query(`DELETE FROM core_entries WHERE id = $1 RETURNING *`, [numId])
+  const scoped = Object.prototype.hasOwnProperty.call(options, 'expectedProjectId')
+  const r = scoped
+    ? await db.query(`DELETE FROM core_entries WHERE id = $1 AND project_id IS NOT DISTINCT FROM $2 RETURNING *`, [numId, options.expectedProjectId])
+    : await db.query(`DELETE FROM core_entries WHERE id = $1 RETURNING *`, [numId])
   if (r.rows.length === 0) throw new Error(`no entry with id=${numId}`)
   return r.rows[0]
 }

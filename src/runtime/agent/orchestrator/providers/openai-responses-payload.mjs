@@ -28,6 +28,7 @@ export function toOpenAIResponsesTool(t) {
         name: t.name,
         description: t.description,
         parameters: t.inputSchema,
+        strict: false,
     };
 }
 

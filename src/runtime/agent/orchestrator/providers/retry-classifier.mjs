@@ -266,7 +266,7 @@ function boundedCauseChain(err) {
   return chain
 }
 
-function isExplicitUserAbortError(err) {
+export function isExplicitUserAbortError(err) {
   if (!err || (typeof err !== 'object' && typeof err !== 'function')) return false
   if (err.name === 'AbortError' || err.name === 'APIUserAbortError' || err.code === 'ABORT_ERR') return true
   if (err.type === 'APIUserAbortError' || err.type === 'api_user_abort_error') return true
@@ -438,7 +438,7 @@ function wireErrorCode(err) {
   return ''
 }
 
-function typedErrorCode(err) {
+export function typedErrorCode(err) {
   return wireErrorCode(err)
 }
 

@@ -2,13 +2,14 @@
 // pipe-verdict parsing/validation, the rules-digest cache, the single LLM
 // gate pass (runUnifiedGate) and the Sonnet re-judge cascade. Facade
 // (memory-cycle2.mjs) re-exports the public members unchanged.
-import { existsSync, readFileSync, readdirSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { resolveMaintenancePreset } from '../../shared/llm/index.mjs'
 import { callAgentDispatch } from './agent-ipc.mjs'
 import { listCore } from './core-memory-store.mjs'
 import { __mixdogMemoryLog, throwIfAborted, resourceDir, createSemaphore } from './memory-cycle2-shared.mjs'
-import { readPromptSurfaceFile, renderPromptSurfaceDigest } from './prompt-surface-file.mjs'
+import { collectMemoryAuthority, renderMemoryAuthority } from './memory-authority-review.mjs'
+import { loadMemorySourceEvidence, formatMemorySourceEvidence } from './memory-source-evidence.mjs'
 
 export const CYCLE2_ACTIVE_TARGET_CAP = 100
 const CYCLE2_PACKET_MATERIAL_CAP = 50
@@ -378,55 +379,13 @@ const RULES_DIGEST_DEFAULT_CHARS = 48_000
 const RULES_DIGEST_MAX_CHARS = 160_000
 function capDigest(text, maxChars) {
   const cap = Math.min(RULES_DIGEST_MAX_CHARS, Math.max(4_000, Number(maxChars) || RULES_DIGEST_DEFAULT_CHARS))
-  return text.length > cap ? text.slice(0, cap) + '\n…[truncated]' : text
+  return renderMemoryAuthority(text, cap)
 }
 export function loadCurrentRulesDigest(dataDir = null, { maxChars } = {}) {
   const now = Date.now()
   if (_currentRulesDigest && _currentRulesDigestDataDir === (dataDir ?? null)
       && now - _currentRulesDigestTs < 60_000) return capDigest(_currentRulesDigest, maxChars)
-  const parts = []
-  // Preferred authority: the prompt-surface snapshot the session runtime
-  // writes from the exact blocks a live Lead session receives (rules, skill
-  // catalog, workflow, role rules, AND every tool description). Rule files
-  // below remain as fallback / supplement for cycles that run before any
-  // session has started.
-  if (dataDir) {
-    const surface = readPromptSurfaceFile(dataDir)
-    const rendered = renderPromptSurfaceDigest(surface)
-    if (rendered) parts.push(rendered)
-  }
-  // Collect every rule file that loads into live sessions (lead + shared).
-  // Discovered dynamically so rule-layout refactors can't silently empty the
-  // digest again (the old hardcoded shared/* list rotted to one file and the
-  // dedup gate compared against nothing).
-  const sources = []
-  for (const dir of ['lead', 'shared']) {
-    const base = join(resourceDir(), 'rules', dir)
-    try {
-      if (!existsSync(base)) continue
-      for (const f of readdirSync(base).sort()) {
-        if (f.endsWith('.md')) sources.push(join(base, f))
-      }
-    } catch {}
-  }
-  const workflows = join(resourceDir(), 'workflows')
-  try {
-    if (existsSync(workflows)) {
-      for (const dir of readdirSync(workflows).sort()) {
-        const workflow = join(workflows, dir, 'WORKFLOW.md')
-        if (existsSync(workflow)) sources.push(workflow)
-      }
-    }
-  } catch {}
-  for (const p of sources) {
-    try {
-      if (!existsSync(p)) continue
-      const txt = readFileSync(p, 'utf8').trim()
-      if (txt) parts.push(`# Source: ${p}\n${txt}`)
-    } catch {}
-  }
-  // The live surface sits first so truncation only ever trims fallback files.
-  _currentRulesDigest = parts.join('\n\n---\n\n')
+  _currentRulesDigest = collectMemoryAuthority(resourceDir(), dataDir)
   _currentRulesDigestTs = now
   _currentRulesDigestDataDir = dataDir ?? null
   return capDigest(_currentRulesDigest, maxChars)
@@ -544,6 +503,7 @@ async function runUnifiedGatePacket(db, rows, activeContext, config = {}, option
     .replace('{{USER_CORE}}', formatUserCoreForPrompt(userCoreRows, sharedPidMap))
     .replace('{{CORE_MEMORY}}', formatEntriesForPromotePrompt(activeContext, sharedPidMap))
     .replace('{{ITEMS}}', formatEntriesForPromotePrompt(rows, sharedPidMap, { numbered: true }))
+    .replace('{{SOURCE_EVIDENCE}}', () => formatMemorySourceEvidence(rows, options.sourceEvidence ?? new Map()))
     .replace('{{LINEAGE_CANDIDATES}}', formatLineageCandidates(rows, lineageCandidates))
     .replace('{{ACTIVE_COUNT}}', String(activeCount))
     .replace('{{ACTIVE_CAP}}', String(activeCap))
@@ -691,6 +651,7 @@ export async function runUnifiedGate(db, rows, activeContext, config = {}, optio
   const template = readFileSync(promptPath, 'utf8')
   const userCoreRows = options.dataDir ? await listCore(options.dataDir, '*').catch(() => []) : []
   const rulesDigest = loadCurrentRulesDigest(options.dataDir ?? null) || '(no current rules digest available)'
+  const sourceEvidence = await loadMemorySourceEvidence(db, rows)
   const lineageCandidates = await loadLineageCandidates(db, rows, {
     perRowLimit: config?.lineage_per_row,
     queryBatchSize: config?.lineage_query_batch,
@@ -712,6 +673,7 @@ export async function runUnifiedGate(db, rows, activeContext, config = {}, optio
       template,
       userCoreRows,
       rulesDigest,
+      sourceEvidence,
       lineageCandidates: packet.candidates,
       promptMaxBytes,
       packetIndex,

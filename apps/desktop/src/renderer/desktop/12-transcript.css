@@ -43,16 +43,16 @@
   .workspace > .session-header,
   .conversation {
     --pane-inset: 24px;
-    --pane-column: 800px;
-    /* var() substitution happens AFTER the cascade, so the 1536 step only has
-       to raise --pane-column and these two follow it. */
+    /* Keep the smooth pane-relative ramp, but cap the visible composer at
+       800px after the two 24px insets. Transcript and composer retain one
+       reading frame without stretching too far across a wide pane.
+       Container units resolve where the token is spent. */
+    --pane-column: clamp(800px, 80cqi, 848px);
+    /* var() substitution happens AFTER the cascade, so these two follow
+       --pane-column wherever the ramp puts it. */
     --pane-scroll-column: calc(var(--pane-column) - var(--mx-scrollbar-gutter));
     --pane-card: calc(var(--pane-column) - 2 * var(--pane-inset));
   }
-}
-@container chat-pane (min-width: 1536px) {
-  .workspace > .session-header,
-  .conversation { --pane-column: 1000px; }
 }
 @container studio-pane (max-width: 419px) {
   .studio-shell { --pane-inset: 12px; }
@@ -63,13 +63,10 @@
 @container studio-pane (min-width: 768px) {
   .studio-shell {
     --pane-inset: 24px;
-    --pane-column: 800px;
+    --pane-column: clamp(800px, 80cqi, 848px);
     --pane-scroll-column: calc(var(--pane-column) - var(--mx-scrollbar-gutter));
     --pane-card: calc(var(--pane-column) - 2 * var(--pane-inset));
   }
-}
-@container studio-pane (min-width: 1536px) {
-  .studio-shell { --pane-column: 1000px; }
 }
 @container mixdog-pane (max-width: 419px) {
   .workspace > .session-header,
@@ -86,15 +83,10 @@
   .conversation,
   .studio-shell {
     --pane-inset: 24px;
-    --pane-column: 800px;
+    --pane-column: clamp(800px, 80cqi, 848px);
     --pane-scroll-column: calc(var(--pane-column) - var(--mx-scrollbar-gutter));
     --pane-card: calc(var(--pane-column) - 2 * var(--pane-inset));
   }
-}
-@container mixdog-pane (min-width: 1536px) {
-  .workspace > .session-header,
-  .conversation,
-  .studio-shell { --pane-column: 1000px; }
 }
 .session-header { flex-basis: 48px; min-height: 48px; border-bottom: 0; background: var(--mx-workspace-sheet); }
 .session-header-content {
@@ -106,7 +98,7 @@
   gap: 8px;
 }
 /* Studio and the TASK header consume the full pane width. The TASK
-   conversation keeps its desktop 800/1000px reading column; projected mobile
+   conversation keeps its desktop 800/848px reading column; projected mobile
    explicitly fills the pane below. */
 .workspace > .session-header,
 .studio-shell {

@@ -1,5 +1,5 @@
 /**
- * Moving between documents: open, navigate (or reload), back and forward.
+ * Moving between documents: open, navigate (or reload), and back.
  */
 import { type BrowserCommandResult, NAVIGATE_SETTLE_TIMEOUT_MS } from '../command';
 import { pushBounded } from '../guest-state';
@@ -81,25 +81,20 @@ export const navigationActions = defineBrowserActions({
   },
 
   async back(context) {
-    return historyStep(context, 'back');
-  },
-
-  async forward(context) {
-    return historyStep(context, 'forward');
+    return goBack(context);
   },
 });
 
-async function historyStep(
+/** Only the backward step is a gesture: a forward move is a `navigate` to the
+ *  URL the earlier snapshot already showed. */
+async function goBack(
   { guest, actionSnapshot, services }: BrowserActionContext,
-  direction: 'back' | 'forward',
 ): Promise<BrowserCommandResult> {
   const history = guest.navigationHistory;
-  const can = direction === 'back' ? history.canGoBack() : history.canGoForward();
-  if (!can) {
-    return { text: `Cannot go ${direction}: no ${direction === 'back' ? 'earlier' : 'later'} history entry.` };
+  if (!history.canGoBack()) {
+    return { text: 'Cannot go back: no earlier history entry.' };
   }
   services.state.invalidateInteraction(guest);
-  if (direction === 'back') history.goBack();
-  else history.goForward();
+  history.goBack();
   return actionSnapshot();
 }

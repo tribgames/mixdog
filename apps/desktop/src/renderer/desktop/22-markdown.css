@@ -1337,12 +1337,17 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .session-goal-island[data-status="duration_reached"] .session-goal-glyph {
   color: var(--mx-text-muted);
 }
-.session-goal-island[data-waiting="true"] .session-goal-glyph {
-  animation: goal-agent-wait 1.6s ease-in-out infinite;
+.session-goal-island[data-waiting="true"] .session-goal-glyph > svg {
+  transform-origin: center;
+  animation: session-goal-spin 900ms linear infinite;
 }
-@keyframes goal-agent-wait {
-  0%, 100% { opacity: .52; filter: none; }
-  50% { opacity: 1; filter: drop-shadow(0 0 3px color-mix(in srgb, var(--mx-text-accent) 72%, transparent)); }
+@keyframes session-goal-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-goal-island[data-waiting="true"] .session-goal-glyph > svg {
+    animation: none;
+  }
 }
 .session-goal-objective {
   min-width: 0;

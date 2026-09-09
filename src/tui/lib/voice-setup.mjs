@@ -58,6 +58,7 @@ export async function getVoiceStatus({ dataDir = resolvePluginData() } = {}) {
     busy: isVoiceInstallBusy(),
     installed: runtime.installed === true,
     modelId: runtime.modelId,
+    info: fetcher.voiceRuntimeInfo(runtime),
     components: {
       whisper: Boolean(runtime.binary && runtime.serverCmd),
       model: Boolean(runtime.model),

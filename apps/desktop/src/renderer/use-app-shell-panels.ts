@@ -11,7 +11,6 @@ import {
   createProjectsPane,
   createSchedulesPane,
   createWebhooksPane,
-  createWorkflowsPane,
   loadSidebarPanelModule,
   type SidebarPanelKey,
 } from "./app-shell-components";
@@ -228,8 +227,6 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
       bottomPanel.setOpen(desktopBottomPanelOpen.current, "instant");
     }
   }, [bottomSheetBand, bottomPanel]);
-  // Workflow and agent configuration panel (rail → Workflows).
-  const [workflowsOpen, setWorkflowsOpen] = useState(false);
   // Rail destinations pre-mount hidden after boot and stay mounted while the
   // sidebar remains open. Their shared reference cache coalesces hydration, so
   // this constructs rows, route controls and overflow options without issuing
@@ -268,7 +265,6 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     schedules: createSchedulesPane(),
     webhooks: createWebhooksPane(),
     projects: createProjectsPane(),
-    workflows: createWorkflowsPane(),
     extensions: createExtensionsPane(),
   }));
   const markSidebarPanelFailed = useCallback((panel: SidebarPanelKey) => {
@@ -285,9 +281,7 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
         ? { ...current, webhooks: createWebhooksPane() }
         : panel === "projects"
           ? { ...current, projects: createProjectsPane() }
-          : panel === "extensions"
-            ? { ...current, extensions: createExtensionsPane() }
-          : { ...current, workflows: createWorkflowsPane() });
+          : { ...current, extensions: createExtensionsPane() });
     setFailedSidebarPanels((current) => {
       if (!current.has(panel)) return current;
       const next = new Set(current);
@@ -306,7 +300,6 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     setSchedulesOpen(true);
     setWebhooksOpen(false);
     setProjectsOpen(false);
-    setWorkflowsOpen(false);
     openSidebar();
   }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
   // Inbound-webhooks panel: same session-panel concept as Schedules
@@ -319,7 +312,6 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     setWebhooksOpen(true);
     setSchedulesOpen(false);
     setProjectsOpen(false);
-    setWorkflowsOpen(false);
     openSidebar();
   }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
   const openProjects = useCallback(() => {
@@ -329,17 +321,6 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     setProjectsOpen(true);
     setSchedulesOpen(false);
     setWebhooksOpen(false);
-    setWorkflowsOpen(false);
-    openSidebar();
-  }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
-  const openWorkflows = useCallback(() => {
-    if (!desktopFeatureEnabled("workflows")) return;
-    mountSidebarPanel("workflows");
-    trackSidebarPanelModule("workflows", loadSidebarPanelModule.workflows());
-    setWorkflowsOpen(true);
-    setSchedulesOpen(false);
-    setWebhooksOpen(false);
-    setProjectsOpen(false);
     openSidebar();
   }, [mountSidebarPanel, openSidebar, trackSidebarPanelModule]);
   // Returns the rail panel area to the Sessions list.
@@ -347,7 +328,6 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     setSchedulesOpen(false);
     setWebhooksOpen(false);
     setProjectsOpen(false);
-    setWorkflowsOpen(false);
   }, []);
   // A collapsed drawer forgets its rail destination on EVERY close path
   // (toggle, backdrop, exclusivity, band crossing): the next open always
@@ -384,7 +364,6 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     openSchedules,
     openSidebar,
     openWebhooks,
-    openWorkflows,
     problemsCollapseNonce,
     problemsFilter,
     projectsOpen,
@@ -407,6 +386,5 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     trackSidebarPanelModule,
     wasBottomSheetBand,
     webhooksOpen,
-    workflowsOpen,
   };
 }

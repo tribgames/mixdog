@@ -1,5 +1,7 @@
-/** One-shot, target-bound approvals. No page text or agent-supplied boolean
- * can mint a grant. Optional policies name public actions, not site heuristics. */
+/** One-shot, target-bound approvals for actions an operator names in
+ * MIXDOG_BROWSER_CONFIRM_ACTIONS. Nothing asks by default; a named action gets
+ * a human confirmation that no page text or agent-supplied field can mint.
+ * Policies name public actions, not site heuristics. */
 import { BROWSER_ACTIONS } from '../../../../../src/runtime/browser-bridge/browser-action-contract.mjs';
 import type { BrowserCommand } from './command';
 import { realpath, stat } from 'node:fs/promises';
@@ -39,10 +41,7 @@ export function createBrowserActionApproval(host: {
     if (denied.has('*') || names.some((name) => denied.has(name))) {
       throw new Error('Browser Use action is denied by policy; nothing was dispatched');
     }
-    const sharedClear = String(command.operation).toLowerCase() === 'clear'
-      && (command.action === 'cookies' || (command.action === 'storage' && String(command.storageType).toLowerCase() !== 'session'));
-    if (command.action !== 'upload' && !sharedClear
-      && !confirmation.has('*') && !names.some((name) => confirmation.has(name))) return;
+    if (!confirmation.has('*') && !names.some((name) => confirmation.has(name))) return;
     const files: Array<{ path: string; size: number; mtimeMs: number }> = [];
     if (command.action === 'upload') {
       if (!command.paths?.length || command.paths.length > 10) throw new Error('upload requires 1–10 approved absolute file paths');

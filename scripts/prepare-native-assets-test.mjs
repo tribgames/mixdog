@@ -61,7 +61,7 @@ test('unsupported host platforms fail closed before downloading native assets', 
         spawn: async () => { throw new Error('should not download'); },
       },
     }),
-    /not published for win32-arm64/,
+    /not published for win32-arm64.*use x64 Node\.js under Windows x64 emulation/,
   );
 });
 

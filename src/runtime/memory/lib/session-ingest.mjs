@@ -333,7 +333,7 @@ export function shouldExcludeIngestMessage(m) {
     return true
   }
   if (role === 'user' && (
-    String(m?.meta?.source || '') === 'compact-active-turn-continuation'
+    ['compact-active-turn-continuation', 'compact-execution-recovery'].includes(String(m?.meta?.source || ''))
     || (
       typeof raw === 'string'
       && raw.includes('<active-turn-continuation>')

@@ -360,7 +360,7 @@
      SessionSidebar's private stored width can be older than that panel, so
      using it as the inner floor clips titles/actions after a resize. */
   .workbench-side-section-body > .sidebar.session-sidebar
-    > :is(.session-panel-header, .session-sidebar-scroll) {
+    > :is(.session-panel-header, .session-sidebar-sessions, .session-sidebar-scroll) {
     min-width: calc(var(--workbench-side-panel-width, var(--session-sidebar-width)) - 16px);
   }
 }

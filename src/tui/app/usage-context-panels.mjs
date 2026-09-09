@@ -1,3 +1,5 @@
+import { contextMeasurementStats, measuredContextUsage, contextMeasurementLabel } from '../../ui/context-measurement.mjs';
+
 // /usage and /context panel builders, extracted from App.jsx. Follows the
 // createRoutePickers factory pattern: called each render with the current
 // store/state and the panel surface; opening either surface closes every other
@@ -90,7 +92,7 @@ export function createUsageContextPanels({
     const builtInToolSchemaTokens = schemaTokensFor(['code', 'web', 'mutation', 'channels', 'setup', 'other']);
     const mcpToolSchemaTokens = schemaTokensFor(['mcp']);
     const compaction = context.compaction || {};
-    const windowTokens = Number(context.contextWindow || state.contextWindow || context.rawContextWindow || state.rawContextWindow || 0);
+    const windowTokens = Number(context.effectiveContextWindow || context.contextWindow || state.contextWindow || context.rawContextWindow || state.rawContextWindow || 0);
     const rawWindowTokens = Number(context.rawContextWindow || state.rawContextWindow || windowTokens || 0);
     // Compaction boundary/trigger are sourced from the runtime contextStatus
     // (context.compaction). Fall back to the visible window for the boundary
@@ -98,16 +100,19 @@ export function createUsageContextPanels({
     // fresh/resumed session before any compaction telemetry exists.
     const compactBoundary = Number(compaction.boundaryTokens || windowTokens || 0);
     const compactTrigger = Number(compaction.triggerTokens || compactBoundary || 0);
-    const usedTokens = Number(context.usedTokens || context.currentEstimatedTokens || usage.lastContextTokens || 0);
-    const freeTokens = windowTokens ? Math.max(0, windowTokens - usedTokens) : Number(context.freeTokens || 0);
+    const measured = measuredContextUsage({ stats: contextMeasurementStats(context), contextWindow: windowTokens });
+    const usedTokens = measured.used;
+    const freeTokens = usedTokens != null && windowTokens ? Math.max(0, windowTokens - usedTokens) : null;
     const pct = (value, total = windowTokens) => {
+      if (value == null) return '—';
       const n = Number(value || 0);
       const d = Number(total || 0);
       if (!d) return 'N/A';
       const p = Math.max(0, Math.min(100, (n / d) * 100));
-      return `${p > 0 && p < 1 ? p.toFixed(1) : Math.floor(p)}%`;
+      return `${Math.round(p * 10) / 10}%`;
     };
     const fmt = (value) => {
+      if (value == null) return '—';
       const n = Number(value || 0);
       if (!Number.isFinite(n) || n <= 0) return '0';
       if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}m`;
@@ -127,7 +132,7 @@ export function createUsageContextPanels({
       ? `${((cachedRead / cacheDenom) * 100).toFixed(0)}%`
       : 'N/A';
     const cacheWriteLabel = cacheWrite > 0 ? ` · ${fmt(cacheWrite)} write` : '';
-    const contextSource = context.usedSource === 'last_api_request' ? 'last API request' : 'estimated';
+    const contextSource = contextMeasurementLabel(measured.source);
     const lastApiLabel = context.lastApiRequestStale ? 'last API request (pre-compact)' : 'last API request';
     const compactElapsed = (value) => {
       const n = Number(value || 0);
@@ -233,6 +238,8 @@ export function createUsageContextPanels({
           freeTokens,
           rawWindowTokens,
           source: contextSource,
+          measurementSource: measured.source,
+          measuredAt: measured.updatedAt,
           effective: true,
         },
         compaction: {

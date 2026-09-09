@@ -9,11 +9,15 @@ import {
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 
 import { t } from '../i18n';
+import { CapabilityIcon } from '../CapabilityIcon';
+import { skillDisplayDescription } from '../skill-presentation';
 import { ErrorNotice, errorSummary } from '../ErrorNotice';
 import { showDesktopToast } from '../notifications';
 import { record } from '../record-utils';
 import { SidebarLoadingDialog } from '../sidebar-dialog';
 import { BuiltInFeaturesPanel } from './built-in-features-panel';
+import { PluginInfo } from './plugin-info';
+import { SkillEditorDialog, useSkillToolLinks } from './skill-editor';
 import {
   CompactSwitch,
   Group,
@@ -30,7 +34,6 @@ import {
   currentProjectPath,
   ExtensionAction,
   ExtensionDetailDialog,
-  ExtensionFacts,
   ExtensionField,
   ExtensionItemList,
   ExtensionItemRow,
@@ -41,95 +44,6 @@ import {
   scopeOf,
   type ExtensionItemTone,
 } from './extension-detail';
-
-function SkillEditorDialog({
-  skill,
-  instructions,
-  disabled,
-  busy,
-  readOnly = false,
-  scopeField,
-  onClose,
-  onSave,
-  onToggle,
-}: {
-  skill: RecordValue | null;
-  instructions: string;
-  disabled: boolean;
-  busy: boolean;
-  readOnly?: boolean;
-  scopeField?: ReactNode;
-  onClose(): void;
-  onSave(payload: RecordValue): void;
-  onToggle?(): void;
-}) {
-  const editing = Boolean(skill);
-  const name = String(skill?.name || '');
-  const [formError, setFormError] = useState('');
-  return <ExtensionDetailDialog width="editor" className="extensions-skill-dialog"
-    titleId="extensions-skill-dialog-title"
-    icon={<Sparkles size={16} aria-hidden="true" />}
-    title={editing ? name : t('Add skill')} onClose={onClose}
-    headerControl={editing && onToggle
-      ? <CompactSwitch label={`${name} · ${t('Enabled')}`} checked={!disabled}
-          disabled={busy} onChange={() => onToggle()} />
-      : null}
-    onSubmit={(event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (readOnly) return;
-      const data = new FormData(event.currentTarget);
-      const nextName = String(data.get('skill-name') || '').trim();
-      const description = String(data.get('skill-description') || '').trim();
-      const whenToUse = String(data.get('skill-trigger') || '').trim();
-      const body = String(data.get('skill-instructions') || '').trim();
-      if (!body) {
-        setFormError('SKILL.md instructions must not be empty.');
-        return;
-      }
-      setFormError('');
-      onSave({
-        ...(editing ? { originalName: name } : {}),
-        name: nextName,
-        description,
-        whenToUse,
-        instructions: body,
-      });
-    }}
-    footer={<>
-      {formError && <ErrorNotice error={formError} />}
-      <button type="button" className="secondary" disabled={busy} onClick={onClose}>
-        {t(readOnly ? 'Close' : 'Cancel')}
-      </button>
-      {!readOnly && <button type="submit" disabled={busy}>{t('Save')}</button>}
-    </>}>
-    {editing ? scopeField : null}
-    <ExtensionField label={t('Name')} note={t('Shown in skill lists and menus.')}>
-      <input name="skill-name" defaultValue={name}
-        required autoFocus={!editing} disabled={busy || readOnly} maxLength={64}
-        pattern="[a-z0-9]+(?:-[a-z0-9]+)*" />
-    </ExtensionField>
-    {/* Description and trigger are the two halves of the model's skill
-        listing (`description — when_to_use`), cut at 250 characters. The
-        description names the capability; the trigger carries the phrases
-        and boundary that route the skill. */}
-    <ExtensionField label={t('Description')}
-      note={t('One sentence on what this skill does. Shown in the skill list.')}>
-      <input name="skill-description" defaultValue={String(skill?.description || '')}
-        required disabled={busy || readOnly} maxLength={1024} />
-    </ExtensionField>
-    <ExtensionField className="workflows-md-field extensions-trigger-field" label={t('Trigger')}
-      note={t('Phrases and situations that should call this skill, and what it should leave to others.')}>
-      <textarea name="skill-trigger" defaultValue={String(skill?.whenToUse || '')}
-        disabled={busy || readOnly} maxLength={1024} />
-    </ExtensionField>
-    <ExtensionField className="workflows-md-field extensions-instructions-field" label={t('Instructions')}
-      note={t('Instructions that define how this skill works.')}>
-      <textarea name="skill-instructions"
-        defaultValue={instructions || (editing ? '' : '# Instructions\n\nDescribe how to use this skill.')}
-        required spellCheck={false} disabled={busy || readOnly} />
-    </ExtensionField>
-  </ExtensionDetailDialog>;
-}
 
 function mcpTransport(config: RecordValue): string {
   const explicit = String(config.type || config.transport || '').toLowerCase();
@@ -302,6 +216,7 @@ function McpEditorDialog({
     titleId="extensions-mcp-dialog-title"
     icon={<Plug size={16} aria-hidden="true" />}
     title={editing ? name : t('Add MCP server')} onClose={onClose}
+    titleStatus={connection ? { label: connection.status, tone: connection.tone } : undefined}
     headerControl={editing && onToggle
       ? <CompactSwitch label={`${name} · ${t('Enabled')}`}
           checked={server?.enabled !== false} disabled={busy}
@@ -346,7 +261,7 @@ function McpEditorDialog({
     </>}>
     {connection && <ExtensionItemList>
       <ExtensionItemRow icon={<Plug size={15} aria-hidden="true" />} title={t('Connection')}
-        description={connection.description} status={connection.status} tone={connection.tone} />
+        description={connection.description} tone={connection.tone} />
     </ExtensionItemList>}
     {editing ? scopeField : null}
     <ExtensionField label={t('Name')} note={t('Shown in the MCP server list.')}>
@@ -415,9 +330,8 @@ function McpEditorDialog({
   </ExtensionDetailDialog>;
 }
 
-/** Connection row at the top of an MCP editor: the transport/endpoint line,
- *  or the failure summary, under one status dot — replacing the bare
- *  "unknown · error" text the editor used to open with. */
+/** Connection state for the title badge, with transport/endpoint or failure
+ *  details kept in the editor body. */
 function mcpConnection(server: RecordValue): { description: string; status: string; tone: ExtensionItemTone } {
   const enabled = server.enabled !== false;
   const raw = String(server.status || '').trim();
@@ -591,12 +505,13 @@ function SkillsPanel({ api, data, pending, run, createOpen, closeCreate }: Panel
   };
   return <Group title="Skills">
     {createOpen && <SkillEditorDialog skill={null} instructions="" disabled={false} busy={busy}
+      tools={rows(status, 'tools')}
       onClose={() => closeCreate?.()} onSave={(payload) => void save(payload)} />}
     {skills.length ? skills.map((skill) => {
       const name = String(skill.name);
       const off = disabled.has(name);
-      const description = String(skill.description || '').trim() || t('Skill instructions');
-      return <ExtensionRow key={name} icon={<Sparkles size={16} aria-hidden="true" />}
+      const description = skillDisplayDescription(skill).trim() || t('Skill instructions');
+      return <ExtensionRow key={name} icon={<CapabilityIcon name={name} />}
         title={name} description={description} enabled={!off}
         busy={busy} onOpen={() => openDetail(name)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'skills')
@@ -604,6 +519,7 @@ function SkillsPanel({ api, data, pending, run, createOpen, closeCreate }: Panel
     {detail && open && detail.content === null && <SidebarLoadingDialog title={detail.name}
       onClose={() => setDetail(null)} dataAttributes={{ 'data-extension-loading': 'skill' }} />}
     {detail && open && detail.content !== null && <SkillEditorDialog key={detail.name} skill={open}
+      tools={rows(status, 'tools')}
       instructions={detail.content} disabled={openOff} busy={busy}
       readOnly={open.editable === false}
       scopeField={<ExtensionScopeField api={api} run={run} kind="skills" name={detail.name}
@@ -614,6 +530,7 @@ function SkillsPanel({ api, data, pending, run, createOpen, closeCreate }: Panel
 }
 
 function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreate }: PanelContext) {
+  const { openSkillTools, skillToolsDialog } = useSkillToolLinks({ data, pending, run });
   const status = record(data.plugins);
   const plugins = rows(status, 'plugins');
   const busy = Boolean(pending);
@@ -630,6 +547,7 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
       .filter((server) => String(server.name) === base || String(server.name).startsWith(`${base}--`));
   };
   return <Group title="Plugins">
+    {skillToolsDialog}
     {createOpen && <PluginInstallDialog busy={busy}
       onClose={() => closeCreate?.()}
       onSubmit={(source) => void run('addPlugin', [source])} />}
@@ -651,8 +569,6 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
       const skills = ownedSkillRows(id);
       const servers = ownedMcpServers(open);
       const contents = skills.length + servers.length;
-      const installedAt = formatInstallDate(open.installedAt);
-      const updatedAt = formatInstallDate(open.updatedAt);
       // Footer keeps the plugin's real actions only — Remove (parked left),
       // Update, and Reconfigure MCP when the plugin ships one. The Copy
       // buttons are gone: the root path and MCP name sit in Info as
@@ -693,15 +609,16 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
               const name = String(skill.name);
               const off = disabledSkills.has(name);
               return <ExtensionItemRow key={`skill:${name}`}
-                icon={<Sparkles size={15} aria-hidden="true" />}
-                title={name} description={String(skill.description || '').trim()}
+                icon={<CapabilityIcon name={name} size={15} />}
+                title={name} description={skillDisplayDescription(skill).trim()}
                 tone={off ? 'off' : 'ok'}
-                control={<CompactSwitch label={`${name} · ${t('Enabled')}`} checked={!off}
+                control={<><ExtensionAction disabled={busy} onClick={() => openSkillTools(name)}>
+                  {t('Required tools')}</ExtensionAction><CompactSwitch label={`${name} · ${t('Enabled')}`} checked={!off}
                   disabled={busy} onChange={(next) => {
                     const nextSet = new Set(disabledSkills);
                     if (next) nextSet.delete(name); else nextSet.add(name);
                     void run('setDisabledSkills', [[...nextSet]]);
-                  }} />} />;
+                  }} /></>} />;
             })}
             {servers.map((server) => {
               const name = String(server.name);
@@ -728,29 +645,10 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
             {t('Nothing installed by this plugin yet.')}
           </ExtensionNote>}
         </ExtensionSection>
-        <ExtensionSection title={t('Info')}>
-          <ExtensionFacts facts={[
-            ['Version', String(open.version || 'unversioned')],
-            ['Source', [String(open.sourceType || ''), String(open.sourceUrl || '')].filter(Boolean).join(' · ')],
-            ['Root', String(open.root || '')],
-            ['MCP server', String(open.mcpServerName || '')],
-            ['Installed', installedAt],
-            ['Updated', updatedAt],
-          ]} />
-        </ExtensionSection>
+        <PluginInfo plugin={open} />
       </ExtensionDetailDialog>;
     })()}
   </Group>;
-}
-
-function formatInstallDate(value: unknown): string {
-  const stamp = typeof value === 'number' ? value : Date.parse(String(value || ''));
-  if (!Number.isFinite(stamp) || stamp <= 0) return '';
-  try {
-    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(stamp));
-  } catch {
-    return '';
-  }
 }
 
 export function PluginExtensionsPanel(context: PanelContext) {

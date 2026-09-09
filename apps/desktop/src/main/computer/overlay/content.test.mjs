@@ -3,30 +3,31 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { overlayHtml, overlayScript } from './content.ts';
 
-test('the single-line label stays fixed while controls reflect pause, cleanup and fresh generations', () => {
+test('status text follows pause and cleanup while stale generations cannot replace it', () => {
   const dom = new JSDOM(overlayHtml('ko'), { runScripts: 'outside-only', url: 'https://fixture.invalid' });
   try {
     dom.window.eval(overlayScript('ko'));
     const publish = dom.window.mixdogComputerOverlay;
     publish({ title: '사용자 조작 중', detail: '입력을 정리하고 있습니다.', paused: true, canResume: false, generation: 7, renderRevision: 2 });
     const resume = dom.window.document.getElementById('toggle');
-    assert.equal(dom.window.document.body.textContent.trim(), 'Mixdog 사용 중');
+    assert.equal(dom.window.document.getElementById('title').textContent, '사용자 조작 중');
+    assert.equal(dom.window.document.body.textContent.includes('입력을 정리하고 있습니다.'), false);
     assert.equal(dom.window.document.getElementById('stop').disabled, false);
     assert.equal(resume.getAttribute('aria-label'), '재개');
     assert.equal(resume.disabled, true);
     publish({ title: 'stale', paused: false, canResume: true, generation: 6, renderRevision: 1 });
-    assert.equal(dom.window.document.body.textContent.trim(), 'Mixdog 사용 중');
+    assert.equal(dom.window.document.getElementById('title').textContent, '사용자 조작 중');
     assert.equal(resume.disabled, true);
     publish({ title: '사용자 조작 중', paused: true, canResume: true, generation: 7, renderRevision: 3, busy: true });
     assert.equal(resume.disabled, false);
     assert.equal(resume.getAttribute('aria-label'), '일시중지');
     publish({ title: '사용자 조작 중', paused: true, canResume: true, generation: 7, renderRevision: 4 });
     assert.equal(resume.disabled, false);
-    assert.equal(dom.window.document.body.textContent.trim(), 'Mixdog 사용 중');
+    assert.equal(dom.window.document.getElementById('title').textContent, '사용자 조작 중');
   } finally { dom.window.close(); }
 });
 
-test('toggle retains its pointer-down generation and signals failure without extra text', async () => {
+test('toggle retains its pointer-down generation and explains control failure', async () => {
   const dom = new JSDOM(overlayHtml('ko'), { runScripts: 'outside-only' });
   try {
     const calls = [];
@@ -43,7 +44,8 @@ test('toggle retains its pointer-down generation and signals failure without ext
     dom.window.mixdogComputerControl = async () => { throw new Error('channel unavailable'); };
     resume.click();
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(dom.window.document.body.textContent.trim(), 'Mixdog 사용 중');
+    assert.equal(dom.window.document.getElementById('title').textContent, '요청 실패');
+    assert.equal(dom.window.document.getElementById('status').textContent, '요청 실패');
     assert.equal(dom.window.document.body.dataset.error, 'true');
     assert.equal(resume.disabled, false);
   } finally { dom.window.close(); }

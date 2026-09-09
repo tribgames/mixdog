@@ -20,19 +20,16 @@ import type { UtilityDockTab } from "./UtilityDock";
 import { t } from "./i18n";
 
 export type WorkbenchSide = "left" | "right";
-/** Launchers open a WORKSPACE TAB instead of a side panel (user: 스튜디오를
- *  단독 메뉴로). They ride the same rail as every other view — same icon, same
- *  order, same drag — but they never become an active side view and never
- *  combine into another view's group, because they have no panel body. */
-export const WORKBENCH_SIDE_LAUNCHER_IDS = ["studio"] as const;
-export type WorkbenchSideLauncherId = (typeof WORKBENCH_SIDE_LAUNCHER_IDS)[number];
 /** Browser Use and Terminal are session-owned pane-dock child views. Their
- *  header icons select persistent surfaces stacked over the classic panel. */
+ *  header icons select persistent surfaces stacked over the classic panel.
+ *  Studio is no rail view at all: it opens as a workspace tab from the
+ *  Sessions panel's fixed launcher rows (user: 세션 위에 새 작업·새 스튜디오
+ *  고정), so a stored rail order still carrying the retired `studio` id
+ *  drops it on load like any other unknown id. */
 export type WorkbenchSideViewId =
   | "sessions"
   | SidebarPanelKey
   | UtilityDockTab
-  | WorkbenchSideLauncherId
   | "session-diff"
   | "browser"
   | "terminal";
@@ -43,11 +40,6 @@ export type WorkbenchSideTitleDragProps = {
   onDragEnd(): void;
 };
 
-export function isWorkbenchSideLauncher(
-  id: WorkbenchSideViewId,
-): id is WorkbenchSideLauncherId {
-  return (WORKBENCH_SIDE_LAUNCHER_IDS as readonly string[]).includes(id);
-}
 export type WorkbenchSideViewPlacement =
   | "before"
   | "after"
@@ -70,11 +62,9 @@ const PANE_BOUND_RIGHT_MIGRATION_KEY =
 const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
   "sessions",
   "projects",
-  "workflows",
   "extensions",
   "schedules",
   "webhooks",
-  "studio",
   "session-diff",
   "browser",
   "terminal",
@@ -90,15 +80,13 @@ const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
  *  Pull Requests remains available behind its feature flag. */
 export const DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT: WorkbenchSideViewLayout = {
   left: [
-    ["agents"],
     ["sessions"],
+    ["agents"],
     ["schedules"],
-    ["studio"],
-    ["workflows"],
-    ["search"],
-    ["source-control"],
-    ["extensions"],
     ["projects"],
+    ["extensions"],
+    ["source-control"],
+    ["search"],
     ["webhooks"],
   ],
   right: [["session-diff"], ["browser"], ["terminal"], ["pull-requests"]],
@@ -206,46 +194,17 @@ function movableWithinLeft(
   return targetSide === "left" && locateGroup(layout, sourceId)?.side === "left";
 }
 
-function groupMembers(
-  layout: WorkbenchSideViewLayout,
-  id: WorkbenchSideViewId,
-): readonly WorkbenchSideViewId[] {
-  const found = locateGroup(layout, id);
-  return found ? layout[found.side][found.index] : [];
-}
-
-/** A launcher has no panel body to share, so an "inside" drop involving one
- *  degrades to a plain neighbouring slot instead of building a dead group. */
-function resolvePlacement(
-  layout: WorkbenchSideViewLayout,
-  sourceMembers: readonly WorkbenchSideViewId[],
-  targetRoot: WorkbenchSideViewId | null,
-  placement: WorkbenchSideViewPlacement,
-): WorkbenchSideViewPlacement {
-  if (!placement.startsWith("inside")) return placement;
-  const combines = sourceMembers.some(isWorkbenchSideLauncher)
-    || (targetRoot ? groupMembers(layout, targetRoot).some(isWorkbenchSideLauncher) : false);
-  if (!combines) return placement;
-  return placement === "inside-before" ? "before" : "after";
-}
-
 export function moveWorkbenchSideGroup(
   layout: WorkbenchSideViewLayout,
   sourceRoot: WorkbenchSideViewId,
   targetSide: WorkbenchSide,
   targetRoot: WorkbenchSideViewId | null,
-  requestedPlacement: WorkbenchSideViewPlacement,
+  placement: WorkbenchSideViewPlacement,
 ): WorkbenchSideViewLayout {
   const source = locateGroup(layout, sourceRoot);
   if (!source || layout[source.side][source.index][0] !== sourceRoot) return layout;
   if (!movableWithinLeft(layout, sourceRoot, targetSide)) return layout;
   if (targetRoot && layout[source.side][source.index].includes(targetRoot)) return layout;
-  const placement = resolvePlacement(
-    layout,
-    layout[source.side][source.index],
-    targetRoot,
-    requestedPlacement,
-  );
   const next = mutableLayout(layout);
   const [sourceGroup] = next[source.side].splice(source.index, 1);
   if (!targetRoot) {
@@ -277,13 +236,12 @@ export function moveWorkbenchSideView(
   sourceId: WorkbenchSideViewId,
   targetSide: WorkbenchSide,
   targetRoot: WorkbenchSideViewId | null,
-  requestedPlacement: WorkbenchSideViewPlacement,
+  placement: WorkbenchSideViewPlacement,
 ): WorkbenchSideViewLayout {
   const source = locateGroup(layout, sourceId);
   if (!source) return layout;
   if (targetRoot === sourceId) return layout;
   if (!movableWithinLeft(layout, sourceId, targetSide)) return layout;
-  const placement = resolvePlacement(layout, [sourceId], targetRoot, requestedPlacement);
   const next = mutableLayout(layout);
   next[source.side][source.index] = next[source.side][source.index]
     .filter((id) => id !== sourceId);

@@ -264,18 +264,19 @@ export async function pinnedFetch(url, options = {}) {
   if (addresses.length === 0) {
     throw new Error(`DNS returned no addresses for ${host}`)
   }
-  // Deterministic: pin to the first validated address. Every entry in
-  // `addresses` already passed assertPrivateIpv4 / IPv6 checks, so picking any
-  // index is safe — first-match keeps behaviour stable across calls.
+  // All returned addresses are validated. Let the connector try both IP
+  // families instead of failing a usable site on an unreachable first address.
   const pinned = addresses[0]
   const dispatcher = new Agent({
     connect: {
+      autoSelectFamily: true,
+      autoSelectFamilyAttemptTimeout: 250,
       // Custom lookup invoked by undici's connector. We ignore the requested
       // hostname argument and unconditionally hand back the pre-validated IP,
       // so DNS rebinding cannot flip the address between assert and connect.
       lookup: (_hostname, opts, cb) => {
         if (opts && opts.all) {
-          cb(null, [{ address: pinned.address, family: pinned.family }])
+          cb(null, addresses.map(({ address, family }) => ({ address, family })))
         } else {
           cb(null, pinned.address, pinned.family)
         }

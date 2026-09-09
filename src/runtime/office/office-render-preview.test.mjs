@@ -164,6 +164,8 @@ test('finalize uses a complete custom preview and still validates the saved deck
   assert.equal(finalized.finalized, true, JSON.stringify(finalized));
   assert.equal(finalized.review.preview.reused, true);
   assert.equal(finalized.review.preview.output, preview.output);
+  assert.equal(finalized.review.review.quality.visualReview.status, 'accepted');
+  assert.equal(finalized.review.review.quality.scoreMeaning, 'automated-diagnostics-not-design-quality');
   assert.equal(finalized.validation.ok, true);
   assert.equal(finalized.saved, true);
   assert.equal(finalized.closed, true);

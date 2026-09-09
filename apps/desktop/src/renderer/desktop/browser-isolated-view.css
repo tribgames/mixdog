@@ -1,0 +1,52 @@
+.browser-isolated-view {
+  position: relative;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+
+.browser-isolated-surface {
+  position: absolute;
+  inset: 0;
+}
+
+.browser-isolated-surface > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.browser-isolated-surface > img[hidden] {
+  visibility: hidden;
+}
+
+.browser-isolated-input {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  resize: none;
+  pointer-events: none;
+}
+
+.browser-page-prompt {
+  position: absolute;
+  inset: 12px 12px auto;
+  padding: 16px;
+  border: 1px solid var(--mx-border-muted);
+  border-radius: 8px;
+  background: var(--mx-surface-plate);
+  color: var(--mx-text);
+  box-shadow: var(--mx-floating);
+  overflow-wrap: anywhere;
+}
+
+.browser-page-prompt > div { display: flex; justify-content: flex-end; gap: 8px; }
+.browser-page-prompt input { width: 100%; box-sizing: border-box; margin-bottom: 12px; }
+.browser-page-prompt button { padding: 6px 12px; cursor: pointer; }

@@ -252,9 +252,12 @@ export function createSnapshotDeltaEncoder(
         }
         const wire: Record<string, unknown> = {};
         const append = items.slice(prefix);
+        // A retained prefix can be the whole NEXT list while still deleting
+        // rows from the previous one (cancel/restore or clearing a transcript).
+        const itemsChanged = prefix !== sentItems.length || append.length > 0;
         // Ordering fields alone are not news. Anything that gives the receiver
         // something it does not already hold sets this.
-        let carriesNews = append.length > 0 || prefix !== items.length;
+        let carriesNews = itemsChanged;
         if (compact) {
           // `r` alone orders the stream: base is always the previous revision,
           // so the receiver derives it rather than reading it. Item movement
@@ -262,7 +265,7 @@ export function createSnapshotDeltaEncoder(
           // only when the list really moved. The frame version is carried by
           // the envelope, not repeated in every payload.
           wire.r = revision;
-          if (append.length > 0 || prefix !== items.length) {
+          if (itemsChanged) {
             wire.ip = { p: prefix, a: append };
           }
         } else {

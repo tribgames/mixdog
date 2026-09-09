@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
 import { createBridgeDiscovery } from '../bridge/discovery-file';
+import { browserFailureTiming } from './timing';
 import {
   bridgeDiscoveryPublicIdentity,
   createBridgeDiscoveryRecord,
@@ -100,6 +101,7 @@ export class BrowserBridgeServer<TCommand extends object> {
       this.respond(response, 200, {
         ok: false,
         error: this.options.redactError((error as Error).message || String(error)),
+        timing: browserFailureTiming(error),
       });
     } finally {
       request.removeListener('aborted', abort);

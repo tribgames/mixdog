@@ -10,6 +10,7 @@ export function ComposerPalette({
   id,
   label,
   className = "",
+  role = "listbox",
   children,
 }: {
   anchor: RefObject<HTMLElement | null>;
@@ -17,6 +18,7 @@ export function ComposerPalette({
   id: string;
   label: string;
   className?: string;
+  role?: 'listbox' | 'menu';
   children: ReactNode;
 }) {
   const active = useSurfaceActive();
@@ -66,7 +68,7 @@ export function ComposerPalette({
   if (!active) return null;
   return createPortal(
     <div ref={panel} id={id} className={`slash-palette ${className}`.trim()}
-      role="listbox" aria-label={label}>
+      role={role} aria-label={label}>
       {children}
     </div>,
     document.body,

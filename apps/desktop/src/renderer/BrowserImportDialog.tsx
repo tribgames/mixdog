@@ -46,6 +46,7 @@ export function BrowserImportDialog({
   const dialogRef = useRef<HTMLElement | null>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
   const busyRef = useRef(false);
+  const activeJobRef = useRef("");
   const [sources, setSources] = useState<DesktopBrowserImportSource[]>([]);
   const [sourceId, setSourceId] = useState("");
   const [profileId, setProfileId] = useState("");
@@ -135,6 +136,7 @@ export function BrowserImportDialog({
   useEffect(() => {
     if (!desktopApi?.onBrowserProfileImportProgress) return undefined;
     return desktopApi.onBrowserProfileImportProgress((update) => {
+      if (update.jobId !== activeJobRef.current) return;
       setProgress((current) => ({
         ...current,
         [update.item]: update,
@@ -169,19 +171,29 @@ export function BrowserImportDialog({
     setFinished(false);
     setError("");
     setProgress({});
+    const jobId = crypto.randomUUID().replaceAll("-", "");
+    activeJobRef.current = jobId;
     void desktopApi.browserProfileImportStart({
-      jobId: crypto.randomUUID().replaceAll("-", ""),
+      jobId,
       sourceId,
       profileId,
       items: requestedItems,
       administratorApproved,
     }).then((result) => {
       setFinished(true);
+      setProgress(Object.fromEntries(requestedItems.map((item) => [item, {
+        jobId: result.jobId,
+        item,
+        state: result.errors[item] ? "failed" : "completed",
+        count: result.counts[item],
+        error: result.errors[item],
+      }])));
       const failures = Object.values(result.errors).filter(Boolean);
       if (failures.length) setError(failures.join("\n"));
     }).catch((reason) => {
       setError(reason instanceof Error ? reason.message : String(reason));
     }).finally(() => {
+      activeJobRef.current = "";
       busyRef.current = false;
       setBusy(false);
     });
@@ -217,7 +229,8 @@ export function BrowserImportDialog({
           ? <small>{t("{{total}} imported", { total: itemProgress?.count?.toLocaleString() || "0" })}</small>
           : null}
         {showProgress && progressState === "failed"
-          ? <small>{t("Failed to import")}</small>
+          ? <small>{t("Failed to import")}{itemProgress?.count
+            ? ` · ${t("{{total}} imported", { total: itemProgress.count.toLocaleString() })}` : ""}</small>
           : null}
       </span>
       {showProgress
@@ -289,6 +302,9 @@ export function BrowserImportDialog({
         {importItemRow("cookies", t("Cookies"), <Cookie size={18} />)}
         {importItemRow("history", t("Browsing history"), <History size={18} />)}
       </div>
+      {items.cookies && <p className="browser-import-auth-notice" role="note">
+        {t("Cookie import does not verify sign-in. Some sites require signing in again in a supported browser.")}
+      </p>}
       {!busy && !finished && sensitiveSelected && <label className="browser-import-admin">
         <strong>{t("Administrator approval required")}</strong>
         <span className="browser-import-admin-check">

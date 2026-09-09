@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 [Console]::InputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 . (Join-Path $PSScriptRoot 'office-com-cleanup.ps1')
+. (Join-Path $PSScriptRoot 'office-word-formatting.ps1')
 
 function Emit-Json($value) {
   [Console]::Out.WriteLine(($value | ConvertTo-Json -Depth 20 -Compress))
@@ -1760,20 +1761,12 @@ function Invoke-WordOperation($doc, $op) {
       }
       $style = if ($op.style) { [string]$op.style } elseif ($op.properties.style) { [string]$op.properties.style } else { '' }
       if ($style) { $paragraph.Range.Style = Word-StyleValue $style }
-      if ($props.name) { $paragraph.Range.Font.Name = [string]$props.name }
-      if ($props.size) { $paragraph.Range.Font.Size = [single]$props.size }
-      if ($null -ne $props.bold) { $paragraph.Range.Font.Bold = if ($props.bold) { -1 } else { 0 } }
-      if ($null -ne $props.italic) { $paragraph.Range.Font.Italic = if ($props.italic) { -1 } else { 0 } }
-      if ($props.color) { $paragraph.Range.Font.Color = Color-Value ([string]$props.color) }
+      Set-WordRunFormat $paragraph.Range $props
       $format = $paragraph.Format
       if ($props.alignment) {
         $format.Alignment = switch ([string]$props.alignment) { 'center' { 1 } 'right' { 2 } 'justify' { 3 } default { 0 } }
       }
-      if ($null -ne $props.spacingBefore) { $format.SpaceBefore = [single]$props.spacingBefore }
-      if ($null -ne $props.spacingAfter) { $format.SpaceAfter = [single]$props.spacingAfter }
-      if ($null -ne $props.lineSpacing) { $format.LineSpacing = [single]$props.lineSpacing }
-      if ($null -ne $props.keepWithNext) { $format.KeepWithNext = if ($props.keepWithNext) { -1 } else { 0 } }
-      if ($null -ne $props.pageBreakBefore) { $format.PageBreakBefore = if ($props.pageBreakBefore) { -1 } else { 0 } }
+      Set-WordParagraphFlow $format $props
       if ($props.tabStops) {
         $format.TabStops.ClearAll()
         foreach ($tab in @($props.tabStops)) {
@@ -1965,13 +1958,11 @@ function Invoke-WordOperation($doc, $op) {
     }
     'set_font' {
       $range = $doc.Content.Duplicate
-      if ($op.find -and -not $range.Find.Execute([string]$op.find)) { throw "Font target not found: $($op.find)" }
+      if (-not $op.find) { throw 'set_font requires non-empty find' }
+      $range.Find.ClearFormatting()
+      if (-not $range.Find.Execute([string]$op.find, $false, $false, $false, $false, $false, $true, 0, $false)) { throw "Font target not found in document body: $($op.find)" }
       $props = $op.properties
-      if ($props.name) { $range.Font.Name = [string]$props.name }
-      if ($props.size) { $range.Font.Size = [single]$props.size }
-      if ($null -ne $props.bold) { $range.Font.Bold = if ($props.bold) { -1 } else { 0 } }
-      if ($null -ne $props.italic) { $range.Font.Italic = if ($props.italic) { -1 } else { 0 } }
-      if ($props.color) { $range.Font.Color = Color-Value ([string]$props.color) }
+      Set-WordRunFormat $range $props
       return [ordered]@{ op = 'set_font'; changed = $true }
     }
     'set_paragraph_style' {
@@ -1986,11 +1977,7 @@ function Invoke-WordOperation($doc, $op) {
       if ($props.alignment) {
         $format.Alignment = switch ([string]$props.alignment) { 'center' { 1 } 'right' { 2 } 'justify' { 3 } default { 0 } }
       }
-      if ($null -ne $props.spacingBefore) { $format.SpaceBefore = [single]$props.spacingBefore }
-      if ($null -ne $props.spacingAfter) { $format.SpaceAfter = [single]$props.spacingAfter }
-      if ($null -ne $props.lineSpacing) { $format.LineSpacing = [single]$props.lineSpacing }
-      if ($null -ne $props.keepWithNext) { $format.KeepWithNext = if ($props.keepWithNext) { -1 } else { 0 } }
-      if ($null -ne $props.pageBreakBefore) { $format.PageBreakBefore = if ($props.pageBreakBefore) { -1 } else { 0 } }
+      Set-WordParagraphFlow $format $props
       if ($props.tabStops) {
         $format.TabStops.ClearAll()
         foreach ($tab in @($props.tabStops)) {

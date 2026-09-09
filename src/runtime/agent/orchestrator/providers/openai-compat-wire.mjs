@@ -138,6 +138,7 @@ function functionToolFromSessionTool(t, name = t?.name) {
         name,
         description: t.description,
         parameters: t.inputSchema || { type: 'object', additionalProperties: true },
+        strict: false,
     };
 }
 

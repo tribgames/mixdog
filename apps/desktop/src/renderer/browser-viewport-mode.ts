@@ -4,6 +4,7 @@ import type { DesktopBrowserViewportConfig } from "../shared/contract";
  *  이름 빼고): each phone size stands for its whole class of devices. */
 export type BrowserViewportPresetId =
   | "responsive"
+  | "fit"
   | "phone-360"
   | "phone-390"
   | "phone-412"
@@ -38,7 +39,11 @@ const ANDROID_USER_AGENT = "Mozilla/5.0 (Linux; Android 14; Pixel 7) "
 
 export const BROWSER_VIEWPORT_PRESETS: readonly BrowserViewportPreset[] = [
   {
-    id: "responsive", label: "Auto · Fit to pane", width: null, height: null,
+    id: "responsive", label: "Desktop · 100%", width: null, height: null,
+    deviceScaleFactor: 1, mobile: false, touch: false, userAgent: null,
+  },
+  {
+    id: "fit", label: "Fit to pane", width: null, height: null,
     deviceScaleFactor: 1, mobile: false, touch: false, userAgent: null,
   },
   {
@@ -110,6 +115,14 @@ export function browserViewportEmulation(
 export function browserAutoFitZoom(width: number): number {
   if (!Number.isFinite(width) || width <= 0) return 1;
   return Math.min(1, Math.max(MIN_AUTO_FIT_ZOOM, width / AUTO_FIT_CONTENT_WIDTH));
+}
+
+export function browserViewportZoom(
+  preset: BrowserViewportPreset,
+  width: number,
+  userZoom = 1,
+): number {
+  return (preset.id === "fit" ? browserAutoFitZoom(width) : 1) * userZoom;
 }
 
 function browserViewportStorageKey(sessionId: string): string | null {
