@@ -5,6 +5,19 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- The Set-a-goal dialog opens centered in the pane whose composer raised it,
+  dimming only that pane; sibling panes stay visible and usable and the title
+  bar is no longer dimmed. Outside a pane it falls back to the window layer.
+- A focused pane no longer covers the split handle on its own edge: a browser
+  pane (or any focused pane) can be resized from its left/top boundary again.
+- Web fetch reports a stage that times out at the total deadline as
+  `FETCH_TIMEOUT` instead of `STAGE_TIMEOUT`.
+- Computer Use defaults to background delivery for supported semantic input;
+  `foreground_unavailable` now asks the user to activate the target window
+  instead of describing a foreground-lock failure.
+- The v0.9.162 release run stopped at the test gate and shipped nothing; its
+  notes below are delivered by this release.
+
 ## v0.9.162 - 2026-09-09
 
 - Mixdog is now licensed under Apache-2.0 instead of MIT. Third-party
