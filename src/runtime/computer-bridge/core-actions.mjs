@@ -1,6 +1,6 @@
 import { hasOwn } from '../shared/object.mjs';
 
-export const COMPUTER_DEFAULT_DELIVERY = 'foreground';
+export const COMPUTER_DEFAULT_DELIVERY = 'background';
 
 const COMPUTER_CORE_ACTION_TYPES = Object.freeze([
   'click',

@@ -303,11 +303,7 @@ export function createCommandRouter(host: CommandRouterHost) {
       return frameReply(command, zoom.description, zoom.image, zoom.frameId);
     }
     const inputTarget = await resolveInputTarget(command, action, trustedSequenceContinuation);
-    let {
-      cursorX,
-      cursorY,
-      cursorToX,
-      cursorToY,
+    const {
       targetWindowId,
       observedScope,
     } = inputTarget;
@@ -337,44 +333,10 @@ export function createCommandRouter(host: CommandRouterHost) {
     const beforeWindowsStartedAt = performance.now();
     let windowsBefore = isMutation && !batchSequenceStep ? await readComputerWindows(command) : null;
     if (isMutation && !batchSequenceStep) actionTimings.before_windows_ms = elapsedMs(beforeWindowsStartedAt);
-    const cursorEffect = action === 'double_click'
-      ? 'double_click'
-      : action === 'drag'
-        ? 'drag'
-        : action === 'scroll'
-          ? 'scroll'
-          : action === 'type' || action === 'key'
-            ? 'type'
-            : action === 'mouse_move'
-              ? 'move'
-              : 'click';
-    if ((action === 'key' || action === 'type') && cursorX === undefined) {
-      const previousCursor = computerUseCoordinator.snapshot().cursors.find(cursor => cursor.sessionId === sessionIdFor(command));
-      cursorX = previousCursor?.x;
-      cursorY = previousCursor?.y;
-    }
-    const cursorInput = POINTER_ACTIONS.includes(action) && cursorX !== undefined && cursorY !== undefined ? {
-        sessionId: sessionIdFor(command),
-        x: cursorX,
-        y: cursorY,
-        ...(cursorToX !== undefined && cursorToY !== undefined
-          ? { toX: cursorToX, toY: cursorToY }
-          : {}),
-        action,
-        effect: cursorEffect as 'click' | 'double_click' | 'drag' | 'scroll' | 'type' | 'move',
-        ...(['up', 'down', 'left', 'right'].includes(String(command.direction || ''))
-          ? { direction: command.direction as 'up' | 'down' | 'left' | 'right' }
-          : {}),
-        mode: command.delivery === 'foreground' ? 'foreground' as const : 'background' as const,
-      } : undefined;
     let response: PowerShellResponse;
     const deliveryStartedAt = performance.now();
     try {
       response = await dispatchInput(command, action, inputTarget, batchSequenceStep);
-      if (cursorInput && action !== 'drag' && command.delivery !== 'foreground'
-        && response.ok && response.result?.delivery_accepted === true) {
-        computerUseCoordinator.showCursor(cursorInput);
-      }
     } finally {
       if (isMutation) {
         framesBySession.delete(sessionIdFor(command));

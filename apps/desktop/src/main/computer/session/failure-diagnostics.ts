@@ -34,7 +34,7 @@ export function diagnosticRecord(input: Record<string, unknown>): Record<string,
   const native = object(input.native_result);
   result.native_result = Object.fromEntries([
     ...['code', 'path', 'effect', 'delivery'].filter(key => category(native[key])).map(key => [key, native[key]]),
-    ...['delivery_accepted', 'verified', 'goal_verified'].filter(key => typeof native[key] === 'boolean').map(key => [key, native[key]]),
+    ...['delivery_accepted', 'input_may_have_executed', 'verified', 'goal_verified'].filter(key => typeof native[key] === 'boolean').map(key => [key, native[key]]),
   ]);
   result.cursor_feedback = computerCursorFeedback(input.cursor_feedback ?? native.cursor_feedback) ?? {};
   result.timings_ms = computerTimings(input.timings_ms);

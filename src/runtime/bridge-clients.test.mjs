@@ -47,6 +47,7 @@ import {
   toComputerHostCommand,
   validateComputerToolArgs,
 } from './computer-bridge/action-schema.mjs';
+import { COMPUTER_DEFAULT_DELIVERY } from './computer-bridge/core-actions.mjs';
 import { TOOL_DEFS as COMPUTER_TOOL_DEFS } from './computer-bridge/tool-defs.mjs';
 
 const CLIENTS = [
@@ -760,6 +761,7 @@ test('computer window targets take one exact window_id or one app fallback', () 
     /instead of a window, app, or screen target/,
   );
   // The host resolves the label, so the app target travels through unchanged.
+  // The delivery mode is always explicit on the wire, defaulted here.
   assert.deepEqual(toComputerHostCommand({
     action: 'act',
     input: { app: 'Notepad', actions: [{ type: 'type', text: 'value' }] },
@@ -767,6 +769,7 @@ test('computer window targets take one exact window_id or one app fallback', () 
     app: 'Notepad',
     steps: [{ action: 'type', text: 'value' }],
     action: 'sequence',
+    delivery: COMPUTER_DEFAULT_DELIVERY,
   });
 });
 
@@ -1193,6 +1196,7 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     window_id: 'hwnd:0x123',
     steps: [{ action: 'right_click', ref: 'ref:1' }],
     action: 'sequence',
+    delivery: COMPUTER_DEFAULT_DELIVERY,
   });
   assert.deepEqual(toComputerHostCommand({
     action: 'act',
@@ -1204,6 +1208,7 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     window_id: 'hwnd:0x123',
     steps: [{ action: 'invoke', ref: 'ref:1' }],
     action: 'sequence',
+    delivery: COMPUTER_DEFAULT_DELIVERY,
   });
   assert.deepEqual(toComputerHostCommand({
     action: 'window',
@@ -1229,6 +1234,7 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
       { action: 'type', text: 'value' },
     ],
     action: 'sequence',
+    delivery: COMPUTER_DEFAULT_DELIVERY,
   });
   assert.deepEqual(toComputerHostCommand({
     action: 'list',
@@ -1298,8 +1304,8 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
   assert.ok(Buffer.byteLength(JSON.stringify(COMPUTER_TOOL_DEFS[0])) <= 14_000);
   // Method lives in the built-in computer-use skill; the description is contract only.
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('computer-use skill'));
-  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('capture the exact target before input'));
-  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('never guess ids'));
+  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('input requires a fresh observation from capture'));
+  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('Never guess ids'));
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('Browser Use'));
   // The desktop is the last rung: MCP, shell, and the browser come first, and
   // a page action the browser refused is never re-tried through the screen.
@@ -1312,7 +1318,9 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
   assert.ok(!COMPUTER_TOOL_DEFS[0].description.includes('never move, resize'));
   assert.ok(!COMPUTER_TOOL_DEFS[0].description.includes('Screen content'));
   assert.ok(!COMPUTER_TOOL_DEFS[0].description.includes('Never call the bridge'));
-  assert.ok(COMPUTER_TOOL_DEFS[0].description.length < 800);
+  // Same budget as the browser tool: the last-resort ordering sentence above
+  // pushed the contract past the old 800.
+  assert.ok(COMPUTER_TOOL_DEFS[0].description.length < 1000);
 });
 
 test('computer act result is normalized to actions plus one observation', () => {
@@ -1368,7 +1376,8 @@ test('computer errors return one deterministic recovery instead of permission gu
       },
     },
   );
-  assert.match(focus, /Windows foreground-lock failure, not a permission error/);
+  assert.match(focus, /Windows did not grant foreground focus\. Ask the user to activate window hwnd:0x123/);
+  assert.doesNotMatch(focus, /permission/i);
   const stale = formatComputerToolError(
     'stale_frame: unknown frame_id frame-1',
     {
@@ -1389,7 +1398,7 @@ test('computer errors return one deterministic recovery instead of permission gu
   );
   assert.match(
     formatComputerToolError('Error: foreground_unavailable: target remained covered'),
-    /Windows foreground-lock failure/,
+    /Windows did not grant foreground focus/,
   );
   assert.deepEqual(
     computerToolErrorRecovery(
@@ -1423,7 +1432,7 @@ test('computer errors return one deterministic recovery instead of permission gu
   );
   assert.match(
     formatComputerToolError('foreground_changed: user switched windows'),
-    /Wait for an explicit resume/,
+    /Do not pull it back or retry input automatically/,
   );
 });
 
@@ -1623,6 +1632,7 @@ test('bridge clients authenticate and preserve text plus image results', async (
               window_id: 'hwnd:0x123',
               steps: [{ action: 'invoke', ref: 'ref:1' }],
               action: 'sequence',
+              delivery: COMPUTER_DEFAULT_DELIVERY,
               session_id: 'computer-session-1',
             }
           : {}),
@@ -1736,6 +1746,7 @@ test('computer client propagates caller cancellation to same-session host abort'
         window_id: 'hwnd:0x123',
         steps: [{ action: 'key', keys: '{ENTER}' }],
         action: 'sequence',
+        delivery: COMPUTER_DEFAULT_DELIVERY,
         session_id: 'cancel-session',
       },
       { action: 'session_abort', session_id: 'cancel-session' },

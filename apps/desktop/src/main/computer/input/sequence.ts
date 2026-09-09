@@ -65,11 +65,13 @@ export async function executeComputerSequenceSteps(
       index: index + 1,
       action: stepAction,
       ok: !failed,
-      status: failed ? 'failed' : 'succeeded',
+      status: failed ? (payload.input_may_have_executed === true ? 'uncertain' : 'failed') : 'succeeded',
       effect: payload.effect || 'unverifiable',
       verified: payload.verified === true,
       path: payload.path || 'unknown',
-      ...(typeof payload.delivery_accepted === 'boolean' ? { delivery_accepted: payload.delivery_accepted } : {}),
+      ...(payload.delivery_accepted === null || typeof payload.delivery_accepted === 'boolean'
+        ? { delivery_accepted: payload.delivery_accepted } : {}),
+      ...(payload.input_may_have_executed === true ? { input_may_have_executed: true } : {}),
       ...(payload.cursor_feedback ? { cursor_feedback: computerCursorFeedback(payload.cursor_feedback) } : {}),
       timings_ms: {
         ...computerTimings(payload.timings_ms),

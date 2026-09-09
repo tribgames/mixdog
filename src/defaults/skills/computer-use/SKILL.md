@@ -34,22 +34,29 @@ observed target, and leave windows where they were.
 
 ## Choose delivery before acting
 
-- **Foreground (default):** visible desktop work, demonstrations, real pointer
-  movement, pixel interactions, drag-and-drop, and keyboard input that needs
-  target focus. The exact target is prepared before the physical cursor moves.
-  Leave the cursor at its destination; never jump it back between actions.
-- **Background (explicit):** the user wants no-focus work and the target supports
-  semantic actions or native window messages. It does not move the physical
-  cursor. Check the returned effect; message delivery alone is not success.
-  Do not choose it for a request to show mouse movement or click animation.
+- **Background (default):** prefer supported semantic actions and native window
+  messages, including clicks, scrolling, and value/text input. This avoids
+  unnecessary window activation, physical pointer travel, and animation waits.
+  Check the returned effect; message delivery alone is not success.
+  Background work uses activity status and result evidence, not a floating
+  cursor effect over other windows. Real-pointer effects are foreground-only.
   A background semantic action may queue behind foreground work to protect
   focus; waiting for that guard never switches its delivery mode.
+- **Foreground (explicit):** use when the target/gesture requires real pointer
+  or keyboard focus, background is known unsupported, or the user requests a
+  visible demonstration. A click or drag is not automatically foreground:
+  supported background gestures remain eligible. The exact target is prepared
+  before the one physical cursor moves. Leave it at its destination.
+- Do not spend a failed background attempt on a route already known unsupported.
+  Select foreground directly when it is within scope. A strict no-focus request
+  requires approval before foreground escalation.
 - Read-only capture, inspection, and verification do not need an input mode.
   Web content still belongs to Browser Use, regardless of delivery.
 - Choose once for the operation. Never silently fall back from foreground to
   background or the reverse. A known unsupported route with no input sent
   permits reconsidering the mode within the user's scope. An uncertain result
   requires fresh observation, not a second attempt in another mode.
+  `input_may_have_executed:true` or unknown delivery is not a no-input refusal.
 - User intervention means pending work, not permission to work around the pause
   through background input. Resume only through the recovery flow below.
 

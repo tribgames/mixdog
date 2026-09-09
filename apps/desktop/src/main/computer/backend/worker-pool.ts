@@ -241,8 +241,8 @@ export function createWorkerPool(host: WorkerPoolHost) {
     const id = nextId++;
     const step = request.step as Record<string, unknown> | undefined;
     const inputAction = request.action === 'sequence_step' ? step?.action : request.action;
-    const pointerFeedback = (inputAction === 'drag' || (request.delivery === 'foreground'
-      && ['click', 'invoke', 'double_click', 'right_click', 'middle_click', 'triple_click', 'mouse_move', 'scroll', 'key', 'type'].includes(String(inputAction))))
+    const pointerFeedback = request.delivery === 'foreground'
+      && ['click', 'invoke', 'double_click', 'right_click', 'middle_click', 'triple_click', 'mouse_move', 'drag', 'scroll', 'key', 'type'].includes(String(inputAction))
       && Boolean(host.onPointerProgress);
     const line = `${JSON.stringify({ ...request, id, pointer_feedback: pointerFeedback })}\n`;
     if (pending.size >= 32 || Buffer.byteLength(line) > MAX_COMPUTER_INTERNAL_REQUEST_BYTES) {

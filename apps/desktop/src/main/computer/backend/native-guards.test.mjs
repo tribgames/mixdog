@@ -199,3 +199,111 @@ if (-not [IO.File]::Exists($receipt)) { throw 'detached watchdog did not start' 
 `, { 'native.cs': MIXDOG_HOST_CSHARP });
   assert.equal(output, 'ready');
 });
+
+test('background key grammar is completely validated before any target input', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const output = await isolatedProgram(String.raw`
+$ErrorActionPreference='Stop'
+Add-Type -AssemblyName Accessibility
+Add-Type -AssemblyName System.Drawing
+Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition (
+  [IO.File]::ReadAllText((Join-Path $env:AUDIT_DIRECTORY 'native.cs')))
+$strokes=@([MixWin32]::ParseBackgroundKeys('a{ENTER 2}{{}{}}') | ForEach-Object {
+  if ($_.IsCharacter) { 'C' + [int]$_.Character } else { 'K' + $_.Key }
+})
+if (($strokes -join ',') -ne 'C97,K13,K13,C123,C125') { throw 'wrong parsed key sequence' }
+foreach($keys in @('a^c','a{BROKEN}','a{ENTER','a{ENTER 101}')) {
+  try {
+    [void][MixWin32]::BackgroundKeys([IntPtr]::Zero,[IntPtr]::Zero,$keys)
+    throw 'missing preflight rejection'
+  } catch {
+    if ($_.Exception.ToString() -notmatch 'background_unsupported') { throw }
+  }
+}
+[Console]::WriteLine('BACKGROUND_PREFLIGHT_OK')
+`, { 'native.cs': MIXDOG_HOST_CSHARP });
+  assert.equal(output, 'BACKGROUND_PREFLIGHT_OK');
+});
+
+test('native background failures distinguish unsupported preflight from possibly partial delivery', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const output = await isolatedProgram(String.raw`
+$ErrorActionPreference='Stop'
+. (Join-Path $env:AUDIT_DIRECTORY 'input.ps1')
+$results=@()
+foreach($code in @('background_unsupported','background_target_hung','background_message_rejected','background_blocked_uipi')) {
+  $results+=Native-BackgroundFailure 'key' ([Exception]::new($code + '|fixture failure')) 'hwnd:0x1'
+}
+[Console]::WriteLine(($results | ConvertTo-Json -Compress -Depth 4))
+`, { 'input.ps1': PS_INPUT });
+  const rows = JSON.parse(output);
+  assert.equal(rows[0].delivery_accepted, false);
+  assert.notEqual(rows[0].input_may_have_executed, true);
+  for (const row of rows.slice(1)) {
+    assert.equal(row.delivery_accepted, null);
+    assert.equal(row.input_may_have_executed, true);
+    assert.equal(row.effect, 'unverifiable');
+  }
+});
+
+test('background press lifetimes release once after uncertain delivery and preserve cleanup failure', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const output = await isolatedProgram(String.raw`
+$ErrorActionPreference='Stop'
+Add-Type -AssemblyName Accessibility
+Add-Type -AssemblyName System.Drawing
+Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition (
+  [IO.File]::ReadAllText((Join-Path $env:AUDIT_DIRECTORY 'native.cs')))
+[Console]::WriteLine([ReleaseFixture]::Run())
+`, { 'native.cs': MIXDOG_HOST_CSHARP + String.raw`
+public static class ReleaseFixture {
+  public static string Run() {
+    foreach(string scenario in new string[] {"success", "rejected", "press_unknown", "held_failure", "release_failure", "both_fail"}) {
+      var events = new System.Collections.Generic.List<string>();
+      System.Exception failure = null;
+      try {
+        MixWin32.WithBackgroundRelease(
+          delegate {
+            events.Add("press");
+            if(scenario == "rejected") throw new MixWin32.BackgroundMessageException("denied", true);
+            if(scenario == "press_unknown") throw new System.Exception("timeout");
+          },
+          delegate { events.Add("held"); if(scenario == "held_failure" || scenario == "both_fail") throw new System.Exception("interrupted"); },
+          delegate { events.Add("release"); if(scenario == "release_failure" || scenario == "both_fail") throw new System.Exception("timeout"); });
+      } catch(System.Exception error) { failure = error; }
+      string actual = System.String.Join(",", events);
+      string expected = scenario == "rejected" ? "press" :
+        scenario == "press_unknown" ? "press,release" : "press,held,release";
+      if(actual != expected) throw new System.Exception(scenario + " " + actual);
+      if((scenario == "release_failure" || scenario == "both_fail") && (failure == null || !failure.Message.StartsWith("input_cleanup_unconfirmed:")))
+        throw new System.Exception("cleanup failure was hidden");
+      if(scenario == "both_fail" && (!failure.InnerException.ToString().Contains("interrupted") || !failure.InnerException.ToString().Contains("timeout")))
+        throw new System.Exception("original failure was lost");
+      if(scenario != "success" && failure == null) throw new System.Exception("operation failure was hidden");
+    }
+    return "BACKGROUND_RELEASE_OK";
+  }
+}
+` });
+  assert.equal(output, 'BACKGROUND_RELEASE_OK');
+});
+
+test('background cleanup uncertainty reaches the safety guard instead of ordinary mode escalation', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const output = await isolatedProgram(String.raw`
+$ErrorActionPreference='Stop'
+. (Join-Path $env:AUDIT_DIRECTORY 'input.ps1')
+try {
+  Native-BackgroundFailure 'drag' ([Exception]::new('input_cleanup_unconfirmed: release failed')) 'hwnd:0x1'
+  throw 'missing safety failure'
+} catch {
+  if ($_.Exception.Message -notmatch '^input_cleanup_unconfirmed:') { throw }
+}
+[Console]::WriteLine('CLEANUP_GUARD_OK')
+`, { 'input.ps1': PS_INPUT });
+  assert.equal(output, 'CLEANUP_GUARD_OK');
+});

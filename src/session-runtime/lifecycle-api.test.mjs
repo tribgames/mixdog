@@ -26,7 +26,10 @@ test('unclassified desktop task resume stays in its host-managed workspace', () 
 
 test('resume restores persisted deferred tools before asynchronous route preparation', async () => {
   const read = { name: 'read', description: 'Read files', annotations: { readOnlyHint: true } };
-  const recall = { name: 'recall', description: 'Recall memory', annotations: { readOnlyHint: true } };
+  // A lead default that is NOT a full-mode default: native providers rebuild
+  // the surface from the lead defaults on resume, so a tool outside them
+  // (recall, web_search) is only ever loaded on demand.
+  const shell = { name: 'shell', description: 'Run a command' };
   const resumed = {
     id: 'resume-deferred-tools',
     provider: 'openai-oauth',
@@ -37,10 +40,10 @@ test('resume restores persisted deferred tools before asynchronous route prepara
     cwd: 'C:\\Project\\mixdog',
     messages: [{ role: 'user', content: 'continue' }],
     tools: [read],
-    deferredToolCatalog: [read, recall],
-    deferredSelectedTools: ['read', 'recall'],
-    deferredCallableTools: ['read', 'recall'],
-    deferredDefaultTools: ['read', 'recall'],
+    deferredToolCatalog: [read, shell],
+    deferredSelectedTools: ['read', 'shell'],
+    deferredCallableTools: ['read', 'shell'],
+    deferredDefaultTools: ['read', 'shell'],
     deferredDiscoveredTools: [],
     deferredToolBp2Applied: true,
   };
@@ -65,7 +68,7 @@ test('resume restores persisted deferred tools before asynchronous route prepara
     applyResolvedCwd: () => {},
     resolveRoute: (_config, next) => ({ ...next, effectiveEffort: next.effort }),
     applyDeferredToolSurface,
-    getStandaloneTools: () => [read, recall],
+    getStandaloneTools: () => [read, shell],
     mgr: {
       async resumeSession() {
         return resumed;
@@ -76,8 +79,8 @@ test('resume restores persisted deferred tools before asynchronous route prepara
   const result = await api.resume(resumed.id);
 
   assert.equal(result.id, resumed.id);
-  assert.deepEqual(new Set(current.tools.map((tool) => tool.name)), new Set(['read', 'recall']));
-  assert.equal(current.deferredSelectedTools.includes('recall'), true);
+  assert.deepEqual(new Set(current.tools.map((tool) => tool.name)), new Set(['read', 'shell']));
+  assert.equal(current.deferredSelectedTools.includes('shell'), true);
   assert.equal(typeof pendingRoutePreparation, 'function');
 });
 

@@ -10,8 +10,14 @@ export function createCursorTail(changed: () => void, holdMs = 1500) {
     retained.clear();
   };
   return {
-    update(current: ComputerUseCursorPresentation[], interrupted: boolean) {
+    update(current: ComputerUseCursorPresentation[], interrupted: boolean, excluded?: ReadonlySet<string>) {
       if (interrupted) { clear(); return []; }
+      for (const id of excluded ?? []) {
+        const timer = expiry.get(id);
+        if (timer) clearTimeout(timer);
+        expiry.delete(id);
+        retained.delete(id);
+      }
       const live = new Set(current.map(cursor => cursor.sessionId));
       for (const cursor of current) {
         const timer = expiry.get(cursor.sessionId);

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { scoreOfficeReleaseQuality } from './quality-score.mjs';
 import { assessPresentationAcceptance } from './presentation-acceptance.mjs';
+import { assessDocumentAcceptance } from './document-acceptance.mjs';
 
 const evidence = {
   structuralAvailable: true, expectedPages: 5, pageCoverage: 1, blockingIssueCount: 0,
@@ -39,7 +40,7 @@ test('visual approval cannot replace missing coverage or override diagnostic war
   }
 });
 
-test('an aesthetic score is not a release threshold and other Office formats retain their contract', () => {
+test('an aesthetic score is not a release threshold and document formats wait for their own page review', () => {
   const low = scoreOfficeReleaseQuality({
     format: 'pptx', aesthetics: { score: 0 }, renderedPages: 5,
     expectedPages: 5, structuralAvailable: true,
@@ -52,5 +53,12 @@ test('an aesthetic score is not a release threshold and other Office formats ret
     expectedPages: 1, structuralAvailable: true,
   });
   assert.equal(workbook.version, 2);
-  assert.equal(workbook.releaseReady, true);
+  // Rendering is evidence, not approval: a clean workbook is automated-ready
+  // but not release-ready until its rendered pages have been reviewed.
+  assert.equal(workbook.automatedReady, true);
+  assert.equal(workbook.releaseReady, false);
+  assert.equal(workbook.visualReview.status, 'not-reviewed');
+  assert.equal(assessDocumentAcceptance(workbook.evidence, {
+    acknowledged: true, status: 'accepted',
+  }).releaseReady, true);
 });

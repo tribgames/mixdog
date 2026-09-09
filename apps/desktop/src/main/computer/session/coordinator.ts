@@ -245,6 +245,7 @@ export class ComputerUseCoordinator {
   }): void {
     this.assertOperationAllowed(input.action);
     if (this.userControlActive && isComputerRecoveryRead(input.action)) return;
+    if (input.mode === 'background') this.cursors.delete(input.sessionId);
     const now = this.now();
     if (!this.attentionRequired?.sessionId
       || this.attentionRequired.sessionId === input.sessionId) {
@@ -350,6 +351,7 @@ export class ComputerUseCoordinator {
     if (remaining > 0) this.activeCounts.set(sessionId, remaining);
     else this.activeCounts.delete(sessionId);
     if (remaining === 0) {
+      this.cursors.delete(sessionId);
       const expiresAt = this.now() + this.targetLeaseGraceMs;
       for (const lease of this.targetLeases.values()) {
         if (lease.sessionId === sessionId) lease.expiresAt = expiresAt;

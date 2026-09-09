@@ -119,3 +119,17 @@ test('sequence checkpoints retain only completed steps before interrupted input'
   ), /user_input_active/);
   assert.deepEqual(checkpoints, [1]);
 });
+
+test('possibly partial background input is retained as uncertain and stops all follow-up steps', async () => {
+  let calls = 0;
+  const result = await executeComputerSequenceSteps([{ action: 'key' }, { action: 'click' }], 'hwnd:0x1', async () => {
+    calls++;
+    return { ok: false, code: 'background_target_hung', delivery_accepted: null,
+      input_may_have_executed: true, effect: 'unverifiable' };
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.rows[0].status, 'uncertain');
+  assert.equal(result.rows[0].delivery_accepted, null);
+  assert.equal(result.rows[0].input_may_have_executed, true);
+  assert.equal(result.rows[1].status, 'skipped');
+});

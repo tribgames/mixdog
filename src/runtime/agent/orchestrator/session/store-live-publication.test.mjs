@@ -11,6 +11,21 @@ import {
     subscribeLiveSessions,
 } from './store.mjs';
 
+// The store's worker can still be retiring a temp file under the data dir
+// when the test tears down; a recursive rm racing that lands ENOTEMPTY on
+// Linux. Retry briefly instead of failing the assertion-clean test.
+async function removeDataDir(root) {
+    for (let attempt = 0; ; attempt += 1) {
+        try {
+            rmSync(root, { recursive: true, force: true });
+            return;
+        } catch (error) {
+            if (attempt >= 10 || !['ENOTEMPTY', 'EBUSY', 'EPERM'].includes(error?.code)) throw error;
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+    }
+}
+
 test('async and deferred session saves publish their admitted live snapshots', async () => {
     const root = mkdtempSync(join(tmpdir(), 'mixdog-live-session-publication-'));
     const previous = process.env.MIXDOG_DATA_DIR;
@@ -44,7 +59,7 @@ test('async and deferred session saves publish their admitted live snapshots', a
         drainSessionStore();
         if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
         else process.env.MIXDOG_DATA_DIR = previous;
-        rmSync(root, { recursive: true, force: true });
+        await removeDataDir(root);
     }
 });
 
@@ -78,6 +93,6 @@ test('an unowned async save publishes no live snapshot', async () => {
         drainSessionStore();
         if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
         else process.env.MIXDOG_DATA_DIR = previous;
-        rmSync(root, { recursive: true, force: true });
+        await removeDataDir(root);
     }
 });

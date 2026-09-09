@@ -190,8 +190,10 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
   };
 
   const render = (): void => {
+    const backgroundSessions = new Set(latestSnapshot.activities
+      .filter(activity => activity.mode === 'background').map(activity => activity.sessionId));
     const cursors = tail.update(computerUseCursorPresentations(latestSnapshot),
-      latestSnapshot.userControlActive || latestSnapshot.cleanupState === 'failed');
+      latestSnapshot.userControlActive || latestSnapshot.cleanupState === 'failed', backgroundSessions);
     const desired = new Set(cursors.map((cursor) => cursor.sessionId));
     if (!latestSnapshot.userControlActive && latestSnapshot.cleanupState !== 'failed') {
       for (const activity of latestSnapshot.activities) {
@@ -227,6 +229,9 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
   const unbindPreparation = bindCursorPreparation(async sessionId => {
     if (disposed || latestSnapshot.userControlActive || latestSnapshot.cleanupState === 'failed') {
       throw new Error('cursor presentation unavailable');
+    }
+    if (!latestSnapshot.activities.some(activity => activity.sessionId === sessionId && activity.mode === 'foreground')) {
+      throw new Error('cursor presentation is foreground-only');
     }
     await ensureWindow(sessionId, surfaceFor(sessionId));
   });

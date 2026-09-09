@@ -37,7 +37,9 @@ export async function buildActionReply(
     const cursorFeedback = computerCursorFeedback(result.cursor_feedback);
     const payload: Record<string, unknown> = {
       ok: !code, action: result.action, message: String(result.text || ''), effect, verified,
-      delivery_accepted: result.delivery_accepted === true, goal_verified: result.goal_verified === true || verified,
+      delivery_accepted: typeof result.delivery_accepted === 'boolean' ? result.delivery_accepted : null,
+      goal_verified: result.goal_verified === true || verified,
+      ...(result.input_may_have_executed === true ? { input_may_have_executed: true } : {}),
       path: result.path || 'unknown', delivery,
       ...(cursorFeedback ? { cursor_feedback: cursorFeedback } : {}),
       ...(transitionVerified ? { verification_source: 'window_transition' } : {}),

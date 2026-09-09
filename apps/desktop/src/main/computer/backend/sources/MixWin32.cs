@@ -692,7 +692,7 @@ public class MixWin32 {
         throw new InvalidOperationException("background_target_hung|native window message timed out");
       }
       if (error == 5) {
-        throw new InvalidOperationException("background_blocked_uipi|Windows integrity isolation blocked the native message");
+        throw new BackgroundMessageException("background_blocked_uipi|Windows integrity isolation blocked the native message", true);
       }
       throw new InvalidOperationException(
         "background_message_rejected|native window message failed with Win32 error " + error);
@@ -701,6 +701,46 @@ public class MixWin32 {
   }
   static void SendMessageChecked(IntPtr h, uint message, UIntPtr wParam, IntPtr lParam) {
     SendMessageValue(h, message, wParam, lParam);
+  }
+  public sealed class BackgroundMessageException : InvalidOperationException {
+    public readonly bool DefinitelyNotDelivered;
+    public BackgroundMessageException(string message, bool definitelyNotDelivered) : base(message) {
+      DefinitelyNotDelivered = definitelyNotDelivered;
+    }
+  }
+  public static void WithBackgroundRelease(Action press, Action held, Action release) {
+    bool releaseRequired = true;
+    Exception operationFailure = null;
+    try {
+      try { press(); }
+      catch (BackgroundMessageException error) {
+        if (error.DefinitelyNotDelivered) releaseRequired = false;
+        throw;
+      }
+      held();
+    } catch (Exception error) { operationFailure = error; throw; }
+    finally {
+      if (releaseRequired) {
+        try { release(); }
+        catch (Exception error) {
+          throw new InvalidOperationException("input_cleanup_unconfirmed: background input release was not acknowledged",
+            operationFailure == null ? error : new AggregateException(operationFailure, error));
+        }
+      }
+    }
+  }
+  static Action BindBackgroundRelease(IntPtr target, Action release) {
+    uint originalPid;
+    uint originalThread = GetWindowThreadProcessId(target, out originalPid);
+    return delegate {
+      // Destroyed windows no longer own local message state. Never redirect
+      // cleanup to a new process/thread that has acquired the old handle.
+      uint currentPid;
+      uint currentThread = GetWindowThreadProcessId(target, out currentPid);
+      if (originalPid == 0 || originalThread == 0 || !IsWindowHandle(target)
+        || currentPid != originalPid || currentThread != originalThread) return;
+      release();
+    };
   }
   static bool BelongsToTop(IntPtr top, IntPtr candidate) {
     if (!IsWindowHandle(top) || !IsWindowHandle(candidate)) return false;
@@ -755,8 +795,12 @@ public class MixWin32 {
     return flags;
   }
   static void MouseClick(IntPtr target, IntPtr point, uint modifiers, uint down, uint up, uint button) {
-    SendMessageChecked(target, down, new UIntPtr(modifiers | button), point);
-    SendMessageChecked(target, up, new UIntPtr(modifiers), point);
+    var release = BindBackgroundRelease(target, delegate {
+      SendMessageChecked(target, up, new UIntPtr(modifiers), point);
+    });
+    WithBackgroundRelease(
+      delegate { SendMessageChecked(target, down, new UIntPtr(modifiers | button), point); },
+      delegate { }, release);
   }
   public static string BackgroundPointer(
     IntPtr top, int screenX, int screenY, string kind, string modifiers) {
@@ -764,8 +808,12 @@ public class MixWin32 {
     POINT p = ClientPoint(target, screenX, screenY);
     IntPtr point = PointParam(p.x, p.y);
     uint flags = PointerModifiers(modifiers);
-    SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags), point);
     string action = (kind ?? "").ToLowerInvariant();
+    if (action != "move" && action != "right" && action != "middle"
+      && action != "click" && action != "double" && action != "triple") {
+      throw new InvalidOperationException("background_unsupported|unknown background pointer action: " + kind);
+    }
+    SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags), point);
     if (action == "move") return WindowId(target);
     if (action == "right") {
       MouseClick(target, point, flags, WM_RBUTTONDOWN, WM_RBUTTONUP, MK_RBUTTON);
@@ -774,9 +822,6 @@ public class MixWin32 {
     if (action == "middle") {
       MouseClick(target, point, flags, WM_MBUTTONDOWN, WM_MBUTTONUP, MK_MBUTTON);
       return WindowId(target);
-    }
-    if (action != "click" && action != "double" && action != "triple") {
-      throw new InvalidOperationException("background_unsupported|unknown background pointer action: " + kind);
     }
     MouseClick(target, point, flags, WM_LBUTTONDOWN, WM_LBUTTONUP, MK_LBUTTON);
     if (action == "double" || action == "triple") {
@@ -796,19 +841,25 @@ public class MixWin32 {
     POINT start = ClientPoint(target, screenX1, screenY1);
     uint flags = PointerModifiers(modifiers);
     SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags), PointParam(start.x, start.y));
-    SendMessageChecked(target, WM_LBUTTONDOWN, new UIntPtr(flags | MK_LBUTTON), PointParam(start.x, start.y));
-    ReportPointer(screenX1, screenY1, true);
-    for (int step = 1; step <= 12; step++) {
-      int x = screenX1 + (screenX2 - screenX1) * step / 12;
-      int y = screenY1 + (screenY2 - screenY1) * step / 12;
-      POINT p = ClientPoint(target, x, y);
-      SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags | MK_LBUTTON), PointParam(p.x, p.y));
-      ReportPointer(x, y, true);
-      System.Threading.Thread.Sleep(20);
-    }
-    POINT end = ClientPoint(target, screenX2, screenY2);
-    SendMessageChecked(target, WM_LBUTTONUP, new UIntPtr(flags), PointParam(end.x, end.y));
-    ReportPointer(screenX2, screenY2, false);
+    POINT last = start;
+    int lastX = screenX1, lastY = screenY1;
+    var release = BindBackgroundRelease(target, delegate {
+      SendMessageChecked(target, WM_LBUTTONUP, new UIntPtr(flags), PointParam(last.x, last.y));
+      ReportPointer(lastX, lastY, false);
+    });
+    WithBackgroundRelease(
+      delegate { SendMessageChecked(target, WM_LBUTTONDOWN, new UIntPtr(flags | MK_LBUTTON), PointParam(start.x, start.y)); },
+      delegate {
+        ReportPointer(screenX1, screenY1, true);
+        for (int step = 1; step <= 12; step++) {
+          lastX = screenX1 + (screenX2 - screenX1) * step / 12;
+          lastY = screenY1 + (screenY2 - screenY1) * step / 12;
+          last = ClientPoint(target, lastX, lastY);
+          SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags | MK_LBUTTON), PointParam(last.x, last.y));
+          ReportPointer(lastX, lastY, true);
+          System.Threading.Thread.Sleep(20);
+        }
+      }, release);
     return WindowId(target);
   }
   public static string BackgroundWheel(
@@ -892,9 +943,13 @@ public class MixWin32 {
   static void BackgroundVirtualKey(IntPtr target, ushort vk) {
     uint scan = MapVirtualKey(vk, 0);
     int state = 1 | ((int)scan << 16) | (IsExtendedVirtualKey(vk) ? 1 << 24 : 0);
-    SendMessageChecked(target, WM_KEYDOWN, new UIntPtr(vk), new IntPtr(state));
     int released = state | unchecked((int)0xC0000000);
-    SendMessageChecked(target, WM_KEYUP, new UIntPtr(vk), new IntPtr(released));
+    var release = BindBackgroundRelease(target, delegate {
+      SendMessageChecked(target, WM_KEYUP, new UIntPtr(vk), new IntPtr(released));
+    });
+    WithBackgroundRelease(
+      delegate { SendMessageChecked(target, WM_KEYDOWN, new UIntPtr(vk), new IntPtr(state)); },
+      delegate { }, release);
   }
   static void BackgroundChar(IntPtr target, char value) {
     SendMessageChecked(target, WM_CHAR, new UIntPtr(value), new IntPtr(1));
@@ -908,22 +963,28 @@ public class MixWin32 {
     }
     return WindowId(target);
   }
-  public static string BackgroundKeys(IntPtr top, IntPtr preferred, string keys) {
-    IntPtr target = KeyboardTarget(top, preferred);
+  public struct BackgroundKeyStroke {
+    public bool IsCharacter;
+    public char Character;
+    public ushort Key;
+  }
+  // Validate the entire grammar before resolving a target or sending its prefix.
+  public static List<BackgroundKeyStroke> ParseBackgroundKeys(string keys) {
+    var strokes = new List<BackgroundKeyStroke>();
     string value = keys ?? "";
     for (int index = 0; index < value.Length; index++) {
       char ch = value[index];
       if (ch == '\r' || ch == '\n') {
         if (ch == '\r' && index + 1 < value.Length && value[index + 1] == '\n') index++;
-        BackgroundVirtualKey(target, 0x0D);
+        strokes.Add(new BackgroundKeyStroke { Key = 0x0D });
         continue;
       }
       if (ch == '{') {
         if (index + 2 < value.Length && value.Substring(index, 3) == "{{}") {
-          BackgroundChar(target, '{'); index += 2; continue;
+          strokes.Add(new BackgroundKeyStroke { IsCharacter = true, Character = '{' }); index += 2; continue;
         }
         if (index + 2 < value.Length && value.Substring(index, 3) == "{}}") {
-          BackgroundChar(target, '}'); index += 2; continue;
+          strokes.Add(new BackgroundKeyStroke { IsCharacter = true, Character = '}' }); index += 2; continue;
         }
         int end = value.IndexOf('}', index + 1);
         if (end < 0) {
@@ -940,7 +1001,7 @@ public class MixWin32 {
           }
         }
         ushort vk = NamedVirtualKey(token);
-        for (int count = 0; count < repeat; count++) BackgroundVirtualKey(target, vk);
+        for (int count = 0; count < repeat; count++) strokes.Add(new BackgroundKeyStroke { Key = vk });
         index = end;
         continue;
       }
@@ -948,7 +1009,16 @@ public class MixWin32 {
         throw new InvalidOperationException(
           "background_unsupported|background keyboard does not support SendKeys modifiers/groups; use explicit foreground delivery");
       }
-      BackgroundChar(target, ch);
+      strokes.Add(new BackgroundKeyStroke { IsCharacter = true, Character = ch });
+    }
+    return strokes;
+  }
+  public static string BackgroundKeys(IntPtr top, IntPtr preferred, string keys) {
+    var strokes = ParseBackgroundKeys(keys);
+    IntPtr target = KeyboardTarget(top, preferred);
+    foreach (var stroke in strokes) {
+      if (stroke.IsCharacter) BackgroundChar(target, stroke.Character);
+      else BackgroundVirtualKey(target, stroke.Key);
     }
     return WindowId(target);
   }

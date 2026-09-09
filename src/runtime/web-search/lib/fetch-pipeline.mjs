@@ -140,7 +140,11 @@ export async function runFetchPipeline(url, {
     if (lastError.code === 'LOGIN_REQUIRED' || !browser) throw lastError
     return await attempt('puppeteer', browser)
   } catch (error) {
-    const failure = overall.aborted ? overall.reason : error
+    // The last stage's budget ends at the same instant as the total budget;
+    // timer ordering (coarse on Windows) decides which fires first, so a stage
+    // timeout at the deadline is the total deadline.
+    const stageTimedOutAtDeadline = error?.code === 'STAGE_TIMEOUT' && Date.now() >= deadline - 10
+    const failure = overall.aborted ? overall.reason : stageTimedOutAtDeadline ? timeout : error
     const result = new Error(failure?.message || String(failure))
     result.code = signal?.aborted ? 'FETCH_CANCELLED' : fetchFailureKind(failure)
     if (failure?.status) result.status = failure.status

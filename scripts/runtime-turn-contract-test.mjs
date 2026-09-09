@@ -108,9 +108,12 @@ test('canonical runtime context snapshot wins over stale published stats', () =>
     invalidateExact: true,
   });
 
-  assert.equal(state.stats.currentContextTokens, 0);
-  assert.equal(state.stats.currentEstimatedContextTokens, 12_000);
-  assert.equal(state.stats.currentContextSource, 'estimated');
+  // The display lane shows only the last measured prompt: with the exact
+  // reading invalidated by the compaction, the local estimate does not stand
+  // in for it — the gauge reads "awaiting measurement" until the next reply.
+  assert.equal(state.stats.currentContextTokens, null);
+  assert.equal(state.stats.currentEstimatedContextTokens, 0);
+  assert.equal(state.stats.currentContextSource, 'pending');
 });
 
 test('Lead pool rows never enter the agent-tool closeAll registry', () => {

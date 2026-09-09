@@ -51,7 +51,7 @@ const delivery = {
   delivery: {
     type: 'string',
     enum: ['background', 'foreground'],
-    description: 'Foreground by default: real cursor and target focus. Use explicit background only for supported no-focus work; never switch modes to retry an uncertain input.',
+    description: 'Background by default for supported semantic/message input. Use explicit foreground for unsupported routes, real pointer/focus requirements, or demonstrations. Never replay uncertain input in another mode.',
   },
 };
 
@@ -528,7 +528,7 @@ export function toComputerHostCommand(rawArgs) {
             ? 'right_click'
             : step.button === 'middle'
               ? 'middle_click'
-              : step.ref && command.delivery === 'background'
+              : step.ref && !step.modifiers && command.delivery === 'background'
                 ? 'invoke'
                 : 'click';
           delete translated.button;

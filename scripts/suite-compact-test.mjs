@@ -34,7 +34,7 @@ test('legacy Compact type settings migrate away', () => {
     assert.deepEqual(normalized, { auto: true });
 });
 
-test('fresh layout keeps only protected prefix, handoff, ack, and latest real user', () => {
+test('fresh layout keeps protected prefix, handoff, ack, retained execution, and latest real user', () => {
     const result = freshContextCompactMessages([
         { role: 'system', content: 'BP1' },
         { role: 'system', content: 'BP2' },
@@ -54,8 +54,12 @@ test('fresh layout keeps only protected prefix, handoff, ack, and latest real us
     });
     assert.deepEqual(result.messages.slice(0, 2).map((message) => message.content), ['BP1', 'BP2']);
     assert.equal(result.messages.at(-1)?.content, 'LATEST_REAL_USER');
-    assert.equal(result.messages.filter((message) => message?.role === 'tool').length, 0);
-    assert.equal(JSON.stringify(result.messages).includes('providerReplay'), false);
+    // Recent execution stays within its own budget: the tool call and its
+    // result survive as a pair, the interrupted-request marker does not.
+    assert.equal(result.messages.filter((message) => message?.role === 'tool').length, 1);
+    assert.equal(result.messages.find((message) => message?.toolCallId === 'call-1')?.content, 'old tool output');
+    assert.equal(result.messages.some((message) => message?.content === '[Request interrupted]'), false);
+    assert.equal(result.diagnostics.retainedAssistantToolMessages, 1);
     assert.equal(result.messages.filter((message) => (
         typeof message?.content === 'string' && message.content.startsWith(SUMMARY_PREFIX)
     )).length, 1);

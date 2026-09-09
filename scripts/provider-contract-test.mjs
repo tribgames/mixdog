@@ -496,12 +496,15 @@ test('provider setup refresh waits for keychain readiness and bypasses stale set
 
 test('provider setup lists every OAuth row in order and leads the API rows with OpenCode Go, without a separate Cursor API row', async () => {
     const setup = await providerSetup({}, { detectLocal: false, checkSecrets: false });
+    // cursor-oauth / antigravity-oauth are dev-only rows: the module-load
+    // filter admits them only while MIXDOG_DEV_PROVIDERS is set, so a shipped
+    // install (and CI) lists three, a developer machine five.
+    const devProviders = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_DEV_PROVIDERS || '').trim());
     assert.deepEqual(setup.oauth.map((provider) => provider.id), [
         'openai-oauth',
         'anthropic-oauth',
         'grok-oauth',
-        'cursor-oauth',
-        'antigravity-oauth',
+        ...(devProviders ? ['cursor-oauth', 'antigravity-oauth'] : []),
     ]);
     assert.equal(setup.api[0].id, 'opencode-go');
     assert.equal(setup.api[1].id, 'openrouter');

@@ -96,13 +96,15 @@ test('default deferred tool surfaces per mode stay fixed and bounded', () => {
   }
 
   const leadDefaults = defaultDeferredToolNames(smokeCatalog, 'lead');
-  if (leadDefaults.size !== 16) {
-    throw new Error(`lead default catalog should contain both edit dialects and git (16 tools), got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
+  // recall / web_search / goal left the lead defaults with cwd and web_fetch
+  // (2 measured calls each in the trace window); they auto-load on demand.
+  if (leadDefaults.size !== 14) {
+    throw new Error(`lead default catalog should contain both edit dialects and git (14 tools), got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`);
   }
-  for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'git', 'shell', 'task', 'apply_patch', 'agent', 'recall', 'web_search', 'Skill', 'load_tool']) {
+  for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'git', 'shell', 'task', 'apply_patch', 'agent', 'Skill', 'load_tool']) {
     assertHas(leadDefaults, name);
   }
-  for (const name of ['web_fetch', 'cwd', 'git_stage', 'session_manage']) {
+  for (const name of ['recall', 'web_search', 'web_fetch', 'cwd', 'git_stage', 'session_manage']) {
     assertLacks(leadDefaults, name);
   }
   if (TOOL_SEARCH_TOOL.annotations?.agentHidden !== true) {
@@ -361,12 +363,16 @@ test('cwd and memory schemas stay minimal and direct', () => {
   const memoryProps = memoryTool?.inputSchema?.properties || {};
   if (memoryTool?.title !== 'Memory'
     || memoryTool?.annotations?.title !== 'Memory'
-    || !/durable core memory/i.test(memoryTool?.description || '')
-    || Object.keys(memoryProps).sort().join(',') !== 'id,op,project_id,summary'
+    || !/standing user preferences/i.test(memoryTool?.description || '')
+    // Curated memory plus candidate curation (promote/dismiss/exclude) and the
+    // revisioned per-project index that edit/delete pair with.
+    || Object.keys(memoryProps).sort().join(',') !== 'id,include_inactive,index_revision,limit,offset,op,project_id,source,summary'
+    || memoryProps.op?.enum?.join(',') !== 'add,edit,delete,list,candidates,promote,dismiss,exclude'
     || memoryTool?.inputSchema?.required?.join(',') !== 'op'
     || memoryProps.id?.type !== 'integer'
     || memoryProps.id?.minimum !== 1
-    || !/required for edit, delete/i.test(memoryProps.id?.description || '')) {
+    || !/edit\/delete: per-project memory index/i.test(memoryProps.id?.description || '')
+    || !/Required for edit\/delete/i.test(memoryProps.index_revision?.description || '')) {
     throw new Error('memory schema must expose only the direct durable-core contract');
   }
   if (!/add and edit/i.test(memoryProps.summary?.description || '')
@@ -374,7 +380,6 @@ test('cwd and memory schemas stay minimal and direct', () => {
     || memoryProps.action
     || memoryProps.element
     || memoryProps.status
-    || memoryProps.limit
     || memoryProps.confirm
     || memoryProps.category) {
     throw new Error('memory schema must keep internal routing and derived fields private');
@@ -439,8 +444,7 @@ test('load_tool and Skill schemas stay pure loaders', () => {
   const toolSearchNamesSchema = TOOL_SEARCH_TOOL.inputSchema?.properties?.names;
   const toolSearchNamesStringSchema = toolSearchNamesSchema?.anyOf?.find((entry) => entry?.type === 'string');
   const toolSearchNamesArraySchema = toolSearchNamesSchema?.anyOf?.find((entry) => entry?.type === 'array');
-  if (!/full schema of named deferred tools/i.test(TOOL_SEARCH_TOOL.description || '')
-    || !/auto-load/i.test(TOOL_SEARCH_TOOL.description || '')
+  if (!/full schemas for exact deferred tool names/i.test(TOOL_SEARCH_TOOL.description || '')
     || !toolSearchNamesSchema
     || toolSearchNamesStringSchema?.minLength !== undefined
     || toolSearchNamesArraySchema?.minItems !== undefined
@@ -451,7 +455,7 @@ test('load_tool and Skill schemas stay pure loaders', () => {
     throw new Error('load_tool schema must require non-empty names[] as the only loader field (legacy select stays retired)');
   }
   const skillNameSchema = SKILL_TOOL.inputSchema?.properties?.name;
-  if (!/named SKILL\.md into context/i.test(SKILL_TOOL.description || '')
+  if (!/Load a named SKILL\.md only when its body is absent/i.test(SKILL_TOOL.description || '')
     || skillNameSchema?.type !== 'string'
     || skillNameSchema?.minLength !== undefined
     || !/Exact name from available-skills/i.test(skillNameSchema?.description || '')

@@ -10,6 +10,7 @@ import { RESPONSE_MARKER } from './program.ts';
 
 for (const command of [
   { action: 'sequence_step', step: { action: 'drag' }, delivery: 'background' },
+  { action: 'drag', delivery: 'foreground' },
   { action: 'click', ref: 's1:e0', delivery: 'foreground' },
   { action: 'scroll', delivery: 'foreground' },
   { action: 'type', delivery: 'foreground' },
@@ -37,7 +38,8 @@ for (const command of [
     const pending = pool.callPowerShell({ ...command,
       session_id: 'a' }).then(value => { settled = true; return value; });
     const child = pool.powerShellBySession.get('a');
-    assert.equal(request.pointer_feedback, true);
+    const expectedFeedback = command.delivery === 'foreground';
+    assert.equal(request.pointer_feedback, expectedFeedback);
     const emit = data => child.stdout.write('@@MIXDOG_POINTER@@' + JSON.stringify(data) + '\n');
     emit({ id: request.id + 100, x: 1, y: 2, held: true });
     emit({ id: request.id, x: 'bad', y: 2, held: true });
@@ -51,7 +53,7 @@ for (const command of [
     emit({ id: request.id, x: 0, y: 0, held: false, phase: 'unknown' });
     await Promise.resolve();
     assert.equal(settled, false);
-    assert.deepEqual(events, [
+    assert.deepEqual(events, expectedFeedback ? [
       ['a', 3100, 900, true, command.delivery, 'drag'],
       ['a', 3200, 1000, false, command.delivery, 'move'],
       ['a', 3200, 1000, false, command.delivery, 'prepare'],
@@ -59,11 +61,11 @@ for (const command of [
       ['a', 3200, 1000, false, command.delivery, 'release'],
       ['a', 3200, 1000, false, command.delivery, 'scroll'],
       ['a', 3200, 1000, false, command.delivery, 'type'],
-    ]);
+    ] : []);
     child.stdout.write(RESPONSE_MARKER + JSON.stringify({ id: request.id, ok: true, result: {} }) + '\n');
     await pending;
     emit({ id: request.id, x: 0, y: 0, held: true });
-    assert.equal(events.length, 7);
+    assert.equal(events.length, expectedFeedback ? 7 : 0);
   } finally {
     for (const child of children) pool.retirePowerShell(child, new Error('fixture cleanup'));
     pool.releaseSpareWorker(); pool.removeHostScript();

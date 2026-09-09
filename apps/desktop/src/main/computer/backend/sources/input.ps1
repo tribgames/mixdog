@@ -96,8 +96,14 @@ function New-ActionResult($action, $path, $effect, $verified, $message, $code, $
   }
 }
 
-function Background-Unavailable($action, $message, $windowId, $code = 'background_unavailable') {
-  return New-ActionResult $action 'none' 'suspected_noop' $false $message $code 'background' $windowId
+function Background-Unavailable($action, $message, $windowId, $code = 'background_unavailable', [bool]$mayHaveExecuted = $false) {
+  $result = New-ActionResult $action 'none' 'suspected_noop' $false $message $code 'background' $windowId
+  if ($mayHaveExecuted) {
+    $result.delivery_accepted = $null
+    $result.effect = 'unverifiable'
+    $result.input_may_have_executed = $true
+  }
+  return $result
 }
 
 function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
@@ -143,6 +149,9 @@ function Invoke-BackgroundSemantic($ref, [scriptblock]$operation) {
 
 function Native-BackgroundFailure($action, $exception, $windowId) {
   $detail = [string]$exception.Message
+  if ($detail.Contains('input_cleanup_unconfirmed:')) {
+    throw 'input_cleanup_unconfirmed: background input release was not acknowledged; do not replay input'
+  }
   $code = 'background_unavailable'
   foreach ($candidate in @(
     'background_target_hung',
@@ -159,7 +168,8 @@ function Native-BackgroundFailure($action, $exception, $windowId) {
       break
     }
   }
-  return Background-Unavailable $action $detail $windowId $code
+  # Only complete preflight rejection proves that no input was attempted.
+  return Background-Unavailable $action $detail $windowId $code ($code -ne 'background_unsupported')
 }
 
 function Get-ObservableElementState($el, $action) {
@@ -235,7 +245,7 @@ function Do-Invoke($ref) {
       return New-ActionResult 'invoke' 'msaa_default_action' 'unverifiable' $false "invoked $ref through MSAA default action: $defaultAction" $null 'background' $record.WindowId
     } catch {
       $message = 'MSAA default action failed for {0}: {1}' -f $ref, $_.Exception.Message
-      return Background-Unavailable 'invoke' $message $record.WindowId 'msaa_action_failed'
+      return Background-Unavailable 'invoke' $message $record.WindowId 'msaa_action_failed' $true
     }
   }
   $el = $record.Element
@@ -274,7 +284,7 @@ function Do-SetValue($ref, $text) {
       return New-ActionResult 'set_value' 'msaa_value' $effect $verified "set $ref value through MSAA; readback=$verified" $null 'background' $record.WindowId
     } catch {
       $message = 'MSAA value set failed for {0}: {1}' -f $ref, $_.Exception.Message
-      return Background-Unavailable 'set_value' $message $record.WindowId 'msaa_value_failed'
+      return Background-Unavailable 'set_value' $message $record.WindowId 'msaa_value_failed' $true
     }
   }
   $el = $record.Element

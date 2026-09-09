@@ -34,7 +34,6 @@ export interface InputResolutionHost {
   callPowerShell(request: Record<string, unknown>, timeoutMs?: number): Promise<PowerShellResponse>;
   sessionIdFor(command: ComputerCommand): string;
   assertExecutionNotAborted(): void;
-  visualPointForRef(command: ComputerCommand, ref: string | undefined): { x: number; y: number } | undefined;
   requireValidFrame(command: ComputerCommand): Promise<CaptureFrame>;
   freshObservedWindowScope(command: ComputerCommand): ObservedWindowScope | undefined;
   readComputerWindows(
@@ -48,10 +47,6 @@ export interface ResolvedInputTarget {
   physicalY?: number;
   physicalToX?: number;
   physicalToY?: number;
-  cursorX?: number;
-  cursorY?: number;
-  cursorToX?: number;
-  cursorToY?: number;
   targetWindowId?: string;
   allowedWindowIds: string[];
   observedScope?: ObservedWindowScope;
@@ -62,7 +57,6 @@ export function createInputResolution(host: InputResolutionHost) {
     callPowerShell,
     sessionIdFor,
     assertExecutionNotAborted,
-    visualPointForRef,
     requireValidFrame,
     freshObservedWindowScope,
     readComputerWindows,
@@ -118,8 +112,6 @@ export function createInputResolution(host: InputResolutionHost) {
     let targetWindowId = command.window_id;
     let allowedWindowIds: string[] = [];
     let observedScope: ObservedWindowScope | undefined;
-    const semanticPoint = visualPointForRef(command, command.ref);
-    const semanticDestination = visualPointForRef(command, command.to);
     const pixelActions = new Set(['click', 'double_click', 'right_click', 'middle_click', 'triple_click', 'mouse_move']);
     if ((pixelActions.has(action)
         || (action === 'type' && command.x !== undefined && command.y !== undefined))
@@ -183,10 +175,6 @@ export function createInputResolution(host: InputResolutionHost) {
       physicalY,
       physicalToX,
       physicalToY,
-      cursorX: physicalX ?? semanticPoint?.x,
-      cursorY: physicalY ?? semanticPoint?.y,
-      cursorToX: physicalToX ?? semanticDestination?.x,
-      cursorToY: physicalToY ?? semanticDestination?.y,
       targetWindowId,
       allowedWindowIds,
       observedScope,

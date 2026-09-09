@@ -82,6 +82,9 @@ async function main() {
   }
   const args = [
     ...options.nodeArgs,
+    // node:test `mock.module` (module-boundary stubs such as the pinned fetch
+    // in the browser-document live suite) is still flag-gated on 22/24.
+    '--experimental-test-module-mocks',
     '--test',
     // A suite that leaves a handle open (a session runtime closed without
     // waiting for its children) must not hang the whole run.

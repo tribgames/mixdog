@@ -9,9 +9,9 @@ claim that the installed app has passed the final live acceptance scenario.
 | Situation | Route | Required behavior |
 | --- | --- | --- |
 | Read a native window | Capture/inspect/verify | No input mode or focus change is needed. |
-| Ordinary visible desktop work or demonstration | Foreground, the public `act` default | Prepare the exact target, move the one real pointer, then dispatch. |
-| Pixel gestures, drag-and-drop, focus-dependent keys | Foreground | Validate the target again before input; preserve the resulting pointer position. |
-| Explicit no-focus work on a supported target | Background | Use semantic actions or native window messages; do not move the real pointer. Inspect the result rather than equating delivery with success. |
+| Supported native actions, including clicks, scrolling and text/value input | Background, the public `act` default | Prefer semantic actions or native window messages; do not equate delivery with success. |
+| Known unsupported background route, real-pointer/focus requirement, or demonstration | Explicit foreground | Prepare and validate the exact target, move the one real pointer, then dispatch. |
+| Strict no-focus work | Background only unless scope changes | Do not silently escalate or send a known unsupported action merely to confirm it fails. |
 | Background semantic provider that can temporarily take focus | Background with a shared focus guard | Serialize against foreground work without changing delivery mode. Never restore focus over intervening user input. |
 | User intervention during visible work | Pending | Retain progress, wait for control, obtain fresh observation, then continue intent. Never replay completed or uncertain input. |
 | Unsupported route or uncertain result | Inspect first | Do not automatically switch modes. A different route requires evidence that no input was sent and must remain within the user's scope. |
@@ -40,7 +40,10 @@ background input too.
 
 | Finding | Change | Evidence |
 | --- | --- | --- |
-| Default background delivery contradicted visible mouse work | Public default is foreground; explicit background remains semantic/message delivery | `delivery.test.mjs` |
+| Visible mouse work was incorrectly generalized into a foreground default | Restored background-first selection; real-pointer/focus requirements and demonstrations use explicit foreground | `delivery.test.mjs` |
+| Modified background ref clicks lost Ctrl/Shift through semantic invoke | Modified clicks use native pointer messages instead of unmodified semantic invocation | `delivery.test.mjs` |
+| A later unsupported key token could follow an already typed prefix | Parse the entire background key sequence before target lookup or dispatch | Native preflight test |
+| Partial background delivery could be reported as no input sent | Preserve unknown delivery and `input_may_have_executed`; sequence rows are uncertain and follow-ups stop | Native failure and sequence tests |
 | Foreground scrolling could invoke background ScrollPattern | Delivery now controls the branch; foreground scroll glides to the checked target | `foreground-order.test.mjs` |
 | Targeted typing jumped the pointer instead of gliding | Shared typing-point preparation re-resolves the target before movement and click | Native program parsing/compilation and guarded pointer path |
 | Modifier handling differed between click, drag, and scroll | One modifier lifetime releases every held key, including after partial failure | `pointer-modifiers.test.mjs` |
@@ -75,6 +78,28 @@ The fixture renderer tests do not establish installed-app end-to-end behavior.
 Mock input and protocol tests do not establish actual human intervention.
 Current displays were checked; other DPI combinations were not changed or
 claimed verified.
+
+## Open parity gaps from the follow-up review
+
+These findings are not fixed by the earlier parser, modifier, or uncertainty
+changes. They remain open rather than being counted as completed parity.
+
+| Priority | Source evidence | Required next change |
+| --- | --- | --- |
+| High: background gesture release | `BackgroundDrag` sends button-up only after the movement loop. `MouseClick` and `BackgroundVirtualKey` also put release after press without exception-safe cleanup. | Bind one bounded release attempt to the original target after known or possible press delivery. Do not replay the gesture, retry an uncertain release, or substitute foreground/global input. Preserve cleanup uncertainty if release cannot be confirmed. |
+| High: background feedback can cover unrelated work | Background cursor presentations are retained, while `cursor-overlay.ts` creates every effect window as global screen-saver-level always-on-top. | Keep foreground real-pointer effects. Background feedback must stay with its target, or be omitted when safe target-relative placement cannot be established; do not draw through another foreground window. |
+| Acceptance gap: whole desktop behavior | Renderer-pixel and current-display tests do not establish target-relative z-order, live pointer/focus noninterference, or installed-app interruption recovery. | Verify pixels, focus, pointer position, and stacking independently on a disposable target plus an unrelated foreground window. Keep installed-app verification pending until approved deployment and user-controlled recovery. |
+
+The local CUA Windows test explicitly describes a targeted overlay below an
+independent foreground window and checks separate pixel, focus, cursor, and
+z-order outcomes. The inspected test is ignored by default; it was read, not
+executed here. The official OpenAI sample separately attempts bounded input
+release and requires acknowledgment. Those are design/acceptance references,
+not proof that Mixdog has passed the same cases.
+
+Implementation of these new release/placement changes requires approval of
+the follow-up scope. Background-first selection and the no-replay contract
+remain unchanged.
 
 ## Remaining live acceptance
 
