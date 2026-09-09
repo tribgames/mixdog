@@ -35,8 +35,37 @@ void app.whenReady().then(async () => {
     assert.deepEqual(result.preparation, ['prepare']);
     assert.deepEqual(result.clickAnimation, ['press']);
     assert.equal(result.duplicatePointer, false);
+    const feedback = await window.webContents.executeJavaScript(`(() => {
+      const sample = (effect, time) => {
+        window.mixdogAgentCursor({ effect });
+        for (const animation of document.getAnimations()) {
+          animation.pause();
+          animation.currentTime = time;
+        }
+        return ['halo', 'ring', 'echo'].map(id => {
+          const element = document.getElementById(id);
+          const box = element.getBoundingClientRect();
+          return { opacity: Number(getComputedStyle(element).opacity), width: box.width,
+            left: box.left, top: box.top, right: box.right, bottom: box.bottom };
+        });
+      };
+      return { early: sample('click', 80), late: sample('click', 200),
+        ended: sample('click', 650), second: sample('double_click', 380) };
+    })()`);
+    assert.ok(feedback.early[0].opacity > 0, 'click has a visible pressed halo');
+    assert.ok(feedback.late[1].width > feedback.early[1].width, 'click ripple expands');
+    assert.ok(feedback.late[1].opacity > 0 && feedback.late[2].opacity > 0,
+      'click displays two overlapping ripples');
+    assert.ok(feedback.late[1].width > feedback.late[2].width, 'second ripple follows the first');
+    assert.ok(feedback.ended.every((layer: { opacity: number }) => layer.opacity === 0),
+      'completed click leaves no lingering feedback');
+    assert.ok(feedback.second[1].opacity > 0, 'double click shows a second pulse');
+    for (const layer of [...feedback.early, ...feedback.late, ...feedback.ended]) {
+      assert.ok(layer.left >= 0 && layer.top >= 0 && layer.right <= CURSOR_SIZE && layer.bottom <= CURSOR_SIZE,
+        'feedback remains inside the overlay');
+    }
     // Inspect actual renderer pixels, not just CSS declarations.
-    for (const effect of ['move', 'prepare', 'click', 'scroll', 'type']) {
+    for (const effect of ['move', 'prepare', 'press', 'click', 'double_click', 'drag', 'scroll', 'type']) {
       await window.webContents.executeJavaScript(`(async () => {
         window.mixdogAgentCursor({ effect: ${JSON.stringify(effect)} });
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));

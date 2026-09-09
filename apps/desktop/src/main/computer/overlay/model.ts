@@ -135,9 +135,7 @@ export function computerUseCursorPresentations(
       ...cursor,
       accent: sessionColor(cursor.sessionId),
       badge: `${multipleSessions ? `${ordinal} · ` : ''}${target || shortSessionId(cursor.sessionId)}`,
-      context: cursor.mode === 'background'
-        ? 'Background'
-        : (multipleSessions ? 'Foreground' : ''),
+      context: multipleSessions ? 'Foreground' : '',
     }];
   });
 }

@@ -7,6 +7,8 @@ import { prepareCursorFeedback } from '../cursor-readiness';
 import { CURSOR_HOTSPOT } from '../cursor-art';
 
 app.disableHardwareAcceleration();
+// This fixture has no main app window; removing an effect must not end the test.
+app.on('window-all-closed', () => {});
 app.setPath('userData', join(process.env.CURSOR_TEST_DIRECTORY!, 'profile'));
 void app.whenReady().then(async () => {
   const overlay = createComputerUseCursorOverlay();
