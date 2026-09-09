@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.162 - 2026-09-09
+
 - The Set-a-goal dialog opens centered in the pane whose composer raised it,
   dimming only that pane; sibling panes stay visible and usable and the title
   bar is no longer dimmed. Outside a pane it falls back to the window layer.
@@ -17,8 +19,6 @@ the Unreleased section is empty, and stamps it with the released version.
   instead of describing a foreground-lock failure.
 - The v0.9.162 release run stopped at the test gate and shipped nothing; its
   notes below are delivered by this release.
-
-## v0.9.162 - 2026-09-09
 
 - Mixdog is now licensed under Apache-2.0 instead of MIT. Third-party
   components retain their existing licenses and attribution notices.
