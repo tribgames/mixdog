@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.162 - 2026-09-09
+
 - Mixdog is now licensed under Apache-2.0 instead of MIT. Third-party
   components retain their existing licenses and attribution notices.
 
