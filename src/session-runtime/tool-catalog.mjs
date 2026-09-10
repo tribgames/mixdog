@@ -107,7 +107,7 @@ function openAILoadableToolSpec(tool, provider = '') {
   };
 }
 
-function toolSearchNativePayload(catalog, names, provider = '') {
+export function toolSearchNativePayload(catalog, names, provider = '') {
   const selected = new Set((names || []).map(clean).filter(Boolean));
   if (!selected.size) return null;
   const tools = [];
@@ -281,15 +281,6 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   }
   const catalog = sortedCatalogByMeasuredUsage([...byName.values()]);
   const defaultNames = defaultDeferredToolNames(catalog, mode);
-  // Explicit dependencies of loaded skills stay eager across provider/policy
-  // rebuilds, but only while the current filtered catalog and mode admit them.
-  for (const tool of catalog) {
-    if (session.skillLoadedTools?.includes(tool.name)
-      && (mode !== 'readonly' || isReadonlySelectable(tool))
-      && (!Array.isArray(session.schemaAllowedTools) || session.schemaAllowedTools.includes(tool.name))) {
-      defaultNames.add(tool.name);
-    }
-  }
   const storedNames = providerMode === 'native' ? [] : storedDeferredToolNames(session);
   let selectedNames = providerMode === 'full' || providerMode === 'manifest' || providerMode === 'canonical'
     ? sortedNamesByMeasuredUsage(catalog.map((tool) => clean(tool?.name)).filter(Boolean))

@@ -39,6 +39,7 @@ test('persisted order controls quota failover and preserves selection across rel
     async send(messages, model, tools, opts) {
       const id = currentProviderAccountId(provider);
       calls.push(id);
+      assert.equal(readProviderAccountPool(provider).selectedId, ids[0]);
       if (id === ids[0]) throw quotaError();
       assert.equal(model, 'same-model');
       assert.equal(messages[0].content, 'keep this');
@@ -130,13 +131,15 @@ test('no replay after emitted output, cancellation, auth failure, or disabled au
 
 test('all accounts exhausted stop without cycling, and explicit host bindings bypass the pool', async () => {
   const provider = 'antigravity-oauth';
-  setup(provider);
+  const ids = setup(provider);
   let calls = 0;
   const gateway = createAccountPoolProvider(provider, () => ({ async send() { calls++; throw quotaError(); } }));
   await assert.rejects(gateway.send([], 'model', []), /Quota exhausted/);
   assert.equal(calls, 3);
+  assert.equal(readProviderAccountPool(provider).selectedId, ids[0]);
   await assert.rejects(gateway.send([], 'model', []), /All connected accounts/);
   assert.equal(calls, 3);
+  assert.equal(gateway.providerAccountId, ids[0]);
   const restore = replaceProviderAuthBindings({ [provider]: join(dir, 'isolated.json') });
   try {
     const explicit = createAccountPoolProvider(provider, () => ({ async send() { return boundProviderAuthPath(provider); } }));
@@ -197,4 +200,44 @@ test('usage caches never return a different account quota after selection change
   assert.equal(readCachedOAuthUsageSnapshot({ provider }).quotaWindows[0].usedPct, 14);
   changeProviderAccounts(provider, { selectedId: b });
   assert.equal(readCachedOAuthUsageSnapshot({ provider }).quotaWindows[0].usedPct, 87);
+});
+
+test('failed free-account fallback retains the paid selection; successful fallback respects manual selection', async () => {
+  const provider = 'openai-oauth';
+  const [paid, free, manual] = setup(provider);
+  const others = readProviderAccountPool(provider).accounts.map((row) => row.id)
+    .filter((id) => ![paid, free, manual].includes(id));
+  changeProviderAccounts(provider, { order: [paid, free, manual, ...others] });
+  for (const outcome of ['unavailable', 'cancel', 'manual']) {
+    changeProviderAccounts(provider, { selectedId: paid });
+    recordProviderAccountUsage(provider, paid, { quotaWindows: [{ usedPct: 0 }] });
+    const entered = deferred();
+    const release = deferred();
+    const controller = new AbortController();
+    const unavailable = Object.assign(new Error('Model unavailable for this account'), { status: 403 });
+    const calls = [];
+    const gateway = createAccountPoolProvider(provider, () => ({
+      async send() {
+        const id = currentProviderAccountId(provider);
+        calls.push(id);
+        if (id === paid) throw quotaError();
+        entered.resolve();
+        await release.promise;
+        controller.signal.throwIfAborted();
+        if (outcome === 'unavailable') throw unavailable;
+        return { content: 'done' };
+      },
+    }));
+    const pending = gateway.send([], 'model', [], { signal: controller.signal });
+    const completion = outcome === 'manual' ? pending : assert.rejects(pending,
+      outcome === 'unavailable' ? (error) => error === unavailable : { name: 'AbortError' });
+    await entered.promise;
+    assert.equal(gateway.providerAccountId, paid);
+    if (outcome === 'manual') changeProviderAccounts(provider, { selectedId: manual });
+    if (outcome === 'cancel') controller.abort();
+    release.resolve();
+    await completion;
+    assert.deepEqual(calls, [paid, free]);
+    assert.equal(readProviderAccountPool(provider).selectedId, outcome === 'manual' ? manual : paid);
+  }
 });

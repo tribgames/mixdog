@@ -14,7 +14,7 @@ function fixture(t, options = {}) {
   const call = async (args) => JSON.parse(await runtime.executeTool('goal', args, { callerSessionId: sessionId }));
   const snapshot = () => runtime.snapshot(sessionId);
   const create = (tasks = [
-    { text: 'Approved work', status: 'pending', kind: 'work' },
+    { text: 'Approved work', status: 'awaiting_approval', kind: 'work' },
     { text: 'Verify work', status: 'awaiting_approval', kind: 'verification' },
   ]) => call({ action: 'create', objective: 'Finish approved work', tasks });
   t.after(() => { runtime.close(); rmSync(dataDir, { recursive: true, force: true }); });
@@ -31,7 +31,7 @@ test('starting a paused task publishes task progress, activation, and clock toge
   });
   await f.create();
   f.advance(1_000);
-  await f.call({ action: 'pause' });
+  await f.call({ action: 'pause', blocker: 'Need approval to start' });
   const paused = f.snapshot();
   f.advance(30_000);
   await f.runtime.startTurn(f.sessionId);
@@ -63,7 +63,7 @@ test('questions, approval bookkeeping, and carried in-progress rows do not resum
     { text: 'Earlier work', status: 'in_progress', kind: 'work' },
     { text: 'Verify work', status: 'pending', kind: 'verification' },
   ]);
-  await f.call({ action: 'pause' });
+  await f.runtime.control(f.sessionId, { action: 'pause' });
   await f.runtime.startTurn(f.sessionId);
   assert.equal((await f.call({ action: 'status' })).goal.status, 'paused');
   await f.call({
@@ -79,13 +79,12 @@ test('questions, approval bookkeeping, and carried in-progress rows do not resum
   await f.runtime.settleTurn(f.sessionId, { status: 'done' });
   assert.equal(f.snapshot().status, 'paused');
   assert.equal(f.runtime.continuation(f.sessionId).run, false);
-  // An addressed work-start patch is an explicit restart, even if pause left
-  // the row marked in_progress from the preceding turn.
+  // Task bookkeeping cannot override a user-initiated pause.
   await f.call({
     action: 'update_tasks',
     updates: [{ id: f.snapshot().tasks[0].id, status: 'in_progress' }],
   });
-  assert.equal(f.snapshot().status, 'active');
+  assert.equal(f.snapshot().status, 'paused');
 });
 
 test('full task transitions and newly started tasks also resume paused work', async (t) => {
@@ -93,7 +92,7 @@ test('full task transitions and newly started tasks also resume paused work', as
     await t.test(action, async (t) => {
       const f = fixture(t);
       await f.create();
-      await f.call({ action: 'pause' });
+      await f.call({ action: 'pause', blocker: 'Need approval to start' });
       const tasks = action === 'update_tasks'
         ? [{ text: 'Approved addition', status: 'in_progress', kind: 'work' }]
         : f.snapshot().tasks.map((task, index) => index ? task : { ...task, status: 'in_progress' });
@@ -115,7 +114,7 @@ test('work-start task writes cannot bypass revision, validation, or persistence 
     },
   });
   await f.create();
-  await f.call({ action: 'pause' });
+  await f.call({ action: 'pause', blocker: 'Need approval to start' });
   const paused = f.snapshot();
   const args = {
     action: 'update_tasks', revision: paused.revision,
@@ -140,7 +139,7 @@ test('work-start task writes cannot bypass revision, validation, or persistence 
 test('cancel after task-driven resume freezes the clock and preserves paused state on reload', async (t) => {
   const f = fixture(t);
   await f.create();
-  await f.call({ action: 'pause' });
+  await f.call({ action: 'pause', blocker: 'Need approval to start' });
   await f.runtime.startTurn(f.sessionId);
   await f.call({
     action: 'update_tasks',
@@ -163,7 +162,11 @@ test('work-start updates do not silently clear blocking, usage, or duration stop
       const f = fixture(t);
       await f.create();
       if (status === 'blocked') {
-        await f.runtime.executeTool('update_goal', { status, blocker: 'External service unavailable' }, { callerSessionId: f.sessionId });
+        for (let turn = 0; turn < 3; turn++) {
+          await f.runtime.startTurn(f.sessionId);
+          await f.runtime.executeTool('update_goal', { status, blocker: 'External service unavailable' }, { callerSessionId: f.sessionId });
+          await f.runtime.settleTurn(f.sessionId, { status: 'done' });
+        }
       } else if (status === 'usage_limited') {
         await f.runtime.settleTurn(f.sessionId, { usageLimited: true });
       } else {

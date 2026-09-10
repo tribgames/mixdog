@@ -18,6 +18,7 @@ import {
 import type { SidebarPanelKey } from "./app-shell-components";
 import type { UtilityDockTab } from "./UtilityDock";
 import { t } from "./i18n";
+import { useDockIconVisibility } from "./dock-icon-visibility";
 
 export type WorkbenchSide = "left" | "right";
 /** Browser Use and Terminal are session-owned pane-dock child views. Their
@@ -509,7 +510,8 @@ export function WorkbenchSideIconBar({
     placement: WorkbenchSideViewPlacement;
   } | null>(null);
   const barRef = useRef<HTMLDivElement | null>(null);
-  const renderedGroups = groups.filter((group) => descriptors.has(group[0]));
+  const { isVisible } = useDockIconVisibility();
+  const renderedGroups = groups.filter((group) => descriptors.has(group[0]) && isVisible(group[0]));
   // Only the left rail rearranges (user: 왼쪽에서만 이동가능하게): the
   // pane-scoped right strip neither starts a drag nor accepts one.
   const movable = side === "left";

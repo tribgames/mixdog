@@ -161,7 +161,7 @@
 .turn-review-files li {
   min-height: 24px;
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) 30px 30px 28px;
+  grid-template-columns: 14px minmax(0, 1fr) 30px 30px auto;
   align-items: center;
   column-gap: 8px;
   padding: 0 4px;
@@ -249,12 +249,14 @@
 .turn-review-files li:hover code { color: var(--mx-text); }
 .turn-review-action-slot {
   grid-column: 5;
-  width: 28px;
+  min-width: 40px;
+  gap: 2px;
   min-height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
+.turn-review-open,
 .turn-review-revert {
   flex: 0 0 18px;
   width: 18px;
@@ -268,7 +270,9 @@
   color: var(--mx-text-muted);
   cursor: pointer;
 }
+.turn-review-open:hover,
 .turn-review-revert:hover { color: var(--mx-text); background: var(--mx-hover); }
+.turn-review-open:disabled,
 .turn-review-revert:disabled { opacity: var(--mx-op-disabled); cursor: default; }
 .turn-review-diff {
   grid-column: 1 / -1;

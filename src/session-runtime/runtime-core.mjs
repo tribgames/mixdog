@@ -56,7 +56,7 @@ import {
   formatDurationMs,
   parseDurationMs,
 } from './config-helpers.mjs';
-import { builtinFeatureActive, featureDisallowedToolsFor } from './builtin-features.mjs';
+import { builtinFeatureActive, featureDisallowedToolsFor, localGitToolsActive, withGrandfatheredBuiltins } from './builtin-features.mjs';
 import { outputStyleStatus as outputStyleStatusRaw } from './output-styles.mjs';
 import {
   countSkillFiles,
@@ -305,7 +305,7 @@ export async function createMixdogSessionRuntime({
   const recapEnabledFn = () => recapEnabled(rt.config, true);
   const memoryToolsEnabledFn = () => builtinFeatureActive(rt.config, 'memory');
   const webSearchEnabled = () => builtinFeatureActive(rt.config, 'webSearch');
-  const gitToolsEnabledFn = () => builtinFeatureActive(rt.config, 'git');
+  const gitToolsEnabledFn = () => localGitToolsActive(rt.config, rt.toolProfile);
   const officeToolsEnabledFn = () => builtinFeatureActive(rt.config, 'office');
   const localProviderEnabledFn = () => builtinFeatureActive(rt.config, 'localProvider');
   const mediaToolEnabledFn = () => builtinFeatureActive(rt.config, 'media');
@@ -313,6 +313,7 @@ export async function createMixdogSessionRuntime({
   const featureDisallowedTools = () => featureDisallowedToolsFor(rt.config, {
     browserAvailable: browserBridgeAvailableSync(),
     computerAvailable: computerBridgeAvailableSync(),
+    toolProfile: rt.toolProfile,
   });
 
   const { getMemoryModule, getWebSearchModule, getCodeGraphModule } = createLazyRuntimeModules({ rt, cfgMod });
@@ -330,9 +331,9 @@ export async function createMixdogSessionRuntime({
   }
 
   const configStartedAt = performance.now();
-  rt.config = initialConfig && typeof initialConfig === 'object'
+  rt.config = withGrandfatheredBuiltins(initialConfig && typeof initialConfig === 'object'
     ? initialConfig
-    : cfgMod.loadConfig({ secrets: false });
+    : cfgMod.loadConfig({ secrets: false }));
   configureLocalProviderIdleTtl(rt.config.providers?.[LOCAL_PROVIDER_ID]?.idleTtlSeconds);
   setConfiguredShell(normalizeSystemShellConfig(rt.config.shell).command);
   rt.configHasSecrets = false;

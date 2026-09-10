@@ -4,8 +4,8 @@
 - A required new file is created directly: Add File is itself the atomic
   absence check, so inspect only if it reports the target already exists.
 <!-- tools: edit -->
-- A required new file is created directly: an empty `old_string` is itself the
-  atomic absence check, so inspect only if it reports the target already exists.
+- With `edit`, empty `old_string` creates a missing file or fills an empty
+  file; it is not an absence check and never overwrites a non-empty file.
 - Source: use exact current target text from any visible evidence, including
   user input, tool output, or an applied edit result; never reconstruct it from
   another file, a sample, or expectation.

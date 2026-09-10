@@ -15,20 +15,22 @@ import {
 // overlay and starts this window over from zero.
 const DISCONNECTED_AFTER_MS = 10_000;
 
-export function RemoteConnectionBanner() {
+export function RemoteConnectionBanner({ boot = false }: { boot?: boolean } = {}) {
   const state = useSyncExternalStore(
     subscribeRemoteConnectionState,
     currentRemoteConnectionState,
     () => null,
   );
+  const waiting = state === "reconnecting" || state === "syncing"
+    || (boot && state === "connecting");
   const [disconnected, setDisconnected] = useState(false);
   useEffect(() => {
     setDisconnected(false);
-    if (state !== "reconnecting" && state !== "syncing") return () => {};
+    if (!waiting) return () => {};
     const timer = window.setTimeout(() => setDisconnected(true), DISCONNECTED_AFTER_MS);
     return () => window.clearTimeout(timer);
-  }, [state]);
-  if ((state !== "reconnecting" && state !== "syncing") || !disconnected) return null;
+  }, [state, waiting]);
+  if (!waiting || !disconnected) return null;
 
   // No wording on purpose: the dim layer and the glyph ARE the message, and the
   // layer exists to block input against a desktop that cannot answer it. A tap

@@ -17,7 +17,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..', '..', '..');
 const sha256 = (value) => `sha256:${createHash('sha256').update(value).digest('hex')}`;
-const BENCHMARK_DISABLED_TOOLS = Object.freeze(['web_search', 'web_fetch', 'memory', 'recall']);
 
 function markdownFiles(dir) {
   const found = [];
@@ -179,11 +178,25 @@ async function routeToolContract(repoRoot, route) {
   const { TOOL_SEARCH_TOOL, CWD_TOOL } = await load('src/session-runtime/tool-defs.mjs');
   const { filterModelEditTools } = await load('src/runtime/shared/edit-tool-dialect.mjs');
   const { applyDeferredToolSurface } = await load('src/session-runtime/tool-catalog.mjs');
+  const { featureDisallowedToolsFor } = await load('src/session-runtime/builtin-features.mjs');
+  const { filterModelToolsForProfile, disallowedModelToolNamesForProfile } = await load('src/session-runtime/tool-profile.mjs');
+  const pristine = JSON.parse(readFileSync(join(repoRoot, 'src/runtime/shared/pristine-execution-contract.json'), 'utf8'));
+  const allTools = [...BUILTIN_TOOLS, ...PATCH_TOOL_DEFS, ...CODE_GRAPH_TOOL_DEFS, TOOL_SEARCH_TOOL, CWD_TOOL];
+  const disabledTools = [...new Set([
+    ...featureDisallowedToolsFor({
+      ...pristine.agentDefaults,
+      modules: { webSearch: { enabled: false } },
+      memoryTools: { enabled: false },
+    }, { toolProfile: 'headless' }),
+    ...disallowedModelToolNamesForProfile(allTools, 'headless'),
+  ])];
+  const allowed = (tools) => filterModelToolsForProfile(tools, 'headless')
+    .filter((tool) => !disabledTools.includes(tool.name));
   const { buildDeferredToolManifest } = await load(
     'src/runtime/agent/orchestrator/context/collect.mjs',
   );
   const core = filterModelEditTools(
-    [...BUILTIN_TOOLS, ...PATCH_TOOL_DEFS, ...CODE_GRAPH_TOOL_DEFS],
+    allowed([...BUILTIN_TOOLS, ...PATCH_TOOL_DEFS, ...CODE_GRAPH_TOOL_DEFS]),
     route.model,
   );
   const session = {
@@ -195,7 +208,7 @@ async function routeToolContract(repoRoot, route) {
   applyDeferredToolSurface(
     session,
     routeSurfaceMode(route.id),
-    [TOOL_SEARCH_TOOL, CWD_TOOL],
+    allowed([TOOL_SEARCH_TOOL, CWD_TOOL]),
     { provider: route.provider, model: route.model },
   );
   const catalog = session.deferredToolCatalog || [];
@@ -223,6 +236,7 @@ async function routeToolContract(repoRoot, route) {
   return {
     provider: route.provider,
     model: route.model,
+    disabledTools,
     providerMode: session.deferredProviderMode,
     toolCatalogHash: sha256(catalogPayload),
     toolCatalogCount: catalog.length,
@@ -255,7 +269,7 @@ function promptSurfaceDigest(repoRoot, workflowId, routeContract) {
     : 'apply_patch';
   const shared = builder.buildSharedToolContent({
     PLUGIN_ROOT,
-    omitTools: [...BENCHMARK_DISABLED_TOOLS, unusedEditTool],
+    omitTools: [...routeContract.disabledTools, unusedEditTool],
   });
   const lead = builder.buildLeadRoleContent({
     PLUGIN_ROOT,
@@ -330,7 +344,7 @@ export async function buildContractDigest(repoRoot = REPO_ROOT, options = {}) {
   return {
     schemaVersion: 2,
     workflow: workflowId,
-    disabledTools: [...BENCHMARK_DISABLED_TOOLS],
+    disabledTools: primary.disabledTools,
     rulesHash: rules.hash,
     rulesFiles: rules.files,
     rulesBytes: rules.bytes,

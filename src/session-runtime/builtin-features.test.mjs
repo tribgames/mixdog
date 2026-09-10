@@ -61,6 +61,29 @@ test('installed features with live bridges expose the full tool surface', () => 
   assert.deepEqual(featureDisallowedToolsFor(config), ['browser', 'browser_devtools', 'computer']);
 });
 
+test('headless Git needs no install marker but respects OFF and does not enable extension tools', () => {
+  const config = { builtins: {} };
+  const blocked = featureDisallowedToolsFor(config, { toolProfile: 'headless' });
+  assert.equal(blocked.includes('git'), false);
+  assert.equal(blocked.includes('git_stage'), true);
+  assert.equal(blocked.includes('github'), true);
+  assert.deepEqual(config, { builtins: {} });
+  const off = featureDisallowedToolsFor({
+    ...config, modules: { git: { enabled: false } },
+  }, { toolProfile: 'headless' });
+  for (const name of ['git', 'git_stage', 'github']) assert.ok(off.includes(name));
+  const previous = process.env.MIXDOG_FEATURE_GIT;
+  process.env.MIXDOG_FEATURE_GIT = '0';
+  try {
+    const denied = featureDisallowedToolsFor(config, { toolProfile: 'headless' });
+    assert.ok(denied.includes('git'));
+    assert.ok(denied.includes('git_stage'));
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_FEATURE_GIT;
+    else process.env.MIXDOG_FEATURE_GIT = previous;
+  }
+});
+
 test('a disabled toggle removes tools even while the feature stays installed', () => {
   const config = {
     ...withGrandfatheredBuiltins({ presets: [] }),

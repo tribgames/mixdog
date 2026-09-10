@@ -5,6 +5,7 @@
 // repeats them. A press opens the dock on that child; pressing the child that
 // is already showing folds the unit.
 import { t } from "./i18n";
+import { useDockVisibilityMenu } from "./dock-icon-visibility";
 import {
   type WorkbenchSideViewDescriptor,
   type WorkbenchSideViewGroup,
@@ -39,9 +40,14 @@ export function PaneDockToggles({
     .map((group) => group[0])
     .filter((root): root is WorkbenchSideViewId =>
       root !== undefined && descriptors.has(root));
+  const { isVisible, menuProps, menu } = useDockVisibilityMenu(roots.map((root) => {
+    const descriptor = descriptors.get(root)!;
+    return { id: root, label: descriptor.tooltip || descriptor.label };
+  }), "Utility panel");
   if (roots.length === 0) return null;
-  return <div className="pane-dock-toggles" role="group" aria-label={t("Utility panel")}>
-    {roots.map((root) => {
+  return <div className="pane-dock-toggles" role="group" aria-label={t("Utility panel")}
+    {...menuProps} style={{ minWidth: 28, minHeight: 28 }}>
+    {roots.filter(isVisible).map((root) => {
       const descriptor = descriptors.get(root)!;
       const Icon = descriptor.icon;
       const active = activeRoot !== null
@@ -66,5 +72,6 @@ export function PaneDockToggles({
         <Icon size={16} aria-hidden="true" />
       </button>;
     })}
+    {menu}
   </div>;
 }

@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { useEffect, useId, useRef, useState, type RefObject } from 'react';
 import { ComposerPalette } from './ComposerPalette';
-import { ComposerGoalDialog } from './ComposerGoalDialog';
 import { CapabilityIcon } from './CapabilityIcon';
 import { MxIcon } from './MxIcon';
 import { t } from './i18n';
@@ -26,7 +25,6 @@ export function ComposerAddMenu({ anchor, disabled, goalDisabled, sessionId, onA
   onMore(): void;
 }) {
   const [open, setOpen] = useState(false);
-  const [goal, setGoal] = useState(false);
   const cacheKey = sessionId || '';
   const [skills, setSkills] = useState<ComposerSkill[]>(() => skillCache.get(cacheKey) || []);
   const [loading, setLoading] = useState(false);
@@ -73,12 +71,12 @@ export function ComposerAddMenu({ anchor, disabled, goalDisabled, sessionId, onA
       document.removeEventListener('keydown', key, true);
     };
   }, [open]);
-  useEffect(() => { if (disabled) { setOpen(false); setGoal(false); } }, [disabled]);
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
   return <React.Fragment>
     <button ref={trigger} type="button" className="composer-tool" disabled={disabled}
       aria-label={t('Add to message')} data-tooltip={t('Add to message')} data-tooltip-side="top"
       aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined}
-      onClick={() => { setGoal(false); setOpen(value => !value); }}>
+      onClick={() => setOpen(value => !value)}>
       <MxIcon name="plus" size={16} />
     </button>
     {open && <ComposerPalette anchor={anchor} panel={panel} id={id}
@@ -96,7 +94,7 @@ export function ComposerAddMenu({ anchor, disabled, goalDisabled, sessionId, onA
         <button type="button" role="menuitem" onClick={() => { close(); onAttach(); }}>
           <CapabilityIcon name="attach-files" /><span>{t('Attach files')}</span>
         </button>
-        <button type="button" role="menuitem" disabled={goalDisabled} onClick={() => { setOpen(false); setGoal(true); }}>
+        <button type="button" role="menuitem" disabled={goalDisabled} onClick={() => { setOpen(false); void onGoal('/goal'); }}>
           <CapabilityIcon name="goal-management" /><span>{t('Set a goal')}</span>
         </button>
         <div className="composer-add-heading">{t('Skills')}</div>
@@ -114,7 +112,5 @@ export function ComposerAddMenu({ anchor, disabled, goalDisabled, sessionId, onA
       </div>
       {error && <p role="alert" className="composer-add-error">{error}</p>}
     </ComposerPalette>}
-    {goal && <ComposerGoalDialog anchor={trigger} disabled={goalDisabled} onStart={onGoal}
-      onClose={() => setGoal(false)} returnFocus={() => trigger.current?.focus()} />}
   </React.Fragment>;
 }

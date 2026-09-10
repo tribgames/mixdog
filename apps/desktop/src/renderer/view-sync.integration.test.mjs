@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { webcrypto } from 'node:crypto';
+import { randomBytes, webcrypto } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -49,6 +49,7 @@ test('real host, relay and browser shim preserve cancel/resubmit and recover fin
     class BrowserSocket extends WebSocket {
       constructor(url) { super(url, { headers: { Origin: origin } }); sockets.push(this); }
       emit(event, ...args) {
+        if (event === 'message') this.receivedBytes = (this.receivedBytes || 0) + args[0].byteLength;
         if (event === 'message' && this.dropNext && args[1] === true) {
           this.dropNext = false;
           this.dropped = true;
@@ -114,6 +115,23 @@ test('real host, relay and browser shim preserve cancel/resubmit and recover fin
       assert.deepEqual(JSON.parse(JSON.stringify(store.get('lead').items)), finished.items);
       assert.equal(store.get('lead').busy, false);
     }
+    // Measure actual encrypted WebSocket bytes, not just JSON sizes. An
+    // unchanged reconnect must restore the transcript while omitting its
+    // incompressible body; the earlier cycles cover changes and missed frames.
+    const largeAnswer = randomBytes(8192).toString('hex');
+    const beforeFull = sockets.at(-1).receivedBytes;
+    f.put('lead', largeAnswer);
+    w.dispatchEvent(new w.Event('online'));
+    await until(() => text.textContent === largeAnswer
+      && w.document.documentElement.dataset.mixdogRemoteConnection === 'connected');
+    const fullBytes = sockets.at(-1).receivedBytes - beforeFull;
+    const count = sockets.length;
+    sockets.at(-1).terminate();
+    await until(() => sockets.length === count + 1
+      && w.document.documentElement.dataset.mixdogRemoteConnection === 'connected');
+    assert.equal(text.textContent, largeAnswer);
+    assert.ok(sockets.at(-1).receivedBytes < fullBytes / 2,
+      `reconnect used ${sockets.at(-1).receivedBytes} bytes after a ${fullBytes}-byte full recovery`);
     const submitsBeforeCreation = f.state.submits;
     const [first, retry] = await Promise.all([
       api.submitNewTask('created once', { id: 'web-creation-receipt' }),

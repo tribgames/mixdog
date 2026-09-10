@@ -58,6 +58,7 @@ import { createSnapshotDeltaDecoder, markCompactWire } from '../main/state-delta
 import { armRemoteCallDeadline } from './remote-call-deadline';
 import { createRemoteSessionInbox } from './remote-session-inbox';
 import { createRemoteViewSync } from './remote-view-sync';
+import { createRemoteViewBaselineCache, VIEW_BASELINE_EVENT } from '../shared/remote-view-baseline';
 import { recoverableCreation } from './recoverable-creation';
 import {
   isInstalledMobileWebAppSurface,
@@ -290,8 +291,14 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let connectionReady = false;
   let peerViewSync = false;
   let pendingReconnectNotification = false;
+  const viewBaselines = createRemoteViewBaselineCache();
   const viewSync = createRemoteViewSync({
-    synchronize: () => invoke('synchronizeViews', [lastVisibleSessionIds]),
+    synchronize: async () => {
+      const retained = viewBaselines.begin();
+      try {
+        return await invoke('synchronizeViews', [lastVisibleSessionIds, retained.offer]);
+      } finally { retained.finish(); }
+    },
     state: (state) => {
       setRemoteConnectionState(state);
       if (state !== 'connected') return;
@@ -964,6 +971,18 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     awaitingPong = false;
     clearWakePongTimer();
     if ('pong' in frame) return;
+    if (frame.event === VIEW_BASELINE_EVENT) {
+      if (!authenticated) return;
+      try {
+        handleMessage(viewBaselines.restore(frame.payload), true);
+      } catch (error) {
+        // Never acknowledge a recovery with missing data. Redial without
+        // cached claims; the existing recovery path requests full baselines.
+        viewBaselines.clear();
+        throw error;
+      }
+      return;
+    }
     let message = frame;
     if (frame.e === 'S') {
       // Compact app-state push: same payload, envelope reduced to two keys.
@@ -1250,6 +1269,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // entry screen, which asks the desktop for a new approval; the device route
   // survives because it is a routing label, not a credential.
   const resetApprovalAndAsk = (message: string): void => {
+    viewBaselines.clear();
     clearRemoteConnectionState();
     try {
       clearStoredRemotePairing(localStorage);

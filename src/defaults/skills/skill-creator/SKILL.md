@@ -25,7 +25,7 @@ Before writing files, classify the request:
 | Reusable judgement or a repeatable procedure using existing tools | Skill |
 | Precise new runtime capability, authentication, streaming, or binary handling | Tool or product code |
 | Repository facts and contributor conventions | Project documentation |
-| A durable fact, preference, or decision | Memory |
+| A user-specific standing preference or constraint | Memory, with approval |
 | A single task unlikely to recur | Complete the task without a skill |
 
 Do not create a routing-only skill whose main job is listing other skills.
@@ -125,8 +125,8 @@ Then run checks required by the target repository. The validator catches
 portable structure and path problems and warns when the listing line exceeds
 its budget; the runtime parser remains authoritative for loading behavior.
 
-Completion criterion: validation passes without warnings, every referenced
-resource resolves, and the folder name matches the manifest name.
+Completion criterion: validation passes, warnings are reviewed at their
+reported severity, resources resolve, and the folder name matches the manifest.
 
 ### 6. Exercise behavior
 
@@ -174,8 +174,8 @@ When asked to audit, review, or tidy skills rather than fix one defect:
    before editing. Edit only after the user approves the scope.
 5. Re-run the validator on every edited directory.
 
-Completion criterion: every skill in scope validates without warnings and the
-report lists nothing unresolved without an explicit reason.
+Completion criterion: every skill in scope validates; report unresolved
+findings with reasons, without promoting warnings to failures.
 
 ## Mixdog loading facts
 

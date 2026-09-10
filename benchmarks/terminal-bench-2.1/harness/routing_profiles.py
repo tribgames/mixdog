@@ -9,6 +9,9 @@ from typing import Any
 
 
 PROFILE_PATH = Path(__file__).with_name("route_profiles.json")
+PRISTINE_CONTRACT = json.loads(
+    (Path(__file__).resolve().parents[3] / "src/runtime/shared/pristine-execution-contract.json").read_text(encoding="utf-8")
+)
 PROFILE_ROLES = (
     "lead",
     "worker",
@@ -150,6 +153,7 @@ def build_benchmark_config(
     return {
         "outputStyle": "simple",
         "agent": {
+            **copy.deepcopy(PRISTINE_CONTRACT["agentDefaults"]),
             "profile": {"language": "en"},
             "providers": provider_config,
             "presets": [

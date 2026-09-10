@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { DesktopService } from './desktop-service-contract';
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
 import type { KeyedListDeltaEncoder } from '../shared/list-delta';
@@ -5,6 +6,9 @@ import type { SnapshotDeltaEncoder } from './state-delta';
 import { createSnapshotDeltaEncoder } from './state-delta';
 import { synchronizeViewSnapshot } from './view-synchronizer';
 import { remoteTranscriptSnapshot } from './remote-transcript';
+import {
+  MAX_VIEW_BASELINE_BYTES, readViewBaselineOffer, VIEW_BASELINE_EVENT,
+} from '../shared/remote-view-baseline';
 
 export interface RelayViewSyncState {
   syncing?: boolean;
@@ -14,7 +18,9 @@ export interface RelayViewSyncState {
   sessionStateEncoders: Map<string, SnapshotDeltaEncoder>;
   sessionsEncoder: KeyedListDeltaEncoder<DesktopSessionSummary>;
   agentPoolEncoder: KeyedListDeltaEncoder<DesktopAgentPoolRow>;
-  stateLane: { reset(snapshot: unknown): Promise<void> } | null;
+  stateLane: {
+    reset(snapshot: unknown, baselineSend?: (payload: unknown) => Promise<void>): Promise<void>;
+  } | null;
 }
 
 export async function registerAndSynchronizeRelayViews(
@@ -37,7 +43,7 @@ export async function registerAndSynchronizeRelayViews(
     await (host.setVisibleSessionsForSource
       ? host.setVisibleSessionsForSource(`remote:${clientId}`, ids)
       : host.setVisibleSessions?.(ids));
-    await synchronizeRelayViews(host, state, current, send);
+    await synchronizeRelayViews(host, state, current, send, readViewBaselineOffer(params[1]));
   } finally { state.syncing = false; }
 }
 
@@ -49,28 +55,41 @@ export async function synchronizeRelayViews(
   state: RelayViewSyncState,
   current: () => boolean,
   send: (frame: unknown) => Promise<void>,
+  retained: ReadonlySet<string> | null = null,
 ): Promise<void> {
   state.syncing = true;
   const writes: Promise<void>[] = [];
+  const sendBaseline = (frame: unknown): Promise<void> => {
+    if (!retained) return send(frame);
+    const text = JSON.stringify(frame);
+    // Oversized baselines still transfer normally; the phone cannot retain
+    // them, so neither a key nor the wrapper buys anything.
+    if (text.length * 2 > MAX_VIEW_BASELINE_BYTES) return send(frame);
+    const key = createHash('sha256').update(text).digest('hex');
+    return send({
+      event: VIEW_BASELINE_EVENT,
+      payload: retained.has(key) ? { key } : { key, frame },
+    });
+  };
   try {
     await synchronizeViewSnapshot(host, [...state.visibleSessionIds], (snapshot) => {
       if (!current()) throw new Error('Remote view was replaced during synchronization.');
       state.sessionStateEncoders.clear();
       state.sessionsEncoder.reset();
       state.agentPoolEncoder.reset();
-      if (state.stateLane) writes.push(state.stateLane.reset(snapshot.snapshot));
-      writes.push(send({
+      if (state.stateLane) writes.push(state.stateLane.reset(snapshot.snapshot, sendBaseline));
+      writes.push(sendBaseline({
         event: 'sessions',
         payload: state.listDelta ? state.sessionsEncoder.encode(snapshot.sessions) : snapshot.sessions,
       }));
-      writes.push(send({
+      writes.push(sendBaseline({
         event: 'agentPool',
         payload: state.listDelta ? state.agentPoolEncoder.encode(snapshot.agents) : snapshot.agents,
       }));
       for (const update of snapshot.sessionStates) {
         const encoder = createSnapshotDeltaEncoder({ compact: state.compactWire });
         state.sessionStateEncoders.set(update.sessionId, encoder);
-        writes.push(send({
+        writes.push(sendBaseline({
           event: 'sessionState',
           payload: { ...update, wire: encoder.encode(remoteTranscriptSnapshot(update.snapshot)), snapshot: undefined },
         }));

@@ -53,8 +53,7 @@ export function builtinFeatureActive(configLike, id) {
       ?? (builtinInstalled(configLike, 'memory') && memoryToolsEnabled(configLike, true));
   }
   if (id === 'git') {
-    return featureEnvOverride('MIXDOG_FEATURE_GIT')
-      ?? (builtinInstalled(configLike, 'git') && moduleEnabled(configLike, 'git', true));
+    return localGitToolsActive(configLike);
   }
   if (id === 'office') {
     return featureEnvOverride('MIXDOG_FEATURE_OFFICE')
@@ -92,13 +91,15 @@ export function builtinFeatureActive(configLike, id) {
 export function featureDisallowedToolsFor(configLike, {
   browserAvailable = false,
   computerAvailable = false,
+  toolProfile = 'interactive',
 } = {}) {
   const browser = featureEnvOverride('MIXDOG_FEATURE_BROWSER') ?? browserAvailable === true;
   const computer = featureEnvOverride('MIXDOG_FEATURE_COMPUTER') ?? computerAvailable === true;
   return [
     ...(builtinFeatureActive(configLike, 'webSearch') ? [] : ['web_search', 'web_fetch']),
     ...(builtinFeatureActive(configLike, 'memory') ? [] : ['memory', 'recall']),
-    ...(builtinFeatureActive(configLike, 'git') ? [] : ['git', 'git_stage', 'github']),
+    ...(localGitToolsActive(configLike, toolProfile) ? [] : ['git']),
+    ...(builtinFeatureActive(configLike, 'git') ? [] : ['git_stage', 'github']),
     ...(browser ? [] : ['browser', 'browser_devtools']),
     ...(computer ? [] : ['computer']),
     ...(builtinFeatureActive(configLike, 'office') ? [] : ['office']),
@@ -108,6 +109,14 @@ export function featureDisallowedToolsFor(configLike, {
 
 export function builtinInstalled(configLike, id) {
   return configLike?.builtins?.[id]?.installed === true;
+}
+
+// The Git command tool needs no desktop extension installation in headless
+// runs. Existing feature overrides and explicit OFF preferences still apply.
+export function localGitToolsActive(configLike, toolProfile = 'interactive') {
+  return featureEnvOverride('MIXDOG_FEATURE_GIT')
+    ?? (moduleEnabled(configLike, 'git', true)
+      && (toolProfile === 'headless' || builtinInstalled(configLike, 'git')));
 }
 
 /** Capabilities that ask the user once per session before their first live

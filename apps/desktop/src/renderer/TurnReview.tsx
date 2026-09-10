@@ -1,4 +1,4 @@
-import { Check, FileDiff, Undo2, X } from "lucide-react";
+import { Check, FileDiff, FileText, Undo2, X } from "lucide-react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { t } from "./i18n";
 import { ErrorNotice } from "./ErrorNotice";
@@ -252,13 +252,14 @@ function summarizeTurnReviewOperations(items: TranscriptItem[], turnStart: numbe
 }
 
 export const TurnReviewBar = memo(function TurnReviewBar({
-  items, cwd, sessionId, active = true, busy = false, onPendingChange,
+  items, cwd, sessionId, active = true, busy = false, onPendingChange, onOpenFile,
 }: {
   items: TranscriptItem[];
   cwd?: string;
   sessionId?: string;
   active?: boolean;
   busy?: boolean;
+  onOpenFile?: (project: string, rel: string) => void;
   /** True while this scope's FIRST authoritative worker read is still in
    *  flight: the bar may still appear, change, or leave when it lands, so the
    *  host can keep its slot reserved until then. Delivered before paint. */
@@ -741,6 +742,13 @@ export const TurnReviewBar = memo(function TurnReviewBar({
               {!entry.lineStats && <span className="diff-stats" aria-hidden="true"><i /><em /></span>}
             </button>
             <span className="turn-review-action-slot">
+            <button type="button" className="turn-review-open"
+              aria-label={t("Open file {{file}}", { file: rel })}
+              data-tooltip={t("Open file")}
+              disabled={!cwd || !onOpenFile || (statusCode(entry) === "D" && !isReverted)}
+              onClick={() => { if (cwd) onOpenFile?.(cwd, rel); }}>
+              <FileText size={12} aria-hidden="true" />
+            </button>
             {ownFile && !isReverted && (confirming ? (
               <span className="turn-review-confirm" role="group"
                 aria-label={t("Confirm reverting {{file}} to the start of this turn", { file: rel })}>

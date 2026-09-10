@@ -32,7 +32,7 @@ import {
     PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS,
     streamStalledError,
 } from '../stall-policy.mjs';
-import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
+import { customToolCallFromResponseItem, nativeToolSearchCallFromArguments } from './custom-tool-wire.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
 import { _wsErrLabel, WS_MAX_INCOMING_FRAME_BYTES } from './openai-ws-pool.mjs';
 import { captureCodexTurnState } from './openai-turn-state.mjs';
@@ -434,12 +434,7 @@ export async function _streamResponse({
         if (!item || item.type !== 'tool_search_call') return;
         const callId = item.call_id || item.id || '';
         if (!callId || toolCalls.some((call) => call.id === callId)) return;
-        const call = {
-            id: callId,
-            name: 'load_tool',
-            arguments: parseToolSearchArgs(item.arguments),
-            nativeType: 'tool_search_call',
-        };
+        const call = nativeToolSearchCallFromArguments(callId, parseToolSearchArgs(item.arguments));
         toolCalls.push(call);
         emitToolCallDedupe(call);
     };

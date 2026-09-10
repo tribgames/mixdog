@@ -449,6 +449,10 @@ export function createSessionApiA(bag) {
     },
     goalControl: async (args = {}) => {
       const result = await runtime.goalControl?.(args);
+      if (['pause', 'stop'].includes(result?.action)) {
+        bag.cancelQueuedGoalContinuations?.();
+        if (getState().busy) abortGoalTurn(runtime, flags, false);
+      }
       set({ goal: runtime.goalStatus?.() || result?.goal || null });
       return result;
     },

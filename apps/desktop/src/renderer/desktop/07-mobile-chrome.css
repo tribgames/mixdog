@@ -834,6 +834,11 @@ html[data-mixdog-mobile-tabs] .command-surface[data-surface="context"] .context-
   gap: 10px;
   padding: 14px 16px 16px;
 }
+/* The caption rides the phone's 16px column too, with the sections' 14px
+   band above the shared hairline. */
+html[data-mixdog-mobile-tabs] .command-surface[data-surface="context"] .context-card > p {
+  padding: 0 16px 14px;
+}
 html[data-mixdog-mobile-tabs] .command-surface[data-surface="context"] .context-mix-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
@@ -1145,6 +1150,7 @@ html[data-mixdog-mobile-tabs] .tool-output-copy,
 html[data-mixdog-mobile-tabs] .tool-detail-copy,
 html[data-mixdog-mobile-tabs] .markdown-code-copy,
 html[data-mixdog-mobile-tabs] .live-work-stop,
+html[data-mixdog-mobile-tabs] .turn-review-open,
 html[data-mixdog-mobile-tabs] .turn-review-revert,
 html[data-mixdog-mobile-tabs] .queue-remove {
   width: var(--mx-touch-fixed-main);
@@ -1156,7 +1162,7 @@ html[data-mixdog-mobile-tabs] .message.assistant .response-footer:has(.turn-stat
 html[data-mixdog-mobile-tabs] .markdown-code > header {
   min-height: var(--mx-touch-fixed-main);
 }
-html[data-mixdog-mobile-tabs] .turn-review-action-slot { width: var(--mx-touch-fixed-main); }
+html[data-mixdog-mobile-tabs] .turn-review-action-slot { width: auto; }
 
 /* ── 4. Session drawer ─────────────────────────────────────────────────────
    Primary links keep the full touch tier; session rows use the compact row

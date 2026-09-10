@@ -48,6 +48,48 @@ export function isCustomToolCallRecord(call) {
   return call?.nativeType === 'custom_tool_call';
 }
 
+// A single client-side search tool loads either exact tool names or a skill.
+// Keep the actual response arguments intact for replay and dispatch policy.
+export function nativeToolSearchCallFromArguments(id, args) {
+  return {
+    id,
+    name: typeof args?.name === 'string' && !Object.hasOwn(args, 'names') ? 'Skill' : 'load_tool',
+    arguments: args,
+    nativeType: 'tool_search_call',
+  };
+}
+
+export function responsesToolLoadingSurface(tools = []) {
+  const skill = tools.find((tool) => tool?.name === 'Skill');
+  if (!skill) return tools;
+  const loader = tools.find((tool) => tool?.name === 'load_tool' || tool?.name === 'tool_search');
+  const parameters = {
+    type: 'object',
+    properties: {
+      ...(loader?.inputSchema?.properties || {}),
+      name: skill.inputSchema?.properties?.name || { type: 'string' },
+    },
+    ...(loader
+      ? { oneOf: [{ required: ['name'] }, { required: ['names'] }] }
+      : { required: ['name'] }),
+    additionalProperties: false,
+  };
+  const combined = {
+    ...(loader || skill),
+    name: loader?.name || 'load_tool',
+    description: [
+      loader?.description,
+      'For Skill instructions, call this tool with name:"skill-name" instead of names. It loads the skill body and its required tool schemas together; no second load is needed.',
+      skill.description,
+    ].filter(Boolean).join('\n'),
+    inputSchema: parameters,
+  };
+  return tools.flatMap((tool) => {
+    if (tool === (loader || skill)) return [combined];
+    return tool === skill ? [] : [tool];
+  });
+}
+
 export function nativeToolSearchCallInput(call) {
   if (call?.nativeType !== 'tool_search_call') return null;
   return {

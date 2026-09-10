@@ -3,6 +3,21 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { overlayHtml, overlayScript } from './content.ts';
 
+test('outline glow disappears while paused and returns on resume without hiding the track', () => {
+  const dom = new JSDOM(overlayHtml('ko'), { runScripts: 'outside-only' });
+  try {
+    dom.window.eval(overlayScript('ko'));
+    const publish = dom.window.mixdogComputerOverlay;
+    const highlight = dom.window.document.querySelector('#outline .highlight');
+    const track = dom.window.document.querySelector('#outline .track');
+    for (const [index, paused] of [false, true, false].entries()) {
+      publish({ paused, generation: 1, renderRevision: index + 1 });
+      assert.equal(dom.window.getComputedStyle(highlight).display === 'none', paused);
+      assert.notEqual(dom.window.getComputedStyle(track).display, 'none');
+    }
+  } finally { dom.window.close(); }
+});
+
 test('status text follows pause and cleanup while stale generations cannot replace it', () => {
   const dom = new JSDOM(overlayHtml('ko'), { runScripts: 'outside-only', url: 'https://fixture.invalid' });
   try {

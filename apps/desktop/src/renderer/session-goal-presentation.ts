@@ -64,11 +64,20 @@ export function goalElapsedLabel(goal: GoalSnapshot, clock: number): string {
   return formatGoalDuration(goalElapsedMs(goal, clock));
 }
 
+export function goalStatusLabel(goal: GoalSnapshot): string {
+  if (goal.status === 'paused') return t(goal.pauseReason === 'waiting' ? 'Waiting for your answer' : 'Paused');
+  if (goal.status === 'duration_reached') return t(goal.timeMode === 'max' ? 'Time budget reached' : 'Requested duration reached');
+  if (goal.status === 'blocked') return t('Blocked');
+  if (goal.status === 'usage_limited') return t('Provider usage limit reached');
+  if (goal.status === 'stopped') return t('Stopped');
+  if (goal.status === 'complete') return t('Complete');
+  return t('Working');
+}
+
 export function goalTimeLabel(goal: GoalSnapshot, clock: number): string {
   if (goal.status === 'complete') {
     return t('{{time}} elapsed', { time: formatGoalDuration(Number(goal.timeUsedMs) || 0) });
   }
-  if (!['active', 'paused', 'duration_reached'].includes(String(goal.status || ''))) return '';
   const total = Math.max(0, Number(goal.timeLimitMs) || 0);
   const elapsed = goalElapsedMs(goal, clock);
   if (total <= 0) {

@@ -9,6 +9,7 @@ import {
 import {
     isResponsesFreeformTool,
     toResponsesCustomTool,
+    responsesToolLoadingSurface,
 } from './custom-tool-wire.mjs';
 import { _envFlag } from './openai-oauth-http-sse.mjs';
 import { _findCachedCodexModel, codexModelSupportsServiceTier } from './openai-oauth.mjs';
@@ -193,7 +194,7 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
     // function tools. codex places `tools` right after `input` (before
     // tool_choice); we insert it there via a rebuilt object so serialization
     // order matches, rather than appending it last.
-    const functionTools = tools?.length ? tools.map(toOpenAIResponsesTool) : [];
+    const functionTools = tools?.length ? responsesToolLoadingSurface(tools).map(toOpenAIResponsesTool) : [];
     const nativeTools = Array.isArray(opts.nativeTools)
         ? opts.nativeTools.filter(t => t && typeof t === 'object')
         : [];

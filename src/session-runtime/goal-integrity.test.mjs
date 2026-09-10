@@ -187,7 +187,7 @@ test('completed Goals cannot be resurrected through pause or block', async (t) =
 test('requested duration blocks early model completion but preserves explicit user authority', async (t) => {
   let clock = 2_000_000_000_000;
   const f = fixture(t, { now: () => clock });
-  const created = (await f.create({ time_limit_minutes: 60 })).goal;
+  const created = (await f.create({ time_limit_minutes: 60, time_mode: 'duration' })).goal;
   await f.call({
     action: 'update_tasks',
     updates: created.tasks.map(({ id }) => ({ id, status: 'completed' })),
@@ -195,7 +195,7 @@ test('requested duration blocks early model completion but preserves explicit us
   await assert.rejects(f.call({ action: 'complete' }), /before the requested duration ends/);
   assert.equal(f.snapshot().status, 'active');
   assert.equal((await f.runtime.control(f.sessionId, { action: 'complete' })).goal.status, 'complete');
-  const next = (await f.create({ time_limit_minutes: 60 })).goal;
+  const next = (await f.create({ time_limit_minutes: 60, time_mode: 'duration' })).goal;
   await f.call({ action: 'update_tasks', updates: next.tasks.map(({ id }) => ({ id, status: 'completed' })) });
   clock += 60 * 60 * 1000;
   assert.equal((await f.call({ action: 'complete' })).goal.status, 'complete');
@@ -214,7 +214,8 @@ test('ordinary updates return bounded acknowledgements while reads and recovery 
   assert.equal(reply.goal.objective, undefined);
   assert.ok(Buffer.byteLength(JSON.stringify(args)) + Buffer.byteLength(JSON.stringify(reply)) < 600);
   assert.equal((await f.call({ action: 'status' })).goal.tasks.length, 20);
-  await f.call({ action: 'pause' });
+  await f.runtime.control(f.sessionId, { action: 'pause' });
+  await f.call({ action: 'status' });
   assert.equal((await f.call({ action: 'resume' })).goal.tasks.length, 20);
 });
 
@@ -248,7 +249,7 @@ test('resume commits task patches and additions together with activation in one 
     },
   });
   const created = (await f.create()).goal;
-  const paused = (await f.call({ action: 'pause', revision: created.revision })).goal;
+  const paused = (await f.runtime.control(f.sessionId, { action: 'pause', revision: created.revision })).goal;
   const events = [];
   f.runtime.subscribe(({ goal }) => events.push(goal));
   writes.length = 0;
@@ -285,7 +286,7 @@ test('invalid or unsaved resume task changes leave the entire paused state intac
     },
   });
   const created = (await f.create()).goal;
-  await f.call({ action: 'pause' });
+  await f.runtime.control(f.sessionId, { action: 'pause' });
   const paused = f.snapshot();
   const events = [];
   f.runtime.subscribe((event) => events.push(event));
@@ -319,7 +320,7 @@ test('invalid or unsaved resume task changes leave the entire paused state intac
 test('plain resume tolerates empty frozen-schema task fields without bypassing objective review', async (t) => {
   const f = fixture(t);
   await f.create();
-  await f.call({ action: 'pause' });
+  await f.runtime.control(f.sessionId, { action: 'pause' });
   await f.runtime.control(f.sessionId, { action: 'edit', objective: 'Changed work requiring review' });
   const current = (await f.call({ action: 'status' })).goal;
   await assert.rejects(f.call({

@@ -6,6 +6,9 @@ import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { GoalSubmissionContext, useGoalAfterSubmission } from './session-goal-submission';
 import { goalDisplayStatus, goalElapsedLabel, goalHasBackgroundWork, type GoalDisplayStatus } from './session-goal-presentation';
+import { goalTimeLabel, goalStatusLabel } from './session-goal-presentation';
+import { ComposerGoalDialog } from './ComposerGoalDialog';
+import type { GoalSnapshot } from './desktop-types';
 
 export { formatGoalDuration, goalCompletedTimeLabel, goalElapsedLabel, goalTimeLabel } from './session-goal-presentation';
 
@@ -26,6 +29,7 @@ function useGoalClock(active: boolean): number {
 // violate the 1px small-glyph standard if it ever won.
 function GoalGlyph({ status, working }: { status: GoalDisplayStatus; working: boolean }) {
   if (status === 'complete') return <MxIcon name="check" size={16} />;
+  if (status === 'stopped') return <MxIcon name="stop" size={16} />;
   if (working) return <MxIcon name="loading" size={16} />;
   if (status === 'paused' || status === 'duration_reached') {
     return <MxIcon name="paused" size={16} />;
@@ -67,6 +71,10 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const active = goal?.status === 'active';
   const clock = useGoalClock(active);
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<GoalSnapshot | null>(null);
+  const [confirmStop, setConfirmStop] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState('');
   const drawerId = useId();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const sessionId = String(snapshot.sessionId || '');
@@ -80,7 +88,9 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
     : displayStatus === 'paused' ? t('Paused')
       : displayStatus === 'active' ? t('Working') : undefined;
 
-  useEffect(() => setOpen(false), [sessionId, goal?.id]);
+  useEffect(() => {
+    setOpen(false); setEditing(null); setConfirmStop(false); setError('');
+  }, [sessionId, goal?.id]);
 
   // Presence diagnostics (MIXDOG_DESKTOP_PERF=1): the capsule sits in the
   // composer dock, so every mount/unmount moves the transcript by its height.
@@ -107,7 +117,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   // Dismiss on any interaction outside the island (or Escape) so the drawer
   // never lingers over the transcript once attention moves elsewhere.
   useEffect(() => {
-    if (!open) return undefined;
+    if (!open || editing) return undefined;
     const onPointerDown = (event: PointerEvent) => {
       const root = rootRef.current;
       if (root && event.target instanceof Node && root.contains(event.target)) return;
@@ -122,9 +132,25 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
       document.removeEventListener('pointerdown', onPointerDown, true);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [open]);
+  }, [open, editing]);
 
   const elapsedLabel = goal ? goalElapsedLabel(goal, clock) : '';
+  const control = async (action: string, values: Record<string, unknown> = {}): Promise<boolean> => {
+    if (pending || !sessionId || !goal?.id) return false;
+    setPending(true); setError('');
+    try {
+      const result = await window.mixdogDesktop.invokeCapability<{ ok?: boolean }>({
+        sessionId, capability: 'goalControl',
+        args: [{ action, expectedGoalId: goal.id, ...values }],
+      });
+      if (result?.value?.ok !== true) throw new Error(t('Goal could not be updated.'));
+      return true;
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+      setOpen(true);
+      return false;
+    } finally { setPending(false); }
+  };
   if (!goal) return null;
   const tasks = Array.isArray(goal.tasks) ? goal.tasks : [];
   const tasksTotal = Math.max(tasks.length, Number(goal.tasksTotal) || 0);
@@ -135,6 +161,8 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const progressLabel = `${tasksCompleted}/${tasksTotal}`;
   const title = String(goal.title || goal.objective || t('Goal'));
   const objective = String(goal.objective || '');
+  const terminal = goal.status === 'complete' || goal.status === 'stopped';
+  const exhausted = Number(goal.timeLimitMs) > 0 && Number(goal.remainingMs) === 0;
 
   return <div ref={rootRef} className="session-goal-island"
     data-status={displayStatus} data-waiting={waiting ? 'true' : 'false'}
@@ -157,11 +185,15 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
           </span>
         </button>
       </div>
-      <div className="session-goal-drawer" aria-hidden={open ? 'false' : 'true'}>
+      <div className="session-goal-drawer" aria-hidden={open ? 'false' : 'true'} inert={!open}>
         <div className="session-goal-drawer-clip">
           <section id={drawerId} className="session-goal-panel"
             role="region" aria-label={t('Goal tasks')}>
             <div className="session-goal-content">
+              <div className="session-goal-details" role="status">
+                <span>{goalStatusLabel(goal)}</span>
+                <span>{goalTimeLabel(goal, clock)}</span>
+              </div>
               <div className="session-goal-tasks">
                 {tasks.length > 0 ? <ul className="session-goal-task-list" aria-label={t('Goal tasks')}>
                   {tasks.map((task, index) => {
@@ -176,10 +208,35 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
                 </ul> : <p className="session-goal-empty">{t('No tasks yet.')}</p>}
               </div>
               {goal.blocker ? <p className="session-goal-blocker">{String(goal.blocker)}</p> : null}
+              {error && <p role="alert" className="session-goal-blocker">{error}</p>}
+              {!terminal && <div className="session-goal-actions">
+                <button type="button" className="composer-tool" disabled={pending}
+                  onClick={() => {
+                    if (!active && exhausted) setEditing({ ...goal });
+                    else void control(active ? 'pause' : 'resume');
+                  }}>{t(active ? 'Pause' : 'Resume')}</button>
+                <button type="button" className="composer-tool" disabled={pending}
+                  onClick={() => setEditing({ ...goal })}>{t('Edit goal')}</button>
+                <button type="button" className="composer-tool" disabled={pending}
+                  onClick={() => setConfirmStop(true)}>{t('Stop goal')}</button>
+              </div>}
+              {confirmStop && !terminal && <div className="session-goal-confirm" role="group" aria-label={t('Stop goal')}>
+                <p className="session-goal-blocker">{t('Stop this goal? Progress is kept, but it will not resume automatically.')}</p>
+                <div className="session-goal-actions">
+                  <button type="button" className="composer-tool" disabled={pending}
+                    onClick={() => setConfirmStop(false)}>{t('Cancel')}</button>
+                  <button type="button" className="composer-tool" disabled={pending}
+                    onClick={async () => { if (await control('stop')) setConfirmStop(false); }}>{t('Confirm stop')}</button>
+                </div>
+              </div>}
             </div>
           </section>
         </div>
       </div>
     </div>
+    {editing && <ComposerGoalDialog anchor={rootRef} disabled={pending} initialGoal={editing}
+      onSave={value => control('edit', { ...value, revision: editing.revision })}
+      onClose={() => setEditing(null)}
+      returnFocus={() => rootRef.current?.querySelector<HTMLButtonElement>('.session-goal-trigger')?.focus()} />}
   </div>;
 }

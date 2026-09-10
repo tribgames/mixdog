@@ -8,6 +8,7 @@ import { GOAL_TOOL_DEFS, GOAL_TASK_SETTLED, MAX_GOAL_TIME_LIMIT_MS, validateGoal
 import { applyGoalTaskChanges, goalTasksStartWork, normalizeGoalTasks, optionalGoalTaskChanges } from './goal-tasks.mjs';
 import { createGoalStorage, readGoalRecordFile, reportGoalStorageError } from './goal-storage.mjs';
 import { clean } from '../runtime/shared/clean.mjs';
+import { writeJsonAtomicAsync } from '../runtime/shared/atomic-file.mjs';
 
 export { GOAL_TOOL_DEFS, MAX_GOAL_TIME_LIMIT_MS };
 
@@ -23,6 +24,7 @@ export const GOAL_STATUS_VALUES = Object.freeze([
   // a normal stop rather than a failure.
   'duration_reached',
   'complete',
+  'stopped',
 ]);
 
 const GOAL_FILE_VERSION = 1;
@@ -53,6 +55,12 @@ function validateGoalBlocker(value) {
     throw new Error(`goal blocker exceeds ${MAX_GOAL_BLOCKER_LENGTH} characters`);
   }
   return blocker;
+}
+
+function goalTimeMode(value, fallback = 'max') {
+  if (value == null || value === '') return fallback;
+  if (!['max', 'duration'].includes(value)) throw new Error('goal timeMode must be max or duration');
+  return value;
 }
 
 export function parseGoalDuration(value) {
@@ -102,6 +110,8 @@ function normalizeStoredGoal(value, sessionId, resumedAt = Date.now()) {
     status,
     tasks: normalizeGoalTasks(value.tasks ?? value.criteria ?? []),
     blocker: clean(value.blocker),
+    pauseReason: value.pauseReason === 'waiting' ? 'waiting' : 'user',
+    blockAudit: value.blockAudit && typeof value.blockAudit === 'object' ? value.blockAudit : null,
     failureReason: clean(value.failureReason),
     failureCount: Math.max(0, Math.floor(Number(value.failureCount) || 0)),
     // Observations, never gates: how many turns this Goal has worked and when
@@ -117,6 +127,8 @@ function normalizeStoredGoal(value, sessionId, resumedAt = Date.now()) {
       ? value.lastDropTurn : -1,
     tasksUpdatedAt: Number(value.tasksUpdatedAt) > 0 ? Number(value.tasksUpdatedAt) : null,
     timeLimitMs,
+    // Unversioned durations keep their original full-period commitment.
+    timeMode: goalTimeMode(value.timeMode, 'duration'),
     timeUsedMs: Math.max(0, Number(value.timeUsedMs) || 0),
     createdAt: Math.max(0, Number(value.createdAt) || Date.now()),
     updatedAt: Math.max(0, Number(value.updatedAt) || Date.now()),
@@ -126,6 +138,7 @@ function normalizeStoredGoal(value, sessionId, resumedAt = Date.now()) {
       ? Math.max(0, Number(value.lastStartedAt) || Number(resumedAt) || Date.now())
       : null,
     completedAt: Number(value.completedAt) > 0 ? Number(value.completedAt) : null,
+    stoppedAt: Number(value.stoppedAt) > 0 ? Number(value.stoppedAt) : null,
     archivedAt: Number(value.archivedAt) > 0 ? Number(value.archivedAt) : null,
   };
   return goal;
@@ -161,7 +174,10 @@ function publicGoal(goal, now = Date.now()) {
     // so retiring work moves progress forward instead of freezing it.
     tasksTotal: tasks.filter((task) => task.status !== 'dropped').length,
     blocker: goal.blocker || '',
+    pauseReason: goal.pauseReason || 'user',
+    blockAudit: goal.blockAudit || null,
     timeLimitMs: goal.timeLimitMs,
+    timeMode: goal.timeMode,
     timeUsedMs,
     remainingMs,
     deadlineAt: hasTimeLimit && goal.status === 'active' && goal.lastStartedAt
@@ -172,6 +188,7 @@ function publicGoal(goal, now = Date.now()) {
     updatedAt: goal.updatedAt,
     lastStartedAt: goal.lastStartedAt,
     completedAt: goal.completedAt,
+    stoppedAt: goal.stoppedAt,
     archivedAt: goal.archivedAt,
   };
 }
@@ -231,13 +248,16 @@ function activateGoal(goal, now = Date.now()) {
   goal.completedAt = null;
   goal.archivedAt = null;
   goal.blocker = '';
+  goal.blockAudit = null;
   clearTurnFailures(goal);
 }
 
 function resumeGoalState(goal, at, added = null) {
   stopActiveClock(goal, at);
   if (added != null) goal.timeLimitMs = Math.min(MAX_GOAL_TIME_LIMIT_MS, goal.timeUsedMs + added);
-  if (goal.timeLimitMs > 0 && goal.timeLimitMs <= goal.timeUsedMs) goal.timeLimitMs = 0;
+  if (goal.timeLimitMs > 0 && goal.timeLimitMs <= goal.timeUsedMs) {
+    throw new Error('Goal time budget is exhausted; extend the time budget before resuming');
+  }
   activateGoal(goal, at);
   goal.updatedAt = at;
 }
@@ -253,13 +273,19 @@ function parseUserCommand(command) {
   const token = clean(match?.[1]).toLowerCase();
   const rest = clean(match?.[2]);
   if (['status', 'show', 'current'].includes(token)) return { action: 'get' };
-  if (['pause', 'clear', 'complete'].includes(token)) return { action: token };
+  if (['pause', 'stop', 'clear', 'complete'].includes(token)) return { action: token };
   if (token === 'resume') return { action: 'resume', duration: rest || null };
   if (token === 'edit') return { action: 'edit', objective: rest };
   if (token === 'time') return { action: 'time', duration: rest };
 
   let objective = value;
   let duration = null;
+  let timeMode = 'max';
+  const modeMatch = objective.match(/(?:^|\s)--time-mode(?:=|\s+)([^\s]+)/i);
+  if (modeMatch) {
+    timeMode = goalTimeMode(modeMatch[1]);
+    objective = objective.replace(modeMatch[0], ' ').trim();
+  }
   const equalsMatch = objective.match(/(?:^|\s)--time=([^\s]+)/i);
   if (equalsMatch) {
     duration = equalsMatch[1];
@@ -271,7 +297,7 @@ function parseUserCommand(command) {
       objective = objective.replace(spacedMatch[0], ' ').trim();
     }
   }
-  return { action: 'create', objective, duration };
+  return { action: 'create', objective, duration, timeMode };
 }
 
 function runningAgentWork(agentStatus) {
@@ -408,6 +434,7 @@ export function createGoalRuntime({
       const stateKey = (value) => JSON.stringify([
         value?.objective, value?.tasks, value?.status, value?.blocker,
         value?.timeLimitMs, value?.archivedAt, value?.tasksObjectiveRevision,
+        value?.timeMode, value?.pauseReason, value?.blockAudit,
       ]);
       committedGoal.revision = previous?.id === goal.id
         ? previous.revision + Number(stateKey(previous) !== stateKey(committedGoal))
@@ -532,7 +559,7 @@ export function createGoalRuntime({
   const createGoal = async (sessionId, args = {}) => {
     const id = assertSessionId(sessionId);
     const record = readRecord(id);
-    if (record.goal && !['complete'].includes(record.goal.status)) {
+    if (record.goal && !['complete', 'stopped'].includes(record.goal.status)) {
       // Recovery is part of the message on purpose: without it a stopped Goal
       // (paused/blocked/limited) permanently blocked every later Goal in the
       // session, because the model owns no way to retire one.
@@ -571,6 +598,7 @@ export function createGoalRuntime({
         ? (args.startInCurrentTurn === true ? 1 : 0) : -1,
       tasksUpdatedAt: initialTasks.length > 0 ? at : null,
       timeLimitMs,
+      timeMode: goalTimeMode(args.timeMode),
       timeUsedMs: 0,
       createdAt: at,
       updatedAt: at,
@@ -581,6 +609,12 @@ export function createGoalRuntime({
     if (args.startInCurrentTurn === true) {
       const startedAt = turnStartedAt.get(id) || at;
       goal.lastStartedAt = startedAt;
+    }
+    if (record.goal?.status === 'stopped') {
+      const write = writeGoalRecord || writeJsonAtomicAsync;
+      await write(join(root, 'history', id, `${assertSessionId(record.goal.id)}.json`),
+        { version: GOAL_FILE_VERSION, goal: record.goal },
+        { lock: true, secret: true, fsync: false, timeoutMs: 2_000 });
     }
     const created = await commit(id, goal);
     if (args.startInCurrentTurn === true) {
@@ -599,6 +633,7 @@ export function createGoalRuntime({
     }
     const at = now();
     const status = clean(args.status).toLowerCase();
+    if (goal.status === 'stopped') throw new Error('a stopped Goal cannot resume or complete; create a new Goal');
     if (!status) throw new Error('update_goal status is required');
     if (!['active', 'complete', 'blocked'].includes(status)) {
       throw new Error('update_goal can only set status active, complete, or blocked');
@@ -626,15 +661,9 @@ export function createGoalRuntime({
           throw new Error('cannot complete Goal: objective changed; read goal status and reconcile the full task list with set_tasks first');
         }
         const tasks = normalizeGoalTasks(goal.tasks || []);
-        if (tasks.length === 0) {
-          throw new Error('cannot complete Goal: create at least one durable task first');
-        }
         const incomplete = tasks.filter((task) => !GOAL_TASK_SETTLED.includes(task.status));
         if (incomplete.length > 0) {
           throw new Error(`cannot complete Goal: ${incomplete.length} durable tasks remain incomplete`);
-        }
-        if (!tasks.some((task) => task.kind === 'verification' && task.status === 'completed')) {
-          throw new Error('cannot complete Goal: complete at least one verification task first');
         }
         const turnCount = Math.max(0, Math.floor(Number(goal.turnCount) || 0));
         if (goal.lastDropTurn >= 0 && goal.lastDropTurn === turnCount) {
@@ -643,7 +672,7 @@ export function createGoalRuntime({
             + 'requested work, so finish that work or let the user confirm the change first',
           );
         }
-        if (goal.timeLimitMs > 0 && activeElapsedMs(goal, at) < goal.timeLimitMs) {
+        if (goal.timeMode === 'duration' && goal.timeLimitMs > 0 && activeElapsedMs(goal, at) < goal.timeLimitMs) {
           throw new Error('cannot complete Goal before the requested duration ends; keep working, or the user may explicitly complete the Goal');
         }
       }
@@ -655,6 +684,16 @@ export function createGoalRuntime({
       clearTurnFailures(goal);
     } else if (status === 'blocked') {
       const blocker = validateGoalBlocker(args.blocker);
+      const turn = goal.turnCount;
+      const previous = goal.blockAudit;
+      const count = previous?.reason === blocker && previous.turn === turn
+        ? previous.count
+        : previous?.reason === blocker && previous.turn === turn - 1 ? previous.count + 1 : 1;
+      goal.blockAudit = { reason: blocker, turn, count };
+      if (count < 3) {
+        goal.updatedAt = at;
+        return commit(id, goal);
+      }
       if (turnGoalIds.get(id) === goal.id) checkpointActiveClock(goal, at);
       else stopActiveClock(goal, at);
       goal.status = 'blocked';
@@ -674,7 +713,8 @@ export function createGoalRuntime({
     const at = now();
     const previousTasks = goal.tasks;
     applyGoalTaskChanges(goal, args, { partial, at });
-    if (goal.status === 'paused' && goalTasksStartWork(previousTasks, goal.tasks, args, { partial })) {
+    if (goal.status === 'paused' && goal.pauseReason === 'waiting'
+      && goalTasksStartWork(previousTasks, goal.tasks, args, { partial })) {
       // Starting approved work and resuming its Goal are one durable write.
       // Intake, status reads, and bookkeeping alone never grant approval.
       resumeGoalState(goal, at);
@@ -691,10 +731,14 @@ export function createGoalRuntime({
     if (clean(expectedGoalId) && clean(expectedGoalId) !== clean(goal.id)) {
       throw new Error('stale Goal abandon rejected because the active Goal changed');
     }
-    clearDeadline(id);
-    await commit(id, null);
+    stopActiveClock(goal, now());
+    goal.status = 'stopped';
+    goal.stoppedAt = now();
+    goal.updatedAt = goal.stoppedAt;
+    goal.blocker = '';
+    await commit(id, goal);
     turnGoalIds.delete(id);
-    return null;
+    return publicGoal(goal, now());
   };
 
   const control = async (sessionId, rawArgs = {}) => {
@@ -711,6 +755,7 @@ export function createGoalRuntime({
         objective: args.objective,
         duration: args.duration,
         timeLimitMs: args.timeLimitMs,
+        timeMode: args.timeMode,
       });
       return {
         ok: true,
@@ -745,12 +790,21 @@ export function createGoalRuntime({
     if (expectedGoalId && expectedGoalId !== clean(goal.id)) {
       throw new Error('stale Goal update rejected because the active Goal changed');
     }
+    if (args.revision != null && args.revision !== goal.revision) {
+      throw new Error('Goal changed while editing; reopen the editor before saving');
+    }
     const at = now();
+    if (goal.status === 'stopped') throw new Error('a stopped Goal cannot be changed; create a new Goal');
+    if (action === 'stop') {
+      goal = await abandonGoal(id, { expectedGoalId });
+      return { ok: true, action, goal, message: `Goal stopped · ${goal.objective}` };
+    }
     if (action === 'pause') {
       if (goal.status === 'complete') throw new Error('a completed Goal cannot be paused; edit it or create a new Goal');
       if (goal.status === 'active') stopActiveClock(goal, at);
       goal.status = 'paused';
-      goal.blocker = '';
+      goal.pauseReason = args.pauseReason === 'waiting' ? 'waiting' : 'user';
+      goal.blocker = args.pauseReason === 'waiting' ? validateGoalBlocker(args.blocker) : '';
       clearTurnFailures(goal);
       goal.updatedAt = at;
       goal = await commit(id, goal);
@@ -783,9 +837,15 @@ export function createGoalRuntime({
       // the CURRENT objective, so wiping the list meant refining one word threw
       // away every completed row; re-aligning a stale list is set_tasks' job.
       const objective = validateObjective(args.objective);
+      const timeLimitMs = args.timeLimitMs != null
+        ? (args.timeLimitMs === 0 ? 0 : parseGoalDuration(args.timeLimitMs))
+        : args.duration != null ? parseGoalDuration(args.duration) : goal.timeLimitMs;
+      const timeMode = goalTimeMode(args.timeMode, goal.timeMode);
       if (objective !== goal.objective) goal.objectiveRevision += 1;
       goal.objective = objective;
       goal.title = compactSessionTitle(goal.objective);
+      goal.timeLimitMs = timeLimitMs;
+      goal.timeMode = timeMode;
       if (goal.status === 'complete') activateGoal(goal, at);
       else clearTurnFailures(goal);
       goal.updatedAt = at;
@@ -829,6 +889,7 @@ export function createGoalRuntime({
         tasksCompleted: goal.tasksCompleted, tasksTotal: goal.tasksTotal,
         tasksUpdatedAt: goal.tasksUpdatedAt, timeUsedMs: goal.timeUsedMs,
         ...(goal.blocker ? { blocker: goal.blocker } : {}),
+        ...(goal.blockAudit ? { blockAudit: goal.blockAudit } : {}),
         ...(goal.needsTaskReview ? { needsTaskReview: true } : {}),
       },
       remaining_ms: goal?.remainingMs ?? null,
@@ -882,18 +943,32 @@ export function createGoalRuntime({
           tasks: args.tasks,
           startInCurrentTurn: true,
           ...(timeLimitMs != null ? { timeLimitMs } : {}),
+          timeMode: args.time_mode,
         }));
         return toolReply(id, goal, { full: true });
       }
       if (action === 'abandon') {
-        await mutateObserved(id, args, (expectedGoalId) => abandonGoal(id, { expectedGoalId }));
-        return toolReply(id, null);
+        const goal = await mutateObserved(id, args, (expectedGoalId) => abandonGoal(id, { expectedGoalId }));
+        return toolReply(id, goal);
       }
       if (action === 'pause' || action === 'resume') {
-        const result = await mutateObserved(id, args, (expectedGoalId) => control(id, {
-          action, expectedGoalId,
-          ...(action === 'resume' ? { updates: args.updates, tasks: args.tasks } : {}),
-        }));
+        const result = await mutateObserved(id, args, (expectedGoalId) => {
+          const current = requireGoal(id);
+          if (['complete', 'stopped'].includes(current.status)) {
+            throw new Error(`a ${current.status === 'complete' ? 'completed' : 'stopped'} Goal cannot be paused or resumed`);
+          }
+          if (action === 'pause') {
+            const remaining = current.tasks.filter((task) => !GOAL_TASK_SETTLED.includes(task.status));
+            if (!remaining.length || remaining.some((task) => task.status !== 'awaiting_approval')) {
+              throw new Error('cannot pause Goal: continue available work; park every user-dependent remaining task as awaiting_approval first');
+            }
+          }
+          return control(id, {
+            action, expectedGoalId,
+            ...(action === 'resume' ? { updates: args.updates, tasks: args.tasks }
+              : { pauseReason: 'waiting', blocker: args.blocker }),
+          });
+        });
         return toolReply(id, result.goal, { full: action === 'resume' });
       }
       if (action === 'set_tasks' || action === 'update_tasks') {
@@ -920,6 +995,7 @@ export function createGoalRuntime({
       const goal = await withMutation(id, () => createGoal(id, {
           objective: args.objective,
           ...(Number.isFinite(minutes) && minutes > 0 ? { timeLimitMs: minutes * 60_000 } : {}),
+          timeMode: 'duration',
         }));
       return toolReply(id, goal, { full: true });
     }
@@ -1001,6 +1077,7 @@ export function createGoalRuntime({
           stopActiveClock(goal, at);
           clearTurnFailures(goal);
           goal.status = 'paused';
+          goal.pauseReason = 'user';
           goal.blocker = '';
         } else if (status === 'failed' && goal.status === 'active') {
           const failureReason = clean(detail?.error) || 'Goal turn failed';

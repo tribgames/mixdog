@@ -39,6 +39,28 @@ const COMPRESSIBLE_TYPE = /^(?:text\/|application\/(?:json|wasm)|image\/svg)/;
 const COMPRESS_MIN_BYTES = 1024;
 // Siblings written by `npm run stage:web` next to each text asset.
 const PRECOMPRESSED_EXTENSIONS = new Set(['.br', '.gz']);
+// Keep validators, not asset bodies, across requests. Release swaps and
+// in-place edits invalidate the entry, including precompressed siblings.
+const staticValidators = new Map();
+function staticEtag(target, encoding) {
+  const info = statSync(target);
+  const stamp = [info.dev, info.ino, info.size, info.mtimeMs, info.ctimeMs, encoding].join(':');
+  const cached = staticValidators.get(target);
+  if (cached?.stamp === stamp) return cached.etag;
+  const etag = `W/"${createHash('sha256').update(encoding).update(readFileSync(target)).digest('hex')}"`;
+  staticValidators.delete(target);
+  staticValidators.set(target, { stamp, etag });
+  while (staticValidators.size > 256) staticValidators.delete(staticValidators.keys().next().value);
+  return etag;
+}
+
+function notModified(request, etag) {
+  if (request.method !== 'GET' && request.method !== 'HEAD') return false;
+  return String(request.headers['if-none-match'] || '').split(',').some((value) => {
+    const candidate = value.trim();
+    return candidate === '*' || candidate.replace(/^W\//, '') === etag.replace(/^W\//, '');
+  });
+}
 export const BROWSER_SECURITY_HEADERS = Object.freeze({
   'Content-Security-Policy': [
     "default-src 'self'",
@@ -166,14 +188,17 @@ export function sendDeviceManifest(request, response, target, deviceId) {
   } catch {
     return false;
   }
-  response.writeHead(200, {
+  const etag = `W/"${createHash('sha256').update(body).digest('hex')}"`;
+  const unchanged = notModified(request, etag);
+  response.writeHead(unchanged ? 304 : 200, {
     ...BROWSER_SECURITY_HEADERS,
     'Content-Type': MIME_TYPES['.webmanifest'],
     'Cache-Control': 'no-cache',
-    'Content-Length': Buffer.byteLength(body),
+    ETag: etag,
+    ...(unchanged ? {} : { 'Content-Length': Buffer.byteLength(body) }),
     ...deviceCookieHeaders(deviceId, request),
   });
-  response.end(request.method === 'HEAD' ? undefined : body);
+  response.end(unchanged || request.method === 'HEAD' ? undefined : body);
   return true;
 }
 
@@ -316,8 +341,14 @@ export function sendStaticFile(request, response, target, extraHeaders = {}) {
         ? 'public, max-age=31536000, immutable'
         : 'public, max-age=86400',
     Vary: 'Accept-Encoding',
+    ETag: staticEtag(precompressed?.path || target, precompressed?.encoding || (gzip ? 'gzip' : 'identity')),
     ...extraHeaders,
   };
+  if (notModified(request, headers.ETag)) {
+    response.writeHead(304, headers);
+    response.end();
+    return;
+  }
   // A precompressed file has a known length, so the browser gets a real
   // progress figure. Live gzip does not: its byte count is only settled when
   // the stream ends.

@@ -210,6 +210,7 @@ export function Conversation({
   onRoutePreferenceApplied,
   onDraftWorkflow,
   onOpenCommandSurface,
+  onOpenFile,
   streamingTailSlot,
   runtimeProgressSlot,
   goalIsland,
@@ -253,6 +254,7 @@ export function Conversation({
   onRoutePreferenceApplied?: (selection: DesktopModelSelection) => void;
   onDraftWorkflow?: (workflow: DesktopWorkflowState) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
+  onOpenFile?: (project: string, rel: string) => void;
   /** Selector-driven live row; keeps token publications out of this shell. */
   streamingTailSlot?: ReactNode;
   /** Selector-driven runtime status; progress publications do not rerender the
@@ -1014,6 +1016,7 @@ export function Conversation({
           review) lives in the dock, which owns how each slot's geometry
           commits against the transcript viewport. */}
       {!readOnly && <ComposerDock
+        onOpenFile={onOpenFile}
         goalIsland={goalIsland}
         goalSubmissionId={goalSubmissionId}
         runtimeProgress={runtimeProgressSlot ?? (Boolean(asRecord(snapshot.progressHint)?.text)

@@ -35,6 +35,7 @@ import {
   type SidebarViewPlacement,
 } from "./sidebar-view-layout";
 import { viewGroupContainerDropProps } from "./view-group-layout";
+import { useDockVisibilityMenu, type DockIconEntry } from "./dock-icon-visibility";
 
 export type ActivityRailSurface =
   "projects" | "schedules" | "webhooks" | "settings";
@@ -57,6 +58,7 @@ export function ActivityRail({
   onMoveViewGroup,
   onMoveView,
   primaryNavigation,
+  navigationItems,
 }: {
   activeSurface: ActivityRailSurface | null;
   sidebarOpen: boolean;
@@ -85,6 +87,7 @@ export function ActivityRail({
     placement: SidebarViewPlacement,
   ): void;
   primaryNavigation?: React.ReactNode;
+  navigationItems?: readonly DockIconEntry[];
 }) {
   // Codicon names (user: 레일 아이콘이 오히려 흐려 — B안 확장): the rail
   // renders codicon activity-bar font glyphs, pixel-crisp at their native
@@ -137,6 +140,17 @@ export function ActivityRail({
   // list. Only the dashboard MARKUP is flyout-scoped; its data lives in the
   // shared store below so the first open never starts from nothing.
   const [usageOpen, setUsageOpen] = useState(false);
+  const { isVisible, menuProps, menu } = useDockVisibilityMenu([
+    ...(navigationItems ?? [
+      ...(desktopFeatureEnabled("sessions") ? [{ id: "sessions", label: "Sessions" }] : []),
+      ...orderedSurfaceGroups.map(({ surface }) => ({ id: surface.id, label: surface.tooltip })),
+    ]),
+    ...(desktopFeatureEnabled("usage") ? [{ id: "usage", label: "Usage" }] : []),
+    ...(desktopFeatureEnabled("settings") ? [{ id: "settings", label: "Settings" }] : []),
+  ], "Activity Bar");
+  useEffect(() => {
+    if (!isVisible("usage")) setUsageOpen(false);
+  }, [isVisible("usage")]);
   // ABB: the usage flyout closes on hardware back.
   useMobileBack(usageOpen, () => setUsageOpen(false));
   const usageSnapshot = useSyncExternalStore(subscribeUsageDashboard, getUsageDashboardSnapshot);
@@ -198,13 +212,14 @@ export function ActivityRail({
   }, [usageOpen]);
   return (
     <aside className="activity-rail" aria-label={t("Activity Bar")} ref={railRef}
+      {...menuProps}
       {...railGapDropProps}>
       <nav className="sidebar-primary-nav" aria-label={t("Sidebar")} ref={navRef}>
         {primaryNavigation ?? <>
         {/* The Sessions toggle behaves like an Explorer button: pressing it
             expands/collapses the session panel. is-active (not selected)
             tracks the OPEN panel so surface selection stays separate. */}
-        {desktopFeatureEnabled("sessions") && <button type="button" className={`sessions-link ${sidebarOpen ? "is-active" : ""}`}
+        {desktopFeatureEnabled("sessions") && isVisible("sessions") && <button type="button" className={`sessions-link ${sidebarOpen ? "is-active" : ""}`}
           aria-label={t("Sessions")} aria-expanded={sidebarOpen} aria-controls="session-sidebar"
           data-tooltip={t("Sessions")} onClick={onToggleSessions}>
           <span className="codicon codicon-comment-discussion" aria-hidden="true" />
@@ -213,7 +228,7 @@ export function ActivityRail({
             right utility dock (user: 원래 의도 — 좌측은 앱 목적지, 우측은
             코드 도구). Duplicating them here split one destination across
             both rails. */}
-        {orderedSurfaceGroups.map(({ group, surface }) => {
+        {orderedSurfaceGroups.filter(({ surface }) => isVisible(surface.id)).map(({ group, surface }) => {
           const { id, label, tooltip, icon, onOpen, onPrefetch } = surface;
           const rootId = group[0];
           const selected = activeSurface !== null
@@ -277,7 +292,7 @@ export function ActivityRail({
         </>}
       </nav>
       <div className="activity-rail-spacer" />
-      {desktopFeatureEnabled("usage") && <button type="button"
+      {desktopFeatureEnabled("usage") && isVisible("usage") && <button type="button"
         className={`sidebar-usage-toggle ${usageOpen ? "is-active" : ""}${
           usagePinRows.length ? " is-pinned" : ""}`}
         aria-label={t("Usage")} aria-expanded={usageOpen} aria-haspopup="dialog"
@@ -318,7 +333,7 @@ export function ActivityRail({
           : usagePinLoading ? <InitialSurface variant="icon" />
             : <span className="codicon codicon-pie-chart" aria-hidden="true" />}
       </button>}
-      {desktopFeatureEnabled("settings") && <button type="button" ref={settingsRef}
+      {desktopFeatureEnabled("settings") && isVisible("settings") && <button type="button" ref={settingsRef}
         className={`sidebar-settings-button ${activeSurface === "settings" ? "selected" : ""}`}
         aria-label={t("Open settings")} aria-current={activeSurface === "settings" ? "page" : undefined}
         data-tooltip={t("Settings")} onPointerEnter={onPrefetchSettings}
@@ -342,6 +357,7 @@ export function ActivityRail({
           onAddProviders={() => { setUsageOpen(false); (onOpenProviders || onOpenSettings)(); }}
           pinned={usagePinned} onTogglePin={toggleUsagePin} />
       </div>}
+      {menu}
     </aside>
   );
 }

@@ -8,22 +8,27 @@ export function createRemoteStateLane(
   send: (payload: unknown, droppable: boolean) => Promise<void>,
 ) {
   const encoder = createSnapshotDeltaEncoder({ compact });
-  type Publication = { snapshot: unknown; critical: boolean };
+  type Publication = {
+    snapshot: unknown;
+    critical: boolean;
+    baselineSend?: (payload: unknown) => Promise<void>;
+  };
   let lastDelivery: Promise<void> = Promise.resolve();
   let mailbox!: LatestStateMailbox<Publication>;
-  mailbox = createLatestStateMailbox((sequence, { snapshot, critical }) => {
+  mailbox = createLatestStateMailbox((sequence, { snapshot, critical, baselineSend }) => {
     const wire = encoder.encode(snapshot);
+    const payload = compact ? { e: 'S', w: wire } : { event: 'state', payload: wire };
     const delivered = isNoDelta(wire)
       ? Promise.resolve()
-      : send(compact ? { e: 'S', w: wire } : { event: 'state', payload: wire }, !critical);
+      : baselineSend ? baselineSend(payload) : send(payload, !critical);
     lastDelivery = delivered;
     void delivered.catch(() => undefined).finally(() => mailbox.acknowledge(sequence));
   });
   return {
     publish(snapshot: unknown): void { mailbox.publish({ snapshot, critical: false }); },
-    reset(snapshot: unknown): Promise<void> {
+    reset(snapshot: unknown, baselineSend?: (payload: unknown) => Promise<void>): Promise<void> {
       encoder.reset();
-      mailbox.reset({ snapshot, critical: true });
+      mailbox.reset({ snapshot, critical: true, baselineSend });
       return lastDelivery;
     },
     clear(): void {

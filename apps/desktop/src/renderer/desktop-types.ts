@@ -63,7 +63,9 @@ export type GoalSnapshot = {
   sessionId?: string;
   objective?: string;
   title?: string;
-  status?: 'active' | 'paused' | 'blocked' | 'usage_limited' | 'duration_reached' | 'complete';
+  status?: 'active' | 'paused' | 'blocked' | 'usage_limited' | 'duration_reached' | 'complete' | 'stopped';
+  pauseReason?: 'user' | 'waiting';
+  timeMode?: 'max' | 'duration';
   tasks?: GoalTask[];
   tasksCompleted?: number;
   tasksTotal?: number;
@@ -79,6 +81,7 @@ export type GoalSnapshot = {
   updatedAt?: number;
   lastStartedAt?: number | null;
   completedAt?: number | null;
+  stoppedAt?: number | null;
 };
 export type Snapshot = RecordValue & {
   items?: TranscriptItem[];

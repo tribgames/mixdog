@@ -103,15 +103,53 @@ test('context input validates numbers, applies explicitly, and supports automati
   try {
     await enter('262145');
     assert.equal(input().getAttribute('aria-invalid'), 'true');
-    assert.equal(button('Apply and reload').disabled, true);
+    assert.equal(button('Apply').disabled, true);
     await enter('16384');
     assert.deepEqual(calls, []);
-    await act(async () => button('Apply and reload').click());
+    await act(async () => button('Apply').click());
     assert.deepEqual(calls[0], ['setLocalProviderContext', ['installed', 16384]]);
-    await act(async () => button('Automatic (recommended)').click());
-    await act(async () => button('Apply and reload').click());
+    await enter('');
+    await act(async () => button('Apply').click());
     assert.deepEqual(calls[1], ['setLocalProviderContext', ['installed', null]]);
   } finally {
+    await mounted.dispose();
+  }
+});
+
+test('changing idle release keeps context controls stable while the request is pending', async () => {
+  const request = deferred();
+  const current = status({
+    installed: true, runtime: { installed: true }, idleTtlSeconds: 3600,
+    models: [{ id: 'installed', name: 'Managed model', installed: true,
+      contextWindow: 8192, configuredContextWindow: 8192, maxContextWindow: 32768 }],
+  });
+  const calls = [];
+  const mounted = await mount({
+    readCapabilities: async () => [{ ok: true, value: { localProvider: current } }],
+  }, current, async (capability, args) => {
+    calls.push([capability, args]);
+    return request.promise;
+  });
+  try {
+    const row = document.querySelector('[data-extension-item="Managed model"]');
+    const input = row.querySelector('input');
+    const apply = [...row.querySelectorAll('button')].find((button) => button.textContent === 'Apply');
+    const originalText = row.textContent;
+    const selector = document.querySelector('[data-feature-id="localProvider"] [role="combobox"]');
+    await act(async () => selector.click());
+    await act(async () => [...document.querySelectorAll('[role="option"]')]
+      .find((option) => option.textContent === 'After 30 minutes').click());
+    assert.deepEqual(calls, [['setLocalProviderIdleTtl', [1800]]]);
+    assert.equal(input.disabled, true);
+    assert.equal(apply.disabled, true);
+    assert.equal(row.textContent, originalText);
+    assert.equal(input.value, '8192');
+    await act(async () => request.resolve({ localProvider: { ...current, idleTtlSeconds: 1800 } }));
+    assert.equal(input.disabled, false);
+    assert.equal(row.textContent, originalText);
+    assert.equal(input.value, '8192');
+  } finally {
+    await act(async () => request.resolve({}));
     await mounted.dispose();
   }
 });
@@ -193,6 +231,10 @@ test('detail can stop the shared download, resume retained files and change idle
     await act(async () => [...document.querySelectorAll('[role="option"]')]
       .find((option) => option.textContent === 'Never').click());
     assert.deepEqual(calls[2], ['setLocalProviderIdleTtl', [0]]);
+    await act(async () => selector.click());
+    await act(async () => [...document.querySelectorAll('[role="option"]')]
+      .find((option) => option.textContent === 'After 30 minutes').click());
+    assert.deepEqual(calls[3], ['setLocalProviderIdleTtl', [1800]]);
   } finally {
     await mounted.dispose();
   }

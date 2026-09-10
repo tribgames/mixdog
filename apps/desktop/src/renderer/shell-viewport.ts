@@ -1,7 +1,7 @@
 // Shared viewport writer. Web and Electron use the same 940/760 CSS bands;
 // remote only marks itself so the - ㅁ x caption reserve can stay off.
 
-function remoteSurface(): boolean {
+export function remoteSurface(): boolean {
   return Boolean((window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer);
 }
 

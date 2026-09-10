@@ -2121,6 +2121,10 @@ export function App() {
         onSelectProject: conversationSelectProject,
         onOpenCommandSurface: (surface) =>
           openConversationCommandSurface(surface, paneSessionId),
+        onOpenFile: (project, rel) => {
+          focusPane();
+          openFileTab(project, rel);
+        },
         // The context card runs inheritance in place; /inherit keeps the
         // dialog for the typed command.
         onInheritSession: replaceWithInheritedSession,
@@ -2587,6 +2591,10 @@ export function App() {
           onOpenSettings={() => { closeSidebarForNavigation("instant"); openSettings(); }}
           onOpenProviders={() => { closeSidebarForNavigation("instant"); openSettings('providers'); }}
           onPrefetchSettings={warmSettingsView}
+          navigationItems={workbenchSideLayout.layout.left.flatMap((group) => {
+            const descriptor = sideViewDescriptors.get(group[0]);
+            return descriptor ? [{ id: group[0], label: descriptor.tooltip || descriptor.label }] : [];
+          })}
           primaryNavigation={<WorkbenchSideIconBar
             side="left"
             groups={workbenchSideLayout.layout.left}
@@ -2686,6 +2694,7 @@ export function App() {
               activeProjectPath={activeProjectPath}
               activeProjectLabel={activeProjectLabel}
               onSelectProject={conversationSelectProject}
+              onOpenFile={openFileTab}
               onOpenCommandSurface={openConversationCommandSurface} />
           </div>
             );

@@ -35,7 +35,7 @@ import { stampStreamOutcome, readStreamOutcome, STREAM_TRANSPORTS } from './lib/
 import { getLlmDispatcher, recycleLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
 import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './anthropic-leaked-toolcall.mjs';
-import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
+import { customToolCallFromResponseItem, nativeToolSearchCallFromArguments } from './custom-tool-wire.mjs';
 import { CODEX_OAUTH_ORIGINATOR, CODEX_RESPONSES_URL, _displayCodexModel } from './openai-oauth.mjs';
 import { createActiveToolItemTracker } from './tool-stream-state.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
@@ -700,12 +700,7 @@ export async function sendViaHttpSse({
             // self-correct in the same turn.
             args = _parseJsonObject(item.arguments);
         }
-        const call = {
-            id: callId,
-            name: 'load_tool',
-            arguments: args,
-            nativeType: 'tool_search_call',
-        };
+        const call = nativeToolSearchCallFromArguments(callId, args);
         toolCalls.push(call);
         emitToolCall(call);
     };

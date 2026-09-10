@@ -10,6 +10,7 @@ import {
 } from './StudioRouteMenu';
 import { cancelLayoutFrame, scheduleLayoutFrame } from './interaction-frame-scheduler';
 import { useForegroundMedia } from './media-lifecycle';
+import { runStudioThumbnailTask } from './studio-thumbnail-task';
 import { InlineErrors } from './notifications';
 import {
   ensureStudioLoad,
@@ -163,6 +164,8 @@ export function StudioPane({
   }, [selected, visibleAssets]);
   const [previewUrl, setPreviewUrl] = useState('');
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  const [failedThumbs, setFailedThumbs] = useState<Record<string, boolean>>({});
+  const failedThumbsRef = useRef<Record<string, boolean>>({});
   // A cold local rendition may take longer than the tile's stall threshold.
   // Start the renderer fallback without invalidating the still-live direct
   // request: dropping that URL produced an empty frame until fallback landed.
@@ -436,11 +439,13 @@ export function StudioPane({
   useEffect(() => {
     if (!active || laneReady === null) return undefined;
     let stopped = false;
+    const controller = new AbortController();
     // The active mode owns this queue. The old global first-24 cutoff stranded
     // older clips whenever newer images occupied those slots.
     const queue = visibleAssets.filter((asset, assetIndex) =>
       !loadedThumbsRef.current[asset.id]
       && !thumbsRef.current[asset.id]
+      && !failedThumbsRef.current[asset.id]
       && (
         thumbFallbacks[asset.id]
         || !assetUrl(asset.id, 'thumb')
@@ -471,19 +476,22 @@ export function StudioPane({
         durationSeconds,
       }]).catch(() => undefined);
     };
-    const hydrate = async (asset: MediaAsset): Promise<void> => {
+    const hydrate = async (asset: MediaAsset, signal: AbortSignal): Promise<void> => {
       if (localTransport && asset.kind === 'image') {
         const result = await callCapability(api, 'readMediaAsset', [asset.id, {
           variant: 'thumb',
           allowOriginal: true,
           generate: false,
         }]) as MediaAssetRead | null;
-        if (stopped || !result?.base64) return;
+        if (signal.aborted) return;
+        if (!result?.base64) throw new Error('thumbnail data unavailable');
         const raw = `data:${result.mime || asset.mime || 'image/png'};base64,${result.base64}`;
         const thumbnail = result.variant === 'thumb'
           ? raw
-          : await thumbFromImage(raw).catch(() => '');
-        if (thumbnail) rememberThumb(asset, thumbnail);
+          : await thumbFromImage(raw, 420, signal);
+        if (signal.aborted) return;
+        if (!thumbnail) throw new Error('thumbnail decode failed');
+        rememberThumb(asset, thumbnail);
         return;
       }
       const result = await callCapability(api, 'readMediaAsset', [asset.id, {
@@ -492,7 +500,8 @@ export function StudioPane({
         // rendition. Only local IPC may pay for the original clip bytes.
         allowOriginal: localTransport && asset.kind === 'video',
       }]) as MediaAssetRead | null;
-      if (stopped || !result?.base64) return;
+      if (signal.aborted) return;
+      if (!result?.base64) throw new Error('thumbnail data unavailable');
       // Runtime metadata only carries a duration for some lanes; the poster
       // probe is authoritative for the tile badge.
       let durationSeconds = Number(result.durationSeconds) || 0;
@@ -503,8 +512,12 @@ export function StudioPane({
       if (needsVideoPoster) {
         // One decoder at a time: retaining a live <video> per tile previously
         // exhausted Windows GPU resources and blacked the renderer window.
-        const poster = await scheduleVideoPosterFallback(() => captureVideoPoster(raw));
-        if (stopped) return;
+        const poster = await scheduleVideoPosterFallback(() => {
+          if (signal.aborted) throw new Error('thumbnail hydration cancelled');
+          return captureVideoPoster(raw);
+        });
+        if (signal.aborted) return;
+        if (!poster.url) throw new Error('thumbnail decode failed');
         durationSeconds = poster.duration || durationSeconds;
         rememberDuration(asset.id, durationSeconds);
         rememberThumb(asset, poster.url, durationSeconds);
@@ -519,9 +532,16 @@ export function StudioPane({
           const asset = queue.shift();
           if (!asset) return;
           try {
-            await hydrate(asset);
+            await runStudioThumbnailTask(
+              (signal) => hydrate(asset, signal),
+              controller.signal,
+            );
           } catch {
-            // A missing thumbnail is cosmetic; the tile falls back to its glyph.
+            if (stopped) return;
+            // A failed attempt is terminal for this pane, not an endless spinner
+            // or an implicit retry whenever another asset updates the gallery.
+            failedThumbsRef.current = { ...failedThumbsRef.current, [asset.id]: true };
+            setFailedThumbs(failedThumbsRef.current);
           }
         }
       };
@@ -530,7 +550,10 @@ export function StudioPane({
         () => worker(),
       ));
     })();
-    return () => { stopped = true; };
+    return () => {
+      stopped = true;
+      controller.abort();
+    };
     // Reading the cache through a ref keeps this loop from restarting on every
     // landed thumbnail (each restart re-rendered the whole grid).
   }, [active, api, assetUrl, captureVideoPoster, laneReady, localTransport, thumbFallbacks, visibleAssets]);
@@ -993,6 +1016,7 @@ export function StudioPane({
           assetUrl={assetUrl}
           durations={durations}
           eagerThumbnailCount={EAGER_THUMB_COUNT}
+          failedThumbs={failedThumbs}
           fullUrls={fullUrls}
           gridMotionReady={gridMotionReady}
           gridRef={gridRef}

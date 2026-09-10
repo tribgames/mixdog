@@ -25,7 +25,7 @@ export function LocalProviderModels({ status, actions }: {
   const models = Array.isArray(status.models) ? status.models.map(record) : [];
   const installed = models.filter((model) => model.installed === true || model.present === true);
   const ttl = typeof status.idleTtlSeconds === 'number' ? status.idleTtlSeconds : 3600;
-  const presets = [...new Set([0, 300, 900, 3600, ttl])].sort((a, b) => a - b);
+  const presets = [...new Set([0, 300, 900, 1800, 3600, ttl])].sort((a, b) => a - b);
   return <>
   <ExtensionSection title={t('Installed models')} count={installed.length}>
     {!installed.length && <ExtensionNote>

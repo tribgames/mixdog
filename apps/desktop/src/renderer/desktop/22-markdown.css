@@ -1416,7 +1416,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .session-goal-content {
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 8px;
 }
 .session-goal-tasks {
@@ -1487,6 +1487,29 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-minor);
+}
+.session-goal-details {
+  display: grid;
+  gap: 2px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-minor);
+}
+.session-goal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: .5px solid var(--mx-border);
+}
+.session-goal-actions .composer-tool {
+  width: auto;
+  padding-inline: 8px;
+  font-size: var(--mx-font-meta);
+}
+.session-goal-confirm {
+  display: grid;
+  gap: 8px;
 }
 .session-goal-blocker { color: var(--mx-warning); }
 

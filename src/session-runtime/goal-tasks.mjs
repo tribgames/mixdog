@@ -95,7 +95,7 @@ export function patchGoalTasks(previous, { updates, tasks } = {}) {
 // task changes in the same durable commit instead of exposing an intermediate
 // paused/active snapshot or consuming two revisions.
 export function applyGoalTaskChanges(goal, args = {}, { partial = false, at = Date.now() } = {}) {
-  if (goal.status === 'complete') throw new Error('cannot update tasks for a completed Goal');
+  if (['complete', 'stopped'].includes(goal.status)) throw new Error('cannot update tasks for a completed or stopped Goal');
   if (!partial && (!Array.isArray(args.tasks) || args.tasks.length === 0)) {
     throw new Error('goal set_tasks requires at least one task');
   }

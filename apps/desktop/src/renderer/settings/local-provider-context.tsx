@@ -26,7 +26,7 @@ export function LocalProviderContext({ model, status, actions }: {
         <ExtensionAction disabled={actions.busy || !valid || draft === saved}
           onClick={() => void actions.setContext(String(model.id), tokens)}>
           <span title={waiting ? t('Apply after current requests finish') : active ? t('Apply and reload') : undefined}>
-            {actions.busy ? t('Saving…') : t('Apply')}
+            {t('Apply')}
           </span>
         </ExtensionAction>
       </div>

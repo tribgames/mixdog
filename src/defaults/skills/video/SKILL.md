@@ -30,8 +30,8 @@ This file owns the judgement around one tool for moving pictures. It is not tied
 
 ## 2. Call order
 1. `media action:'list' kind:'video'` once per session: signed-in lanes, models, and `remembered` — the lane/model a generate runs on when none is passed (the user's current Studio selection, else the last clip's). Add `model:` for that model's controls (`aspectRatio`, `resolution`, `durations` or `durationRange`, `maxReferences`).
-2. `media action:'generate' kind:'video', prompt, path, aspect, duration, resolution, references, wait:false` — **lane and model are omitted by default** so the clip comes from what the user chose; controls only from the remembered model's list. Pass `lane`/`model` only when the job needs a capability that model lacks (reference count, a duration outside its range), chosen from `list`. The result returns a job id and `laneSource` (`requested` / `remembered` / `first`).
-3. Continue other work; call `media action:'status' job:<id> path:<file>` once when the file is needed or reported progress makes completion plausible. It is written on the call that sees `done`. If it is still running, report that state and wait for later work or a later turn instead of tight-looping. `cancel` when the user moves on.
+2. `media action:'generate' kind:'video', prompt, path, aspect, duration, resolution, references, wait:true` — **lane and model are omitted by default** so the clip comes from what the user chose; controls only from the remembered model's list. Pass `lane`/`model` only when the job needs a capability that model lacks (reference count, a duration outside its range), chosen from `list`. Use `wait:false` only when background execution is requested or useful independent work remains.
+3. For a background or resumed job, use `media action:'status' job:<id> path:<file>` at spaced intervals; the call that sees `done` writes the file. A running job is pending, not completion. Do not regenerate it or tight-loop status calls.
 4. **Hard rule — look before using**: frame-sample or play the file; check the opening frame, that the one change happens, the ending frame, and that no text, logo, or extra subject appeared. → manual
 5. The result is also a Studio asset (`assetId`); the file at `path` is the copy the work uses.
 
@@ -67,4 +67,4 @@ Each item is one focused sentence or two, labeled; never keywords, never JSON.
 ## 7. Failure and cost
 - A `generate` error carries `lanes` (what is signed in for video) or `available` (models); choose from it and call again, or stop.
 - Video costs far more credit than a still: one call per job, drafts at low resolution, no speculative variants.
-- A job that is still running past the tool's wait is not a failure. Do not repeat an unchanged `status` call immediately; report the active job and check again only after other work or a later turn. `cancel` only when the user moves on.
+- A job still running past the tool's wait is not a failure. Follow the pending-job flow above; `cancel` only when the user moves on.

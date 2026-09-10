@@ -9,6 +9,7 @@
 
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
+import { classifyToolOutcome } from './tool-outcome.mjs';
 
 const args = process.argv.slice(2);
 const runDirs = [];
@@ -95,12 +96,27 @@ for (const runDir of runDirs) {
   const label = basename(runDir.replace(/[\\/]+$/, ''));
   const calls = []; // flat call records for this run
   let trials = 0;
+  let completedTrialsWithIssues = 0;
   for (const trialDir of findTrialDirs(runDir)) {
     const txt = join(trialDir, 'agent', 'mixdog.txt');
     let raw;
     try { raw = readFileSync(txt, 'utf8'); } catch { continue; }
     trials++;
     const task = basename(trialDir).replace(/__[^_]+$/, '');
+    const exits = new Map();
+    const tracePath = join(trialDir, 'agent', 'agent-trace.jsonl');
+    try {
+      for (const line of readFileSync(tracePath, 'utf8').split('\n')) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line);
+        if (event.kind === 'shell_output' && event.payload?.tool_call_id) {
+          exits.set(event.payload.tool_call_id, event.payload.exit_code);
+        }
+      }
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    let trialHasIssues = false;
     for (const line of raw.split('\n')) {
       if (!line.includes('"tool_call"') || !line.includes('"item.completed"')) continue;
       let ev;
@@ -109,24 +125,34 @@ for (const runDir of runDirs) {
       if (!it || it.type !== 'tool_call') continue;
       const output = String(it.output ?? '');
       const status = it.status ?? 'completed';
-      const softFail = status === 'completed' && /^Error\b/.test(output);
+      const outcome = classifyToolOutcome(it, exits.get(it.id) ?? null);
+      if (outcome !== 'ok' && outcome !== 'skipped') trialHasIssues = true;
       calls.push({
         task,
         trial: basename(trialDir),
         name: it.name,
         key: argKey(it.name, it.arguments),
         status,
-        softFail,
+        outcome,
         outChars: output.length,
-        errCat: status === 'failed' || softFail ? classifyError(output) : null,
+        errCat: outcome === 'ok' || outcome === 'skipped' ? null
+          : outcome === 'tool-failure' ? classifyError(output) : outcome,
         exec: it.timing?.execution_ms ?? null,
         total: it.timing?.total_ms ?? it.duration_ms ?? null,
         batchWait: it.timing?.batch_wait_ms ?? null,
         ts: it.completed_at ?? ev.timestamp,
       });
     }
+    if (trialHasIssues) {
+      try {
+        const result = JSON.parse(readFileSync(join(trialDir, 'result.json'), 'utf8'));
+        if (result?.verifier_result?.rewards?.reward === 1) completedTrialsWithIssues++;
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error;
+      }
+    }
   }
-  runs.push({ label, dir: runDir, trials, calls });
+  runs.push({ label, dir: runDir, trials, calls, completedTrialsWithIssues });
 }
 
 // ---- aggregate ----
@@ -141,8 +167,8 @@ function aggregate(calls) {
   // recovery chains: same (trial, tool, key) — failure followed later by success
   const chains = new Map(); // chainKey -> { fails: n, wastedChars, recovered }
   for (const c of calls) {
-    const isFail = c.status === 'failed' || c.softFail;
-    const isOk = !isFail && c.status !== 'skipped';
+    const isFail = c.outcome !== 'ok' && c.outcome !== 'skipped';
+    const isOk = c.outcome === 'ok';
     const k = `${c.trial}\u0000${c.name}\u0000${c.key}`;
     let ch = chains.get(k);
     if (isFail) {
@@ -156,17 +182,19 @@ function aggregate(calls) {
 
   const tools = {};
   for (const [name, list] of [...byTool.entries()].sort((a, b) => b[1].length - a[1].length)) {
-    const ok = list.filter((c) => c.status === 'completed' && !c.softFail);
-    const hardFail = list.filter((c) => c.status === 'failed');
-    const softFail = list.filter((c) => c.softFail);
-    const skipped = list.filter((c) => c.status === 'skipped');
-    const fails = hardFail.length + softFail.length;
+    const ok = list.filter((c) => c.outcome === 'ok');
+    const failed = list.filter((c) => c.outcome !== 'ok' && c.outcome !== 'skipped');
+    const skipped = list.filter((c) => c.outcome === 'skipped');
+    const fails = failed.length;
     const errCats = {};
-    for (const c of [...hardFail, ...softFail]) errCats[c.errCat] = (errCats[c.errCat] ?? 0) + 1;
+    for (const c of failed) errCats[c.errCat] = (errCats[c.errCat] ?? 0) + 1;
     tools[name] = {
       calls: list.length,
       ok: ok.length,
       failed: fails,
+      toolFailures: list.filter((c) => c.outcome === 'tool-failure').length,
+      unfulfilled: list.filter((c) => c.outcome === 'unfulfilled').length,
+      commandFailures: list.filter((c) => c.outcome === 'command-failure').length,
       skipped: skipped.length,
       failRatePct: list.length ? Math.round((fails / list.length) * 1000) / 10 : 0,
       execMs: stats(list.filter((c) => c.exec != null).map((c) => c.exec)),
@@ -174,26 +202,26 @@ function aggregate(calls) {
       batchWaitMs: stats(list.filter((c) => c.batchWait != null).map((c) => c.batchWait)),
       outChars: stats(list.map((c) => c.outChars)),
       okOutChars: stats(ok.map((c) => c.outChars)),
-      wastedChars: [...hardFail, ...softFail, ...skipped].reduce((s, c) => s + c.outChars, 0),
+      wastedChars: [...failed, ...skipped].reduce((s, c) => s + c.outChars, 0),
       errCats,
     };
   }
 
-  let recovered = 0, abandoned = 0, chainWaste = 0;
+  let recovered = 0, unresolved = 0, chainWaste = 0;
   for (const ch of chains.values()) {
-    if (ch.recovered) recovered++; else abandoned++;
+    if (ch.recovered) recovered++; else unresolved++;
     chainWaste += ch.wastedChars;
   }
   const totalOut = calls.reduce((s, c) => s + c.outChars, 0);
   const wasted = calls
-    .filter((c) => c.status === 'failed' || c.softFail || c.status === 'skipped')
+    .filter((c) => c.outcome !== 'ok')
     .reduce((s, c) => s + c.outChars, 0);
   return {
     totalCalls: calls.length,
     totalOutChars: totalOut,
     wastedChars: wasted,
     wastedPct: totalOut ? Math.round((wasted / totalOut) * 1000) / 10 : 0,
-    failChains: { recovered, abandoned, chainWasteChars: chainWaste },
+    failChains: { recovered, unresolved, chainWasteChars: chainWaste },
     tools,
   };
 }
@@ -201,6 +229,7 @@ function aggregate(calls) {
 const result = runs.map((r) => ({
   label: r.label,
   trials: r.trials,
+  completedTrialsWithIssues: r.completedTrialsWithIssues,
   ...aggregate(r.calls),
 }));
 
@@ -217,13 +246,14 @@ for (const run of result) {
   lines.push('');
   lines.push(`- trials: ${run.trials}, tool calls: ${run.totalCalls}, total output: ${fmtK(run.totalOutChars)} chars`);
   lines.push(`- wasted output (failed+skipped): ${fmtK(run.wastedChars)} chars (${run.wastedPct}%)`);
-  lines.push(`- failure chains: recovered ${run.failChains.recovered}, abandoned ${run.failChains.abandoned}, chain waste ${fmtK(run.failChains.chainWasteChars)} chars`);
+  lines.push(`- same-request recovery: ${run.failChains.recovered}; no same-request recovery observed: ${run.failChains.unresolved}`);
+  lines.push(`- trials that passed despite intermediate issues: ${run.completedTrialsWithIssues} (not proof of same-operation recovery)`);
   lines.push('');
-  lines.push('| tool | calls | ok | fail | skip | fail% | exec p50/p95 ms | total p50/p95 ms | out p50/p95 ch | ok-out p50 | wasted ch | errors |');
-  lines.push('|---|---|---|---|---|---|---|---|---|---|---|---|');
+  lines.push('| tool | calls | ok | tool fail | unmet | command fail | skip | issue% | exec p50/p95 ms | total p50/p95 ms | out p50/p95 ch | issue ch | errors |');
+  lines.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const [name, t] of Object.entries(run.tools)) {
     const errs = Object.entries(t.errCats).map(([k, v]) => `${k}:${v}`).join(' ') || '-';
-    lines.push(`| ${name} | ${t.calls} | ${t.ok} | ${t.failed} | ${t.skipped} | ${t.failRatePct} | ${fmtMs(t.execMs)} | ${fmtMs(t.totalMs)} | ${t.outChars.p50}/${t.outChars.p95} | ${t.okOutChars.p50} | ${fmtK(t.wastedChars)} | ${errs} |`);
+    lines.push(`| ${name} | ${t.calls} | ${t.ok} | ${t.toolFailures} | ${t.unfulfilled} | ${t.commandFailures} | ${t.skipped} | ${t.failRatePct} | ${fmtMs(t.execMs)} | ${fmtMs(t.totalMs)} | ${t.outChars.p50}/${t.outChars.p95} | ${fmtK(t.wastedChars)} | ${errs} |`);
   }
   lines.push('');
 }

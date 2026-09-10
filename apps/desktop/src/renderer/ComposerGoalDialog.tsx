@@ -4,18 +4,24 @@ import { PaneDialogLayer } from './sidebar-dialog';
 import { ErrorNotice } from './ErrorNotice';
 import { MxIcon } from './MxIcon';
 import { t } from './i18n';
+import type { GoalSnapshot } from './desktop-types';
 
-export function ComposerGoalDialog({ anchor, disabled, onStart, onClose, returnFocus }: {
+export type GoalEditorValue = { objective: string; timeLimitMs: number; timeMode: 'max' | 'duration' };
+
+export function ComposerGoalDialog({ anchor, disabled, onStart, onSave, initialGoal, onClose, returnFocus }: {
   /** The composer control that opened the dialog; the card centers in its pane. */
   anchor: RefObject<HTMLElement | null>;
   disabled: boolean;
-  onStart(command: string): Promise<boolean>;
+  onStart?(command: string): Promise<boolean>;
+  onSave?(value: GoalEditorValue): Promise<boolean>;
+  initialGoal?: GoalSnapshot;
   onClose(): void;
   returnFocus(): void;
 }) {
   const titleId = useId();
-  const [objective, setObjective] = useState('');
-  const [minutes, setMinutes] = useState('60');
+  const [objective, setObjective] = useState(initialGoal?.objective || '');
+  const [minutes, setMinutes] = useState(initialGoal ? String((initialGoal.timeLimitMs || 0) / 60_000) : '60');
+  const [timeMode, setTimeMode] = useState<'max' | 'duration'>(initialGoal ? initialGoal.timeMode || 'duration' : 'max');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const focusReturn = useRef(returnFocus);
@@ -28,7 +34,7 @@ export function ComposerGoalDialog({ anchor, disabled, onStart, onClose, returnF
       onKeyDown={event => {
         if (event.key !== 'Tab') return;
         const controls = [...event.currentTarget.querySelectorAll<HTMLElement>(
-          'button:not(:disabled), input:not(:disabled), textarea:not(:disabled)',
+          'button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled)',
         )];
         const first = controls[0];
         const last = controls.at(-1);
@@ -39,7 +45,7 @@ export function ComposerGoalDialog({ anchor, disabled, onStart, onClose, returnF
         }
       }}>
       <header>
-        <h2 id={titleId}>{t('Set a goal')}</h2>
+        <h2 id={titleId}>{t(initialGoal ? 'Edit goal' : 'Set a goal')}</h2>
         <div className="schedules-dialog-header-actions">
           <button type="button" disabled={busy} aria-label={t('Close')} onClick={close}>
             <MxIcon name="close-small" size={16} />
@@ -49,10 +55,13 @@ export function ComposerGoalDialog({ anchor, disabled, onStart, onClose, returnF
       <form onSubmit={async event => {
         event.preventDefault();
         const duration = Number(minutes);
-        if (!objective.trim() || !Number.isInteger(duration) || duration < 1 || duration > 1440 || busy || disabled) return;
+        if (!objective.trim() || !Number.isInteger(duration) || duration < 0 || duration > 10080 || busy || disabled) return;
         setBusy(true); setError('');
         try {
-          if (await onStart(`/goal ${objective.trim()} --time ${duration}m`)) onClose();
+          const accepted = onSave
+            ? await onSave({ objective: objective.trim(), timeLimitMs: duration * 60_000, timeMode })
+            : await onStart?.(`/goal ${objective.trim()}${duration ? ` --time ${duration}m` : ''} --time-mode ${timeMode}`);
+          if (accepted) onClose();
           else setError(t('Goal could not be started. Your input has been kept.'));
         } catch (reason) {
           setError(reason instanceof Error ? reason.message : String(reason));
@@ -65,13 +74,21 @@ export function ComposerGoalDialog({ anchor, disabled, onStart, onClose, returnF
         </label>
         <label className="schedules-field">
           <span>{t('Duration in minutes')}</span>
-          <input type="number" min="1" max="1440" step="1" required value={minutes}
+          <input type="number" min="0" max="10080" step="1" required value={minutes}
             disabled={busy} onChange={event => setMinutes(event.target.value)} />
+          <small>{t('Use 0 for no time limit. Paused time does not count.')}</small>
+        </label>
+        <label className="schedules-field">
+          <span>{t('Time budget mode')}</span>
+          <select value={timeMode} disabled={busy} onChange={event => setTimeMode(event.target.value as 'max' | 'duration')}>
+            <option value="max">{t('Maximum time — finish early when verified')}</option>
+            <option value="duration">{t('Sustained work — continue for the full duration')}</option>
+          </select>
         </label>
         <footer>
           {error && <ErrorNotice error={error} />}
           <button type="button" className="secondary" disabled={busy} onClick={close}>{t('Cancel')}</button>
-          <button type="submit" disabled={busy || disabled || !objective.trim()}>{t('Start goal')}</button>
+          <button type="submit" disabled={busy || disabled || !objective.trim()}>{t(initialGoal ? 'Save' : 'Start goal')}</button>
         </footer>
       </form>
     </section>

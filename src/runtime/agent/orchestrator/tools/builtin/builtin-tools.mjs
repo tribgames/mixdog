@@ -100,7 +100,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Shell',
         annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. ${_shellToolRouting} ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 10s foreground window by default—not a timeout. Still-running work continues as a tracked task_id. Completion is automatic; unless periodic task reports were requested, continue independent work or end the turn. When the next step needs the result or the next report interval, call task wait instead of polling task read: it returns the moment the task settles, or hands back the current output at its ceiling so you can re-decide.'}`,
+        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. ${_shellToolRouting} ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 10s foreground window by default—not a timeout. Still-running work continues as a tracked task_id. Continue independent work while it runs; when the result or a requested report is due, use task wait, not read polling. Completion notifications are automatic; yielding for one is not a final completion report.'}`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -142,7 +142,7 @@ export const BUILTIN_TOOLS = [
         //      gates approval on the result, while selection keeps treating the
         //      tool as non-destructive.
         annotations: { title: 'Task', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        description: 'List shell tasks, read one snapshot, wait for one to finish, or cancel by task_id. Replaces shell job control (jobs/wait/Start-Job). Completion is automatic; unless periodic task reports were requested, continue independent work or end the turn. Never repeat read to watch a task: use wait when the next step needs the result or the next report interval, and read for a one-shot current status.',
+        description: 'List shell tasks, read one snapshot, wait for one to finish, or cancel by task_id. Replaces shell job control (jobs/wait/Start-Job). Completion notifications are automatic; yielding for one is not a final completion report. Continue independent work while it runs. Use wait when the result or a requested report is due; read is for one-shot status, never polling.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -180,7 +180,7 @@ export const BUILTIN_TOOLS = [
                     type: 'string',                    description: 'Relative file-path glob filter evaluated inside path (e.g. "*.cs", "src/**/*.ts"). Never pass an absolute or exact file path here; use path instead.',
                 },
                 mode: { type: 'string', enum: ['content', 'files', 'count'], description: 'content default; files lists matching paths; count totals all patterns together per file.' },
-                limit: { type: 'integer', minimum: 0, description: 'Max results; default 250; 0 unlimited.' },
+                limit: { type: 'integer', minimum: 0, description: 'Requested results; default 250. Context-mode requests are capped at 40 match blocks; 0 does not remove output caps. Continue with the returned offset when truncated.' },
                 offset: { type: 'integer', minimum: 0, description: 'Result offset.' },
                 context: { type: 'integer', minimum: 0, maximum: 200, description: 'Omit for automatic context; 0 for matches only.' },
             },

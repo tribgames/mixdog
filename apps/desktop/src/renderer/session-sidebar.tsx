@@ -56,10 +56,48 @@ import {
 const SESSION_PREFETCH_INTENT_DELAY_MS = 40;
 const RECENT_SESSION_INITIAL_ROWS = 24;
 const RECENT_SESSION_PAGE_ROWS = 32;
-/** How close the Recent end sentinel has to come to the scroller viewport
+/** How close a session list's end sentinel has to come to the scroller viewport
  *  before the next page is revealed — shared by the IntersectionObserver
  *  rootMargin and the onScroll fallback so both page at the same moment. */
 const RECENT_SENTINEL_REVEAL_MARGIN_PX = 240;
+
+function useSessionListPaging(
+  scrollerRef: React.RefObject<HTMLDivElement | null>,
+  sentinelRef: React.RefObject<HTMLDivElement | null>,
+  enabled: boolean,
+  visibleCount: number,
+  revealMore: () => void,
+) {
+  const revealWhenNear = useCallback(() => {
+    if (!enabled) return;
+    const scroller = scrollerRef.current;
+    const sentinel = sentinelRef.current;
+    if (!scroller || !sentinel) return;
+    if (sentinel.getBoundingClientRect().top - scroller.getBoundingClientRect().bottom
+      > RECENT_SENTINEL_REVEAL_MARGIN_PX) return;
+    revealMore();
+  }, [enabled, scrollerRef, sentinelRef, revealMore]);
+  useEffect(() => {
+    if (!enabled) return;
+    const scroller = scrollerRef.current;
+    const sentinel = sentinelRef.current;
+    const ObserverCtor = typeof window === "undefined" ? undefined : window.IntersectionObserver;
+    if (!scroller || !sentinel || typeof ObserverCtor !== "function") return;
+    // Ignore deliveries queued before collapse, panel switch, or unmount.
+    let active = true;
+    const observer = new ObserverCtor((entries) => {
+      if (active && entries.some((entry) => entry.isIntersecting)) revealMore();
+    }, { root: scroller, rootMargin: `${RECENT_SENTINEL_REVEAL_MARGIN_PX}px 0px` });
+    observer.observe(sentinel);
+    return () => {
+      active = false;
+      observer.takeRecords?.();
+      observer.disconnect();
+    };
+    // Re-arm after each page to fill a viewport that still contains the sentinel.
+  }, [enabled, scrollerRef, sentinelRef, revealMore, visibleCount]);
+  return revealWhenNear;
+}
 
 export function sessionLabel(session: DesktopSessionSummary) {
   return sessionSummaryTitle(session, t("Untitled session"));
@@ -367,6 +405,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const [recentRowLimit, setRecentRowLimit] = useState(RECENT_SESSION_INITIAL_ROWS);
   const [automationsOpen, setAutomationsOpen] = useState(true);
   const [archivedOpen, setArchivedOpen] = useState(false);
+  const [archivedRowLimit, setArchivedRowLimit] = useState(RECENT_SESSION_INITIAL_ROWS);
   const [bulkAction, setBulkAction] = useState<
     "" | "archive-automations" | "archive-recent" | "restore" | "delete"
   >("");
@@ -432,6 +471,17 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const recentRowIdsRef = useRef<string[]>([]);
   const hasMoreRecentRows = visibleRecentRows.length < rows.length;
   const visibleRecentRowCount = visibleRecentRows.length;
+  const archivedSentinelRef = useRef<HTMLDivElement | null>(null);
+  const visibleArchivedRows = archivedRows.slice(0, archivedRowLimit);
+  const hasMoreArchivedRows = visibleArchivedRows.length < archivedRows.length;
+  const revealMoreArchivedRows = useCallback(() => {
+    setArchivedRowLimit((current) => Math.min(archivedRows.length, current + RECENT_SESSION_PAGE_ROWS));
+  }, [archivedRows.length]);
+  useEffect(() => {
+    if (!archivedOpen || selection.kind !== "session") return;
+    const selectedIndex = archivedRows.findIndex((session) => session.id === selection.id);
+    if (selectedIndex >= archivedRowLimit) setArchivedRowLimit(selectedIndex + 1);
+  }, [archivedOpen, archivedRows, archivedRowLimit, selection]);
   const captureRecentScrollAnchor = useCallback(() => {
     const scroller = recentScrollerRef.current;
     if (!scroller || scroller.scrollTop <= 1) {
@@ -454,52 +504,21 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       offset: visible.getBoundingClientRect().top - scrollerRect.top,
     };
   }, []);
-  // Fallback for hosts without IntersectionObserver. Proximity is measured
-  // against the SENTINEL, not the scroller bottom: Archived (and any other
-  // section rendered below Recent) would otherwise keep the scroller far from
-  // its end and block Recent paging entirely.
-  const revealWhenSentinelNear = useCallback(() => {
-    if (!open || panelActive || !recentOpen || !hasMoreRecentRows) return;
-    const scroller = recentScrollerRef.current;
-    const sentinel = recentSentinelRef.current;
-    if (!scroller || !sentinel) return;
-    const scrollerBottom = scroller.getBoundingClientRect?.().bottom ?? 0;
-    const sentinelTop = sentinel.getBoundingClientRect?.().top ?? 0;
-    if (sentinelTop - scrollerBottom > RECENT_SENTINEL_REVEAL_MARGIN_PX) return;
-    revealMoreRecentRows();
-  }, [hasMoreRecentRows, open, panelActive, recentOpen, revealMoreRecentRows]);
+  const revealWhenSentinelNear = useSessionListPaging(
+    recentScrollerRef, recentSentinelRef,
+    open && !panelActive && recentOpen && hasMoreRecentRows,
+    visibleRecentRowCount, revealMoreRecentRows,
+  );
+  const revealWhenArchivedSentinelNear = useSessionListPaging(
+    recentScrollerRef, archivedSentinelRef,
+    open && !panelActive && archivedOpen && hasMoreArchivedRows,
+    visibleArchivedRows.length, revealMoreArchivedRows,
+  );
   const handleRecentScroll = useCallback(() => {
     captureRecentScrollAnchor();
     revealWhenSentinelNear();
-  }, [captureRecentScrollAnchor, revealWhenSentinelNear]);
-  useEffect(() => {
-    // Nothing to page towards, or the list is not on screen: no observer at
-    // all, so a collapsed/hidden/closed sidebar can never spin pages.
-    if (!open || panelActive || !recentOpen || !hasMoreRecentRows) return;
-    const scroller = recentScrollerRef.current;
-    const sentinel = recentSentinelRef.current;
-    const ObserverCtor = typeof window === "undefined" ? undefined : window.IntersectionObserver;
-    if (!scroller || !sentinel || typeof ObserverCtor !== "function") return;
-    // Observer notifications are delivered asynchronously, so a batch queued
-    // before teardown can still land after disconnect/close/panel switch/
-    // collapse/unmount. The token makes every such late callback a no-op.
-    let active = true;
-    const observer = new ObserverCtor((entries) => {
-      if (!active) return;
-      if (entries.some((entry) => entry.isIntersecting)) revealMoreRecentRows();
-    }, { root: scroller, rootMargin: `${RECENT_SENTINEL_REVEAL_MARGIN_PX}px 0px` });
-    observer.observe(sentinel);
-    return () => {
-      active = false;
-      // Drain first: pending records are dropped with the observer instead of
-      // being handed to a callback that no longer owns this list state.
-      observer.takeRecords?.();
-      observer.disconnect();
-    };
-    // visibleRecentRowCount re-arms the observer after each page, so a sentinel
-    // that is STILL in view keeps filling the viewport; the loop ends by
-    // construction once every row is visible (the sentinel unmounts).
-  }, [hasMoreRecentRows, open, panelActive, recentOpen, revealMoreRecentRows, visibleRecentRowCount]);
+    revealWhenArchivedSentinelNear();
+  }, [captureRecentScrollAnchor, revealWhenSentinelNear, revealWhenArchivedSentinelNear]);
   useLayoutEffect(() => {
     if (!open || panelActive) return;
     const scroller = recentScrollerRef.current;
@@ -800,7 +819,10 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             <div className="sidebar-category-header">
               <button type="button" className="sidebar-recent-heading sidebar-heading-toggle sidebar-archived-toggle"
                 aria-expanded={archivedOpen}
-                onClick={() => setArchivedOpen((open) => !open)}>
+                onClick={() => {
+                  setArchivedRowLimit(RECENT_SESSION_INITIAL_ROWS);
+                  setArchivedOpen((open) => !open);
+                }}>
                 <span>{t("Archived")}</span>
                 {archivedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
               </button>
@@ -830,7 +852,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
             </div>
             {archivedOpen && (
               <nav className="session-list archived-session-list" aria-label={t("Archived sessions")}>
-                {archivedRows.map((session) => <SessionSidebarRow key={session.id}
+                {visibleArchivedRows.map((session) => <SessionSidebarRow key={session.id}
                   session={session} active={selection.kind === "session" && selection.id === session.id}
                 working={workingSessionIds?.has(session.id) === true}
                   unread={unreadSessionIds?.has(session.id) === true}
@@ -844,6 +866,9 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                   onSetConfirming={setConfirmingSessionId}
                   onSetDeleting={setDeletingSessionId} onDeleteSession={onDeleteSession}
                   onArchiveSession={onArchiveSession} />)}
+                {hasMoreArchivedRows && <div ref={archivedSentinelRef}
+                  className="session-list-sentinel" aria-hidden="true"
+                  style={{ height: 1, pointerEvents: "none" }} />}
               </nav>
             )}
           </section>

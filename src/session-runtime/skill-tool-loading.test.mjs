@@ -12,6 +12,10 @@ import { parseSkillDocument } from '../runtime/shared/skill-document.mjs';
 import { applyDeferredToolSurface, rebuildDeferredToolSurfaceForProvider, snapshotProviderRequestTools } from './tool-catalog.mjs';
 import { createSkillsApi } from './skills-api.mjs';
 import { loadSkillToolDependencies } from './skill-tool-loading.mjs';
+import { parseNativeToolSearchPayload } from '../runtime/agent/orchestrator/session/loop/tool-helpers.mjs';
+import { buildRequestBody } from '../runtime/agent/orchestrator/providers/openai-responses-payload.mjs';
+import { nativeToolSearchCallFromArguments } from '../runtime/agent/orchestrator/providers/custom-tool-wire.mjs';
+import { toAnthropicMessages } from '../runtime/agent/orchestrator/providers/lib/anthropic-request-utils.mjs';
 
 const office = { name: 'office', description: 'Create a document.', inputSchema: {
   type: 'object', properties: { action: { type: 'string' } }, required: ['action'],
@@ -28,7 +32,7 @@ const envelope = (dependencies) => contextMod.buildSkillToolEnvelope('deck-guide
   { toolDependencies: dependencies });
 const dependency = { type: 'tool', value: 'office' };
 
-test('loading a skill supplies callable schemas on the next provider request and dispatches through the tool path', async () => {
+test('skill dependencies are callable on the next request without changing the eager tools', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-skill-load-'));
   const previous = process.env.MIXDOG_DATA_DIR;
   process.env.MIXDOG_DATA_DIR = join(root, 'data');
@@ -45,6 +49,7 @@ test('loading a skill supplies callable schemas on the next provider request and
   try {
     for (const provider of ['openai-oauth', 'anthropic-oauth', 'gemini', 'openrouter']) {
       const current = session(provider);
+      const initialTools = snapshotProviderRequestTools({ provider, tools: current.tools, session: current, messages: [] });
       const loaded = await executeTool('Skill', { name: 'deck-guide' }, root, null, current);
       const normalized = normalizeToolEnvelope(loaded);
       assert.equal(normalized.newMessages.length, 1);
@@ -52,25 +57,36 @@ test('loading a skill supplies callable schemas on the next provider request and
       await executeTool('Skill', { name: 'deck-guide' }, root, null, current);
       assert.equal(current.tools.length, beforeRepeat);
       const requestTools = snapshotProviderRequestTools({ provider, tools: current.tools, session: current, messages: [] });
-      const definition = requestTools.find((tool) => tool.name === 'office');
-      assert.deepEqual(definition.inputSchema, office.inputSchema);
-      assert.notEqual(definition.deferLoading, true);
-      assert.notEqual(definition.defer_loading, true);
+      const native = parseNativeToolSearchPayload('Skill', normalized.result);
+      if (current.deferredNativeTools) {
+        assert.deepEqual(native.openaiTools.find((tool) => tool.name === 'office').parameters, office.inputSchema);
+        assert.deepEqual(requestTools.filter((tool) => !tool.deferLoading), initialTools);
+      } else {
+        assert.deepEqual(requestTools.find((tool) => tool.name === 'office').inputSchema, office.inputSchema);
+      }
       const result = normalizeToolEnvelope(await executeTool('office', { action: 'create' }, root, null, current));
       assert.match(typeof result.result === 'string' ? result.result : JSON.stringify(result.result), /created/);
       rebuildDeferredToolSurfaceForProvider(current, 'openai-oauth');
-      assert.ok(current.tools.some((tool) => tool.name === 'office'));
+      assert.equal(current.tools.some((tool) => tool.name === 'office'), false);
       const loopSession = session(provider);
       loopSession.id = `skill-wire-${provider}`;
       loopSession.compaction = { auto: false };
       const sentTools = [];
+      const sentBodies = [];
       const fakeProvider = {
         name: provider,
         async send(_messages, _model, requestTools) {
           sentTools.push(requestTools);
+          if (provider === 'openai-oauth') {
+            sentBodies.push(buildRequestBody(_messages, 'gpt-6-astra', requestTools, { sessionId: loopSession.id }));
+          } else if (provider === 'anthropic-oauth') {
+            sentBodies.push(toAnthropicMessages(_messages, requestTools));
+          }
           if (sentTools.length <= 2) return {
             content: '',
-            toolCalls: [{ id: `skill-${sentTools.length}`, name: 'Skill', arguments: { name: 'deck-guide' } }],
+            toolCalls: [provider === 'openai-oauth'
+              ? nativeToolSearchCallFromArguments(`skill-${sentTools.length}`, { name: 'deck-guide' })
+              : { id: `skill-${sentTools.length}`, name: 'Skill', arguments: { name: 'deck-guide' } }],
           };
           return { content: 'done', toolCalls: [], stopReason: 'end_turn' };
         },
@@ -79,9 +95,24 @@ test('loading a skill supplies callable schemas on the next provider request and
         'fake-model', loopSession.tools, null, root,
         { session: loopSession, sessionId: loopSession.id });
       const nextDefinition = sentTools[1].find((tool) => tool.name === 'office');
-      assert.deepEqual(nextDefinition.inputSchema, office.inputSchema);
-      assert.notEqual(nextDefinition.deferLoading, true);
-      assert.notEqual(nextDefinition.defer_loading, true);
+      if (provider === 'openai-oauth') {
+        assert.equal(nextDefinition, undefined);
+        assert.deepEqual(sentBodies[1].tools, sentBodies[0].tools);
+        const output = sentBodies[1].input.find((item) => item.type === 'tool_search_output');
+        assert.equal(output.call_id, 'skill-1');
+        assert.deepEqual(output.tools.find((tool) => tool.name === 'office').parameters, office.inputSchema);
+        assert.equal(sentBodies[1].input.some((item) => item.type === 'function_call_output' && item.call_id === 'skill-1'), false);
+        assert.ok(JSON.stringify(sentBodies[1].input).includes('# Deck guide'));
+      } else if (provider === 'anthropic-oauth') {
+        assert.deepEqual(nextDefinition.inputSchema, office.inputSchema);
+        assert.equal(nextDefinition.deferLoading, true);
+        assert.deepEqual(sentTools[1].filter((tool) => !tool.deferLoading), sentTools[0]);
+        assert.ok(JSON.stringify(sentBodies[1]).includes('"tool_reference","tool_name":"office"'));
+        assert.ok(JSON.stringify(sentBodies[1]).includes('# Deck guide'));
+      } else {
+        assert.deepEqual(sentTools[1], sentTools[0]);
+        assert.deepEqual(nextDefinition.inputSchema, office.inputSchema);
+      }
       assert.deepEqual(sentTools[2], sentTools[1]);
     }
     assert.equal(calls.length, 4);
@@ -89,7 +120,8 @@ test('loading a skill supplies callable schemas on the next provider request and
     const api = createSkillsApi({ contextMod, getCwd: () => root });
     const loaded = api.skillToolContent('deck-guide', current);
     assert.equal(loaded.newMessages.length, 1);
-    assert.ok(current.tools.some((tool) => tool.name === 'office'));
+    assert.ok(current.deferredCallableTools.includes('office'));
+    assert.equal(current.tools.some((tool) => tool.name === 'office'), false);
   } finally {
     setInternalToolsProvider({ tools: [], executor: async () => '' });
     contextMod.invalidateSkillsCache(root);
@@ -124,7 +156,8 @@ test('MCP dependencies load only registered server tools, and never follow insta
     { type: 'mcp', value: 'figma', command: 'must-not-run' },
     { type: 'mcp', value: 'absent', url: 'https://must-not-connect.invalid' },
   ]), current);
-  assert.ok(current.tools.some((tool) => tool.name === 'mcp__figma__get_design'));
+  assert.ok(current.deferredCallableTools.includes('mcp__figma__get_design'));
+  assert.equal(current.tools.some((tool) => tool.name === 'mcp__figma__get_design'), false);
   assert.equal(current.tools.some((tool) => tool.name === 'mcp__other__inspect'), false);
   assert.match(loaded.result, /absent.*no available connected tools/);
 });
@@ -163,7 +196,8 @@ test('policy skills load their deferred tools while search stays independently d
       ), current);
       assert.equal(loaded.newMessages.length, 1);
       for (const dependency of parsed.frontmatter.dependencies.tools) {
-        assert.ok(current.tools.some((tool) => tool.name === dependency.value));
+        assert.ok(current.deferredCallableTools.includes(dependency.value));
+        assert.equal(current.tools.some((tool) => tool.name === dependency.value), false);
       }
       if (name === 'history-recall') {
         assert.equal(current.tools.some((tool) => tool.name === 'memory'), false);

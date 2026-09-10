@@ -13,23 +13,30 @@ test('contract digest captures wrappers, edit dialect, provider wire schema, and
 
   assert.equal(digest.schemaVersion, 2);
   assert.equal(digest.workflow, 'headless');
-  assert.deepEqual(digest.disabledTools, ['web_search', 'web_fetch', 'memory', 'recall']);
+  for (const name of ['web_search', 'web_fetch', 'memory', 'recall', 'git_stage', 'github', 'cwd']) {
+    assert.ok(digest.disabledTools.includes(name));
+  }
+  assert.equal(digest.disabledTools.includes('git'), false);
+  assert.equal(digest.disabledTools.includes('git_stage'), true);
   assert.deepEqual(Object.keys(digest.routeContracts), ['lead', 'leadFallback']);
 
   const lead = digest.routeContracts.lead;
   assert.equal(lead.providerMode, 'native');
-  assert.equal(lead.toolCatalogCount, 13);
+  assert.equal(lead.toolCatalogCount, 11);
   assert.equal(lead.activeToolCount, 11);
   assert.equal(lead.providerToolCount, 11);
   assert.ok(lead.toolCatalogNames.includes('load_tool'));
-  assert.ok(lead.toolCatalogNames.includes('cwd'));
+  assert.ok(lead.toolCatalogNames.includes('git'));
+  assert.equal(lead.toolCatalogNames.includes('git_stage'), false);
+  assert.equal(lead.toolCatalogNames.includes('cwd'), false);
+  assert.equal(lead.toolCatalogNames.includes('github'), false);
   assert.ok(lead.toolCatalogNames.includes('apply_patch'));
   assert.equal(lead.toolCatalogNames.includes('edit'), false);
   assert.equal(lead.activeToolNames.includes('cwd'), false);
 
   const fallback = digest.routeContracts.leadFallback;
-  assert.equal(fallback.toolCatalogCount, 13);
-  assert.equal(fallback.providerToolCount, 13);
+  assert.equal(fallback.toolCatalogCount, 11);
+  assert.equal(fallback.providerToolCount, 11);
   assert.ok(fallback.toolCatalogNames.includes('edit'));
   assert.equal(fallback.toolCatalogNames.includes('apply_patch'), false);
   assert.notEqual(lead.providerToolHash, fallback.providerToolHash);

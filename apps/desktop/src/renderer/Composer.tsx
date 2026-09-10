@@ -53,6 +53,7 @@ import { useComposerKeyboard } from "./use-composer-keyboard";
 import { useComposerFocus } from "./use-composer-focus";
 import { ComposerPalette } from "./ComposerPalette";
 import { ComposerAddMenu } from './ComposerAddMenu';
+import { ComposerGoalDialog } from './ComposerGoalDialog';
 import { CapabilityIcon } from './CapabilityIcon';
 import { shouldRemoveSelectedSkill, skillTitle, useComposerSkill } from './composer-skill';
 export {
@@ -663,6 +664,8 @@ export const Composer = memo(function Composer({
     }
   };
 
+  const [goalDialogOpen, setGoalDialogOpen] = useState(false);
+  useEffect(() => setGoalDialogOpen(false), [identityScope, paneActive]);
   const executeSlash = async (raw: string): Promise<boolean> => {
     let invocationFailed = false;
     const commandCapability = async <T,>(capability: DesktopCapability, args: unknown[] = []) => {
@@ -715,11 +718,11 @@ export const Composer = memo(function Composer({
     else if (name === 'resume') argument ? onResumeSession(argument) : onOpenSessions();
     else if (name === 'compact') await commandCapability('compact');
     else if (name === 'goal') {
+      if (!argument) {
+        setGoalDialogOpen(true);
+        return true;
+      }
       if (draftMode) {
-        if (!argument) {
-          setAttachmentError('Usage: /goal <objective> [--time 1h]');
-          return false;
-        }
         const accepted = await submit(argument, {
           displayText: argument,
           goalCommand: argument,
@@ -1182,6 +1185,9 @@ export const Composer = memo(function Composer({
         <input ref={fileInput} type="file" hidden multiple
           accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,text/*,.md,.mdx,.txt,.log,.json,.jsonl,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.mjs,.cjs,.ts,.tsx,.mts,.cts,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.cc,.c,.h,.hh,.hpp,.sh,.zsh,.ps1,.bat,.cmd,.sql,.css,.scss,.sass,.html,.htm,.vue,.svelte,.env,.ini,.conf,.cfg,.gql,.graphql"
           onChange={(event) => { if (event.currentTarget.files) void attachFiles(event.currentTarget.files); event.currentTarget.value = ''; }} />
+        {goalDialogOpen && <ComposerGoalDialog anchor={textarea}
+          disabled={turnBusy || commandBusy || submitting} onStart={executeSlash}
+          onClose={() => setGoalDialogOpen(false)} returnFocus={() => textarea.current?.focus()} />}
         <ComposerAddMenu key={identityScope} anchor={paletteAnchor} sessionId={sessionId}
           disabled={transitioning || !paneActive} goalDisabled={turnBusy || commandBusy || submitting}
           onAttach={() => fileInput.current?.click()}

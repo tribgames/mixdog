@@ -1,6 +1,9 @@
 {
   "schemaVersion": 1,
   "configFileName": "mixdog-config.json",
+  "agentDefaults": {
+    "builtins": {}
+  },
   "guardEnv": {
     "MIXDOG_DISABLE_MCP": "1",
     "MIXDOG_DISABLE_SKILLS": "1",

@@ -497,14 +497,14 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
                 messages,
                 session: sessionRef,
             });
-            // Keep ordinary requests stable, but a loaded skill promises its
-            // declared schemas on the very next request, not the next turn.
-            const skillToolsAdded = _fixedProviderToolSurface
-                && (sessionRef?.skillLoadedTools || []).some((name) => {
-                    const previous = _fixedProviderToolSurface.find((tool) => tool.name === name);
-                    return !previous || previous.deferLoading === true || previous.defer_loading === true;
-                });
-            if (!_fixedProviderToolSurface || skillToolsAdded) {
+            // Only native deferred definitions may join a running request loop.
+            // Skill discovery never promotes them into the eager cache prefix.
+            const deferredToolsAdded = _fixedProviderToolSurface
+                && _candidateSendTools.some((tool) => (
+                    (tool.deferLoading === true || tool.defer_loading === true)
+                    && !_fixedProviderToolSurface.some((previous) => previous.name === tool.name)
+                ));
+            if (!_fixedProviderToolSurface || deferredToolsAdded) {
                 _fixedProviderToolSurface = _candidateSendTools;
             }
             sendTools = _fixedProviderToolSurface;

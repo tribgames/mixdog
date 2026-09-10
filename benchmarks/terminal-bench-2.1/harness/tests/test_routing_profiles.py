@@ -276,12 +276,14 @@ class RoutingProfileTests(unittest.TestCase):
                 "modelSettings",
                 "mcpServers",
                 "profile",
+                "builtins",
             },
         )
         self.assertEqual(config["outputStyle"], "simple")
         self.assertEqual(agent["profile"], {"language": "en"})
         self.assertEqual(agent["workflow"], {"active": "headless"})
         self.assertEqual(agent["mcpServers"], {})
+        self.assertEqual(agent["builtins"], {})
         self.assertEqual(agent["workflowRoutes"], {"lead": profile["routes"]["lead"]})
         self.assertNotIn("memory", agent["workflowRoutes"])
         self.assertEqual(

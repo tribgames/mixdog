@@ -91,15 +91,14 @@ test('an unfinished non-active Goal still renders so it survives compaction', ()
   assert.match(snapshot.content, /Status: paused/);
 });
 
-test('a paused Goal reminder couples atomic resume to approved work, not messages alone', () => {
+test('a user-paused Goal reminder preserves the explicit resume boundary', () => {
   const session = { id: 'sess_goal_reply' };
   markPendingGoalReminder(session, 'paused');
   const snapshot = snapshotPendingGoalReminder(session, {
     readGoal: () => goal({ status: 'paused' }),
   });
-  assert.match(snapshot.content, /Call resume with any task changes in the same call only when continuing user-approved work/);
-  assert.match(snapshot.content, /not for questions or notifications alone/);
-  assert.match(snapshot.content, /abandon only if the user redirected away from this objective/);
+  assert.match(snapshot.content, /resume only when the user asks to continue/);
+  assert.match(snapshot.content, /Do not resume for bookkeeping, notifications, or unrelated questions/);
 });
 
 test('post-compact Goal state is prepended to the current user turn and leaves no next-turn reminder', () => {
@@ -176,7 +175,7 @@ test('compaction and objective reminders retain the current paused-state recover
       includePaused: true, readGoal: () => goal({ status: 'paused' }),
     });
     assert.equal(snapshot.reason, reason);
-    assert.match(snapshot.content, /This Goal is paused/);
-    assert.match(snapshot.content, /only when continuing user-approved work/);
+    assert.match(snapshot.content, /The user paused this Goal/);
+    assert.match(snapshot.content, /resume only when the user asks to continue/);
   }
 });

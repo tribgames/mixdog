@@ -43,7 +43,7 @@ export function goalTimeLines(goal) {
   const elapsed = Math.max(0, Number(goal?.timeUsedMs) || 0);
   const label = (ms) => `${durationLabel(ms)} (${ms} ms)`;
   return [
-    limit > 0 ? `Requested duration: ${label(limit)}` : 'Duration: none',
+    limit > 0 ? `${goal?.timeMode === 'max' ? 'Maximum time budget' : 'Requested duration'}: ${label(limit)}` : 'Duration: none',
     `Time elapsed: ${label(elapsed)}`,
     ...(limit > 0 ? [`Time remaining: ${label(Math.max(0, limit - elapsed))}`] : []),
   ];
@@ -73,12 +73,17 @@ export function continuationPrompt(goal) {
     '- Finish every approved task without stepwise approval. Record user additions, park new approval-dependent work, and continue unaffected approved work; routine errors and retries are not reasons to stop.',
     // The full deferred-pause contract stays in the cached tool description.
     '- Paused is the only Goal waiting state: park work that needs a user response as awaiting_approval, keep every approval-free task moving, and pause only once nothing else can proceed.',
-    '- Keep the Goal snapshot current using the update and batching rules in the tool description.',
-    '- A requested duration is a full-period work commitment: keep implementing, verifying, reviewing, and polishing; do not complete early unless the user allows it.',
+    '- Update durable tasks at meaningful milestones or scope changes, not for every action. Administrative updates and repeated plans are not progress.',
+    '- Classify the previous turn as concrete progress, a verified wait, or no progress. Progress completes work, changes authoritative state, or produces evidence that determines a different next action.',
+    '- Wait only on a currently live process, job, or tool handle. An observation timeout is not termination: continue observing the same handle rather than restarting its work.',
+    '- After no progress, re-evaluate the available safe actions and execute one. Do not substitute a status report or a narrower objective for the requested work.',
+    goal.timeMode === 'max'
+      ? '- This is a maximum time budget, not a minimum work duration. Complete once the full objective is verified; do not invent extra work to fill the remaining time.'
+      : '- A requested duration is a full-period work commitment: continue approved implementation, verification, and improvement; do not complete early unless the user allows it.',
     '- Before completing, audit each user condition on its own: name the evidence that would prove it, inspect current state for it, and match the check to the claim. The audit must prove completion, not merely fail to find remaining work.',
-    '- Missing, weak, indirect, uncertain, or stale evidence means incomplete; keep working. Complete only when every user condition is proven met, every task and one verification are completed, and no required work remains.',
+    '- Missing or insufficient evidence means incomplete; keep working. Complete only when every user condition is proven met and no required work remains. Existing checks need not be repeated and verification need not be a separate task row.',
     '- Only the user retires a condition: drop a task because the user changed the objective, never to reach completion — a task dropped this turn blocks completion.',
-    '- Block only when the same external impasse prevents meaningful progress for 3 consecutive Goal turns; never for user input, approval, direction choice, difficulty, uncertainty, or incomplete work.',
+    '- Report a genuine external impasse with block once per turn using the same stable blocker description. The runtime keeps the Goal active until 3 consecutive turns confirm it. Never block for difficulty, uncertainty, or merely incomplete work.',
     '- Never complete or block merely because time is low or the turn is ending.',
     '</system-reminder>',
   ].join('\n');
@@ -105,11 +110,14 @@ export function goalStateReminder(goal, { reason = '' } = {}) {
     '<goal_state>',
     lead,
     ...(goal.status === 'paused' ? [
-      'This Goal is paused. Call resume with any task changes in the same call only when continuing user-approved work, not for questions or notifications alone; abandon only if the user redirected away from this objective.',
+      goal.pauseReason === 'waiting'
+        ? 'Waiting for a user answer. Resume with task changes only when that answer permits approved work to continue.'
+        : 'The user paused this Goal. Do not resume for bookkeeping, notifications, or unrelated questions; resume only when the user asks to continue.',
     ] : []),
     '',
     `Objective: ${escapeGoalPromptText(goal.objective)}`,
     `Status: ${escapeGoalPromptText(goal.status)} · tasks ${completed}/${tasks.length}`,
+    ...(goal.blocker ? [`Waiting or stop reason: ${escapeGoalPromptText(goal.blocker)}`] : []),
     ...(goal.revision ? [`Revision: ${goal.revision}`] : []),
     ...goalTimeLines(goal),
     ...(goal.needsTaskReview ? ['The objective changed; reconcile the full task list with set_tasks before continuing.'] : []),

@@ -76,6 +76,7 @@ export function ComposerDock({
   reviewBusy,
   reviewSessionId,
   reviewCwd,
+  onOpenFile,
   children,
 }: {
   goalIsland?: ReactNode;
@@ -96,6 +97,7 @@ export function ComposerDock({
   reviewBusy: boolean;
   reviewSessionId: string;
   reviewCwd: string;
+  onOpenFile?: (project: string, rel: string) => void;
   children: ReactNode;
 }) {
   const [reviewPending, setReviewPending] = useState(false);
@@ -129,6 +131,7 @@ export function ComposerDock({
           busy={reviewBusy}
           sessionId={reviewSessionId}
           cwd={reviewCwd}
+          onOpenFile={onOpenFile}
           onPendingChange={setReviewPending} />
       </div>
       {children}

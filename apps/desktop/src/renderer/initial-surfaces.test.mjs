@@ -147,7 +147,7 @@ test("agent data arriving before the session catalog cannot announce no running 
   assert.match(view.host.textContent, /No agents are running/);
 });
 
-test("browser boot keeps the mounted content inert until its ready frame, with bounded recovery", async (t) => {
+test("native boot keeps the mounted content inert until its ready frame, with bounded recovery", async (t) => {
   const view = harness(t);
   const { DesktopBootGate } = await import("./PaneSurfaceGate.tsx");
   const { _resetBootMetricsForTest } = await import("./boot-metrics.ts");
@@ -168,6 +168,79 @@ test("browser boot keeps the mounted content inert until its ready frame, with b
   await view.advance(120);
   assert.equal(view.host.querySelector("button").closest("[inert]"), null,
     "a failed optional read must not leave an endless splash");
+});
+
+test("remote boot cannot bypass connection or hydration and offers a working retry", async (t) => {
+  const view = harness(t);
+  window.mixdogRemoteServer = "https://mixdog.test";
+  const { DesktopBootGate } = await import("./PaneSurfaceGate.tsx");
+  const { _resetBootMetricsForTest } = await import("./boot-metrics.ts");
+  const { setRemoteConnectionState, REMOTE_WAKE_EVENT } = await import("./remote-connection-state.ts");
+  _resetBootMetricsForTest();
+  const content = React.createElement("button", { id: "task" }, "Restored task");
+  // Even disabling the native cover cannot bypass the remote connection gate.
+  await view.render(React.createElement(DesktopBootGate, { ready: true, enabled: false }, content));
+  const original = view.host.querySelector("#task");
+  assert.ok(original.closest("[inert]"), "missing approval is not a ready connection");
+  await view.settle(() => setRemoteConnectionState("connecting"));
+  await view.advance(1_200);
+  await view.advance(30_000);
+  assert.ok(original.closest("[inert]"), "elapsed time cannot reveal an offline workspace");
+  let retries = 0;
+  window.addEventListener(REMOTE_WAKE_EVENT, () => { retries++; });
+  const retry = view.host.querySelector(".desktop-boot-cover .remote-connection-overlay");
+  assert.ok(retry, "initial connection failure must offer retry outside the inert workspace");
+  await view.settle(() => retry.click());
+  assert.equal(retries, 1);
+  await view.settle(() => setRemoteConnectionState("syncing"));
+  await view.advance(30_000);
+  assert.ok(original.closest("[inert]"), "an open socket is not completed synchronization");
+  await view.render(React.createElement(DesktopBootGate, { ready: false }, content));
+  await view.settle(() => setRemoteConnectionState("connected"));
+  await view.advance(30_000);
+  assert.ok(original.closest("[inert]"), "connection alone cannot replace initial data");
+  await view.render(React.createElement(DesktopBootGate, { ready: true }, content));
+  // Losing the connection during the fade must cancel the pending handoff.
+  await view.settle(() => setRemoteConnectionState("reconnecting"));
+  await view.advance(120);
+  assert.ok(original.closest("[inert]"));
+  assert.notEqual(view.host.querySelector(".desktop-boot-cover").dataset.leaving, "true");
+  await view.settle(() => setRemoteConnectionState("connected"));
+  await view.advance(120);
+  assert.equal(view.host.querySelector("#task"), original);
+  assert.equal(original.closest("[inert]"), null);
+  assert.equal(view.host.querySelector(".desktop-boot-cover"), null);
+});
+
+test("failed remote snapshot stays unhydrated and recovers on connection without remounting", async (t) => {
+  const view = harness(t);
+  window.mixdogRemoteServer = "https://mixdog.test";
+  const { useDesktopState } = await import("./app-desktop-state.ts");
+  const { setRemoteConnectionState } = await import("./remote-connection-state.ts");
+  let calls = 0;
+  const recovered = Promise.withResolvers();
+  window.mixdogDesktop.getSnapshot = () => {
+    calls++;
+    return calls === 1 ? Promise.reject(new Error("Host offline")) : recovered.promise;
+  };
+  window.mixdogDesktop.subscribeState = () => () => {};
+  function Probe() {
+    const { hydrated, error } = useDesktopState();
+    return React.createElement("output", { "data-hydrated": String(hydrated) }, error);
+  }
+  await view.settle(() => setRemoteConnectionState("connecting"));
+  await view.render(React.createElement(Probe));
+  assert.equal(view.host.querySelector("output").dataset.hydrated, "false");
+  assert.equal(view.host.textContent, "Host offline");
+  await view.settle(() => setRemoteConnectionState("connected"));
+  assert.equal(calls, 2);
+  assert.equal(view.host.querySelector("output").dataset.hydrated, "false");
+  await view.settle(() => recovered.resolve({ sessionId: "" }));
+  assert.equal(view.host.querySelector("output").dataset.hydrated, "true");
+  assert.equal(view.host.textContent, "");
+  await view.settle(() => setRemoteConnectionState("reconnecting"));
+  await view.settle(() => setRemoteConnectionState("connected"));
+  assert.equal(calls, 2, "a repaired initial read does not need another recovery read");
 });
 
 test("startup emits no settled signal while persisted panes are still being validated", async (t) => {

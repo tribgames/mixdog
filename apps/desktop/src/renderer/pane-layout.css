@@ -551,6 +551,8 @@
    side surface with its own horizontal tab header to the pane's right edge. */
 .pane-side-dock {
   position: relative;
+  /* Keep the outside resize edge above the conversation's surface stack. */
+  z-index: 2;
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -615,9 +617,38 @@
 }
 .pane-side-dock .workbench-side-panel[data-embedded="true"] {
   height: 100%;
+  /* The content wrapper still clips its children; the resize edge must not
+     be clipped by the panel itself. */
+  overflow: visible;
   /* Width is fully MEASURED by the dock host (user: 통합 넓이계산): the unit
      always leaves the conversation its floor, so no band cap is needed. */
   max-width: none;
+}
+.pane-side-dock .workbench-side-panel[data-side="right"] > .workbench-side-panel-resize,
+.pane-dock-diff-resize {
+  /* Persistent browser/terminal hosts paint above the entire pane. Keep
+     the hit target wholly outside their bounds, not underneath them. */
+  /* Absolute positioning starts inside the panel's 1px left border. */
+  left: -9px;
+  width: 8px;
+  touch-action: none;
+  user-select: none;
+}
+.pane-side-dock .workbench-side-panel-resize::after,
+.pane-dock-diff-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 1px;
+  background: var(--mx-border-structure);
+  pointer-events: none;
+}
+.pane-side-dock .workbench-side-panel-resize:is(:hover, :active)::after,
+.pane-dock-diff-resize:is(:hover, :active)::after {
+  width: 3px;
+  background: var(--mx-focus);
 }
 /* ── Dock surface stack (browser / diff under the side-tab header) ──
    The header's children render STANDALONE below it (user: 사이드탭 헤더
@@ -713,8 +744,6 @@
   z-index: 5;
   top: 0;
   bottom: 0;
-  left: -4px;
-  width: 8px;
   cursor: col-resize;
 }
 .pane-dock-diff-body {

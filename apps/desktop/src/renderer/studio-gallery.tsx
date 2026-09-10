@@ -58,6 +58,7 @@ export function StudioGallery({
   assetUrl,
   durations,
   eagerThumbnailCount,
+  failedThumbs,
   fullUrls,
   gridMotionReady,
   gridRef,
@@ -96,6 +97,7 @@ export function StudioGallery({
   assetUrl: (assetId: string, variant: 'thumb' | 'original') => string;
   durations: Record<string, number>;
   eagerThumbnailCount: number;
+  failedThumbs: Record<string, boolean>;
   fullUrls: Record<string, string>;
   gridMotionReady: boolean;
   gridRef: RefObject<HTMLDivElement | null>;
@@ -274,7 +276,8 @@ export function StudioGallery({
                   kind={asset.kind}
                   eager={assetIndex < eagerThumbnailCount}
                   pending={localTransport && asset.kind === 'image'
-                    && assetIndex < eagerThumbnailCount && !thumbs[asset.id]}
+                    && assetIndex < eagerThumbnailCount && !thumbs[asset.id]
+                    && !failedThumbs[asset.id]}
                   // A missing media route falls back tile-by-tile through RPC.
                   onError={thumbs[asset.id] ? undefined : () => onThumbnailError(asset.id)}
                   // A cold custom-protocol rendition may still be live; start

@@ -8,6 +8,9 @@ import {
 } from "./boot-metrics";
 import { DesktopLoadingSurface } from "./RendererRecovery";
 import { t } from "./i18n";
+import { RemoteConnectionBanner } from "./RemoteConnectionBanner";
+import { currentRemoteConnectionState, subscribeRemoteConnectionState } from "./remote-connection-state";
+import { remoteSurface } from "./shell-viewport";
 
 const SURFACE_FONT_WAIT_MAX_MS = 300;
 const STARTUP_SURFACE_FALLBACK_MS = 1_200;
@@ -178,6 +181,13 @@ export function DesktopBootGate({
   label?: string;
   children: ReactNode;
 }) {
+  const remote = remoteSurface();
+  const connectionState = useSyncExternalStore(
+    subscribeRemoteConnectionState,
+    currentRemoteConnectionState,
+    () => null,
+  );
+  const connectionReady = !remote || connectionState === "connected";
   const barrierRef = useRef<ReturnType<typeof createBootSurfaceBarrier> | null>(null);
   barrierRef.current ||= createBootSurfaceBarrier();
   const barrier = barrierRef.current;
@@ -187,32 +197,32 @@ export function DesktopBootGate({
     barrier.getSnapshot,
   );
   const windowShown = useStartupSurfaceReady(0);
-  const [armed, setArmed] = useState(!enabled);
+  const [armed, setArmed] = useState(!enabled && !remote);
   const [timedOut, setTimedOut] = useState(false);
-  const [handoffComplete, setHandoffComplete] = useState(!enabled);
+  const [handoffComplete, setHandoffComplete] = useState(!enabled && !remote);
   const [coverLeaving, setCoverLeaving] = useState(false);
-  const revealRequested = !enabled || timedOut
+  const revealRequested = connectionReady && ((!enabled && !remote) || (!remote && timedOut)
     // Surface barriers resolve after their first real paint. The opaque cover
     // can begin fading immediately; main's later two-visible-frame signal still
     // owns deferred prewarms, but no longer serializes the visual handoff.
-    || (armed && ready && surfaces.pending === 0);
+    || (armed && ready && surfaces.pending === 0));
   // Generic surface switches wait for fonts plus three composed frames. Every
   // boot surface has already crossed the paint barrier above, and the cover
   // itself still fades out, so repeating that sequence only extends the splash.
-  const [revealed, setRevealed] = useState(!enabled);
+  const [revealed, setRevealed] = useState(!enabled && !remote);
 
   useLayoutEffect(() => {
-    if (enabled && !armed) setArmed(true);
-  }, [armed, enabled]);
+    if ((enabled || remote) && !armed) setArmed(true);
+  }, [armed, enabled, remote]);
   useEffect(() => {
     if (revealRequested && !revealed) setRevealed(true);
   }, [revealRequested, revealed]);
   useEffect(() => {
-    if (!enabled || !windowShown || revealed
+    if (remote || !enabled || !windowShown || revealed
       || !desktopBootCoverTimeoutAllowed(restorePending)) return undefined;
     const timer = window.setTimeout(() => setTimedOut(true), DESKTOP_BOOT_COVER_MAX_MS);
     return () => window.clearTimeout(timer);
-  }, [enabled, restorePending, revealed, windowShown]);
+  }, [remote, enabled, restorePending, revealed, windowShown]);
   useEffect(() => {
     if (timedOut) {
       markBootStage("desktop-boot-timeout", surfaces.pendingKeys.join(","));
@@ -220,6 +230,11 @@ export function DesktopBootGate({
   }, [surfaces.pendingKeys, timedOut]);
   useEffect(() => {
     if (!revealed || handoffComplete) return undefined;
+    // A connection lost during the brand fade must not expose the workspace.
+    if (!revealRequested) {
+      setCoverLeaving(false);
+      return undefined;
+    }
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
       setHandoffComplete(true);
       return undefined;
@@ -230,7 +245,7 @@ export function DesktopBootGate({
       DESKTOP_BOOT_BRAND_FADE_MS,
     );
     return () => window.clearTimeout(timer);
-  }, [handoffComplete, revealed]);
+  }, [handoffComplete, revealed, revealRequested]);
   useEffect(() => {
     if (!revealed) return;
     barrier.seal();
@@ -253,6 +268,7 @@ export function DesktopBootGate({
     {!handoffComplete && <div className="desktop-boot-cover"
       data-leaving={coverLeaving ? "true" : undefined}>
       <DesktopLoadingSurface label={label} brand />
+      {remote && <RemoteConnectionBanner boot />}
     </div>}
   </div>;
 }

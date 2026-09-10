@@ -8,7 +8,7 @@ import {
 } from '../stall-policy.mjs';
 import { typedStatusFrom } from './retry-classifier.mjs';
 import { stampStreamOutcome, STREAM_TRANSPORTS } from './lib/stream-outcome.mjs';
-import { customToolCallFromResponseItem } from './custom-tool-wire.mjs';
+import { customToolCallFromResponseItem, nativeToolSearchCallFromArguments } from './custom-tool-wire.mjs';
 import { createLeakGuard, createToolCallDedupe, dedupeToolCallList } from './anthropic-leaked-toolcall.mjs';
 import { randomBytes } from 'crypto';
 import { createActiveToolItemTracker } from './tool-stream-state.mjs';
@@ -606,14 +606,12 @@ function handleCompatResponsesStreamEvent(event, state, { label, parseResponsesT
         const _tsArgs = item.arguments && typeof item.arguments === 'object' && !Array.isArray(item.arguments)
             ? item.arguments
             : parseCompletedToolCallArgumentsJson(item.arguments || '{}', label, { id: callId, name: 'tool_search', finishReason: 'done' });
-        const call = {
-            id: callId,
-            name: 'load_tool',
+        const call = nativeToolSearchCallFromArguments(
+            callId,
             // Schema is a plain object ({query,select,limit}); an array must
             // never pass through as args.
-            arguments: (_tsArgs && typeof _tsArgs === 'object' && !Array.isArray(_tsArgs)) ? _tsArgs : {},
-            nativeType: 'tool_search_call',
-        };
+            (_tsArgs && typeof _tsArgs === 'object' && !Array.isArray(_tsArgs)) ? _tsArgs : {},
+        );
         state.toolCalls.push(call);
         emitCompatToolCallOnce(state, call, onToolCall);
     };

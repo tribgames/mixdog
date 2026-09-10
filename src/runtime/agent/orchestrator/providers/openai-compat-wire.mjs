@@ -19,6 +19,8 @@ import {
 } from './media-normalization.mjs';
 import {
     customToolCallFromResponseItem,
+    nativeToolSearchCallFromArguments,
+    responsesToolLoadingSurface,
 } from './custom-tool-wire.mjs';
 import { providerReplayItems } from './lib/provider-replay.mjs';
 import { ensureResponsesCallOutputs } from './lib/wire-pairing.mjs';
@@ -146,7 +148,7 @@ export function toResponsesTools(tools, options = {}) {
     const provider = String(options?.provider || '').toLowerCase();
     const allowNativeToolSearch = options?.nativeToolSearch === true
         || (options?.nativeToolSearch !== false && (provider === 'openai' || provider === 'openai-oauth'));
-    return tools.map((t) => {
+    return (allowNativeToolSearch ? responsesToolLoadingSurface(tools) : tools).map((t) => {
         // load_tool advertises as the OpenAI-native `tool_search` wire type
         // (legacy 'tool_search' name still accepted for back-compat). xAI/Grok
         // Responses rejects that OpenAI-only variant ("unknown variant
@@ -231,14 +233,12 @@ export function parseResponsesToolCalls(response, label) {
             const _tsArgs = item.arguments && typeof item.arguments === 'object' && !Array.isArray(item.arguments)
                 ? item.arguments
                 : parseCompletedToolCallArgumentsJson(item.arguments || '{}', label, { id: item.call_id || item.id, name: 'tool_search', finishReason });
-            out.push({
-                id: item.call_id || item.id,
-                name: 'load_tool',
+            out.push(nativeToolSearchCallFromArguments(
+                item.call_id || item.id,
                 // Schema is a plain object ({query,select,limit}); an array
                 // (parsed JSON or passthrough) must never pass through as args.
-                arguments: (_tsArgs && typeof _tsArgs === 'object' && !Array.isArray(_tsArgs)) ? _tsArgs : {},
-                nativeType: 'tool_search_call',
-            });
+                (_tsArgs && typeof _tsArgs === 'object' && !Array.isArray(_tsArgs)) ? _tsArgs : {},
+            ));
         }
     }
     return out.length ? out : undefined;

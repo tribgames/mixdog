@@ -21,6 +21,7 @@ export interface ScmContextMenuItem {
   separatorBefore?: boolean;
   /** Renders the item as a radio entry (View & Sort). */
   checked?: boolean;
+  checkRole?: "menuitemradio" | "menuitemcheckbox";
   /** Tooltip; on a DISABLED item this is the reason it cannot run yet. */
   title?: string;
 }
@@ -93,7 +94,7 @@ export function ScmContextMenu({
     const previous = document.activeElement as HTMLElement | null;
     queueMicrotask(() => panel.current
       ?.querySelector<HTMLButtonElement>("[role='menuitem']:not(:disabled),"
-        + " [role='menuitemradio']:not(:disabled)")?.focus());
+        + " [role='menuitemradio']:not(:disabled), [role='menuitemcheckbox']:not(:disabled)")?.focus());
     const dismiss = (event: Event) => {
       if (panel.current?.contains(event.target as Node)) return;
       onClose();
@@ -126,7 +127,7 @@ export function ScmContextMenu({
 
   const onMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const entries = [...(panel.current?.querySelectorAll<HTMLButtonElement>(
-      "[role='menuitem']:not(:disabled), [role='menuitemradio']:not(:disabled)") || [])];
+      "[role='menuitem']:not(:disabled), [role='menuitemradio']:not(:disabled), [role='menuitemcheckbox']:not(:disabled)") || [])];
     if (!entries.length) return;
     const current = Math.max(0, entries.indexOf(document.activeElement as HTMLButtonElement));
     let next = -1;
@@ -147,7 +148,7 @@ export function ScmContextMenu({
     onContextMenu={(event) => event.preventDefault()}>
     {state.items.map((item) => <button type="button" key={item.id}
       data-action-id={item.id}
-      role={item.checked === undefined ? "menuitem" : "menuitemradio"}
+      role={item.checked === undefined ? "menuitem" : item.checkRole ?? "menuitemradio"}
       aria-checked={item.checked}
       className={[
         item.danger ? "danger" : "",

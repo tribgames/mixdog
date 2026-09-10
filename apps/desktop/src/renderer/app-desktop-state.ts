@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { SessionSnapshot } from "../shared/contract";
 import { type Snapshot, EMPTY_SNAPSHOT } from "./desktop-types";
+import { currentRemoteConnectionState, subscribeRemoteConnectionState } from "./remote-connection-state";
+import { remoteSurface } from "./shell-viewport";
 import {
   createDesktopSnapshotStore,
   desktopSnapshotUpdateIsUrgent,
@@ -49,21 +51,37 @@ export function useDesktopState() {
       if (live) {
         applyReceivedSnapshot(next);
         setHydrated(true);
-        setError((current) => current === initialReadError ? "" : current);
+        const previousReadError = initialReadError;
+        initialReadError = "";
+        setError((current) => current === previousReadError ? "" : current);
       }
     };
     let initialReadError = "";
-    Promise.resolve(host.getSnapshot()).then(update).catch((reason) => {
-      if (live) {
-        initialReadError = reason instanceof Error ? reason.message : String(reason);
-        setError(initialReadError);
-        setHydrated(true);
+    let readPending = false;
+    const readInitialSnapshot = () => {
+      if (!live || readPending) return;
+      readPending = true;
+      Promise.resolve().then(() => host.getSnapshot()).then(update).catch((reason) => {
+        if (live) {
+          initialReadError = reason instanceof Error ? reason.message : String(reason);
+          setError(initialReadError);
+          // Native boot retains its bounded recovery. A remote boot needs a
+          // real host snapshot, not merely a completed (failed) attempt.
+          if (!remoteSurface()) setHydrated(true);
+        }
+      }).finally(() => { readPending = false; });
+    };
+    readInitialSnapshot();
+    const unsubscribeConnection = subscribeRemoteConnectionState(() => {
+      if (initialReadError && currentRemoteConnectionState() === "connected") {
+        readInitialSnapshot();
       }
     });
     const unsubscribe = host.subscribeState(update);
     return () => {
       live = false;
       cancelLayoutFrame(snapshotStore);
+      unsubscribeConnection();
       unsubscribe?.();
     };
   }, [applyReceivedSnapshot, snapshotStore]);

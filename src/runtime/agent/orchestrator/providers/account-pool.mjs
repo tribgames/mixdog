@@ -53,7 +53,6 @@ export function createAccountPoolProvider(providerName, create) {
         throw error;
       }
       attempted.add(row.id);
-      if (row.id !== pool.selectedId) changeProviderAccounts(providerName, { selectedId: row.id });
       let emitted = false;
       const opts = { ...options };
       // Observe output even when the caller does not subscribe to that callback.
@@ -77,6 +76,13 @@ export function createAccountPoolProvider(providerName, create) {
         const result = await account(row.id).send(history, model, tools, opts);
         if (result?.providerReplay) result.providerReplay = { ...result.providerReplay, accountId: row.id };
         if (result?.providerState) result.providerState = { ...result.providerState, providerAccountId: row.id };
+        // Commit only a successful fallback, without overwriting a newer selection.
+        if (row.id !== pool.selectedId) {
+          const current = readProviderAccountPool(providerName);
+          if (current.selectedId === pool.selectedId && current.accounts.some((entry) => entry.id === row.id)) {
+            changeProviderAccounts(providerName, { selectedId: row.id });
+          }
+        }
         return result;
       } catch (error) {
         if (options.signal?.aborted) throw error;

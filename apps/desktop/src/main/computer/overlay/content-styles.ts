@@ -24,6 +24,7 @@ button:disabled { opacity:.5;cursor:default; }
 button:focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
 button svg { width:18px;height:18px;fill:currentColor; }
 body[data-paused="true"] #dot { animation:none;opacity:.4; }
+body[data-paused="true"] #outline .highlight { display:none; }
 body[data-paused="true"] #outline .highlight,body.hiding #outline .highlight { animation-play-state:paused; }
 body[data-error="true"] #dot { animation:none;background:#e3b341;opacity:1; }
 @keyframes breathe { 0%,100% { opacity:.45; } 50% { opacity:1; } }

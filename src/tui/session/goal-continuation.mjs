@@ -87,6 +87,8 @@ export function createGoalContinuation({
     cancelQueuedGoalContinuations();
     const goal = visibleGoal(event.goal || runtime.goalStatus?.() || null);
     set({ goal });
+    if (goal?.status === 'duration_reached' && getState().busy
+      && !getState().sessionRemoteAttached) runtime.abort?.('goal-budget');
     if (goal?.status === 'active') scheduleGoalContinuation();
   };
 

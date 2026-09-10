@@ -16,6 +16,6 @@
 - If verification fails, collect all failures, leave Verification, complete all
   determinable fixes, then re-enter Verification for the resulting state.
 - A successful verification closes the task unless later changes affect it;
-  rerun a failed action only after its inputs or subject change, otherwise
-  report it unresolved.
+  failed actions follow the retry policy in Tool Workflow, otherwise report
+  them unresolved.
 

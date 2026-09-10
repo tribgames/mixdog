@@ -352,12 +352,31 @@ export function posterFromVideo(dataUrl: string, maxEdge = 420): Promise<VideoPo
  * memory; a repaint storm (dragging the duration slider) then took the window
  * down. Tiles only ever need ~420px.
  */
-export function thumbFromImage(dataUrl: string, maxEdge = 420): Promise<string> {
+export function thumbFromImage(dataUrl: string, maxEdge = 420, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     const image = new Image();
+    const cleanup = () => {
+      image.onload = null;
+      image.onerror = null;
+      signal?.removeEventListener('abort', abort);
+    };
+    const abort = () => {
+      cleanup();
+      image.src = '';
+      reject(new Error('thumbnail decode cancelled'));
+    };
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    signal?.addEventListener('abort', abort, { once: true });
     image.crossOrigin = 'anonymous';
-    image.onerror = () => reject(new Error('thumbnail decode failed'));
+    image.onerror = () => {
+      cleanup();
+      reject(new Error('thumbnail decode failed'));
+    };
     image.onload = () => {
+      cleanup();
       try {
         const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight));
         const canvas = document.createElement('canvas');

@@ -38,7 +38,11 @@ export const GOAL_TOOL_DEFS = Object.freeze([{
       objective: { type: 'string', description: 'create: requested outcome.' },
       time_limit_minutes: {
         type: 'number', minimum: 1, maximum: MAX_GOAL_TIME_LIMIT_MS / 60_000,
-        description: 'create only: full-period work commitment; omit unless user requested a duration.',
+        description: 'create only: user-requested time budget; omit when none was requested.',
+      },
+      time_mode: {
+        type: 'string', enum: ['max', 'duration'],
+        description: 'create only: max (default) permits verified early completion; duration commits the full period only when explicitly requested.',
       },
       tasks: {
         type: 'array', minItems: 1, maxItems: MAX_GOAL_TASKS,
@@ -51,7 +55,7 @@ export const GOAL_TOOL_DEFS = Object.freeze([{
         description: 'update_tasks/resume: existing task ids with only changed fields.',
       },
       revision: { type: 'integer', minimum: 1, description: 'Latest Goal revision from a result or reminder; use for mutations other than create.' },
-      blocker: { type: 'string', minLength: 1, maxLength: 1_000, description: 'block: external impasse preventing progress for 3 consecutive turns.' },
+      blocker: { type: 'string', minLength: 1, maxLength: 1_000, description: 'pause: required user answer. block: stable description of the same external impasse, reported once per turn; runtime stops after 3 consecutive turns.' },
     },
     required: ['action'],
     additionalProperties: false,
@@ -60,8 +64,8 @@ export const GOAL_TOOL_DEFS = Object.freeze([{
 
 const ACTION_FIELDS = Object.freeze({
   status: ['action'],
-  create: ['action', 'objective', 'time_limit_minutes', 'tasks'],
-  pause: ['action', 'revision'],
+  create: ['action', 'objective', 'time_limit_minutes', 'time_mode', 'tasks'],
+  pause: ['action', 'revision', 'blocker'],
   resume: ['action', 'tasks', 'updates', 'revision'],
   set_tasks: ['action', 'tasks', 'revision'],
   update_tasks: ['action', 'tasks', 'updates', 'revision'],

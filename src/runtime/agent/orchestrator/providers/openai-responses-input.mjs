@@ -17,6 +17,7 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
     const out = [];
     const pendingToolMedia = [];
     const customToolCallNameById = new Map();
+    const nativeSearchCalls = new Map();
     const replayEncryptedReasoning = opts.replayEncryptedReasoning === true;
     const wireParity = opts.codexWireParity === true;
     const wireMessage = (role, content, phase) => ({
@@ -76,19 +77,34 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
                 if (mediaContent) pendingToolMedia.push(...mediaContent);
                 continue;
             }
-            const nativeSearchOutput = nativeToolSearchOutputInput(
-                m,
-                opts.nativeToolSearchProvider || 'openai-oauth',
-            );
-            if (nativeSearchOutput) {
+            const searchCall = nativeSearchCalls.get(m.toolCallId || '');
+            if (searchCall) {
+                const nativeSearchOutput = nativeToolSearchOutputInput(
+                    m,
+                    opts.nativeToolSearchProvider || 'openai-oauth',
+                ) || {
+                    type: 'tool_search_output',
+                    call_id: m.toolCallId || '',
+                    status: 'completed',
+                    execution: 'client',
+                    tools: [],
+                };
                 out.push(nativeSearchOutput);
+                // Native search outputs have no text field. Keep skill status,
+                // missing dependencies and failed/denied loader results visible,
+                // without manufacturing a search call for an ordinary function.
+                if (searchCall.arguments?.name || !nativeSearchOutput.tools.length) {
+                    pendingToolMedia.push({ type: 'input_text', text: output });
+                }
                 if (mediaContent) pendingToolMedia.push(...mediaContent);
                 continue;
             }
             out.push({
                 type: 'function_call_output',
                 call_id: m.toolCallId || '',
-                output,
+                output: m.nativeToolSearch?.openaiTools?.length
+                    ? `${output}\nThis ordinary function result cannot register native tools. Use tool_search with names:${JSON.stringify(m.nativeToolSearch.openaiTools.map((tool) => tool.name))} to load their definitions.`
+                    : output,
             });
             if (mediaContent) pendingToolMedia.push(...mediaContent);
             continue;
@@ -105,6 +121,9 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
                 if (item?.type === 'custom_tool_call' && item.call_id) {
                     customToolCallNameById.set(item.call_id, item.name || '');
                 }
+                if (item?.type === 'tool_search_call' && item.call_id) {
+                    nativeSearchCalls.set(item.call_id, item);
+                }
                 out.push(item);
             }
             continue;
@@ -117,6 +136,7 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
             for (const tc of m.toolCalls) {
                 const nativeSearchCall = nativeToolSearchCallInput(tc);
                 if (nativeSearchCall) {
+                    nativeSearchCalls.set(tc.id, nativeSearchCall);
                     out.push(nativeSearchCall);
                 } else if (isCustomToolCallRecord(tc)) {
                     if (tc.id) customToolCallNameById.set(tc.id, tc.name || '');

@@ -351,7 +351,10 @@ export async function createLocalSessionRuntime({
     if (effectivePatch.commandStatus || effectivePatch.toolApproval) {
       flushEmitImmediate();
     }
-    if (commandBusyReleased || busyReleased) queueMicrotask(() => { void bag.drain?.(); });
+    if (commandBusyReleased || busyReleased) queueMicrotask(() => {
+      void bag.drain?.();
+      bag.scheduleGoalContinuation?.();
+    });
     return true;
   };
 
@@ -823,6 +826,7 @@ export async function createLocalSessionRuntime({
     lifecycle.unsubscribeAgentStatus = runtime.onAgentStatusChange(() => {
       if (flags.disposed || flags.pendingSessionReset || bag.liveShareMirroring?.()) return;
       set({ ...agentStatusState({ force: true }) });
+      bag.scheduleGoalContinuation?.();
     });
   }
 
