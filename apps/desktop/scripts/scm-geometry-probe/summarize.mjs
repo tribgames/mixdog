@@ -49,12 +49,22 @@ for (const scenario of report) {
   console.log(`   branch panel ${box(scenario.branchPanel)}  ${inside(scenario.branchPanel, viewport, "window")}`);
   console.log(`   commit row   ${box(scenario.commitRow)} button ${box(scenario.commitButton)}`
     + ` controls=${scenario.commitControls}`);
-  console.log(`   badge        ${box(scenario.badge)}`);
-  const badgeDirections = scenario.badgeDirections || [];
-  check(scenario, badgeDirections.length === 2
-    && badgeDirections.every((direction) => direction.visible),
-  `the Push badge lost its ahead/behind direction marks`
-    + ` (${badgeDirections.filter((direction) => direction.visible).length}/2 visible)`);
+  const syncCounts = scenario.syncCounts || [];
+  console.log(`   sync band    ${box(scenario.syncBand)} capsule ${box(scenario.syncCapsule)}`
+    + ` counts ${syncCounts.map((count) => `"${(count.text || "").trim()}"`
+      + `${count.direction?.visible ? "+arrow" : "+NO-ARROW"}`).join(" ")}`);
+  // Ahead/behind is a full-width BAND: every count shows its digits AND its
+  // own visible direction arrow, the capsule stays wider than it is tall (a
+  // lone count used to collapse into a dot), and the chip that straddled the
+  // Push button must stay gone.
+  check(scenario, syncCounts.length === 2 && syncCounts.every((count) =>
+    /^\d+$/.test((count.text || "").trim()) && count.rendered && count.direction?.visible === true),
+  `the sync band shows ${syncCounts.length} count(s); each needs its digits and a visible arrow`);
+  check(scenario, Boolean(scenario.syncCapsule)
+    && scenario.syncCapsule.width > scenario.syncCapsule.height,
+  `the sync capsule collapsed into a dot (${box(scenario.syncCapsule)})`);
+  check(scenario, scenario.floatingBadges === 0,
+    `the old floating Push badge is still rendered (${scenario.floatingBadges} element(s))`);
 
   // Every overlay is fully inside the window. The commit split menu is gone
   // with its chevron: the commit row must carry exactly ONE full-width
@@ -104,6 +114,18 @@ for (const scenario of report) {
     "the fixed Git toolbar is not excluded from automatic localization");
   check(scenario, JSON.stringify(scenario.toolbarActionLabels) === JSON.stringify(["Push", "Fetch"]),
     `the fixed Git actions are not Push | Fetch (${scenario.toolbarActionLabels?.join(" | ")})`);
+  // …and the sync band sits UNDER the toolbar and inside the panel: that is
+  // exactly the room the floating chip never had.
+  check(scenario, Boolean(scenario.syncBand) && withinX(scenario.syncBand, scenario.panel),
+    `the sync band leaves the dock panel (${box(scenario.syncBand)})`);
+  const toolbarBottom = sections.length
+    ? Math.max(...sections.map((section) => section.top + section.height))
+    : NaN;
+  check(scenario, Boolean(scenario.syncBand) && scenario.syncBand.top >= toolbarBottom - 1,
+    `the sync band rides inside the toolbar row instead of under it`
+    + ` (band top ${scenario.syncBand?.top}, toolbar bottom ${toolbarBottom})`);
+  check(scenario, contains(scenario.syncCapsule, scenario.panel),
+    `the sync capsule leaves the dock panel (${box(scenario.syncCapsule)})`);
 
   // The branch panel opens INSTANTLY with a loading row and fills one turn
   // later. Its box must not change between those frames: the list owns a

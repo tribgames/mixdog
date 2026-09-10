@@ -4,22 +4,20 @@
 import { appendAgentProgressKv } from '../agent-task-status.mjs';
 import { compactIso, elapsedFromStamps, stripFinalAnswerWrapper } from './helpers.mjs';
 
-// A worker that hits the loop iteration ceiling, gets truncated mid-synthesis,
-// or produces an empty terminal turn returns content:'' but never throws — so
+// A worker that gets truncated mid-synthesis or produces an empty terminal
+// turn can return content:'' without throwing — so
 // the background task would otherwise reconcile as a benign `completed` empty
 // success. That is wrong: an empty final answer is an error. loop.mjs is the
 // single classifier: it tags result.terminationReason for abnormal finishes
 // (carried through manager.mjs terminalResultPreview). We key purely off that
-// here. iteration_cap / truncated are real problems for EVERY agent (hidden
-// too). The plain `empty` case is tagged by the loop ONLY for public agents;
+// here. Truncation is a real problem for EVERY agent (hidden too). The plain
+// `empty` case is tagged by the loop ONLY for public agents;
 // hidden agents (cycle/…) legitimately emit empty terminal turns and
 // are left untagged, so they stay benign.
 export function abnormalEmptyFinishError(result, agent) {
   // The loop (loop.mjs) is the single classifier: it tags terminationReason
   // ONLY for abnormal finishes, and gates the `empty` case behind !hidden.
-  // So we key purely off terminationReason here — no separate content/hidden
-  // check, which previously (a) exempted hidden agents from cap/truncated and
-  // (b) let a capped tool-call turn with preamble text slip through as success.
+  // So we key purely off terminationReason here, not content or visibility.
   const reason = result?.terminationReason;
   if (!reason) return null;
   const iterations = result?.iterations ?? 0;
@@ -28,8 +26,8 @@ export function abnormalEmptyFinishError(result, agent) {
   const stopReason = result?.stopReason ?? result?.stop_reason ?? null;
   switch (reason) {
     case 'iteration_cap':
-      // Real problem for EVERY agent (hidden too): the loop never terminated on
-      // its own contract, so any preamble text is not a trustworthy final answer.
+      // Preserve failure reporting for stored results from older runtimes.
+      // Current execution no longer applies a loop iteration ceiling.
       return `agent '${agent}' hit the loop iteration ceiling (${maxLoopIterations} iterations, ${toolCallsTotal} tool calls) without producing a final answer`;
     case 'truncated':
       return `agent '${agent}' response was truncated (stopReason=${stopReason}) before a final answer (${iterations} iterations, ${toolCallsTotal} tool calls)`;
@@ -95,11 +93,6 @@ export function renderResult(value) {
       if (value.provider && value.model) lines.push(`model: ${value.provider}/${value.model}`);
       if (value.effort) lines.push(`effort: ${value.effort}`);
       if (value.fast === true || value.fast === false) lines.push(`fast: ${value.fast ? 'on' : 'off'}`);
-      if (value.maxLoopIterations) {
-        const limitParts = [];
-        if (value.maxLoopIterations) limitParts.push(`loop=${value.maxLoopIterations}`);
-        lines.push(`limits: ${limitParts.join(' ')}`);
-      }
       if (!isStartAck) {
         if (value.stage || value.workerStatus) lines.push(`worker: ${value.workerStatus || 'unknown'}/${value.stage || 'unknown'}`);
         if (value.worker_stage) lines.push(`worker_stage: ${value.worker_stage}`);

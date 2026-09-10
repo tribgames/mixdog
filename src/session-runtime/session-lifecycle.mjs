@@ -322,9 +322,6 @@ export function createSessionLifecycle({
           visibility: 'agent-only',
           agentTag: sessionProfile?.agentTag || null,
           taskType: sessionProfile?.taskType || null,
-          maxLoopIterations: Number.isFinite(sessionProfile?.maxLoopIterations)
-            ? sessionProfile.maxLoopIterations
-            : undefined,
           permission: sessionProfile?.permission || undefined,
           permissionMode: sessionProfile?.permissionMode || undefined,
           schemaAllowedTools: Array.isArray(sessionProfile?.schemaAllowedTools)

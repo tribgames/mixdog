@@ -54,7 +54,6 @@ export function providerContinuationSignal(response) {
 // "completed". Determine "has content" exactly the way the no-tool-call
 // branch in agentLoop does (trimmed string content, or any reasoning content).
 export function classifyTerminationReason(response, {
-    terminatedByCap,
     sessionAgent,
 } = {}) {
     const _finalHasContent = (typeof response?.content === 'string' && response.content.trim().length > 0)
@@ -63,11 +62,6 @@ export function classifyTerminationReason(response, {
     const _finalIncompleteStop = _finalStopReason && INCOMPLETE_STOP_REASONS.has(_finalStopReason);
     const _finalOutputLimitStop = isOutputLimitStopReason(_finalStopReason);
     const _finalIsHidden = HIDDEN_AGENT_NAMES.has(sessionAgent);
-    if (terminatedByCap) {
-        // Real problem regardless of hidden/public: the loop never terminated
-        // on its own contract.
-        return 'iteration_cap';
-    }
     if (_finalStopReason === 'refusal') {
         return 'refusal';
     }

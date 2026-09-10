@@ -55,7 +55,6 @@ function normalizeAgentCompactionConfig(value = {}) {
  * @param {string}  [opts.sourceType]
  * @param {string}  [opts.sourceName]
  * @param {string}  [opts.taskType]
- * @param {number}  [opts.maxLoopIterations]
  * @param {string}  [opts.parentSessionId]
  * @param {string|null} [opts.ownerSessionId] - owning Mixdog MCP instance id for statusline isolation
  * @param {string|null} [opts.visibility] - catalog visibility scope
@@ -74,7 +73,6 @@ export function prepareAgentSession({
     sourceType,
     sourceName,
     taskType,
-    maxLoopIterations,
     parentSessionId,
     ownerSessionId,
     visibility,
@@ -86,9 +84,6 @@ export function prepareAgentSession({
     mcpScopeId,
 }) {
     const effectivePermission = resolveAgentSessionPermission(agent, permission);
-    // No per-agent loop caps: sessions either pin maxLoopIterations explicitly
-    // or fall through to the shared runaway guard (LEAD_MAX_LOOP_ITERATIONS).
-    const effectiveMaxLoopIterations = maxLoopIterations;
     // Pass cwd through verbatim — null is the fixed agent sentinel meaning
     // "no caller workspace context" (cycle1 agents, etc). Upgrading
     // null → process.cwd() here would defeat cache-key fork suppression.
@@ -113,7 +108,6 @@ export function prepareAgentSession({
         cwd: effectiveCwd,
         agent: agent || undefined,
         taskType: taskType || undefined,
-        maxLoopIterations: Number.isFinite(effectiveMaxLoopIterations) ? effectiveMaxLoopIterations : undefined,
         sourceType: sourceType || undefined,
         sourceName: sourceName || undefined,
         parentSessionId: parentSessionId || null,

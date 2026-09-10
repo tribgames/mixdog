@@ -37,6 +37,78 @@ test('preserved cancellations and recoverable failures continue without displaci
   }
 });
 
+test('a fresh deadline warning steers the running turn and parks on an idle one', async () => {
+  const goal = {
+    id: 'goal-warning',
+    revision: 4,
+    status: 'active',
+    objective: 'Finish the objective',
+    timeMode: 'duration',
+    timeLimitMs: 3 * 60 * 60 * 1000,
+    timeUsedMs: 3 * 60 * 60 * 1000 - 9 * 60 * 1000,
+    remainingMs: 9 * 60 * 1000,
+    warningRevision: 1,
+    tasks: [],
+  };
+  const state = { busy: true, commandBusy: false, sessionId: 'sess_goal_warning', goal: null };
+  const pending = [];
+  const reminders = [];
+  let listener = null;
+  const controller = createGoalContinuation({
+    runtime: {
+      id: state.sessionId,
+      goalStatus: () => goal,
+      markGoalReminder: (reason) => reminders.push(reason),
+      onGoalStatusChange: (next) => {
+        listener = next;
+        return () => { listener = null; };
+      },
+    },
+    flags: { disposed: false, pendingSessionReset: false },
+    getState: () => state,
+    set: (patch) => Object.assign(state, patch),
+    getPending: () => pending,
+    enqueue: (text, options) => { pending.push({ content: text, ...options }); return true; },
+  });
+  try {
+    // Watching from the Goal's own start is what makes the first crossing
+    // deliverable instead of being mistaken for an older warning.
+    listener({ sessionId: state.sessionId, goal: { ...goal, warningRevision: 0 } });
+    assert.equal(pending.length, 0);
+
+    // The ten-minute warning reaches the running turn without ending it.
+    listener({ sessionId: state.sessionId, goal });
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0].mode, 'prompt');
+    assert.equal(pending[0].priority, 'next');
+    assert.equal(pending[0].isMeta, true);
+    assert.equal(pending[0].suppressDisplay, true);
+    assert.match(String(pending[0].content), /<goal_deadline>/);
+
+    // The five-minute crossing warns again.
+    pending.length = 0;
+    listener({ sessionId: state.sessionId, goal: { ...goal, warningRevision: 2, remainingMs: 4 * 60 * 1000 } });
+    assert.equal(pending.length, 1);
+
+    // A Goal first seen with an already-delivered warning is a watermark, not
+    // a delivery: the session that crossed it already handed it over.
+    const later = { ...goal, id: 'goal-later', warningRevision: 3 };
+    listener({ sessionId: state.sessionId, goal: later });
+    assert.equal(pending.length, 1);
+
+    // An idle session parks the durable reminder instead.
+    state.busy = false;
+    pending.length = 0;
+    listener({ sessionId: state.sessionId, goal: { ...later, warningRevision: 4 } });
+    assert.equal(pending.length, 0);
+    assert.deepEqual(reminders, ['deadline-soon']);
+    await settleImmediate();
+    assert.equal(pending.length, 0);
+  } finally {
+    controller.disposeGoalContinuation();
+  }
+});
+
 test('route publications read the completed Goal through the archive mask', async () => {
   const goal = { id: 'goal-route', status: 'complete', objective: 'Retire me' };
   const state = { busy: false, commandBusy: false, sessionId: 'sess_goal_route', goal };

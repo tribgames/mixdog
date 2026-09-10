@@ -1991,6 +1991,12 @@ impl FileListStore {
     }
 
     fn watch_root(self: &Arc<Self>, operand: &Path) -> bool {
+        // Root-wide recursive registration is unrelated to the requested
+        // matches and cannot honor the search deadline or its tree exclusions.
+        // Search roots without caching instead of blocking on OS watch setup.
+        if is_filesystem_root(operand) {
+            return false;
+        }
         // Watching is an optional cache optimization, never a prerequisite for
         // searching. An exact-file operand is already cheap to scan; watching
         // its parent recursively can block indefinitely on virtual, network, or
@@ -6589,6 +6595,21 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn filesystem_root_watch_is_unavailable_without_blocking_scoped_watches() {
+        let store = Arc::new(FileListStore::new());
+        let current = std::env::current_dir().unwrap();
+        let root = current.ancestors().last().unwrap();
+        assert!(!store.watch_root(root));
+        let dir = std::env::temp_dir().join("mixdog-root-watch-scope-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(store.watch_root(&dir));
+        assert!(!store.watch_root(root));
+        assert!(store.watch_root(&dir));
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

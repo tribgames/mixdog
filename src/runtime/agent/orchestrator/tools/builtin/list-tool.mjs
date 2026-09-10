@@ -708,12 +708,8 @@ async function runFuzzyFindPass(args, workDir, options = {}) {
             // inventory. Retrying the broad pass after a fuzzy timeout repeats
             // the same expensive walk and used to turn one Find call into two
             // consecutive timeouts that killed the shared search server.
-            // A deadline that expires before ANY response is the same outcome
-            // as the served-partial path below: the scope was too large to
-            // rank inside the budget. Reporting it as a tool failure cost the
-            // caller a whole turn for something that is a bounded, expected
-            // answer, so it returns the empty partial plus the same recovery
-            // guidance instead. Every other native error still surfaces.
+            // Preserve the incomplete outcome without retrying the same walk.
+            // An empty timeout is an error, not evidence of an absent match.
             if (error?.code === 'NATIVE_SEARCH_TIMEOUT') {
                 recordLocalSearchBackend('native_fuzzy', performance.now() - nativeStartedAt, 'partial');
                 nativeEmptyPartial = {
@@ -738,8 +734,8 @@ async function runFuzzyFindPass(args, workDir, options = {}) {
                     : '')
             : '';
         return capFindResult([
-            `(no fuzzy match yet for "${query}")`,
-            `... [native inventory was incomplete${scanErrorNote}; narrow path/query for a complete result]`,
+            `Error: fuzzy search ${nativeEmptyPartial.timeout ? 'timed out' : 'did not complete'} before returning any matches for "${query}".`,
+            `... [native inventory was incomplete${scanErrorNote}; absence of matches is not established — narrow path/query for a complete result]`,
         ].join('\n'));
     }
     return capFindResult('Error: native fuzzy search did not return a result.');

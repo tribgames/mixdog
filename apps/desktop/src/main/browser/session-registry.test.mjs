@@ -116,19 +116,20 @@ test('tab listing and named background targeting cannot cross session owners', (
       getURL: () => 'https://beta.test/',
     }]],
   ]);
-  const background = (id, title) => ({
-    window: {
+  const background = (id, title) => {
+    const guest = {
+      id,
       isDestroyed: () => false,
-      webContents: {
-        id,
-        isDestroyed: () => false,
-        getTitle: () => title,
-        getURL: () => `https://${title.toLowerCase()}.test/`,
-      },
-    },
-    lastUsedAt: 1,
-    kind: 'agent',
-  });
+      getTitle: () => title,
+      getURL: () => `https://${title.toLowerCase()}.test/`,
+    };
+    return {
+      guest,
+      window: { isDestroyed: () => false, webContents: guest },
+      lastUsedAt: 1,
+      kind: 'agent',
+    };
+  };
   const backgrounds = new Map([
     ['alpha', new Map([['research', background(3, 'Alpha background')]])],
     ['beta', new Map([['research', background(4, 'Beta background')]])],

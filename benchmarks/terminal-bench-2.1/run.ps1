@@ -6,6 +6,8 @@ param(
     # Not part of the fingerprint: an A/B pair must stay comparable in history,
     # so the switch under test is recorded in the manifest instead.
     [string[]]$AgentEnv = @(),
+    # Disable the local Docker dependency-archive cache for setup comparisons.
+    [switch]$ColdSetup,
     [switch]$DryRun,
     [switch]$Status
 )
@@ -215,6 +217,7 @@ $runnerArgs = @{
     MaxRetries = $maxRetries
     RouteProfile = $routeProfile
     DryRun = [bool]$DryRun
+    FastSetup = ($tasks.Count -eq 8 -and $attempts -eq 1 -and -not $ColdSetup)
 }
 if (-not [string]::IsNullOrWhiteSpace($ResumeFrom)) {
     $runnerArgs.ResumeFrom = $ResumeFrom
@@ -299,6 +302,7 @@ $manifest = [ordered]@{
         }
     )
     comparison = $comparison
+    fastSetup = [bool]$runnerArgs.FastSetup
 }
 Write-JsonAtomic $manifest $manifestPath
 

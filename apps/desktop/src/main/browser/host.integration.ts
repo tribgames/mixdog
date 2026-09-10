@@ -407,6 +407,16 @@ async function run(): Promise<void> {
       }
     };
 
+    if (process.env.MIXDOG_BROWSER_CONTINUATION_ONLY === '1') {
+      for (let index = 0; index < 101; index += 1) {
+        const observed = await command({ action: 'read' });
+        assert.match(observed.text, /Root fixture/);
+      }
+      progress('browser continues beyond 100 actions in the same turn');
+      progress('integration passed');
+      return;
+    }
+
     const initialDialogStartedAt = Date.now();
     const initialDialog = await command({
       action: 'navigate',
@@ -613,10 +623,8 @@ async function run(): Promise<void> {
     progress(`checkbox batch timing ${JSON.stringify(alpha.timing)}`);
 
     // One call, several gestures on the same page: every step must land, the
-    // whole chain must cost ONE snapshot and ONE budget unit, and a step that
+    // whole chain must take ONE snapshot, and a step that
     // fails must report exactly how far the chain got.
-    // Every block owns its own turn: 20-25 and 30-32 are already spoken for,
-    // and each of them fills its per-turn budget on its own.
     turnId = 26;
     // Every step addresses the SAME snapshot: steps take none of their own, so
     // one generation drives the whole chain.
@@ -790,8 +798,6 @@ async function run(): Promise<void> {
     assert.notEqual(reasons[0].match(/Snapshot: (p\d+-s\d+)/)?.[1], reasons[1].match(/Snapshot: (p\d+-s\d+)/)?.[1]);
     progress('observation generation isolation complete');
 
-    // A fresh turn: the interaction block below already fills the per-turn
-    // budget on its own, and the sequence checks above must not eat into it.
     turnId = 27;
     // The blocks above advanced the ref generation several times.
     alpha = await command({ action: 'snapshot', tab: 'alpha' });
@@ -1468,15 +1474,6 @@ async function run(): Promise<void> {
     );
     progress('remote Browser Use frame binding complete');
 
-    turnId = 99;
-    for (let index = 0; index < 10; index += 1) {
-      await command({ action: 'open', tab: 'beta' });
-    }
-    await assert.rejects(
-      command({ action: 'open', tab: 'beta' }),
-      /per-turn action limit \(10\)/,
-    );
-    progress('per-turn action budget complete');
     await command({ action: 'hide' });
 
     host.releaseSession('browser-integration-session');
@@ -1504,7 +1501,7 @@ async function run(): Promise<void> {
       'every public Browser Use action must complete through the live bridge',
     );
     progress('integration passed');
-    console.log('Browser host integration passed: device emulation and touch, geolocation and extra headers, cookies/storage, visual locate, AX/OOPIF refs and script execution, request/response/WebSocket inspection, request interception, init scripts, performance tracing, download attachment and reporting, document error status, recovery, dialogs and blocked-gesture refusal, intercepted file chooser upload, popup tracking, isolation, queue recovery, and action budget.');
+    console.log('Browser host integration passed: device emulation and touch, geolocation and extra headers, cookies/storage, visual locate, AX/OOPIF refs and script execution, request/response/WebSocket inspection, request interception, init scripts, performance tracing, download attachment and reporting, document error status, recovery, dialogs and blocked-gesture refusal, intercepted file chooser upload, popup tracking, isolation, and queue recovery.');
   } finally {
     for (const response of stalledResponses) response.destroy();
     await host?.dispose();

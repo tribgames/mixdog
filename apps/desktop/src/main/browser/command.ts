@@ -182,8 +182,8 @@ export interface BrowserCommand {
     timeoutMs?: number;
   }>;
   /** Runtime-internal, never part of the public schema: one step of a running
-   *  sequence. It skips the per-gesture snapshot and the per-turn budget
-   *  because the sequence itself already paid both. */
+   *  sequence. It skips the per-gesture snapshot because the sequence takes
+   *  one observation after its steps finish. */
   internalStep?: boolean;
   /** wait ceiling in milliseconds (500–30000; default 10000). */
   timeoutMs?: number;

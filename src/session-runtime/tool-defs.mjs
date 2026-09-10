@@ -13,7 +13,7 @@ export const TOOL_SEARCH_TOOL = {
     openWorldHint: false,
     agentHidden: true,
   },
-  description: 'Load full schemas for exact deferred tool names. Returns function descriptions and parameter schemas.',
+  description: 'Load full schemas for exact deferred tool names. Load only needed tool schemas that are not already available. Returns function descriptions and parameter schemas.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -56,7 +56,7 @@ export const SKILL_TOOL = {
     openWorldHint: false,
     agentHidden: false,
   },
-  description: 'Load a named SKILL.md only when its body is absent from the current context. Reuse an already-present body across tasks and turns without calling Skill again.',
+  description: 'Load the SKILL.md of an available skill whose trigger matches the current request. Call it before other task actions whenever a listed trigger fits; the body then guides the task. Skip only when that body is already present in this context.',
   inputSchema: {
     type: 'object',
     properties: {

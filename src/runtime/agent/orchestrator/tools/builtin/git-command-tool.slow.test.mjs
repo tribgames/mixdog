@@ -270,7 +270,6 @@ test('git and deferred git_stage expose separate compact contracts', () => {
     assert.equal(GIT_STAGE_TOOL_DEF.annotations.destructiveHint, true);
     assert.doesNotMatch(GIT_TOOL_DEF.description, /confirm/i);
     assert.match(GIT_TOOL_DEF.description, /Owns repository state, diffs, history, and mutations/i);
-    assert.match(GIT_TOOL_DEF.description, /Batch status with diff for known targets in one array/i);
     assert.match(GIT_TOOL_DEF.description, /up to 5 Git commands in order/i);
     assert.match(GIT_TOOL_DEF.description, /stops at the first failure/i);
     assert.match(GIT_TOOL_DEF.description, /repository mutations are serialized/i);

@@ -537,7 +537,12 @@ class MixdogAgent(BaseInstalledAgent):
             # apt (glibc) images take the fast path; apk/yum fall through to
             # the stock installer below (the tar targets debian layout).
             probe = await self.exec_as_root(
-                environment, command="command -v apt-get >/dev/null 2>&1 && echo apt || true"
+                environment, command=(
+                    "command -v apt-get >/dev/null 2>&1 && echo apt || true; "
+                    "test -r /opt/mixdog-prebake-cache/mixdog-node-prebake.tar.zst && "
+                    "test -x /opt/mixdog-prebake-cache/zstd-amd64 && "
+                    "echo MIXDOG_PREBAKE_CACHE_READY || true"
+                )
             )
             if "apt" in (getattr(probe, "stdout", "") or ""):
                 def _stage_command(extract):
@@ -574,6 +579,14 @@ class MixdogAgent(BaseInstalledAgent):
                     )
 
                 async def _stage_leg_zst():
+                    if "MIXDOG_PREBAKE_CACHE_READY" in (getattr(probe, "stdout", "") or ""):
+                        return await self.exec_as_root(
+                            environment,
+                            command=_stage_command(
+                                "tar -C / -I /opt/mixdog-prebake-cache/zstd-amd64 "
+                                "-xf /opt/mixdog-prebake-cache/mixdog-node-prebake.tar.zst;"
+                            ),
+                        )
                     await environment.upload_file(prebake_tar_zst, CONTAINER_PREBAKE_TAR_ZST)
                     await environment.upload_file(prebake_zstd_bin, CONTAINER_PREBAKE_ZSTD)
                     return await self.exec_as_root(

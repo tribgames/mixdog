@@ -72,6 +72,7 @@ function buildMinimalPristineConfig({ provider, model, effort, fast } = {}) {
   }
   return {
     agent: {
+      ...cloneJson(PRISTINE_EXECUTION_CONTRACT.agentDefaults),
       providers: { [selectedProvider]: providerConfig },
       presets: [{
         id: 'exec-explicit-route',

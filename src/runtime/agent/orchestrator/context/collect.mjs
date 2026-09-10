@@ -706,7 +706,7 @@ export function buildSkillToolDefs(skills, { ownerIsAgentSession = false } = {})
                 openWorldHint: false,
                 agentHidden: false,
             },
-            description: 'Load a named SKILL.md only when its body is absent from the current context. Reuse an already-present body across tasks and turns without calling Skill again.',
+            description: 'Load the SKILL.md of an available skill whose trigger matches the current request. Call it before other task actions whenever a listed trigger fits; the body then guides the task. Skip only when that body is already present in this context.',
             inputSchema: {
                 type: 'object',
                 properties: {

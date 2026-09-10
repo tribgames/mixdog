@@ -72,3 +72,65 @@ test('display tabs retain popup identity, enforce session ownership, and return 
   assert.deepEqual(tabs.displayTabs('alpha'), []);
   assert.equal(sessions.currentGuest('beta'), other);
 });
+
+test('new tab reuses only the sole idle initial blank page', () => {
+  for (const scenario of [
+    { url: 'about:blank', history: 1, loading: false, reuse: true },
+    { url: 'about:blank', history: 2, loading: false, reuse: false },
+    { url: 'about:blank', history: 1, loading: true, reuse: false },
+    { url: 'https://example.test', history: 1, loading: false, reuse: false },
+    { url: 'about:blank', history: 1, loading: false, support: true, reuse: false },
+  ]) {
+    const primary = {
+      getURL: () => scenario.url,
+      isLoadingMainFrame: () => scenario.loading,
+      navigationHistory: { length: () => scenario.history },
+    };
+    const support = {
+      guest: { isDestroyed: () => false },
+      window: { isDestroyed: () => false },
+    };
+    const pages = new Map(scenario.support ? [['support', support]] : []);
+    let created = 0;
+    let selected;
+    const tabs = createBrowserTabs({
+      visibleGuests: () => [primary],
+      backgroundPages: () => pages,
+      ensureOffscreen: () => { created++; return support; },
+      selectGuest: (_owner, guest) => { selected = guest; },
+    });
+    tabs.createDisplayTab('alpha');
+    assert.equal(created, scenario.reuse ? 0 : 1, JSON.stringify(scenario));
+    assert.equal(selected, scenario.reuse ? primary : support.guest);
+  }
+});
+
+test('foreground targeting selects support pages while explicit background work preserves selection', () => {
+  for (const kind of ['agent', 'popup', 'user']) {
+    for (const tab of ['p2', 'work']) {
+      for (const background of [false, true]) {
+        const primary = { id: 1 };
+        const guest = { id: 2, isDestroyed: () => false };
+        const page = {
+          guest, kind, lastUsedAt: 0,
+          window: { webContents: guest, isDestroyed: () => false },
+        };
+        let selected = primary;
+        const tabs = createBrowserTabs({
+          visibleGuests: () => [primary],
+          backgroundPages: () => new Map([['work', page]]),
+          backgroundEntryByPageId: () => ['work', page],
+          ensureOffscreen: () => page,
+          pageId: guest => `p${guest.id}`,
+          selectGuest: (_owner, guest) => { selected = guest; },
+        });
+        const target = tabs.resolveTargetGuest('alpha', background, tab);
+        assert.equal(target.guest, guest);
+        assert.equal(target.background, background);
+        assert.equal(selected, background ? primary : guest);
+        assert.equal(page.keepAlive, background ? undefined : true);
+        if (!background || tab === 'p2') assert.ok(page.lastUsedAt > 0);
+      }
+    }
+  }
+});

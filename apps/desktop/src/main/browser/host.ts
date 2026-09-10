@@ -29,7 +29,6 @@ import {
   type DesktopRemoteBrowserControl,
   type DesktopRemoteBrowserFrame,
 } from '../../shared/contract';
-import { BrowserActionBudget, resolveBrowserActionsPerTurn } from './action-budget';
 import { createBrowserActionApproval, type BrowserApprovalRequest } from './action-approval';
 import { requestBrowserApproval } from './approval-dialog';
 import { browserActionHandler, type BrowserActionServices } from './actions';
@@ -180,9 +179,6 @@ export function createBrowserHost(
     denyActions: process.env.MIXDOG_BROWSER_DENY_ACTIONS,
   });
   const browserSessions = new BrowserSessionRegistry();
-  const actionBudget = new BrowserActionBudget(
-    resolveBrowserActionsPerTurn(process.env.MIXDOG_BROWSER_MAX_ACTIONS_PER_TURN),
-  );
   let backgroundReclaimTimer: NodeJS.Timeout | null = null;
   let disposed = false;
   let bridgeWanted = false;
@@ -511,8 +507,6 @@ export function createBrowserHost(
     if (expected && !POSTCONDITION_ACTIONS.has(action)) {
       throw new Error(`expect is not supported for browser action "${action}"`);
     }
-    // A sequence pays one budget unit; its steps ARE that unit.
-    if (command.internalStep !== true) actionBudget.consume(command, action);
     // Foreground drives and reveals the visible tab; background drives a
     // hidden offscreen page on the same partition without taking the screen.
     const background = command.background === true;
@@ -652,7 +646,6 @@ export function createBrowserHost(
     await bridgeServer.stop();
     commandChains.clear();
     pendingReads.clear();
-    actionBudget.clear();
     for (const guest of browserSessions.visibleGuests()) {
       await cdp.detach(guest, { uninstallScript: DIALOG_BRIDGE_UNINSTALL_SCRIPT });
     }

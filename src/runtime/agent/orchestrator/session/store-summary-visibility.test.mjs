@@ -68,7 +68,6 @@ test('summary visibility is durable and classifies legacy Agent-owned children',
         permissionMode: 'strict',
         schemaAllowedTools: ['read', 'grep'],
         taskType: 'review',
-        maxLoopIterations: 7,
     }));
     const [normalizedNested] = _normalizeSummaryIndex({
         version: 2,
@@ -83,7 +82,6 @@ test('summary visibility is durable and classifies legacy Agent-owned children',
     assert.equal(normalizedNested.permissionMode, 'strict');
     assert.deepEqual(normalizedNested.schemaAllowedTools, ['read', 'grep']);
     assert.equal(normalizedNested.taskType, 'review');
-    assert.equal(normalizedNested.maxLoopIterations, 7);
 
     const rootLead = _sessionSummary(session('root-lead', {
         owner: 'agent',

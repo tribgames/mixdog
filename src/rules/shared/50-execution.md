@@ -4,9 +4,8 @@
   data transformation, generated output, or unsupported-format decoding→`shell`;
   an already-open shell is never a routing reason.
 - Use a service's MCP tool or CLI in `shell` for structured operations.
-- Run test runners separately from unrelated script checks so their exit
-  status and success summary stay attributable; batch independent calls in
-  the same turn without adding checks.
+- Run test runners and independent script checks as separate calls in the
+  same turn, preserving each exit status and summary.
 <!-- tools: browser -->
 - Rendered, signed-in, or interactive web content→`browser`.
 <!-- tools: computer -->

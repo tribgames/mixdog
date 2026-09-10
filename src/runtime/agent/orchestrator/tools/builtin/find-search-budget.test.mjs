@@ -38,9 +38,10 @@ test('a fuzzy deadline returns promptly without starting another filesystem walk
         __tryServeFuzzySearch: async () => { throw timeout; },
       },
     )));
-    assert.ok(!/^Error[\s:[]/.test(out.trimStart()), `must not surface as a tool failure:\n${out}`);
-    assert.match(out, /no fuzzy match yet/);
+    assert.match(out, /^Error: fuzzy search timed out/);
+    assert.doesNotMatch(out, /no fuzzy match/);
     assert.match(out, /inventory was incomplete/);
+    assert.match(out, /absence of matches is not established/);
     assert.doesNotMatch(out, /retry immediately/);
     assert.equal(telemetry.native_fuzzy_partials, 1);
     assert.equal(telemetry.native_fuzzy_targeted_hits, undefined);
@@ -115,6 +116,7 @@ test('an empty served partial is returned without another filesystem walk', asyn
         }),
       },
     ));
+    assert.match(out, /^Error: fuzzy search timed out/);
     assert.match(out, /inventory was incomplete/);
   } finally {
     rmSync(root, { recursive: true, force: true });

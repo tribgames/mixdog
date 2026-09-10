@@ -14,6 +14,12 @@ export { GOAL_TOOL_DEFS, MAX_GOAL_TIME_LIMIT_MS };
 
 export const DEFAULT_GOAL_TIME_LIMIT_MS = 0;
 export const DEFAULT_COMPLETED_GOAL_TTL_MS = 24 * 60 * 60 * 1000;
+// Warnings ahead of a requested duration ending. The budget stop aborts an
+// in-flight turn, so the model gets the last minutes to land that work instead
+// of losing it at the boundary.
+export const DEFAULT_GOAL_DEADLINE_WARNING_MS = Object.freeze([10 * 60_000, 5 * 60_000]);
+// No deadline warning delivered yet for the current duration commitment.
+const NO_DEADLINE_WARNING_MS = Number.MAX_SAFE_INTEGER;
 export const GOAL_STATUS_VALUES = Object.freeze([
   'active',
   'paused',
@@ -140,6 +146,10 @@ function normalizeStoredGoal(value, sessionId, resumedAt = Date.now()) {
     completedAt: Number(value.completedAt) > 0 ? Number(value.completedAt) : null,
     stoppedAt: Number(value.stoppedAt) > 0 ? Number(value.stoppedAt) : null,
     archivedAt: Number(value.archivedAt) > 0 ? Number(value.archivedAt) : null,
+    // Deadline-warning bookkeeping is observation-only: it stays out of the
+    // revision key so landing a warning never invalidates a model task update.
+    deadlineWarnedMs: normalizeDeadlineWarnedMs(value.deadlineWarnedMs),
+    warningRevision: Math.max(0, Math.floor(Number(value.warningRevision) || 0)),
   };
   return goal;
 }
@@ -148,6 +158,22 @@ function activeElapsedMs(goal, now = Date.now()) {
   const committed = Math.max(0, Number(goal?.timeUsedMs) || 0);
   if (goal?.status !== 'active' || !(Number(goal?.lastStartedAt) > 0)) return committed;
   return committed + Math.max(0, now - Number(goal.lastStartedAt));
+}
+
+// Deadline-warning watermark: the smallest threshold already delivered for the
+// current duration commitment. A threshold counts as delivered once it is no
+// smaller than the watermark, so every threshold warns at most once.
+function normalizeDeadlineWarnedMs(value) {
+  const warned = Number(value);
+  return Number.isFinite(warned) && warned >= 0 ? warned : NO_DEADLINE_WARNING_MS;
+}
+
+// Descending, so the entry a walker meets first is the earliest crossing.
+function normalizeDeadlineWarningMs(value) {
+  const thresholds = (Array.isArray(value) ? value : [value])
+    .map((entry) => Math.floor(Number(entry)))
+    .filter((entry) => Number.isFinite(entry) && entry > 0);
+  return [...new Set(thresholds)].sort((left, right) => right - left);
 }
 
 function publicGoal(goal, now = Date.now()) {
@@ -161,6 +187,9 @@ function publicGoal(goal, now = Date.now()) {
   return {
     id: goal.id,
     revision: goal.revision,
+    // Bumped once per delivered deadline warning; surfaces use the change to
+    // tell "budget is nearly over" apart from an ordinary state update.
+    warningRevision: Math.max(0, Math.floor(Number(goal.warningRevision) || 0)),
     needsTaskReview: goal.tasksObjectiveRevision !== goal.objectiveRevision,
     sessionId: goal.sessionId,
     objective: goal.objective,
@@ -254,7 +283,11 @@ function activateGoal(goal, now = Date.now()) {
 
 function resumeGoalState(goal, at, added = null) {
   stopActiveClock(goal, at);
-  if (added != null) goal.timeLimitMs = Math.min(MAX_GOAL_TIME_LIMIT_MS, goal.timeUsedMs + added);
+  if (added != null) {
+    goal.timeLimitMs = Math.min(MAX_GOAL_TIME_LIMIT_MS, goal.timeUsedMs + added);
+    // Added time is a new commitment: warn again about the new boundary.
+    goal.deadlineWarnedMs = NO_DEADLINE_WARNING_MS;
+  }
   if (goal.timeLimitMs > 0 && goal.timeLimitMs <= goal.timeUsedMs) {
     throw new Error('Goal time budget is exhausted; extend the time budget before resuming');
   }
@@ -369,20 +402,24 @@ export function createGoalRuntime({
   now = () => Date.now(),
   defaultTimeLimitMs = DEFAULT_GOAL_TIME_LIMIT_MS,
   completedGoalTtlMs = DEFAULT_COMPLETED_GOAL_TTL_MS,
+  deadlineWarningMs = DEFAULT_GOAL_DEADLINE_WARNING_MS,
   generateTitle = null,
   writeGoalRecord,
   onStorageError = reportGoalStorageError,
 } = {}) {
   const root = join(clean(dataDir) || process.cwd(), 'goals');
   const completedRetentionMs = normalizedCompletedGoalTtlMs(completedGoalTtlMs);
+  const warningThresholdsMs = normalizeDeadlineWarningMs(deadlineWarningMs);
   const listeners = new Set();
   const deadlineTimers = new Map();
+  const warningTimers = new Map();
   const mutationChains = new Map();
   const turnGoalIds = new Map();
   const turnStartedAt = new Map();
   const titleJobs = new Map();
   const observedGoals = new Map();
   const expiryPending = new Set();
+  const warningPending = new Set();
   let closed = false;
 
   const pathFor = (sessionId) => join(root, `${assertSessionId(sessionId)}.json`);
@@ -411,9 +448,15 @@ export function createGoalRuntime({
 
   const clearDeadline = (sessionId) => {
     const timer = deadlineTimers.get(sessionId);
-    if (!timer) return;
-    clearTimeout(timer);
-    deadlineTimers.delete(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      deadlineTimers.delete(sessionId);
+    }
+    const warningTimer = warningTimers.get(sessionId);
+    if (warningTimer) {
+      clearTimeout(warningTimer);
+      warningTimers.delete(sessionId);
+    }
   };
 
   const commit = async (sessionId, goal) => {
@@ -510,16 +553,92 @@ export function createGoalRuntime({
     return goal;
   };
 
+  // The most urgent warning this Goal is already inside but has not delivered
+  // yet. Crossing several thresholds at once (a resumed Goal, a shortened
+  // budget) warns once at the smallest one instead of stacking reminders.
+  const crossedWarningMs = (goal, remainingMs) => {
+    const warned = normalizeDeadlineWarnedMs(goal?.deadlineWarnedMs);
+    let urgent = 0;
+    for (const threshold of warningThresholdsMs) {
+      if (threshold < remainingMs || threshold >= warned) continue;
+      urgent = urgent ? Math.min(urgent, threshold) : threshold;
+    }
+    return urgent;
+  };
+
+  const nextWarningDelayMs = (goal, remainingMs) => {
+    const warned = normalizeDeadlineWarnedMs(goal?.deadlineWarnedMs);
+    let delay = 0;
+    for (const threshold of warningThresholdsMs) {
+      if (threshold >= remainingMs || threshold >= warned) continue;
+      const candidate = remainingMs - threshold;
+      delay = delay ? Math.min(delay, candidate) : candidate;
+    }
+    return delay;
+  };
+
+  // A Goal without an open, unexpired run has no crossing to watch.
+  const warningState = (goal, at) => {
+    if (!goal || goal.status !== 'active' || !goal.lastStartedAt || !(Number(goal.timeLimitMs) > 0)) return null;
+    const remainingMs = Math.max(0, Number(goal.timeLimitMs) - activeElapsedMs(goal, at));
+    if (remainingMs <= 0) return null;
+    return {
+      remainingMs,
+      crossedMs: crossedWarningMs(goal, remainingMs),
+      nextDelayMs: nextWarningDelayMs(goal, remainingMs),
+    };
+  };
+
+  // Deliver one crossing. Reads can land inside a warning window at any moment
+  // (restart, resumed session, shortened budget), so delivery is state-derived
+  // and idempotent: the durable watermark decides what is left to warn about,
+  // and the committed write is what publishes the warning to the session.
+  const deliverDeadlineWarning = (sessionId, thresholdMs = 0) => {
+    const id = assertSessionId(sessionId);
+    if (closed || warningPending.has(id)) return;
+    const pending = warningState(readRecord(id).goal, now());
+    const target = thresholdMs || pending?.crossedMs || 0;
+    if (!pending || !target || pending.crossedMs !== target) return;
+    warningPending.add(id);
+    void withMutation(id, async () => {
+      const current = readRecord(id).goal;
+      const state = warningState(current, now());
+      if (!state || !state.crossedMs || state.crossedMs !== target) return;
+      current.deadlineWarnedMs = Math.min(normalizeDeadlineWarnedMs(current.deadlineWarnedMs), target);
+      current.warningRevision = Math.max(0, Math.floor(Number(current.warningRevision) || 0)) + 1;
+      current.updatedAt = now();
+      await commit(id, current);
+    }).catch(onStorageError).finally(() => warningPending.delete(id));
+  };
+
   function armDeadline(sessionId) {
     clearDeadline(sessionId);
     const goal = readRecord(sessionId).goal;
     if (!goal || goal.status !== 'active' || !goal.lastStartedAt || !(Number(goal.timeLimitMs) > 0)) return;
-    const remainingMs = Math.max(0, goal.timeLimitMs - activeElapsedMs(goal, now()));
+    const at = now();
+    const remainingMs = Math.max(0, goal.timeLimitMs - activeElapsedMs(goal, at));
     if (remainingMs <= 0) {
       queueMicrotask(() => {
         try { limitIfExpired(sessionId); } catch (error) { onStorageError(error); }
       });
       return;
+    }
+    const warnings = warningState(goal, at);
+    if (warnings?.crossedMs) {
+      const thresholdMs = warnings.crossedMs;
+      queueMicrotask(() => {
+        try { deliverDeadlineWarning(sessionId, thresholdMs); } catch (error) { onStorageError(error); }
+      });
+    } else if (warnings?.nextDelayMs > 0) {
+      // Fire a hair past the crossing so a rounded timer can never land on the
+      // wrong side of the elapsed check.
+      const delay = Math.min(remainingMs, warnings.nextDelayMs + 250);
+      const warningTimer = setTimeout(() => {
+        warningTimers.delete(sessionId);
+        try { deliverDeadlineWarning(sessionId); } catch (error) { onStorageError(error); }
+      }, delay);
+      warningTimer.unref?.();
+      warningTimers.set(sessionId, warningTimer);
     }
     const timer = setTimeout(() => {
       deadlineTimers.delete(sessionId);
@@ -600,6 +719,8 @@ export function createGoalRuntime({
       timeLimitMs,
       timeMode: goalTimeMode(args.timeMode),
       timeUsedMs: 0,
+      deadlineWarnedMs: NO_DEADLINE_WARNING_MS,
+      warningRevision: 0,
       createdAt: at,
       updatedAt: at,
       lastStartedAt: at,
@@ -857,6 +978,8 @@ export function createGoalRuntime({
       const limit = parseGoalDuration(args.duration);
       const used = activeElapsedMs(goal, at);
       goal.timeLimitMs = limit;
+      // A new commitment re-earns its warnings.
+      goal.deadlineWarnedMs = NO_DEADLINE_WARNING_MS;
       if (goal.status === 'active') {
         goal.timeUsedMs = used;
         goal.lastStartedAt = at;
@@ -1131,10 +1254,14 @@ export function createGoalRuntime({
       titleJobs.clear();
       for (const timer of deadlineTimers.values()) clearTimeout(timer);
       deadlineTimers.clear();
+      for (const warningTimer of warningTimers.values()) clearTimeout(warningTimer);
+      warningTimers.clear();
       mutationChains.clear();
       turnGoalIds.clear();
       turnStartedAt.clear();
       observedGoals.clear();
+      warningPending.clear();
+      expiryPending.clear();
       listeners.clear();
     },
   };

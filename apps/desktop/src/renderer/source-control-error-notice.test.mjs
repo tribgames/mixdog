@@ -4,8 +4,10 @@ import test from "node:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
+import { describeError } from "./ErrorNotice.tsx";
 import {
   describeSourceControlError,
+  sourceControlErrorToastText,
   SourceControlErrorNotice,
 } from "./SourceControlErrorNotice.tsx";
 
@@ -51,4 +53,21 @@ test("authentication failures expose sign-in help without dumping transport nois
   assert.match(markup, /Sign-in required/);
   assert.match(markup, /GitHub CLI help/);
   assert.doesNotMatch(markup, />Error:/);
+});
+
+test("a failed push toasts as one classified line with the Git output behind it", () => {
+  const text = sourceControlErrorToastText(rejectedPush);
+  const [headline] = text.split("\n");
+  assert.match(headline, /^Push blocked — /);
+  // The toast renders the FIRST line as its summary; the raw Git output must
+  // stay off it and ride behind the notice's own disclosure.
+  assert.equal(describeError(text).summary, headline);
+  assert.match(text, /\n\nTo https:\/\/github\.com\/tribgames\/mixdog\.git/);
+  assert.doesNotMatch(headline, /rejected|hint:/);
+});
+
+test("an ordinary failure toasts as its classified line and carries no empty body", () => {
+  const text = sourceControlErrorToastText(new Error("Nothing to commit."));
+  assert.equal(text, "Git action failed — Nothing to commit.");
+  assert.equal(describeError(text).summary, text);
 });

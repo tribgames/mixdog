@@ -1,6 +1,5 @@
 import { classifyResultKind } from './result-classification.mjs';
 import { traceAgentLoop, estimateProviderPayloadBytes, appendAgentTrace } from '../agent-trace.mjs';
-import { resolveSessionMaxLoopIterations } from '../agent-runtime/agent-loop-policy.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { updateSessionStage, SessionClosedError } from './manager.mjs';
 import { cloneProviderReplay } from '../providers/lib/provider-replay.mjs';
@@ -18,9 +17,6 @@ import { traceCacheBreak } from '../cache-break-trace.mjs';
 
 
 import { mergeSteeringEntries, steeringContentText } from './loop/steering.mjs';
-import {
-  ITERATION_CAP_REFUSAL_STUB,
-} from './loop/completion-guards.mjs';
 import { addUsage } from './loop/usage.mjs';
 import { HIDDEN_AGENT_NAMES } from './loop/hidden-agents.mjs';
 import {
@@ -68,15 +64,10 @@ export {
     approvalReason,
 };
 
-// Hard iteration ceiling for every agent loop. Reset to 0 whenever the
-// transcript is compacted (see the trim block below): a long task that keeps
-// compacting can proceed past this count, while a tight NON-compacting loop
-// still stops here and returns the accumulated transcript.
 // Consecutive identical-AND-failing tool calls (same name+args, error result)
 // tolerated across iterations before the loop refuses to re-execute and steers
-// the model to change approach. Distinct from the hard iteration cap above:
-// this catches tight deterministic-failure loops (e.g. a command that errors
-// the same way every time) far earlier than 100 iterations.
+// the model to change approach. This guards deterministic failures, not the
+// length of a task that keeps making progress.
 const REPEAT_FAIL_LIMIT = 3;
 // Structured provider continuations (endTurn=false / pause_turn) are honored,
 // but must not sustain an unbounded text-only loop: a lead session was
@@ -138,11 +129,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     let response;
     let lastSendTools = tools;
     let contextOverflowRetryUsed = false;
-    // Set when the hard iteration-cap break below fires. Consumed at the final
-    // return to tag terminationReason='iteration_cap' so a worker that exhausts
-    // the loop without a final answer surfaces to Lead as an explicit error
-    // instead of a silent empty "completed".
-    let terminatedByCap = false;
     // Set when a provider context-overflow refusal triggers the in-turn
     // reactive compact retry below; consumed by the next pre-send compact pass
     // so its telemetry/events carry trigger:'reactive' (distinct from the
@@ -353,12 +339,8 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         try { opts.onAssistantMessageCommitted?.(message); } catch {}
         return true;
     };
-    const maxLoopIterations = resolveSessionMaxLoopIterations(sessionRef);
-    // ---- Completion-first loop guards (worker runaway prevention) ----
-    // Behavior-steering hints (missed-parallelism, all-read-only, read-only
-    // shell, level-2 "stop exploring") were removed: they nudged tool shape
-    // instead of protecting resources. Only the staged iteration warnings, the
-    // hard cap, and the cross-turn dedup stub remain.
+    // Behavioral guards bound repeated failures and unchanged observations,
+    // not the number of productive iterations.
     // _editCount counts any executed tool call whose def lacks readOnlyHint
     // (i.e. edit/progress: apply_patch, bash, MCP writes, skills, ...).
     let _editCount = 0;
@@ -369,17 +351,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     const _crossTurnCalls = new Map();
     const _CROSS_TURN_CAP = 500;
     let _dedupStubTotal = 0;
-    // Hard-cap final-answer turn: one tool-less wrap-up turn granted when the
-    // hard iteration cap fires, so the session ends with text, not empty.
-    let _capFinalTurnUsed = false;
-    // True while the granted hard-cap final turn is active (no tool defs).
-    let _capFinalToolsDisabled = false;
     // Consecutive empty-turn contract nudges. A model that answers the same
     // nudge with another empty turn is in a deterministic livelock (same
-    // context in → same empty completion out); re-sending an identical nudge
-    // 199× just burns the iteration budget (observed: sess_10400…9dfdc436,
-    // 199 identical nudges to the 200-iteration cap). Cap the streak and end
-    // the loop as an explicit empty termination instead.
+    // context in → same empty completion out). Bound that failed recovery and
+    // end the loop as an explicit empty termination instead.
     let _emptyNudgeStreak = 0;
     const EMPTY_NUDGE_MAX = 3;
     let _refusalRetryUsed = false;
@@ -429,8 +404,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // sessionRef.cwd is the live SSOT. The legacy positional cwd is only the
     // turn-start snapshot and becomes stale after an in-turn cwd tool call.
     cwd = resolveLiveToolCwd(cwd, sessionRef);
-    // The hard cap is the sole count-based steering injection. Behavioral
-    // guards below handle repeated failures/dedup without periodic reminders.
+    // Completion, cancellation, and terminal failures end execution.
     while (true) {
         // A cwd tool call updates sessionRef in place. Refresh before building
         // this iteration's eager dispatcher and cache keys so every following
@@ -438,36 +412,11 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         cwd = resolveLiveToolCwd(cwd, sessionRef);
         const _iterT0 = Date.now();
         throwIfAborted();
-        if (iterations >= maxLoopIterations) {
-            // Final-answer turn: instead of breaking mid-transcript (which
-            // yields an empty final for locator-style agents that never got to
-            // answer), give the model ONE text-only turn to wrap up, then stop.
-            // Tool DEFINITIONS stay in-request (stable cache prefix) but tool
-            // USE is forbidden via tool_choice:'none'; any tool call a
-            // toolChoice-ignoring provider still emits gets a refusal stub.
-            if (_capFinalTurnUsed) {
-                process.stderr.write(`[loop] hard iteration cap ${maxLoopIterations} reached (sess=${sessionId || 'unknown'}); stopping loop.\n`);
-                terminatedByCap = true;
-                // The granted final turn produced no text (model kept emitting
-                // tool calls into refusal stubs, or thinking-only). Synthesize a
-                // non-empty final so callers never see an empty response.
-                if (response && !String(response.content || '').trim()) {
-                    response.content = '[iteration cap reached before final text]';
-                    if (Array.isArray(response.toolCalls)) response.toolCalls = [];
-                }
-                break;
-            }
-            _capFinalTurnUsed = true;
-            _capFinalToolsDisabled = true;
-            const finalTurnReminder = 'Iteration cap reached — tools disabled; answer with your best result from context.';
-            messages.push({ role: 'user', content: `<system-reminder>\n${finalTurnReminder}\n</system-reminder>`, meta: 'hook' });
-            process.stderr.write(`[loop] hard iteration cap ${maxLoopIterations} reached (sess=${sessionId || 'unknown'}); forcing final text turn.\n`);
-        }
         // Drain queued steering/prompts BEFORE the pre-send compact check, but
         // only immediately after a tool batch has completed: queued entries
         // are attached after tool results are appended and before the recursive
         // continuation, not on arbitrary non-tool continuations (empty nudges,
-        // iteration-cap final text turns, etc.).
+        // provider pauses, etc.).
         if (_toolBatchJustCompleted) {
             drainSteeringIntoMessages('pre-send', {
                 maxPriority: _lastToolBatchHadSleep ? 'later' : 'next',
@@ -549,16 +498,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         const nextIteration = iterations + 1;
         opts.iteration = nextIteration;
         opts.providerState = providerState;
-        if (_capFinalToolsDisabled) {
-            // Hard-cap final turn: forbid tool USE (tool_choice:'none') instead
-            // of stripping tool DEFINITIONS. Sending tools:[] changed the
-            // tools→system→messages prefix chain, so Anthropic could no longer
-            // prefix-match and re-prefilled the whole prompt (~10k, cache
-            // read=0) on the final capped turn. Keeping the tools in-request
-            // holds the prefix byte-stable; 'none' makes the model emit text
-            // only. Overrides the forced-first-tool path below.
-            opts.toolChoice = 'none';
-        } else if (forcedFirstTool && toolCallsTotal === 0) {
+        if (forcedFirstTool && toolCallsTotal === 0) {
             opts.toolChoice = 'required';
         } else {
             delete opts.toolChoice;
@@ -583,24 +523,14 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             getNextIteration: () => nextIteration,
             repeatFailLimit: REPEAT_FAIL_LIMIT,
         });
-        // Hard-cap final turn: forbid eager dispatch. Tools are still sent (to
-        // hold the cache prefix) but tool_choice:'none' means Anthropic emits
-        // no calls; a toolChoice-IGNORING provider could still stream calls,
-        // and an attached onToolCall would eager-run read-only tools mid-stream
-        // (real cost/UI/network side effects) whose results are then discarded
-        // by the refusal-stub path. Leave it unset so nothing dispatches; opts
-        // is reused across iterations but onToolCall is cleared to undefined
-        // after send() below, so non-cap iterations are unaffected.
-        opts.onToolCall = _capFinalToolsDisabled
-            ? undefined
-            : (call) => {
-                try {
-                    opts.onAssistantToolCallObserved?.(call, {
-                        eagerStarted: false,
-                    });
-                } catch {}
-                return eager.onToolCall(call);
-            };
+        opts.onToolCall = (call) => {
+            try {
+                opts.onAssistantToolCallObserved?.(call, {
+                    eagerStarted: false,
+                });
+            } catch {}
+            return eager.onToolCall(call);
+        };
         const sendStartedAt = Date.now();
         const preSendMs = sendStartedAt - _iterT0;
         const toolResumeMs = _lastToolBatchEndedAt
@@ -636,7 +566,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             : (_evidenceProjection.stats.changedToolResults > 0 ? 'evidence_union' : null);
         const _providerPrefixGuardCandidate = prepareProviderPrefixGuard(
             _providerPrefixGuardState,
-            _providerMessages,
+            _evidenceProjection.messages,
             {
                 tools: sendTools,
                 nativeTools: Array.isArray(opts.nativeTools) ? opts.nativeTools : [],
@@ -886,7 +816,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         // Opus 4.6 emits 'Now I'll polish…' preamble before its first tool
         // call) and used to leave the session idle until the idle sweep
         // collected it. Re-prompt the worker with a contract reminder on each
-        // empty turn (hard iteration cap bounds total turns). Hidden roles are
+        // empty turn, with bounded empty-response recovery. Hidden roles are
         // exempt:
         // their own role rules define a different output contract (pipe-
         // separated chunker output, structured pipe-format, etc.) and a
@@ -1030,7 +960,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
             // Pending-input rule: queued user input is folded into
             // needs_follow_up before terminal completion. Commit the terminal
             // text first (beforeAppend), then resume.
-            if (!_capFinalToolsDisabled && drainSteeringIntoMessages('terminal', {
+            if (drainSteeringIntoMessages('terminal', {
                 maxPriority: 'next',
                 beforeAppend: () => {
                     if (pushIntermediateAssistantResponse(response) && hasContent && !suppressMidTurnText) {
@@ -1138,20 +1068,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         messages.push(_assistantTurnMsg);
         try { opts.onAssistantMessageCommitted?.(_assistantTurnMsg); } catch {}
         const _callsToExecute = calls;
-        // Hard-cap final turn: tools are disabled but the model still emitted
-        // tool calls. Do NOT execute them — push a refusal stub for each.
-        if (_capFinalToolsDisabled) {
-            for (const _c of calls) {
-                pushToolResultMessage({
-                    role: 'tool',
-                    content: ITERATION_CAP_REFUSAL_STUB,
-                    toolCallId: _c.id,
-                    toolKind: 'error',
-                });
-            }
-            if (sessionId) updateSessionStage(sessionId, 'connecting');
-            continue;
-        }
         try { opts.onToolPhaseStarted?.(); } catch {}
         const _toolsT0 = Date.now();
         ({ dedupStubTotal: _dedupStubTotal, editCount: _editCount } = await processToolBatch({
@@ -1193,7 +1109,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // finish to an explicit Lead-facing error instead of a silent empty
     // "completed" (see classifyTerminationReason in ./loop/termination.mjs).
     const terminationReason = classifyTerminationReason(response, {
-        terminatedByCap,
         sessionAgent,
     });
     return {
@@ -1207,7 +1122,6 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         providerState,
         providerStateUpdated,
         terminationReason,
-        maxLoopIterations,
         providerContinuations: _providerContinuationCount,
     };
 }

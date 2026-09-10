@@ -37,10 +37,12 @@ The rules the overlays must keep:
   300px (`DESKTOP_UTILITY_DOCK_MIN_WIDTH`) `.dock-scm-remote-label` is rendered,
   UNCLIPPED, with more than two characters (`TEXT`); icon and label coexist at
   every width. The label degrades in whole pieces, never by truncation: the
-  remote NAME goes below 420px (`Push origin` → `Push`), while the badge's
-  direction arrows remain visible so ahead/behind counts stay unambiguous.
-  Below the 300px floor only gaps and side padding tighten — action icons stay
-  14px, nothing hides and nothing overlaps,
+  remote NAME goes below 420px (`Push origin` → `Push`). Ahead/behind lives on
+  its OWN full-width band UNDER the toolbar — never as a chip straddling the
+  button: every count shows its digits plus its own direction arrow, the
+  capsule always stays wider than it is tall, and the floating badge must not
+  come back. Below the 300px floor only gaps and side padding tighten — action
+  icons stay 14px, nothing hides and nothing overlaps,
 - the toolbar is marked `data-i18n-skip`, so branch names and the fixed
   `Push`/`Fetch` Git action labels remain unchanged in every UI language,
 - the branch panel keeps ONE box across frames: its first frame (open, loading

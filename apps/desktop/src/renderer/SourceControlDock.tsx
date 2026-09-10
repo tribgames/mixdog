@@ -1,6 +1,7 @@
 import {
   Archive,
   ArchiveRestore,
+  ArrowDown,
   ArrowUp,
   ArrowUpDown,
   Check,
@@ -17,8 +18,9 @@ import { ProgressSpinner } from "./ProgressSpinner";
 import { InitialSurface } from "./InitialSurface";
 import {
   describeSourceControlError,
-  SourceControlErrorNotice,
+  sourceControlErrorToastText,
 } from "./SourceControlErrorNotice";
+import { useErrorToast } from "./notifications";
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from "./immediate-overlay";
 import type {
   DesktopGitBranch,
@@ -123,6 +125,11 @@ export function SourceControlDock({
   const [history, setHistory] = useState<DesktopGitLogEntry[]>([]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  // ONE error surface: a failed Git action reports where every other failure
+  // in the app reports — the workspace toast region — instead of a panel-local
+  // banner that pushed the changed-file list down. State-owned, so the next
+  // success (or leaving the project) clears it.
+  useErrorToast(error ? sourceControlErrorToastText(error) : "", `scm:${projectPath}`);
   // Commit messages keep summary and description as separate fields.
   const [summary, setSummary] = useState("");
   const [description, setDescription] = useState("");
@@ -971,16 +978,25 @@ export function SourceControlDock({
                 : null}
             </span>
           </button>
-          {/* Ahead/behind rides the section's top-right corner as an overlay,
-              outside the button's clipped flex row. Show numbers only;
-              direction details stay in the button's tooltip. */}
-          {entry.key === "push" && status.upstream && (aheadCount > 0 || behindCount > 0) &&
-            <span className="dock-scm-ahead-behind" aria-hidden="true">
-              {aheadCount > 0 && <span>{aheadCount}</span>}
-              {behindCount > 0 && <span>{behindCount}</span>}
-            </span>}
         </div>)}
     </div>}
+    {/* Ahead/behind owns its OWN band under the toolbar. Pinned to the Push
+        button's corner it had no room in a section that is a THIRD of a dock
+        flooring at 252px (left slot) / 300px (right slot), and even a single
+        count collapsed into a stray dot there. The band spans the dock, so
+        BOTH counts fit at every width, each with its own direction arrow, in
+        the counter capsule the Changes tab already uses. */}
+    {status && !prOnly && status.upstream && (aheadCount > 0 || behindCount > 0) &&
+      <div className="dock-scm-sync" data-i18n-skip
+        title={[aheadCount > 0 ? `${aheadCount} ahead` : "",
+          behindCount > 0 ? `${behindCount} behind` : ""].filter(Boolean).join(", ")}>
+        <span className="dock-scm-sync-count">
+          {aheadCount > 0 &&
+            <span data-direction="ahead"><ArrowUp size={8} aria-hidden="true" />{aheadCount}</span>}
+          {behindCount > 0 &&
+            <span data-direction="behind"><ArrowDown size={8} aria-hidden="true" />{behindCount}</span>}
+        </span>
+      </div>}
     <div className="dock-scm-view-stage">
     {!prOnly && <SourceControlViewControls
       fileCount={files.length}
@@ -996,7 +1012,6 @@ export function SourceControlDock({
         clearSelected();
       }}
     />}
-    {error && <SourceControlErrorNotice error={error} className="dock-scm-error" />}
     {!prOnly && status?.operation && <div className="dock-scm-operation" role="status">
       <div>
         <b>{status.operation.replace("-", " ")} in progress</b>

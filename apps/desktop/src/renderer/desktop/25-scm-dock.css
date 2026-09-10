@@ -209,21 +209,26 @@
   .dock-scm-toolbar-branch { min-width: 56px; }
   .dock-scm-toolbar-push, .dock-scm-toolbar-fetch { min-width: 56px; }
 }
-/* Ahead/behind is an OVERLAY on the Push section's top-right corner, not a
-   flex sibling inside the clipped button. It uses the Changes tab's counter
-   bubble, with a 1px sheet-colour ring where it crosses the button edge. */
-.dock-scm-ahead-behind {
-  position: absolute;
-  top: -2px;
-  right: 2px;
-  z-index: 1;
+/* Ahead/behind is its own BAND under the toolbar, not an overlay on the Push
+   button: a section that is a third of a 252px/300px dock has no room for a
+   chip straddling the button's edge, and a lone count collapsed into a dot
+   there. The band spans the dock, so both counts fit at every width; they
+   ride the Changes tab's counter bubble, whose minimum width keeps a lone
+   count a capsule instead of a dot. */
+.dock-scm-sync {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 4px;
-  box-shadow: 0 0 0 1px var(--mx-window-band);
-  white-space: nowrap;
-  pointer-events: none;
+  padding: 4px 12px 8px;
 }
+.dock-scm-sync-count { min-width: 26px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; white-space: nowrap; }
+/* Each count and its direction arrow are a single unit: the arrow never
+   drifts from its digits, and it never shrinks on its own. */
+.dock-scm-sync-count > span { display: inline-flex; align-items: center; gap: 2px; }
+.dock-scm-sync-count > span > svg { flex: 0 0 auto; }
 /* Push and Fetch are independent fixed actions; neither owns a dropdown. */
 .dock-scm-branch-new { height: 24px; flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 0 8px; border: 0; border-radius: var(--mx-radius-md); color: var(--mx-text); background: var(--mx-hover); font-size: var(--mx-font-minor); cursor: pointer; }
 .dock-scm-branch-new:disabled { opacity: var(--mx-op-disabled); cursor: default; }
@@ -601,8 +606,8 @@
 /* The rows a window does not mount are represented by these two spacers, so
    the scroll container keeps the whole list's height. */
 .dock-scm-row-spacer { flex: 0 0 auto; width: 100%; pointer-events: none; }
-/* Shared compact counter bubble: Changes tab and Push overlay. */
-.dock-review-count, .dock-scm-ahead-behind { flex: 0 0 auto; padding: 2px 5px; border-radius: 20px; color: var(--mx-text); background: var(--mx-pressed); font-size: var(--mx-font-micro); font-weight: var(--mx-weight-semibold); line-height: 1; font-variant-numeric: tabular-nums; }
+/* Shared compact counter bubble: the Changes tab and the sync band. */
+.dock-review-count, .dock-scm-sync-count { flex: 0 0 auto; padding: 2px 5px; border-radius: 20px; color: var(--mx-text); background: var(--mx-pressed); font-size: var(--mx-font-micro); font-weight: var(--mx-weight-semibold); line-height: 1; font-variant-numeric: tabular-nums; }
 .dock-review-count { margin-left: 4px; }
 .dock-scm-file:hover, .dock-scm-file:focus-within { background: var(--mx-hover); }
 .dock-scm-file[data-selected="true"] { background: var(--mx-pressed); box-shadow: inset 0 0 0 .5px var(--mx-border-muted); }
@@ -681,7 +686,6 @@
 .source-control-error-copy > button:hover { background: var(--mx-hover); }
 .source-control-error-notice[data-compact] { grid-template-columns: 14px minmax(0, 1fr); gap: 7px; padding: 7px 8px; }
 .source-control-error-notice[data-compact] > svg { width: 14px; height: 14px; }
-.dock-scm-error { margin: 8px var(--dock-scm-gutter, 8px) 0; }
 .dock-scm-loading { height: 100%; display: flex; align-items: center; justify-content: center; gap: 7px; color: var(--mx-text-muted); font-size: var(--mx-font-minor); }
 /* History rows: ONE-line summary and a
    `author · relative age` byline (no avatar monogram), on a FIXED row height.

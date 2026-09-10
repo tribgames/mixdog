@@ -25,6 +25,7 @@ param(
     [int]$MaxRetries = 2,
     # Render the exact routes and Harbor command without launching Harbor.
     [switch]$DryRun,
+    [switch]$FastSetup,
     # Agent container KEY=VALUE entries; comma-bearing values are unsupported.
     [string[]]$AgentEnv = @(),
     # Where to record what this run actually executed: source commit, whether
@@ -155,6 +156,11 @@ function Get-RuntimeProvenance {
             $dirty = $dirtyPaths.Count -gt 0
         }
     }
+    $harnessManifestPath = Join-Path ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($ManifestPath))) "harness-manifest.json"
+    $harnessHash = & python -m harness.provenance --output $harnessManifestPath
+    if ($LASTEXITCODE -ne 0) { throw "Harness provenance capture failed." }
+    $harnessStatus = @(& git -C $repoRoot status --porcelain --untracked-files=all -- benchmarks/terminal-bench-2.1/harness benchmarks/terminal-bench-2.1/analysis benchmarks/terminal-bench-2.1/run.ps1 benchmarks/terminal-bench-2.1/presets.json 2>$null)
+    if ($LASTEXITCODE -ne 0) { throw "Harness Git provenance capture failed." }
     return [ordered]@{
         schemaVersion = 1
         capturedAt = (Get-Date).ToUniversalTime().ToString("o")
@@ -167,6 +173,11 @@ function Get-RuntimeProvenance {
         bundleBytes = [int64]$bundle.totalBytes
         spawnSha256 = [string]$bundle.spawnSha256
         bundleManifest = [IO.Path]::GetFileName($ManifestPath)
+        harnessSha256 = [string]$harnessHash
+        harnessManifest = [IO.Path]::GetFileName($harnessManifestPath)
+        harnessSourceCommit = $commit
+        harnessSourceDirty = ($harnessStatus.Count -gt 0)
+        harnessDirtyPaths = @($harnessStatus)
     }
 }
 
@@ -176,6 +187,7 @@ function Get-RuntimeProvenance {
 $snapshotRoot = Join-Path ([IO.Path]::GetTempPath()) ("mixdog-tb-src-" + [guid]::NewGuid().ToString("N"))
 $harnessSnapshotRoot = Join-Path ([IO.Path]::GetTempPath()) ("mixdog-tb-harness-" + [guid]::NewGuid().ToString("N"))
 $harborExitCode = 0
+$prebakeComposePath = ""
 try {
     if (-not $DryRun) {
         $overlayArgs = @("-m", "harness.src_overlay", "--output", $snapshotRoot)
@@ -215,6 +227,19 @@ try {
         $env:MIXDOG_TB_SRC_SNAPSHOT = $snapshotRoot
         $env:MIXDOG_TB_HARNESS_SNAPSHOT = $harnessSnapshotRoot
         $env:MIXDOG_TB_HARNESS_SNAPSHOT_MANIFEST = ($harnessManifest | ConvertTo-Json -Compress)
+        if ($FastSetup) {
+            $prebakeTar = [string]$env:MIXDOG_TB_PREBAKE_TAR
+            if ([string]::IsNullOrWhiteSpace($prebakeTar)) {
+                $prebakeTar = Join-Path $PSScriptRoot "../mixdog-prebake/mixdog-node-prebake.tar.gz"
+            }
+            $prebakeDirectory = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($prebakeTar))
+            if ((Test-Path -LiteralPath (Join-Path $prebakeDirectory "mixdog-node-prebake.tar.zst")) -and
+                (Test-Path -LiteralPath (Join-Path $prebakeDirectory "zstd-amd64"))) {
+                $prebakeComposePath = Join-Path $harnessSnapshotRoot "prebake-cache.json"
+                & python -m harness.prebake_cache --directory $prebakeDirectory --output $prebakeComposePath
+                if ($LASTEXITCODE -ne 0) { throw "Docker prebake cache preparation failed." }
+            }
+        }
     }
 
 $harborArgs = @(
@@ -238,6 +263,7 @@ function Expand-Tasks([string[]]$names) {
     }
 }
 foreach ($t in (Expand-Tasks $Include)) { $harborArgs += @("-i", $t) }
+if ($prebakeComposePath) { $harborArgs += @("--extra-docker-compose", $prebakeComposePath) }
 foreach ($t in (Expand-Tasks $Exclude)) { $harborArgs += @("-x", $t) }
 foreach ($t in $resumeCompletedTasks) { $harborArgs += @("-x", $t) }
 if ($resumeCompletedTasks.Count -gt 0) {

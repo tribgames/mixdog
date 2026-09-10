@@ -33,8 +33,8 @@ const _shellSyntaxCheat =
 // Keep the routing map short and adjacent to the shell's primary description.
 // PowerShell aliases appear only on win32.
 const _shellToolRouting = process.platform === 'win32'
-    ? 'Use read, NOT cat/Get-Content/head/tail; list, NOT ls/dir; find/glob, NOT find; grep, NOT grep/rg/Select-String; edit/apply_patch, NOT sed/awk/echo/Set-Content or a file-writing heredoc; git, NOT a plain git command; task, NOT Start-Job or a wait loop.'
-    : 'Use read, NOT cat/head/tail; list, NOT ls; find/glob, NOT find; grep, NOT grep/rg; edit/apply_patch, NOT sed/awk/echo or a file-writing heredoc; git, NOT a plain git command; task, NOT & or a wait loop.';
+    ? 'Use read, NOT cat/Get-Content/head/tail; list, NOT ls/dir; find/glob, NOT find; grep, NOT grep/rg/Select-String; git, NOT a plain git command; task, NOT Start-Job or a wait loop.'
+    : 'Use read, NOT cat/head/tail; list, NOT ls; find/glob, NOT find; grep, NOT grep/rg; git, NOT a plain git command; task, NOT & or a wait loop.';
 // Process-stable switch used to describe foreground-only execution accurately.
 const _shellBackgroundDisabled = /^(1|true|yes|on)$/i.test(
     String(process.env.MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS || '').trim(),
@@ -45,7 +45,7 @@ export const BUILTIN_TOOLS = [
         name: 'read',
         title: 'Read',
         annotations: { title: 'Read', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: false },
-        description: 'Known-file contents or line ranges, bounded to the narrowest range that answers the question — when the answer depends on content not yet seen, read the wider range once instead of deciding from a partial view. Images render for viewing; not directories. Replaces cat/head/tail.',
+        description: 'Known-file contents or line ranges. Read missing evidence, not unchanged content already available. Use the narrowest sufficient range; include all unseen context needed to decide. Images render for viewing; not directories. Replaces cat/head/tail.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -71,7 +71,7 @@ export const BUILTIN_TOOLS = [
         name: 'edit',
         title: 'Edit',
         annotations: { title: 'Edit', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false, compressible: false, compressibleLossless: true },
-        description: 'Replace exact text in one file. Use exact text already in context; never re-open the file to build old_string or to verify a successful edit. old_string must match once unless replace_all is true. Empty old_string creates a missing file or fills an empty file; it never overwrites a non-empty file. Replaces sed/awk and echo redirection.',
+        description: 'Replace exact text in one file. Use exact text already in context, without reopening unchanged content to prepare or confirm the edit. old_string must match once unless replace_all is true. Empty old_string creates a missing file or fills an empty file; it never overwrites a non-empty file. Replaces sed/awk and echo redirection.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -100,7 +100,7 @@ export const BUILTIN_TOOLS = [
         name: 'shell',
         title: 'Shell',
         annotations: { title: 'Shell', readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true, compressible: true },
-        description: `Run programs, runtime/state operations, calculations, transformations, file generation, and unsupported-format inspection. ${_shellToolRouting} ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 10s foreground window by default—not a timeout. Still-running work continues as a tracked task_id. Continue independent work while it runs; when the result or a requested report is due, use task wait, not read polling. Completion notifications are automatic; yielding for one is not a final completion report.'}`,
+        description: `Run programs, runtime/state operations, calculations, generated artifacts, and execution-based data transformations or unsupported-format inspection. Run independent commands in parallel calls; use dedicated tools for file inspection and editing. Edit source files: apply_patch/edit, NOT sed/awk. Write source files: apply_patch/edit, NOT printf/echo redirection or cat heredocs. Do not use scripts to write source files or invoke editing tools through shell. ${_shellToolRouting} ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'Commands use a 10s foreground window by default—not a timeout. Still-running work continues as a tracked task_id. Continue independent work while it runs; when the result or a requested report is due, use task wait, not read polling. Completion notifications are automatic; yielding for one is not a final completion report.'}`,
         inputSchema: {
             type: 'object',
             properties: {
@@ -142,7 +142,7 @@ export const BUILTIN_TOOLS = [
         //      gates approval on the result, while selection keeps treating the
         //      tool as non-destructive.
         annotations: { title: 'Task', readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-        description: 'List shell tasks, read one snapshot, wait for one to finish, or cancel by task_id. Replaces shell job control (jobs/wait/Start-Job). Completion notifications are automatic; yielding for one is not a final completion report. Continue independent work while it runs. Use wait when the result or a requested report is due; read is for one-shot status, never polling.',
+        description: 'List shell tasks, read one snapshot, wait for one to finish, or cancel by task_id. Wait for completion instead of repeatedly polling task output. Replaces shell job control (jobs/wait/Start-Job). Completion notifications are automatic; yielding for one is not a final completion report. Continue independent work while it runs. Use wait when the result or a requested report is due; read is for one-shot status.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -162,7 +162,7 @@ export const BUILTIN_TOOLS = [
         name: 'grep',
         title: 'Grep',
         annotations: { title: 'Grep', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Search file contents for literal or regex matches and return contextual path:line blocks that are directly usable; read only the lines they omit. All rendered output is capped at 10 KB. A wide reconnaissance pattern goes to mode:files first; context:0 when only the location is needed. Ripgrep-dialect regex (e.g. "log.*Error"; escape literal braces; patterns match within one line). Replaces grep/rg.',
+        description: 'Search file contents for literal or regex matches and return contextual path:line blocks. Use returned source spans directly; read only missing context. All rendered output is capped at 10 KB. A wide reconnaissance pattern goes to mode:files first; context:0 when only the location is needed. Ripgrep-dialect regex (e.g. "log.*Error"; escape literal braces; patterns match within one line). Replaces grep/rg.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -192,7 +192,7 @@ export const BUILTIN_TOOLS = [
         name: 'glob',
         title: 'Glob',
         annotations: { title: 'Glob', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Return wildcard-matching file paths under a known base directory when those paths are needed. Omit path for the current Project; an unknown base directory goes to find first. Directories never match. Newest first by default. Replaces find -name.',
+        description: 'Return wildcard-matching file paths under a known base directory when those paths are needed. Batch known patterns in one call; skip preliminary directory listings. Omit path for the current Project; an unknown base directory goes to find first. Directories never match. Newest first by default. Replaces find -name.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -218,7 +218,7 @@ export const BUILTIN_TOOLS = [
         name: 'find',
         title: 'Find Files',
         annotations: { title: 'Find Files', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: 'Fuzzy filename/directory path lookup when the location itself is unknown; returns paths only. Skip it when the path is already known or resolvable.',
+        description: 'Fuzzy filename/directory path lookup; returns paths only. Use only when the target path is unknown and cannot be directly resolved.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -237,7 +237,7 @@ export const BUILTIN_TOOLS = [
         name: 'list',
         title: 'List Directory',
         annotations: { title: 'List Directory', readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false, compressible: true },
-        description: "Return a known directory's immediate entries (path + type) when the entry list itself is needed; never as a prerequisite for another tool on that directory. No wildcard; meta:true adds size/mtime/mode. Replaces ls/dir.",
+        description: "Return a known directory's immediate entries (path + type). List a directory only when its immediate entries are needed, not as a prerequisite for another tool. No wildcard; meta:true adds size/mtime/mode. Replaces ls/dir.",
         inputSchema: {
             type: 'object',
             properties: {

@@ -2,7 +2,7 @@
 // deferral, admission control), the progress-idle watchdogs, spawn prep
 // (provider/session preparation), and the full runSpawn
 // execution with turn-review collection and terminal accounting.
-import { agentDefinitionExists, clean, clearAgentStatuslineRoute, nonNegativeInt, normalizeAgentName, positiveInt, presetKey, readAgentFrontmatterPermission, resolvePrompt, terminalPidForContext, writeAgentStatuslineRoute } from './helpers.mjs';
+import { agentDefinitionExists, clean, clearAgentStatuslineRoute, nonNegativeInt, normalizeAgentName, presetKey, readAgentFrontmatterPermission, resolvePrompt, terminalPidForContext, writeAgentStatuslineRoute } from './helpers.mjs';
 import { createNotify } from './notify.mjs';
 import { sanitizeTaskMeta, startBackgroundTask } from '../../runtime/shared/background-tasks.mjs';
 import {
@@ -294,7 +294,6 @@ export function createSpawnFlow({
       clientHostPid: terminalPidForContext(context) || null,
       agentTag: tag,
       taskType: clean(args.taskType) || clean(args.typeHint) || undefined,
-      maxLoopIterations: positiveInt(args.maxLoopIterations) || undefined,
       permission: agentPerm || undefined,
       cacheKeyOverride: args.cacheKey || undefined,
       mcpScopeId,
@@ -331,7 +330,6 @@ export function createSpawnFlow({
       presetName: plan.presetName,
       workerCwd: plan.workerCwd,
       prompt: plan.prompt,
-      maxLoopIterations: spec.maxLoopIterations || null,
       watchdogPolicy: resolveAgentWatchdogPolicy(plan.agent),
       ...extra,
     };

@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { createRendererClock } from "../../scripts/test-renderer-clock.mjs";
 
-function harness(t) {
+function harness(t, { globalTimers = false } = {}) {
   const dom = new JSDOM("<!doctype html><body><main></main></body>", {
     url: "https://mixdog.test/", pretendToBeVisual: true,
   });
@@ -17,6 +17,9 @@ function harness(t) {
     Event: dom.window.Event, CustomEvent: dom.window.CustomEvent,
     ResizeObserver: class { observe() {} disconnect() {} },
     IS_REACT_ACT_ENVIRONMENT: true,
+    ...(globalTimers ? {
+      setTimeout: clock.win.setTimeout, clearTimeout: clock.win.clearTimeout,
+    } : {}),
   })) {
     saved.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
@@ -35,8 +38,11 @@ function harness(t) {
   });
   const host = document.querySelector("main");
   const root = createRoot(host);
+  const originalNow = Date.now;
+  if (globalTimers) Date.now = () => clock.now;
   t.after(async () => {
     await act(async () => root.unmount());
+    if (globalTimers) Date.now = originalNow;
     clock.timers.clear();
     dom.window.close();
     for (const [key, descriptor] of saved) {
@@ -99,6 +105,89 @@ test("cold lists expose a neutral pending state on their very first render", asy
     await view.render(null);
   }
 });
+
+for (const navigation of ["close", "tab", "project", "remount"]) {
+  test(`Source Control validates cached rows before first paint and after ${navigation}`, async (t) => {
+    const view = harness(t, { globalTimers: true });
+    const { UtilityDock, prewarmUtilityDockGitState } = await import("./UtilityDock.tsx");
+    const requests = [];
+    window.mixdogDesktop.gitStatus = (projectPath) => {
+      const request = Promise.withResolvers();
+      requests.push({ ...request, projectPath });
+      return request.promise;
+    };
+    const status = (path) => ({
+      repository: true, branch: "main", files: [{
+        path, indexStatus: " ", worktreeStatus: "M", staged: false, conflicted: false,
+      }],
+    });
+    const projectPath = `C:/entry-${navigation}`;
+    const warm = prewarmUtilityDockGitState(projectPath);
+    requests[0].resolve(status("cached-old.ts"));
+    await warm;
+    const props = { open: true, tab: "source-control", snapshot: {}, projectPath };
+    let firstPaint;
+    function FirstPaint({ children }) {
+      useLayoutEffect(() => { firstPaint ||= view.host.cloneNode(true); });
+      return children;
+    }
+    const render = async (next = props) => {
+      firstPaint = null;
+      await view.render(React.createElement(FirstPaint, null,
+        React.createElement(UtilityDock, next)));
+    };
+    const assertPending = () => {
+      for (const element of [firstPaint, view.host]) {
+        assert.ok(element.querySelector('[role="status"][aria-busy="true"]'));
+        assert.doesNotMatch(element.textContent, /cached-old\.ts|current\.ts/);
+      }
+    };
+    await render();
+    assertPending();
+    assert.equal(requests.length, 2);
+    await view.settle(() => requests[1].resolve(status("current.ts")));
+    assert.match(view.host.textContent, /current\.ts/);
+
+    // Live refresh keeps the established list rather than replaying entry loading.
+    await view.advance(3_000);
+    await view.settle(() => window.dispatchEvent(new window.Event("focus")));
+    assert.equal(requests.length, 3);
+    assert.match(view.host.textContent, /current\.ts/);
+    assert.equal(view.host.querySelector('[aria-busy="true"]'), null);
+    await view.settle(() => requests[2].resolve(status("current.ts")));
+
+    let next = props;
+    if (navigation === "close") await render({ ...props, open: false });
+    if (navigation === "tab") await render({ ...props, tab: "agents" });
+    if (navigation === "remount") await view.render(null);
+    if (navigation === "project") {
+      next = { ...props, projectPath: `${projectPath}-other` };
+      const preload = prewarmUtilityDockGitState(next.projectPath);
+      requests.at(-1).resolve(status("cached-old.ts"));
+      await preload;
+    }
+    const before = requests.length;
+    await render(next);
+    assertPending();
+    assert.equal(requests.length, before + 1);
+    await view.settle(() => requests.at(-1).resolve(status("latest.ts")));
+    assert.match(view.host.textContent, /latest\.ts/);
+    assert.doesNotMatch(view.host.textContent, /cached-old\.ts|current\.ts/);
+
+    if (navigation === "close") {
+      await render({ ...props, open: false });
+      await render();
+      await view.settle(() => requests.at(-1).reject(new Error("Host unavailable")));
+      assert.equal(view.host.querySelector('[aria-busy="true"]'), null);
+      assert.match(view.host.textContent, /Source Control is temporarily unavailable/);
+      assert.doesNotMatch(view.host.textContent, /latest\.ts|Host unavailable/);
+      await view.advance(3_000);
+      await view.settle(() => window.dispatchEvent(new window.Event("focus")));
+      await view.settle(() => requests.at(-1).resolve(status("recovered.ts")));
+      assert.match(view.host.textContent, /recovered\.ts/);
+    }
+  });
+}
 
 test("Projects distinguishes an unknown catalog from a confirmed empty result and retains cached rows", async (t) => {
   const view = harness(t);

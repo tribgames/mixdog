@@ -101,6 +101,23 @@ test('a user-paused Goal reminder preserves the explicit resume boundary', () =>
   assert.match(snapshot.content, /Do not resume for bookkeeping, notifications, or unrelated questions/);
 });
 
+test('a deadline warning carries the wrap-up contract and the live remaining time', () => {
+  const session = { id: 'sess_goal_deadline' };
+  const timed = goal({
+    timeMode: 'duration',
+    timeLimitMs: 3_600_000,
+    timeUsedMs: 3_240_000,
+  });
+  markPendingGoalReminder(session, 'deadline-soon');
+  const snapshot = snapshotPendingGoalReminder(session, { readGoal: () => timed });
+  assert.equal(snapshot.reason, 'deadline-soon');
+  assert.match(snapshot.content, /<goal_deadline>/);
+  assert.doesNotMatch(snapshot.content, /<goal_state>/);
+  assert.match(snapshot.content, /The requested duration is nearly over\./);
+  assert.match(snapshot.content, /Time remaining: 6m \(360000 ms\)/);
+  assert.match(snapshot.content, /never complete or block to beat the clock/);
+});
+
 test('post-compact Goal state is prepended to the current user turn and leaves no next-turn reminder', () => {
   const session = { id: 'sess_goal_inline' };
   markPendingGoalReminder(session);

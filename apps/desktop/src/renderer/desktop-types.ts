@@ -59,6 +59,9 @@ export type GoalTask = {
 export type GoalSnapshot = {
   id?: string;
   revision?: number;
+  // Bumped when the runtime delivers a "budget nearly over" warning, so a
+  // surface can tell that crossing apart from an ordinary state update.
+  warningRevision?: number;
   needsTaskReview?: boolean;
   sessionId?: string;
   objective?: string;

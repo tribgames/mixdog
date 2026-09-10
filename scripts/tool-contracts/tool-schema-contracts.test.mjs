@@ -37,7 +37,7 @@ test('shell, edit, and task keep their execution contracts', () => {
   // below — the tool description no longer duplicates it.
   if (!/Run programs, runtime\/state operations/i.test(shellDescription)
       || !/10s foreground window.*not a timeout/i.test(shellDescription)
-      || !/call task wait instead of polling task read/i.test(shellDescription)) {
+      || !/use task wait, not read polling/i.test(shellDescription)) {
     throw new Error(`shell description must keep its execution-routing and async-completion phrases: ${shellDescription}`);
   }
   const editTool = BUILTIN_TOOLS.find((tool) => tool.name === 'edit');
@@ -68,8 +68,8 @@ test('shell, edit, and task keep their execution contracts', () => {
   }
   const publicTaskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
   const publicTaskProps = publicTaskTool?.inputSchema?.properties || {};
-  if (!/Completion is automatic/i.test(publicTaskTool?.description || '')
-    || !/Never repeat read to watch a task/i.test(publicTaskTool?.description || '')) {
+  if (!/Completion notifications are automatic/i.test(publicTaskTool?.description || '')
+    || !/Wait for completion instead of repeatedly polling task output/i.test(publicTaskTool?.description || '')) {
     throw new Error(`task description must prohibit unsolicited progress checks: ${publicTaskTool?.description || ''}`);
   }
   if (JSON.stringify(publicTaskProps.action?.enum) !== JSON.stringify(['list', 'read', 'wait', 'cancel'])
@@ -455,7 +455,7 @@ test('load_tool and Skill schemas stay pure loaders', () => {
     throw new Error('load_tool schema must require non-empty names[] as the only loader field (legacy select stays retired)');
   }
   const skillNameSchema = SKILL_TOOL.inputSchema?.properties?.name;
-  if (!/Load a named SKILL\.md only when its body is absent/i.test(SKILL_TOOL.description || '')
+  if (!/Load the SKILL\.md of an available skill whose trigger matches/i.test(SKILL_TOOL.description || '')
     || skillNameSchema?.type !== 'string'
     || skillNameSchema?.minLength !== undefined
     || !/Exact name from available-skills/i.test(skillNameSchema?.description || '')
@@ -518,7 +518,7 @@ test('grep, glob, find, and list schemas keep locator contracts', () => {
       || !/content/i.test(grepModeDescription)) {
     throw new Error('grep mode schema must name its compact output shapes and count aggregation');
   }
-  if (grepTool?.inputSchema?.properties?.limit?.minimum !== 0 || !/Max results/i.test(grepLimitDescription)) {
+  if (grepTool?.inputSchema?.properties?.limit?.minimum !== 0 || !/Requested results/i.test(grepLimitDescription)) {
     throw new Error('grep limit schema must keep locator caps explicit');
   }
   if (grepTool?.inputSchema?.properties?.['-C']
@@ -566,9 +566,9 @@ test('grep, glob, find, and list schemas keep locator contracts', () => {
       || globTool?.inputSchema?.properties?.path?.anyOf) {
     throw new Error('glob schema must expose capped pattern fan-out and scalar path');
   }
-  // Contract-only description: guessed-fragment/verified-root routing policy
-  // lives in src/rules/shared/30-exploration.md.
-  if (!/Fuzzy filename\/directory path lookup when the location itself is unknown/i.test(findTool?.description || '') || !/returns paths only/i.test(findTool?.description || '')) {
+  if (!/Fuzzy filename\/directory path lookup/i.test(findTool?.description || '')
+      || !/target path is unknown and cannot be directly resolved/i.test(findTool?.description || '')
+      || !/returns paths only/i.test(findTool?.description || '')) {
     throw new Error('find description must state its fuzzy path-lookup contract');
   }
   if (!/default 25/i.test(findLimitDescription) || !/0 unlimited/i.test(findLimitDescription)) {

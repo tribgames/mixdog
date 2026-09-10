@@ -168,7 +168,6 @@ export function createJobViews({
         model: task.model || null,
         effort: task.effort || null,
         fast: task.fast === true || task.fast === false ? task.fast : null,
-        maxLoopIterations: task.maxLoopIterations || null,
         startedAt: task.startedAt,
         finishedAt: task.finishedAt || null,
         error: task.error || null,
@@ -251,7 +250,6 @@ export function createJobViews({
         model: session.model || null,
         effort: session.effort || null,
         fast: session.fast === true,
-        maxLoopIterations: null,
       },
     };
   }
@@ -282,7 +280,6 @@ export function createJobViews({
       model: meta.model || null,
       effort: meta.effort || null,
       fast: meta.fast === true || meta.fast === false ? meta.fast : null,
-      maxLoopIterations: meta.maxLoopIterations || null,
       startedAt: job.startedAt,
       finishedAt: job.finishedAt || null,
       error: job.error || null,
@@ -324,7 +321,6 @@ export function createJobViews({
       model: prepared.preset.model,
       effort: prepared.preset.effort || null,
       fast: prepared.preset.fast === true,
-      maxLoopIterations: prepared.maxLoopIterations || null,
     });
   }
 

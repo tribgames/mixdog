@@ -89,6 +89,28 @@ export function continuationPrompt(goal) {
   ].join('\n');
 }
 
+// Deadline warning for the last minutes of a requested duration. This steers
+// wrap-up, not completion: completing only on proven conditions still holds,
+// and the runtime ends the run at the boundary either way.
+export function goalDeadlineWarning(goal) {
+  if (!goal) return '';
+  return [
+    '<system-reminder>',
+    '<goal_deadline>',
+    goal.timeMode === 'max'
+      ? 'The maximum time budget is nearly spent.'
+      : 'The requested duration is nearly over.',
+    'Stop starting work: no new task and no new long-running job. Finish or park what is in flight, update the durable task list to its real state, and hand back what is proven and what is not.',
+    'The runtime stops this Goal when the time runs out. Report unfinished work as unfinished — never complete or block to beat the clock.',
+    '',
+    `Objective: ${escapeGoalPromptText(goal.objective)}`,
+    ...(goal.revision ? [`Revision: ${goal.revision}`] : []),
+    ...goalTimeLines(goal),
+    '</goal_deadline>',
+    '</system-reminder>',
+  ].join('\n');
+}
+
 // State-only reminder: the durable snapshot the model would otherwise lose.
 // Behaviour rules stay in the tool description, which is already cached in the
 // schema — repeating them here would re-pay for the same tokens on every
@@ -96,6 +118,9 @@ export function continuationPrompt(goal) {
 // cached prefix survives.
 export function goalStateReminder(goal, { reason = '' } = {}) {
   if (!goal) return '';
+  // The budget warning is a different job than restoring lost state: the model
+  // still has its context and needs the last minutes, not a snapshot replay.
+  if (reason === 'deadline-soon') return goalDeadlineWarning(goal);
   const tasks = Array.isArray(goal.tasks) ? goal.tasks : [];
   const completed = tasks.filter((task) => task?.status === 'completed').length;
   // Event-specific steering: what the model could not have learned from its own

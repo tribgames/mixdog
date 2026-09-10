@@ -74,7 +74,7 @@ export const GIT_TOOL_DEF = {
         openWorldHint: true,
         compressible: true,
     },
-    description: 'Run one Git command, or up to 5 Git commands in order, directly without a shell. Owns repository state, diffs, history, and mutations. Batch status with diff for known targets in one array. Shell operators and substitution are rejected. An array runs each command in order, reports each result, and stops at the first failure. Repository mutations are serialized. Successful output is compacted.',
+    description: 'Run one Git command, or up to 5 Git commands in order, directly without a shell. Batch known read-only commands; keep dependent mutations sequential. Owns repository state, diffs, history, and mutations. Shell operators and substitution are rejected. An array runs each command in order, reports each result, and stops at the first failure. Repository mutations are serialized. Successful output is compacted.',
     inputSchema: {
         type: 'object',
         properties: {

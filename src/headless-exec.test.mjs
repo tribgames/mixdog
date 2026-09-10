@@ -8,6 +8,8 @@ import { classifyCliInvocation } from './headless-command.mjs';
 import { prewarmHeadlessSearch, runHeadlessExec } from './headless-exec.mjs';
 import { resolveCursorOAuthAccessToken } from './runtime/agent/orchestrator/providers/cursor-auth.mjs';
 import { createPristineExecutionBoundary } from './runtime/shared/pristine-execution.mjs';
+import { withGrandfatheredBuiltins, featureDisallowedToolsFor } from './session-runtime/builtin-features.mjs';
+import { applyDeferredToolSurface, deferredCatalogUnion, selectDeferredTools } from './session-runtime/tool-catalog.mjs';
 
 test('headless search prewarm starts only the canonical native server', async () => {
   const calls = [];
@@ -41,6 +43,20 @@ test('pristine headless execution binds Cursor OAuth credentials in process', as
     assert.deepEqual(boundary.loadConfig().providers, {
       'cursor-oauth': { enabled: true },
     });
+    const config = withGrandfatheredBuiltins(boundary.loadConfig());
+    assert.deepEqual(config.builtins, {});
+    const disallowedTools = featureDisallowedToolsFor(config, { toolProfile: 'headless' });
+    const session = {
+      provider: 'openai-oauth',
+      model: 'gpt-test',
+      tools: ['git', 'office', 'git_stage', 'github'].map(name => ({
+        name, inputSchema: { type: 'object', properties: {} },
+      })),
+      disallowedTools,
+    };
+    applyDeferredToolSurface(session, 'full');
+    assert.deepEqual(deferredCatalogUnion(session).map(tool => tool.name), ['git']);
+    assert.deepEqual(selectDeferredTools(session, ['office', 'git_stage', 'github'], 'full').added, []);
   } finally {
     boundary.cleanup();
     rmSync(root, { recursive: true, force: true });

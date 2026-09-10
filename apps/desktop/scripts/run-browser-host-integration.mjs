@@ -35,7 +35,7 @@ try {
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
   env.MIXDOG_BROWSER_INTEGRATION_LOG = progressPath;
-  env.MIXDOG_BROWSER_MAX_ACTIONS_PER_TURN = '10';
+  env.MIXDOG_BROWSER_CONTINUATION_ONLY = process.argv.includes('--action-continuation') ? '1' : '0';
   const child = spawn(electron, [output], {
     env,
     stdio: 'inherit',

@@ -45,7 +45,3 @@ export function crossTurnDedupStub(name, firstIteration, stuck) {
     if (stuck) s += ` No new evidence; use the existing result or report it unresolved.`;
     return s;
 }
-
-// Hard iteration-cap final turn: model may still emit tool calls after tools
-// are stripped from the send; refuse without executing.
-export const ITERATION_CAP_REFUSAL_STUB = `Iteration cap reached — tools disabled; reply with your final text only.`;

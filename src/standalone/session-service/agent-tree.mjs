@@ -164,7 +164,6 @@ export function createAgentTree({
           fast: row.fast === true,
           modelParameters: row.modelParameters || null,
           taskType: row.taskType || null,
-          maxLoopIterations: row.maxLoopIterations,
           permission: row.permission || null,
           permissionMode: row.permissionMode || null,
           toolPermission: row.toolPermission || null,
@@ -241,7 +240,6 @@ export function createAgentTree({
       visibility: 'agent-only',
       agentTag: String(spec.agentTag || tag || '').trim() || null,
       taskType: spec.taskType || null,
-      maxLoopIterations: spec.maxLoopIterations,
       permission: spec.permission || null,
       permissionMode: spec.permissionMode || null,
       schemaAllowedTools: Array.isArray(spec.schemaAllowedTools)

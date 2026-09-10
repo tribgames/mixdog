@@ -108,6 +108,7 @@ test('image retry projection preserves images from already-sent turns', () => {
 });
 
 test('agent loop heals one rejected tail image and the next turn stays usable', async () => {
+    const tools = [{ name: 'read', inputSchema: { type: 'object', properties: {} } }];
     const imageParts = (messages) => messages.flatMap((message) => {
         const content = Array.isArray(message?.content)
             ? message.content
@@ -153,7 +154,7 @@ test('agent loop heals one rejected tail image and the next turn stays usable', 
         provider,
         messages,
         'fake-model',
-        [],
+        tools,
         null,
         process.cwd(),
         { session, sessionId: session.id },
@@ -174,7 +175,7 @@ test('agent loop heals one rejected tail image and the next turn stays usable', 
         },
         messages,
         'fake-model',
-        [],
+        tools,
         null,
         process.cwd(),
         { session, sessionId: session.id },

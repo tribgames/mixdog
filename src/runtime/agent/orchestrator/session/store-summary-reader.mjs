@@ -898,7 +898,6 @@ export async function readStoredSessionTranscript(id, options = {}) {
             fast: session.fast === true,
             modelParameters: session.modelParameters || null,
             taskType: session.taskType || null,
-            maxLoopIterations: session.maxLoopIterations ?? null,
             permission: session.permission || null,
             permissionMode: session.permissionMode || null,
             toolPermission: session.toolPermission || null,

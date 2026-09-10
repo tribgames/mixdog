@@ -93,6 +93,13 @@ export function formatElapsed(value: unknown): string {
   if (seconds < 60) return uiTimeUnit(seconds, "second");
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
+  if (minutes >= 60) {
+    return [
+      uiTimeUnit(Math.floor(minutes / 60), "hour"),
+      minutes % 60 ? uiTimeUnit(minutes % 60, "minute") : "",
+      remainder ? uiTimeUnit(remainder, "second") : "",
+    ].filter(Boolean).join(" ");
+  }
   const text = uiTimeUnit(minutes, "minute");
   return remainder ? `${text} ${uiTimeUnit(remainder, "second")}` : text;
 }

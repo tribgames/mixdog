@@ -425,6 +425,7 @@ const measure = async (scenario: {
           kind: [...section.classList].find((name) =>
             name.startsWith("dock-scm-toolbar-") && name !== "dock-scm-toolbar-section") || "",
           left: round(rect.left),
+          top: round(rect.top),
           right: round(rect.right),
           width: round(rect.width),
           height: round(rect.height),
@@ -438,9 +439,16 @@ const measure = async (scenario: {
       labelReport(".dock-scm-branch-button > span"),
       labelReport(".dock-project-select .mx-select-value"),
     ],
-    badge: rectOf(".dock-scm-ahead-behind"),
-    badgeDirections: [...document.querySelectorAll(".dock-scm-ahead-behind svg")]
-      .map((node, index) => lineReport(node, `badge-direction-${index}`)),
+    // Ahead/behind is a BAND under the toolbar now: every count is measured
+    // with its own direction arrow, the capsule keeps a capsule's shape, and
+    // the old chip that straddled the Push button must not come back.
+    syncBand: rectOf(".dock-scm-sync"),
+    syncCapsule: rectOf(".dock-scm-sync-count"),
+    syncCounts: [...document.querySelectorAll(".dock-scm-sync-count > span")].map((node, index) => ({
+      ...lineReport(node, `sync-count-${index}`),
+      direction: lineReport(node.querySelector("svg"), `sync-direction-${index}`),
+    })),
+    floatingBadges: document.querySelectorAll(".dock-scm-ahead-behind").length,
     // Changes tab: the shared filter box must share the file rows' EDGES
     // (the dock gutter + the scrollbar reserve the rows sit inside of), and
     // it is the SAME component as the History box (height + insets).

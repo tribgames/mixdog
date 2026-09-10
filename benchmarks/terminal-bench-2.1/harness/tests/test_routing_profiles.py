@@ -1253,6 +1253,34 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             any("prebake mixdog version" in command for command in commands)
         )
 
+    def test_prebake_cache_avoids_uploads_and_preserves_apt_refresh(self) -> None:
+        module = self.load_adapter_module()
+        commands = []
+        uploads = []
+
+        class Environment:
+            async def upload_file(self, source, destination):
+                uploads.append(destination)
+
+        async def exec_as_root(environment, *, command, env=None):
+            commands.append(command)
+            if "command -v apt-get" in command:
+                return types.SimpleNamespace(stdout="apt\nMIXDOG_PREBAKE_CACHE_READY\n")
+            return types.SimpleNamespace(stdout="MIXDOG_PREBAKE_UV_READY\nCURL_READY\n")
+
+        with tempfile.TemporaryDirectory() as temp:
+            tar_path = Path(temp) / "mixdog-node-prebake.tar.gz"
+            for name in ("mixdog-node-prebake.tar.gz", "mixdog-node-prebake.tar.zst", "zstd-amd64"):
+                (Path(temp) / name).touch()
+            agent = module.MixdogAgent.__new__(module.MixdogAgent)
+            agent._mixdog_version = "fixture"
+            agent.exec_as_root = exec_as_root
+            with mock.patch.object(module, "DEFAULT_PREBAKE_TAR", tar_path):
+                asyncio.run(agent.install(Environment()))
+        self.assertEqual(uploads, [])
+        self.assertTrue(any("tar -C / -I /opt/mixdog-prebake-cache/" in command for command in commands))
+        self.assertTrue(any("Acquire::Retries=1" in command for command in commands))
+
     def _run_uv_provision_fixture(
         self,
         *,
@@ -1654,8 +1682,11 @@ class LauncherDryRunTests(unittest.TestCase):
 
     def test_launcher_fully_validates_selected_profile_before_preflight(self) -> None:
         with tempfile.TemporaryDirectory(prefix="mixdog-launcher-validation-") as temp:
-            harness = Path(temp) / "harness"
-            harness.mkdir()
+            harness = Path(temp) / "benchmarks" / "terminal-bench-2.1" / "harness"
+            harness.mkdir(parents=True)
+            contract = Path(temp) / "src/runtime/shared/pristine-execution-contract.json"
+            contract.parent.mkdir(parents=True)
+            shutil.copy2(REPO_ROOT / "src/runtime/shared/pristine-execution-contract.json", contract)
             script = harness / "run-tb21.ps1"
             shutil.copy2(self.script, script)
             shutil.copy2(HARNESS_ROOT / "routing_profiles.py", harness)

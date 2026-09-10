@@ -500,7 +500,6 @@ export function makeAgentDispatch(opts = {}) {
             skipRoleReminder: isPoolC,
             schemaAllowedTools: resolveHiddenRoleSchemaAllowedTools(hidden),
             taskType: opts.taskType,
-            maxLoopIterations: opts.maxLoopIterations,
         });
         // Diagnostic — dump the actual tool names exposed to this LLM call,
         // visible from the worker log instead of being hidden behind a

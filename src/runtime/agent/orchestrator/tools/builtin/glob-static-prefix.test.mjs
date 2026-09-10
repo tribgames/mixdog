@@ -33,28 +33,16 @@ test('glob narrows positive relative patterns to existing static directory prefi
     ]);
 });
 
-test('glob keeps the original root for exclusions, traversal, missing prefixes, and linked prefixes', async (t) => {
+test('glob keeps the original root for exclusions, traversal, and missing prefixes', async (t) => {
     const root = mkdtempSync(join(tmpdir(), 'mixdog-glob-prefix-fallback-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));
     mkdirSync(join(root, 'usr/bin'), { recursive: true });
-    mkdirSync(join(root, 'target/bin'), { recursive: true });
-    try {
-        symlinkSync(join(root, 'target'), join(root, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
-    } catch {
-        // Platforms that cannot create a test link still exercise every other
-        // fallback; the linked-prefix assertion is omitted rather than weakened.
-    }
 
     const cases = [
         ['negative', ['usr/bin/*.js', '!usr/bin/test*']],
         ['traversal', ['../outside/*.js']],
         ['missing', ['missing/bin/*.js']],
     ];
-    if (process.platform !== 'win32' || (() => {
-        try { return Boolean(resolve(join(root, 'linked'))); } catch { return false; }
-    })()) {
-        cases.push(['linked', ['linked/bin/*.js']]);
-    }
 
     for (const [name, patterns] of cases) {
         const groups = await buildGlobPatternGroups({
@@ -64,4 +52,38 @@ test('glob keeps the original root for exclusions, traversal, missing prefixes, 
         });
         assert.deepEqual(renderedGroups(root, groups), [['.', patterns]], name);
     }
+});
+
+test('a linked prefix does not widen independent static prefixes or follow the link', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-glob-prefix-linked-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    for (const dir of ['usr/bin', 'usr/local/bin', 'opt/runtime']) {
+        mkdirSync(join(root, dir), { recursive: true });
+    }
+    symlinkSync(join(root, 'usr/bin'), join(root, 'bin'), process.platform === 'win32' ? 'junction' : 'dir');
+    const groups = await buildGlobPatternGroups({
+        patterns: ['usr/bin/python*', 'usr/local/bin/python*', 'bin/python*', 'opt/**/python3*'],
+        baseEntries: [{ root, prefix: '' }],
+        resolveRoot: resolve,
+    });
+    assert.deepEqual(renderedGroups(root, groups), [
+        ['usr/bin', ['/python*']],
+        ['usr/local/bin', ['/python*']],
+        ['opt', ['/**/python3*']],
+    ]);
+});
+
+test('an unresolvable prefix does not widen other patterns', async (t) => {
+    const root = mkdtempSync(join(tmpdir(), 'mixdog-glob-prefix-independent-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    mkdirSync(join(root, 'usr/bin'), { recursive: true });
+    const groups = await buildGlobPatternGroups({
+        patterns: ['missing/*.js', 'usr/bin/python*'],
+        baseEntries: [{ root, prefix: '' }],
+        resolveRoot: resolve,
+    });
+    assert.deepEqual(renderedGroups(root, groups), [
+        ['.', ['missing/*.js']],
+        ['usr/bin', ['/python*']],
+    ]);
 });

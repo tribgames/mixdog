@@ -1,6 +1,14 @@
 # Editing
 
 <!-- tools: apply_patch -->
+- Use `apply_patch` for authored file creation and source edits, not shell scripts
+  or redirection.
+<!-- tools: edit -->
+- Use `edit` for authored file creation and source edits, not shell scripts
+  or redirection.
+- Shell writes are for generated artifacts or transformations requiring execution.
+
+<!-- tools: apply_patch -->
 - A required new file is created directly: Add File is itself the atomic
   absence check, so inspect only if it reports the target already exists.
 <!-- tools: edit -->

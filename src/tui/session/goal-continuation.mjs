@@ -1,4 +1,5 @@
 import { clean } from '../../runtime/shared/clean.mjs';
+import { goalDeadlineWarning } from '../../session-runtime/goal-text.mjs';
 
 function isGoalContinuation(entry) {
   return entry?.mode === 'goal-continuation';
@@ -15,6 +16,8 @@ export function createGoalContinuation({
   let scheduled = null;
   let disposed = false;
   let suppressedCompletedGoalId = '';
+  let watchedGoalId = '';
+  let deliveredWarningRevision = 0;
 
   const cancelQueuedGoalContinuations = () => {
     const pending = getPending();
@@ -81,12 +84,54 @@ export function createGoalContinuation({
     return true;
   };
 
+  // The budget stop aborts the running turn, so the warning has to reach the
+  // model while that turn still has minutes left: a busy session steers it in
+  // mid-turn (the loop attaches `next` entries at the next tool batch), and an
+  // idle one parks the durable reminder for whatever turn comes next.
+  const deliverGoalDeadlineWarning = (goal) => {
+    const revision = Math.max(0, Number(goal?.warningRevision) || 0);
+    const goalId = clean(goal?.id);
+    // Warnings this Goal earned before this controller existed were delivered
+    // by whoever ran the session then, so the first sighting only sets the
+    // watermark. Watching from the Goal's own start keeps the first crossing.
+    if (goalId && goalId !== watchedGoalId) {
+      watchedGoalId = goalId;
+      deliveredWarningRevision = revision;
+      return;
+    }
+    if (!revision || revision <= deliveredWarningRevision) return;
+    deliveredWarningRevision = revision;
+    if (clean(goal?.status) !== 'active' || !(Number(goal?.remainingMs) > 0)) return;
+    const text = goalDeadlineWarning(goal);
+    if (!clean(text)) return;
+    const state = getState();
+    if (state.busy || state.commandBusy) {
+      // A queued prompt is the only entry shape the loop attaches mid-turn,
+      // so the warning rides that contract: `isMeta` keeps it out of the
+      // queued-command list and `suppressDisplay` renders no user bubble while
+      // the model still receives the reminder content.
+      enqueue(text, {
+        mode: 'prompt',
+        priority: 'next',
+        isMeta: true,
+        suppressDisplay: true,
+        skipSlashCommands: true,
+        restorable: false,
+        goalId: clean(goal.id),
+        displayText: '',
+      });
+      return;
+    }
+    try { runtime.markGoalReminder?.('deadline-soon'); } catch { /* best-effort: a reminder must never break the session */ }
+  };
+
   const onGoalChanged = (event = {}) => {
     const currentSessionId = clean(getState().sessionId || runtime.id);
     if (clean(event.sessionId) && clean(event.sessionId) !== currentSessionId) return;
     cancelQueuedGoalContinuations();
     const goal = visibleGoal(event.goal || runtime.goalStatus?.() || null);
     set({ goal });
+    deliverGoalDeadlineWarning(goal);
     if (goal?.status === 'duration_reached' && getState().busy
       && !getState().sessionRemoteAttached) runtime.abort?.('goal-budget');
     if (goal?.status === 'active') scheduleGoalContinuation();

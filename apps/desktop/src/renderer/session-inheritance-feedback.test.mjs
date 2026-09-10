@@ -22,8 +22,9 @@ test("inheritance completion renders a distinct, accessible conversation boundar
   }
 });
 
+for (const action of ["inherit", "compact"]) {
 for (const outcome of ["success", "failure"]) {
-  test(`inheritance stays visibly pending outside the context popover until ${outcome}`, async () => {
+  test(`${action} blocks re-entry without extra progress UI until ${outcome}`, async () => {
     const dom = new JSDOM('<div id="root"></div>', { url: "http://localhost/" });
     const globals = ["window", "document", "navigator", "IS_REACT_ACT_ENVIRONMENT"];
     const previous = globals.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]);
@@ -39,22 +40,45 @@ for (const outcome of ["success", "failure"]) {
     let resolve;
     let reject;
     const pending = new Promise((yes, no) => { resolve = yes; reject = no; });
+    const calls = [];
+    window.mixdogDesktop = {
+      invokeCapability: (request) => { calls.push(request.capability); return pending; },
+    };
     const snapshot = {
       sessionId: "source",
       provider: "openai-oauth", model: "gpt-6-astra",
-      items: [{ kind: "assistant", provider: "anthropic-oauth", modelId: "claude-fable-5-1" }],
+      items: [{ kind: "assistant",
+        provider: action === "inherit" ? "anthropic-oauth" : "openai-oauth",
+        modelId: action === "inherit" ? "claude-fable-5-1" : "gpt-6-astra" }],
     };
     const render = (open, current = snapshot) => root.render(React.createElement(ContextUsageIndicator, {
-      snapshot: current, open, onOpenChange() {}, onInherit: () => pending,
+      snapshot: current, open, onOpenChange() {},
+      onInherit: () => { calls.push("inherit"); return pending; },
     }));
     try {
       await act(async () => render(true));
-      const button = [...document.querySelectorAll("button")].find((node) => node.textContent === "Inherit session");
+      const label = action === "inherit" ? "Inherit session" : "Compact context";
+      const button = [...document.querySelectorAll("button")].find((node) => node.textContent === label);
       assert.ok(button);
-      await act(async () => button.click());
+      const idleMarkup = button.innerHTML;
+      await act(async () => { button.click(); button.click(); });
       assert.equal(button.disabled, true);
+      assert.equal(button.innerHTML, idleMarkup);
+      assert.deepEqual(calls, [action]);
       await act(async () => render(false));
-      assert.match(document.querySelector('[role="status"]').textContent, /Inheriting/);
+      assert.equal(document.querySelector('[role="status"]'), null);
+      assert.doesNotMatch(document.body.textContent, /Inheriting|Compacting/);
+      await act(async () => render(true, {
+        ...snapshot,
+        items: [{ kind: "assistant",
+          provider: action === "inherit" ? "openai-oauth" : "anthropic-oauth",
+          modelId: action === "inherit" ? "gpt-6-astra" : "claude-fable-5-1" }],
+      }));
+      const otherButton = document.querySelector(".context-action");
+      assert.equal(otherButton.disabled, true);
+      await act(async () => otherButton.click());
+      assert.deepEqual(calls, [action]);
+      await act(async () => render(true));
       await act(async () => {
         if (outcome === "success") resolve();
         else reject(new Error("Carry failed"));
@@ -75,7 +99,7 @@ for (const outcome of ["success", "failure"]) {
         assert.match(notices.at(-1).text, /Carry failed/);
         await act(async () => render(true));
         assert.ok([...document.querySelectorAll("button")].some((node) =>
-          node.textContent === "Inherit session" && !node.disabled));
+          node.textContent === label && !node.disabled));
       }
     } finally {
       await act(async () => root.unmount());
@@ -86,4 +110,5 @@ for (const outcome of ["success", "failure"]) {
       }
     }
   });
+}
 }

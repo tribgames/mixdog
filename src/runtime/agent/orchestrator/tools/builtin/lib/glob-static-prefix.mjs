@@ -47,7 +47,9 @@ async function safeStaticRoot(root, segments, lstatFn, cache) {
         } catch {
             return null;
         }
-        if (!st.isDirectory() || st.isSymbolicLink()) return null;
+        // The inventory never follows directory symlinks. A relative pattern
+        // requiring traversal through one cannot match; do not widen its walk.
+        if (st.isSymbolicLink() || !st.isDirectory()) return { skip: true };
     }
     return current;
 }
@@ -63,41 +65,31 @@ export async function buildGlobPatternGroups({
     const canTryNarrowing = relativePatterns.length > 0
         && !patterns.some((pattern) => String(pattern).startsWith('!'))
         && baseEntries.every((entry) => !entry.prefix);
-    let narrowed = null;
+    const narrowed = new Map();
 
     if (canTryNarrowing) {
         const statCache = new Map();
-        const candidates = new Map();
-        let complete = true;
-        for (let patternIndex = 0; patternIndex < patterns.length && complete; patternIndex += 1) {
+        for (let patternIndex = 0; patternIndex < patterns.length; patternIndex += 1) {
             const pattern = patterns[patternIndex];
             if (isAbsolute(pattern)) continue;
             const prefix = relativeStaticPrefix(pattern);
-            if (!prefix) {
-                complete = false;
-                break;
-            }
+            if (!prefix) continue;
             for (let baseIndex = 0; baseIndex < baseEntries.length; baseIndex += 1) {
                 const entry = baseEntries[baseIndex];
                 let resolvedBase;
                 try {
                     resolvedBase = resolveRoot(entry.root);
                 } catch {
-                    complete = false;
-                    break;
+                    continue;
                 }
                 const root = await safeStaticRoot(resolvedBase, prefix.segments, lstatFn, statCache);
-                if (!root) {
-                    complete = false;
-                    break;
-                }
-                candidates.set(`${patternIndex}:${baseIndex}`, {
+                if (!root) continue;
+                narrowed.set(`${patternIndex}:${baseIndex}`, root.skip ? root : {
                     root,
                     pattern: prefix.relativePattern,
                 });
             }
         }
-        if (complete) narrowed = candidates;
     }
 
     for (let patternIndex = 0; patternIndex < patterns.length; patternIndex += 1) {
@@ -109,7 +101,8 @@ export async function buildGlobPatternGroups({
         }
         for (let baseIndex = 0; baseIndex < baseEntries.length; baseIndex += 1) {
             const entry = baseEntries[baseIndex];
-            const planned = narrowed?.get(`${patternIndex}:${baseIndex}`);
+            const planned = narrowed.get(`${patternIndex}:${baseIndex}`);
+            if (planned?.skip) continue;
             if (planned) {
                 addGroup(groups, planned.root, planned.pattern);
             } else {

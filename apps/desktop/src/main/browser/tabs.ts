@@ -1,8 +1,7 @@
 /**
  * Which page a command runs against, and what the agent can see of the open
- * ones. A visible tab is addressed by its list position or page id; anything
- * else names a hidden page on the same partition, created on first use so a
- * background task stays logged in without taking the screen.
+ * ones. Foreground commands select their target regardless of how it was
+ * created. Only explicit background commands leave the selection untouched.
  */
 import type { BrowserWindow, WebContents } from 'electron';
 
@@ -81,8 +80,8 @@ export function createBrowserTabs(host: BrowserTabsHost) {
       }
       const found = backgroundEntryByPageId(sessionId, tab);
       if (!found) throw new Error(`no page "${tab}"; call list_tabs`);
-      found[1].lastUsedAt = Date.now();
-      return { guest: found[1].window.webContents, background: true, tabName: found[0] };
+      selectDisplayTab(sessionId, stablePageId(found[1].guest));
+      return { guest: found[1].guest, background: false, tabName: found[0] };
     }
     const visibleMatch = /^v(\d+)$/i.exec(tab);
     if (visibleMatch) {
@@ -97,8 +96,8 @@ export function createBrowserTabs(host: BrowserTabsHost) {
     if (!page || page.window.isDestroyed()) {
       throw new Error(`unknown tab "${backgroundName}"; call list_tabs, or pass background:true to create it`);
     }
-    page.lastUsedAt = Date.now();
-    return { guest: page.window.webContents, background: true, tabName: backgroundName };
+    selectDisplayTab(sessionId, stablePageId(page.guest));
+    return { guest: page.guest, background: false, tabName: backgroundName };
   }
 
   function listTabs(sessionId: string): BrowserCommandResult {
@@ -186,6 +185,17 @@ export function createBrowserTabs(host: BrowserTabsHost) {
   }
 
   function createDisplayTab(sessionId: string): void {
+    const entries = displayEntries(sessionId);
+    const initial = entries.length === 1 && entries[0].page === null
+      ? entries[0].guest : null;
+    // Reuse only the initial, idle blank page, not a page navigated back to
+    // blank or an independently created user/support tab.
+    if (initial && initial.getURL() === 'about:blank'
+      && !initial.isLoadingMainFrame()
+      && initial.navigationHistory.length() <= 1) {
+      selectGuest(sessionId, initial);
+      return;
+    }
     let name: string;
     do { name = `user-tab-${++nextUserTab}`; } while (backgroundPages(sessionId).has(name));
     const page = ensureOffscreen(sessionId, name);

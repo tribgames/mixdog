@@ -235,8 +235,14 @@ function deferredPoolToolNames(session) {
 // (never for provider serialization) so the request tools param — and its cache
 // hash — is unchanged until a late tool is actually loaded.
 export function deferredCatalogUnion(session) {
-  const boot = Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : [];
-  const late = Array.isArray(session?.deferredLateToolCatalog) ? session.deferredLateToolCatalog : [];
+  const boot = filterDisallowedTools(
+    Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : [],
+    session?.disallowedTools,
+  );
+  const late = filterDisallowedTools(
+    Array.isArray(session?.deferredLateToolCatalog) ? session.deferredLateToolCatalog : [],
+    session?.disallowedTools,
+  );
   if (!late.length) return boot;
   const byName = new Map();
   // On a same-name collision (a boot MCP tool whose server reconnected with a
@@ -272,7 +278,7 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
       [...session.tools, ...(extraTools || [])],
       options.model || session.model,
     ),
-    options.disallowed,
+    [...(session.disallowedTools || []), ...(options.disallowed || [])],
   );
   for (const tool of candidates) {
     const name = clean(tool?.name);
@@ -564,7 +570,7 @@ export function selectDeferredTools(session, names, mode, { exact = false } = {}
   const union = deferredCatalogUnion(session);
   const catalog = union.length
     ? union
-    : (Array.isArray(session?.tools) ? session.tools : []);
+    : filterDisallowedTools(Array.isArray(session?.tools) ? session.tools : [], session?.disallowedTools);
   const surfaceActive = new Set((session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean));
   const active = new Set([...surfaceActive, ...parseToolSelection(session?.deferredCallableTools)]);
   const native = session?.deferredProviderMode === 'native' || session?.deferredNativeTools === true;
@@ -656,7 +662,7 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
   const unionCatalog = deferredCatalogUnion(session);
   const catalog = unionCatalog.length
     ? unionCatalog
-    : (Array.isArray(session?.tools) ? session.tools : []);
+    : filterDisallowedTools(Array.isArray(session?.tools) ? session.tools : [], session?.disallowedTools);
   const requestedNames = parseLoadToolNames(args);
   const { pending: pendingMcpServers, failed: failedMcpServers } = pendingAndFailedMcpServers(options?.mcpStatus);
   const mcpFields = {

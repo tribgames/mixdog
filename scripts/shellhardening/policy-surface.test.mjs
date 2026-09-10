@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import {
   path,
   DEFAULT_SHELL_AUTO_BACKGROUND_MS,
-  _exitClassDiagnostic,
   preflightPowerShellHygiene,
   BUILTIN_TOOLS,
   appendGitStartupState,
@@ -32,10 +31,10 @@ test('shell execution policy matches sync-first background-task parity', () => {
     );
     assert.equal(shellTool.inputSchema.properties.timeout_ms.minimum, 0);
     assert.equal(shellTool.inputSchema.properties.monitor_interval_ms, undefined);
-    assert.match(shellTool.description, /10s foreground window.*continues as a tracked task_id.*Completion is automatic/i);
+    assert.match(shellTool.description, /10s foreground window.*continues as a tracked task_id.*Completion notifications are automatic/i);
     const taskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
     assert.equal(taskTool.title, 'Task');
-    assert.match(taskTool.description, /List shell tasks.*snapshot.*wait for one to finish.*cancel by task_id.*Completion is automatic/i);
+    assert.match(taskTool.description, /List shell tasks.*snapshot.*wait for one to finish.*cancel by task_id.*Completion notifications are automatic/i);
     assert.deepEqual(taskTool.inputSchema.properties.action.enum, ['list', 'read', 'wait', 'cancel']);
     assert.deepEqual(taskTool.inputSchema.required, ['action']);
     assert.equal(taskTool.inputSchema.properties.monitor_interval_ms, undefined);
@@ -174,29 +173,6 @@ test('C: git startup state reports repository presence, not just the binary', ()
     }
 });
 
-test('C: command-not-found diagnostic lists only verified fallback runtimes', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'mixdog-shell-runtime-hints-'));
-    const priorPath = process.env.PATH;
-    try {
-        const nodeName = process.platform === 'win32' ? 'node.exe' : 'node';
-        const perlName = process.platform === 'win32' ? 'perl.exe' : 'perl';
-        for (const name of [nodeName, perlName]) {
-            const file = join(dir, name);
-            writeFileSync(file, '');
-            if (process.platform !== 'win32') chmodSync(file, 0o755);
-        }
-        process.env.PATH = dir;
-        const detail = _exitClassDiagnostic(127, 'python3: command not found');
-        assert.match(detail, /available runtimes on PATH:/);
-        assert.match(detail, /node/);
-        assert.match(detail, /perl/);
-        assert.doesNotMatch(detail, /ruby/);
-    } finally {
-        if (priorPath == null) delete process.env.PATH;
-        else process.env.PATH = priorPath;
-        rmSync(dir, { recursive: true, force: true });
-    }
-});
 
 // ---------------------------------------------------------------------------
 // D) exec policy — deny only truly dangerous execution patterns. Normal

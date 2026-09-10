@@ -23,9 +23,9 @@ eof_line: "*** End of File" LF
 // Lark custom tool. The tiny JSON schema remains only for function-only
 // compatibility paths; runtime knobs stay off the model surface.
 const APPLY_PATCH_FREEFORM_DESCRIPTION =
-  'Edit files with one raw V4A patch; do not wrap it in JSON. Use one Add/Delete/Update File block per target path and multiple @@ hunks within one Update File block. Add File atomically creates the file and missing parent directories, failing without changes if the target already exists; call it directly without a prior read, list, or mkdir. Use exact lines already in context; never re-open the file to build context or to verify a successful patch. Multi-file patches commit valid files and report rejected files separately. Replaces sed/awk and echo redirection.';
+  'Edit files with one raw V4A patch; do not wrap it in JSON. Use exact source context and combine all determined edits in one patch. Use one Add/Delete/Update File block per target path and multiple @@ hunks within one Update File block. Add File atomically creates the file and missing parent directories, failing without changes if the target already exists; call it directly without a prior read, list, or mkdir. Never re-open unchanged content to build context or verify a successful patch. Multi-file patches commit valid files and report rejected files separately. Replaces sed/awk and echo redirection.';
 
-const APPLY_PATCH_JSON_DESCRIPTION = 'Edit files with one complete V4A patch in `patch`.';
+const APPLY_PATCH_JSON_DESCRIPTION = 'Edit files with one complete V4A patch in `patch`. Use exact source context and combine all determined edits in one patch.';
 
 export const PATCH_TOOL_DEFS = [
   {

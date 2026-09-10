@@ -24,7 +24,8 @@ const status = {
   }],
 };
 
-async function mount(t, commit) {
+async function mount(t, commit, overrides = {}) {
+  const renderedStatus = overrides.status || status;
   const dom = new JSDOM("<!doctype html><body><main></main></body>", {
     url: "https://mixdog.test/", pretendToBeVisual: true,
   });
@@ -45,7 +46,7 @@ async function mount(t, commit) {
   const legacyCalls = [];
   window.mixdogDesktop = {
     rendererDiagnostic() {},
-    gitStatus: async () => status,
+    gitStatus: async () => renderedStatus,
     gitCommitPaths: commit,
     // An older host must not re-enable the removed behavior.
     readGitPreferences: async () => {
@@ -58,10 +59,19 @@ async function mount(t, commit) {
     },
   };
   const { SourceControlDock } = await import("./SourceControlDock.tsx");
+  const { DESKTOP_TOAST_DISMISS_EVENT, DESKTOP_TOAST_EVENT } = await import("./desktop-toasts.tsx");
+  const toasts = [];
+  const dismissed = [];
+  const receiveToast = (event) => toasts.push(event.detail);
+  const receiveDismiss = (event) => dismissed.push(event.detail);
+  window.addEventListener(DESKTOP_TOAST_EVENT, receiveToast);
+  window.addEventListener(DESKTOP_TOAST_DISMISS_EVENT, receiveDismiss);
   const host = document.querySelector("main");
   const root = createRoot(host);
   t.after(async () => {
     await act(async () => root.unmount());
+    window.removeEventListener(DESKTOP_TOAST_EVENT, receiveToast);
+    window.removeEventListener(DESKTOP_TOAST_DISMISS_EVENT, receiveDismiss);
     dom.window.close();
     for (const [key, descriptor] of saved) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
@@ -69,7 +79,7 @@ async function mount(t, commit) {
     }
   });
   await act(async () => root.render(React.createElement(SourceControlDock, {
-    projectPath, status, statusReady: true, statusError: "", loading: false,
+    projectPath, status: renderedStatus, statusReady: true, statusError: "", loading: false,
     active: true, readinessKey: "manual-commit", onReadyChange() {}, onRefreshStatus() {},
   })));
   const summary = host.querySelector(".dock-scm-commit-summary");
@@ -77,7 +87,7 @@ async function mount(t, commit) {
   const button = host.querySelector("button[type=submit]");
   assert.ok(summary && description && button);
   return {
-    host, summary, description, button, legacyCalls,
+    host, summary, description, button, legacyCalls, toasts, dismissed,
     input: (element, value) => act(async () => {
       element.value = value;
       element.dispatchEvent(new window.Event("input", { bubbles: true }));
@@ -149,9 +159,35 @@ test("a rejected manual commit preserves the draft and can be retried with Ctrl+
   assert.equal(view.summary.value, "Free-form summary");
   assert.equal(view.description.value, "Keep this draft.");
   assert.equal(view.button.disabled, false);
-  assert.match(view.host.textContent, /Commit rejected by hook/);
+  // The refusal reports in the app's toast surface — never inline in the dock.
+  assert.equal(view.host.querySelector(".dock-scm-error"), null);
+  assert.deepEqual(view.toasts.map((toast) => toast.tone), ["error"]);
+  assert.match(view.toasts[0].text, /^Git action failed — Commit rejected by hook\.$/);
   await view.accelerator(view.summary, "ctrlKey");
   assert.equal(attempts, 2);
   assert.equal(view.summary.value, "");
+  assert.equal(view.toasts.length, 1);
+  assert.equal(view.dismissed.length, 1); // the retry cleared the toast
   assert.deepEqual(view.legacyCalls, []);
+});
+
+test("ahead/behind renders on its own band under the toolbar with both counts", async (t) => {
+  const view = await mount(t, async () => {}, {
+    status: {
+      ...status,
+      upstream: true, upstreamName: "origin/main", remote: true, ahead: 2, behind: 1,
+    },
+  });
+  const band = view.host.querySelector(".dock-scm-sync");
+  assert.ok(band, "the sync band renders");
+  const counts = [...band.querySelectorAll(".dock-scm-sync-count > span")];
+  assert.deepEqual(counts.map((count) => count.dataset.direction), ["ahead", "behind"]);
+  assert.deepEqual(counts.map((count) => count.textContent), ["2", "1"]);
+  assert.ok(counts.every((count) => count.querySelector("svg")),
+    "each count carries its own direction arrow");
+  assert.equal(view.host.querySelector(".dock-scm-ahead-behind"), null,
+    "nothing is pinned to the Push button");
+  const toolbar = view.host.querySelector(".dock-scm-toolbar");
+  assert.ok(toolbar.compareDocumentPosition(band) & Node.DOCUMENT_POSITION_FOLLOWING,
+    "the band owns a row AFTER the toolbar");
 });

@@ -97,14 +97,6 @@ const CODE_GRAPH_DESCRIPTION_MUTATION_CORPUS = [
     }),
   },
   {
-    name: 'exact-symbol one-call inversion',
-    allPositiveProbes: true,
-    mutate: (parts) => ({
-      ...parts,
-      symbolsDescription: parts.symbolsDescription.replace(/one symbols\[\] call|one symbols\[\]/i, 'one files[] call'),
-    }),
-  },
-  {
     name: 'contradictory file-mode assignment retained beside correct clause',
     allPositiveProbes: true,
     mutate: (parts) => ({
@@ -152,14 +144,13 @@ function hasCodeGraphDescriptionContract({ description, modeDescription, symbols
     && !hasContradictoryTargetAssignment(modeDescription)
     && hasPositiveClause(symbolsDescription, ['exact identifiers'])
     && hasPositiveClause(symbolsDescription, ['keywords'])
-    && hasPositiveClause(symbolsDescription, ['symbols[]'])
     && !hasContradictoryTargetAssignment(symbolsDescription)
   );
 }
 
 export function assertCodeGraphDescriptionContract(parts) {
   if (!hasCodeGraphDescriptionContract(parts)) {
-    throw new Error('code_graph descriptions must preserve per-mode files[]/symbols[] batching and exact-vs-keyword routing');
+    throw new Error('code_graph descriptions must preserve per-mode targets and exact-vs-keyword routing');
   }
   for (const probe of CODE_GRAPH_EQUIVALENT_DESCRIPTION_PROBES) {
     if (!hasCodeGraphDescriptionContract(probe)) {

@@ -72,9 +72,8 @@ type DockGitState = {
   error: string;
 };
 
-/** Git status outlives each movable Dock view. Workbench categories are
- * separate component instances, so a module cache lets the idle Agents/Search
- * preload become Source Control's first paint instead of another blank wait. */
+/** Git status outlives each movable Dock view. Cached snapshots serve Search
+ * and preloads, but Source Control validates each entry before showing rows. */
 const dockGitCache = new Map<string, DockGitState>();
 const dockGitRequests = new Map<string, Promise<DockGitState>>();
 
@@ -513,6 +512,18 @@ export const UtilityDock = memo(function UtilityDock({
     "pull-requests": `pull-requests:${dockProjectPath}`,
   };
   const gitRequestEpoch = useRef(0);
+  const sourceControlEntryKey = open && contentReady && tab === "source-control"
+    ? dockProjectPath : "";
+  const [sourceControlEntry, setSourceControlEntry] = useState(
+    () => ({ key: sourceControlEntryKey }),
+  );
+  // Reset during render so even the first commit cannot expose cached rows.
+  // The identity also distinguishes repeated visits to the same project.
+  if (sourceControlEntry.key !== sourceControlEntryKey) {
+    setSourceControlEntry({ key: sourceControlEntryKey });
+  }
+  const [validatedSourceControlEntry, setValidatedSourceControlEntry] =
+    useState<typeof sourceControlEntry | null>(null);
   const [dockGitState, setDockGitState] = useState<DockGitState>(
     () => readCachedDockGitState(dockProjectPath),
   );
@@ -532,15 +543,15 @@ export const UtilityDock = memo(function UtilityDock({
           : readCachedDockGitState(currentProject)),
         projectPath: currentProject,
         loading: true,
-        // A visible/cached snapshot remains authoritative while its silent
-        // refresh runs. Invalidating it here replayed the full Preparing
-        // Source Control cover on every tab re-entry.
+        // Keep established rows during live refreshes. Entry readiness is
+        // tracked separately so retained cache readiness cannot reveal them.
       }));
     }
     const next = await requestDockGitState(currentProject);
     if (epoch !== gitRequestEpoch.current) return;
     setDockGitState(next);
-  }, [dockProjectPath]);
+    setValidatedSourceControlEntry(sourceControlEntry);
+  }, [dockProjectPath, sourceControlEntry]);
   // Git I/O follows intent and evidence. A recursive project watcher plus
   // explicit Git actions drive refreshes; the slow safety lane only protects
   // platforms where native watch delivery is unavailable or overflowed.
@@ -580,9 +591,9 @@ export const UtilityDock = memo(function UtilityDock({
   }, [contentReady, dockProjectPath, gitSurfaceSelected, open, refreshDockGitStatus]);
   // Boot preload (user: 호버 말고 부트 프리로드는 백그라운드에서): the intent
   // rule above still owns live polling, but ONE idle-time gitStatus per
-  // project warms dockGitState before the first Git tab entry, so Source
-  // Control / Pull Requests reveal without the Preparing… cover. No interval
-  // runs while a Git surface is not selected.
+  // project warms the shared snapshot for Search / Pull Requests. Source
+  // Control still validates on entry. No interval runs while a Git surface
+  // is not selected.
   const warmedGitProject = useRef("");
   useEffect(() => {
     if (!dockProjectPath || gitSurfaceSelected) return undefined;
@@ -617,7 +628,8 @@ export const UtilityDock = memo(function UtilityDock({
     ? dockGitState
     : readCachedDockGitState(dockProjectPath);
   const dockGitStatus = effectiveDockGitState.status;
-  const dockGitStatusReady = !dockProjectPath || effectiveDockGitState.ready;
+  const dockGitStatusReady = !dockProjectPath || (effectiveDockGitState.ready
+    && (!sourceControlEntryKey || validatedSourceControlEntry === sourceControlEntry));
   const dockGitLoading = effectiveDockGitState.loading;
   const dockGitError = effectiveDockGitState.error;
   const [, setReadyPaneKeys] = useState<Partial<Record<UtilityDockTab, string>>>({});

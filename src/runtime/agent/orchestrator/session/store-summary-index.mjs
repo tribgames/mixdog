@@ -163,9 +163,6 @@ export function _sessionSummary(session) {
             ? session.schemaAllowedTools.map((name) => String(name))
             : null,
         taskType: session.taskType || null,
-        maxLoopIterations: Number.isFinite(session.maxLoopIterations)
-            ? session.maxLoopIterations
-            : null,
         messageCount: messageProjection.count,
         title: _cleanPreview(session.title || '', 100),
         preview: messageProjection.preview,
@@ -217,9 +214,6 @@ function _normalizeSummaryRow(row) {
             ? row.schemaAllowedTools.map((name) => String(name))
             : null,
         taskType: row.taskType || null,
-        maxLoopIterations: Number.isFinite(row.maxLoopIterations)
-            ? row.maxLoopIterations
-            : null,
         messageCount: Math.max(0, Math.floor(Number(row.messageCount) || 0)),
         title: _cleanPreview(row.title || '', 100),
         preview: _cleanPreview(row.preview || ''),

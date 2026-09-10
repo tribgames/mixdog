@@ -1,7 +1,6 @@
 import { getAbortSignalForSession } from '../../session/abort-lookup.mjs';
-import { accessSync, constants as fsConstants, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
+import { unlinkSync, writeFileSync } from 'node:fs';
 import { constants as osConstants, tmpdir } from 'node:os';
-import { delimiter as pathDelimiter } from 'node:path';
 import { join as pathJoin } from 'node:path';
 import { makeToolEnvelope } from '../../session/tool-envelope.mjs';
 import {
@@ -128,10 +127,6 @@ import { normalizeOutputPath } from './path-utils.mjs';
 import { normalizeErrorMessage } from './path-diagnostics.mjs';
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { applyShellEgressPolicy, scrubLoaderVars, scrubProviderSecrets, scrubRuntimeRootVars } from '../env-scrub.mjs';
-import {
-    findPathExecutable,
-    SHELL_RUNTIME_CANDIDATES,
-} from './runtime-capabilities.mjs';
 import { planDirectExeSpawn } from './shell-direct-exe.mjs';
 
 // Commands start in the foreground. Only work still running after the
@@ -295,78 +290,17 @@ export function _shellFailureStatus(result, timeout) {
             : (signal
                 ? `[signal: ${signal}${causeDetail}]`
                 : (Number.isInteger(exitCode)
-                    ? `[exit code: ${exitCode}]${exitCode !== 0 ? _exitClassDiagnostic(exitCode, result.stderr) : ''}`
+                    ? `[exit code: ${exitCode}]${exitCode !== 0 ? _exitClassDiagnostic(exitCode) : ''}`
                     : '[missing exit status]')));
     return { signal, exitCode, shellToolFailed, statusDetail };
 }
 
-// Deterministic POSIX exit-class facts only (127 not-found, 126 not
-// executable, 128+N signal). Per-command meanings (grep 1 = no match, test
-// runner 1 = failures) stay uninterpreted — that would need a per-command
-// dictionary, which is banned steering. 127 additionally names verified
-// same-prefix executables actually present on PATH (fact statement, no
-// substitution suggestion) so the model skips the "then what exists?" probe.
+// Deterministic POSIX exit-class facts only. Missing dependencies retain the
+// command's original error without PATH probes or runtime suggestions.
 const _SIGNAL_NAME_BY_NUMBER = new Map(
     Object.entries(osConstants.signals || {}).map(([name, num]) => [num, name]).reverse(),
 );
-function _missingCommandFrom(stderr) {
-    const text = String(stderr || '');
-    const m = /(?:^|\n)[^\n]*?(?:line \d+:\s*)?([A-Za-z0-9._+-]+):\s*(?:command )?not found/.exec(text)
-        || /The term '([^']+)' is not recognized/.exec(text);
-    return m ? m[1] : null;
-}
-function _pathPrefixExecutables(cmd, limit = 5) {
-    const needle = String(cmd || '').toLowerCase();
-    const hits = [];
-    if (!needle) return hits;
-    const seenDirs = new Set();
-    for (const dir of String(process.env.PATH || '').split(pathDelimiter)) {
-        if (!dir || seenDirs.has(dir)) continue;
-        seenDirs.add(dir);
-        if (seenDirs.size > 64) break;
-        let entries;
-        try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
-        for (const ent of entries) {
-            if (ent.isDirectory()) continue;
-            if (!ent.name.toLowerCase().startsWith(needle)) continue;
-            if (process.platform !== 'win32') {
-                try { accessSync(pathJoin(dir, ent.name), fsConstants.X_OK); } catch { continue; }
-            }
-            hits.push(`${ent.name} (${dir.replace(/\\/g, '/')})`);
-            if (hits.length >= limit) return hits;
-        }
-    }
-    return hits;
-}
-function _availableRuntimeExecutables(missing, limit = 5) {
-    const omitted = String(missing || '').toLowerCase().replace(/\.(?:exe|cmd|bat)$/i, '');
-    const found = [];
-    for (const name of SHELL_RUNTIME_CANDIDATES) {
-        if (name.toLowerCase() === omitted) continue;
-        const hit = findPathExecutable(name);
-        if (hit) found.push(hit);
-        if (found.length >= limit) break;
-    }
-    return found;
-}
-export function _exitClassDiagnostic(exitCode, stderr) {
-    // Not gated on 127: compound chains (`a && b; c`) and pipelines mask the
-    // 127 into the chain's final code (observed as exit 1 in 6/28 bench
-    // cases), so the stderr fact decides, not the exit code.
-    {
-        const cmd = _missingCommandFrom(stderr);
-        if (cmd) {
-            const hits = _pathPrefixExecutables(cmd);
-            const runtimes = _availableRuntimeExecutables(cmd);
-            const runtimeFact = runtimes.length
-                ? `; available runtimes on PATH: ${runtimes.join(', ')}`
-                : '';
-            return (hits.length
-                ? ` — '${cmd}' is not on PATH; PATH does have: ${hits.join(', ')}`
-                : ` — '${cmd}' is not on PATH and no '${cmd}*' executable exists on PATH`)
-                + runtimeFact;
-        }
-    }
+export function _exitClassDiagnostic(exitCode) {
     if (exitCode === 126) return ' — 126: command found but not executable (permission or format)';
     if (exitCode > 128 && exitCode < 165) {
         const name = _SIGNAL_NAME_BY_NUMBER.get(exitCode - 128);

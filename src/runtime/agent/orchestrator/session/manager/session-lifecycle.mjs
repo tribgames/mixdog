@@ -450,7 +450,6 @@ export function createSession(opts) {
         lastUsedAt: Date.now(),
         tokensCumulative: 0,
         taskType: opts.taskType || null,
-        maxLoopIterations: Number.isFinite(opts.maxLoopIterations) ? opts.maxLoopIterations : null,
         // Agent tag (auto worker{n} on spawn) persisted so the forked status
         // process (statusline) + aggregator can read it from the session JSON.
         // In-process send/close still resolve via _tagSessionRegistry.

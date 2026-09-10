@@ -1,5 +1,7 @@
 # Implementation
 
+- Keep implementation and verification within the requested scope and required
+  project checks. Expand only to resolve a concrete defect or unmet requirement.
 - Prefer explicit contracts and verified evidence over heuristics. Reuse
   existing functions and keep each rule in one place; avoid duplicate logic
   and speculative abstractions.

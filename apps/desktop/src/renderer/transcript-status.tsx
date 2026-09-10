@@ -136,20 +136,19 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
   const tone = !context ? ""
     : (context.percent ?? 0) >= 90 ? "danger"
       : (context.percent ?? 0) >= 70 ? "warning" : "";
-  const [compacting, setCompacting] = useState(false);
+  const [actionPending, setActionPending] = useState(false);
+  const actionInFlight = useRef(false);
   const state = asRecord(snapshot);
   const sessionId = String(state?.sessionId || "").trim();
-  const compactBusy = compacting || Boolean(state?.busy) || Boolean(state?.commandBusy);
-  const [inheriting, setInheriting] = useState(false);
+  const actionBusy = actionPending || Boolean(state?.busy) || Boolean(state?.commandBusy);
   const inheritRoute = sessionModelSelection(snapshot);
   const offerInheritance = Boolean(onInherit) && Boolean(inheritRoute)
     && shouldOfferSessionInheritance(snapshot);
-  const inheritBusy = inheriting || compactBusy;
   // The one fact the card cannot act through is a transcript that no longer
   // fits: the runtime rejects that carry with a raw engine sentence, so it is
   // named here in the user's own terms before the call is made.
   const inherit = async () => {
-    if (!sessionId || !onInherit || !inheritRoute || inheritBusy) return;
+    if (!sessionId || !onInherit || !inheritRoute || actionBusy || actionInFlight.current) return;
     if (context && context.limit > 0 && context.used != null && context.used >= context.limit) {
       showDesktopToast(
         t("This conversation no longer fits the model context. Run /compact first."),
@@ -157,25 +156,29 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
       );
       return;
     }
-    setInheriting(true);
+    actionInFlight.current = true;
+    setActionPending(true);
     try {
       await onInherit(sessionId, inheritRoute);
       popover.close();
     } catch (reason) {
       showDesktopToast(reason instanceof Error ? reason.message : String(reason), "error");
     } finally {
-      setInheriting(false);
+      actionInFlight.current = false;
+      setActionPending(false);
     }
   };
   const compact = async () => {
-    if (!sessionId || compactBusy) return;
-    setCompacting(true);
+    if (!sessionId || actionBusy || actionInFlight.current) return;
+    actionInFlight.current = true;
+    setActionPending(true);
     try {
       await window.mixdogDesktop.invokeCapability({ capability: "compact", sessionId });
     } catch (reason) {
       showDesktopToast(reason instanceof Error ? reason.message : String(reason), "error");
     } finally {
-      setCompacting(false);
+      actionInFlight.current = false;
+      setActionPending(false);
     }
   };
   return <div className="session-context-indicator" {...popover.hostProps}
@@ -214,19 +217,16 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
           a completed handover or matching model offers plain compaction. */}
       {offerInheritance
         ? <button type="button" className="context-action context-inherit"
-          disabled={inheritBusy} onClick={() => { void inherit(); }}>
-          {inheriting ? <ProgressSpinner size={14} aria-hidden="true" /> : <GitFork size={14} aria-hidden="true" />}
-          {inheriting ? t("Inheriting…") : t("Inherit session")}
+          disabled={actionBusy} onClick={() => { void inherit(); }}>
+          <GitFork size={14} aria-hidden="true" />
+          {t("Inherit session")}
         </button>
-        : <button type="button" className="context-action context-compact" disabled={compactBusy}
+        : <button type="button" className="context-action context-compact" disabled={actionBusy}
           onClick={() => { void compact(); }}>
           <FoldVertical size={14} aria-hidden="true" />
           {t("Compact context")}
         </button>}
     </div>}
-    {inheriting && <span role="status" aria-live="polite">
-      {t("Inheriting…")}
-    </span>}
   </div>;
 }
 
