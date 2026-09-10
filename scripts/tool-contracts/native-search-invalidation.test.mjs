@@ -4,18 +4,16 @@ import { spawn, execFile as execFileCallback } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile, rm, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
+import { graphBinaryPath } from '../../src/runtime/agent/orchestrator/tools/code-graph/graph-binary.mjs';
 
 const execFile = promisify(execFileCallback);
 
-// Run after building native/mixdog-graph in release mode. These tests exercise
-// real filesystem notifications, not just event-classification helpers.
-const binary = fileURLToPath(new URL(
-    `../../native/mixdog-graph/target/release/mixdog-graph${process.platform === 'win32' ? '.exe' : ''}`,
-    import.meta.url,
-));
+// Use the same local or installed native binary as the application. These
+// tests exercise real filesystem notifications, not just classification helpers.
+const binary = graphBinaryPath();
+assert.ok(binary, 'The native graph binary must be prepared before running these tests');
 
 function session(root, data) {
     const child = spawn(binary, [root, '--serve-search'], {

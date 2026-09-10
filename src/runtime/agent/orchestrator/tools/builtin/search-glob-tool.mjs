@@ -352,16 +352,19 @@ export async function executeGlobTool(args, workDir, options = {}) {
         // other prune stays on — and a negative pattern never counts as a
         // request for its own target.
         const namedDirs = new Set([
-            ...rels.flatMap((rel) => String(rel).replace(/^!/, '').split('/')),
+            ...rels.filter((rel) => !String(rel).startsWith('!'))
+                .flatMap((rel) => String(rel).split('/')),
             ...String(root || '').replace(/\\/g, '/').split('/'),
         ].filter((segment) => segment && !hasGlobMagic(segment)));
+        // Later globs win: retained safety/noise exclusions must follow the
+        // requested patterns, or a broad positive glob re-admits noise files.
+        for (const rel of rels) rgArgs.push('--glob', rel);
         for (const ex of DEFAULT_IGNORE_GLOBS) {
             const pruned = /^!\*\*\/([^/]+)\/\*\*$/.exec(ex);
             if (pruned && (explicitBasenames || namedDirs.has(pruned[1]))) continue;
             rgArgs.push('--glob', ex);
         }
         for (const ex of extraIgnoreGlobs) rgArgs.push('--glob', ex);
-        for (const rel of rels) rgArgs.push('--glob', rel);
         const rgCwd = resolvedForSearchRoot(root);
         // Root-anchored kernel-tree prunes trail every positive glob so
         // rg's later-glob-wins rule can never re-admit /proc//sys//dev on a
