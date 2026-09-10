@@ -270,12 +270,13 @@ test('git and deferred git_stage expose separate compact contracts', () => {
     assert.equal(GIT_STAGE_TOOL_DEF.annotations.destructiveHint, true);
     assert.doesNotMatch(GIT_TOOL_DEF.description, /confirm/i);
     assert.match(GIT_TOOL_DEF.description, /Owns repository state, diffs, history, and mutations/i);
-    assert.match(GIT_TOOL_DEF.description, /Use diff for known targets; otherwise use status alone to discover targets/i);
-    assert.match(GIT_TOOL_DEF.description, /up to 5 read-only Git commands sequentially/i);
+    assert.match(GIT_TOOL_DEF.description, /Batch status with diff for known targets in one array/i);
+    assert.match(GIT_TOOL_DEF.description, /up to 5 Git commands in order/i);
+    assert.match(GIT_TOOL_DEF.description, /stops at the first failure/i);
     assert.match(GIT_TOOL_DEF.description, /repository mutations are serialized/i);
 });
 
-test('git command arrays preflight read-only policy and report each sequential result', async (t) => {
+test('git command arrays run in order, allow mutations, and stop at the first failure', async (t) => {
     const root = mkdtempSync(join(tmpdir(), 'mixdog-git-command-array-'));
     t.after(() => rmSync(root, { recursive: true, force: true }));
     const repo = join(root, 'repo');
@@ -300,23 +301,41 @@ test('git command arrays preflight read-only policy and report each sequential r
     assert.equal(batch.results[1].ok, true);
     assert.match(JSON.stringify(batch.results[1].data), /changed/);
 
-    const rejected = String(await executeGitTool({
+    // Ordered mutations run in one call; the later step sees the earlier one.
+    const mutations = parseOk(await executeGitTool({
         command: [
-            `git -C ${quote(repo)} status --short`,
             `git -C ${quote(repo)} add -- base.txt`,
+            `git -C ${quote(repo)} diff --cached --quiet`,
         ],
     }, repo));
-    assert.match(rejected, /^Error: git command arrays accept read-only commands only/);
-    assert.equal(parseOk(await git(repo, 'diff --cached --quiet')).changed, false);
+    assert.equal(mutations.results.length, 2);
+    assert.equal(mutations.results[0].ok, true);
+    assert.equal(mutations.results[1].data.changed, true);
+    assert.equal(mutations.stopped_at, undefined);
+    parseOk(await git(repo, 'reset -q -- base.txt'));
 
+    // Fail-fast: a failed step stops the array and reports what was skipped.
     const partial = parseOk(await executeGitTool({
         command: [
             `git -C ${quote(repo)} show missing-ref`,
-            `git -C ${quote(repo)} status --short`,
+            `git -C ${quote(repo)} add -- base.txt`,
         ],
     }, repo));
+    assert.equal(partial.results.length, 1);
     assert.equal(partial.results[0].ok, false);
-    assert.equal(partial.results[1].ok, true);
+    assert.equal(partial.stopped_at, 1);
+    assert.deepEqual(partial.skipped, [`git -C ${quote(repo)} add -- base.txt`]);
+    assert.equal(parseOk(await git(repo, 'diff --cached --quiet')).changed, false);
+
+    // A malformed later command rejects the whole array before anything runs.
+    const rejected = String(await executeGitTool({
+        command: [
+            `git -C ${quote(repo)} add -- base.txt`,
+            `git -C ${quote(repo)} status && echo x`,
+        ],
+    }, repo));
+    assert.match(rejected, /^Error: git command 2:/);
+    assert.equal(parseOk(await git(repo, 'diff --cached --quiet')).changed, false);
 });
 
 test('git clamps oversized output requests to 200 lines', async (t) => {

@@ -15,6 +15,10 @@
   severity beyond it.
 - If verification fails, collect all failures, leave Verification, complete all
   determinable fixes, then re-enter Verification for the resulting state.
+- Applied patches, tool-reported writes, and passed checks are closing
+  evidence. Do not reopen files to confirm edits, re-list or re-glob produced
+  artifacts, or rerun a passed check; a check runs again only after a change
+  that affects it.
 - A successful verification closes the task unless later changes affect it;
   failed actions follow the retry policy in Tool Workflow, otherwise report
   them unresolved.

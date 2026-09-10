@@ -40,7 +40,7 @@ import { ensureCodexWireSessionId, mintSessionId, mintUuidV7 } from './session-i
 import { providerCacheKey } from './provider-cache-key.mjs';
 import { clearTurnCheckpoint, recoverTurnCheckpoint } from './turn-checkpoint.mjs';
 import { IMPLICIT_APPROVAL_MODE } from '../approval-mode.mjs';
-import { describeGitStartupState } from '../../tools/builtin/runtime-capabilities.mjs';
+import { describeCwdStartupEntries, describeGitStartupState } from '../../tools/builtin/runtime-capabilities.mjs';
 import { captureOriginalUserCwd } from '../../../../shared/user-cwd.mjs';
 import { publishPromptSurface } from './prompt-surface-publish.mjs';
 import { refreshSessionBp3Environment } from './prompt-utils.mjs';
@@ -300,6 +300,10 @@ export function createSession(opts) {
         wantsGitStartupLine
             ? describeGitStartupState(sessionCwdLine ? { cwd: sessionCwdLine } : {})
             : '',
+        // Same startup-observation contract: the cwd's immediate entries are a
+        // property of the directory, readable without spawning, and replace
+        // the orientation `list`/`glob` that otherwise opens most sessions.
+        sessionCwdLine ? describeCwdStartupEntries({ cwd: sessionCwdLine }) : '',
     ].filter(Boolean).join('\n');
     // Persisted env tail: refreshSessionBp3Environment rebuilds the env block
     // as [session, project, bp3EnvironmentContext], so the language block must

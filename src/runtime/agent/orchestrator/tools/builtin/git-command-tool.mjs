@@ -74,7 +74,7 @@ export const GIT_TOOL_DEF = {
         openWorldHint: true,
         compressible: true,
     },
-    description: 'Run one Git command, or up to 5 read-only Git commands sequentially, directly without a shell. Owns repository state, diffs, history, and mutations. Use diff for known targets; otherwise use status alone to discover targets. Shell operators and substitution are rejected. Arrays reject mutations before running and report each result. Repository mutations are serialized. Successful output is compacted.',
+    description: 'Run one Git command, or up to 5 Git commands in order, directly without a shell. Owns repository state, diffs, history, and mutations. Batch status with diff for known targets in one array. Shell operators and substitution are rejected. An array runs each command in order, reports each result, and stops at the first failure. Repository mutations are serialized. Successful output is compacted.',
     inputSchema: {
         type: 'object',
         properties: {
@@ -83,7 +83,7 @@ export const GIT_TOOL_DEF = {
                     { type: 'string' },
                     { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 5 },
                 ],
-                description: 'Full command beginning with git, or an array of independent read-only commands. Quote arguments as for a shell; shell operators are not allowed.',
+                description: 'Full command beginning with git, or an ordered array of commands (mutations allowed; execution stops at the first failure). Quote arguments as for a shell; shell operators are not allowed.',
             },
             output_limit: { type: 'integer', minimum: 1, maximum: GIT_OUTPUT_LIMIT_MAX, description: 'Item/line cap. Default 50; git log defaults to 10.' },
         },
@@ -1003,18 +1003,29 @@ export async function executeGitTool(input, workDir, options = {}) {
         if (typeof command !== 'string' || !command.trim()) {
             return fail(`git command ${index + 1} must be a non-empty string`);
         }
-        let plan;
-        try { plan = localizeConfigPlan(parseCommand(command, workDir)); }
+        try { localizeConfigPlan(parseCommand(command, workDir)); }
         catch (error) { return fail(`git command ${index + 1}: ${error.message}`); }
-        if (!isReadOnly(plan)) {
-            return fail(`git command arrays accept read-only commands only; command ${index + 1} is '${plan.operation}'`);
-        }
     }
 
+    // Ordered execution with fail-fast: a mutation sequence (`reflog expire`
+    // then `gc`) must not run its later steps on a state the earlier step did
+    // not produce. Every command is parsed above before any runs, so a typo in
+    // command 3 never leaves commands 1-2 half applied. Each command still
+    // acquires its own repository lock inside executeSingleGitTool.
     const results = [];
     for (const command of commands) {
         const raw = await executeSingleGitTool({ ...input, command }, workDir, options);
-        results.push(gitBatchRow(command, raw));
+        const row = gitBatchRow(command, raw);
+        results.push(row);
+        if (!row.ok) {
+            const skipped = commands.slice(results.length);
+            return ok({
+                batched: true,
+                results,
+                stopped_at: results.length,
+                ...(skipped.length ? { skipped } : {}),
+            });
+        }
     }
     return ok({ batched: true, results });
 }

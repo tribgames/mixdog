@@ -1,4 +1,4 @@
-import { accessSync, constants as fsConstants, readFileSync, statSync } from 'node:fs';
+import { accessSync, constants as fsConstants, readdirSync, readFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import {
     delimiter as pathDelimiter,
@@ -153,6 +153,30 @@ export function describeGitStartupState({
     const branch = _headBranch(found.gitDirectory);
     const changeState = _repositoryChangeState(found.root);
     return `- Git startup state: repository root ${found.root}${branch ? ` on branch ${branch}` : ' with a detached HEAD'}${changeState ? `; ${changeState}` : ''}.`;
+}
+
+// The cwd's immediate entries are the same kind of fact as the git line: a
+// property of this directory, true at startup, readable without spawning.
+// Without it the first call of a session is routinely `list .` or `glob *`
+// (11/11 trials on orientation-heavy tasks), one full model round-trip spent
+// on a listing the prompt could have carried. Capped so a large root does not
+// swell the prompt; the cap is reported so the caller knows to list for more.
+export const CWD_STARTUP_ENTRY_LIMIT = 40;
+
+export function describeCwdStartupEntries({ cwd = process.cwd(), limit = CWD_STARTUP_ENTRY_LIMIT } = {}) {
+    let entries;
+    try {
+        entries = readdirSync(pathResolveAbsolute(String(cwd || '.')), { withFileTypes: true });
+    } catch {
+        return '';
+    }
+    if (!entries.length) return '- Cwd entries at startup: none (empty directory).';
+    const names = entries
+        .map((entry) => `${entry.name}${entry.isDirectory() ? '/' : ''}`)
+        .sort((a, b) => a.localeCompare(b, 'en'));
+    const shown = names.slice(0, limit);
+    const omitted = names.length - shown.length;
+    return `- Cwd entries at startup: ${shown.join(' ')}${omitted > 0 ? ` … +${omitted} more (list for the rest)` : ''}`;
 }
 
 export function appendGitStartupState(rules, tools, options = {}) {
