@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.163 - 2026-09-10
+
 - Refine UI localization, startup language selection, native menus, and
   translated formatting; keep the web language bootstrap fresh across updates.
 - Harden Computer Use input ownership and observation-only checks, confirm
