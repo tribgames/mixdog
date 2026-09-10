@@ -5,6 +5,24 @@ import type { ComputerCommand, ComputerCommandResult, PowerShellResponse } from 
 import type { ComputerWindowRecord, ComputerWindowTransition } from '../shared/window-transition';
 import type { CommandRouterHost } from './command-router';
 import { computerCursorFeedback } from '../shared/cursor-feedback';
+import { classifyComputerSequenceObservation } from '../input/sequence';
+
+/** Action delivery and the requested observation are separate obligations. */
+function applyObservationOutcome(payload: Record<string, unknown>, metadata: Record<string, unknown>): void {
+  const { unavailable, pixelUnavailable } = classifyComputerSequenceObservation(metadata);
+  if (!unavailable) {
+    if (pixelUnavailable) {
+      const verdict = payload.verdict as Record<string, unknown>;
+      if (verdict.decision !== 'done') verdict.recommended = 'use_semantic_target';
+    }
+    return;
+  }
+  payload.ok = false;
+  payload.code ||= 'observation_unavailable';
+  payload.goal_verified = false;
+  payload.escalation = 'recapture';
+  payload.verdict = { decision: 'escalate', recommended: 'recapture' };
+}
 
 export async function buildActionReply(
   captureAfterAction: CommandRouterHost['captureAfterAction'],
@@ -70,11 +88,7 @@ export async function buildActionReply(
           target_reason: capture.metadata.capture_target_reason || windowTransition?.next_target_reason || 'original_target',
           ...(originalWindowId && captureWindowId !== originalWindowId ? { previous_window_id: originalWindowId } : {}),
         };
-        if (capture.metadata.pixel_status === 'unavailable') {
-          verdict.decision = 'escalate';
-          verdict.recommended = 'recapture';
-          payload.escalation = 'recapture';
-        }
+        applyObservationOutcome(payload, capture.metadata);
         if (capture.image && captureAfterImageIsRedundant(command, capture.metadata, semanticTargetIdentity)) {
           (payload.capture_after as Record<string, unknown>).image_omitted = 'semantic_change_reported';
         } else {
@@ -96,19 +110,20 @@ export async function buildActionReply(
     const recommendation = recommendedRecovery(
       action, 'unverifiable', undefined, command.delivery || 'background', windowTransition, targetWindowBefore,
     );
-    const escalation = capture.metadata.pixel_status === 'unavailable' ? 'recapture' : recommendation;
-    return {
-      text: JSON.stringify({
+    const payload: Record<string, unknown> = {
         ok: true, action, message: text, goal_verified: false,
         ...(windowTransition ? { window_transition: windowTransition } : {}),
-        verdict: { decision: 'verify_fresh_state', ...(escalation ? { recommended: escalation } : {}) },
-        ...(escalation ? { escalation } : {}),
+        verdict: { decision: 'verify_fresh_state', ...(recommendation ? { recommended: recommendation } : {}) },
+        ...(recommendation ? { escalation: recommendation } : {}),
         timings_ms: { ...actionTimings, total_ms: elapsedMs(commandStartedAt) },
         capture_after: {
           ...capture.metadata, target_reason: windowTransition?.next_target_reason || 'original_target',
           ...(originalWindowId && captureWindowId !== originalWindowId ? { previous_window_id: originalWindowId } : {}),
         },
-      }),
+      };
+    applyObservationOutcome(payload, capture.metadata);
+    return {
+      text: JSON.stringify(payload),
       ...(capture.image ? { image: capture.image } : {}),
     };
   }

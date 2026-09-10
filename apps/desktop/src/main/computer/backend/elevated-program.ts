@@ -1,5 +1,4 @@
 import { BLOCKED_COMPUTER_KEY_PATTERN_SOURCE } from '../input/guards';
-import { ABORT_CLEANUP_PROGRAM } from './program';
 import { deflateRawSync } from 'node:zlib';
 
 /** Keep both Windows launcher command lines below CreateProcess's size limit. */
@@ -48,6 +47,33 @@ function Write-Receipt([string]$line) {
 }
 `;
 
+/** Extract a literal source value only after the host bytes pass authentication. */
+export const ELEVATED_INPUT_SOURCE = String.raw`
+function Read-OwnedInputSource([byte[]]$hostBytes) {
+  $tokens = $null; $errors = $null
+  $ast = [System.Management.Automation.Language.Parser]::ParseInput(
+    [Text.Encoding]::UTF8.GetString($hostBytes), [ref]$tokens, [ref]$errors)
+  if ($errors.Count) { throw 'privileged worker host source could not be parsed' }
+  $assignments = @($ast.FindAll({
+    param($node)
+    $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+      $node.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+      $node.Left.VariablePath.UserPath -ceq 'MixdogHostSource'
+  }, $true))
+  if ($assignments.Count -ne 1) { throw 'privileged worker native source is ambiguous' }
+  if ($assignments[0].Right -isnot [System.Management.Automation.Language.CommandExpressionAst]) {
+    throw 'privileged worker native source is not literal'
+  }
+  $expression = $assignments[0].Right.Expression
+  if ($expression -is [System.Management.Automation.Language.ExpandableStringExpressionAst]) {
+    if ($expression.NestedExpressions.Count -ne 0) { throw 'privileged worker native source is not literal' }
+  } elseif ($expression -isnot [System.Management.Automation.Language.StringConstantExpressionAst]) {
+    throw 'privileged worker native source is not literal'
+  }
+  return [string]$expression.Value
+}
+`;
+
 /**
  * The elevated parent owns its one input child. Losing the unelevated launcher,
  * cancellation, and the deadline all stop that child before issuing a receipt.
@@ -65,17 +91,18 @@ $marker = [string]$env:MIXDOG_ELEVATED_MARKER
 $protectedHost = $null
 $worker = $null
 $workerStopped = $true
+$ownedInputSource = $null
 $deadline = [DateTime]::UtcNow.AddSeconds(110)
 $releaseInput = {
-  $env:MIXDOG_ABORT_TARGET = ''
-  $env:MIXDOG_ABORT_RESTORE = ''
-  $env:MIXDOG_ABORT_CURSOR_X = '0'
-  $env:MIXDOG_ABORT_CURSOR_Y = '0'
-  & ([scriptblock]::Create([Text.Encoding]::UTF8.GetString(
-    [Convert]::FromBase64String('${Buffer.from(ABORT_CLEANUP_PROGRAM, 'utf8').toString('base64')}'))))
+  if ([string]::IsNullOrWhiteSpace($ownedInputSource)) { throw 'input_cleanup_unconfirmed: authenticated native source is unavailable' }
+  Add-Type -AssemblyName Accessibility
+  Add-Type -AssemblyName System.Drawing
+  Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition $ownedInputSource
+  [MixNativeInput]::ReleaseOwned([IntPtr][long]$env:MIXDOG_COMPUTER_INPUT_MARKER)
 }
 
 ${ELEVATED_SUPERVISION}
+${ELEVATED_INPUT_SOURCE}
 
 function Get-Sha256Hex([byte[]]$bytes) {
   $sha = [System.Security.Cryptography.SHA256]::Create()
@@ -115,6 +142,7 @@ try {
   if ((Get-Sha256Hex $hostBytes) -ne $hostSha256.ToLowerInvariant()) {
     throw 'privileged worker host authentication failed'
   }
+  $ownedInputSource = Read-OwnedInputSource $hostBytes
   $requestBytes = [System.IO.File]::ReadAllBytes($requestPath)
   if ((Get-Sha256Hex $requestBytes) -ne $requestSha256.ToLowerInvariant()) {
     throw 'privileged worker request authentication failed'

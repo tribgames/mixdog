@@ -1,0 +1,894 @@
+{
+  "session": "office_0a0621d3f667461f",
+  "backend": "mixdog-ooxml",
+  "output": "C:\\Project\\mixdog\\deliverables\\mixdog-intro\\previews.pdf",
+  "format": "pdf",
+  "pageCount": 7,
+  "visualCoverage": {
+    "mode": "pages",
+    "total": 7,
+    "reviewed": 7,
+    "reviewedPages": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "remainingPages": [],
+    "complete": true
+  },
+  "images": [
+    {
+      "page": 1,
+      "path": "C:\\Project\\mixdog\\deliverables\\mixdog-intro\\previews-page-1.png",
+      "width": 1600,
+      "height": 900,
+      "mimeType": "image/png"
+    },
+    {
+      "page": 2,
+      "path": "C:\\Project\\mixdog\\deliverables\\mixdog-intro\\previews-page-2.png",
+      "width": 1600,
+      "height": 900,
+      "mimeType": "image/png"
+    },
+    {
+      "page": 3,
+      "path": "C:\\Project\\mixdog\\deliverables\\mixdog-intro\\previews-page-3.png",
+      "width": 1600,
+      "height": 900,
+      "mimeType": "image/png"
+    },
+    {
+      "page": 4,
+      "path": "C:\\Project\\mixdog\\deliverables\\mixdog-intro\\previews-page-4.png",
+      "width": 1600,
+      "height": 900,
+      "mimeType": "image/png"
+    },
+    {
+      "page": 5,
+      "path": "C:\\Project\\mixdog\\deliverables\\mixdog-intro\\previews-page-5.png",
+      "width": 1600,
+      "height": 900,
+      "mimeType": "image/png"
+    },
+    {
+      "page": 6,
+      "path": "C:\\Project\\mixdog\\deliverables\\mixdog-intro\\previews-page-6.png",
+      "width": 1600,
+      "height": 900,
+      "mimeType": "image/png"
+    },
+    {
+      "page": 7,
+      "path": "C:\\Project\\mixdog\\deliverables\\mixdog-intro\\previews-page-7.png",
+      "width": 1600,
+      "height": 900,
+      "mimeType": "image/png"
+    }
+  ],
+  "reviewToken": "office_0a0621d3f667461f:0:ee4c5e3affc3b03483b96e4317665329a46633248f084613729a7f9fd0f669fa",
+  "exportAvailable": true,
+  "changedPages": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "reusedPages": [],
+  "pageIdentities": [
+    {
+      "page": 1,
+      "slideId": 256
+    },
+    {
+      "page": 2,
+      "slideId": 257
+    },
+    {
+      "page": 3,
+      "slideId": 258
+    },
+    {
+      "page": 4,
+      "slideId": 259
+    },
+    {
+      "page": 5,
+      "slideId": 260
+    },
+    {
+      "page": 6,
+      "slideId": 261
+    },
+    {
+      "page": 7,
+      "slideId": 262
+    }
+  ],
+  "receipt": {
+    "slides": [
+      {
+        "slide": 1,
+        "background": "dark",
+        "charts": 0,
+        "tables": 0,
+        "pictures": 0,
+        "groups": 0,
+        "textBoxes": 4,
+        "drawn": 0,
+        "fields": 0,
+        "lines": 0,
+        "presets": [],
+        "largestText": 99,
+        "coverage": 0.43,
+        "observe": {
+          "air": 0.53,
+          "quadrantAir": [
+            0.47,
+            0.56,
+            0.41,
+            0.69
+          ],
+          "contentAir": [
+            0.47,
+            0.56,
+            0.41,
+            0.69
+          ],
+          "fieldFill": [],
+          "largestShare": 0.21,
+          "visualShare": 0,
+          "presence": 0,
+          "textColumns": {
+            "columns": 1,
+            "stray": 0,
+            "rightEdges": 3,
+            "rightStray": 2,
+            "labels": 0
+          },
+          "fills": [],
+          "largestTextTop": 1.8,
+          "bodyTop": 3.8,
+          "bodyFill": 0.84,
+          "centroid": [
+            0.44,
+            0.5
+          ],
+          "centroidOffset": 1.2,
+          "gaps": [
+            0.3,
+            0.45,
+            0.9
+          ],
+          "typeSet": [
+            11,
+            18,
+            47,
+            99
+          ],
+          "textColors": [
+            "94D1E6",
+            "EDF1F3",
+            "AEBDC2"
+          ],
+          "renderAir": 0.7,
+          "renderBalance": {
+            "centered": 0.59,
+            "leftRight": 0,
+            "topBottom": 0.93,
+            "score": 0.51
+          }
+        }
+      },
+      {
+        "slide": 2,
+        "background": "light",
+        "charts": 0,
+        "tables": 0,
+        "pictures": 0,
+        "groups": 0,
+        "textBoxes": 10,
+        "drawn": 1,
+        "fields": 1,
+        "lines": 0,
+        "presets": [],
+        "largestText": 47,
+        "coverage": 0.59,
+        "observe": {
+          "air": 0.47,
+          "quadrantAir": [
+            0.48,
+            0.53,
+            0.64,
+            0.24
+          ],
+          "contentAir": [
+            0.48,
+            0.66,
+            0.64,
+            0.58
+          ],
+          "fieldFill": [
+            0.51
+          ],
+          "largestShare": 0.22,
+          "visualShare": 0.23,
+          "presence": 0,
+          "textColumns": {
+            "columns": 3,
+            "stray": 1,
+            "rightEdges": 5,
+            "rightStray": 2,
+            "labels": 0
+          },
+          "fills": [
+            {
+              "color": "E7ECEE",
+              "share": 0.22
+            }
+          ],
+          "largestTextTop": 2.67,
+          "bodyTop": 3.82,
+          "bodyFill": 1,
+          "centroid": [
+            0.58,
+            0.53
+          ],
+          "centroidOffset": 1.6,
+          "gaps": [
+            0.1,
+            0.35,
+            0.45,
+            0.8,
+            0.9
+          ],
+          "typeSet": [
+            11,
+            13,
+            18,
+            22,
+            27,
+            36,
+            47
+          ],
+          "textColors": [
+            "17262B",
+            "176F8C",
+            "384F57",
+            "58696F"
+          ],
+          "renderAir": 0.52,
+          "renderBalance": {
+            "centered": 0.86,
+            "leftRight": 0.88,
+            "topBottom": 0.83,
+            "score": 0.86
+          }
+        }
+      },
+      {
+        "slide": 3,
+        "background": "light",
+        "charts": 0,
+        "tables": 0,
+        "pictures": 0,
+        "groups": 0,
+        "textBoxes": 13,
+        "drawn": 3,
+        "fields": 3,
+        "lines": 0,
+        "presets": [],
+        "largestText": 36,
+        "coverage": 0.55,
+        "observe": {
+          "air": 0.4,
+          "quadrantAir": [
+            0.4,
+            0.49,
+            0.37,
+            0.35
+          ],
+          "contentAir": [
+            0.5,
+            0.49,
+            0.51,
+            0.37
+          ],
+          "fieldFill": [],
+          "largestShare": 0.09,
+          "visualShare": 0.1,
+          "presence": 0,
+          "textColumns": {
+            "columns": 4,
+            "stray": 1,
+            "rightEdges": 4,
+            "rightStray": 2,
+            "labels": 0
+          },
+          "fills": [
+            {
+              "color": "E7ECEE",
+              "share": 0.09
+            }
+          ],
+          "largestTextTop": 1.02,
+          "bodyTop": 2.34,
+          "bodyFill": 1,
+          "centroid": [
+            0.47,
+            0.51
+          ],
+          "centroidOffset": 0.7,
+          "gaps": [
+            0.1,
+            0.25,
+            0.5,
+            0.55,
+            0.8,
+            0.95
+          ],
+          "typeSet": [
+            11,
+            13,
+            18,
+            22,
+            27,
+            36
+          ],
+          "textColors": [
+            "17262B",
+            "176F8C",
+            "384F57",
+            "58696F"
+          ],
+          "renderAir": 0.4,
+          "renderBalance": {
+            "centered": 0.73,
+            "leftRight": 0.35,
+            "topBottom": 0.81,
+            "score": 0.63
+          }
+        }
+      },
+      {
+        "slide": 4,
+        "background": "dark",
+        "charts": 0,
+        "tables": 0,
+        "pictures": 0,
+        "groups": 0,
+        "textBoxes": 12,
+        "drawn": 7,
+        "fields": 4,
+        "lines": 3,
+        "presets": [],
+        "largestText": 36,
+        "coverage": 0.72,
+        "observe": {
+          "air": 0.44,
+          "quadrantAir": [
+            0.34,
+            0.42,
+            0.5,
+            0.5
+          ],
+          "contentAir": [
+            0.45,
+            0.53,
+            0.65,
+            0.67
+          ],
+          "fieldFill": [
+            0.62,
+            0.62,
+            0.64
+          ],
+          "largestShare": 0.17,
+          "visualShare": 0.38,
+          "presence": 0.08,
+          "textColumns": {
+            "columns": 6,
+            "stray": 1,
+            "rightEdges": 7,
+            "rightStray": 2,
+            "labels": 0
+          },
+          "fills": [
+            {
+              "color": "1D333A",
+              "share": 0.36
+            }
+          ],
+          "largestTextTop": 1.02,
+          "bodyTop": 2.47,
+          "bodyFill": 1,
+          "centroid": [
+            0.49,
+            0.52
+          ],
+          "centroidOffset": 0.2,
+          "gaps": [
+            0.05,
+            0.1,
+            0.7,
+            0.8,
+            1.2
+          ],
+          "typeSet": [
+            11,
+            13,
+            18,
+            27,
+            36
+          ],
+          "textColors": [
+            "EDF1F3",
+            "94D1E6",
+            "AEBDC2"
+          ],
+          "renderAir": 0.45,
+          "renderBalance": {
+            "centered": 0.86,
+            "leftRight": 0.69,
+            "topBottom": 0.8,
+            "score": 0.79
+          }
+        }
+      },
+      {
+        "slide": 5,
+        "background": "light",
+        "charts": 0,
+        "tables": 0,
+        "pictures": 3,
+        "groups": 0,
+        "textBoxes": 13,
+        "drawn": 3,
+        "fields": 0,
+        "lines": 0,
+        "presets": [
+          "ellipse"
+        ],
+        "largestText": 36,
+        "coverage": 0.39,
+        "observe": {
+          "air": 0.55,
+          "quadrantAir": [
+            0.58,
+            0.72,
+            0.46,
+            0.45
+          ],
+          "contentAir": [
+            0.58,
+            0.72,
+            0.46,
+            0.47
+          ],
+          "fieldFill": [],
+          "largestShare": 0.09,
+          "visualShare": 0.04,
+          "presence": 0.09,
+          "textColumns": {
+            "columns": 4,
+            "stray": 1,
+            "rightEdges": 5,
+            "rightStray": 2,
+            "labels": 0
+          },
+          "fills": [
+            {
+              "color": "E7ECEE",
+              "share": 0.03
+            }
+          ],
+          "largestTextTop": 1.02,
+          "bodyTop": 2.22,
+          "bodyFill": 1,
+          "centroid": [
+            0.48,
+            0.52
+          ],
+          "centroidOffset": 0.4,
+          "gaps": [
+            0.1,
+            0.45,
+            0.6,
+            0.7
+          ],
+          "typeSet": [
+            11,
+            13,
+            18,
+            27,
+            36
+          ],
+          "textColors": [
+            "17262B",
+            "176F8C",
+            "384F57",
+            "58696F"
+          ],
+          "renderAir": 0.35,
+          "renderBalance": {
+            "centered": 0.83,
+            "leftRight": 0.64,
+            "topBottom": 0.93,
+            "score": 0.8
+          }
+        }
+      },
+      {
+        "slide": 6,
+        "background": "light",
+        "charts": 1,
+        "tables": 0,
+        "pictures": 0,
+        "groups": 0,
+        "textBoxes": 12,
+        "drawn": 0,
+        "fields": 0,
+        "lines": 0,
+        "presets": [],
+        "largestText": 65,
+        "coverage": 0.58,
+        "specs": {
+          "stat": {
+            "count": 1,
+            "variants": [
+              "hero"
+            ],
+            "anatomies": [
+              "65|Arial"
+            ]
+          }
+        },
+        "observe": {
+          "air": 0.35,
+          "quadrantAir": [
+            0.35,
+            0.45,
+            0.24,
+            0.34
+          ],
+          "contentAir": [
+            0.35,
+            0.45,
+            0.24,
+            0.36
+          ],
+          "fieldFill": [],
+          "largestShare": 0.19,
+          "visualShare": 0.2,
+          "presence": 0.19,
+          "textColumns": {
+            "columns": 3,
+            "stray": 1,
+            "rightEdges": 4,
+            "rightStray": 3,
+            "labels": 0
+          },
+          "fills": [],
+          "largestTextTop": 2.22,
+          "bodyTop": 3.4,
+          "bodyFill": 1,
+          "centroid": [
+            0.48,
+            0.53
+          ],
+          "centroidOffset": 0.4,
+          "gaps": [
+            0.05,
+            0.1,
+            0.15,
+            0.25,
+            0.45,
+            0.55
+          ],
+          "typeSet": [
+            11,
+            13,
+            18,
+            27,
+            36,
+            65
+          ],
+          "textColors": [
+            "17262B",
+            "176F8C",
+            "58696F"
+          ],
+          "renderAir": 0.37,
+          "renderBalance": {
+            "centered": 0.74,
+            "leftRight": 0.37,
+            "topBottom": 0.98,
+            "score": 0.7
+          }
+        }
+      },
+      {
+        "slide": 7,
+        "background": "dark",
+        "charts": 0,
+        "tables": 0,
+        "pictures": 0,
+        "groups": 0,
+        "textBoxes": 8,
+        "drawn": 1,
+        "fields": 1,
+        "lines": 0,
+        "presets": [],
+        "largestText": 47,
+        "coverage": 0.61,
+        "observe": {
+          "air": 0.43,
+          "quadrantAir": [
+            0.42,
+            0.51,
+            0.34,
+            0.45
+          ],
+          "contentAir": [
+            0.47,
+            0.51,
+            0.39,
+            0.47
+          ],
+          "fieldFill": [
+            0.75
+          ],
+          "largestShare": 0.22,
+          "visualShare": 0.13,
+          "presence": 0,
+          "textColumns": {
+            "columns": 3,
+            "stray": 0,
+            "rightEdges": 3,
+            "rightStray": 1,
+            "labels": 0
+          },
+          "fills": [
+            {
+              "color": "1D333A",
+              "share": 0.12
+            }
+          ],
+          "largestTextTop": 1.4,
+          "bodyTop": 3.55,
+          "bodyFill": 0.95,
+          "centroid": [
+            0.45,
+            0.52
+          ],
+          "centroidOffset": 1,
+          "gaps": [
+            0.1,
+            0.2,
+            0.35,
+            0.5,
+            0.8
+          ],
+          "typeSet": [
+            11,
+            13,
+            18,
+            22,
+            27,
+            47
+          ],
+          "textColors": [
+            "94D1E6",
+            "EDF1F3",
+            "AEBDC2"
+          ],
+          "renderAir": 0.62,
+          "renderBalance": {
+            "centered": 0.68,
+            "leftRight": 0.29,
+            "topBottom": 0.81,
+            "score": 0.59
+          }
+        }
+      }
+    ],
+    "deck": {
+      "slides": 7,
+      "charts": 1,
+      "tables": 0,
+      "pictures": 3,
+      "presets": 1,
+      "fields": 9,
+      "lines": 3,
+      "groups": 0,
+      "backgrounds": [
+        "dark",
+        "light"
+      ],
+      "textOnly": 1,
+      "specs": {
+        "stat": {
+          "count": 1,
+          "slides": 1,
+          "variants": [
+            "hero"
+          ],
+          "anatomies": [
+            "65|Arial"
+          ]
+        }
+      },
+      "rhythm": {
+        "air": [
+          0.53,
+          0.47,
+          0.4,
+          0.44,
+          0.55,
+          0.35,
+          0.43
+        ],
+        "largestTextTops": [
+          1.8,
+          2.67,
+          1.02,
+          1.02,
+          1.02,
+          2.22,
+          1.4
+        ],
+        "centroidX": [
+          0.44,
+          0.58,
+          0.47,
+          0.49,
+          0.48,
+          0.48,
+          0.45
+        ],
+        "bodyTops": [
+          3.8,
+          3.82,
+          2.34,
+          2.47,
+          2.22,
+          3.4,
+          3.55
+        ],
+        "bodyFills": [
+          0.84,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0.95
+        ],
+        "fieldFills": [
+          null,
+          0.51,
+          null,
+          0.62,
+          null,
+          null,
+          0.75
+        ],
+        "presence": [
+          0,
+          0,
+          0,
+          0.08,
+          0.09,
+          0.19,
+          0
+        ],
+        "gapSet": [
+          0.05,
+          0.1,
+          0.15,
+          0.2,
+          0.25,
+          0.3,
+          0.35,
+          0.45,
+          0.5,
+          0.55,
+          0.6,
+          0.7,
+          0.8,
+          0.9,
+          0.95,
+          1.2
+        ],
+        "typeSet": [
+          11,
+          13,
+          18,
+          22,
+          27,
+          36,
+          47,
+          65,
+          99
+        ],
+        "textColors": [
+          "94D1E6",
+          "EDF1F3",
+          "AEBDC2",
+          "17262B",
+          "176F8C",
+          "384F57",
+          "58696F"
+        ],
+        "rightStray": [
+          2,
+          2,
+          2,
+          2,
+          2,
+          3,
+          1
+        ],
+        "renderAir": [
+          0.7,
+          0.52,
+          0.4,
+          0.45,
+          0.35,
+          0.37,
+          0.62
+        ],
+        "topBottom": [
+          0.93,
+          0.83,
+          0.81,
+          0.8,
+          0.93,
+          0.98,
+          0.81
+        ]
+      }
+    },
+    "absent": [
+      "tables"
+    ],
+    "note": "Observations, not design targets. absent lists unused families, not required objects. Inspect any inferred missing carrier against the intended message; a faithful alternative may already carry it. air = canvas share without shape footprints; quadrantAir = [top-left, top-right, bottom-left, bottom-right]; contentAir = those quadrants using content only; fieldFill = content coverage inside fields occupying at least 6% of the canvas, lowest first. largestShare = largest object share; visualShare = non-text footprint; presence = the largest carrier's share (chart, table, picture, group, or contour; 0 = type alone); fills = surface colors by area; textColumns = alignment groups and unmatched edges (labels = small text bound to a contour or connector, read as part of its device and left out of the columns and the gaps). largestTextTop and bodyTop are positions in inches, not mandatory shared baselines; bodyFill = the vertical span of content below the largest type relative to the lower safe margin. centroid = area-weighted [x, y] in canvas fractions; centroidOffset normalizes distance from center by 0.05 horizontally and 0.15 vertically. renderAir = pixels without local variation; renderBalance reports centered, leftRight, topBottom and their mean score (higher means more centered or even, not necessarily better design). gaps = vertical gaps in 0.05-inch steps; typeSet and textColors = observed sizes and colors; deck.rhythm sequences these observations. specs = the kit's spec carriers (badge, callout, chevrons, stat, table) read from their signatures: count, slides, variants, and the distinct anatomies (type sizes|face) they show — one anatomy per carrier is the spec kept, two is a per-call override to explain. Relevance, legibility, grouping, and visual emphasis must be judged from the rendered pages, not from balanced ratios or short token sets."
+  },
+  "contactSheet": {
+    "path": "C:\\Project\\mixdog\\deliverables\\mixdog-intro\\previews.mixdog-contact.png",
+    "width": 1600,
+    "height": 989,
+    "pages": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "mimeType": "image/png"
+  },
+  "metrics": {
+    "durationMs": 4900.28
+  },
+  "artifacts": [
+    {
+      "type": "presentation",
+      "format": "pptx",
+      "fileKind": "pptx",
+      "operation": "render",
+      "path": "C:\\Project\\mixdog\\deliverables\\mixdog-intro\\previews.pdf"
+    }
+  ],
+  "outputCount": 1,
+  "expectedOutputCount": 1
+}

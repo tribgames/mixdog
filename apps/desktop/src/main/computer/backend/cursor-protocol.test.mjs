@@ -6,13 +6,14 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { loadComputerSource } from './native-assets.ts';
+import { MIXDOG_INPUT_TRANSPORT_CSHARP } from './native-source.ts';
 
 test('watchdog protocol preserves late restoration evidence without concurrent reads or input replay', {
   skip: process.platform !== 'win32', timeout: 30000,
 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-cursor-protocol-'));
   try {
-    await writeFile(join(directory, 'protocol.cs'), loadComputerSource('CursorTheme.cs') + String.raw`
+    await writeFile(join(directory, 'protocol.cs'), MIXDOG_INPUT_TRANSPORT_CSHARP + loadComputerSource('CursorTheme.cs') + String.raw`
 public class FakeSnapshot { public bool Ready = true; public long Sequence; }
 public static class MixInputObservation {
   public static System.IntPtr Marker = new System.IntPtr(1);

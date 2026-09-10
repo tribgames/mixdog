@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, memo, useEffect, useMemo, useRef } from "react";
 import { type TranscriptItem } from "./desktop-types";
-import { t } from "./i18n";
+import { t, uiFormatLocale } from "./i18n";
 import { preloadMarkdownBody } from "./markdown-body-loader";
 import { MxIcon } from "./MxIcon";
 import {
@@ -101,7 +101,7 @@ export function transcriptItemsEqual(
 
 export function messageMetadata(item: TranscriptItem) {
   const shortTime = typeof item.at === "number" && Number.isFinite(item.at) && item.at > 0
-    ? new Date(item.at).toLocaleTimeString(undefined, { timeStyle: "short" })
+    ? new Date(item.at).toLocaleTimeString(uiFormatLocale(), { timeStyle: "short" })
     : "";
   return { shortTime };
 }

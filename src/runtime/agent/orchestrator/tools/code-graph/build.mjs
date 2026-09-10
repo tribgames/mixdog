@@ -636,6 +636,7 @@ export async function _buildCodeGraph(cwd, {
       rel: info.rel,
       lang: info.lang,
       fingerprint: info.fingerprint,
+      parseError: info.parseError || '',
       rawImports: info.rawImports,
       resolvedImportsRel,
       resolvedImports: resolvedImportsRel.map((rel) => pathResolve(absRoot, rel)),

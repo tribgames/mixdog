@@ -68,6 +68,8 @@ struct FileRecord {
     lang: &'static str,
     fp: String,
     size: u64,
+    #[serde(rename = "parseError", skip_serializing_if = "String::is_empty")]
+    parse_error: String,
     tokens: Vec<String>,
     #[serde(rename = "rawImports", skip_serializing_if = "Vec::is_empty")]
     raw_imports: Vec<String>,
@@ -98,6 +100,8 @@ struct ReusedMeta {
     rel: String,
     #[serde(default)]
     lang: String,
+    #[serde(default, rename = "parseError")]
+    parse_error: String,
     #[serde(default, rename = "rawImports")]
     raw_imports: Vec<String>,
     #[serde(default, rename = "packageName")]
@@ -119,6 +123,7 @@ fn record_from_reused(meta: ReusedMeta) -> FileRecord {
         lang: lang_static(&meta.lang),
         fp: String::new(),
         size: 0,
+        parse_error: meta.parse_error,
         tokens: Vec::new(),
         raw_imports: meta.raw_imports,
         package_name: meta.package_name,
@@ -1365,8 +1370,13 @@ struct SrcFile {
 // graph that can be mistaken for a complete cache entry.
 fn parse_file_from(src: &SrcFile, patterns: &Patterns) -> Result<FileRecord, String> {
     let lang = src.lang;
-    let text = fs::read_to_string(&src.path)
+    let bytes = fs::read(&src.path)
         .map_err(|err| format!("read failed for {}: {err}", src.path.display()))?;
+    let decoded = decode_source_text(&bytes);
+    let (text, parse_error) = match decoded {
+        Ok(text) => (text, String::new()),
+        Err(error) => (String::new(), error.to_string()),
+    };
     let tokens = extract_tokens(&text, patterns);
     let raw_imports = extract_raw_imports(&text, lang, patterns);
     let package_name = extract_package(&text, lang, patterns);
@@ -1383,6 +1393,7 @@ fn parse_file_from(src: &SrcFile, patterns: &Patterns) -> Result<FileRecord, Str
         lang,
         fp: fingerprint_for(&src.rel, src.size, src.mtime_ms),
         size: src.size,
+        parse_error,
         tokens,
         raw_imports,
         package_name,
@@ -1393,6 +1404,10 @@ fn parse_file_from(src: &SrcFile, patterns: &Patterns) -> Result<FileRecord, Str
         imported_by: Vec::new(),
         symbols,
     })
+}
+
+fn decode_source_text(bytes: &[u8]) -> Result<String, &'static str> {
+    String::from_utf8(bytes.to_vec()).map_err(|_| "unsupported source encoding; file not indexed")
 }
 
 // Stat-and-parse a single path (used by --files, where paths come from the
@@ -3195,6 +3210,7 @@ fn parse_meta_from(src: &SrcFile) -> FileRecord {
         lang: src.lang,
         fp: fingerprint_for(&src.rel, src.size, src.mtime_ms),
         size: src.size,
+        parse_error: String::new(),
         tokens: Vec::new(),
         raw_imports: Vec::new(),
         package_name: String::new(),

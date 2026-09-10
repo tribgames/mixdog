@@ -262,6 +262,7 @@ export function _runGraphFiles(absRoot, rels, reusedMetas, signal = null) {
     ? reusedMetas.map((m) => JSON.stringify({
         rel: m.rel,
         lang: m.lang,
+        parseError: m.parseError || '',
         rawImports: Array.isArray(m.rawImports) ? m.rawImports : [],
         packageName: m.packageName || '',
         namespaceName: m.namespaceName || '',
@@ -286,6 +287,7 @@ export function _fileInfoFromRustRecord(rec, absRoot) {
     rel,
     lang,
     fingerprint: typeof rec.fp === 'string' ? rec.fp : '',
+    parseError: typeof rec.parseError === 'string' ? rec.parseError : '',
     sourceText: null,
     rawImports: Array.isArray(rec.rawImports) ? rec.rawImports : [],
     resolvedImports: Array.isArray(rec.resolvedImports)
@@ -314,6 +316,7 @@ export function _reuseFileInfo(prevNode, previousGraph, absRoot) {
     rel,
     lang: prevNode.lang,
     fingerprint: fp,
+    parseError: prevNode.parseError || '',
     sourceText: cachedText?.fingerprint === fp ? cachedText.text : null,
     rawImports: Array.isArray(prevNode.rawImports) ? prevNode.rawImports : [],
     resolvedImports: Array.isArray(prevNode.resolvedImportsRel) ? prevNode.resolvedImportsRel : [],

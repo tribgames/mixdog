@@ -41,10 +41,28 @@ test('a fuzzy deadline returns promptly without starting another filesystem walk
     assert.ok(!/^Error[\s:[]/.test(out.trimStart()), `must not surface as a tool failure:\n${out}`);
     assert.match(out, /no fuzzy match yet/);
     assert.match(out, /inventory was incomplete/);
-    assert.match(out, /retry immediately/);
+    assert.doesNotMatch(out, /retry immediately/);
     assert.equal(telemetry.native_fuzzy_partials, 1);
     assert.equal(telemetry.native_fuzzy_targeted_hits, undefined);
     assert.equal(telemetry.native_fuzzy_errors, undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a complete fuzzy miss returns without an unsolicited noise-tree probe', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-find-no-widen-'));
+  let calls = 0;
+  try {
+    const out = await executeFuzzyFindTool({ query: 'not-in-requested-scope' }, root, {
+      __tryServeFuzzySearch: async (args) => {
+        calls++;
+        assert.equal(args.includeNoise, false);
+        return { matches: [], complete: true, hasMore: false, cacheSafe: false };
+      },
+    });
+    assert.match(out, /no fuzzy match/);
+    assert.equal(calls, 1);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

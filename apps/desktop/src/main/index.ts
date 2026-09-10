@@ -945,6 +945,7 @@ async function createWindow(): Promise<void> {
   }
   removeIpc = registerDesktopIpc(window, host, {
     app,
+    translateUi: nativeT,
     ipcMain,
     dialog,
     shell,

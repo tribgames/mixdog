@@ -52,12 +52,9 @@ function positiveTimeoutEnv(name, fallback) {
     const value = Number(process.env[name]);
     return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
-// Fuzzy find is a locate-the-path probe, not an inventory: it must answer in
-// about a second even when the caller points it at `/`. The old 20s walk hit
-// the read-only deadline first and returned NOTHING (observed live: six
-// whole-filesystem probes across six benchmark tasks, each burning a turn for
-// an error). At this cap the native search returns its ranked partial instead.
-const FIND_FUZZY_TIMEOUT_MS = positiveTimeoutEnv('MIXDOG_FIND_FUZZY_TIMEOUT_MS', 1_500);
+// Prefer a complete answer within the normal search budget. Do not enforce a
+// short response slice that makes ordinary discovery depend on another call.
+const FIND_FUZZY_TIMEOUT_MS = positiveTimeoutEnv('MIXDOG_FIND_FUZZY_TIMEOUT_MS', 17_500);
 // Same contract for name/glob find: bound the walk and the metadata pass, then
 // SAY the result is partial. The old 20s walk plus a 5s stat deadline silently
 // dropped every path whose stat missed the deadline, so a slow scope reported
@@ -596,25 +593,10 @@ export async function executeTreeTool(args, workDir, options = {}) {
 // Partial or timed-out passes say "no fuzzy match YET" and already tell the
 // caller to narrow, so they never pay for the second walk.
 export async function executeFuzzyFindTool(args, workDir, options = {}) {
-    const startedAt = performance.now();
-    const result = await runFuzzyFindPass(args, workDir, options);
-    const text = String(result ?? '');
-    if (!/^\(no fuzzy match for /.test(text)) return result;
-    if (args?.include_noise === true || options?._findNoiseWidened === true) return result;
-    if (performance.now() - startedAt > FIND_NOISE_WIDEN_BUDGET_MS) return result;
-    const widened = String(await runFuzzyFindPass(
-        { ...args, include_noise: true },
-        workDir,
-        { ...options, _findNoiseWidened: true },
-    ) ?? '');
-    if (!widened || /^\(no fuzzy match|^Error/.test(widened)) return result;
-    const hits = widened.split('\n').filter((line) => line && !line.startsWith('... [') && !line.startsWith('[')).length;
-    return `${text}\n[notice] ${hits} match${hits === 1 ? '' : 'es'} exist inside dependency/cache trees the default scan skips`
-        + ' — pass include_noise:true to list them.';
+    // A complete miss answers the requested scope. Do not start a second,
+    // broader walk merely to offer an optional dependency-tree hint.
+    return runFuzzyFindPass(args, workDir, options);
 }
-
-/** A miss cheaper than this earns the one widening retry above. */
-const FIND_NOISE_WIDEN_BUDGET_MS = 2_000;
 
 async function runFuzzyFindPass(args, workDir, options = {}) {
     const query = String(args.query ?? '').trim();
@@ -757,7 +739,7 @@ async function runFuzzyFindPass(args, workDir, options = {}) {
             : '';
         return capFindResult([
             `(no fuzzy match yet for "${query}")`,
-            `... [native inventory was incomplete${scanErrorNote}; retry immediately to reuse its short lease, or narrow path/query for a complete result]`,
+            `... [native inventory was incomplete${scanErrorNote}; narrow path/query for a complete result]`,
         ].join('\n'));
     }
     return capFindResult('Error: native fuzzy search did not return a result.');

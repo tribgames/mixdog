@@ -8,6 +8,7 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using INPUT = MixNativeInput.INPUT;
 public sealed class MixMsaaNode {
   internal readonly IAccessible Accessible;
   internal readonly object ChildId;
@@ -259,7 +260,6 @@ public class MixWin32 {
     POINT point = Cursor();
     ReportPointer(point.x, point.y, false, phase);
   }
-  [DllImport("user32.dll", EntryPoint = "mouse_event")] static extern void MouseEventNative(uint f, int dx, int dy, int d, IntPtr e);
   [StructLayout(LayoutKind.Sequential)] struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
   [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO info);
   public static int LastInjectionTick { get { return unchecked((int)MixInputObservation.Read().OwnTick); } }
@@ -277,7 +277,8 @@ public class MixWin32 {
     input.U.mi.dy = (int)Math.Round((Y - GetSystemMetrics(77)) * 65535.0 / (height - 1));
     input.U.mi.dwFlags = 0xC001;
     input.U.mi.dwExtraInfo = MixInputObservation.Marker;
-    return SendInput(1, new INPUT[] { input }, Marshal.SizeOf(typeof(INPUT))) == 1;
+    MixNativeInput.Deliver(new INPUT[] { input });
+    return true;
   }
   public static void mouse_event(uint f, int dx, int dy, int d, IntPtr e) {
     if ((f & (0x0002 | 0x0008 | 0x0020 | 0x0800 | 0x1000)) != 0) MixInputObservation.AssertContinue();
@@ -288,7 +289,9 @@ public class MixWin32 {
       System.Threading.Thread.Sleep(120);
       MixInputObservation.AssertContinue();
     }
-    MouseEventNative(f, dx, dy, d, MixInputObservation.Marker);
+    INPUT input = MixNativeInput.Mouse(f, MixInputObservation.Marker);
+    input.U.mi.dx = dx; input.U.mi.dy = dy; input.U.mi.mouseData = unchecked((uint)d);
+    MixNativeInput.Deliver(new INPUT[] { input });
     if ((f & (WHEEL | HWHEEL)) != 0) ReportCurrentPointer("scroll");
     if (down || (f & (0x0004 | 0x0010 | 0x0040)) != 0) {
       POINT point = Cursor();
@@ -1218,8 +1221,6 @@ public class MixWin32 {
       AssertDragTarget(target, x2, y2);
     } finally {
       mouse_event(LUP,0,0,0,IntPtr.Zero);
-      POINT released = Cursor();
-      ReportPointer(released.x, released.y, false);
     }
   }
   // Named MouseWheel: PowerShell resolves members case-insensitively, so a
@@ -1230,24 +1231,12 @@ public class MixWin32 {
   // --- Keyboard: SendInput-based engine over the SendKeys grammar. ---
   // SendInput never flips NumLock/CapsLock (unlike Windows.Forms SendKeys),
   // and KEYEVENTF_UNICODE types any literal text regardless of layout.
-  [DllImport("user32.dll", SetLastError = true)] static extern uint SendInput(uint n, INPUT[] inputs, int size);
-  [StructLayout(LayoutKind.Sequential)] public struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
-  [StructLayout(LayoutKind.Sequential)] public struct MOUSEINPUT { public int dx; public int dy; public uint mouseData; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
-  [StructLayout(LayoutKind.Explicit)] public struct INPUTUNION { [FieldOffset(0)] public MOUSEINPUT mi; [FieldOffset(0)] public KEYBDINPUT ki; }
-  [StructLayout(LayoutKind.Sequential)] public struct INPUT { public uint type; public INPUTUNION U; }
   const uint KUP = 0x2, KUNI = 0x4, KEXT = 0x1;
-  static bool IsExt(ushort vk) {
-    return vk==0x21||vk==0x22||vk==0x23||vk==0x24||vk==0x25||vk==0x26||vk==0x27||vk==0x28
-      ||vk==0x2C||vk==0x2D||vk==0x2E||vk==0x5B||vk==0x5C||vk==0x5D||vk==0x6F||vk==0x90;
-  }
   static INPUT KI(ushort vk, ushort scan, uint flags) {
-    INPUT input = new INPUT(); input.type = 1;
-    input.U.ki.wVk = vk; input.U.ki.wScan = scan; input.U.ki.dwFlags = flags;
-    input.U.ki.time = 0; input.U.ki.dwExtraInfo = MixInputObservation.Marker;
-    return input;
+    return MixNativeInput.Key(vk, scan, flags, MixInputObservation.Marker);
   }
   static void AddVk(List<INPUT> list, ushort vk, bool up) {
-    uint flags = (IsExt(vk) ? KEXT : 0u) | (up ? KUP : 0u);
+    uint flags = (MixNativeInput.IsExtendedKey(vk) ? KEXT : 0u) | (up ? KUP : 0u);
     list.Add(KI(vk, 0, flags));
   }
   static void AddUnicode(List<INPUT> list, char c) {
@@ -1276,10 +1265,8 @@ public class MixWin32 {
         if (Array.Exists(arr, delegate(INPUT value) { return value.type != 1 || (value.U.ki.dwFlags & KUP) == 0; })) {
           MixInputObservation.AssertContinue();
         }
-        uint sent = SendInput((uint)n, arr, Marshal.SizeOf(typeof(INPUT)));
+        MixNativeInput.Deliver(arr);
         NoteInjection();
-        if (sent != (uint)n)
-          throw new Exception("SendInput was blocked (is an elevated window focused?)");
         System.Threading.Thread.Sleep(3);
       }
       seg.Clear();

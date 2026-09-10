@@ -169,7 +169,8 @@ export function QueueList({ queued, restoring, onEdit, onSteer, onRemove }: {
   onRemove: (id: string) => void;
 }) {
   if (!Array.isArray(queued) || queued.length === 0) return null;
-  const label = `${queued.length} queued follow-up${queued.length === 1 ? "" : "s"}`;
+  const label = queued.length === 1
+    ? t("1 queued follow-up") : t("{{count}} queued follow-ups", { count: queued.length });
   return (
     <section className="queue-list" aria-label={label}>
       <div className="queue-items" role="list">
@@ -178,14 +179,14 @@ export function QueueList({ queued, restoring, onEdit, onSteer, onRemove }: {
           const text = queuedFollowupPreview(entry);
           const imageCount = queuedImageCount(entry);
           return <div className="queue-item" role="listitem" key={id || index}>
-            <span className="queue-item-text" title={text}>{text}</span>
+            <span className="queue-item-text" data-i18n-skip title={text}>{text}</span>
             {imageCount > 0 && <span className="queue-item-attachments"
-              aria-label={`${imageCount} attached image${imageCount === 1 ? "" : "s"}`}>
+              aria-label={imageCount === 1 ? t("1 attached image") : t("{{count}} attached images", { count: imageCount })}>
               <MxIcon name="photo" size={14} />
               <span>{imageCount}</span>
             </span>}
             <button type="button" className="queue-edit" disabled={restoring || !id}
-              onClick={() => onEdit(id)} aria-label={`Edit queued follow-up: ${text}`}>
+              onClick={() => onEdit(id)} aria-label={t("Edit queued follow-up: {{text}}", { text })}>
               {restoring ? "Editing…" : "Edit"}
             </button>
             <button type="button" className="queue-steer"
@@ -196,7 +197,7 @@ export function QueueList({ queued, restoring, onEdit, onSteer, onRemove }: {
               <span>{t('Steer now')}</span>
             </button>
             <button type="button" className="queue-remove" disabled={restoring || !id}
-              onClick={() => onRemove(id)} aria-label={`Remove queued follow-up: ${text}`}
+              onClick={() => onRemove(id)} aria-label={t("Remove queued follow-up: {{text}}", { text })}
               data-tooltip="Remove">
               <X size={14} />
             </button>

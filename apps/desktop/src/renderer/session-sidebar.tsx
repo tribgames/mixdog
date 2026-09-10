@@ -31,7 +31,7 @@ import {
   DESKTOP_SIDEBAR_MIN_WIDTH,
 } from "../shared/window-layout";
 import { ProgressSpinner } from "./ProgressSpinner";
-import { t } from "./i18n";
+import { t, uiFormatLocale } from "./i18n";
 
 import {
   beginBootSurface,
@@ -62,7 +62,7 @@ const RECENT_SESSION_PAGE_ROWS = 32;
 const RECENT_SENTINEL_REVEAL_MARGIN_PX = 240;
 
 export function sessionLabel(session: DesktopSessionSummary) {
-  return sessionSummaryTitle(session);
+  return sessionSummaryTitle(session, t("Untitled session"));
 }
 
 export function projectIdentity(path: string | null | undefined) {
@@ -335,7 +335,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       // fire time as the row label — every run reads the same name.
       entry.runs.push({
         ...session,
-        title: new Date(Number(session.activityAt) || session.updatedAt).toLocaleString(undefined, {
+        title: new Date(Number(session.activityAt) || session.updatedAt).toLocaleString(uiFormatLocale(), {
           month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
         }),
       });
@@ -1140,7 +1140,7 @@ const SessionRow = React.memo(function SessionRow({
         }} />
       <button type="button" className="session-row-main"
         inert={editing ? true : undefined} aria-hidden={editing ? true : undefined}>
-        <span className="session-row-copy">
+        <span className="session-row-copy" data-i18n-skip>
           <b>{sessionLabel(session)}</b>
         </span>
         <span className="session-row-status" data-working={working || undefined}>

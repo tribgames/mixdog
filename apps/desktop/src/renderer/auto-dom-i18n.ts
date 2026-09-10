@@ -1,7 +1,7 @@
 import { activeUiTranslationKeys, t } from "./i18n";
 import { uiTranslationTemplates } from "./auto-i18n-templates";
 
-const ATTRIBUTES = ["aria-label", "placeholder", "title", "data-tooltip"] as const;
+const ATTRIBUTES = ["aria-label", "aria-description", "placeholder", "title", "data-tooltip", "alt"] as const;
 const SKIP = [
   "[data-i18n-skip]",
   "code",
@@ -24,6 +24,7 @@ const SKIP = [
   ".projects-edit-dialog h2",
   ".dock-pr-row-label b",
   ".dock-scm-commit-info",
+  ".queue-item-text",
 ].join(",");
 
 function translatedText(value: string): string {

@@ -26,6 +26,7 @@ import {
   type DesktopWorkspace,
 } from '../shared/contract';
 import { localFileMimeTypeForPath } from '../shared/local-files';
+import { translateNativeUi } from '../shared/native-ui';
 import { openLocalFileLink } from './local-file-links';
 import { requiredSessionId } from './desktop-state';
 import type { DesktopService } from './desktop-service-contract';
@@ -125,7 +126,8 @@ const SERVICE_OPERATION_NAMES = [
 ] as const;
 
 interface DesktopIpcDependencies {
-  app: Pick<App, 'quit'> & Partial<Pick<App, 'getPath'>>;
+  app: Pick<App, 'quit'> & Partial<Pick<App, 'getPath' | 'getLocale'>>;
+  translateUi?: (key: string) => string;
   ipcMain: Pick<IpcMain, 'handle' | 'removeHandler' | 'on' | 'removeListener'>;
   dialog: Pick<Dialog, 'showOpenDialog' | 'showMessageBox'>
     & Partial<Pick<Dialog, 'showSaveDialog'>>;
@@ -162,6 +164,7 @@ export function registerDesktopIpc(
   host: DesktopService,
   {
     app,
+    translateUi,
     ipcMain,
     dialog,
     shell,
@@ -176,6 +179,7 @@ export function registerDesktopIpc(
     revokeRemoteAccessClient,
   }: DesktopIpcDependencies,
 ): () => void {
+  const nativeT = translateUi || ((key: string) => translateNativeUi(app.getLocale?.() || 'en', key));
   let quitPromise: Promise<void> | null = null;
   const assertSender = (event: IpcMainInvokeEvent): void => {
     if (event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) {
@@ -224,7 +228,7 @@ export function registerDesktopIpc(
 
   handle(DESKTOP_IPC.chooseProject, async () => {
     const result = await dialog.showOpenDialog(window, {
-      title: 'Choose a Mixdog project folder',
+      title: nativeT('Choose a Mixdog project folder'),
       properties: ['openDirectory', 'createDirectory'],
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
@@ -256,7 +260,7 @@ export function registerDesktopIpc(
   });
   handle(DESKTOP_IPC.chooseFile, async (_event, defaultPath) => {
     const result = await dialog.showOpenDialog(window, {
-      title: 'Open file',
+      title: nativeT('Open file'),
       ...(typeof defaultPath === 'string' && pathIsAbsolute(defaultPath)
         ? { defaultPath }
         : {}),
@@ -268,7 +272,7 @@ export function registerDesktopIpc(
   });
   handle(DESKTOP_IPC.chooseFiles, async (_event, defaultPath) => {
     const result = await dialog.showOpenDialog(window, {
-      title: 'Open files',
+      title: nativeT('Open files'),
       ...(typeof defaultPath === 'string' && pathIsAbsolute(defaultPath)
         ? { defaultPath }
         : {}),
@@ -281,9 +285,9 @@ export function registerDesktopIpc(
     const result = await dialog.showOpenDialog(window, {
       // User-facing product noun is Project; `.code-workspace` stays as the
       // on-disk format name only.
-      title: 'Open Project File',
+      title: nativeT('Open Project File'),
       properties: ['openFile'],
-      filters: [{ name: 'Project file', extensions: ['code-workspace'] }],
+      filters: [{ name: nativeT('Project file'), extensions: ['code-workspace'] }],
     });
     const file = result.canceled ? '' : result.filePaths[0] || '';
     if (!file) return null;
@@ -304,9 +308,9 @@ export function registerDesktopIpc(
         throw new Error('The Project file save dialog is unavailable.');
       }
       const result = await dialog.showSaveDialog(window, {
-        title: 'Save Project File As',
+        title: nativeT('Save Project File As'),
         defaultPath: 'project.code-workspace',
-        filters: [{ name: 'Project file', extensions: ['code-workspace'] }],
+        filters: [{ name: nativeT('Project file'), extensions: ['code-workspace'] }],
       });
       if (result.canceled || !result.filePath) return null;
       file = result.filePath;

@@ -79,15 +79,16 @@ Mock input and protocol tests do not establish actual human intervention.
 Current displays were checked; other DPI combinations were not changed or
 claimed verified.
 
-## Open parity gaps from the follow-up review
+## Follow-up outcomes and remaining acceptance
 
-These findings are not fixed by the earlier parser, modifier, or uncertainty
-changes. They remain open rather than being counted as completed parity.
+The user approved the follow-up. Release and background placement have now
+been addressed in source and isolated tests; installed-app acceptance remains
+open rather than being counted as completed parity.
 
-| Priority | Source evidence | Required next change |
+| Area | Previous source evidence | Outcome/current status |
 | --- | --- | --- |
-| High: background gesture release | `BackgroundDrag` sends button-up only after the movement loop. `MouseClick` and `BackgroundVirtualKey` also put release after press without exception-safe cleanup. | Bind one bounded release attempt to the original target after known or possible press delivery. Do not replay the gesture, retry an uncertain release, or substitute foreground/global input. Preserve cleanup uncertainty if release cannot be confirmed. |
-| High: background feedback can cover unrelated work | Background cursor presentations are retained, while `cursor-overlay.ts` creates every effect window as global screen-saver-level always-on-top. | Keep foreground real-pointer effects. Background feedback must stay with its target, or be omitted when safe target-relative placement cannot be established; do not draw through another foreground window. |
+| Background gesture release | Release followed successful press/movement without exception-safe cleanup. | One bounded, target-bound release now follows known or possible press delivery. Definite rejection does not send an unrelated release. Cleanup does not move to another process/thread, replay the gesture, retry a failed release, or use global foreground input. Release failure reaches the safety guard and retains the operation failure. |
+| Background feedback covering unrelated work | Background cursor presentations created global always-on-top effect windows. | Background floating effects are omitted; activity and result evidence remain. Unneeded visual-coordinate lookup and background pointer-event transport are removed. Foreground effects remain, and switching to background clears retained effects without stopping the task. |
 | Acceptance gap: whole desktop behavior | Renderer-pixel and current-display tests do not establish target-relative z-order, live pointer/focus noninterference, or installed-app interruption recovery. | Verify pixels, focus, pointer position, and stacking independently on a disposable target plus an unrelated foreground window. Keep installed-app verification pending until approved deployment and user-controlled recovery. |
 
 The local CUA Windows test explicitly describes a targeted overlay below an
@@ -97,11 +98,49 @@ executed here. The official OpenAI sample separately attempts bounded input
 release and requires acknowledgment. Those are design/acceptance references,
 not proof that Mixdog has passed the same cases.
 
-Implementation of these new release/placement changes requires approval of
-the follow-up scope. Background-first selection and the no-replay contract
-remain unchanged.
+Follow-up checks passed for press/release failure combinations, cleanup-error
+propagation, suppressed background event transport, mixed-session effect
+isolation, foreground/background transitions, and no stale effect resurrection.
+The real Electron fixture keeps itself alive after closing its only effect
+window; it does not change the user's desktop input. Node type checking and
+the compressed elevated-launch envelope also passed. Background-first selection
+and the no-replay contract remain unchanged.
 
-## Remaining live acceptance
+## Five-round follow-up
+
+1. Queue fairness: an earlier overlapping multi-window waiter reserves its
+   place during draining; independent windows remain concurrent.
+2. App-owned Electron typing: replace the fixed 80 ms delay with a bounded
+   editable-focus check. Validate point identity using physical-to-DIP and
+   page-zoom conversion, including open shadow roots. Unsupported targets,
+   renderer stalls, cancellation, and observation-only changes stop text input.
+3. Emergency release: replace blanket release of every key/button with
+   acknowledged automation-owned input held in volatile shared memory.
+   Resident workers and the existing cursor watchdog retain ownership across
+   input-worker termination. No input contents are persisted or returned.
+4. Failure boundaries: keep unacknowledged native transmission and failed
+   release latched rather than guessing/retrying. Foreign-held keys are not
+   released; only the exclusive watchdog updates their shared observation to
+   avoid competing observer writes. Completed releases clear their receipts.
+5. Verification: targeted queue, typing, native transport, cross-process
+   ownership, cursor protocol, compilation, launch-envelope and type checks.
+   Installed-app behavior and subjective cursor appearance remain separate.
+
+All 37 targeted tests passed across the affected checks, as did Node type
+checking. The initial launch-envelope failure was fixed without increasing the
+limit: elevated cleanup extracts literal native source from the already
+authenticated host bytes instead of embedding another copy in the command
+line. The source envelope uses a single-quoted PowerShell here-string, so C#
+source is preserved verbatim. Extraction rejects ambiguous assignments and
+executable/interpolated expressions without evaluating the host.
+
+The shared receipt is deliberately fail-closed if a worker dies inside native
+delivery: a missing acknowledgment cannot establish which prefix Windows
+accepted. Lost ownership storage while input is still held also requires
+manual recovery, not blanket release. Cross-process tests use a fake transport,
+not physical keyboard/mouse input. Live acceptance still requires approval.
+
+## Installed-app acceptance
 
 1. Obtain approval for this revision's local update/restart.
 2. Honor the existing safety pause; the model must not clear it itself.

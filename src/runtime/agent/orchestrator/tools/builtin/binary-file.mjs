@@ -77,17 +77,17 @@ export function isBinaryBuffer(buf, fileSize = buf?.length || 0) {
  * Returns the head bytes even when the null marker is in the tail so callers
  * can render a hex preview without reopening the file.
  */
-export async function inspectBinaryFile(fullPath, fileSize = 0, { previewBytes = 256 } = {}) {
+export async function inspectBinaryFile(fullPath, fileSize = 0, { previewBytes = 256, handle = null } = {}) {
     const headBytes = fileSize > 0 ? Math.min(fileSize, HEAD_CAP) : HEAD_CAP;
     let fh;
     try {
-        fh = await open(fullPath, 'r');
+        fh = handle || await open(fullPath, 'r');
         const headBuf = Buffer.allocUnsafe(Math.max(0, headBytes));
         const { bytesRead: nHead } = await fh.read(headBuf, 0, headBytes, 0);
         const head = headBuf.subarray(0, nHead);
         const preview = head.subarray(0, Math.min(previewBytes, nHead));
-        if (nHead === 0 || hasUtf16Bom(head, nHead)) return { isBinary: false, preview };
-        if (containsNull(head, nHead)) return { isBinary: true, preview };
+        if (nHead === 0 || hasUtf16Bom(head, nHead)) return { isBinary: false, preview, head };
+        if (containsNull(head, nHead)) return { isBinary: true, preview, head };
         if (fileSize > headBytes && fileSize > TAIL_SIZE) {
             const tailBuf = Buffer.allocUnsafe(TAIL_SIZE);
             const { bytesRead: nTail } = await fh.read(
@@ -96,13 +96,13 @@ export async function inspectBinaryFile(fullPath, fileSize = 0, { previewBytes =
                 TAIL_SIZE,
                 fileSize - TAIL_SIZE,
             );
-            if (containsNull(tailBuf, nTail)) return { isBinary: true, preview };
+            if (containsNull(tailBuf, nTail)) return { isBinary: true, preview, head };
         }
-        return { isBinary: false, preview };
+        return { isBinary: false, preview, head };
     } catch {
-        return { isBinary: false, preview: Buffer.alloc(0) };
+        return { isBinary: false, preview: Buffer.alloc(0), head: Buffer.alloc(0) };
     } finally {
-        if (fh) { try { await fh.close(); } catch {} }
+        if (fh && !handle) { try { await fh.close(); } catch {} }
     }
 }
 

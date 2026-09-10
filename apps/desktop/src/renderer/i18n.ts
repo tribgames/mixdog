@@ -2,12 +2,13 @@
 // untranslated (or missing) key renders its English original, so English
 // stays the source of truth and existing English-asserting tests never see
 // a difference. locales/*.json supply the translations; `npm run i18n:sync`
-// (i18next-cli extract) keeps every catalog in step with literal t() usage.
+// keeps every catalog in step with renderer, native and boot-recovery usage.
 import i18next from "i18next";
+import pluralSources from "./ui-plurals.json";
 
 import { publishUiLanguage } from "./push-notification-bridge";
 import {
-  SUPPORTED_UI_LANGUAGES, UI_LANGUAGE_STORAGE_KEY, uiLanguageForLocale,
+  SUPPORTED_UI_LANGUAGES, UI_LANGUAGE_STORAGE_KEY, uiLanguageForLocale, selectUiLanguage,
   type UiLanguage, type UiLanguagePreference,
 } from "../shared/ui-language";
 export { SUPPORTED_UI_LANGUAGES, UI_LANGUAGE_STORAGE_KEY, type UiLanguage, type UiLanguagePreference };
@@ -29,11 +30,16 @@ export function getUiLanguagePreference(): UiLanguagePreference {
   return "system";
 }
 
-export function setUiLanguagePreference(preference: UiLanguagePreference): void {
+export function setUiLanguagePreference(preference: UiLanguagePreference): boolean {
   try {
     if (preference === "system") window.localStorage.removeItem(UI_LANGUAGE_STORAGE_KEY);
     else window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, preference);
-  } catch { /* the choice then lasts only until the window closes */ }
+    return true;
+  } catch {
+    // Language changes reload module-level labels. An in-memory choice would
+    // disappear immediately, so the settings surface must report this failure.
+    return false;
+  }
 }
 
 export function resolveUiLanguage(
@@ -48,11 +54,11 @@ export function resolveUiLanguage(
   }).process?.env?.MIXDOG_UI_LANGUAGE;
   const forcedLanguage = forced ? uiLanguageForLocale(forced) : null;
   if (forcedLanguage) return forcedLanguage;
-  let systemLocale = "en";
+  let systemLocales: readonly string[] = ["en"];
   try {
-    systemLocale = navigator.language || "en";
+    systemLocales = navigator.languages?.length ? navigator.languages : [navigator.language || "en"];
   } catch { /* no navigator (node tests): English pass-through */ }
-  return uiLanguageForLocale(systemLocale) || "en";
+  return selectUiLanguage(preference, systemLocales);
 }
 
 // Synchronous init (initImmediate: false): t() is usable from the first
@@ -61,8 +67,8 @@ export function resolveUiLanguage(
 // still-untranslated key fall back to its English key text.
 // Catalogs load per language: eleven static imports put ~750KB of JSON — a
 // quarter of the first-paint bundle — in front of every visitor, ten
-// languages of which they will never see. English needs no catalog at all,
-// because the keys ARE the English source text.
+// languages of which they will never see. English needs no network catalog:
+// its keys are source text, with only a small local singular/plural map.
 const CATALOGS: Record<
   Exclude<UiLanguage, "en">,
   () => Promise<{ default: Record<string, string> }>
@@ -87,7 +93,11 @@ const CATALOGS: Record<
 void i18next.init({
   lng: "en",
   fallbackLng: false,
-  resources: {},
+  resources: {
+    en: { translation: Object.fromEntries(Object.entries(pluralSources).flatMap(([key, singular]) => [
+      [key, key], [`${key}_one`, singular], [`${key}_other`, key],
+    ])) },
+  },
   nsSeparator: false,
   keySeparator: false,
   interpolation: { escapeValue: false },
@@ -102,26 +112,32 @@ void i18next.init({
  *  this BEFORE importing any app module, because module-level strings pass
  *  through t() at import time. Changing the language reloads the window
  *  (Settings → Display language), so one catalog per session is enough. */
-export async function initUiLanguage(): Promise<void> {
+export async function initUiLanguage(
+  loadCatalog: (language: Exclude<UiLanguage, "en">) => Promise<{ default: Record<string, string> }>
+    = (language) => CATALOGS[language](),
+): Promise<void> {
   const language = resolveUiLanguage();
-  if (typeof document !== "undefined") document.documentElement.lang = language;
-  // The worker showing notifications on this device cannot read localStorage;
-  // this is the only way it learns which language to speak. English included:
-  // it has to overwrite whatever a previous choice left behind.
-  void publishUiLanguage(language);
   if (language === "en") {
     await i18next.changeLanguage("en");
-    return;
+  } else {
+    try {
+      const catalog = await loadCatalog(language);
+      i18next.addResourceBundle(language, "translation", catalog.default);
+      await i18next.changeLanguage(language);
+    } catch (error) {
+      await i18next.changeLanguage("en");
+      console.warn("Could not load UI translations; using English.", error);
+    }
   }
-  try {
-    const catalog = await CATALOGS[language]();
-    i18next.addResourceBundle(language, "translation", catalog.default);
-    await i18next.changeLanguage(language);
-  } catch (error) {
-    // A catalog that fails to load leaves the UI on its English source text,
-    // which is readable; a blank chrome would not be.
-    console.warn("Could not load UI translations; using English.", error);
-  }
+  // Publish the language actually loaded, not a catalog that failed to arrive.
+  const active = uiLanguageForLocale(i18next.language) || "en";
+  if (typeof document !== "undefined") document.documentElement.lang = active;
+  void publishUiLanguage(active);
+}
+
+/** All UI formatting follows the loaded catalog, including its English fallback. */
+export function uiFormatLocale(): UiLanguage {
+  return uiLanguageForLocale(i18next.language) || "en";
 }
 
 export function t(key: string, options?: Record<string, unknown>): string {
@@ -140,7 +156,7 @@ export function tExisting(
   original: string,
   options?: Record<string, unknown>,
 ): string {
-  return i18next.exists(key) ? String(i18next.t(key, options)) : original;
+  return i18next.exists(key, options) ? String(i18next.t(key, options)) : original;
 }
 
 /** Active keyed catalog only: no second bundle or fragile numeric indices. */

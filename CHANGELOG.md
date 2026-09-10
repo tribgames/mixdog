@@ -5,6 +5,15 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Refine UI localization, startup language selection, native menus, and
+  translated formatting; keep the web language bootstrap fresh across updates.
+- Harden Computer Use input ownership and observation-only checks, confirm
+  Electron text targets before typing, and improve cursor and session handling.
+- Improve native file search and ranged reads, and prevent invalidated or
+  cancelled in-flight computations from repopulating the result cache.
+- Include search benchmarks, regression coverage, localization audits, and
+  generated project and document deliverables.
+
 ## v0.9.162 - 2026-09-09
 
 - The Set-a-goal dialog opens centered in the pane whose composer raised it,

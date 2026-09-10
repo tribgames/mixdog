@@ -22,7 +22,6 @@ const HOTSPOT_Y = CURSOR_HOTSPOT;
 interface CursorSurface {
   window: BrowserWindow | null;
   creating: Promise<BrowserWindow> | null;
-  timers: Set<NodeJS.Timeout>;
   lastEventId: number;
   position?: { x: number; y: number };
 }
@@ -52,13 +51,9 @@ function cursorBounds(point: { x: number; y: number }): Electron.Rectangle {
   };
 }
 
-function clearTimers(surface: CursorSurface): void {
-  for (const timer of surface.timers) clearTimeout(timer);
-  surface.timers.clear();
-}
-
 export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
   const surfaces = new Map<string, CursorSurface>();
+  let visibleCursorEvents = new Map<string, number>();
   let disposed = false;
   let latestSnapshot: ComputerUseSnapshot = computerUseCoordinator.snapshot();
   const tail = createCursorTail(() => render());
@@ -70,7 +65,6 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
       surface = {
         window: null,
         creating: null,
-        timers: new Set(),
         lastEventId: 0,
       };
       surfaces.set(sessionId, surface);
@@ -121,7 +115,12 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
         // Best effort where workspace flags are unavailable.
       }
       next.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-      next.webContents.on('render-process-gone', () => recordCursorDiagnostic('renderer_gone'));
+      next.webContents.on('render-process-gone', () => {
+        recordCursorDiagnostic('renderer_gone');
+        // Retire the dead surface. A fresh event or preparation creates its replacement;
+        // never replay an old effect or loop on the same crashed renderer.
+        if (!next.isDestroyed()) next.destroy();
+      });
       next.on('closed', () => {
         unregisterInternalWindow();
         if (surface.window === next) surface.window = null;
@@ -131,7 +130,7 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
           `data:text/html;base64,${Buffer.from(cursorHtml()).toString('base64')}`,
         );
         await next.webContents.executeJavaScript(cursorScript());
-        if (disposed || surfaces.get(sessionId) !== surface) {
+        if (disposed || next.isDestroyed() || surfaces.get(sessionId) !== surface) {
           throw new Error('Computer Use cursor disposed during creation');
         }
         surface.window = next;
@@ -154,11 +153,11 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
     if (cursor.eventId <= surface.lastEventId) return;
     surface.lastEventId = cursor.eventId;
     recordCursorDiagnostic('render_started');
-    clearTimers(surface);
     const source = { x: cursor.x, y: cursor.y };
     surface.position = source;
     const window = await ensureWindow(cursor.sessionId, surface);
-    if (disposed || window.isDestroyed() || surface.lastEventId !== cursor.eventId) {
+    if (disposed || window.isDestroyed() || surface.lastEventId !== cursor.eventId
+      || visibleCursorEvents.get(cursor.sessionId) !== cursor.eventId) {
       recordCursorDiagnostic('render_superseded'); return;
     }
     const serialized = JSON.stringify({
@@ -177,7 +176,8 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
     recordCursorDiagnostic(evidence?.ring ? 'ring_present' : 'ring_missing');
     recordCursorDiagnostic(evidence?.opacity > 0 ? 'ring_visible_style' : 'ring_transparent_style');
     if (disposed || window.isDestroyed() || surfaces.get(cursor.sessionId) !== surface
-      || latestSnapshot.userControlActive || surface.lastEventId !== cursor.eventId) return;
+      || latestSnapshot.userControlActive || surface.lastEventId !== cursor.eventId
+      || visibleCursorEvents.get(cursor.sessionId) !== cursor.eventId) return;
     if (!window.isVisible()) window.showInactive();
     recordCursorDiagnostic(window.isVisible() ? 'window_visible' : 'window_not_visible');
     const bounds = window.getBounds();
@@ -194,6 +194,7 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
       .filter(activity => activity.mode === 'background').map(activity => activity.sessionId));
     const cursors = tail.update(computerUseCursorPresentations(latestSnapshot),
       latestSnapshot.userControlActive || latestSnapshot.cleanupState === 'failed', backgroundSessions);
+    visibleCursorEvents = new Map(cursors.map(cursor => [cursor.sessionId, cursor.eventId]));
     const desired = new Set(cursors.map((cursor) => cursor.sessionId));
     if (!latestSnapshot.userControlActive && latestSnapshot.cleanupState !== 'failed') {
       for (const activity of latestSnapshot.activities) {
@@ -201,8 +202,12 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
       }
     }
     for (const [sessionId, surface] of surfaces) {
-      if (desired.has(sessionId)) continue;
-      clearTimers(surface);
+      if (desired.has(sessionId)) {
+        if (!visibleCursorEvents.has(sessionId) && surface.window && !surface.window.isDestroyed()) {
+          surface.window.hide();
+        }
+        continue;
+      }
       if (surface.window && !surface.window.isDestroyed()) surface.window.destroy();
       surfaces.delete(sessionId);
       recordCursorDiagnostic('window_removed');
@@ -256,7 +261,6 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
       screen.removeListener('display-added', reposition);
       screen.removeListener('display-removed', reposition);
       for (const surface of surfaces.values()) {
-        clearTimers(surface);
         if (surface.window && !surface.window.isDestroyed()) surface.window.destroy();
       }
       surfaces.clear();

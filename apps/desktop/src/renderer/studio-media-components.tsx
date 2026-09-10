@@ -10,7 +10,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 
 import { ProgressSpinner } from './ProgressSpinner';
-import { t } from './i18n';
+import { t, uiFormatLocale } from './i18n';
 import {
   formatBytes,
   type MediaAsset,
@@ -168,7 +168,7 @@ export function StudioDetailViewer({
             {asset.durationSeconds
               ? <div><dt>{t('Duration')}</dt><dd>{asset.durationSeconds}s</dd></div>
               : null}
-            <div><dt>{t('Created')}</dt><dd>{new Date(asset.createdAt).toLocaleString()}</dd></div>
+            <div><dt>{t('Created')}</dt><dd>{new Date(asset.createdAt).toLocaleString(uiFormatLocale())}</dd></div>
           </dl>
         </section>
         <div className="studio-detail-actions">

@@ -1,0 +1,31 @@
+{
+  "ok": true,
+  "deck": "C:\\Project\\mixdog\\output\\ai-work-proposal-20260907\\qc-recovery-page-8.pptx",
+  "route": {
+    "provider": "openai-oauth",
+    "model": "gpt-6-astra",
+    "effort": "medium"
+  },
+  "isolation": "pristine-per-page",
+  "total": 8,
+  "pages": [
+    {
+      "page": 8,
+      "vision": true,
+      "before": 0,
+      "after": 0,
+      "edited": false,
+      "kept": true,
+      "reason": "unchanged",
+      "reply": "OK",
+      "errors": [
+        "mixdog: shutdown cleanup failed (result unaffected): EBUSY: resource busy or locked, unlink 'C:\\Users\\tempe\\AppData\\Local\\Temp\\mixdog-headless-pristine-cTiK4P\\data\\pg.log'\n"
+      ]
+    }
+  ],
+  "skippedPages": [],
+  "fixed": 0,
+  "polished": 0,
+  "discarded": 0,
+  "skipped": 0
+}

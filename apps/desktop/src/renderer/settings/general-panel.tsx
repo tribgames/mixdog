@@ -56,6 +56,7 @@ function ThemeChoices({ data, pending }: Pick<PanelContext, 'data' | 'pending'>)
 function UiLanguageChoices({ pending }: Pick<PanelContext, 'pending'>) {
   const [preference, setPreference] = useState<UiLanguagePreference>(() =>
     getUiLanguagePreference());
+  const [error, setError] = useState('');
   return <Group title="Display language">
     <SelectRow title="Display language" value={preference} disabled={Boolean(pending)}
       options={[
@@ -65,10 +66,15 @@ function UiLanguageChoices({ pending }: Pick<PanelContext, 'pending'>) {
       onChange={(next) => {
         const selected = next as UiLanguagePreference;
         const previous = resolveUiLanguage();
+        if (!setUiLanguagePreference(selected)) {
+          setError(t('Display language could not be saved. Allow browser storage and try again.'));
+          return;
+        }
+        setError('');
         setPreference(selected);
-        setUiLanguagePreference(selected);
         if (resolveUiLanguage(selected) !== previous) window.location.reload();
       }} />
+    {error && <p role="alert">{error}</p>}
   </Group>;
 }
 

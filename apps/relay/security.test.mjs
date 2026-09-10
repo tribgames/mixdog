@@ -264,23 +264,24 @@ test('static responses apply browser security headers without changing HEAD beha
   );
   assert.equal(headers['Cache-Control'], 'public, max-age=31536000, immutable');
 
-  // boot.js has no content hash but is version-locked to index.html: a cached
-  // copy paired with a fresh bundle mismatches the viewport projection.
-  const boot = join(dir, 'boot.js');
-  writeFileSync(boot, 'window.mixdogBoot = true;');
-  sendStaticFile(
-    { method: 'HEAD', headers: {} },
-    {
-      writeHead(nextStatus, nextHeaders) {
-        status = nextStatus;
-        headers = nextHeaders;
+  // These unhashed bootstrap files are version-locked to the document/worker.
+  for (const name of ['boot.js', 'ui-language.js', 'sw-shell.js']) {
+    const boot = join(dir, name);
+    writeFileSync(boot, 'window.mixdogBoot = true;');
+    sendStaticFile(
+      { method: 'HEAD', headers: {} },
+      {
+        writeHead(nextStatus, nextHeaders) {
+          status = nextStatus;
+          headers = nextHeaders;
+        },
+        end() { ended = true; },
+        destroy() {},
       },
-      end() { ended = true; },
-      destroy() {},
-    },
-    boot,
-  );
-  assert.equal(headers['Cache-Control'], 'no-cache');
+      boot,
+    );
+    assert.equal(headers['Cache-Control'], 'no-cache', name);
+  }
 });
 
 test('inlined renderer boot script receives only its exact CSP hash', () => {

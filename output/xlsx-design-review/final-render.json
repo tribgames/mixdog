@@ -1,0 +1,66 @@
+{
+  "session": "office_b4af14a363bc4f2e",
+  "backend": "mixdog-ooxml",
+  "output": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.mixdog-preview.pdf",
+  "format": "pdf",
+  "renderer": "LibreOffice",
+  "pageCount": 4,
+  "visualCoverage": {
+    "reviewedPages": [
+      1,
+      2,
+      3,
+      4
+    ],
+    "reviewed": 4,
+    "total": 4,
+    "complete": true,
+    "remainingPages": []
+  },
+  "images": [
+    {
+      "page": 1,
+      "path": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.mixdog-preview-page-1.png",
+      "width": 1400,
+      "height": 990,
+      "mimeType": "image/png"
+    },
+    {
+      "page": 2,
+      "path": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.mixdog-preview-page-2.png",
+      "width": 1191,
+      "height": 1684,
+      "mimeType": "image/png"
+    },
+    {
+      "page": 3,
+      "path": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.mixdog-preview-page-3.png",
+      "width": 1400,
+      "height": 990,
+      "mimeType": "image/png"
+    },
+    {
+      "page": 4,
+      "path": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.mixdog-preview-page-4.png",
+      "width": 1191,
+      "height": 1684,
+      "mimeType": "image/png"
+    }
+  ],
+  "reviewToken": "office_b4af14a363bc4f2e:0:a5540aca3d1e84a22d83c81c7062e9ae1f319c95a0d1a2934b2caa4b01280da2",
+  "exportAvailable": true,
+  "metrics": {
+    "durationMs": 4066.88
+  },
+  "artifacts": [
+    {
+      "type": "spreadsheet",
+      "format": "xlsx",
+      "fileKind": "xlsx",
+      "operation": "render",
+      "path": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.mixdog-preview.pdf"
+    }
+  ],
+  "outputCount": 1,
+  "expectedOutputCount": 1
+}

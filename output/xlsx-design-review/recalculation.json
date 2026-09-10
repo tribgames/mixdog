@@ -1,0 +1,12 @@
+{
+  "needed": true,
+  "available": true,
+  "recalculated": true,
+  "backend": "libreoffice",
+  "status": "success",
+  "formulaCount": 134,
+  "missingCachedValues": 0,
+  "totalErrors": 0,
+  "errorSummary": {},
+  "outputBytes": 49648
+}

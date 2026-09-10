@@ -1,6 +1,5 @@
 // Dependency/cache trees stay hidden by default, but a caller who NAMES one is
-// asking for it, and a clean fuzzy miss must not report a file that exists as
-// absent.
+// asking for it. A default miss must not silently search a broader scope.
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -46,15 +45,15 @@ test('a grep glob filter that names a pruned directory searches inside it', asyn
     });
 });
 
-test('a clean fuzzy miss reports that the hit exists in a skipped tree', async () => {
+test('fuzzy find searches dependency trees only when explicitly requested', async () => {
     await withNoiseTree(async (root) => {
         const out = String(await executeBuiltinTool('find', { query: 'convert_masks' }, root));
         assert.match(out, /no fuzzy match/);
-        assert.match(out, /include_noise:true/);
+        assert.doesNotMatch(out, /include_noise:true/);
         // The default answer still lists no dependency path.
         assert.doesNotMatch(out, /convert_masks\.cpython-311\.pyc/);
 
-        // The flag it names actually produces the file.
+        // An explicit request includes the otherwise skipped file.
         const noisy = String(await executeBuiltinTool('find', {
             query: 'convert_masks',
             include_noise: true,

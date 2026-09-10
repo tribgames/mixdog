@@ -474,9 +474,14 @@ function Invoke-ForegroundInput($targetHandle, $action, $body, [bool]$pointerMay
   $previous = [MixWin32]::Foreground()
   Remember-FocusOrigin $state $previous $targetHandle
   [MixInputObservation]::Begin()
+  $priorAuthorization = [MixInputObservation]::DispatchAuthorization
+  [MixInputObservation]::DispatchAuthorization = [Action] {
+    Assert-ExecutionAuthorization $script:CurrentRequest $targetHandle
+  }
   $cursorTheme = $null
   $cursorFeedback = @{ system_theme_applied = $false; system_theme_restored = $false; pointer_moved = $false }
   try {
+  [MixInputObservation]::AssertContinue()
   $focused = [MixWin32]::Focus($targetHandle)
   if (-not $focused -and -not $pointerMayActivate) {
     return New-ActionResult $action 'foreground' 'suspected_noop' $false "Windows foreground lock prevented target activation; no input was sent" 'foreground_unavailable' 'foreground' ([MixWin32]::WindowId($targetHandle))
@@ -524,7 +529,10 @@ function Invoke-ForegroundInput($targetHandle, $action, $body, [bool]$pointerMay
         $cursorFeedback.system_theme_restored = $true
       }
     }
-    finally { [MixInputObservation]::End() }
+    finally {
+      [MixInputObservation]::DispatchAuthorization = $priorAuthorization
+      [MixInputObservation]::End()
+    }
   }
 }
 

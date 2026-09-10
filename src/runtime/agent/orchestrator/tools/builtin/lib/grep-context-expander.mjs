@@ -1,6 +1,5 @@
-import { createReadStream } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
-import { createInterface } from 'node:readline';
+import { readSourceWindows } from '../read-source-windows.mjs';
 
 import {
     normalizeOutputPath,
@@ -266,34 +265,7 @@ async function readFileWindows(entry, radius, signal) {
         start: Math.max(1, anchor.lineNo - radius),
         end: anchor.lineNo + radius,
     })));
-    const lines = new Map();
-    if (intervals.length === 0) return lines;
-    const input = createReadStream(entry.absolutePath, { encoding: 'utf8' });
-    const reader = createInterface({ input, crlfDelay: Infinity });
-    let lineNo = 0;
-    let intervalIndex = 0;
-    const abort = () => input.destroy(Object.assign(new Error('grep context expansion aborted'), { code: 'ABORT_ERR' }));
-    if (signal) {
-        if (signal.aborted) abort();
-        else signal.addEventListener('abort', abort, { once: true });
-    }
-    try {
-        for await (const line of reader) {
-            lineNo++;
-            while (intervalIndex < intervals.length && lineNo > intervals[intervalIndex].end) intervalIndex++;
-            if (intervalIndex >= intervals.length) {
-                input.destroy();
-                break;
-            }
-            const interval = intervals[intervalIndex];
-            if (lineNo >= interval.start && lineNo <= interval.end) lines.set(lineNo, line);
-        }
-        return lines;
-    } finally {
-        if (signal) signal.removeEventListener('abort', abort);
-        reader.close();
-        input.destroy();
-    }
+    return readSourceWindows(entry.absolutePath, intervals, { signal });
 }
 
 async function readAnchorSources(anchors, radius, signal) {
@@ -310,14 +282,28 @@ async function readAnchorSources(anchors, radius, signal) {
         groups.get(anchor.absolutePath).anchors.push(anchor);
     }
     const entries = [...groups.values()];
-    await Promise.all(entries.map(async (entry) => {
-        try {
-            entry.lines = await readFileWindows(entry, radius, signal);
-        } catch (err) {
-            entry.error = err;
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(4, entries.length) }, async () => {
+        while (next < entries.length) {
+            signal?.throwIfAborted();
+            const entry = entries[next++];
+            try {
+                entry.lines = await readFileWindows(entry, radius, signal);
+            } catch (err) {
+                signal?.throwIfAborted();
+                entry.error = err;
+            }
         }
     }));
     return groups;
+}
+
+// Share exactly the selected windows across independent pattern sections.
+export async function prepareGrepContextSources(lineGroups, options) {
+    const selected = lineGroups.flatMap((lines) => selectAnchors(
+        parseAnchors(lines, options), options.headLimit, options.offset,
+    ).selected);
+    return readAnchorSources(selected, Math.max(options.requestedContext || 0, options.maxContext || 0), options.signal);
 }
 
 function sourceBlock(anchor, source, radius) {
@@ -493,6 +479,7 @@ export async function expandGrepAnchorContextOutput({
     caseInsensitive = false,
     charBudget = GREP_CONTEXT_CHAR_BUDGET_DEFAULT,
     signal,
+    sources: sharedSources,
 }) {
     const anchors = rankAnchors(parseAnchors(allLines, {
         workDir,
@@ -523,7 +510,8 @@ export async function expandGrepAnchorContextOutput({
     const requested = Math.max(0, Math.floor(Number(requestedContext) || 0));
     const target = Math.max(requested, Math.max(0, Math.floor(Number(maxContext) || 0)));
     const budget = Math.max(512, Math.floor(Number(charBudget) || GREP_CONTEXT_CHAR_BUDGET_DEFAULT));
-    const sources = await readAnchorSources(window.selected, target, signal);
+    signal?.throwIfAborted();
+    const sources = sharedSources || await readAnchorSources(window.selected, target, signal);
     let selected = window.selected;
     let shown = window.shown;
     let omitted = window.omitted;

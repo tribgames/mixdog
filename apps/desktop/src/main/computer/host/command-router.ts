@@ -40,7 +40,6 @@ import {
 } from '../overlay/internal-windows';
 import {
   AUTO_CAPTURE_ACTIONS,
-  OBSERVE_ONLY_ALLOWED_ACTIONS,
   READ_ACTIONS,
 } from './action-sets';
 import type { ExecutionState, InputRecoveryState } from './execution-state';
@@ -53,6 +52,7 @@ import { createComputerExecutionPolicy, type ComputerExecutionPolicy } from './e
 import { createInputDispatch } from './input-dispatch';
 import { buildActionReply } from './action-reply';
 import { prepareCursorFeedback } from '../overlay/cursor-readiness';
+import { assertObservationInputAllowed } from './observation-policy';
 
 const POINTER_ACTIONS = [
   'invoke', 'click', 'double_click', 'right_click', 'middle_click', 'triple_click',
@@ -212,11 +212,7 @@ export function createCommandRouter(host: CommandRouterHost) {
     assertSafeComputerSessionId(command);
     // Checked before every early return, so a bounded sequence cannot slip past
     // it. The app's own Browser Use setup flow keeps its internal session.
-    if (isObserveOnly()
-      && !OBSERVE_ONLY_ALLOWED_ACTIONS.has(action)
-      && sessionIdFor(command) !== CHROME_SETUP_SESSION_ID) {
-      throw new Error(`observation_only: Computer Use is observing only, so '${action}' input is blocked. Turn off "Observation only" in Settings to allow input.`);
-    }
+    assertObservationInputAllowed(command, isObserveOnly());
     if (action === 'sequence' && command.read_only) {
       throw new Error("read_only run: 'sequence' is a mutation");
     }

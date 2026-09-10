@@ -1,0 +1,2181 @@
+{
+  "ok": true,
+  "finalized": true,
+  "session": "office_b4af14a363bc4f2e",
+  "path": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.xlsx",
+  "failOn": "error",
+  "saved": true,
+  "saveSkipped": false,
+  "closed": true,
+  "recalculation": {
+    "needed": false,
+    "recalculated": false,
+    "formulaCount": 126,
+    "missingCachedValues": 0
+  },
+  "review": {
+    "ok": false,
+    "session": "office_b4af14a363bc4f2e",
+    "mode": "portable",
+    "backend": "mixdog-ooxml",
+    "autoFix": false,
+    "fixes": [],
+    "fixResult": null,
+    "issuesBefore": [
+      {
+        "severity": "warning",
+        "code": "formula_inconsistency",
+        "path": "/sheet[메뉴 분석]/cell[B5]",
+        "message": "A hardcoded value interrupts a row of formulas; a lone edited cell mid-row is a common silent error.",
+        "source": "formula-audit"
+      },
+      {
+        "severity": "warning",
+        "code": "formula_inconsistency",
+        "path": "/sheet[메뉴 분석]/cell[C5]",
+        "message": "A hardcoded value interrupts a row of formulas; a lone edited cell mid-row is a common silent error.",
+        "source": "formula-audit"
+      },
+      {
+        "severity": "warning",
+        "code": "formula_inconsistency",
+        "path": "/sheet[메뉴 분석]/cell[B6]",
+        "message": "A hardcoded value interrupts a row of formulas; a lone edited cell mid-row is a common silent error.",
+        "source": "formula-audit"
+      },
+      {
+        "severity": "warning",
+        "code": "formula_inconsistency",
+        "path": "/sheet[메뉴 분석]/cell[C6]",
+        "message": "A hardcoded value interrupts a row of formulas; a lone edited cell mid-row is a common silent error.",
+        "source": "formula-audit"
+      },
+      {
+        "severity": "warning",
+        "code": "formula_inconsistency",
+        "path": "/sheet[메뉴 분석]/cell[B7]",
+        "message": "A hardcoded value interrupts a row of formulas; a lone edited cell mid-row is a common silent error.",
+        "source": "formula-audit"
+      },
+      {
+        "severity": "warning",
+        "code": "formula_inconsistency",
+        "path": "/sheet[메뉴 분석]/cell[C7]",
+        "message": "A hardcoded value interrupts a row of formulas; a lone edited cell mid-row is a common silent error.",
+        "source": "formula-audit"
+      },
+      {
+        "severity": "warning",
+        "code": "unquoted_sheet_reference",
+        "path": "/sheet[대시보드]/cell[A6]",
+        "message": "Formula references sheet \"요약\" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '요약'!."
+      },
+      {
+        "severity": "warning",
+        "code": "unquoted_sheet_reference",
+        "path": "/sheet[대시보드]/cell[E6]",
+        "message": "Formula references sheet \"요약\" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '요약'!."
+      },
+      {
+        "severity": "warning",
+        "code": "unquoted_sheet_reference",
+        "path": "/sheet[대시보드]/cell[I6]",
+        "message": "Formula references sheet \"요약\" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '요약'!."
+      },
+      {
+        "severity": "warning",
+        "code": "unquoted_sheet_reference",
+        "path": "/sheet[대시보드]/cell[A11]",
+        "message": "Formula references sheet \"요약\" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '요약'!."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A41]",
+        "message": "\"01\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A42]",
+        "message": "\"02\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A43]",
+        "message": "\"03\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A44]",
+        "message": "\"04\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A45]",
+        "message": "\"05\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A46]",
+        "message": "\"06\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A47]",
+        "message": "\"07\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A48]",
+        "message": "\"08\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A49]",
+        "message": "\"09\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A50]",
+        "message": "\"10\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A51]",
+        "message": "\"11\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A52]",
+        "message": "\"12\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A53]",
+        "message": "\"13\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A54]",
+        "message": "\"14\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A55]",
+        "message": "\"15\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A56]",
+        "message": "\"16\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A57]",
+        "message": "\"17\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A58]",
+        "message": "\"18\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A59]",
+        "message": "\"19\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A60]",
+        "message": "\"20\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A61]",
+        "message": "\"21\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A62]",
+        "message": "\"22\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A63]",
+        "message": "\"23\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A64]",
+        "message": "\"24\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A65]",
+        "message": "\"25\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A66]",
+        "message": "\"26\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A67]",
+        "message": "\"27\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A68]",
+        "message": "\"28\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A69]",
+        "message": "\"29\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A70]",
+        "message": "\"30\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "unquoted_sheet_reference",
+        "path": "/sheet[Checks]/cell[B4]",
+        "message": "Formula references sheet \"요약\" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '요약'!."
+      },
+      {
+        "severity": "warning",
+        "code": "unquoted_sheet_reference",
+        "path": "/sheet[Checks]/cell[B6]",
+        "message": "Formula references sheet \"요약\" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '요약'!."
+      }
+    ],
+    "issuesAfter": [
+      {
+        "severity": "warning",
+        "code": "formula_inconsistency",
+        "path": "/sheet[메뉴 분석]/cell[B5]",
+        "message": "A hardcoded value interrupts a row of formulas; a lone edited cell mid-row is a common silent error.",
+        "source": "formula-audit"
+      },
+      {
+        "severity": "warning",
+        "code": "formula_inconsistency",
+        "path": "/sheet[메뉴 분석]/cell[C5]",
+        "message": "A hardcoded value interrupts a row of formulas; a lone edited cell mid-row is a common silent error.",
+        "source": "formula-audit"
+      },
+      {
+        "severity": "warning",
+        "code": "formula_inconsistency",
+        "path": "/sheet[메뉴 분석]/cell[B6]",
+        "message": "A hardcoded value interrupts a row of formulas; a lone edited cell mid-row is a common silent error.",
+        "source": "formula-audit"
+      },
+      {
+        "severity": "warning",
+        "code": "formula_inconsistency",
+        "path": "/sheet[메뉴 분석]/cell[C6]",
+        "message": "A hardcoded value interrupts a row of formulas; a lone edited cell mid-row is a common silent error.",
+        "source": "formula-audit"
+      },
+      {
+        "severity": "warning",
+        "code": "formula_inconsistency",
+        "path": "/sheet[메뉴 분석]/cell[B7]",
+        "message": "A hardcoded value interrupts a row of formulas; a lone edited cell mid-row is a common silent error.",
+        "source": "formula-audit"
+      },
+      {
+        "severity": "warning",
+        "code": "formula_inconsistency",
+        "path": "/sheet[메뉴 분석]/cell[C7]",
+        "message": "A hardcoded value interrupts a row of formulas; a lone edited cell mid-row is a common silent error.",
+        "source": "formula-audit"
+      },
+      {
+        "severity": "warning",
+        "code": "unquoted_sheet_reference",
+        "path": "/sheet[대시보드]/cell[A6]",
+        "message": "Formula references sheet \"요약\" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '요약'!."
+      },
+      {
+        "severity": "warning",
+        "code": "unquoted_sheet_reference",
+        "path": "/sheet[대시보드]/cell[E6]",
+        "message": "Formula references sheet \"요약\" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '요약'!."
+      },
+      {
+        "severity": "warning",
+        "code": "unquoted_sheet_reference",
+        "path": "/sheet[대시보드]/cell[I6]",
+        "message": "Formula references sheet \"요약\" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '요약'!."
+      },
+      {
+        "severity": "warning",
+        "code": "unquoted_sheet_reference",
+        "path": "/sheet[대시보드]/cell[A11]",
+        "message": "Formula references sheet \"요약\" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '요약'!."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A41]",
+        "message": "\"01\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A42]",
+        "message": "\"02\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A43]",
+        "message": "\"03\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A44]",
+        "message": "\"04\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A45]",
+        "message": "\"05\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A46]",
+        "message": "\"06\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A47]",
+        "message": "\"07\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A48]",
+        "message": "\"08\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A49]",
+        "message": "\"09\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A50]",
+        "message": "\"10\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A51]",
+        "message": "\"11\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A52]",
+        "message": "\"12\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A53]",
+        "message": "\"13\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A54]",
+        "message": "\"14\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A55]",
+        "message": "\"15\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A56]",
+        "message": "\"16\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A57]",
+        "message": "\"17\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A58]",
+        "message": "\"18\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A59]",
+        "message": "\"19\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A60]",
+        "message": "\"20\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A61]",
+        "message": "\"21\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A62]",
+        "message": "\"22\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A63]",
+        "message": "\"23\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A64]",
+        "message": "\"24\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A65]",
+        "message": "\"25\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A66]",
+        "message": "\"26\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A67]",
+        "message": "\"27\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A68]",
+        "message": "\"28\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A69]",
+        "message": "\"29\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "number_stored_as_text",
+        "path": "/sheet[대시보드]/cell[A70]",
+        "message": "\"30\" is text, so it neither sums nor sorts as a number; store the number and give the column a format."
+      },
+      {
+        "severity": "warning",
+        "code": "unquoted_sheet_reference",
+        "path": "/sheet[Checks]/cell[B4]",
+        "message": "Formula references sheet \"요약\" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '요약'!."
+      },
+      {
+        "severity": "warning",
+        "code": "unquoted_sheet_reference",
+        "path": "/sheet[Checks]/cell[B6]",
+        "message": "Formula references sheet \"요약\" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '요약'!."
+      },
+      {
+        "severity": "warning",
+        "code": "worksheet_print_too_small",
+        "path": "/page[3]",
+        "message": "Worksheet content is scaled into a small area of the rendered page.",
+        "source": "render-review"
+      },
+      {
+        "severity": "warning",
+        "code": "worksheet_print_too_small",
+        "path": "/page[4]",
+        "message": "Worksheet content is scaled into a small area of the rendered page.",
+        "source": "render-review"
+      }
+    ],
+    "review": {
+      "createdAt": "2026-09-07T16:49:06.754Z",
+      "output": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.mixdog-preview.pdf",
+      "baselineOutput": "",
+      "pageCount": 4,
+      "visualCoverage": {
+        "reviewedPages": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "reviewed": 4,
+        "total": 4,
+        "complete": true,
+        "remainingPages": []
+      },
+      "issuesBefore": 42,
+      "issuesAfter": 44,
+      "fixesApplied": 0,
+      "images": [
+        {
+          "page": 1,
+          "path": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.mixdog-preview-page-1.png",
+          "width": 1400,
+          "height": 990,
+          "mimeType": "image/png"
+        },
+        {
+          "page": 2,
+          "path": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.mixdog-preview-page-2.png",
+          "width": 1191,
+          "height": 1684,
+          "mimeType": "image/png"
+        },
+        {
+          "page": 3,
+          "path": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.mixdog-preview-page-3.png",
+          "width": 1400,
+          "height": 990,
+          "mimeType": "image/png"
+        },
+        {
+          "page": 4,
+          "path": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.mixdog-preview-page-4.png",
+          "width": 1191,
+          "height": 1684,
+          "mimeType": "image/png"
+        }
+      ],
+      "design": {
+        "ok": true,
+        "status": "skipped",
+        "profile": "executive",
+        "issues": [],
+        "composition": {
+          "format": "xlsx",
+          "fingerprint": "",
+          "compositionIds": [],
+          "count": 0
+        },
+        "requiresVisualInspection": false
+      },
+      "render": {
+        "ok": false,
+        "format": "xlsx",
+        "pages": [
+          {
+            "page": 1,
+            "width": 1400,
+            "height": 990,
+            "inkCoverage": 0.1808,
+            "horizontalSpan": 0.9314,
+            "verticalSpan": 0.9152,
+            "bodyVerticalSpan": 1.0002,
+            "lowerBodyInkRatio": 0.2251,
+            "leftMargin": 0.0343,
+            "rightMargin": 0.0343
+          },
+          {
+            "page": 2,
+            "width": 1191,
+            "height": 1684,
+            "inkCoverage": 0.2199,
+            "horizontalSpan": 0.5592,
+            "verticalSpan": 0.6164,
+            "bodyVerticalSpan": 0.7126,
+            "lowerBodyInkRatio": 0.2566,
+            "leftMargin": 0.22,
+            "rightMargin": 0.2208
+          },
+          {
+            "page": 3,
+            "width": 1400,
+            "height": 990,
+            "inkCoverage": 0.05,
+            "horizontalSpan": 0.6329,
+            "verticalSpan": 0.3455,
+            "bodyVerticalSpan": 0.4213,
+            "lowerBodyInkRatio": 0,
+            "leftMargin": 0.1836,
+            "rightMargin": 0.1836
+          },
+          {
+            "page": 4,
+            "width": 1191,
+            "height": 1684,
+            "inkCoverage": 0.0094,
+            "horizontalSpan": 0.3459,
+            "verticalSpan": 0.1069,
+            "bodyVerticalSpan": 0.1304,
+            "lowerBodyInkRatio": 0,
+            "leftMargin": 0.0898,
+            "rightMargin": 0.5642
+          }
+        ],
+        "aesthetics": {
+          "ok": true,
+          "format": "xlsx",
+          "scoreVersion": 2,
+          "score": 0.8599,
+          "confidence": 1,
+          "dimensions": {
+            "contrast": 0.9354,
+            "palette": 0.79,
+            "rhythm": 1,
+            "composition": 0.7279
+          },
+          "rhythm": {
+            "pageCount": 4,
+            "featureSpread": 0,
+            "adjacentChange": 0,
+            "repeatedPairs": 0,
+            "maximumSimilarity": 0
+          },
+          "pages": [
+            {
+              "page": 1,
+              "width": 1400,
+              "height": 990,
+              "backgroundLuminance": 0.9999,
+              "luminanceMean": 0.9523,
+              "contrastSpan": 0.1378,
+              "foregroundContrast": 0.3322,
+              "inkContrast": 0.7097,
+              "colorfulness": 10.54,
+              "colorfulnessScore": 0.2343,
+              "accentCoverage": 0.2301,
+              "paletteHueCount": 1,
+              "paletteDominance": 1,
+              "entropy": 0.2547,
+              "edgeDensity": 0.0791,
+              "foregroundCoverage": 0.118,
+              "spatialCoverage": 0.4236,
+              "spatialBalance": 0.8819,
+              "occupiedQuadrants": 4,
+              "role": "opening",
+              "densityFit": 1,
+              "paletteDiscipline": 0.75,
+              "compositionScore": 0.9587
+            },
+            {
+              "page": 2,
+              "width": 1191,
+              "height": 1684,
+              "backgroundLuminance": 0.9998,
+              "luminanceMean": 0.965,
+              "contrastSpan": 0.1235,
+              "foregroundContrast": 0.1189,
+              "inkContrast": 0.6586,
+              "colorfulness": 19.23,
+              "colorfulnessScore": 0.4274,
+              "accentCoverage": 0.0296,
+              "paletteHueCount": 2,
+              "paletteDominance": 0.8783,
+              "entropy": 0.2327,
+              "edgeDensity": 0.0284,
+              "foregroundCoverage": 0.2701,
+              "spatialCoverage": 0.3889,
+              "spatialBalance": 0.8431,
+              "occupiedQuadrants": 4,
+              "role": "content",
+              "densityFit": 1,
+              "paletteDiscipline": 0.748,
+              "compositionScore": 0.9451
+            },
+            {
+              "page": 3,
+              "width": 1400,
+              "height": 990,
+              "backgroundLuminance": 1,
+              "luminanceMean": 0.9796,
+              "contrastSpan": 0.0163,
+              "foregroundContrast": 0.2586,
+              "inkContrast": 0.7765,
+              "colorfulness": 7.99,
+              "colorfulnessScore": 0.1776,
+              "accentCoverage": 0.1749,
+              "paletteHueCount": 1,
+              "paletteDominance": 0.9611,
+              "entropy": 0.1534,
+              "edgeDensity": 0.0298,
+              "foregroundCoverage": 0.0715,
+              "spatialCoverage": 0.1736,
+              "spatialBalance": 0.5676,
+              "occupiedQuadrants": 2,
+              "role": "content",
+              "densityFit": 0.7893,
+              "paletteDiscipline": 0.9121,
+              "compositionScore": 0.6502
+            },
+            {
+              "page": 4,
+              "width": 1191,
+              "height": 1684,
+              "backgroundLuminance": 1,
+              "luminanceMean": 0.9942,
+              "contrastSpan": 0,
+              "foregroundContrast": 0.2835,
+              "inkContrast": 0.7137,
+              "colorfulness": 3.78,
+              "colorfulnessScore": 0.0841,
+              "accentCoverage": 0.1769,
+              "paletteHueCount": 1,
+              "paletteDominance": 1,
+              "entropy": 0.0524,
+              "edgeDensity": 0.0109,
+              "foregroundCoverage": 0.0192,
+              "spatialCoverage": 0.0694,
+              "spatialBalance": 0.1672,
+              "occupiedQuadrants": 1,
+              "role": "closing",
+              "densityFit": 0.5369,
+              "paletteDiscipline": 0.75,
+              "compositionScore": 0.3577
+            }
+          ],
+          "issues": []
+        },
+        "issues": [
+          {
+            "severity": "warning",
+            "code": "worksheet_print_too_small",
+            "path": "/page[3]",
+            "message": "Worksheet content is scaled into a small area of the rendered page.",
+            "source": "render-review"
+          },
+          {
+            "severity": "warning",
+            "code": "worksheet_print_too_small",
+            "path": "/page[4]",
+            "message": "Worksheet content is scaled into a small area of the rendered page.",
+            "source": "render-review"
+          }
+        ]
+      },
+      "quality": {
+        "version": 2,
+        "score": 0.6611,
+        "confidence": 1,
+        "releaseReady": false,
+        "dimensions": {
+          "render": 0.8599,
+          "structural": 0.15
+        },
+        "evidence": {
+          "renderedPages": 4,
+          "expectedPages": 4,
+          "pageCoverage": 1,
+          "planCoverage": 1,
+          "structuralAvailable": true,
+          "blockingIssueCount": 44
+        },
+        "scoreMeaning": "automated-diagnostics-not-design-quality",
+        "automatedReady": false,
+        "visualReview": {
+          "format": "xlsx",
+          "checks": [
+            "sheetReadability",
+            "chartVisibility",
+            "printLayout"
+          ],
+          "pages": [
+            {
+              "page": 1,
+              "passed": true,
+              "note": "자체 검토: 같은 매출·순이익·이익률이 큰 수치로 읽히고 일별 추이와 메뉴 비중을 같은 화면에서 비교할 수 있습니다. 가상 데이터와 비용 제외 조건도 명시되어 있습니다.",
+              "checks": {
+                "sheetReadability": true,
+                "chartVisibility": true,
+                "printLayout": true
+              }
+            },
+            {
+              "page": 2,
+              "passed": true,
+              "note": "자체 검토: 6월 30일 전체 판매 기록이 한 페이지에 있으며 날짜와 판매량, 매출을 읽을 수 있습니다. 노란 입력 영역과 계산 영역이 구분되고 마지막 메뉴를 임의 강조하지 않습니다.",
+              "checks": {
+                "sheetReadability": true,
+                "chartVisibility": true,
+                "printLayout": true
+              }
+            },
+            {
+              "page": 3,
+              "passed": true,
+              "note": "자체 검토: 메뉴별 단가·재료비·월 판매량과 고정비가 빠짐없이 보입니다. 원 단위 숫자가 잘리지 않으며 노란 입력 셀을 유지했습니다. 짧은 작업표의 여백은 허용합니다.",
+              "checks": {
+                "sheetReadability": true,
+                "chartVisibility": true,
+                "printLayout": true
+              }
+            },
+            {
+              "page": 4,
+              "passed": true,
+              "note": "자체 검토: 전체 검증과 매출·손익·비중·판매량 검증이 모두 참으로 표시됩니다. 검증용 보조표는 작지만 글씨가 선명하며 종이를 채우려고 확대하지 않았습니다.",
+              "checks": {
+                "sheetReadability": true,
+                "chartVisibility": true,
+                "printLayout": true
+              }
+            }
+          ],
+          "complete": true,
+          "acknowledged": true,
+          "status": "accepted",
+          "basis": "current-render-and-format-specific-page-review"
+        }
+      },
+      "checklist": {
+        "ok": false,
+        "task": "",
+        "auditProfile": "financial-model",
+        "items": [
+          {
+            "id": "formula-integrity",
+            "label": "Formula results, dependencies, and repeated formula regions are consistent.",
+            "required": true,
+            "status": "fail",
+            "evidence": [
+              "formula_inconsistency",
+              "formula_inconsistency",
+              "formula_inconsistency",
+              "formula_inconsistency",
+              "formula_inconsistency",
+              "formula_inconsistency"
+            ]
+          },
+          {
+            "id": "chart-scope",
+            "label": "Charts contain valid series and exclude total or subtotal rows.",
+            "required": true,
+            "status": "pass",
+            "evidence": []
+          },
+          {
+            "id": "worksheet-hierarchy",
+            "label": "Data sheets have a visible title, header, table, or styled hierarchy.",
+            "required": true,
+            "status": "pass",
+            "evidence": []
+          },
+          {
+            "id": "print-readability",
+            "label": "Rendered worksheets use the page area at a readable scale.",
+            "required": true,
+            "status": "fail",
+            "evidence": [
+              "worksheet_print_too_small",
+              "worksheet_print_too_small"
+            ]
+          },
+          {
+            "id": "checks-sheet",
+            "label": "Financial model includes a Checks sheet with explicit tie-outs.",
+            "required": true,
+            "status": "pass",
+            "evidence": []
+          },
+          {
+            "id": "full-render-coverage",
+            "label": "Every page or slide has a rendered image; visual acceptance is recorded separately.",
+            "required": true,
+            "status": "pass",
+            "evidence": [
+              "4/4"
+            ]
+          }
+        ],
+        "summary": {
+          "total": 6,
+          "passed": 4,
+          "failed": 2,
+          "pending": 0
+        },
+        "issues": []
+      },
+      "polishPlan": {
+        "format": "xlsx",
+        "status": "needs-polish",
+        "targetCount": 44,
+        "criticalCount": 0,
+        "targets": [
+          {
+            "path": "/page[3]",
+            "severity": "warning",
+            "codes": [
+              "worksheet_print_too_small"
+            ],
+            "actions": [
+              "Recompose the sheet for one-page-wide reading; move support data off the dashboard if needed."
+            ]
+          },
+          {
+            "path": "/page[4]",
+            "severity": "warning",
+            "codes": [
+              "worksheet_print_too_small"
+            ],
+            "actions": [
+              "Recompose the sheet for one-page-wide reading; move support data off the dashboard if needed."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A11]",
+            "severity": "warning",
+            "codes": [
+              "unquoted_sheet_reference"
+            ],
+            "actions": [
+              "Quote the sheet name in the reference ('My Sheet'!B5); an unquoted multi-word name evaluates to #VALUE!."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A41]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A42]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A43]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A44]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A45]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A46]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A47]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A48]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A49]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A50]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A51]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A52]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A53]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A54]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A55]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A56]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A57]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A58]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A59]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A6]",
+            "severity": "warning",
+            "codes": [
+              "unquoted_sheet_reference"
+            ],
+            "actions": [
+              "Quote the sheet name in the reference ('My Sheet'!B5); an unquoted multi-word name evaluates to #VALUE!."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A60]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A61]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A62]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A63]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A64]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A65]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A66]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A67]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A68]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A69]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[A70]",
+            "severity": "warning",
+            "codes": [
+              "number_stored_as_text"
+            ],
+            "actions": [
+              "Write the figure as a number and put the separators or percent sign in the column format; text never sums or sorts as a number."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[E6]",
+            "severity": "warning",
+            "codes": [
+              "unquoted_sheet_reference"
+            ],
+            "actions": [
+              "Quote the sheet name in the reference ('My Sheet'!B5); an unquoted multi-word name evaluates to #VALUE!."
+            ]
+          },
+          {
+            "path": "/sheet[대시보드]/cell[I6]",
+            "severity": "warning",
+            "codes": [
+              "unquoted_sheet_reference"
+            ],
+            "actions": [
+              "Quote the sheet name in the reference ('My Sheet'!B5); an unquoted multi-word name evaluates to #VALUE!."
+            ]
+          },
+          {
+            "path": "/sheet[메뉴 분석]/cell[B5]",
+            "severity": "warning",
+            "codes": [
+              "formula_inconsistency"
+            ],
+            "actions": [
+              "Replace the hardcoded value with the formula its neighbours use, or move the override into an assumption cell."
+            ]
+          },
+          {
+            "path": "/sheet[메뉴 분석]/cell[B6]",
+            "severity": "warning",
+            "codes": [
+              "formula_inconsistency"
+            ],
+            "actions": [
+              "Replace the hardcoded value with the formula its neighbours use, or move the override into an assumption cell."
+            ]
+          },
+          {
+            "path": "/sheet[메뉴 분석]/cell[B7]",
+            "severity": "warning",
+            "codes": [
+              "formula_inconsistency"
+            ],
+            "actions": [
+              "Replace the hardcoded value with the formula its neighbours use, or move the override into an assumption cell."
+            ]
+          },
+          {
+            "path": "/sheet[메뉴 분석]/cell[C5]",
+            "severity": "warning",
+            "codes": [
+              "formula_inconsistency"
+            ],
+            "actions": [
+              "Replace the hardcoded value with the formula its neighbours use, or move the override into an assumption cell."
+            ]
+          },
+          {
+            "path": "/sheet[메뉴 분석]/cell[C6]",
+            "severity": "warning",
+            "codes": [
+              "formula_inconsistency"
+            ],
+            "actions": [
+              "Replace the hardcoded value with the formula its neighbours use, or move the override into an assumption cell."
+            ]
+          },
+          {
+            "path": "/sheet[메뉴 분석]/cell[C7]",
+            "severity": "warning",
+            "codes": [
+              "formula_inconsistency"
+            ],
+            "actions": [
+              "Replace the hardcoded value with the formula its neighbours use, or move the override into an assumption cell."
+            ]
+          },
+          {
+            "path": "/sheet[Checks]/cell[B4]",
+            "severity": "warning",
+            "codes": [
+              "unquoted_sheet_reference"
+            ],
+            "actions": [
+              "Quote the sheet name in the reference ('My Sheet'!B5); an unquoted multi-word name evaluates to #VALUE!."
+            ]
+          },
+          {
+            "path": "/sheet[Checks]/cell[B6]",
+            "severity": "warning",
+            "codes": [
+              "unquoted_sheet_reference"
+            ],
+            "actions": [
+              "Quote the sheet name in the reference ('My Sheet'!B5); an unquoted multi-word name evaluates to #VALUE!."
+            ]
+          }
+        ],
+        "nextAction": "Edit only the reported targets in one atomic batch, render the changed pages, then run QA again."
+      },
+      "trust": {
+        "policy": "untrusted-data",
+        "safeToTreatAsInstructions": false,
+        "format": "xlsx",
+        "source": "structured-snapshot+office-file",
+        "risk": "none",
+        "mutationGate": "allow",
+        "findingCount": 0,
+        "findings": [],
+        "scannedStrings": 6617,
+        "complete": true
+      },
+      "visualDiff": {
+        "available": false,
+        "pages": [],
+        "changedPercent": 0,
+        "images": []
+      }
+    },
+    "preview": {
+      "output": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.mixdog-preview.pdf",
+      "pageCount": 4,
+      "visualCoverage": {
+        "reviewedPages": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "reviewed": 4,
+        "total": 4,
+        "complete": true,
+        "remainingPages": []
+      },
+      "images": [
+        {
+          "page": 1,
+          "path": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.mixdog-preview-page-1.png",
+          "width": 1400,
+          "height": 990,
+          "mimeType": "image/png"
+        },
+        {
+          "page": 2,
+          "path": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.mixdog-preview-page-2.png",
+          "width": 1191,
+          "height": 1684,
+          "mimeType": "image/png"
+        },
+        {
+          "page": 3,
+          "path": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.mixdog-preview-page-3.png",
+          "width": 1400,
+          "height": 990,
+          "mimeType": "image/png"
+        },
+        {
+          "page": 4,
+          "path": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.mixdog-preview-page-4.png",
+          "width": 1191,
+          "height": 1684,
+          "mimeType": "image/png"
+        }
+      ],
+      "reviewToken": "office_b4af14a363bc4f2e:0:a5540aca3d1e84a22d83c81c7062e9ae1f319c95a0d1a2934b2caa4b01280da2",
+      "reused": true,
+      "exportAvailable": true
+    },
+    "baseline": {
+      "available": false,
+      "output": "",
+      "reason": "No active transaction baseline."
+    },
+    "visualReview": {
+      "format": "xlsx",
+      "checks": [
+        "sheetReadability",
+        "chartVisibility",
+        "printLayout"
+      ],
+      "pages": [
+        {
+          "page": 1,
+          "passed": true,
+          "note": "자체 검토: 같은 매출·순이익·이익률이 큰 수치로 읽히고 일별 추이와 메뉴 비중을 같은 화면에서 비교할 수 있습니다. 가상 데이터와 비용 제외 조건도 명시되어 있습니다.",
+          "checks": {
+            "sheetReadability": true,
+            "chartVisibility": true,
+            "printLayout": true
+          }
+        },
+        {
+          "page": 2,
+          "passed": true,
+          "note": "자체 검토: 6월 30일 전체 판매 기록이 한 페이지에 있으며 날짜와 판매량, 매출을 읽을 수 있습니다. 노란 입력 영역과 계산 영역이 구분되고 마지막 메뉴를 임의 강조하지 않습니다.",
+          "checks": {
+            "sheetReadability": true,
+            "chartVisibility": true,
+            "printLayout": true
+          }
+        },
+        {
+          "page": 3,
+          "passed": true,
+          "note": "자체 검토: 메뉴별 단가·재료비·월 판매량과 고정비가 빠짐없이 보입니다. 원 단위 숫자가 잘리지 않으며 노란 입력 셀을 유지했습니다. 짧은 작업표의 여백은 허용합니다.",
+          "checks": {
+            "sheetReadability": true,
+            "chartVisibility": true,
+            "printLayout": true
+          }
+        },
+        {
+          "page": 4,
+          "passed": true,
+          "note": "자체 검토: 전체 검증과 매출·손익·비중·판매량 검증이 모두 참으로 표시됩니다. 검증용 보조표는 작지만 글씨가 선명하며 종이를 채우려고 확대하지 않았습니다.",
+          "checks": {
+            "sheetReadability": true,
+            "chartVisibility": true,
+            "printLayout": true
+          }
+        }
+      ],
+      "complete": true,
+      "acknowledged": true,
+      "status": "accepted",
+      "basis": "current-render-and-format-specific-page-review"
+    }
+  },
+  "validation": {
+    "session": "office_b4af14a363bc4f2e",
+    "mode": "portable",
+    "backend": "mixdog-ooxml",
+    "path": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.xlsx",
+    "ok": true,
+    "format": "xlsx",
+    "entries": 40,
+    "missing": [],
+    "unsafeEntries": [],
+    "macros": [],
+    "security": {
+      "macros": [],
+      "signatures": [],
+      "externalLinks": [],
+      "dataConnections": [],
+      "embeddedObjects": [],
+      "macroExecution": "disabled",
+      "digitalSignatureInvalidated": false
+    },
+    "malformedXml": [],
+    "missingRelationships": [],
+    "duplicateRelationshipIds": [],
+    "externalRelationships": [],
+    "missingContentTypes": [],
+    "mainPart": "xl/workbook.xml",
+    "mainContentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
+    "mainContentTypeMissing": false,
+    "baseline": {
+      "compared": true,
+      "original": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_운영보고서_개선본.xlsx",
+      "originalEntries": 40,
+      "addedParts": [],
+      "lostProtectedParts": [],
+      "changedProtectedParts": [],
+      "signatureParts": [],
+      "digitalSignatureInvalidated": false
+    },
+    "redlining": null,
+    "documentLint": [],
+    "validation": "opc-relationships-content-types-xml",
+    "schema": {
+      "available": true,
+      "cached": true,
+      "downloaded": false,
+      "path": "C:\\Users\\tempe\\.mixdog\\data\\office\\tools\\ooxml-validator\\0.3.0\\win32-x64\\ooxml-validator.exe",
+      "version": "0.3.0",
+      "ok": true,
+      "errors": [],
+      "compatibilityWarnings": [
+        {
+          "description": "The element 'http://schemas.microsoft.com/office/drawing/2012/chartStyle:dataPointMarkerLayout' is a leaf element and cannot contain children.",
+          "path": "/xl/charts/style1.xml",
+          "xPath": "/cs:chartStyle[1]/cs:dataPointMarkerLayout[1]",
+          "id": "Sch_InvalidChildinLeafElement",
+          "errorType": "Schema"
+        },
+        {
+          "description": "The element has invalid child element 'http://schemas.microsoft.com/office/drawing/2012/chartStyle:schemeClr'. List of possible elements expected: <http://schemas.openxmlformats.org/drawingml/2006/main:hslClr>,<http://schemas.openxmlformats.org/drawingml/2006/main:prstClr>,<http://schemas.openxmlformats.org/drawingml/2006/main:schemeClr>,<http://schemas.openxmlformats.org/drawingml/2006/main:scrgbClr>,<http://schemas.openxmlformats.org/drawingml/2006/main:srgbClr>,<http://schemas.openxmlformats.org/drawingml/2006/main:sysClr>.",
+          "path": "/xl/charts/style1.xml",
+          "xPath": "/cs:chartStyle[1]/cs:dataPoint[1]/cs:fontRef[1]",
+          "id": "Sch_InvalidElementContentExpectingComplex",
+          "errorType": "Schema"
+        },
+        {
+          "description": "The element 'http://schemas.microsoft.com/office/drawing/2012/chartStyle:dataPointMarkerLayout' is a leaf element and cannot contain children.",
+          "path": "/xl/charts/style2.xml",
+          "xPath": "/cs:chartStyle[1]/cs:dataPointMarkerLayout[1]",
+          "id": "Sch_InvalidChildinLeafElement",
+          "errorType": "Schema"
+        },
+        {
+          "description": "The element has invalid child element 'http://schemas.microsoft.com/office/drawing/2012/chartStyle:schemeClr'. List of possible elements expected: <http://schemas.openxmlformats.org/drawingml/2006/main:hslClr>,<http://schemas.openxmlformats.org/drawingml/2006/main:prstClr>,<http://schemas.openxmlformats.org/drawingml/2006/main:schemeClr>,<http://schemas.openxmlformats.org/drawingml/2006/main:scrgbClr>,<http://schemas.openxmlformats.org/drawingml/2006/main:srgbClr>,<http://schemas.openxmlformats.org/drawingml/2006/main:sysClr>.",
+          "path": "/xl/charts/style2.xml",
+          "xPath": "/cs:chartStyle[1]/cs:dataPoint[1]/cs:fontRef[1]",
+          "id": "Sch_InvalidElementContentExpectingComplex",
+          "errorType": "Schema"
+        }
+      ],
+      "omittedErrors": 0,
+      "rawValid": false,
+      "officeVersion": "Microsoft365",
+      "validation": "open-xml-sdk"
+    },
+    "assertions": null,
+    "native": null,
+    "postSaveGate": null,
+    "compatibility": null
+  },
+  "design": {
+    "profile": "executive",
+    "label": "Executive",
+    "bestFor": "Decision briefs, operating reviews, dashboards, and leadership presentations.",
+    "intent": "",
+    "audience": "",
+    "tone": "",
+    "density": "balanced",
+    "purpose": "monitor",
+    "expressionMode": "strong-fit",
+    "recentCompositions": [
+      {
+        "fingerprint": "f82b23a054555cf6642ed6b3837f86f978af6bfb7d2585cc4d4218ed1ae93f0e",
+        "format": "xlsx",
+        "profile": "executive",
+        "purpose": "monitor",
+        "expressionMode": "strong-fit",
+        "compositionIds": [
+          "monitor-dashboard"
+        ],
+        "createdAt": "2026-09-06T18:02:24.669Z"
+      },
+      {
+        "fingerprint": "242630e903fcb4f817d3f3d516e1338acf32e29cba08932d04ead47084d8f679",
+        "format": "xlsx",
+        "profile": "executive",
+        "purpose": "monitor",
+        "expressionMode": "strong-fit",
+        "compositionIds": [
+          "trend-dashboard"
+        ],
+        "createdAt": "2026-09-06T18:00:27.058Z"
+      },
+      {
+        "fingerprint": "ccf355660575fca78042e17593a4322a31f29fd49582ad07e5d8d858d63e1890",
+        "format": "xlsx",
+        "profile": "data",
+        "purpose": "monitor",
+        "expressionMode": "strong-fit",
+        "compositionIds": [
+          "monitor-dashboard"
+        ],
+        "createdAt": "2026-08-30T21:54:58.413Z"
+      }
+    ],
+    "signature": "",
+    "source": "existing-document",
+    "artDirection": {
+      "format": "xlsx",
+      "source": "profile-default",
+      "seedFingerprint": "180b988a36f655a3",
+      "subjectDomain": "subject-seeded",
+      "applyTokens": false,
+      "selected": {
+        "id": "evidence-grid",
+        "label": "Evidence Grid",
+        "rationale": "Evidence Grid fits monitor through measured evidence windows.",
+        "motif": "measured evidence windows",
+        "palette": {
+          "canvas": "F7F8F6",
+          "ink": "1E2C1C",
+          "muted": "4E684C",
+          "accent": "38A527",
+          "accent2": "2AC075",
+          "surface": "E8EFE7",
+          "surface2": "D4E0D2",
+          "inverse": "1D2D1A",
+          "onAccent": "FFFFFF",
+          "onInverse": "F4F6F4",
+          "inverse2": "2C4427",
+          "accentLight": "42C42E",
+          "accentDeep": "236718",
+          "accent2Light": "2AC075",
+          "accent2Deep": "186C42",
+          "positive": "22A061",
+          "positiveWeak": "E1F4EB",
+          "positiveText": "396951",
+          "warning": "B58527",
+          "warningWeak": "F4EEE1",
+          "warningText": "715F3D",
+          "critical": "CA382B",
+          "criticalWeak": "F4E3E1",
+          "criticalText": "71413D",
+          "informative": "2B6DCA",
+          "informativeWeak": "E1E9F4",
+          "informativeText": "3D5271"
+        },
+        "typography": {
+          "display": "Calibri",
+          "body": "Calibri",
+          "data": "Arial"
+        },
+        "style": {
+          "id": "swiss-grid",
+          "motif": "grid-marks",
+          "corners": "sharp",
+          "boundaries": "rules-and-planes",
+          "elevation": "flat",
+          "composition": "one oversized geometric plane zoning the page; content flush to one axis; hero numeral at architectural scale",
+          "pageRhythm": [
+            "anchor",
+            "dense",
+            "dense",
+            "breathing",
+            "anchor"
+          ]
+        },
+        "creativeSystem": {
+          "grid": "twelve-column analytical grid with one dominant evidence field",
+          "shapeLanguage": "square evidence fields, quiet dividers, numeric anchors",
+          "chartTreatment": "native chart with direct labels and a decision commentary rail",
+          "densityPattern": [
+            "light opening",
+            "dense proof",
+            "balanced choice",
+            "light close"
+          ],
+          "motifRules": [
+            "repeat measured windows",
+            "use one dominant number per proof beat",
+            "avoid equal card grids"
+          ]
+        },
+        "deck": {
+          "backgroundMode": "light",
+          "motif": "measured evidence windows",
+          "imageTreatment": "contained-evidence",
+          "layoutBias": [
+            "evidence",
+            "data",
+            "comparison",
+            "process"
+          ],
+          "grid": "twelve-column analytical grid with one dominant evidence field",
+          "shapeLanguage": "square evidence fields, quiet dividers, numeric anchors",
+          "chartTreatment": "native chart with direct labels and a decision commentary rail",
+          "densityPattern": [
+            "light opening",
+            "dense proof",
+            "balanced choice",
+            "light close"
+          ],
+          "motifRules": [
+            "repeat measured windows",
+            "use one dominant number per proof beat",
+            "avoid equal card grids"
+          ]
+        },
+        "score": 26.068,
+        "selectionReason": "monitor/strong-fit fit"
+      },
+      "candidates": [
+        {
+          "id": "evidence-grid",
+          "label": "Evidence Grid",
+          "rationale": "Evidence Grid fits monitor through measured evidence windows.",
+          "motif": "measured evidence windows",
+          "palette": {
+            "canvas": "F7F8F6",
+            "ink": "1E2C1C",
+            "muted": "4E684C",
+            "accent": "38A527",
+            "accent2": "2AC075",
+            "surface": "E8EFE7",
+            "surface2": "D4E0D2",
+            "inverse": "1D2D1A",
+            "onAccent": "FFFFFF",
+            "onInverse": "F4F6F4",
+            "inverse2": "2C4427",
+            "accentLight": "42C42E",
+            "accentDeep": "236718",
+            "accent2Light": "2AC075",
+            "accent2Deep": "186C42",
+            "positive": "22A061",
+            "positiveWeak": "E1F4EB",
+            "positiveText": "396951",
+            "warning": "B58527",
+            "warningWeak": "F4EEE1",
+            "warningText": "715F3D",
+            "critical": "CA382B",
+            "criticalWeak": "F4E3E1",
+            "criticalText": "71413D",
+            "informative": "2B6DCA",
+            "informativeWeak": "E1E9F4",
+            "informativeText": "3D5271"
+          },
+          "typography": {
+            "display": "Calibri",
+            "body": "Calibri",
+            "data": "Arial"
+          },
+          "style": {
+            "id": "swiss-grid",
+            "motif": "grid-marks",
+            "corners": "sharp",
+            "boundaries": "rules-and-planes",
+            "elevation": "flat",
+            "composition": "one oversized geometric plane zoning the page; content flush to one axis; hero numeral at architectural scale",
+            "pageRhythm": [
+              "anchor",
+              "dense",
+              "dense",
+              "breathing",
+              "anchor"
+            ]
+          },
+          "creativeSystem": {
+            "grid": "twelve-column analytical grid with one dominant evidence field",
+            "shapeLanguage": "square evidence fields, quiet dividers, numeric anchors",
+            "chartTreatment": "native chart with direct labels and a decision commentary rail",
+            "densityPattern": [
+              "light opening",
+              "dense proof",
+              "balanced choice",
+              "light close"
+            ],
+            "motifRules": [
+              "repeat measured windows",
+              "use one dominant number per proof beat",
+              "avoid equal card grids"
+            ]
+          },
+          "deck": {
+            "backgroundMode": "light",
+            "motif": "measured evidence windows",
+            "imageTreatment": "contained-evidence",
+            "layoutBias": [
+              "evidence",
+              "data",
+              "comparison",
+              "process"
+            ],
+            "grid": "twelve-column analytical grid with one dominant evidence field",
+            "shapeLanguage": "square evidence fields, quiet dividers, numeric anchors",
+            "chartTreatment": "native chart with direct labels and a decision commentary rail",
+            "densityPattern": [
+              "light opening",
+              "dense proof",
+              "balanced choice",
+              "light close"
+            ],
+            "motifRules": [
+              "repeat measured windows",
+              "use one dominant number per proof beat",
+              "avoid equal card grids"
+            ]
+          },
+          "score": 26.068
+        },
+        {
+          "id": "immersive-signal",
+          "label": "Immersive Signal",
+          "rationale": "Immersive Signal fits monitor through immersive fields with one sharp signal.",
+          "motif": "immersive fields with one sharp signal",
+          "palette": {
+            "canvas": "F7F8F6",
+            "ink": "232C1C",
+            "muted": "526046",
+            "accent": "6ACC1E",
+            "accent2": "412AC0",
+            "surface": "EAEFE7",
+            "surface2": "D8E0D2",
+            "inverse": "1B2414",
+            "onAccent": "FFFFFF",
+            "onInverse": "F5F6F4",
+            "inverse2": "2C3B21",
+            "accentLight": "6ACC1E",
+            "accentDeep": "36680F",
+            "accent2Light": "A69AE9",
+            "accent2Deep": "412AC0",
+            "positive": "22A061",
+            "positiveWeak": "E1F4EB",
+            "positiveText": "396951",
+            "warning": "B58527",
+            "warningWeak": "F4EEE1",
+            "warningText": "715F3D",
+            "critical": "CA382B",
+            "criticalWeak": "F4E3E1",
+            "criticalText": "71413D",
+            "informative": "2B6DCA",
+            "informativeWeak": "E1E9F4",
+            "informativeText": "3D5271"
+          },
+          "typography": {
+            "display": "Arial",
+            "body": "Calibri",
+            "data": "Courier New"
+          },
+          "style": {
+            "id": "dark-tech",
+            "motif": "halo-field",
+            "corners": "slight",
+            "boundaries": "glow-and-layering",
+            "elevation": "glow",
+            "composition": "concentric halo staging one central metric; oversized type floating on dark negative space; monospace labels with wide tracking",
+            "pageRhythm": [
+              "anchor",
+              "dense",
+              "breathing",
+              "dense",
+              "anchor"
+            ]
+          },
+          "creativeSystem": {
+            "grid": "cinematic split field with one oversized signal and compressed support",
+            "shapeLanguage": "deep fields, oversized type, sharp signal chips",
+            "chartTreatment": "minimal native chart with luminous signal series and direct callouts",
+            "densityPattern": [
+              "immersive opening",
+              "high-contrast proof",
+              "compressed decision close"
+            ],
+            "motifRules": [
+              "one sharp signal per slide",
+              "alternate immersive and analytical fields",
+              "never decorate without evidence"
+            ]
+          },
+          "deck": {
+            "backgroundMode": "dark",
+            "motif": "immersive fields with one sharp signal",
+            "imageTreatment": "full-bleed-focus",
+            "layoutBias": [
+              "minimal",
+              "rhythm",
+              "split",
+              "data"
+            ],
+            "grid": "cinematic split field with one oversized signal and compressed support",
+            "shapeLanguage": "deep fields, oversized type, sharp signal chips",
+            "chartTreatment": "minimal native chart with luminous signal series and direct callouts",
+            "densityPattern": [
+              "immersive opening",
+              "high-contrast proof",
+              "compressed decision close"
+            ],
+            "motifRules": [
+              "one sharp signal per slide",
+              "alternate immersive and analytical fields",
+              "never decorate without evidence"
+            ]
+          },
+          "score": 20.075
+        },
+        {
+          "id": "editorial-contrast",
+          "label": "Editorial Contrast",
+          "rationale": "Editorial Contrast fits monitor through editorial crops and decisive whitespace.",
+          "motif": "editorial crops and decisive whitespace",
+          "palette": {
+            "canvas": "F6F8F7",
+            "ink": "1C2C20",
+            "muted": "4C6851",
+            "accent": "27A544",
+            "accent2": "2AC0AC",
+            "surface": "E7EFE8",
+            "surface2": "D2E0D5",
+            "inverse": "1A2D1F",
+            "onAccent": "FFFFFF",
+            "onInverse": "F4F6F4",
+            "inverse2": "27442F",
+            "accentLight": "2EC451",
+            "accentDeep": "18672B",
+            "accent2Light": "2AC0AC",
+            "accent2Deep": "186C61",
+            "positive": "22A061",
+            "positiveWeak": "E1F4EB",
+            "positiveText": "396951",
+            "warning": "B58527",
+            "warningWeak": "F4EEE1",
+            "warningText": "715F3D",
+            "critical": "CA382B",
+            "criticalWeak": "F4E3E1",
+            "criticalText": "71413D",
+            "informative": "2B6DCA",
+            "informativeWeak": "E1E9F4",
+            "informativeText": "3D5271"
+          },
+          "typography": {
+            "display": "Cambria",
+            "body": "Calibri",
+            "data": "Arial"
+          },
+          "style": {
+            "id": "editorial",
+            "motif": "oversized-numeral",
+            "corners": "minimal",
+            "boundaries": "hairlines-and-columns",
+            "elevation": "flat",
+            "composition": "oversized numeral anchoring the page; asymmetric column split; a figure crossing a column edge; kicker → headline → standfirst hierarchy",
+            "pageRhythm": [
+              "anchor",
+              "dense",
+              "breathing",
+              "dense",
+              "anchor"
+            ]
+          },
+          "creativeSystem": {
+            "grid": "asymmetric editorial grid with controlled crops and wide outer margins",
+            "shapeLanguage": "hairline fields, serif display contrast, offset captions",
+            "chartTreatment": "chart as editorial evidence with annotation blocks and selective labels",
+            "densityPattern": [
+              "quiet opening",
+              "alternating proof density",
+              "decisive close"
+            ],
+            "motifRules": [
+              "repeat editorial crops",
+              "pair serif thesis with sans evidence",
+              "preserve asymmetry"
+            ]
+          },
+          "deck": {
+            "backgroundMode": "sandwich",
+            "motif": "editorial crops and decisive whitespace",
+            "imageTreatment": "editorial-crop",
+            "layoutBias": [
+              "editorial",
+              "typography",
+              "evidence",
+              "decision"
+            ],
+            "grid": "asymmetric editorial grid with controlled crops and wide outer margins",
+            "shapeLanguage": "hairline fields, serif display contrast, offset captions",
+            "chartTreatment": "chart as editorial evidence with annotation blocks and selective labels",
+            "densityPattern": [
+              "quiet opening",
+              "alternating proof density",
+              "decisive close"
+            ],
+            "motifRules": [
+              "repeat editorial crops",
+              "pair serif thesis with sans evidence",
+              "preserve asymmetry"
+            ]
+          },
+          "score": 6.005
+        }
+      ]
+    },
+    "creative": null,
+    "content": null,
+    "library": {
+      "source": "starter-fallback",
+      "pack": null,
+      "template": null,
+      "templateIndexRevision": "f9f41e945bb0bbfdbeced8de2215deaa1cc689b0993431132e882b54a19afb13",
+      "recentCompositionCount": 3,
+      "pinned": true,
+      "warning": ""
+    },
+    "layouts": [],
+    "tokens": {
+      "colors": {
+        "canvas": "F8F9F6",
+        "ink": "17221C",
+        "muted": "5A635F",
+        "accent": "1F7A55",
+        "accent2": "D89224",
+        "surface": "E8F1EC",
+        "surface2": "DDE4DF",
+        "inverse": "132C24",
+        "onAccent": "FFFFFF",
+        "onInverse": "FFFFFF",
+        "inverse2": "1E4538",
+        "accentLight": "31C187",
+        "accentDeep": "1C704E",
+        "accent2Light": "DE9D38",
+        "accent2Deep": "815715",
+        "positive": "22A061",
+        "positiveWeak": "E1F4EB",
+        "positiveText": "396951",
+        "warning": "B58527",
+        "warningWeak": "F4EEE1",
+        "warningText": "715F3D",
+        "critical": "CA382B",
+        "criticalWeak": "F4E3E1",
+        "criticalText": "71413D",
+        "informative": "2B6DCA",
+        "informativeWeak": "E1E9F4",
+        "informativeText": "3D5271"
+      },
+      "typography": {
+        "display": "Cambria",
+        "body": "Calibri",
+        "data": "Arial"
+      },
+      "spacing": {
+        "compact": 10,
+        "block": 22,
+        "section": 40,
+        "page": 52
+      }
+    },
+    "discipline": {
+      "replacedFonts": [],
+      "fontFamilyCount": 3,
+      "paletteAdjustments": [
+        {
+          "role": "muted",
+          "from": "66716B",
+          "to": "606A65",
+          "reason": "muted on surface measured 4.4:1; 4.5:1 is required."
+        },
+        {
+          "role": "muted",
+          "from": "606A65",
+          "to": "5A635F",
+          "reason": "muted on surface2 measured 4.33:1; 4.5:1 is required."
+        }
+      ]
+    },
+    "format": {
+      "title": 20,
+      "heading": 10,
+      "body": 9.5,
+      "tableStyle": "TableStyleMedium4"
+    },
+    "compositions": [],
+    "review": {
+      "required": false,
+      "allowTextOnly": false,
+      "allowRepetition": false,
+      "allowDecorativeLines": false,
+      "allowSyntheticVisuals": false,
+      "allowFlatRhythm": false,
+      "allowUnsafeFonts": false,
+      "frontier": false
+    }
+  },
+  "composition": {
+    "format": "xlsx",
+    "fingerprint": "",
+    "compositionIds": [],
+    "count": 0
+  },
+  "compositionHistory": null,
+  "stepMetrics": {
+    "recalculationMs": 2.4,
+    "reviewMs": 2010.21,
+    "saveMs": 0.07,
+    "validationMs": 570.27,
+    "closeMs": 0.09
+  },
+  "metrics": {
+    "durationMs": 2585.27
+  },
+  "artifacts": [
+    {
+      "type": "spreadsheet",
+      "format": "xlsx",
+      "fileKind": "xlsx",
+      "operation": "edit",
+      "path": "C:\\Project\\mixdog\\output\\모닝브루_2026-06_대시보드.xlsx"
+    }
+  ],
+  "outputCount": 1,
+  "expectedOutputCount": 1
+}

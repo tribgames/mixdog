@@ -34,7 +34,7 @@ const SEARCH_TIMEOUT_RECYCLE_WINDOW_MS = 30_000;
 const SEARCH_TIMEOUT_BURST_MS = 1_000;
 const FUZZY_INVENTORY_LEASE_MS = (() => {
   const configured = Number(process.env.MIXDOG_FIND_INVENTORY_LEASE_MS);
-  if (!Number.isFinite(configured) || configured < 0) return 3_000;
+  if (!Number.isFinite(configured) || configured < 0) return 0;
   return Math.min(30_000, Math.floor(configured));
 })();
 
@@ -709,9 +709,8 @@ export async function tryServeFuzzySearch(args, execOptions = {}) {
       limit: Math.max(1, Math.min(1_000, Math.floor(Number(args?.limit) || 25))),
       hidden: args?.hidden !== false,
       includeNoise: args?.includeNoise === true,
-      // A fuzzy deadline returns a truthful partial window. Keep the shared
-      // query-independent inventory briefly for an immediate retry, then let
-      // the native worker stop an idle broad walk instead of crawling forever.
+      // Background inventory continuation is explicit opt-in, not a
+      // prerequisite for a normal find response.
       ...(FUZZY_INVENTORY_LEASE_MS > 0
         ? { keepInventoryMs: FUZZY_INVENTORY_LEASE_MS }
         : {}),

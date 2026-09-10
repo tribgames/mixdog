@@ -1,0 +1,28 @@
+{
+  "ok": true,
+  "deck": "C:\\Project\\mixdog\\output\\ai-work-proposal-20260907\\qc-recovery-page-7.pptx",
+  "route": {
+    "provider": "openai-oauth",
+    "model": "gpt-6-astra",
+    "effort": "medium"
+  },
+  "isolation": "pristine-per-page",
+  "total": 8,
+  "pages": [
+    {
+      "page": 7,
+      "vision": true,
+      "before": 0,
+      "after": 0,
+      "edited": false,
+      "kept": true,
+      "reason": "unchanged",
+      "reply": "OK"
+    }
+  ],
+  "skippedPages": [],
+  "fixed": 0,
+  "polished": 0,
+  "discarded": 0,
+  "skipped": 0
+}

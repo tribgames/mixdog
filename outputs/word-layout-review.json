@@ -1,0 +1,26 @@
+{
+  "output": "outputs/아무것도_하지_않는_시간의_쓸모_개선본.docx",
+  "renderer": "LibreOffice",
+  "pageCount": 2,
+  "images": [
+    {
+      "page": 1,
+      "path": "C:\\Project\\mixdog\\outputs\\아무것도_하지_않는_시간의_쓸모_개선본.mixdog-preview-page-1.png",
+      "width": 1191,
+      "height": 1684,
+      "mimeType": "image/png"
+    },
+    {
+      "page": 2,
+      "path": "C:\\Project\\mixdog\\outputs\\아무것도_하지_않는_시간의_쓸모_개선본.mixdog-preview-page-2.png",
+      "width": 1191,
+      "height": 1684,
+      "mimeType": "image/png"
+    }
+  ],
+  "fileHash": "035e88027d32f4cc6add67bb34a798d59e8f2a2144a7ccda64d6fbac2dab28b9",
+  "imageHashes": [
+    "aff53d0a177d86b8d54ea7162688cfbf822cb8ea5765299ad3d82e83e2f851e4",
+    "1b409115e07894940a66da44fab9df8d5e155408056a64a1956ab6fcdcff3b7c"
+  ]
+}

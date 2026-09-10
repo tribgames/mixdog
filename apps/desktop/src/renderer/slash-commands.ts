@@ -37,7 +37,7 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   { name: 'websearch', usage: '/websearch', description: 'Set the web search provider/model', settingsRow: 'websearch' },
   { name: 'workflow', usage: '/workflow', params: '[name]', description: 'Switch the active workflow', settingsRow: 'workflow' },
   { name: 'outputstyle', usage: '/OutputStyle', aliases: ['output-style', 'style'], aliasUsage: ['style'], showAliasUsage: false, params: '[name]', description: 'Switch Lead output style', settingsRow: 'output-style' },
-  { name: 'theme', usage: '/theme', params: '[id]', description: 'Change the TUI color theme', settingsRow: 'theme' },
+  { name: 'theme', usage: '/theme', params: '[id]', description: 'Change the TUI color theme', desktopDescription: 'Change the app color theme', settingsRow: 'theme' },
   { name: 'agents', usage: '/agents', params: '[refresh]', description: 'Show available workflow agents', settingsRow: 'workflow' },
   { name: 'effort', usage: '/effort', params: '[level]', description: 'Set reasoning effort for the current model', settingsRow: 'model' },
   { name: 'fast', usage: '/fast', params: '[on|off]', description: 'Toggle Fast mode for the current model', action: 'fast' },

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { DesktopRemoteAccessInfo } from '../../shared/contract';
-import { t } from '../i18n';
+import { t, uiFormatLocale } from '../i18n';
 import { ActionButton, Group, ResourceRow } from './capability-controls';
 import type { CapabilityApi } from './capability-data';
 import {
@@ -121,12 +121,12 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
       <div className="settings-resource-list">
         {info.clients.map((client) => {
           const lastSeen = client.lastSeenAt
-            ? new Date(client.lastSeenAt).toLocaleString()
+            ? new Date(client.lastSeenAt).toLocaleString(uiFormatLocale())
             : t('Never');
           return <ResourceRow key={client.id}
             title={client.name || `${client.platform || 'Device'} · ${client.browser || 'Browser'}`}
             meta={t('Added {{created}} · Last used {{lastSeen}}', {
-              created: new Date(client.createdAt).toLocaleDateString(),
+              created: new Date(client.createdAt).toLocaleDateString(uiFormatLocale()),
               lastSeen,
             })}
             status={client.online ? 'Connected' : 'Not connected'}

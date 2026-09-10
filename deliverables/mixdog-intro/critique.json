@@ -1,0 +1,79 @@
+[
+  {
+    "slide": 1, "role": "anchor", "verdict": "pass",
+    "hierarchy": 5, "balance": 4, "legibility": 5, "cohesion": 5, "evidence": 4,
+    "note": "자체 시각 검토. Mixdog 이름이 가장 크게 보이며 비용과 작업량에 대한 가치 제안은 두 줄의 완결된 구절로 읽힌다. 합성 화면 없이 타이포그래피로 제품을 소개한다.",
+    "fixes": [],
+    "checks": [
+      {"item": "Mixdog가 표지의 가장 큰 텍스트인가?", "pass": true},
+      {"item": "비용 효율과 더 많은 작업이라는 목표가 함께 표시되는가?", "pass": true},
+      {"item": "효율성 중심 AI 코딩 도구라는 제품 범주가 명시되는가?", "pass": true}
+    ]
+  },
+  {
+    "slide": 2, "verdict": "pass",
+    "hierarchy": 4, "balance": 4, "legibility": 5, "cohesion": 5, "evidence": 4,
+    "note": "자체 시각 검토. 왼쪽의 효율성 목표와 오른쪽의 시작 편의성 및 복잡한 작업 지원이 서로 구분된다. 제품 목표라는 출처 표기가 벤치마크 실측 주장과 분리한다.",
+    "fixes": [],
+    "checks": [
+      {"item": "같은 예산에서 더 많은 작업이라는 목표가 제목에 있는가?", "pass": true},
+      {"item": "컨텍스트·시간·비용과 간단한 설정이 구분되어 제시되는가?", "pass": true},
+      {"item": "실측 결과가 아닌 제품 목표라고 표시되는가?", "pass": true}
+    ]
+  },
+  {
+    "slide": 3, "verdict": "pass",
+    "hierarchy": 4, "balance": 4, "legibility": 5, "cohesion": 5, "evidence": 4,
+    "note": "자체 시각 검토. 모델 선택·작업 분담·작업 기억이 동일한 행 구조로 구분되고 각 설명이 같은 기준선에 정렬된다. 긴 기억 레이블은 짧게 수정해 줄바꿈을 없앴다.",
+    "fixes": [],
+    "checks": [
+      {"item": "역할별 provider와 모델 배정이 명시되는가?", "pass": true},
+      {"item": "병렬 작업 조율이 별도의 기능 행으로 구분되는가?", "pass": true},
+      {"item": "프로젝트별 기억 검색·컨텍스트 압축·세션 재개가 남아 있는가?", "pass": true}
+    ]
+  },
+  {
+    "slide": 4, "verdict": "pass",
+    "hierarchy": 5, "balance": 4, "legibility": 5, "cohesion": 5, "evidence": 4,
+    "note": "자체 시각 검토. 하나의 공유 실시간 세션에서 터미널·데스크톱·웹 및 모바일로 연결선이 내려간다. 원격 접속의 인증과 암호화, Desktop 연결 조건이 별도로 읽힌다.",
+    "fixes": [],
+    "checks": [
+      {"item": "터미널·데스크톱·웹 및 모바일이 동일 세션에 연결되는가?", "pass": true},
+      {"item": "웹 및 모바일은 Desktop 연결을 통해 원격 접속한다고 표시되는가?", "pass": true},
+      {"item": "인증과 종단간 암호화가 원격 접속의 보호 조건으로 표시되는가?", "pass": true}
+    ]
+  },
+  {
+    "slide": 5, "verdict": "pass",
+    "hierarchy": 4, "balance": 4, "legibility": 5, "cohesion": 5, "evidence": 4,
+    "note": "자체 시각 검토. Browser Use·Computer Use·Office의 각 대상과 기능이 독립된 열로 읽힌다. 누락되던 컴퓨터 아이콘을 노트북 아이콘으로 교체하고 중복 하단 문구를 제거했다.",
+    "fixes": [],
+    "checks": [
+      {"item": "Browser Use의 실행 대상이 로그인된 Chromium으로 표시되는가?", "pass": true},
+      {"item": "Computer Use의 대상이 Windows 데스크톱이며 아이콘이 실제로 보이는가?", "pass": true},
+      {"item": "Office 대상에 Word·Excel·PowerPoint가 모두 포함되는가?", "pass": true}
+    ]
+  },
+  {
+    "slide": 6, "verdict": "pass",
+    "hierarchy": 5, "balance": 4, "legibility": 5, "cohesion": 5, "evidence": 5,
+    "note": "자체 시각 검토. 청록색 Mixdog 막대의 $0.476과 회색 Codex CLI 막대의 $0.782가 범례와 일치한다. 성공률 순서, 비교 모델과 반복 조건, 자체 공개 결과라는 단서가 모두 보인다.",
+    "fixes": [],
+    "checks": [
+      {"item": "비용 차트가 Mixdog $0.476, Codex CLI $0.782와 39% 감소를 일치시켜 보여 주는가?", "pass": true},
+      {"item": "성공률 86.5% / 86.1%의 순서가 Mixdog / Codex CLI로 명시되는가?", "pass": true},
+      {"item": "GPT-5.6 Sol xhigh, 89개 작업 각각 5회 및 자체 공개 결과라는 조건이 보이는가?", "pass": true}
+    ]
+  },
+  {
+    "slide": 7, "role": "anchor", "verdict": "pass",
+    "hierarchy": 5, "balance": 4, "legibility": 5, "cohesion": 5, "evidence": 4,
+    "note": "자체 시각 검토. 설치 명령과 실행 명령은 서로 다른 줄로 표시되고 첫 실행 설정은 오른쪽에 분리된다. Windows 다운로드 주소가 하단에서 잘리지 않으며 표지와 같은 색 체계를 유지한다.",
+    "fixes": [],
+    "checks": [
+      {"item": "npm install -g mixdog와 mixdog가 별도의 실행 줄로 제시되는가?", "pass": true},
+      {"item": "계정 인증·모델 선택·워크플로우 설정이 순서대로 보이는가?", "pass": true},
+      {"item": "Windows 다운로드용 GitHub releases/latest 주소가 온전히 보이는가?", "pass": true}
+    ]
+  }
+]

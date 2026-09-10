@@ -630,6 +630,7 @@ function Handle($req) {
 }
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[MixNativeInput]::InitializeOwnership([MixInputObservation]::Marker)
 # Read stdin as UTF-8 explicitly: [Console]::In follows the console code page
 # (CP949 etc.), which corrupts multibyte command payloads (e.g. Korean window
 # titles) and breaks JSON parsing. A StreamReader over the raw handle is code-

@@ -1,0 +1,27 @@
+{
+  "task": "팀 책임자가 AI 업무 도구의 제한된 시범 운영을 승인할지 검토하는 한국어 8장 샘플 제안서다. 원고의 수치와 제한 조건을 보존했는지, 각 페이지의 핵심 비교와 승인 요청이 시각적으로 읽히는지 확인한다. 모든 수치는 예시다.",
+  "sources": ["source.md"],
+  "questions": [
+    {"id":"Q1","question":"제안하는 도입 방식과 시범 범위는 무엇인가?"},
+    {"id":"Q2","question":"시간 비교의 단위, 값, 포함 범위와 예시라는 제한은 무엇인가?"},
+    {"id":"Q3","question":"AI 도입 이후에도 사람에게 남는 책임은 무엇인가?"},
+    {"id":"Q4","question":"우선·조건부·제외는 어떤 업무에 붙으며 무엇을 뜻하는가?"},
+    {"id":"Q5","question":"무엇을 측정하며 어떤 경우 확대하지 않는가?"},
+    {"id":"Q6","question":"마지막 장에서 요청하는 결정은 무엇인가?"}
+  ],
+  "candidates": [
+    {
+      "id":"C1",
+      "pages":[
+        "ai-work-proposal.mixdog-preview-page-1.png",
+        "ai-work-proposal.mixdog-preview-page-2.png",
+        "ai-work-proposal.mixdog-preview-page-3.png",
+        "ai-work-proposal.mixdog-preview-page-4.png",
+        "ai-work-proposal.mixdog-preview-page-5.png",
+        "ai-work-proposal.mixdog-preview-page-6.png",
+        "ai-work-proposal.mixdog-preview-page-7.png",
+        "ai-work-proposal.mixdog-preview-page-8.png"
+      ]
+    }
+  ]
+}

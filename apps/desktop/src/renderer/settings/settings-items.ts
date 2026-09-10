@@ -16,7 +16,7 @@ export const SETTINGS_ITEMS = [
   { value: 'workflow', label: 'Workflow', description: 'Active agent routing profile.', kind: 'open' },
   { value: 'output-style', label: 'Output style', description: 'Response tone and format.', kind: 'open' },
   { value: 'profile', label: 'Profile', description: 'Your title and response language.', kind: 'open' },
-  { value: 'theme', label: 'Theme', description: 'TUI color theme.', kind: 'open' },
+  { value: 'theme', label: 'Theme', description: 'App color theme.', kind: 'open' },
   { value: 'web-search-enabled', label: 'Web search', description: 'Expose web search and fetch tools to new sessions.', kind: 'toggle' },
   { value: 'memory-enabled', label: 'Memory', description: 'Memory tools, core-memory injection, and background upkeep.', kind: 'toggle' },
   { value: 'autocompact', label: 'Auto-compact', description: 'Compact when context is high.', kind: 'toggle' },

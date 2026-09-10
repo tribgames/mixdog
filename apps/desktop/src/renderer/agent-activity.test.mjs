@@ -573,7 +573,7 @@ test("Goal completed time and response completion time stay semantically separat
   const completedAt = new Date("2026-08-28T14:49:55.000Z").getTime();
   assert.equal(
     goalCompletedTimeLabel({ status: "complete", completedAt }),
-    new Date(completedAt).toLocaleTimeString(undefined, { timeStyle: "short" }),
+    new Date(completedAt).toLocaleTimeString("en", { timeStyle: "short" }),
   );
   assert.equal(goalCompletedTimeLabel({ status: "active", completedAt }), "");
 

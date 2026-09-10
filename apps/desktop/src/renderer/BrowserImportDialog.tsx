@@ -14,7 +14,7 @@ import type {
   DesktopBrowserImportProgress,
   DesktopBrowserImportSource,
 } from "../shared/contract";
-import { t } from "./i18n";
+import { t, uiFormatLocale } from "./i18n";
 import { ErrorNotice } from "./ErrorNotice";
 
 interface BrowserImportDialogProps {
@@ -226,11 +226,11 @@ export function BrowserImportDialog({
             || selectedSource?.passwordSupportReason}</small>
           : null}
         {showProgress && progressState === "completed"
-          ? <small>{t("{{total}} imported", { total: itemProgress?.count?.toLocaleString() || "0" })}</small>
+          ? <small>{t("{{total}} imported", { total: itemProgress?.count?.toLocaleString(uiFormatLocale()) || "0" })}</small>
           : null}
         {showProgress && progressState === "failed"
           ? <small>{t("Failed to import")}{itemProgress?.count
-            ? ` · ${t("{{total}} imported", { total: itemProgress.count.toLocaleString() })}` : ""}</small>
+            ? ` · ${t("{{total}} imported", { total: itemProgress.count.toLocaleString(uiFormatLocale()) })}` : ""}</small>
           : null}
       </span>
       {showProgress

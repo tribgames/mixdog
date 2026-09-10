@@ -28,6 +28,7 @@ mod platform {
     use std::collections::{HashMap, HashSet};
     use std::ffi::c_void;
     use std::fs::File;
+    use std::os::windows::fs::OpenOptionsExt;
     use std::mem::{size_of, zeroed};
     use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::os::windows::io::AsRawHandle;
@@ -230,7 +231,14 @@ mod platform {
     }
 
     pub fn metadata_and_identity(path: &Path) -> Option<(std::fs::Metadata, Option<FileIdentity>)> {
-        let file = File::open(path).ok()?;
+        // Sorting only needs attributes, not permission to read file contents.
+        // Keep identity and timestamps tied to the same opened object.
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .access_mode(FILE_READ_ATTRIBUTES)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+            .open(path)
+            .ok()?;
         let metadata = file.metadata().ok()?;
         let identity = file_identity(&file);
         Some((metadata, identity))

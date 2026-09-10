@@ -34,40 +34,44 @@ function nativeMenuTemplate(
     {
       label: nativeT('File'),
       submenu: process.platform === 'darwin'
-        ? [...fileItems, { role: 'close', accelerator: 'CmdOrCtrl+Shift+W' }]
+        ? [...fileItems, { role: 'close', label: nativeT('Close window'), accelerator: 'CmdOrCtrl+Shift+W' }]
         // Ctrl+Q belongs to the focused workspace tab. Keep explicit menu
         // quit available without registering an accelerator ahead of React.
-        : [...fileItems, { role: 'quit', registerAccelerator: false }],
+        : [...fileItems, { role: 'quit', label: nativeT('Quit Mixdog'), registerAccelerator: false }],
     },
     {
       label: nativeT('Edit'),
       submenu: [
-        { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
-        { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' },
+        { role: 'undo', label: nativeT('Undo') }, { role: 'redo', label: nativeT('Redo') }, { type: 'separator' },
+        { role: 'cut', label: nativeT('Cut') }, { role: 'copy', label: nativeT('Copy') },
+        { role: 'paste', label: nativeT('Paste') }, { role: 'selectAll', label: nativeT('Select All') },
       ],
     },
     {
       label: nativeT('View'),
       submenu: [
-        ...(development ? [{ role: 'reload' as const }, { role: 'forceReload' as const }] : []),
+        ...(development ? [
+          { role: 'reload' as const, label: nativeT('Reload') },
+          { role: 'forceReload' as const, label: nativeT('Force Reload') },
+        ] : []),
         ...(zoom ? [
           { label: nativeT('Actual Size'), accelerator: 'CmdOrCtrl+0', click: zoom.reset },
           { label: nativeT('Zoom In'), accelerator: 'CmdOrCtrl+Plus', click: zoom.zoomIn },
           { label: nativeT('Zoom Out'), accelerator: 'CmdOrCtrl+-', click: zoom.zoomOut },
         ] : [
-          { role: 'resetZoom' as const, accelerator: 'CmdOrCtrl+0' },
-          { role: 'zoomIn' as const, accelerator: 'CmdOrCtrl+Plus' },
-          { role: 'zoomOut' as const, accelerator: 'CmdOrCtrl+-' },
+          { role: 'resetZoom' as const, label: nativeT('Actual Size'), accelerator: 'CmdOrCtrl+0' },
+          { role: 'zoomIn' as const, label: nativeT('Zoom In'), accelerator: 'CmdOrCtrl+Plus' },
+          { role: 'zoomOut' as const, label: nativeT('Zoom Out'), accelerator: 'CmdOrCtrl+-' },
         ]),
         { type: 'separator' },
-        { role: 'togglefullscreen', accelerator: process.platform === 'darwin' ? 'Ctrl+Cmd+F' : 'F11' },
+        { role: 'togglefullscreen', label: nativeT('Toggle Full Screen'), accelerator: process.platform === 'darwin' ? 'Ctrl+Cmd+F' : 'F11' },
       ],
     },
     {
       label: nativeT('Window'),
       submenu: [
-        { role: 'minimize', accelerator: 'CmdOrCtrl+M' },
-        { role: 'close', accelerator: process.platform === 'darwin' ? 'CmdOrCtrl+Shift+W' : undefined },
+        { role: 'minimize', label: nativeT('Minimize'), accelerator: 'CmdOrCtrl+M' },
+        { role: 'close', label: nativeT('Close window'), accelerator: process.platform === 'darwin' ? 'CmdOrCtrl+Shift+W' : undefined },
       ],
     },
   );

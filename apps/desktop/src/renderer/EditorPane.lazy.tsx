@@ -2,6 +2,7 @@
 // and guarded changed-on-disk handling.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Editor from "@monaco-editor/react";
+import { t } from "./i18n";
 import { ErrorNotice } from "./ErrorNotice";
 import { createGitRefreshScheduler } from "./git-refresh-scheduler";
 import { monaco, resolveThemeColor } from "./monaco-setup";
@@ -492,12 +493,12 @@ export default function EditorPane({ projectPath, relPath, accessToken, workspac
     onNavigationLocationRef.current?.(relPath, reveal.line, 1);
   }, [reveal?.nonce, load ? 1 : 0, relPath]);
   const selectionLabel = selectionStatus.selections > 1
-    ? `${selectionStatus.selections} selections${selectionStatus.characters
-      ? ` (${selectionStatus.characters} characters selected)`
-      : ""}`
-    : `Ln ${cursorPosition.line}, Col ${cursorPosition.column}${selectionStatus.characters
-      ? ` (${selectionStatus.characters} selected)`
-      : ""}`;
+    ? t("{{count}} selections", { count: selectionStatus.selections })
+      + (selectionStatus.characters
+        ? " " + t("({{count}} characters selected)", { count: selectionStatus.characters }) : "")
+    : t("Ln {{line}}, Col {{column}}", { line: cursorPosition.line, column: cursorPosition.column })
+      + (selectionStatus.characters
+        ? " " + t("({{count}} selected)", { count: selectionStatus.characters }) : "");
   const revealBreadcrumbSymbol = useCallback((item: EditorOutlineItem) => {
     const editor = editorRef.current;
     if (!editor) return;

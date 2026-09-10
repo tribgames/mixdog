@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "sessions": [
+    {
+      "sessionId": "sess_18204_1788743093320_1788743093429_62b10a48eb17b2a4ad1b2a09e59d960f",
+      "agentRole": "primary",
+      "models": [
+        "gpt-6-astra"
+      ],
+      "inputTokens": 13842,
+      "cacheTokens": 6016,
+      "cacheWriteTokens": 0,
+      "outputTokens": 99,
+      "toolCallCountApprox": 0
+    }
+  ],
+  "totals": {
+    "inputTokens": 13842,
+    "cacheTokens": 6016,
+    "cacheWriteTokens": 0,
+    "outputTokens": 99,
+    "toolCallCountApprox": 0
+  }
+}

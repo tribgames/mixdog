@@ -1,6 +1,6 @@
 import { performance } from 'node:perf_hooks';
 import { tryServeSearch } from './native-search-client.mjs';
-import { recordLocalSearchBackend, recordNativeSearchTiming } from './local-search-telemetry.mjs';
+import { recordLocalSearchBackend, recordNativeSearchTiming, recordNativeSearchFailure } from './local-search-telemetry.mjs';
 
 function unavailable(argsList) {
     const error = new Error(`native search unavailable or unsupported for args: ${JSON.stringify(argsList)}`);
@@ -17,6 +17,7 @@ async function serve(argsList, execOptions, opts) {
         recordLocalSearchBackend('native', performance.now() - startedAt, 'hit');
         return result;
     } catch (error) {
+        recordNativeSearchFailure(error);
         // Unsupported request shapes are classified separately in telemetry,
         // but still throw: there is no alternate local-search backend.
         const code = String(error?.code || '');

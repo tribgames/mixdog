@@ -257,11 +257,13 @@ export function createBridgeServer(host: BridgeServerHost) {
         bridgeDiscoveryRecord = discoveryRecord;
         try {
           const ownership = await writeDiscovery(discoveryRecord);
+          if (!stillCurrent() || !sameBridgeDiscovery(bridgeDiscoveryRecord, discoveryRecord)) return;
           if (ownership !== 'owned') {
             console.warn(`computer bridge discovery ${ownership}; heartbeat will retry`);
           }
           heartbeat = setInterval(
             () => {
+              if (!stillCurrent()) return;
               void heartbeatDiscovery(discoveryRecord).then((status) => {
                 if (status !== 'lost'
                   || !stillCurrent()

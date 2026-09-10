@@ -309,6 +309,7 @@ export function sendStaticFile(request, response, target, extraHeaders = {}) {
       || target.endsWith('manifest.webmanifest')
       || target.endsWith('sw.js')
       || target.endsWith('sw-shell.js')
+      || target.endsWith('ui-language.js')
       || target.endsWith('boot.js')
       ? 'no-cache'
       : hashedAsset

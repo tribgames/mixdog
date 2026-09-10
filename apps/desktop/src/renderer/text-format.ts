@@ -1,4 +1,5 @@
 import { type RecordValue, type Project } from "./desktop-types";
+import { uiTimeUnit } from "./ui-format";
 import type { NavigationSelection, WorkspaceSelection } from "./navigation";
 
 export function asRecord(value: unknown): RecordValue | null {
@@ -89,10 +90,11 @@ export function formatElapsed(value: unknown): string {
   const elapsedMs = Math.max(0, Number(value) || 0);
   if (elapsedMs < 1_000) return "";
   const seconds = Math.floor(elapsedMs / 1_000);
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) return uiTimeUnit(seconds, "second");
   const minutes = Math.floor(seconds / 60);
   const remainder = seconds % 60;
-  return remainder ? `${minutes}m ${remainder}s` : `${minutes}m`;
+  const text = uiTimeUnit(minutes, "minute");
+  return remainder ? `${text} ${uiTimeUnit(remainder, "second")}` : text;
 }
 
 export const TURN_LOCKED_SLASH_COMMANDS = new Set([

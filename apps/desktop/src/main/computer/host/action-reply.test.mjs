@@ -47,3 +47,20 @@ test('confirmed close does not capture a different window after its target disap
   assert.equal(payload.capture_after.skipped, true);
   assert.equal(payload.capture_after.target_reason, 'target_closed');
 });
+
+for (const structured of [true, false]) {
+  test(`failed requested observation cannot finish a ${structured ? 'structured' : 'text'} action reply`, async () => {
+    const result = await buildActionReply(async () => ({
+      metadata: { ok: false, error: 'fixture observation failure' },
+    }), context({
+      command: { action: 'key', capture_after: true },
+      result: structured ? { action: 'key', verified: true, delivery_accepted: true } : { text: 'delivered' },
+    }));
+    const payload = JSON.parse(result.text);
+    assert.equal(payload.ok, false);
+    assert.equal(payload.code, 'observation_unavailable');
+    assert.equal(payload.goal_verified, false);
+    assert.deepEqual(payload.verdict, { decision: 'escalate', recommended: 'recapture' });
+    if (structured) assert.equal(payload.delivery_accepted, true);
+  });
+}

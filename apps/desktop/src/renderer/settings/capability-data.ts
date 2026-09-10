@@ -9,6 +9,8 @@ import type {
   SessionSnapshot
 } from '../../shared/contract';
 import { providerDisplayName } from '../provider-display';
+import { uiFormatLocale } from '../i18n';
+import { uiTimeUnit } from '../ui-format';
 import { record } from '../record-utils';
 import type { SettingsCategory } from './settings-items';
 
@@ -322,7 +324,7 @@ export function providerLabel(value: unknown, fallback = 'Unknown provider'): st
 
 export function count(value: unknown): string {
   const numeric = Number(value);
-  return Number.isFinite(numeric) ? new Intl.NumberFormat().format(numeric) : String(value ?? '—');
+  return Number.isFinite(numeric) ? new Intl.NumberFormat(uiFormatLocale()).format(numeric) : String(value ?? '—');
 }
 
 export function formatDuration(value: unknown): string {
@@ -330,15 +332,15 @@ export function formatDuration(value: unknown): string {
   const milliseconds = Math.max(0, Number(value) || 0);
   if (milliseconds < 60_000) {
     if (milliseconds < 1_000) return '';
-    return `${Math.floor(milliseconds / 1_000)}s`;
+    return uiTimeUnit(Math.floor(milliseconds / 1_000), 'second');
   }
   const days = Math.floor(milliseconds / 86_400_000);
   const hours = Math.floor((milliseconds % 86_400_000) / 3_600_000);
   const minutes = Math.floor((milliseconds % 3_600_000) / 60_000);
   const seconds = Math.floor((milliseconds % 60_000) / 1_000);
-  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-  return `${minutes}m ${seconds}s`;
+  if (days > 0) return `${uiTimeUnit(days, 'day')} ${uiTimeUnit(hours, 'hour')} ${uiTimeUnit(minutes, 'minute')}`;
+  if (hours > 0) return `${uiTimeUnit(hours, 'hour')} ${uiTimeUnit(minutes, 'minute')} ${uiTimeUnit(seconds, 'second')}`;
+  return `${uiTimeUnit(minutes, 'minute')} ${uiTimeUnit(seconds, 'second')}`;
 }
 
 export function durationTextInput(value: unknown): string {

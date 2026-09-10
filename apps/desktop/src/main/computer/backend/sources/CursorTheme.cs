@@ -219,6 +219,7 @@ public sealed class MixCursorTheme : System.IDisposable {
     } finally { pipe.Dispose(); }
   }
   public static void Watch(int parentPid, string pipeName) {
+    MixNativeInput.InitializeOwnership(MixInputObservation.Marker);
     using (var mutex = new System.Threading.Mutex(false, @"Local\MixdogCursorTheme"))
     using (var parent = System.Diagnostics.Process.GetProcessById(parentPid))
     using (var pipe = new System.IO.Pipes.NamedPipeClientStream(".", pipeName, System.IO.Pipes.PipeDirection.InOut,
@@ -227,6 +228,7 @@ public sealed class MixCursorTheme : System.IDisposable {
       try {
         try { owns = mutex.WaitOne(0); } catch (System.Threading.AbandonedMutexException) { owns = true; }
         if (!owns) return;
+        MixNativeInput.BeginOwnershipObservation();
         pipe.Connect(5000);
         using (var reader = new System.IO.StreamReader(pipe))
         using (var writer = new System.IO.StreamWriter(pipe) { AutoFlush = true }) {
@@ -248,12 +250,19 @@ public sealed class MixCursorTheme : System.IDisposable {
               System.Threading.Thread.Sleep(25);
             }
           } finally {
+            // The watchdog outlives a killed input worker. Never release keys
+            // while the worker is still alive and may be finishing its gesture.
+            bool inputReleased = true;
+            if (parent.HasExited) {
+              try { MixNativeInput.ReleaseOwned(MixInputObservation.Marker); }
+              catch { inputReleased = false; }
+            }
             if (lease != null) {
               for (int attempt = 0; attempt < 3 && !restored; attempt++) {
                 try { lease.Dispose(); restored = true; } catch { System.Threading.Thread.Sleep(50); }
               }
             } else restored = true;
-            try { writer.WriteLine(restored ? "RESTORED" : "RESTORE_FAILED"); } catch { }
+            try { writer.WriteLine(restored && inputReleased ? "RESTORED" : "RESTORE_FAILED"); } catch { }
           }
         }
       } finally { if (owns) mutex.ReleaseMutex(); }

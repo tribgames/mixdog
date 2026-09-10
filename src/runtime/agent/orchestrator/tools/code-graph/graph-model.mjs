@@ -37,6 +37,7 @@ export function _serializeGraph(graph) {
         lang: node.lang,
       };
       if (node.fingerprint) out.fingerprint = node.fingerprint;
+      if (node.parseError) out.parseError = node.parseError;
       if (Array.isArray(node.rawImports) && node.rawImports.length) out.rawImports = node.rawImports;
       if (Array.isArray(node.resolvedImportsRel) && node.resolvedImportsRel.length) {
         out.resolvedImports = node.resolvedImportsRel;
@@ -78,6 +79,7 @@ export function _deserializeGraph(cwd, payload) {
       rel: item.rel,
       lang: item.lang,
       fingerprint: item.fingerprint || '',
+      parseError: item.parseError || '',
       rawImports: Array.isArray(item.rawImports) ? item.rawImports : [],
       resolvedImportsRel,
       resolvedImports: resolvedImportsRel.map((rel) => pathResolve(cwd, rel)),

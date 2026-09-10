@@ -11,6 +11,7 @@ import { PS_INPUT } from './ps-input';
 import { PS_RUNTIME } from './ps-runtime';
 import { PS_AUTHORIZATION } from './ps-authorization';
 import { PS_SEQUENCE } from './ps-sequence';
+import { MIXDOG_INPUT_TRANSPORT_CSHARP } from './native-source';
 
 export { RESPONSE_MARKER } from '../shared/common';
 
@@ -20,9 +21,8 @@ Add-Type @"
 using System;
 using System.Globalization;
 using System.Runtime.InteropServices;
+${MIXDOG_INPUT_TRANSPORT_CSHARP}
 public static class MixdogAbortCleanup {
-  [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
-  [DllImport("user32.dll")] static extern void mouse_event(uint flags, int dx, int dy, int data, IntPtr extra);
   [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
   [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
@@ -62,9 +62,7 @@ public static class MixdogAbortCleanup {
     if (!UInt32.TryParse(Environment.GetEnvironmentVariable("MIXDOG_COMPUTER_INPUT_MARKER"), out marker)
       || marker == 0 || marker > Int32.MaxValue) throw new InvalidOperationException("input_marker_unavailable");
     var extra = new IntPtr((int)marker);
-    byte[] keys = new byte[] { 0x10, 0x11, 0x12, 0x5B, 0x5C, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5 };
-    foreach (byte key in keys) keybd_event(key, 0, 0x2, new UIntPtr(marker));
-    mouse_event(0x04 | 0x10 | 0x40, 0, 0, 0, extra);
+    MixNativeInput.ReleaseOwned(extra);
     IntPtr target = ParseWindowId(targetValue);
     IntPtr restore = ParseWindowId(restoreValue);
     if (target != IntPtr.Zero && GetForegroundWindow() == target) {
@@ -72,7 +70,9 @@ public static class MixdogAbortCleanup {
       if (width < 2 || height < 2) throw new InvalidOperationException("display_unavailable");
       int x = (int)Math.Round((cursorX - GetSystemMetrics(76)) * 65535.0 / (width - 1));
       int y = (int)Math.Round((cursorY - GetSystemMetrics(77)) * 65535.0 / (height - 1));
-      mouse_event(0xC001, x, y, 0, extra);
+      MixNativeInput.INPUT input = MixNativeInput.Mouse(0xC001, extra);
+      input.U.mi.dx = x; input.U.mi.dy = y;
+      MixNativeInput.Deliver(new MixNativeInput.INPUT[] { input });
       if (restore != IntPtr.Zero && restore != target) Focus(restore);
     }
   }

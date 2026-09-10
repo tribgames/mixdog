@@ -52,7 +52,7 @@
     "build:mac": "npm run build && npm run prepare:runtime && electron-builder --mac",
     "build:linux": "npm run build && npm run prepare:runtime && electron-builder --linux",
     "i18n:sync": "node scripts/sync-i18n.mjs",
-    "i18n:check": "i18next-cli status && node scripts/check-i18n.mjs"
+    "i18n:check": "node scripts/check-i18n.mjs"
   },
   "dependencies": {
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
@@ -85,7 +85,6 @@
     "esbuild": "^0.25.12",
     "hast-util-to-jsx-runtime": "^2.3.6",
     "i18next": "^26.3.6",
-    "i18next-cli": "^1.67.4",
     "jsdom": "^27.0.0",
     "katex": "^0.18.1",
     "lucide-react": "^0.468.0",

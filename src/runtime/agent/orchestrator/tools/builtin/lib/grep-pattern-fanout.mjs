@@ -10,7 +10,7 @@ import { buildGrepRgArgs } from '../search-builders.mjs';
 import { runRgWindowedLines } from '../native-search-runner.mjs';
 import { statReachable } from '../fs-reachability.mjs';
 import { dedupeFanoutMatchLines, formatGrepOutput } from './grep-output.mjs';
-import { expandGrepAnchorContextOutput } from './grep-context-expander.mjs';
+import { expandGrepAnchorContextOutput, prepareGrepContextSources } from './grep-context-expander.mjs';
 import { markScopedCacheIncomplete } from '../../../session/cache/scoped-cache-outcome.mjs';
 
 export async function runGrepPatternFanout({
@@ -38,6 +38,7 @@ export async function runGrepPatternFanout({
     fileType,
     executeGrepTool,
 }) {
+    options.signal?.throwIfAborted();
     // ONE rg --files-with-matches pass over ALL patterns can scope the fallback
     // fan-out to candidate files. Start it lazily only after the combined pass
     // declines: the old speculative overlap left a whole-tree bulk scan running
@@ -80,7 +81,10 @@ export async function runGrepPatternFanout({
                 { offset: 0, limit: GREP_FANOUT_PREFILTER_FILE_CAP, summaryLimit: 0, bulkHint: true },
             );
             return pre.complete && !pre.partial ? pre.lines : null;
-        } catch { return null; }
+        } catch (err) {
+            options.signal?.throwIfAborted();
+            return null;
+        }
     };
     // Combined single-spawn fan-out: ONE rg run carrying every pattern
     // (-e p1 -e p2 …), then JS-side attribution of each matched line back
@@ -95,11 +99,16 @@ export async function runGrepPatternFanout({
     combined: if (process.env.MIXDOG_GREP_FANOUT_COMBINED !== '0'
         && !multilineMode
         && args['-o'] !== true
+        && !(beforeN > 0)
+        && !(afterN > 0)
         && showLineNumbers) {
         let jsRegexps;
         try {
             jsRegexps = patterns.map((p) => new RegExp(p, caseInsensitive ? 'i' : ''));
-        } catch { break combined; }
+        } catch {
+            options.signal?.throwIfAborted();
+            break combined;
+        }
         let preStat;
         try { preStat = await statReachable(grepResolvedPath); } catch { break combined; }
         if (!preStat.isDirectory()) break combined;
@@ -137,7 +146,10 @@ export async function runGrepPatternFanout({
                 { cwd: rgCwd, signal: options.signal },
                 { offset: 0, limit: combinedCap, summaryLimit: 0, bulkHint: combinedBulkHint },
             );
-        } catch { break combined; }
+        } catch {
+            options.signal?.throwIfAborted();
+            break combined;
+        }
         // Cap overflow (complete:false without partial) still falls back: the
         // per-pattern rescan restores correct per-pattern windows. Timeout and
         // scan-error partials keep their collected lines instead — the legacy
@@ -199,6 +211,12 @@ export async function runGrepPatternFanout({
         const noMatchBody = (p) => `(no matches) pattern=${JSON.stringify(p)} path=${searchPath}${globStr}; path exists (dir)`;
         const sections = [];
         const noMatchPatterns = [];
+        const sources = adaptive ? await prepareGrepContextSources(byPattern, {
+            workDir, rgSpawnCwd: rgCwd, grepResolvedPath, searchPath, outputMode,
+            filenameOmitted: false, headLimit, offset,
+            requestedContext: contextN, maxContext: GREP_AUTO_CONTEXT_LINES,
+            signal: options.signal,
+        }) : null;
         for (let i = 0; i < patterns.length; i++) {
             const p = patterns[i];
             const linesFor = byPattern[i];
@@ -224,8 +242,12 @@ export async function runGrepPatternFanout({
                     caseInsensitive,
                     charBudget: perBudget,
                     signal: options.signal,
+                    sources,
                 });
                 body = ctx.text || noMatchBody(p);
+                if (options.scopedCacheOutcome && (ctx.omitted > 0 || !ctx.sourceComplete)) {
+                    markScopedCacheIncomplete(options.scopedCacheOutcome);
+                }
             } else {
                 const post = offset > 0 ? linesFor.slice(offset) : linesFor;
                 const windowedLines = headLimit === Infinity ? post : post.slice(0, headLimit);
@@ -267,6 +289,7 @@ export async function runGrepPatternFanout({
     // completes under the cap, K patterns cost one repo walk plus K file-list
     // scans instead of K full walks. Zero candidates short-circuits.
     let fanoutCandidateFiles = null;
+    options.signal?.throwIfAborted();
     const fanoutPrefilterPromise = process.env.MIXDOG_GREP_FANOUT_PREFILTER !== '0'
         ? startFanoutPrefilter()
         : null;
@@ -295,6 +318,7 @@ export async function runGrepPatternFanout({
         try {
             return await executeGrepTool({ ...args, pattern: p }, workDir, executeChildBuiltinTool, readStateScope, subOptions);
         } catch (err) {
+            options.signal?.throwIfAborted();
             return `Error: ${err && err.message ? err.message : err}`;
         }
     };

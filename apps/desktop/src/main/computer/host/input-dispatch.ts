@@ -8,10 +8,12 @@ import type { ResolvedInputTarget } from './input-resolution';
 import type { CommandRouterHost } from './command-router';
 import type { ComputerExecutionPolicy } from './execution-policy';
 import { sequenceStepRequest } from './sequence-dispatch';
+import { assertObservationInputAllowed } from './observation-policy';
+import { waitForElectronTypingTarget } from './electron-text-target';
 
 type DispatchHost = Pick<CommandRouterHost,
   'callPowerShell' | 'callPowerShellElevated' | 'sessionIdFor' | 'readWindowIntegrity'
-  | 'readComputerWindows' | 'assertExecutionNotAborted'>;
+  | 'readComputerWindows' | 'assertExecutionNotAborted' | 'isObserveOnly'>;
 
 export function createInputDispatch(host: DispatchHost, policy: ComputerExecutionPolicy) {
   const { callPowerShell, callPowerShellElevated, sessionIdFor,
@@ -37,17 +39,34 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
     if (electronTextTarget && !electronTextTarget.webContents.isDestroyed()) {
       const text = String(command.text ?? '');
       if (physicalX !== undefined && physicalY !== undefined) {
+        const authority = await authorizeDispatch();
+        assertObservationInputAllowed(command, host.isObserveOnly());
         const focused = await callPowerShell({
-          ...await authorizeDispatch(),
+          ...authority,
           action: 'click', window_id: targetWindowId ?? null, x: physicalX, y: physicalY,
           allowed_window_ids: allowedWindowIds, delivery: 'background', session_id: sessionIdFor(command),
         });
         if (!focused.ok || focused.result?.code || focused.result?.delivery_accepted !== true) {
           throw new Error(focused.error || String(focused.result?.text || '') || 'element-targeted type could not focus the point');
         }
-        await new Promise((resolve) => setTimeout(resolve, 80));
       }
+      const typingPoint = physicalX !== undefined && physicalY !== undefined
+        ? { x: physicalX, y: physicalY } : undefined;
+      const ready = await waitForElectronTypingTarget(electronTextTarget, typingPoint, async () => {
+        await authorizeDispatch();
+        assertObservationInputAllowed(command, host.isObserveOnly());
+      });
+      if (!ready) return {
+        id: 0, ok: true, result: {
+          action: 'type', code: 'typing_target_unconfirmed',
+          text: 'The requested editable target was not confirmed; no text was sent. Observe fresh state before continuing.',
+          effect: 'unverifiable', verified: false, delivery_accepted: false, goal_verified: false,
+          ...(typingPoint ? { input_may_have_executed: true } : {}),
+          path: 'electron_typing_target_check', delivery: 'background', window_id: targetWindowId,
+        },
+      };
       await authorizeDispatch();
+      assertObservationInputAllowed(command, host.isObserveOnly());
       await electronTextTarget.webContents.insertText(text);
       return {
         id: 0, ok: true,
@@ -84,6 +103,7 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
     assertExecutionNotAborted();
     if (usePrivilegedWorker) policy.assertElevated();
     const authority = await authorizeDispatch();
+    assertObservationInputAllowed(command, host.isObserveOnly());
     const response = usePrivilegedWorker
       ? await callPowerShellElevated({ ...powerShellRequest, ...authority })
       : await callPowerShell(

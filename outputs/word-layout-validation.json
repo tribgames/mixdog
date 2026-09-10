@@ -1,0 +1,984 @@
+{
+  "ok": true,
+  "finalized": true,
+  "session": "office_7b6256abd471494a",
+  "path": "C:\\Project\\mixdog\\outputs\\아무것도_하지_않는_시간의_쓸모_최종.docx",
+  "failOn": "error",
+  "saved": true,
+  "saveSkipped": false,
+  "closed": true,
+  "recalculation": null,
+  "review": {
+    "ok": true,
+    "session": "office_7b6256abd471494a",
+    "mode": "portable",
+    "backend": "mixdog-ooxml",
+    "autoFix": false,
+    "fixes": [],
+    "fixResult": null,
+    "issuesBefore": [],
+    "issuesAfter": [],
+    "review": {
+      "createdAt": "2026-09-07T16:52:28.455Z",
+      "output": "C:\\Project\\mixdog\\outputs\\아무것도_하지_않는_시간의_쓸모_최종.mixdog-preview.pdf",
+      "baselineOutput": "",
+      "pageCount": 2,
+      "visualCoverage": {
+        "reviewedPages": [
+          1,
+          2
+        ],
+        "reviewed": 2,
+        "total": 2,
+        "complete": true,
+        "remainingPages": []
+      },
+      "issuesBefore": 0,
+      "issuesAfter": 0,
+      "fixesApplied": 0,
+      "images": [
+        {
+          "page": 1,
+          "path": "C:\\Project\\mixdog\\outputs\\아무것도_하지_않는_시간의_쓸모_최종.mixdog-preview-page-1.png",
+          "width": 1191,
+          "height": 1684,
+          "mimeType": "image/png"
+        },
+        {
+          "page": 2,
+          "path": "C:\\Project\\mixdog\\outputs\\아무것도_하지_않는_시간의_쓸모_최종.mixdog-preview-page-2.png",
+          "width": 1191,
+          "height": 1684,
+          "mimeType": "image/png"
+        }
+      ],
+      "design": {
+        "ok": true,
+        "status": "skipped",
+        "profile": "executive",
+        "issues": [],
+        "composition": {
+          "format": "docx",
+          "fingerprint": "",
+          "compositionIds": [],
+          "count": 0
+        },
+        "requiresVisualInspection": false
+      },
+      "render": {
+        "ok": true,
+        "format": "docx",
+        "pages": [
+          {
+            "page": 1,
+            "width": 1191,
+            "height": 1684,
+            "inkCoverage": 0.0631,
+            "horizontalSpan": 0.8102,
+            "verticalSpan": 0.8664,
+            "bodyVerticalSpan": 0.835,
+            "lowerBodyInkRatio": 0.3621,
+            "leftMargin": 0.0924,
+            "rightMargin": 0.0974
+          },
+          {
+            "page": 2,
+            "width": 1191,
+            "height": 1684,
+            "inkCoverage": 0.0501,
+            "horizontalSpan": 0.8144,
+            "verticalSpan": 0.8545,
+            "bodyVerticalSpan": 0.6344,
+            "lowerBodyInkRatio": 0.1534,
+            "leftMargin": 0.0924,
+            "rightMargin": 0.0932
+          }
+        ],
+        "aesthetics": {
+          "ok": true,
+          "format": "docx",
+          "scoreVersion": 2,
+          "score": 0.7558,
+          "confidence": 1,
+          "dimensions": {
+            "contrast": 0.7572,
+            "palette": 0.27,
+            "rhythm": 1,
+            "composition": 0.8832
+          },
+          "rhythm": {
+            "pageCount": 2,
+            "featureSpread": 0,
+            "adjacentChange": 0,
+            "repeatedPairs": 0,
+            "maximumSimilarity": 0
+          },
+          "pages": [
+            {
+              "page": 1,
+              "width": 1191,
+              "height": 1684,
+              "backgroundLuminance": 1,
+              "luminanceMean": 0.9608,
+              "contrastSpan": 0.1423,
+              "foregroundContrast": 0.1993,
+              "inkContrast": 0.6196,
+              "colorfulness": 1.17,
+              "colorfulnessScore": 0.0259,
+              "accentCoverage": 0,
+              "paletteHueCount": 0,
+              "paletteDominance": 0,
+              "entropy": 0.3082,
+              "edgeDensity": 0.0971,
+              "foregroundCoverage": 0.1448,
+              "spatialCoverage": 0.6111,
+              "spatialBalance": 0.8285,
+              "occupiedQuadrants": 4,
+              "role": "opening",
+              "densityFit": 0.8889,
+              "paletteDiscipline": 0.27,
+              "compositionScore": 0.862
+            },
+            {
+              "page": 2,
+              "width": 1191,
+              "height": 1684,
+              "backgroundLuminance": 1,
+              "luminanceMean": 0.9704,
+              "contrastSpan": 0.1185,
+              "foregroundContrast": 0.1864,
+              "inkContrast": 0.5647,
+              "colorfulness": 0.95,
+              "colorfulnessScore": 0.0212,
+              "accentCoverage": 0,
+              "paletteHueCount": 0,
+              "paletteDominance": 0,
+              "entropy": 0.2523,
+              "edgeDensity": 0.0785,
+              "foregroundCoverage": 0.1119,
+              "spatialCoverage": 0.4931,
+              "spatialBalance": 0.7268,
+              "occupiedQuadrants": 2,
+              "role": "closing",
+              "densityFit": 1,
+              "paletteDiscipline": 0.27,
+              "compositionScore": 0.9044
+            }
+          ],
+          "issues": []
+        },
+        "issues": []
+      },
+      "quality": {
+        "version": 2,
+        "score": 0.8242,
+        "confidence": 1,
+        "releaseReady": true,
+        "dimensions": {
+          "render": 0.7558,
+          "structural": 1
+        },
+        "evidence": {
+          "renderedPages": 2,
+          "expectedPages": 2,
+          "pageCoverage": 1,
+          "planCoverage": 1,
+          "structuralAvailable": true,
+          "blockingIssueCount": 0
+        },
+        "scoreMeaning": "automated-diagnostics-not-design-quality",
+        "automatedReady": true,
+        "visualReview": {
+          "format": "docx",
+          "checks": [
+            "hierarchy",
+            "pagination",
+            "legibility"
+          ],
+          "pages": [
+            {
+              "page": 1,
+              "passed": true,
+              "note": "Word와 LibreOffice의 1쪽을 확인했습니다. 제목은 한 줄이며 두 소제목과 여섯 본문 문단이 잘림 없이 배치되고 작은 페이지 번호는 본문과 분리되어 있습니다.",
+              "checks": {
+                "hierarchy": true,
+                "pagination": true,
+                "legibility": true
+              }
+            },
+            {
+              "page": 2,
+              "passed": true,
+              "note": "Word와 LibreOffice의 2쪽을 확인했습니다. 세 번째 소제목부터 시작해 마지막 소제목과 결말까지 문단이 온전히 이어집니다. 하단 여백은 에세이 종결부의 의도적인 여백입니다.",
+              "checks": {
+                "hierarchy": true,
+                "pagination": true,
+                "legibility": true
+              }
+            }
+          ],
+          "complete": true,
+          "acknowledged": true,
+          "status": "accepted",
+          "basis": "current-render-and-format-specific-page-review"
+        }
+      },
+      "checklist": {
+        "ok": true,
+        "task": "",
+        "auditProfile": "",
+        "items": [
+          {
+            "id": "heading-hierarchy",
+            "label": "Heading hierarchy is present and does not skip levels.",
+            "required": true,
+            "status": "pass",
+            "evidence": []
+          },
+          {
+            "id": "orphan-headings",
+            "label": "Headings stay with the content or table they introduce.",
+            "required": true,
+            "status": "pass",
+            "evidence": []
+          },
+          {
+            "id": "table-integrity",
+            "label": "Short tables are not split and fit inside page margins.",
+            "required": true,
+            "status": "pass",
+            "evidence": []
+          },
+          {
+            "id": "page-utilization",
+            "label": "Rendered pages do not contain accidental blank or sparse pages.",
+            "required": true,
+            "status": "pass",
+            "evidence": []
+          },
+          {
+            "id": "full-render-coverage",
+            "label": "Every page or slide has a rendered image; visual acceptance is recorded separately.",
+            "required": true,
+            "status": "pass",
+            "evidence": [
+              "2/2"
+            ]
+          }
+        ],
+        "summary": {
+          "total": 5,
+          "passed": 5,
+          "failed": 0,
+          "pending": 0
+        },
+        "issues": []
+      },
+      "polishPlan": {
+        "format": "docx",
+        "status": "pass",
+        "targetCount": 0,
+        "criticalCount": 0,
+        "targets": [],
+        "nextAction": "No targeted polish remains."
+      },
+      "trust": {
+        "policy": "untrusted-data",
+        "safeToTreatAsInstructions": false,
+        "format": "docx",
+        "source": "structured-snapshot+office-file",
+        "risk": "none",
+        "mutationGate": "allow",
+        "findingCount": 0,
+        "findings": [],
+        "scannedStrings": 83,
+        "complete": true
+      },
+      "visualDiff": {
+        "available": false,
+        "pages": [],
+        "changedPercent": 0,
+        "images": []
+      }
+    },
+    "preview": {
+      "output": "C:\\Project\\mixdog\\outputs\\아무것도_하지_않는_시간의_쓸모_최종.mixdog-preview.pdf",
+      "pageCount": 2,
+      "visualCoverage": {
+        "reviewedPages": [
+          1,
+          2
+        ],
+        "reviewed": 2,
+        "total": 2,
+        "complete": true,
+        "remainingPages": []
+      },
+      "images": [
+        {
+          "page": 1,
+          "path": "C:\\Project\\mixdog\\outputs\\아무것도_하지_않는_시간의_쓸모_최종.mixdog-preview-page-1.png",
+          "width": 1191,
+          "height": 1684,
+          "mimeType": "image/png"
+        },
+        {
+          "page": 2,
+          "path": "C:\\Project\\mixdog\\outputs\\아무것도_하지_않는_시간의_쓸모_최종.mixdog-preview-page-2.png",
+          "width": 1191,
+          "height": 1684,
+          "mimeType": "image/png"
+        }
+      ],
+      "reviewToken": "office_7b6256abd471494a:0:122c52a0feffb923c888e6f100dab0859b7c7d90fb4550281f1091cb3ddce32a",
+      "reused": true,
+      "exportAvailable": true
+    },
+    "baseline": {
+      "available": false,
+      "output": "",
+      "reason": "No active transaction baseline."
+    },
+    "visualReview": {
+      "format": "docx",
+      "checks": [
+        "hierarchy",
+        "pagination",
+        "legibility"
+      ],
+      "pages": [
+        {
+          "page": 1,
+          "passed": true,
+          "note": "Word와 LibreOffice의 1쪽을 확인했습니다. 제목은 한 줄이며 두 소제목과 여섯 본문 문단이 잘림 없이 배치되고 작은 페이지 번호는 본문과 분리되어 있습니다.",
+          "checks": {
+            "hierarchy": true,
+            "pagination": true,
+            "legibility": true
+          }
+        },
+        {
+          "page": 2,
+          "passed": true,
+          "note": "Word와 LibreOffice의 2쪽을 확인했습니다. 세 번째 소제목부터 시작해 마지막 소제목과 결말까지 문단이 온전히 이어집니다. 하단 여백은 에세이 종결부의 의도적인 여백입니다.",
+          "checks": {
+            "hierarchy": true,
+            "pagination": true,
+            "legibility": true
+          }
+        }
+      ],
+      "complete": true,
+      "acknowledged": true,
+      "status": "accepted",
+      "basis": "current-render-and-format-specific-page-review"
+    }
+  },
+  "validation": {
+    "session": "office_7b6256abd471494a",
+    "mode": "portable",
+    "backend": "mixdog-ooxml",
+    "path": "C:\\Project\\mixdog\\outputs\\아무것도_하지_않는_시간의_쓸모_최종.docx",
+    "ok": true,
+    "format": "docx",
+    "entries": 7,
+    "missing": [],
+    "unsafeEntries": [],
+    "macros": [],
+    "security": {
+      "macros": [],
+      "signatures": [],
+      "externalLinks": [],
+      "dataConnections": [],
+      "embeddedObjects": [],
+      "macroExecution": "disabled",
+      "digitalSignatureInvalidated": false
+    },
+    "malformedXml": [],
+    "missingRelationships": [],
+    "duplicateRelationshipIds": [],
+    "externalRelationships": [],
+    "missingContentTypes": [],
+    "mainPart": "word/document.xml",
+    "mainContentType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml",
+    "mainContentTypeMissing": false,
+    "baseline": {
+      "compared": true,
+      "original": "C:\\Project\\mixdog\\outputs\\아무것도_하지_않는_시간의_쓸모_개선본.docx",
+      "originalEntries": 7,
+      "addedParts": [],
+      "lostProtectedParts": [],
+      "changedProtectedParts": [],
+      "signatureParts": [],
+      "digitalSignatureInvalidated": false
+    },
+    "redlining": null,
+    "documentLint": [],
+    "validation": "opc-relationships-content-types-xml",
+    "schema": {
+      "available": true,
+      "cached": true,
+      "downloaded": false,
+      "path": "C:\\Users\\tempe\\.mixdog\\data\\office\\tools\\ooxml-validator\\0.3.0\\win32-x64\\ooxml-validator.exe",
+      "version": "0.3.0",
+      "ok": true,
+      "errors": [],
+      "compatibilityWarnings": [],
+      "omittedErrors": 0,
+      "rawValid": true,
+      "officeVersion": "Microsoft365",
+      "validation": "open-xml-sdk"
+    },
+    "assertions": null,
+    "native": null,
+    "postSaveGate": null,
+    "compatibility": null
+  },
+  "design": {
+    "profile": "executive",
+    "label": "Executive",
+    "bestFor": "Decision briefs, operating reviews, dashboards, and leadership presentations.",
+    "intent": "",
+    "audience": "",
+    "tone": "",
+    "density": "balanced",
+    "purpose": "explain",
+    "expressionMode": "strong-fit",
+    "recentCompositions": [
+      {
+        "fingerprint": "bf9c8c07e1ed886fc21e35384d82abad21c8bd5ffe756e2525cb3591338de1e1",
+        "format": "docx",
+        "profile": "executive",
+        "purpose": "explain",
+        "expressionMode": "strong-fit",
+        "compositionIds": [
+          "evidence-brief"
+        ],
+        "createdAt": "2026-09-06T18:00:39.726Z"
+      },
+      {
+        "fingerprint": "5910adaa083d5be328aa4b2b10c312e7503badbb355a2cf81b530555e40e0d00",
+        "format": "docx",
+        "profile": "executive",
+        "purpose": "explain",
+        "expressionMode": "strong-fit",
+        "compositionIds": [
+          "editorial-report"
+        ],
+        "createdAt": "2026-09-06T17:59:41.433Z"
+      }
+    ],
+    "signature": "",
+    "source": "existing-document",
+    "artDirection": {
+      "format": "docx",
+      "source": "profile-default",
+      "seedFingerprint": "180b988a36f655a3",
+      "subjectDomain": "subject-seeded",
+      "applyTokens": false,
+      "selected": {
+        "id": "editorial-contrast",
+        "label": "Editorial Contrast",
+        "rationale": "Editorial Contrast fits explain through editorial crops and decisive whitespace.",
+        "motif": "editorial crops and decisive whitespace",
+        "palette": {
+          "canvas": "F6F8F7",
+          "ink": "1C2C20",
+          "muted": "4C6851",
+          "accent": "27A544",
+          "accent2": "2AC0AC",
+          "surface": "E7EFE8",
+          "surface2": "D2E0D5",
+          "inverse": "1A2D1F",
+          "onAccent": "FFFFFF",
+          "onInverse": "F4F6F4",
+          "inverse2": "27442F",
+          "accentLight": "2EC451",
+          "accentDeep": "18672B",
+          "accent2Light": "2AC0AC",
+          "accent2Deep": "186C61",
+          "positive": "22A061",
+          "positiveWeak": "E1F4EB",
+          "positiveText": "396951",
+          "warning": "B58527",
+          "warningWeak": "F4EEE1",
+          "warningText": "715F3D",
+          "critical": "CA382B",
+          "criticalWeak": "F4E3E1",
+          "criticalText": "71413D",
+          "informative": "2B6DCA",
+          "informativeWeak": "E1E9F4",
+          "informativeText": "3D5271"
+        },
+        "typography": {
+          "display": "Cambria",
+          "body": "Calibri",
+          "data": "Arial"
+        },
+        "style": {
+          "id": "editorial",
+          "motif": "oversized-numeral",
+          "corners": "minimal",
+          "boundaries": "hairlines-and-columns",
+          "elevation": "flat",
+          "composition": "oversized numeral anchoring the page; asymmetric column split; a figure crossing a column edge; kicker → headline → standfirst hierarchy",
+          "pageRhythm": [
+            "anchor",
+            "dense",
+            "breathing",
+            "dense",
+            "anchor"
+          ]
+        },
+        "creativeSystem": {
+          "grid": "asymmetric editorial grid with controlled crops and wide outer margins",
+          "shapeLanguage": "hairline fields, serif display contrast, offset captions",
+          "chartTreatment": "chart as editorial evidence with annotation blocks and selective labels",
+          "densityPattern": [
+            "quiet opening",
+            "alternating proof density",
+            "decisive close"
+          ],
+          "motifRules": [
+            "repeat editorial crops",
+            "pair serif thesis with sans evidence",
+            "preserve asymmetry"
+          ]
+        },
+        "deck": {
+          "backgroundMode": "sandwich",
+          "motif": "editorial crops and decisive whitespace",
+          "imageTreatment": "editorial-crop",
+          "layoutBias": [
+            "editorial",
+            "typography",
+            "evidence",
+            "decision"
+          ],
+          "grid": "asymmetric editorial grid with controlled crops and wide outer margins",
+          "shapeLanguage": "hairline fields, serif display contrast, offset captions",
+          "chartTreatment": "chart as editorial evidence with annotation blocks and selective labels",
+          "densityPattern": [
+            "quiet opening",
+            "alternating proof density",
+            "decisive close"
+          ],
+          "motifRules": [
+            "repeat editorial crops",
+            "pair serif thesis with sans evidence",
+            "preserve asymmetry"
+          ]
+        },
+        "score": 26.005,
+        "selectionReason": "explain/strong-fit fit"
+      },
+      "candidates": [
+        {
+          "id": "editorial-contrast",
+          "label": "Editorial Contrast",
+          "rationale": "Editorial Contrast fits explain through editorial crops and decisive whitespace.",
+          "motif": "editorial crops and decisive whitespace",
+          "palette": {
+            "canvas": "F6F8F7",
+            "ink": "1C2C20",
+            "muted": "4C6851",
+            "accent": "27A544",
+            "accent2": "2AC0AC",
+            "surface": "E7EFE8",
+            "surface2": "D2E0D5",
+            "inverse": "1A2D1F",
+            "onAccent": "FFFFFF",
+            "onInverse": "F4F6F4",
+            "inverse2": "27442F",
+            "accentLight": "2EC451",
+            "accentDeep": "18672B",
+            "accent2Light": "2AC0AC",
+            "accent2Deep": "186C61",
+            "positive": "22A061",
+            "positiveWeak": "E1F4EB",
+            "positiveText": "396951",
+            "warning": "B58527",
+            "warningWeak": "F4EEE1",
+            "warningText": "715F3D",
+            "critical": "CA382B",
+            "criticalWeak": "F4E3E1",
+            "criticalText": "71413D",
+            "informative": "2B6DCA",
+            "informativeWeak": "E1E9F4",
+            "informativeText": "3D5271"
+          },
+          "typography": {
+            "display": "Cambria",
+            "body": "Calibri",
+            "data": "Arial"
+          },
+          "style": {
+            "id": "editorial",
+            "motif": "oversized-numeral",
+            "corners": "minimal",
+            "boundaries": "hairlines-and-columns",
+            "elevation": "flat",
+            "composition": "oversized numeral anchoring the page; asymmetric column split; a figure crossing a column edge; kicker → headline → standfirst hierarchy",
+            "pageRhythm": [
+              "anchor",
+              "dense",
+              "breathing",
+              "dense",
+              "anchor"
+            ]
+          },
+          "creativeSystem": {
+            "grid": "asymmetric editorial grid with controlled crops and wide outer margins",
+            "shapeLanguage": "hairline fields, serif display contrast, offset captions",
+            "chartTreatment": "chart as editorial evidence with annotation blocks and selective labels",
+            "densityPattern": [
+              "quiet opening",
+              "alternating proof density",
+              "decisive close"
+            ],
+            "motifRules": [
+              "repeat editorial crops",
+              "pair serif thesis with sans evidence",
+              "preserve asymmetry"
+            ]
+          },
+          "deck": {
+            "backgroundMode": "sandwich",
+            "motif": "editorial crops and decisive whitespace",
+            "imageTreatment": "editorial-crop",
+            "layoutBias": [
+              "editorial",
+              "typography",
+              "evidence",
+              "decision"
+            ],
+            "grid": "asymmetric editorial grid with controlled crops and wide outer margins",
+            "shapeLanguage": "hairline fields, serif display contrast, offset captions",
+            "chartTreatment": "chart as editorial evidence with annotation blocks and selective labels",
+            "densityPattern": [
+              "quiet opening",
+              "alternating proof density",
+              "decisive close"
+            ],
+            "motifRules": [
+              "repeat editorial crops",
+              "pair serif thesis with sans evidence",
+              "preserve asymmetry"
+            ]
+          },
+          "score": 26.005
+        },
+        {
+          "id": "immersive-signal",
+          "label": "Immersive Signal",
+          "rationale": "Immersive Signal fits explain through immersive fields with one sharp signal.",
+          "motif": "immersive fields with one sharp signal",
+          "palette": {
+            "canvas": "F7F8F6",
+            "ink": "232C1C",
+            "muted": "526046",
+            "accent": "6ACC1E",
+            "accent2": "412AC0",
+            "surface": "EAEFE7",
+            "surface2": "D8E0D2",
+            "inverse": "1B2414",
+            "onAccent": "FFFFFF",
+            "onInverse": "F5F6F4",
+            "inverse2": "2C3B21",
+            "accentLight": "6ACC1E",
+            "accentDeep": "36680F",
+            "accent2Light": "A69AE9",
+            "accent2Deep": "412AC0",
+            "positive": "22A061",
+            "positiveWeak": "E1F4EB",
+            "positiveText": "396951",
+            "warning": "B58527",
+            "warningWeak": "F4EEE1",
+            "warningText": "715F3D",
+            "critical": "CA382B",
+            "criticalWeak": "F4E3E1",
+            "criticalText": "71413D",
+            "informative": "2B6DCA",
+            "informativeWeak": "E1E9F4",
+            "informativeText": "3D5271"
+          },
+          "typography": {
+            "display": "Arial",
+            "body": "Calibri",
+            "data": "Courier New"
+          },
+          "style": {
+            "id": "dark-tech",
+            "motif": "halo-field",
+            "corners": "slight",
+            "boundaries": "glow-and-layering",
+            "elevation": "glow",
+            "composition": "concentric halo staging one central metric; oversized type floating on dark negative space; monospace labels with wide tracking",
+            "pageRhythm": [
+              "anchor",
+              "dense",
+              "breathing",
+              "dense",
+              "anchor"
+            ]
+          },
+          "creativeSystem": {
+            "grid": "cinematic split field with one oversized signal and compressed support",
+            "shapeLanguage": "deep fields, oversized type, sharp signal chips",
+            "chartTreatment": "minimal native chart with luminous signal series and direct callouts",
+            "densityPattern": [
+              "immersive opening",
+              "high-contrast proof",
+              "compressed decision close"
+            ],
+            "motifRules": [
+              "one sharp signal per slide",
+              "alternate immersive and analytical fields",
+              "never decorate without evidence"
+            ]
+          },
+          "deck": {
+            "backgroundMode": "dark",
+            "motif": "immersive fields with one sharp signal",
+            "imageTreatment": "full-bleed-focus",
+            "layoutBias": [
+              "minimal",
+              "rhythm",
+              "split",
+              "data"
+            ],
+            "grid": "cinematic split field with one oversized signal and compressed support",
+            "shapeLanguage": "deep fields, oversized type, sharp signal chips",
+            "chartTreatment": "minimal native chart with luminous signal series and direct callouts",
+            "densityPattern": [
+              "immersive opening",
+              "high-contrast proof",
+              "compressed decision close"
+            ],
+            "motifRules": [
+              "one sharp signal per slide",
+              "alternate immersive and analytical fields",
+              "never decorate without evidence"
+            ]
+          },
+          "score": 20.075
+        },
+        {
+          "id": "evidence-grid",
+          "label": "Evidence Grid",
+          "rationale": "Evidence Grid fits explain through measured evidence windows.",
+          "motif": "measured evidence windows",
+          "palette": {
+            "canvas": "F7F8F6",
+            "ink": "1E2C1C",
+            "muted": "4E684C",
+            "accent": "38A527",
+            "accent2": "2AC075",
+            "surface": "E8EFE7",
+            "surface2": "D4E0D2",
+            "inverse": "1D2D1A",
+            "onAccent": "FFFFFF",
+            "onInverse": "F4F6F4",
+            "inverse2": "2C4427",
+            "accentLight": "42C42E",
+            "accentDeep": "236718",
+            "accent2Light": "2AC075",
+            "accent2Deep": "186C42",
+            "positive": "22A061",
+            "positiveWeak": "E1F4EB",
+            "positiveText": "396951",
+            "warning": "B58527",
+            "warningWeak": "F4EEE1",
+            "warningText": "715F3D",
+            "critical": "CA382B",
+            "criticalWeak": "F4E3E1",
+            "criticalText": "71413D",
+            "informative": "2B6DCA",
+            "informativeWeak": "E1E9F4",
+            "informativeText": "3D5271"
+          },
+          "typography": {
+            "display": "Calibri",
+            "body": "Calibri",
+            "data": "Arial"
+          },
+          "style": {
+            "id": "swiss-grid",
+            "motif": "grid-marks",
+            "corners": "sharp",
+            "boundaries": "rules-and-planes",
+            "elevation": "flat",
+            "composition": "one oversized geometric plane zoning the page; content flush to one axis; hero numeral at architectural scale",
+            "pageRhythm": [
+              "anchor",
+              "dense",
+              "dense",
+              "breathing",
+              "anchor"
+            ]
+          },
+          "creativeSystem": {
+            "grid": "twelve-column analytical grid with one dominant evidence field",
+            "shapeLanguage": "square evidence fields, quiet dividers, numeric anchors",
+            "chartTreatment": "native chart with direct labels and a decision commentary rail",
+            "densityPattern": [
+              "light opening",
+              "dense proof",
+              "balanced choice",
+              "light close"
+            ],
+            "motifRules": [
+              "repeat measured windows",
+              "use one dominant number per proof beat",
+              "avoid equal card grids"
+            ]
+          },
+          "deck": {
+            "backgroundMode": "light",
+            "motif": "measured evidence windows",
+            "imageTreatment": "contained-evidence",
+            "layoutBias": [
+              "evidence",
+              "data",
+              "comparison",
+              "process"
+            ],
+            "grid": "twelve-column analytical grid with one dominant evidence field",
+            "shapeLanguage": "square evidence fields, quiet dividers, numeric anchors",
+            "chartTreatment": "native chart with direct labels and a decision commentary rail",
+            "densityPattern": [
+              "light opening",
+              "dense proof",
+              "balanced choice",
+              "light close"
+            ],
+            "motifRules": [
+              "repeat measured windows",
+              "use one dominant number per proof beat",
+              "avoid equal card grids"
+            ]
+          },
+          "score": 6.068
+        }
+      ]
+    },
+    "creative": null,
+    "content": null,
+    "library": {
+      "source": "starter-fallback",
+      "pack": null,
+      "template": null,
+      "templateIndexRevision": "f9f41e945bb0bbfdbeced8de2215deaa1cc689b0993431132e882b54a19afb13",
+      "recentCompositionCount": 2,
+      "pinned": true,
+      "warning": ""
+    },
+    "layouts": [],
+    "tokens": {
+      "colors": {
+        "canvas": "F8F9F6",
+        "ink": "17221C",
+        "muted": "5A635F",
+        "accent": "1F7A55",
+        "accent2": "D89224",
+        "surface": "E8F1EC",
+        "surface2": "DDE4DF",
+        "inverse": "132C24",
+        "onAccent": "FFFFFF",
+        "onInverse": "FFFFFF",
+        "inverse2": "1E4538",
+        "accentLight": "31C187",
+        "accentDeep": "1C704E",
+        "accent2Light": "DE9D38",
+        "accent2Deep": "815715",
+        "positive": "22A061",
+        "positiveWeak": "E1F4EB",
+        "positiveText": "396951",
+        "warning": "B58527",
+        "warningWeak": "F4EEE1",
+        "warningText": "715F3D",
+        "critical": "CA382B",
+        "criticalWeak": "F4E3E1",
+        "criticalText": "71413D",
+        "informative": "2B6DCA",
+        "informativeWeak": "E1E9F4",
+        "informativeText": "3D5271"
+      },
+      "typography": {
+        "display": "Cambria",
+        "body": "Calibri",
+        "data": "Arial"
+      },
+      "spacing": {
+        "compact": 10,
+        "block": 22,
+        "section": 40,
+        "page": 52
+      }
+    },
+    "discipline": {
+      "replacedFonts": [],
+      "fontFamilyCount": 3,
+      "paletteAdjustments": [
+        {
+          "role": "muted",
+          "from": "66716B",
+          "to": "606A65",
+          "reason": "muted on surface measured 4.4:1; 4.5:1 is required."
+        },
+        {
+          "role": "muted",
+          "from": "606A65",
+          "to": "5A635F",
+          "reason": "muted on surface2 measured 4.33:1; 4.5:1 is required."
+        }
+      ]
+    },
+    "format": {
+      "title": 30,
+      "heading1": 17,
+      "heading2": 13,
+      "body": 10.5,
+      "margin": 50.4
+    },
+    "compositions": [],
+    "review": {
+      "required": false,
+      "allowTextOnly": false,
+      "allowRepetition": false,
+      "allowDecorativeLines": false,
+      "allowSyntheticVisuals": false,
+      "allowFlatRhythm": false,
+      "allowUnsafeFonts": false,
+      "frontier": false
+    }
+  },
+  "composition": {
+    "format": "docx",
+    "fingerprint": "",
+    "compositionIds": [],
+    "count": 0
+  },
+  "compositionHistory": null,
+  "stepMetrics": {
+    "recalculationMs": 0,
+    "reviewMs": 841.82,
+    "saveMs": 0.08,
+    "validationMs": 256.64,
+    "closeMs": 0.09
+  },
+  "metrics": {
+    "durationMs": 1099.81
+  },
+  "artifacts": [
+    {
+      "type": "document",
+      "format": "docx",
+      "fileKind": "docx",
+      "operation": "edit",
+      "path": "C:\\Project\\mixdog\\outputs\\아무것도_하지_않는_시간의_쓸모_최종.docx"
+    }
+  ],
+  "outputCount": 1,
+  "expectedOutputCount": 1
+}

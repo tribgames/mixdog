@@ -141,13 +141,15 @@ Add-Type @'
 using System;
 public static class MixInputObservation {
   public static int Depth;
+  public static Action DispatchAuthorization;
   public static void Begin() { Depth++; }
-  public static void AssertContinue() {}
+  public static void AssertContinue() { if (DispatchAuthorization != null) DispatchAuthorization(); }
   public static void End() { Depth--; }
 }
 public sealed class MixCursorTheme : IDisposable {
   public static int Restores;
-  public static MixCursorTheme Begin() { return new MixCursorTheme(); }
+  public static Action Prepared;
+  public static MixCursorTheme Begin() { if (Prepared != null) Prepared(); return new MixCursorTheme(); }
   public void Dispose() { Restores++; }
 }
 public class PointValue { public int x,y; }
@@ -175,6 +177,19 @@ try { Invoke-ForegroundInput ([IntPtr]1) 'click' { throw 'fixture failure' }; th
   if ($_.Exception.Message -ne 'fixture failure') { throw }
 }
 if ([MixCursorTheme]::Restores -ne 2 -or [MixInputObservation]::Depth -ne 0) { throw 'theme or intervention scope leaked' }
+$script:expired=$false
+$script:sent=$false
+function Assert-ExecutionAuthorization($req,$target) {
+  if ($script:expired) { throw 'computer_policy_expired: fixture authority expired during preparation' }
+}
+[MixCursorTheme]::Prepared = [Action] { $script:expired=$true }
+try { Invoke-ForegroundInput ([IntPtr]1) 'key' { $script:sent=$true }; throw 'missing expiry refusal' } catch {
+  if ($_.Exception.ToString() -notmatch 'computer_policy_expired') { throw }
+}
+if ($script:sent -or [MixInputObservation]::Depth -ne 0 -or
+    $null -ne [MixInputObservation]::DispatchAuthorization -or [MixCursorTheme]::Restores -ne 3) {
+  throw 'expired authority dispatched input or leaked its cleanup scope'
+}
 [Console]::WriteLine('FEEDBACK_RESTORED')
 `, { 'input.ps1': PS_INPUT });
   assert.equal(output, 'FEEDBACK_RESTORED');

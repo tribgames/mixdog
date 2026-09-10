@@ -4,7 +4,8 @@ import type { DesktopModelSelection } from "../shared/contract";
 import { resolveContextDisplayUsage } from "./context-usage";
 import { type Snapshot, type TranscriptItem } from "./desktop-types";
 import { useHoverPopover } from "./hover-popover";
-import { t } from "./i18n";
+import { t, uiFormatLocale } from "./i18n";
+import { uiCurrency } from "./ui-format";
 import { MxIcon } from "./MxIcon";
 import { showDesktopToast } from "./notifications";
 import { ProgressSpinner } from "./ProgressSpinner";
@@ -199,14 +200,14 @@ export function ContextUsageIndicator({ snapshot, open: controlledOpen, onOpenCh
       </div>
       <div><span>{t("Usage")}</span><b
         title={context.used == null ? undefined : context.limit > 0
-          ? `${context.used.toLocaleString()} / ${context.limit.toLocaleString()}`
-          : context.used.toLocaleString()}>{context.used == null ? "—" : context.limit > 0
+          ? `${context.used.toLocaleString(uiFormatLocale())} / ${context.limit.toLocaleString(uiFormatLocale())}`
+          : context.used.toLocaleString(uiFormatLocale())}>{context.used == null ? "—" : context.limit > 0
           ? `${formatTokenCount(context.used)} / ${formatTokenCount(context.limit)}`
           : formatTokenCount(context.used)}</b></div>
       {(() => {
         const cost = Math.max(0, Number(asRecord(snapshot.stats)?.costUsd || 0));
         return cost > 0
-          ? <div><span>{t("Cost")}</span><b>${cost >= 1 ? cost.toFixed(2) : cost.toFixed(3)}</b></div>
+          ? <div><span>{t("Cost")}</span><b>{uiCurrency(cost, cost >= 1 ? 2 : 3)}</b></div>
           : null;
       })()}
       {/* One action at a time: a model switch offers inheritance;

@@ -1,4 +1,5 @@
 import { ArrowLeft, Check, Copy } from "lucide-react";
+import { uiFormatLocale } from "./i18n";
 import type {
   DesktopGitCommitDetails,
   DesktopGitCommitFile,
@@ -68,7 +69,7 @@ export function SourceControlCommitDetail({
           <span className="dock-scm-commit-author" title={detail.email}>
             <span>{detailAuthor || UNKNOWN_AUTHOR}</span>
           </span>
-          <time dateTime={detail.authoredAt} title={new Date(detail.authoredAt).toLocaleString()}>
+          <time dateTime={detail.authoredAt} title={new Date(detail.authoredAt).toLocaleString(uiFormatLocale())}>
             {formatCommitDate(detail.authoredAt)}
           </time>
           <span className="dock-scm-commit-sha" title={detail.hash}>

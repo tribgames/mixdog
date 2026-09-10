@@ -294,8 +294,8 @@ test('plugin detail shows all supplied metadata and existing installation facts 
       Source: 'git · https://example.test/source.git',
       Root: 'C:\\plugins\\info',
       'MCP server': 'plugin-info',
-      Installed: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(installedAt)),
-      Updated: new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(updatedAt)),
+      Installed: new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(new Date(installedAt)),
+      Updated: new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(new Date(updatedAt)),
     });
     assert.equal(facts.querySelector('script'), null);
   } finally {

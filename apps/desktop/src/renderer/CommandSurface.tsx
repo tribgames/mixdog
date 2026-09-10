@@ -9,7 +9,8 @@ import {
   commandSurfaceDisplaySnapshot,
   commandSurfaceSessionId,
 } from './command-surface-state';
-import { t } from './i18n';
+import { t, uiFormatLocale } from './i18n';
+import { uiCurrency } from './ui-format';
 import { acquireModalLayer } from './modal-layer';
 import { useErrorToast } from './notifications';
 import { ErrorNotice } from './ErrorNotice';
@@ -416,29 +417,25 @@ function usageNumber(value: unknown): number | null {
 function usageMoney(value: unknown): string {
   const amount = usageNumber(value);
   if (amount === null) return '—';
-  if (amount === 0) return '$0';
-  if (amount >= 10) return `$${amount.toFixed(0)}`;
-  if (amount >= 1) return `$${amount.toFixed(2)}`;
-  if (amount >= 0.01) return `$${amount.toFixed(3)}`;
-  return `$${amount.toFixed(4)}`;
+  return uiCurrency(amount, amount === 0 || amount >= 10 ? 0 : amount >= 1 ? 2 : amount >= 0.01 ? 3 : 4);
 }
 function usageCompact(value: unknown): string {
   const amount = usageNumber(value);
   if (amount === null) return '';
-  if (Math.abs(amount) >= 1_000_000) return `${(amount / 1_000_000).toFixed(amount >= 10_000_000 ? 0 : 1)}M`;
-  if (Math.abs(amount) >= 1_000) return `${(amount / 1_000).toFixed(amount >= 10_000 ? 0 : 1)}K`;
-  return amount.toFixed(Math.abs(amount) >= 10 ? 0 : 1);
+  return new Intl.NumberFormat(uiFormatLocale(), {
+    notation: 'compact', maximumFractionDigits: Math.abs(amount) >= 10_000 ? 0 : 1,
+  }).format(amount);
 }
 function usageClock(value: unknown): string {
   const at = usageNumber(value);
   if (at === null || at <= 0) return '';
   const date = new Date(at);
   if (!Number.isFinite(date.getTime())) return '';
-  const time = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const time = date.toLocaleTimeString(uiFormatLocale(), { hour: '2-digit', minute: '2-digit' });
   if (at - Date.now() < 24 * 60 * 60_000) return time;
   // Beyond a day out, the exact minute is noise that forces chip wrapping —
   // the reset date alone keeps every provider row on one line.
-  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  return date.toLocaleDateString(uiFormatLocale(), { month: 'short', day: 'numeric' });
 }
 // A window with no provider source is a LOCAL estimate, not reported truth:
 // it renders in the warning tone and drops its (meaningless) reset clock.

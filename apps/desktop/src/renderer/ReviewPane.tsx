@@ -1,6 +1,6 @@
 import { ChevronDown, FileDiff } from "lucide-react";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { t } from "./i18n";
+import { t, uiFormatLocale } from "./i18n";
 import { useMobileBack } from "./mobile-back";
 import { DiffBoundary } from "./TranscriptView";
 import { REVIEW_DIFF_STYLE_KEY } from "./desktop-types";
@@ -317,7 +317,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
             {tooLarge
               ? <div className="review-large-diff">
                 <b>{t("Large diff")}</b>
-                <span>{t("{{count}} changed lines exceed the 500-line render limit.", { count: (file.additions + file.deletions).toLocaleString() })}</span>
+                <span>{t("{{count}} changed lines exceed the 500-line render limit.", { count: (file.additions + file.deletions).toLocaleString(uiFormatLocale()) })}</span>
                 <button type="button" onClick={() => setForced((current) => [...current, file.path])}>
                   Render anyway
                 </button>

@@ -1,4 +1,5 @@
-// Metadata only: no key codes, text, cursor coordinates or clipboard data.
+// Observation replies contain metadata only. Foreign-held bits remain solely
+// in volatile ownership memory to protect user-held input during cleanup.
 public sealed class MixInputLedger {
   public long ForeignSequence { get; private set; }
   public uint LatestTick { get; private set; }
@@ -71,6 +72,7 @@ public static class MixInputObservation {
   static MixInputLedger ledger;
   [System.ThreadStatic] static long? actionSequence;
   [System.ThreadStatic] static int actionDepth;
+  [System.ThreadStatic] public static System.Action DispatchAuthorization;
   public static readonly System.IntPtr Marker = CreateMarker();
   static System.IntPtr CreateMarker() {
     uint value;
@@ -89,6 +91,12 @@ public static class MixInputObservation {
     if (code >= 0) {
       var value = (MOUSE)System.Runtime.InteropServices.Marshal.PtrToStructure(data, typeof(MOUSE));
       Record((value.flags & 1) != 0, value.extra, value.time);
+      if (MixNativeInput.ObserveForeignOwnership && ((value.flags & 1) == 0 || value.extra != Marker)) {
+        long kind = message.ToInt64();
+        int key = kind == 0x201 || kind == 0x202 ? 1 : kind == 0x204 || kind == 0x205 ? 2
+          : kind == 0x207 || kind == 0x208 ? 4 : 0;
+        if (key != 0) MixNativeInput.RecordForeignKey(key, kind == 0x201 || kind == 0x204 || kind == 0x207);
+      }
     }
     return CallNextHookEx(System.IntPtr.Zero, code, message, data);
   }
@@ -96,6 +104,9 @@ public static class MixInputObservation {
     if (code >= 0) {
       var value = (KEY)System.Runtime.InteropServices.Marshal.PtrToStructure(data, typeof(KEY));
       Record((value.flags & 0x10) != 0, value.extra, value.time);
+      if (MixNativeInput.ObserveForeignOwnership && ((value.flags & 0x10) == 0 || value.extra != Marker)) {
+        MixNativeInput.RecordForeignKey((int)value.vk, (value.flags & 0x80) == 0);
+      }
     }
     return CallNextHookEx(System.IntPtr.Zero, code, message, data);
   }
@@ -168,6 +179,7 @@ public static class MixInputObservation {
     return value.Ready && (!actionSequence.HasValue || value.Sequence == actionSequence.Value);
   }
   public static void AssertContinue() {
+    if (DispatchAuthorization != null) DispatchAuthorization();
     var value = Read();
     if (!value.Ready) throw new System.Exception("input_observation_unavailable: input observation lost");
     if (actionSequence.HasValue && value.Sequence != actionSequence.Value) {

@@ -148,6 +148,14 @@ function _filterSymbolOutline(text, lang, args) {
     : `(no symbols matching ${keywords.map((keyword) => JSON.stringify(keyword)).join(', ')})`;
 }
 
+function collectGraphParseWarnings(graph, options) {
+  for (const node of graph?.nodes?.values?.() || []) {
+    if (!node.parseError) continue;
+    options._parseWarnings?.set(node.abs, `${node.rel}: ${node.parseError}`);
+    if (options.scopedCacheOutcome) markScopedCacheIncomplete(options.scopedCacheOutcome);
+  }
+}
+
 async function codeGraph(args, cwd, signal = null, options = {}) {
   let mode = String(args?.mode || '').trim();
   if (!mode) throw new Error('code_graph: "mode" is required');
@@ -206,6 +214,7 @@ async function codeGraph(args, cwd, signal = null, options = {}) {
   const graph = await buildCodeGraphAsync(cwd, signal, {
     excludedProjectRoots: options?.excludedProjectRoots,
   });
+  collectGraphParseWarnings(graph, options);
   if (!graph || graph.nodes.size === 0) {
     throw new Error(`code_graph: cwd '${cwd}' is not an indexed/known project root or contains zero eligible files`);
   }
@@ -574,6 +583,7 @@ async function findSymbolTool(args, cwd, signal = null, options = {}) {
         excludedProjectRoots: options?.excludedProjectRoots,
       });
   if (!graph) throw new Error(`find_symbol: cwd '${cwd}' is not an indexed/known project root or contains zero eligible files`);
+  collectGraphParseWarnings(graph, options);
   if (options?.scopedCacheOutcome && graph.truncated) {
     markScopedCacheIncomplete(options.scopedCacheOutcome);
   }
@@ -977,7 +987,12 @@ function _codeGraphBudgetFooter(args, keptLines) {
 }
 
 export async function executeCodeGraphTool(name, args, cwd, signal = null, options = {}) {
-  const result = await executeCodeGraphToolRaw(name, args, cwd, signal, options);
+  const warnings = new Map();
+  const raw = await executeCodeGraphToolRaw(name, args, cwd, signal, { ...options, _parseWarnings: warnings });
+  const result = warnings.size
+    ? `[warning] ${warnings.size} source file(s) could not be indexed; graph results are partial:\n`
+      + [...warnings.values()].slice(0, 5).join('\n') + `\n${raw}`
+    : raw;
   return capLineOrientedToolOutput(
     result,
     CODE_GRAPH_OUTPUT_MAX_BYTES,

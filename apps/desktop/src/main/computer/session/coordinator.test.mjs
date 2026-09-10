@@ -84,6 +84,29 @@ test('same-target contention queues the lease and requires a fresh action after 
   }
 });
 
+test('overlapping multi-window waiters retain order without blocking independent windows', async () => {
+  const coordinator = new ComputerUseCoordinator({ targetLeaseWaitMs: 1_000 });
+  try {
+    await coordinator.acquireTargets('owner-a', ['a']);
+    await coordinator.acquireTargets('owner-c', ['c']);
+    const first = coordinator.acquireTargets('first', ['a', 'b']);
+    const second = coordinator.acquireTargets('second', ['b', 'c']);
+    const independent = coordinator.acquireTargets('independent', ['c']);
+    coordinator.releaseTargets('owner-c');
+    assert.equal(coordinator.snapshot().targetLeases.some((lease) => lease.windowId === 'c'), false);
+    assert.equal((await coordinator.acquireTargets('unrelated', ['d'])).status, 'acquired');
+    coordinator.releaseTargets('owner-a');
+    assert.equal((await first).status, 'acquired');
+    assert.equal(coordinator.snapshot().targetLeases.some((lease) => lease.sessionId === 'second'), false);
+    coordinator.releaseTargets('first');
+    assert.equal((await second).status, 'acquired');
+    coordinator.releaseTargets('second');
+    assert.equal((await independent).status, 'acquired');
+  } finally {
+    coordinator.reset();
+  }
+});
+
 test('expired continuation leases cannot pin a target for the worker idle lifetime', async () => {
   let now = 1_000;
   const coordinator = new ComputerUseCoordinator({
@@ -246,7 +269,7 @@ test('session cursor state carries exact points and is removed by takeover clean
         badge: entry.badge,
         context: entry.context,
       })),
-      [{ badge: 'Target app', context: 'Background' }],
+      [],
     );
 
     coordinator.pauseForUser('emergency_shortcut');

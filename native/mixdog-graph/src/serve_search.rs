@@ -147,39 +147,15 @@ struct WalkKey {
     no_require_git: bool,
     max_depth: Option<usize>,
     directories: bool,
-    // Negative globs are applied DURING the walk (directory pruning), so two
-    // requests with different exclusions cannot share one inventory. Positive
-    // globs stay out of the key: they only filter an already-built inventory.
+    // Overrides affect both pruning and ignore precedence. Preserve their
+    // order in the inventory key, including positive and insensitive globs.
     prune: Vec<String>,
+    iglobs: Vec<String>,
 }
-
-/// Directory basenames that are never worth enumerating. Mirrors the JS
-/// `NOISE_DIR_NAMES` list so walker pruning and tool-side filtering agree.
-const NOISE_SEGMENTS: &[&str] = &[
-    "node_modules",
-    ".git",
-    ".next",
-    ".nuxt",
-    ".svelte-kit",
-    ".cache",
-    ".parcel-cache",
-    ".turbo",
-    "venv",
-    ".venv",
-    "__pycache__",
-    ".pytest_cache",
-    ".gradle",
-];
 
 fn path_has_segment(path: &Path, segment: &str) -> bool {
     path.components()
         .any(|component| component.as_os_str() == segment)
-}
-
-fn is_noise_path(path: &Path) -> bool {
-    NOISE_SEGMENTS
-        .iter()
-        .any(|segment| path_has_segment(path, segment))
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -190,18 +166,20 @@ struct FuzzyKey {
 }
 
 fn normalized_operand(operand: &Path) -> PathBuf {
-    std::fs::canonicalize(operand).unwrap_or_else(|_| operand.to_path_buf())
+    let canonical = std::fs::canonicalize(operand).unwrap_or_else(|_| operand.to_path_buf());
+    PathBuf::from(wire_path(&canonical))
 }
 
 fn path_starts_with(rooted: &Path, root: &Path) -> bool {
+    if rooted.starts_with(root) {
+        return true;
+    }
     #[cfg(target_os = "windows")]
     {
-        let rooted = rooted.to_string_lossy();
-        let root = root.to_string_lossy();
-        let rooted = rooted.strip_prefix(r"\\?\").unwrap_or(&rooted);
-        let root = root.strip_prefix(r"\\?\").unwrap_or(&root);
+        let rooted = wire_path(rooted).replace('\\', "/");
+        let root = wire_path(root).replace('\\', "/");
         let rooted = rooted.as_bytes();
-        let root = root.as_bytes();
+        let root = root.trim_end_matches('/').as_bytes();
         if rooted.eq_ignore_ascii_case(root) {
             return true;
         }
@@ -214,6 +192,27 @@ fn path_starts_with(rooted: &Path, root: &Path) -> bool {
     {
         rooted.starts_with(root)
     }
+}
+
+fn relative_inventory_path(file: &Path, root: &Path) -> Option<String> {
+    if let Ok(relative) = file.strip_prefix(root) {
+        return Some(relative.to_string_lossy().replace('\\', "/"));
+    }
+    #[cfg(windows)]
+    {
+        if !path_starts_with(file, root) {
+            return None;
+        }
+        let file = wire_path(file).replace('\\', "/");
+        let root = wire_path(root).replace('\\', "/");
+        return Some(file[root.trim_end_matches('/').len()..].trim_start_matches('/').to_string());
+    }
+    #[cfg(not(windows))]
+    file.strip_prefix(root).ok().map(|path| path.to_string_lossy().into_owned())
+}
+
+fn is_filesystem_root(path: &Path) -> bool {
+    path.has_root() && path.parent().is_none()
 }
 
 fn wire_path(path: &Path) -> String {
@@ -230,38 +229,21 @@ fn wire_path(path: &Path) -> String {
     value.into_owned()
 }
 
-/// Exclusion globs that the walker itself can honor. Only negations qualify:
-/// a positive glob may not prune a directory (its children can still match),
-/// while `!**/node_modules/**` makes the whole subtree dead weight. Each
-/// `!<dir>/**` gains a `!<dir>` companion so the directory entry is rejected
-/// before it is descended. `.git` is always pruned — matching ripgrep's
-/// practical behavior — unless the caller deliberately targets a path inside
-/// it.
+/// Apply ordered request overrides during enumeration, before ignore rules.
+/// Keep directory exclusions exactly as requested so later positive rules
+/// can re-include children. The internal .git exclusion remains in force
+/// unless the operand explicitly targets that directory.
 fn prune_globs(operand: &Path, parsed: &ParsedArgs) -> Vec<String> {
-    let mut prune: Vec<String> = Vec::new();
-    for glob in &parsed.globs {
-        let Some(rest) = glob.strip_prefix('!') else {
-            continue;
-        };
-        if rest.is_empty() {
-            continue;
-        }
-        prune.push(glob.clone());
-        if let Some(dir) = rest.strip_suffix("/**") {
-            prune.push(format!("!{dir}"));
-        }
-    }
+    let mut prune = parsed.globs.clone();
     if !path_has_segment(operand, ".git") {
         prune.push("!**/.git".to_string());
         prune.push("!**/.git/**".to_string());
     }
-    prune.sort();
-    prune.dedup();
     prune
 }
 
-fn prune_overrides(operand: &Path, prune: &[String]) -> Option<Override> {
-    if prune.is_empty() {
+fn prune_overrides(operand: &Path, prune: &[String], iglobs: &[String]) -> Option<Override> {
+    if prune.is_empty() && iglobs.is_empty() {
         return None;
     }
     let root = if operand.is_file() {
@@ -277,6 +259,10 @@ fn prune_overrides(operand: &Path, prune: &[String]) -> Option<Override> {
             return None;
         }
     }
+    builder.case_insensitive(true).ok()?;
+    for glob in iglobs {
+        builder.add(glob).ok()?;
+    }
     builder.build().ok()
 }
 
@@ -289,14 +275,13 @@ fn walk_key(operand: &Path, parsed: &ParsedArgs) -> WalkKey {
         max_depth: parsed.max_depth,
         directories: parsed.directories,
         prune: prune_globs(operand, parsed),
+        iglobs: parsed.iglobs.clone(),
     }
 }
 
 fn fuzzy_key(operand: &Path, parsed: &ParsedArgs) -> FuzzyKey {
-    let mut globs = parsed.globs.clone();
-    globs.sort();
-    let mut iglobs = parsed.iglobs.clone();
-    iglobs.sort();
+    let globs = parsed.globs.clone();
+    let iglobs = parsed.iglobs.clone();
     FuzzyKey {
         walk: walk_key(operand, parsed),
         globs,
@@ -306,6 +291,7 @@ fn fuzzy_key(operand: &Path, parsed: &ParsedArgs) -> FuzzyKey {
 
 struct ReadyEntry {
     files: Arc<Vec<PathBuf>>,
+    directory_failures: Arc<Vec<DirectoryFailure>>,
     expires_at: Instant,
     generation: u64,
     touched_at: Instant,
@@ -337,7 +323,7 @@ fn paths_storage_bytes(files: &[PathBuf]) -> usize {
 }
 
 const INVENTORY_SNAPSHOT_MAGIC: &[u8; 8] = b"MDINV001";
-const INVENTORY_SNAPSHOT_VERSION: u32 = 2;
+const INVENTORY_SNAPSHOT_VERSION: u32 = 3;
 const INVENTORY_SNAPSHOT_MAX_BYTES: u64 = 256 * 1024 * 1024;
 const INVENTORY_SNAPSHOT_MAX_STRING_BYTES: usize = 1024 * 1024;
 
@@ -425,7 +411,7 @@ fn load_file_list_snapshot() -> (
         let now = Instant::now();
         let mut total_bytes = 0usize;
         for _ in 0..entry_count {
-            let operand = PathBuf::from(read_snapshot_string(&mut reader)?);
+            let operand = PathBuf::from(wire_path(Path::new(&read_snapshot_string(&mut reader)?)));
             let root_identity = Some(crate::serve_search_usn::FileIdentity {
                 volume: read_snapshot_u32(&mut reader)?,
                 file_id: read_snapshot_u64(&mut reader)?,
@@ -434,8 +420,9 @@ fn load_file_list_snapshot() -> (
             reader.read_exact(&mut flags)?;
             let max_depth = read_snapshot_u32(&mut reader)?;
             let prune_count = read_snapshot_u32(&mut reader)? as usize;
+            let iglob_count = read_snapshot_u32(&mut reader)? as usize;
             let file_count = read_snapshot_u32(&mut reader)? as usize;
-            if prune_count > 4096 || file_count > 2_000_000 {
+            if prune_count > 4096 || iglob_count > 4096 || file_count > 2_000_000 {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "inventory entry counts",
@@ -445,10 +432,16 @@ fn load_file_list_snapshot() -> (
             for _ in 0..prune_count {
                 prune.push(read_snapshot_string(&mut reader)?);
             }
+            let mut iglobs = Vec::with_capacity(iglob_count);
+            for _ in 0..iglob_count {
+                iglobs.push(read_snapshot_string(&mut reader)?);
+            }
             let mut files = Vec::with_capacity(file_count);
             for _ in 0..file_count {
-                files.push(PathBuf::from(read_snapshot_string(&mut reader)?));
+                files.push(PathBuf::from(wire_path(Path::new(&read_snapshot_string(&mut reader)?))));
             }
+            files.par_sort_unstable();
+            files.dedup();
             let estimated_bytes = paths_storage_bytes(&files);
             total_bytes = total_bytes.saturating_add(estimated_bytes);
             if total_bytes > file_list_cache_bytes() {
@@ -463,9 +456,11 @@ fn load_file_list_snapshot() -> (
                     directories: flags[0] & 8 != 0,
                     max_depth: (max_depth != u32::MAX).then_some(max_depth as usize),
                     prune,
+                    iglobs,
                 },
                 ReadyEntry {
                     files: Arc::new(files),
+                    directory_failures: Arc::new(Vec::new()),
                     expires_at: now + ttl,
                     generation: 0,
                     touched_at: now,
@@ -497,6 +492,7 @@ fn persist_file_list_snapshot(ready_cache: &Mutex<HashMap<WalkKey, ReadyEntry>>)
         .lock()
         .unwrap_or_else(|error| error.into_inner())
         .iter()
+        .filter(|(_, entry)| entry.directory_failures.is_empty())
         .filter_map(|(key, entry)| {
             entry
                 .root_identity
@@ -540,9 +536,13 @@ fn persist_file_list_snapshot(ready_cache: &Mutex<HashMap<WalkKey, ReadyEntry>>)
                     .to_le_bytes(),
             )?;
             writer.write_all(&(key.prune.len() as u32).to_le_bytes())?;
+            writer.write_all(&(key.iglobs.len() as u32).to_le_bytes())?;
             writer.write_all(&(files.len() as u32).to_le_bytes())?;
             for prune in &key.prune {
                 write_snapshot_string(&mut writer, Path::new(prune))?;
+            }
+            for glob in &key.iglobs {
+                write_snapshot_string(&mut writer, Path::new(glob))?;
             }
             for file in files.iter() {
                 write_snapshot_string(&mut writer, file)?;
@@ -624,7 +624,9 @@ struct LiveWalk {
     cacheable: AtomicBool,
     walk_errors: AtomicUsize,
     walk_error_details: Mutex<Vec<String>>,
+    directory_failures: Mutex<Vec<DirectoryFailure>>,
     generation: u64,
+    change_sequence: u64,
 }
 
 fn abandon_expired_idle_walk(live: &LiveWalk, now_ms: u64) -> bool {
@@ -654,13 +656,58 @@ struct FileListStore {
     watcher: Mutex<Option<RecommendedWatcher>>,
     watcher_healthy: AtomicBool,
     watched_roots: Mutex<HashMap<PathBuf, Instant>>,
-    noise_sensitive_roots: Mutex<HashSet<PathBuf>>,
+    changes: Mutex<InventoryChanges>,
+}
+
+#[derive(Default)]
+struct InventoryChanges {
+    sequence: u64,
+    records: VecDeque<(u64, Vec<PathBuf>, Option<Vec<PathBuf>>)>,
+}
+
+impl InventoryChanges {
+    fn record(&mut self, roots: &[PathBuf], paths: Option<&[PathBuf]>) {
+        self.sequence += 1;
+        // A bounded journal is only an optimization. A gap or an unknown
+        // change boundary forces a fresh walk, never a guessed repair.
+        self.records.push_back((self.sequence, roots.to_vec(),
+            paths.filter(|paths| paths.len() <= 256).map(<[PathBuf]>::to_vec)));
+        while self.records.len() > 1024 {
+            self.records.pop_front();
+        }
+    }
+
+    fn since(&self, sequence: u64, root: &Path) -> Option<Vec<PathBuf>> {
+        if self.records.front().is_some_and(|(first, _, _)| *first > sequence + 1) {
+            return None;
+        }
+        let mut changed = HashSet::new();
+        for (_, roots, paths) in self.records.iter().filter(|(id, _, _)| *id > sequence) {
+            if !roots.iter().any(|path| FileListStore::paths_overlap(path, root)) {
+                continue;
+            }
+            for path in paths.as_ref()? {
+                if FileListStore::paths_overlap(path, root) {
+                    if path_starts_with(root, path) {
+                        return None;
+                    }
+                    changed.insert(path.clone());
+                    if changed.len() > 4096 {
+                        return None;
+                    }
+                }
+            }
+        }
+        Some(changed.into_iter().collect())
+    }
 }
 
 struct PendingInventoryRepair {
     base: Arc<Vec<PathBuf>>,
+    directory_failures: Arc<Vec<DirectoryFailure>>,
     paths: HashSet<PathBuf>,
     processing: bool,
+    token: Arc<()>,
 }
 
 #[derive(Clone)]
@@ -1526,7 +1573,7 @@ impl FileListStore {
             watcher: Mutex::new(None),
             watcher_healthy: AtomicBool::new(false),
             watched_roots: Mutex::new(HashMap::new()),
-            noise_sensitive_roots: Mutex::new(HashSet::new()),
+            changes: Mutex::new(InventoryChanges::default()),
         }
     }
 
@@ -1555,10 +1602,6 @@ impl FileListStore {
             .unwrap_or_else(|error| error.into_inner())
             .clear();
         self.pending_repairs
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .clear();
-        self.noise_sensitive_roots
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .clear();
@@ -1603,7 +1646,7 @@ impl FileListStore {
             watcher: Mutex::new(None),
             watcher_healthy: AtomicBool::new(false),
             watched_roots: Mutex::new(HashMap::new()),
-            noise_sensitive_roots: Mutex::new(HashSet::new()),
+            changes: Mutex::new(InventoryChanges::default()),
         }
     }
 
@@ -1671,14 +1714,6 @@ impl FileListStore {
         path_starts_with(left, right) || path_starts_with(right, left)
     }
 
-    fn has_noise_root(&self) -> bool {
-        !self
-            .noise_sensitive_roots
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_empty()
-    }
-
     fn affected_roots(&self, paths: &[PathBuf]) -> Vec<PathBuf> {
         self.watched_roots
             .lock()
@@ -1705,12 +1740,7 @@ impl FileListStore {
         if roots.is_empty() {
             return roots;
         }
-        let repair_paths = if paths.iter().any(|path| {
-            matches!(
-                path.file_name().and_then(|name| name.to_str()),
-                Some(".gitignore" | ".ignore" | "exclude")
-            )
-        }) {
+        let repair_paths = if paths.iter().any(|path| is_ignore_rule_path(path)) {
             roots.clone()
         } else {
             paths.to_vec()
@@ -1725,7 +1755,8 @@ impl FileListStore {
                     .iter()
                     .any(|root| Self::paths_overlap(&key.operand, root))
             })
-            .map(|(key, entry)| (key.clone(), Arc::clone(&entry.files)))
+            .map(|(key, entry)| (key.clone(), Arc::clone(&entry.files),
+                Arc::clone(&entry.directory_failures)))
             .collect::<Vec<_>>();
         {
             let mut pending = self
@@ -1740,18 +1771,20 @@ impl FileListStore {
                     entry.paths.extend(repair_paths.iter().cloned());
                 }
             }
-            for (key, base) in cached {
+            for (key, base, directory_failures) in cached {
                 let entry = pending
                     .entry(key)
                     .or_insert_with(|| PendingInventoryRepair {
                         base,
+                        directory_failures,
                         paths: HashSet::new(),
                         processing: false,
+                        token: Arc::new(()),
                     });
                 entry.paths.extend(repair_paths.iter().cloned());
             }
         }
-        self.invalidate_roots(&roots);
+        self.invalidate_roots_with_paths(&roots, Some(&repair_paths));
         self.start_inventory_repair_worker();
         roots
     }
@@ -1782,6 +1815,7 @@ impl FileListStore {
                                 key.clone(),
                                 Arc::clone(&entry.base),
                                 entry.paths.drain().collect::<Vec<_>>(),
+                                Arc::clone(&entry.token),
                             )
                         })
                         .collect::<Vec<_>>()
@@ -1789,32 +1823,9 @@ impl FileListStore {
                 if jobs.is_empty() {
                     break;
                 }
-                for (key, base, paths) in jobs {
+                for (key, base, paths, token) in jobs {
                     let repaired = repair_inventory(&key, &base, &paths);
-                    let mut pending = store
-                        .pending_repairs
-                        .lock()
-                        .unwrap_or_else(|error| error.into_inner());
-                    let Some(entry) = pending.get_mut(&key) else {
-                        continue;
-                    };
-                    match repaired {
-                        Ok(files) => {
-                            entry.base = files;
-                            entry.processing = false;
-                            if entry.paths.is_empty() {
-                                let files = Arc::clone(&entry.base);
-                                let generation = store.generation(&key.operand);
-                                store.remember(key.clone(), files, generation);
-                                pending.remove(&key);
-                                store.repair_changed.notify_all();
-                            }
-                        }
-                        Err(_) => {
-                            pending.remove(&key);
-                            store.repair_changed.notify_all();
-                        }
-                    }
+                    store.finish_inventory_repair(&key, &token, repaired);
                 }
             }
             store.repair_worker_running.store(false, Ordering::Release);
@@ -1881,10 +1892,52 @@ impl FileListStore {
     }
 
     fn invalidate_roots(&self, roots: &[PathBuf]) {
+        self.invalidate_roots_with_paths(roots, None);
+    }
+
+    fn finish_inventory_repair(
+        &self,
+        key: &WalkKey,
+        token: &Arc<()>,
+        repaired: Result<Arc<Vec<PathBuf>>, String>,
+    ) {
+        let mut pending = self.pending_repairs.lock().unwrap_or_else(|error| error.into_inner());
+        let Some(entry) = pending.get_mut(key) else { return };
+        // A rescan can replace a job while its old worker is still running.
+        // Key equality alone must not let that old result overwrite the new job.
+        if !Arc::ptr_eq(token, &entry.token) {
+            return;
+        }
+        match repaired {
+            Ok(files) => {
+                entry.base = files;
+                entry.processing = false;
+                if entry.paths.is_empty() {
+                    self.remember_inventory(key.clone(), Arc::clone(&entry.base),
+                        self.generation(&key.operand), Arc::clone(&entry.directory_failures));
+                    pending.remove(key);
+                    self.repair_changed.notify_all();
+                }
+            }
+            Err(_) => {
+                pending.remove(key);
+                self.repair_changed.notify_all();
+            }
+        }
+    }
+
+    fn invalidate_roots_with_paths(&self, roots: &[PathBuf], paths: Option<&[PathBuf]>) {
         if roots.is_empty() {
             return;
         }
+        if paths.is_none() {
+            self.pending_repairs.lock().unwrap_or_else(|e| e.into_inner())
+                .retain(|key, _| !roots.iter().any(|root| Self::paths_overlap(&key.operand, root)));
+            self.repair_changed.notify_all();
+        }
         {
+            let mut changes = self.changes.lock().unwrap_or_else(|e| e.into_inner());
+            changes.record(roots, paths);
             let mut generations = self.generations.lock().unwrap_or_else(|e| e.into_inner());
             for root in roots {
                 *generations.entry(root.clone()).or_insert(0) += 1;
@@ -1908,19 +1961,16 @@ impl FileListStore {
             });
         let stale: Vec<Arc<LiveWalk>> = {
             let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
-            let stale = live
-                .iter()
-                .filter(|(key, _)| {
-                    roots
-                        .iter()
-                        .any(|root| Self::paths_overlap(&key.operand, root))
-                })
-                .map(|(_, value)| Arc::clone(value))
-                .collect();
-            live.retain(|key, _| {
-                !roots
+            let mut stale = Vec::new();
+            live.retain(|key, value| {
+                let affected = roots
                     .iter()
-                    .any(|root| Self::paths_overlap(&key.operand, root))
+                    .any(|root| Self::paths_overlap(&key.operand, root));
+                if !affected {
+                    return true;
+                }
+                stale.push(Arc::clone(value));
+                false
             });
             stale
         };
@@ -1940,7 +1990,7 @@ impl FileListStore {
         }
     }
 
-    fn watch_root(self: &Arc<Self>, operand: &Path, include_noise: bool) -> bool {
+    fn watch_root(self: &Arc<Self>, operand: &Path) -> bool {
         // Watching is an optional cache optimization, never a prerequisite for
         // searching. An exact-file operand is already cheap to scan; watching
         // its parent recursively can block indefinitely on virtual, network, or
@@ -1962,10 +2012,6 @@ impl FileListStore {
                     *watcher = None;
                     let mut roots = self.watched_roots.lock().unwrap_or_else(|e| e.into_inner());
                     let stale = roots.drain().map(|(path, _)| path).collect::<Vec<_>>();
-                    self.noise_sensitive_roots
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .clear();
                     trusted_watch_roots()
                         .write()
                         .unwrap_or_else(|e| e.into_inner())
@@ -1992,12 +2038,6 @@ impl FileListStore {
                 .find(|existing| root.starts_with(existing.as_path()))
                 .cloned()
             {
-                if include_noise {
-                    self.noise_sensitive_roots
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .insert(covering.clone());
-                }
                 roots.insert(covering, Instant::now());
                 return true;
             }
@@ -2010,32 +2050,14 @@ impl FileListStore {
                     let Some(store) = weak.upgrade() else { return };
                     let (paths, inventory_changed) = match event {
                         Ok(event) => {
-                            let Some(inventory_changed) = inventory_changed_by_event(&event.kind)
+                            let Some(change) = inventory_event_change(event)
                             else {
                                 return;
                             };
-                            let raw_paths = event.paths;
-                            let had_paths = !raw_paths.is_empty();
-                            // Writes inside pruned directories (.git objects,
-                            // node_modules installs, build caches) cannot alter
-                            // any served result, so they must not invalidate the
-                            // inventory — that churn used to force a full
-                            // re-walk on every request.
-                            let paths: Vec<PathBuf> = raw_paths
-                                .iter()
-                                .filter(|path| !is_noise_path(path))
-                                .cloned()
-                                .collect();
-                            if had_paths && paths.is_empty() {
-                                // A root deliberately opened inside a noise
-                                // directory still needs its own events.
-                                if !store.has_noise_root() {
-                                    return;
-                                }
-                                (raw_paths, inventory_changed)
-                            } else {
-                                (paths, inventory_changed)
-                            }
+                            // Folder names do not establish exclusion from
+                            // every active query. Let repair use each query's
+                            // actual ignore/override rules instead.
+                            change
                         }
                         Err(_) => {
                             store.watcher_healthy.store(false, Ordering::Release);
@@ -2091,10 +2113,6 @@ impl FileListStore {
                     .map(|(path, _)| path.clone());
                 if let Some(oldest) = oldest.as_ref() {
                     roots.remove(oldest);
-                    self.noise_sensitive_roots
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .remove(oldest);
                     trusted_watch_roots()
                         .write()
                         .unwrap_or_else(|e| e.into_inner())
@@ -2129,12 +2147,6 @@ impl FileListStore {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .insert(root.clone(), Instant::now());
-            if include_noise {
-                self.noise_sensitive_roots
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .insert(root);
-            }
         }
         watched
     }
@@ -2183,18 +2195,29 @@ impl FileListStore {
         }
         let entry = ready
             .get_mut(key)
-            .filter(|entry| entry.generation == generation)?;
+            .filter(|entry| entry.generation == generation && entry.directory_failures.is_empty())?;
         entry.touched_at = now;
         Some(Arc::clone(&entry.files))
     }
 
-    fn remember(&self, key: WalkKey, files: Arc<Vec<PathBuf>>, generation: u64) {
+    fn remember_inventory(
+        &self,
+        key: WalkKey,
+        files: Arc<Vec<PathBuf>>,
+        generation: u64,
+        directory_failures: Arc<Vec<DirectoryFailure>>,
+    ) {
         let Some(ttl) = file_list_ttl() else { return };
         if self.generation(&key.operand) != generation {
             return;
         }
         let root_identity = crate::serve_search_usn::path_identity(&key.operand);
-        let estimated_bytes = paths_storage_bytes(&files);
+        let estimated_bytes = paths_storage_bytes(&files).saturating_add(
+            directory_failures.iter().map(|failure| {
+                std::mem::size_of::<DirectoryFailure>()
+                    + failure.path.as_os_str().len() * 2 + failure.detail.len()
+            }).sum::<usize>(),
+        );
         let bytes_limit = file_list_cache_bytes();
         if estimated_bytes > bytes_limit {
             return;
@@ -2235,6 +2258,7 @@ impl FileListStore {
             key.clone(),
             ReadyEntry {
                 files,
+                directory_failures,
                 expires_at: now + ttl,
                 generation,
                 touched_at: now,
@@ -2269,8 +2293,7 @@ impl FileListStore {
                 .iter()
                 .filter(|file| filter.allows(file))
                 .map(|file| {
-                    let relative = file.strip_prefix(root).unwrap_or(file);
-                    let path = relative.to_string_lossy().replace('\\', "/");
+                    let path = relative_inventory_path(file, root).unwrap_or_else(|| wire_path(file));
                     let ascii_mask = fuzzy_ascii_presence(&path);
                     FuzzyIndexedPath { path, ascii_mask }
                 })
@@ -2337,6 +2360,7 @@ impl FileListStore {
         // Read the generation before taking the live-map lock; generation()
         // locks the generations mutex and nesting it under `live` invites
         // lock-order inversions with invalidation.
+        let change_sequence = self.changes.lock().unwrap_or_else(|e| e.into_inner()).sequence;
         let generation = self.generation(&key.operand);
         let mut live = self.live.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = live.get(&key).cloned() {
@@ -2344,7 +2368,8 @@ impl FileListStore {
                 .state
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
-            if matches!(&*state, LiveState::Running) && !existing.cancelled.load(Ordering::Acquire)
+            if matches!(&*state, LiveState::Running) && existing.generation == generation
+                && !existing.cancelled.load(Ordering::Acquire)
             {
                 if keep_warm {
                     existing.keep_warm.store(true, Ordering::Release);
@@ -2372,7 +2397,9 @@ impl FileListStore {
             cacheable: AtomicBool::new(true),
             walk_errors: AtomicUsize::new(0),
             walk_error_details: Mutex::new(Vec::new()),
+            directory_failures: Mutex::new(Vec::new()),
             generation,
+            change_sequence,
         });
         live.insert(key, Arc::clone(&created));
         (created, true)
@@ -2423,6 +2450,8 @@ impl FileListStore {
         // live-map lock. remember() re-checks the current generation, so a
         // racing invalidation still prevents caching a stale inventory.
         let current_generation = self.generation(&key.operand);
+        let failures = Arc::new(live.directory_failures
+            .lock().unwrap_or_else(|e| e.into_inner()).clone());
         let cacheable = {
             let mut live_map = self.live.lock().unwrap_or_else(|e| e.into_inner());
             let same = live_map
@@ -2433,13 +2462,41 @@ impl FileListStore {
             }
             same && current_generation == live.generation
                 && live.cacheable.load(Ordering::Acquire)
-                && live.walk_errors.load(Ordering::Acquire) == 0
+                && live.walk_errors.load(Ordering::Acquire) == failures.len()
         };
-        let mut state = live.state.lock().unwrap_or_else(|e| e.into_inner());
-        *state = match result {
+        // Cache repair performs I/O. Keep the state mutex available so
+        // waiting requests can still observe deadlines and cancellation.
+        let completed_state = match result {
             Ok(files) => {
+                if std::env::var_os("MIXDOG_SEARCH_CACHE_TRACE").is_some() {
+                    eprintln!("inventory-cache root={} saved={} generation={}/{} watch={} errors={} retryable={}",
+                        key.operand.display(), cacheable, live.generation, current_generation,
+                        live.cacheable.load(Ordering::Acquire),
+                        live.walk_errors.load(Ordering::Acquire), failures.len());
+                }
                 if cacheable {
-                    self.remember(key, Arc::clone(&files), live.generation);
+                    self.remember_inventory(key, Arc::clone(&files), live.generation, failures);
+                } else if live.cacheable.load(Ordering::Acquire)
+                    && self.watcher_healthy.load(Ordering::Acquire)
+                    && live.walk_errors.load(Ordering::Acquire) == failures.len()
+                    && !live.cancelled.load(Ordering::Acquire)
+                {
+                    // Serialize the cache repair with journal publication.
+                    // Notifications queued during repair invalidate it after
+                    // this guard is released, just like a fresh inventory.
+                    let changes = self.changes.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some(paths) = changes.since(live.change_sequence, &key.operand)
+                        .filter(|paths| !paths.is_empty())
+                    {
+                        if let Ok(repaired) = repair_inventory(&key, &files, &paths) {
+                            if !live.cancelled.load(Ordering::Acquire)
+                                && self.watcher_healthy.load(Ordering::Acquire)
+                            {
+                                self.remember_inventory(key.clone(), repaired,
+                                    self.generation(&key.operand), failures);
+                            }
+                        }
+                    }
                 }
                 if live.keep_warm.load(Ordering::Acquire) {
                     schedule_signature_prewarm(Arc::clone(&files));
@@ -2449,18 +2506,37 @@ impl FileListStore {
             Err(Some(err)) => LiveState::Failed(err),
             Err(None) => LiveState::Abandoned,
         };
+        let mut state = live.state.lock().unwrap_or_else(|e| e.into_inner());
+        *state = completed_state;
         live.cond.notify_all();
         live.files_cond.notify_all();
         cacheable
     }
 }
 
-fn inventory_changed_by_event(kind: &EventKind) -> Option<bool> {
+fn is_ignore_rule_path(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|name| name.to_str()) else { return false };
+    [".gitignore", ".ignore", "exclude"].iter().any(|candidate| {
+        if cfg!(windows) { name.eq_ignore_ascii_case(candidate) } else { name == *candidate }
+    })
+}
+
+fn inventory_event_change(event: notify::Event) -> Option<(Vec<PathBuf>, bool)> {
+    if event.need_rescan() || matches!(event.kind, EventKind::Any | EventKind::Other) {
+        return Some((Vec::new(), true));
+    }
+    inventory_changed_by_event(&event.kind, &event.paths).map(|changed| (event.paths, changed))
+}
+
+fn inventory_changed_by_event(kind: &EventKind, paths: &[PathBuf]) -> Option<bool> {
     match kind {
         EventKind::Create(_) | EventKind::Modify(ModifyKind::Name(_)) | EventKind::Remove(_) => {
             Some(true)
         }
-        EventKind::Modify(_) => Some(false),
+        EventKind::Modify(ModifyKind::Data(_)) => Some(paths.iter().any(|path| is_ignore_rule_path(path))),
+        // Windows reports attributes and security changes as Modify(Any).
+        // Only an explicitly data-only notification can retain membership.
+        EventKind::Modify(_) => Some(true),
         _ => None,
     }
 }
@@ -2625,7 +2701,6 @@ struct ParsedArgs {
 
 struct PathFilter {
     globs: Override,
-    iglobs: Option<Override>,
     types: Option<Types>,
 }
 
@@ -2644,21 +2719,11 @@ impl PathFilter {
         for glob in &parsed.globs {
             globs.add(glob).map_err(|error| format!("glob: {error}"))?;
         }
+        globs.case_insensitive(true).map_err(|error| format!("iglob: {error}"))?;
+        for glob in &parsed.iglobs {
+            globs.add(glob).map_err(|error| format!("iglob: {error}"))?;
+        }
         let globs = globs.build().map_err(|error| format!("glob: {error}"))?;
-        let iglobs = if parsed.iglobs.is_empty() {
-            None
-        } else {
-            let mut builder = OverrideBuilder::new(filter_root);
-            builder
-                .case_insensitive(true)
-                .map_err(|error| format!("iglob: {error}"))?;
-            for glob in &parsed.iglobs {
-                builder
-                    .add(glob)
-                    .map_err(|error| format!("iglob: {error}"))?;
-            }
-            Some(builder.build().map_err(|error| format!("iglob: {error}"))?)
-        };
         let types = if parsed.file_types.is_empty() {
             None
         } else {
@@ -2671,17 +2736,12 @@ impl PathFilter {
         };
         Ok(Self {
             globs,
-            iglobs,
             types,
         })
     }
 
     fn allows(&self, path: &Path) -> bool {
         !self.globs.matched(path, false).is_ignore()
-            && !self
-                .iglobs
-                .as_ref()
-                .is_some_and(|matcher| matcher.matched(path, false).is_ignore())
             && !self
                 .types
                 .as_ref()
@@ -3156,83 +3216,22 @@ fn scan_file(
 }
 
 fn display_path(operand: &str, operand_path: &Path, file: &Path) -> String {
-    if operand_path.is_file() {
+    let Some(rel) = relative_inventory_path(file, operand_path) else {
+        return wire_path(file);
+    };
+    // An exact-file operand is its own empty relative path. No per-result
+    // filesystem stat is needed to distinguish it from a directory operand.
+    if rel.is_empty() {
         return operand.to_string();
     }
-    let rel = file.strip_prefix(operand_path).unwrap_or(file);
     let sep = if operand.contains('/') && !operand.contains('\\') {
         "/"
     } else {
         std::path::MAIN_SEPARATOR_STR
     };
-    let rel = rel.to_string_lossy().replace(['/', '\\'], sep);
+    let rel = rel.replace(['/', '\\'], sep);
     let trimmed = operand.trim_end_matches(['/', '\\']);
     format!("{trimmed}{sep}{rel}")
-}
-
-fn append_scanned_matches(
-    files: &[PathBuf],
-    operand: &str,
-    operand_path: &Path,
-    use_prefix: bool,
-    matcher: &CompiledMatcher,
-    parsed: &ParsedArgs,
-    filter: &PathFilter,
-    cancelled: &AtomicBool,
-    deadline_at: Option<Instant>,
-    all_lines: &mut Vec<String>,
-    emitted_blocks: &mut usize,
-    collect_until: usize,
-    trust: &TrustSnapshot,
-    scan_errors: &AtomicUsize,
-    files_scanned: &AtomicUsize,
-) -> bool {
-    if files.is_empty() || all_lines.len() >= collect_until {
-        return all_lines.len() >= collect_until;
-    }
-    let per_file: Vec<Option<Vec<String>>> = files
-        .par_iter()
-        .map(|file| {
-            if cancelled.load(Ordering::Relaxed)
-                || deadline_at.is_some_and(|deadline| Instant::now() >= deadline)
-                || !filter.allows(file)
-            {
-                return None;
-            }
-            let prefix = if use_prefix {
-                display_path(operand, operand_path, file)
-            } else {
-                String::new()
-            };
-            files_scanned.fetch_add(1, Ordering::Relaxed);
-            scan_file(
-                file,
-                &prefix,
-                matcher,
-                parsed,
-                cancelled,
-                deadline_at,
-                (collect_until != usize::MAX).then_some(collect_until),
-                trust,
-                scan_errors,
-            )
-        })
-        .collect();
-    for block in per_file.into_iter().flatten() {
-        if *emitted_blocks > 0
-            && (parsed.before > 0 || parsed.after > 0)
-            && !parsed.files_with_matches
-        {
-            all_lines.push("--".to_string());
-        }
-        *emitted_blocks += 1;
-        all_lines.extend(block);
-        if all_lines.len() >= collect_until {
-            all_lines.truncate(collect_until);
-            return true;
-        }
-    }
-    all_lines.len() >= collect_until
 }
 
 fn append_scanned_matches_unordered(
@@ -3279,7 +3278,7 @@ fn append_scanned_matches_unordered(
             parsed,
             cancelled,
             deadline_at,
-            Some(remaining),
+            (collect_until != usize::MAX).then_some(remaining),
             trust,
             scan_errors,
         ) else {
@@ -3314,7 +3313,7 @@ fn publish_live_files(live: &LiveWalk, files: &[PathBuf]) {
         return;
     }
     if let Ok(mut guard) = live.files.lock() {
-        guard.extend(files.iter().cloned());
+        guard.extend(files.iter().map(|path| PathBuf::from(wire_path(path))));
     }
     live.files_cond.notify_all();
 }
@@ -3351,7 +3350,10 @@ fn inventory_pool() -> &'static ThreadPool {
     })
 }
 
-fn inventory_walk_threads() -> usize {
+fn inventory_walk_threads(operand: &Path) -> usize {
+    // Drive walks have enough independent directories to benefit from more
+    // I/O workers. Keep ordinary project walks small and both paths bounded.
+    let maximum = if is_filesystem_root(operand) { 12 } else { 4 };
     std::env::var("MIXDOG_SEARCH_INVENTORY_THREADS")
         .ok()
         .and_then(|raw| raw.parse::<usize>().ok())
@@ -3361,13 +3363,14 @@ fn inventory_walk_threads() -> usize {
                 .map(usize::from)
                 .unwrap_or(2)
         })
-        .clamp(2, 4)
+        .clamp(2, maximum)
 }
 
 struct WorkerWalkBatch<'a> {
     live: &'a LiveWalk,
     files: Vec<PathBuf>,
     capacity: usize,
+    last_flush: Option<Instant>,
 }
 
 fn contain_search_panic<T, F>(label: &str, run: F) -> Result<T, String>
@@ -3376,6 +3379,46 @@ where
 {
     catch_unwind(AssertUnwindSafe(run))
         .unwrap_or_else(|_| Err(format!("{label} panicked; request isolated")))
+}
+
+#[derive(Clone)]
+struct DirectoryFailure {
+    path: PathBuf,
+    raw_os_error: i32,
+    detail: String,
+}
+
+impl DirectoryFailure {
+    fn from_walk_error(error: &ignore::Error) -> Option<Self> {
+        // With link following disabled, the parallel walker attaches both
+        // depth and path to read_dir failures. Do not cache parse errors,
+        // iterator errors without paths, or arbitrary metadata failures.
+        let ignore::Error::WithDepth { err, .. } = error else { return None };
+        let ignore::Error::WithPath { path, err } = err.as_ref() else { return None };
+        let ignore::Error::Io(io_error) = err.as_ref() else { return None };
+        Some(Self {
+            path: path.clone(),
+            raw_os_error: io_error.raw_os_error()?,
+            detail: error.to_string(),
+        })
+    }
+
+    fn unchanged(&self) -> bool {
+        std::fs::read_dir(&self.path).err()
+            .is_some_and(|error| error.raw_os_error() == Some(self.raw_os_error))
+    }
+}
+
+fn record_directory_error(live: &LiveWalk, error: &ignore::Error) {
+    record_walk_error(live, error);
+    if let Some(failure) = DirectoryFailure::from_walk_error(error) {
+        let mut failures = live.directory_failures.lock().unwrap_or_else(|e| e.into_inner());
+        if failures.len() < 1024 {
+            failures.push(failure);
+        }
+    } else if std::env::var_os("MIXDOG_SEARCH_CACHE_TRACE").is_some() {
+        eprintln!("inventory-untracked-error {error:?}");
+    }
 }
 
 fn record_walk_error(live: &LiveWalk, detail: impl ToString) {
@@ -3420,12 +3463,23 @@ impl<'a> WorkerWalkBatch<'a> {
             live,
             files: Vec::with_capacity(capacity),
             capacity,
+            last_flush: None,
         }
     }
 
     fn push(&mut self, path: PathBuf) {
         self.files.push(path);
-        if self.files.len() >= self.capacity {
+        if self.files.len() >= self.capacity || self.last_flush.is_none() {
+            self.flush();
+        } else {
+            self.flush_due();
+        }
+    }
+
+    fn flush_due(&mut self) {
+        if !self.files.is_empty()
+            && self.last_flush.is_some_and(|last| last.elapsed() >= Duration::from_millis(10))
+        {
             self.flush();
         }
     }
@@ -3436,6 +3490,7 @@ impl<'a> WorkerWalkBatch<'a> {
         }
         if let Ok(mut published) = self.live.files.lock() {
             published.append(&mut self.files);
+            self.last_flush = Some(Instant::now());
             self.live.files_cond.notify_all();
         } else {
             self.files.clear();
@@ -3484,11 +3539,11 @@ fn repair_anchors(root: &Path, paths: &[PathBuf]) -> Vec<PathBuf> {
         .iter()
         .map(|path| {
             if path_starts_with(path, root) {
-                path.clone()
+                PathBuf::from(wire_path(path))
             } else if path_starts_with(root, path) {
                 root.to_path_buf()
             } else {
-                path.clone()
+                PathBuf::from(wire_path(path))
             }
         })
         .filter(|path| FileListStore::paths_overlap(path, root))
@@ -3506,23 +3561,20 @@ fn repair_anchors(root: &Path, paths: &[PathBuf]) -> Vec<PathBuf> {
     minimal
 }
 
+#[cfg(test)]
 fn scan_inventory_subtree(key: &WalkKey, anchor: &Path) -> Result<Vec<PathBuf>, String> {
-    if !anchor.exists() {
-        return Ok(Vec::new());
-    }
-    let relative_depth = anchor
-        .strip_prefix(&key.operand)
-        .ok()
-        .map(|relative| relative.components().count())
-        .unwrap_or(0);
-    if key
-        .max_depth
-        .is_some_and(|max_depth| relative_depth > max_depth)
-    {
-        return Ok(Vec::new());
-    }
-    let mut walk = WalkBuilder::new(anchor);
-    walk.hidden(!key.hidden).threads(inventory_walk_threads());
+    scan_inventory_anchors(key, &[anchor.to_path_buf()])
+}
+
+fn scan_inventory_anchors(key: &WalkKey, anchors: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
+    // Start at the original root so ignore rules and hidden-directory rules
+    // are identical to a full walk. Only descend into changed branches.
+    let branches = anchors.to_vec();
+    let mut walk = WalkBuilder::new(&key.operand);
+    walk.hidden(!key.hidden).threads(inventory_walk_threads(&key.operand));
+    walk.filter_entry(move |entry| {
+        branches.iter().any(|anchor| FileListStore::paths_overlap(entry.path(), anchor))
+    });
     if key.no_ignore {
         walk.ignore(false)
             .git_ignore(false)
@@ -3532,15 +3584,17 @@ fn scan_inventory_subtree(key: &WalkKey, anchor: &Path) -> Result<Vec<PathBuf>, 
         walk.require_git(false);
     }
     if let Some(max_depth) = key.max_depth {
-        walk.max_depth(Some(max_depth.saturating_sub(relative_depth)));
+        walk.max_depth(Some(max_depth));
     }
-    if let Some(overrides) = prune_overrides(&key.operand, &key.prune) {
+    if let Some(overrides) = prune_overrides(&key.operand, &key.prune, &key.iglobs) {
         walk.overrides(overrides);
     }
     let mut files = Vec::new();
     for entry in walk.build() {
         let entry = entry.map_err(|error| error.to_string())?;
-        if !path_starts_with(entry.path(), &key.operand) {
+        if !path_starts_with(entry.path(), &key.operand)
+            || !anchors.iter().any(|anchor| path_starts_with(entry.path(), anchor))
+        {
             continue;
         }
         let (is_file, is_dir, is_symlink) = if let Some(kind) = entry.file_type() {
@@ -3555,7 +3609,7 @@ fn scan_inventory_subtree(key: &WalkKey, anchor: &Path) -> Result<Vec<PathBuf>, 
             || key.directories
                 && ((is_dir && entry.path() != key.operand) || is_symlink)
         {
-            files.push(entry.into_path());
+            files.push(PathBuf::from(wire_path(entry.path())));
         }
     }
     files.par_sort_unstable();
@@ -3578,12 +3632,58 @@ fn repair_inventory(
         .cloned()
         .collect::<Vec<_>>();
     let mut additions = Vec::new();
-    for anchor in &anchors {
-        additions.extend(scan_inventory_subtree(key, anchor)?);
-    }
+    additions.extend(scan_inventory_anchors(key, &anchors)?);
     additions.par_sort_unstable();
     additions.dedup();
     Ok(Arc::new(merge_sorted_inventory(&retained, &additions)))
+}
+
+fn reuse_failed_inventory(
+    store: &FileListStore,
+    key: &WalkKey,
+    live: &LiveWalk,
+) -> Option<Arc<Vec<PathBuf>>> {
+    if !live.cacheable.load(Ordering::Acquire)
+        || !store.watcher_healthy.load(Ordering::Acquire)
+    {
+        return None;
+    }
+    let (files, failures) = {
+        let ready = store.ready.lock().unwrap_or_else(|e| e.into_inner());
+        let entry = ready.get(key).filter(|entry| {
+            entry.generation == live.generation && !entry.directory_failures.is_empty()
+        })?;
+        (Arc::clone(&entry.files), Arc::clone(&entry.directory_failures))
+    };
+    // Never serve the saved errors without retrying their actual I/O in this
+    // request. Any recovery or different error needs a fresh complete walk.
+    for failure in failures.iter() {
+        if live.cancelled.load(Ordering::Acquire) {
+            return None;
+        }
+        if !failure.unchanged() {
+            if std::env::var_os("MIXDOG_SEARCH_CACHE_TRACE").is_some() {
+                eprintln!("inventory-recheck-changed {}", failure.path.display());
+            }
+            let mut ready = store.ready.lock().unwrap_or_else(|e| e.into_inner());
+            if ready.get(key).is_some_and(|entry| Arc::ptr_eq(&entry.files, &files)) {
+                ready.remove(key);
+            }
+            return None;
+        }
+    }
+    if store.generation(&key.operand) != live.generation
+        || !live.cacheable.load(Ordering::Acquire)
+        || !store.watcher_healthy.load(Ordering::Acquire)
+        || live.cancelled.load(Ordering::Acquire)
+    {
+        return None;
+    }
+    for failure in failures.iter() {
+        record_walk_error(live, &failure.detail);
+    }
+    *live.directory_failures.lock().unwrap_or_else(|e| e.into_inner()) = (*failures).clone();
+    Some(files)
 }
 
 fn start_live_walk(
@@ -3595,6 +3695,15 @@ fn start_live_walk(
 ) {
     inventory_pool().spawn(move || {
         let result = contain_search_panic("native inventory worker", || {
+            if let Some(files) = reuse_failed_inventory(&store, &key, &live) {
+                publish_live_files(&live, &files);
+                live.enumeration_done.store(true, Ordering::Release);
+                live.files_cond.notify_all();
+                return Ok(files);
+            }
+            if live.cancelled.load(Ordering::Acquire) {
+                return Err(CANCELLED.to_string());
+            }
             if operand.is_file() {
                 let files = vec![operand];
                 publish_live_files(&live, &files);
@@ -3607,7 +3716,7 @@ fn start_live_walk(
             }
             let mut walk = WalkBuilder::new(&operand);
             walk.hidden(!parsed.hidden)
-                .threads(inventory_walk_threads());
+                .threads(inventory_walk_threads(&operand));
             if parsed.no_ignore {
                 walk.ignore(false)
                     .git_ignore(false)
@@ -3623,15 +3732,18 @@ fn start_live_walk(
             // inventory descends into .git/node_modules on every request and
             // only discards them later, at scan time.
             let prune = prune_globs(&operand, &parsed);
-            if let Some(overrides) = prune_overrides(&operand, &prune) {
+            if let Some(overrides) = prune_overrides(&operand, &prune, &parsed.iglobs) {
                 walk.overrides(overrides);
             }
+            // Publish the first candidate immediately, then amortize locking
+            // with size/time-bounded batches for every query shape.
             let publish_batch = inventory_publish_batch();
             walk.build_parallel().run(|| {
                 let live = &live;
                 let operand = &operand;
                 let mut batch = WorkerWalkBatch::new(live, publish_batch);
                 Box::new(move |entry| {
+                    batch.flush_due();
                     if abandon_expired_idle_walk(live, serve_search_uptime_ms())
                         || live.cancelled.load(Ordering::Acquire)
                     {
@@ -3640,7 +3752,7 @@ fn start_live_walk(
                     let entry = match entry {
                         Ok(entry) => entry,
                         Err(error) => {
-                            record_walk_error(live, error);
+                            record_directory_error(live, &error);
                             return ignore::WalkState::Continue;
                         }
                     };
@@ -3740,7 +3852,7 @@ fn complete_operand_files(
     deadline_at: Option<Instant>,
     keep_warm: bool,
 ) -> Result<(Arc<Vec<PathBuf>>, bool, usize, Vec<String>, bool), String> {
-    let watched = store.watch_root(operand_path, parsed.no_ignore);
+    let watched = store.watch_root(operand_path);
     // A walk abandoned by cache invalidation restarts from scratch. Under
     // continuous writes under the root that can repeat until the request
     // deadline, so cap it: after one restart the partial snapshot is served
@@ -3805,7 +3917,7 @@ fn complete_operand_files(
     }
 }
 
-fn scan_limited_operand(
+fn scan_streaming_operand(
     store: &Arc<FileListStore>,
     operand: &str,
     operand_path: &Path,
@@ -3815,7 +3927,6 @@ fn scan_limited_operand(
     cancelled: &AtomicBool,
     deadline_at: Option<Instant>,
     keep_warm: bool,
-    _chunk_size: usize,
     use_prefix: bool,
     all_lines: &mut Vec<String>,
     emitted_blocks: &mut usize,
@@ -3823,7 +3934,7 @@ fn scan_limited_operand(
     scan_errors: &AtomicUsize,
     files_scanned: &AtomicUsize,
 ) -> Result<(bool, bool, bool, Vec<String>), String> {
-    let watched = store.watch_root(operand_path, parsed.no_ignore);
+    let watched = store.watch_root(operand_path);
     let trust = TrustSnapshot::capture();
     if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
         return Ok((false, true, watched, Vec::new()));
@@ -4169,7 +4280,7 @@ fn handle_fuzzy(
         }
         rank_ms += rank_started_at.elapsed().as_secs_f64() * 1_000.0;
     } else {
-        let watched = store.watch_root(root, parsed.no_ignore);
+        let watched = store.watch_root(root);
         cache_safe = watched;
         let walk_key = key.walk.clone();
         let (live, owner) =
@@ -4227,12 +4338,7 @@ fn handle_fuzzy(
                 let batch: Vec<String> = files[cursor..]
                     .iter()
                     .filter(|file| filter.allows(file))
-                    .map(|file| {
-                        file.strip_prefix(root)
-                            .unwrap_or(file)
-                            .to_string_lossy()
-                            .replace('\\', "/")
-                    })
+                    .map(|file| relative_inventory_path(file, root).unwrap_or_else(|| wire_path(file)))
                     .collect::<Vec<_>>();
                 cursor = files.len();
                 batch
@@ -4268,7 +4374,7 @@ fn handle_fuzzy(
         walk_errors = live.walk_errors.load(Ordering::Acquire);
         walk_error_details = live_walk_error_details(&live);
         cache_safe &= live.cacheable.load(Ordering::Acquire);
-        if walk_complete {
+        if walk_complete && walk_errors == 0 {
             // The response no longer waits for deterministic inventory sort;
             // retain the completed walk until finish_live installs its cache.
             live.keep_warm.store(true, Ordering::Release);
@@ -4360,17 +4466,35 @@ fn collect_mtime_candidates(
     operand_path: &Path,
     filter: &PathFilter,
     trust: &TrustSnapshot,
-) -> Vec<(usize, String, Option<u128>)> {
-    files
-        .par_iter()
-        .enumerate()
-        .filter(|(_, file)| filter.allows(file))
-        .map(|(index, file)| {
-            let path = display_path(operand, operand_path, file);
-            let mtime_ms = file_mtime_ms(file, trust);
-            (base_index + index, path, mtime_ms)
-        })
-        .collect()
+    cancelled: &AtomicBool,
+    deadline_at: Option<Instant>,
+) -> Result<(Vec<(usize, String, Option<u128>)>, bool), String> {
+    let mut candidates = Vec::new();
+    // Check between bounded batches even on a fully cached inventory. A warm
+    // path must not stat the whole tree after its request has been cancelled.
+    for (chunk_index, chunk) in files.chunks(256).enumerate() {
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(CANCELLED.to_string());
+        }
+        if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
+            return Ok((candidates, true));
+        }
+        let batch: Vec<_> = chunk
+            .par_iter()
+            .enumerate()
+            .filter(|(_, file)| filter.allows(file))
+            .map(|(index, file)| {
+                let path = display_path(operand, operand_path, file);
+                let mtime_ms = file_mtime_ms(file, trust);
+                (base_index + chunk_index * 256 + index, path, mtime_ms)
+            })
+            .collect();
+        candidates.extend(batch);
+    }
+    if cancelled.load(Ordering::Relaxed) {
+        return Err(CANCELLED.to_string());
+    }
+    Ok((candidates, deadline_at.is_some_and(|deadline| Instant::now() >= deadline)))
 }
 
 fn handle_mtime_inventory(
@@ -4394,19 +4518,27 @@ fn handle_mtime_inventory(
     let mut cache_safe = true;
 
     for operand in &parsed.targets {
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(CANCELLED.to_string());
+        }
+        if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
+            timed_out = true;
+            break;
+        }
         let operand_path = if Path::new(operand).is_absolute() {
             PathBuf::from(operand)
         } else {
             cwd.join(operand)
         };
         let filter = PathFilter::new(&operand_path, parsed)?;
-        let watched = store.watch_root(&operand_path, parsed.no_ignore);
+        let watched = store.watch_root(&operand_path);
         let trust = TrustSnapshot::capture();
         cache_safe &= watched;
         let walk_key = walk_key(&operand_path, parsed);
         if let Some(files) = store.take_ready(&walk_key) {
-            let candidates =
-                collect_mtime_candidates(&files, 0, operand, &operand_path, &filter, &trust);
+            let (candidates, expired) = collect_mtime_candidates(
+                &files, 0, operand, &operand_path, &filter, &trust, cancelled, deadline_at,
+            )?;
             total_seen = total_seen.saturating_add(candidates.len());
             for (index, path, mtime_ms) in candidates {
                 if let Some(mtime_ms) = mtime_ms {
@@ -4414,6 +4546,10 @@ fn handle_mtime_inventory(
                 } else {
                     retain_bounded(&mut unstatted, UnstattedHit { index, path }, cap);
                 }
+            }
+            if expired {
+                timed_out = true;
+                break;
             }
             continue;
         }
@@ -4475,14 +4611,17 @@ fn handle_mtime_inventory(
                 cursor = files.len();
                 (start, batch)
             };
-            let candidates = collect_mtime_candidates(
+            let (candidates, expired) = collect_mtime_candidates(
                 &batch,
                 batch_start,
                 operand,
                 &operand_path,
                 &filter,
                 &trust,
-            );
+                cancelled,
+                deadline_at,
+            )?;
+            timed_out |= expired;
             total_seen = total_seen.saturating_add(candidates.len());
             for (index, path, mtime_ms) in candidates {
                 if cancelled.load(Ordering::Relaxed) {
@@ -4532,6 +4671,10 @@ fn handle_mtime_inventory(
         .skip(req.offset)
         .take(req.limit.max(1))
         .collect();
+    if cancelled.load(Ordering::Relaxed) {
+        return Err(CANCELLED.to_string());
+    }
+    let timed_out = timed_out || deadline_at.is_some_and(|deadline| Instant::now() >= deadline);
     let complete = !timed_out && scan_error_count == 0;
     Ok(serde_json::json!({
         "id": req.id,
@@ -4588,7 +4731,7 @@ fn handle(
             } else {
                 cwd.join(operand)
             };
-            let watched = store.watch_root(&operand_path, parsed.no_ignore);
+            let watched = store.watch_root(&operand_path);
             cache_safe &= watched;
             let filter = PathFilter::new(&operand_path, &parsed)?;
             if collect_until == usize::MAX {
@@ -4690,6 +4833,10 @@ fn handle(
                 break;
             }
         }
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(CANCELLED.to_string());
+        }
+        let timed_out = timed_out || deadline_at.is_some_and(|deadline| Instant::now() >= deadline);
         let total_after_offset = all_lines.len().saturating_sub(req.offset);
         let window: Vec<&String> = all_lines
             .iter()
@@ -4728,7 +4875,6 @@ fn handle(
     let files_scanned = AtomicUsize::new(0);
     let mut walk_error_details = Vec::new();
     let mut cache_safe = true;
-    let chunk_size = rayon::current_num_threads().max(4);
     'operands: for operand in &parsed.targets {
         if cancelled.load(Ordering::Relaxed) {
             return Err(CANCELLED.to_string());
@@ -4747,9 +4893,9 @@ fn handle(
             || multi_target
             || operand_path.is_dir();
         let filter = PathFilter::new(&operand_path, &parsed)?;
-        if collect_until != usize::MAX {
+        {
             let (reached_limit, operand_timed_out, operand_cache_safe, details) =
-                scan_limited_operand(
+                scan_streaming_operand(
                     store,
                     operand,
                     &operand_path,
@@ -4759,7 +4905,6 @@ fn handle(
                     cancelled,
                     deadline_at,
                     req.keep_warm,
-                    chunk_size,
                     use_prefix,
                     &mut all_lines,
                     &mut emitted_blocks,
@@ -4780,52 +4925,6 @@ fn handle(
                 break 'operands;
             }
             continue;
-        }
-        let (files, complete, walk_errors, details, operand_cache_safe) = complete_operand_files(
-            store,
-            &operand_path,
-            &parsed,
-            cancelled,
-            deadline_at,
-            req.keep_warm,
-        )?;
-        cache_safe &= operand_cache_safe;
-        append_walk_error_details(&mut walk_error_details, details);
-        if walk_errors > 0 {
-            scan_errors.fetch_add(walk_errors, Ordering::Relaxed);
-        }
-        let trust = TrustSnapshot::capture();
-        for file_chunk in files.chunks(chunk_size) {
-            if cancelled.load(Ordering::Relaxed) {
-                return Err(CANCELLED.to_string());
-            }
-            if deadline_at.is_some_and(|deadline| Instant::now() >= deadline) {
-                timed_out = true;
-                break 'operands;
-            }
-            if append_scanned_matches(
-                file_chunk,
-                operand,
-                &operand_path,
-                use_prefix,
-                &matcher,
-                &parsed,
-                &filter,
-                cancelled,
-                deadline_at,
-                &mut all_lines,
-                &mut emitted_blocks,
-                collect_until,
-                &trust,
-                &scan_errors,
-                &files_scanned,
-            ) {
-                break 'operands;
-            }
-        }
-        if !complete {
-            timed_out = true;
-            break;
         }
     }
     // scan_standard/scan_summary swallow a mid-file soft-deadline expiry: the
@@ -6257,12 +6356,85 @@ mod tests {
     }
 
     #[test]
-    fn inventory_key_is_shared_across_request_globs() {
+    fn overrides_preserve_ignore_precedence_and_rule_order() {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("mg-overrides-{nonce}"));
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::create_dir_all(dir.join(".cache")).unwrap();
+        std::fs::write(dir.join(".gitignore"), "*.mjs\n").unwrap();
+        for name in ["keep.mjs", "drop.mjs", ".cache/hit.mjs", "other.RS"] {
+            std::fs::write(dir.join(name), "needle\n").unwrap();
+        }
+        let store = Arc::new(FileListStore::new());
+        for (flags, expected) in [
+            (vec!["--glob", "*.mjs"], vec![".cache/hit.mjs", "drop.mjs", "keep.mjs"]),
+            (vec!["--glob", "*.mjs", "--glob", "!drop.mjs"], vec![".cache/hit.mjs", "keep.mjs"]),
+            (vec!["--glob", "!drop.mjs", "--glob", "*.mjs"], vec![".cache/hit.mjs", "drop.mjs", "keep.mjs"]),
+            (vec!["--glob", "!**/.cache/**", "--glob", "*.mjs"], vec![".cache/hit.mjs", "drop.mjs", "keep.mjs"]),
+            (vec!["--glob", "*.mjs", "--glob", "!**/.cache/**"], vec!["drop.mjs", "keep.mjs"]),
+            (vec!["--glob", "keep.mjs", "--iglob", "*.rs"], vec!["keep.mjs", "other.RS"]),
+        ] {
+            for mode in ["--files", "-l"] {
+                let mut args = vec!["--hidden", mode];
+                if mode == "-l" {
+                    args.extend(["-e", "needle"]);
+                }
+                args.extend(flags.iter().copied());
+                args.push(".");
+                let mut req = request(&args, 0);
+                req.cwd = dir.to_string_lossy().into_owned();
+                let response = handle(&req, &AtomicBool::new(false), &store, None).unwrap();
+                assert_eq!(response["complete"], true, "{response}");
+                let mut actual = response["lines"].as_array().unwrap().iter()
+                    .map(|line| line.as_str().unwrap().replace('\\', "/").trim_start_matches("./").to_string())
+                    .collect::<Vec<_>>();
+                actual.sort();
+                assert_eq!(actual, expected, "{args:?}");
+            }
+        }
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn unlimited_grep_scans_before_inventory_completion() {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("mg-stream-grep-{nonce}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("early.txt");
+        std::fs::write(&path, "needle\n").unwrap();
+        let mut req = request(&["-l", "-e", "needle", "."], 0);
+        req.cwd = dir.to_string_lossy().into_owned();
+        let parsed = parse_args(&req.args).unwrap();
+        let store = Arc::new(FileListStore::new());
+        store.watch_root(&dir);
+        let key = walk_key(&dir, &parsed);
+        let (live, _) = store.begin_live(key.clone(), true);
+        let mut batch = WorkerWalkBatch::new(&live, inventory_publish_batch());
+        batch.push(path.clone());
+        let response = handle(&req, &AtomicBool::new(false), &store,
+            Some(Instant::now() + Duration::from_millis(250))).unwrap();
+        assert_eq!(response["filesScanned"], 1, "{response}");
+        assert_eq!(response["lines"].as_array().unwrap().len(), 1);
+        assert_eq!(response["timeout"], true);
+        assert_eq!(response["complete"], false);
+        drop(batch);
+        store.finish_live(key.clone(), &live, Ok(Arc::new(vec![path])));
+        store.release_live(&key, &live);
+        let complete = handle(&req, &AtomicBool::new(false), &store, None).unwrap();
+        assert_eq!(complete["complete"], true, "{complete}");
+        assert_eq!(complete["lines"], response["lines"]);
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn inventory_key_preserves_request_globs() {
         let first = request(&["--files", "--glob", "*.rs", "."], 20);
         let second = request(&["--files", "--glob", "*.ts", "."], 20);
         let first = parse_args(&first.args).unwrap();
         let second = parse_args(&second.args).unwrap();
-        assert!(walk_key(Path::new("."), &first) == walk_key(Path::new("."), &second));
+        assert!(walk_key(Path::new("."), &first) != walk_key(Path::new("."), &second));
         assert!(fuzzy_key(Path::new("."), &first) != fuzzy_key(Path::new("."), &second));
     }
 
@@ -6341,12 +6513,11 @@ mod tests {
             parse_args(&request(&["--files", "--glob", "!**/node_modules/**", "."], 20).args)
                 .unwrap();
         let prune = prune_globs(Path::new("."), &excluded);
-        // The directory entry itself must be rejected, otherwise the walker
-        // descends into node_modules before discarding its contents.
-        assert!(prune.iter().any(|glob| glob == "!**/node_modules"));
+        // Preserve the original rule: synthesizing a parent exclusion would
+        // prevent a later positive override from selecting its children.
         assert!(prune.iter().any(|glob| glob == "!**/node_modules/**"));
         assert!(walk_key(Path::new("."), &plain) != walk_key(Path::new("."), &excluded));
-        assert!(prune_overrides(Path::new("."), &prune).is_some());
+        assert!(prune_overrides(Path::new("."), &prune, &[]).is_some());
     }
 
     #[test]
@@ -6408,8 +6579,8 @@ mod tests {
         let dir = std::env::temp_dir().join("mixdog-watch-cover-test");
         let sub = dir.join("sub");
         std::fs::create_dir_all(&sub).unwrap();
-        assert!(store.watch_root(&dir, false));
-        assert!(store.watch_root(&sub, false));
+        assert!(store.watch_root(&dir));
+        assert!(store.watch_root(&sub));
         assert_eq!(
             store
                 .watched_roots
@@ -6421,38 +6592,35 @@ mod tests {
     }
 
     #[test]
-    fn noise_writes_do_not_invalidate_the_inventory() {
-        assert!(is_noise_path(Path::new("repo/.git/objects/ab/cdef")));
-        assert!(is_noise_path(Path::new("repo/node_modules/pkg/index.js")));
-        assert!(!is_noise_path(Path::new("repo/src/main.rs")));
-    }
-
-    #[test]
     fn watcher_preserves_inventory_for_content_changes_only() {
         assert_eq!(
-            inventory_changed_by_event(&EventKind::Modify(ModifyKind::Any)),
+            inventory_changed_by_event(&EventKind::Modify(ModifyKind::Data(
+                notify::event::DataChange::Any,
+            )), &[]),
             Some(false)
         );
         assert_eq!(
             inventory_changed_by_event(&EventKind::Modify(ModifyKind::Name(
                 notify::event::RenameMode::Any,
-            ))),
+            )), &[]),
             Some(true)
         );
         assert_eq!(
-            inventory_changed_by_event(&EventKind::Create(notify::event::CreateKind::Any)),
+            inventory_changed_by_event(&EventKind::Create(notify::event::CreateKind::Any), &[]),
             Some(true)
         );
         assert_eq!(
-            inventory_changed_by_event(&EventKind::Remove(notify::event::RemoveKind::Any)),
+            inventory_changed_by_event(&EventKind::Remove(notify::event::RemoveKind::Any), &[]),
             Some(true)
         );
-        assert_eq!(inventory_changed_by_event(&EventKind::Other), None);
+        assert_eq!(inventory_changed_by_event(&EventKind::Other, &[]), None);
     }
 
     #[test]
     fn inventory_walk_parallelism_stays_bounded() {
-        assert!((2..=4).contains(&inventory_walk_threads()));
+        assert!((2..=4).contains(&inventory_walk_threads(Path::new("."))));
+        let root = if cfg!(windows) { Path::new(r"C:\") } else { Path::new("/") };
+        assert!((2..=12).contains(&inventory_walk_threads(root)));
     }
 
     #[test]
@@ -6470,7 +6638,9 @@ mod tests {
             cacheable: AtomicBool::new(true),
             walk_errors: AtomicUsize::new(0),
             walk_error_details: Mutex::new(Vec::new()),
+            directory_failures: Mutex::new(Vec::new()),
             generation: 0,
+            change_sequence: 0,
         };
         let cancelled = AtomicBool::new(true);
         assert_eq!(
@@ -6494,7 +6664,9 @@ mod tests {
             cacheable: AtomicBool::new(true),
             walk_errors: AtomicUsize::new(0),
             walk_error_details: Mutex::new(Vec::new()),
+            directory_failures: Mutex::new(Vec::new()),
             generation: 0,
+            change_sequence: 0,
         };
         let cancelled = AtomicBool::new(false);
         assert_eq!(
@@ -6621,6 +6793,131 @@ mod tests {
             .is_some());
     }
 
+    #[test]
+    fn broad_search_mtime_deadline_and_cancellation_are_not_complete_results() {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("mg-mtime-deadline-{nonce}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("needle.txt"), "needle\n").unwrap();
+        let store = Arc::new(FileListStore::new());
+        let cancelled = AtomicBool::new(false);
+        let mut req = request(&["--files", "."], 10);
+        req.cwd = dir.to_string_lossy().into_owned();
+        req.mtime_top_k = true;
+        let warm = handle(&req, &cancelled, &store, None).unwrap();
+        assert_eq!(warm["complete"], true);
+        assert_eq!(warm["lines"].as_array().unwrap().len(), 1);
+        let expired = Some(Instant::now() - Duration::from_millis(1));
+        let response = handle(&req, &cancelled, &store, expired).unwrap();
+        assert_eq!(response["complete"], false);
+        assert_eq!(response["partial"], true);
+        assert_eq!(response["timeout"], true);
+        cancelled.store(true, Ordering::Relaxed);
+        assert_eq!(handle(&req, &cancelled, &store, None).unwrap_err(), CANCELLED);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn root_search_windows_paths_are_relative_without_device_prefixes() {
+        let normal = Path::new(r"C:\Project\mixdog\한글.mjs");
+        let verbatim = Path::new(r"\\?\C:\Project\mixdog\한글.mjs");
+        let root = Path::new(r"c:\project\mixdog");
+        assert_eq!(relative_inventory_path(normal, root), Some("한글.mjs".to_string()));
+        assert_eq!(relative_inventory_path(verbatim, root), Some("한글.mjs".to_string()));
+        assert_eq!(display_path(".", root, verbatim), ".\\한글.mjs");
+        assert!(path_starts_with(verbatim, Path::new(r"C:\")));
+        assert!(!path_starts_with(normal, Path::new(r"C:\Project\mix")));
+        assert_eq!(
+            relative_inventory_path(Path::new(r"\\?\UNC\server\share\leaf"), Path::new(r"\\server\share")),
+            Some("leaf".to_string()),
+        );
+    }
+
+    #[test]
+    fn root_search_waits_for_completion_in_the_same_call_past_three_seconds() {
+        let root = if cfg!(windows) { Path::new(r"C:\") } else { Path::new("/") };
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let scope = std::env::temp_dir().join(format!("mg-same-call-{nonce}"));
+        std::fs::create_dir_all(&scope).unwrap();
+        let path = scope.join("same-call-result.txt");
+        std::fs::write(&path, "result").unwrap();
+        let mut req = request(&["--files", scope.to_str().unwrap()], 25);
+        req.cwd = root.to_string_lossy().into_owned();
+        let parsed = parse_args(&req.args).unwrap();
+        let key = walk_key(&scope, &parsed);
+        let store = Arc::new(FileListStore::new());
+        // Root cwd exercises the old three-second policy; the operand stays
+        // inside a quiet fixture rather than depending on live drive changes.
+        store.watch_root(&scope);
+        let (live, _) = store.begin_live(key.clone(), false);
+        let producer_store = Arc::clone(&store);
+        let producer_live = Arc::clone(&live);
+        let producer_key = key.clone();
+        let producer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(3200));
+            let files = Arc::new(vec![path]);
+            publish_live_files(&producer_live, &files);
+            producer_live.enumeration_done.store(true, Ordering::Release);
+            producer_store.finish_live(producer_key.clone(), &producer_live, Ok(files));
+            producer_store.release_live(&producer_key, &producer_live);
+        });
+        let result = handle(&req, &AtomicBool::new(false), &store,
+            Some(Instant::now() + Duration::from_secs(8))).unwrap();
+        producer.join().unwrap();
+        assert_eq!(result["complete"], true);
+        assert_eq!(result["partial"], false);
+        assert!(result["lines"][0].as_str().unwrap().ends_with("same-call-result.txt"));
+        std::fs::remove_dir_all(scope).unwrap();
+    }
+
+    #[test]
+    fn root_search_globs_filter_inventory_without_changing_the_match_set() {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("mg-root-filter-{nonce}"));
+        std::fs::create_dir_all(dir.join("nested")).unwrap();
+        std::fs::write(dir.join("target.mjs"), "one").unwrap();
+        std::fs::write(dir.join("nested/target.mjs"), "two").unwrap();
+        std::fs::write(dir.join("other.rs"), "other").unwrap();
+        let drive = if cfg!(windows) { Path::new(r"C:\") } else { Path::new("/") };
+        let parsed = parse_args(&request(&["--files", "--glob", "**/target.mjs", "."], 25).args).unwrap();
+        let mut key = walk_key(&dir, &parsed);
+        // Exercise the drive-root enumeration policy on a controlled tree.
+        key.prune = prune_globs(drive, &parsed);
+        let paths = scan_inventory_subtree(&key, &dir).unwrap();
+        assert_eq!(paths.len(), 2);
+        assert!(paths.iter().all(|path| path.file_name().unwrap() == "target.mjs"));
+        let other = parse_args(&request(&["--files", "--glob", "**/*.rs", "."], 25).args).unwrap();
+        key.prune = prune_globs(drive, &other);
+        let paths = scan_inventory_subtree(&key, &dir).unwrap();
+        assert_eq!(paths, vec![dir.join("other.rs")]);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn broad_search_mtime_order_tracks_updates_without_content_reads() {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("mg-mtime-order-{nonce}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let older = dir.join("older.txt");
+        let newer = dir.join("newer.txt");
+        std::fs::write(&older, "old").unwrap();
+        std::fs::write(&newer, "new").unwrap();
+        File::options().write(true).open(&older).unwrap()
+            .set_modified(UNIX_EPOCH + Duration::from_secs(1000)).unwrap();
+        File::options().write(true).open(&newer).unwrap()
+            .set_modified(UNIX_EPOCH + Duration::from_secs(2000)).unwrap();
+        let trust = TrustSnapshot {
+            usn_volumes: Arc::new(HashSet::new()),
+            watch_roots: Arc::new(Vec::new()),
+        };
+        assert!(file_mtime_ms(&older, &trust).unwrap() < file_mtime_ms(&newer, &trust).unwrap());
+        File::options().write(true).open(&older).unwrap()
+            .set_modified(UNIX_EPOCH + Duration::from_secs(3000)).unwrap();
+        assert!(file_mtime_ms(&older, &trust).unwrap() > file_mtime_ms(&newer, &trust).unwrap());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[cfg(unix)]
     #[test]
     fn fuzzy_inventory_includes_symlink_leaves_without_following_symlink_directories() {
@@ -6707,6 +7004,142 @@ mod tests {
     }
 
     #[test]
+    fn inventory_repair_during_walk_preserves_ignore_and_hidden_rules() {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("mg-live-repair-{nonce}"));
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::write(dir.join(".gitignore"), "ignored/\n").unwrap();
+        let first = dir.join("first.mjs");
+        std::fs::write(&first, "needle\n").unwrap();
+        let mut req = request(&["--files", "--glob", "*.mjs", "."], 0);
+        req.cwd = dir.to_string_lossy().into_owned();
+        let parsed = parse_args(&req.args).unwrap();
+        let key = walk_key(&dir, &parsed);
+        let store = Arc::new(FileListStore::new());
+        assert!(store.watch_root(&dir));
+        let (live, _) = store.begin_live(key.clone(), false);
+        let original = Arc::new(vec![first]);
+        let added = dir.join("added.mjs");
+        let ignored = dir.join("ignored");
+        let hidden = dir.join(".hidden");
+        std::fs::write(&added, "needle\n").unwrap();
+        std::fs::create_dir_all(&ignored).unwrap();
+        std::fs::create_dir_all(&hidden).unwrap();
+        std::fs::write(ignored.join("skipped.mjs"), "needle\n").unwrap();
+        std::fs::write(hidden.join("skipped.mjs"), "needle\n").unwrap();
+        store.schedule_inventory_repairs(&[added, ignored, hidden]);
+        live.enumeration_done.store(true, Ordering::Release);
+        store.finish_live(key.clone(), &live, Ok(original));
+        store.release_live(&key, &live);
+        let cached = handle(&req, &AtomicBool::new(false), &store, None).unwrap();
+        let fresh_store = Arc::new(FileListStore::new());
+        let fresh = handle(&req, &AtomicBool::new(false), &fresh_store, None).unwrap();
+        let ordered = |value: &serde_json::Value| {
+            let mut lines = value["lines"].as_array().unwrap().clone();
+            lines.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
+            lines
+        };
+        assert_eq!(ordered(&cached), ordered(&fresh));
+        assert_eq!(cached["lines"].as_array().unwrap().len(), 2);
+        assert_eq!(cached["complete"], true);
+        drop(store);
+        drop(fresh_store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn failed_directory_inventory_preserves_results_and_rechecks_recovery() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("mg-retry-directory-{nonce}"));
+        let blocked = dir.join("blocked");
+        std::fs::create_dir_all(&blocked).unwrap();
+        std::fs::write(dir.join("visible.txt"), "needle\n").unwrap();
+        std::fs::write(blocked.join("recovered.txt"), "needle\n").unwrap();
+        let mut req = request(&["-l", "-e", "needle", "."], 0);
+        req.cwd = dir.to_string_lossy().into_owned();
+        let store = Arc::new(FileListStore::new());
+        assert!(store.watch_root(&dir));
+        // A private fixture handle prevents directory enumeration without
+        // changing ACLs or requiring administrator privileges.
+        let lock = std::fs::OpenOptions::new().read(true).share_mode(0)
+            .custom_flags(0x02000000).open(&blocked).unwrap();
+        assert!(std::fs::read_dir(&blocked).is_err());
+        let cancelled = AtomicBool::new(false);
+        let first = handle(&req, &cancelled, &store, None).unwrap();
+        let repeat = handle(&req, &cancelled, &store, None).unwrap();
+        assert_eq!(first["lines"], repeat["lines"]);
+        assert_eq!(first["lines"].as_array().unwrap().len(), 1);
+        assert_eq!(repeat["complete"], false);
+        assert_eq!(repeat["partial"], true);
+        assert_eq!(repeat["timeout"], false);
+        assert_eq!(first["scanErrors"], repeat["scanErrors"]);
+        assert_eq!(first["walkErrorDetails"], repeat["walkErrorDetails"]);
+
+        std::fs::write(dir.join("added.txt"), "needle\n").unwrap();
+        store.invalidate_paths(&[dir.join("added.txt")]);
+        let changed = handle(&req, &cancelled, &store, None).unwrap();
+        assert_eq!(changed["lines"].as_array().unwrap().len(), 2);
+        assert_eq!(changed["complete"], false);
+        drop(lock);
+        // Access recovery does not depend on a filesystem notification.
+        let recovered = handle(&req, &cancelled, &store, None).unwrap();
+        assert_eq!(recovered["lines"].as_array().unwrap().len(), 3);
+        assert_eq!(recovered["complete"], true);
+        assert_eq!(recovered["scanErrors"], 0);
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lost_notifications_cannot_republish_an_obsolete_repair() {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let dir = std::env::temp_dir().join(format!("mg-rescan-repair-{nonce}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let actual = dir.join("actual.txt");
+        std::fs::write(&actual, "needle\n").unwrap();
+        let mut req = request(&["--files", "."], 0);
+        req.cwd = dir.to_string_lossy().into_owned();
+        let parsed = parse_args(&req.args).unwrap();
+        let key = walk_key(&dir, &parsed);
+        let store = Arc::new(FileListStore::new());
+        let events = [
+            notify::Event::new(EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any)))
+                .add_path(actual.clone()).set_flag(notify::event::Flag::Rescan),
+            notify::Event::new(EventKind::Any).add_path(actual.clone()),
+            notify::Event::new(EventKind::Other).add_path(actual.clone()),
+        ];
+        for event in events {
+            let before = handle(&req, &AtomicBool::new(false), &store, None).unwrap();
+            let old = Arc::new(());
+            let replacement = Arc::new(());
+            let make_job = |token| PendingInventoryRepair {
+                base: Arc::new(vec![actual.clone()]),
+                directory_failures: Arc::new(Vec::new()),
+                paths: HashSet::new(),
+                processing: true,
+                token,
+            };
+            store.pending_repairs.lock().unwrap().insert(key.clone(), make_job(Arc::clone(&old)));
+            let (paths, inventory_changed) = inventory_event_change(event).unwrap();
+            assert!(inventory_changed);
+            store.invalidate_paths(&paths);
+            // Old work must be harmless both before and after a replacement
+            // job reuses the same key.
+            store.finish_inventory_repair(&key, &old, Ok(Arc::new(vec![dir.join("obsolete.txt")])));
+            store.pending_repairs.lock().unwrap().insert(key.clone(), make_job(Arc::clone(&replacement)));
+            store.finish_inventory_repair(&key, &old, Ok(Arc::new(vec![dir.join("obsolete.txt")])));
+            store.finish_inventory_repair(&key, &replacement, Ok(Arc::new(vec![actual.clone()])));
+            let after = handle(&req, &AtomicBool::new(false), &store, None).unwrap();
+            assert_eq!(after["complete"], true);
+            assert_eq!(after["lines"], before["lines"]);
+        }
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn inventory_with_walk_errors_is_never_cached_as_complete() {
         let store = FileListStore::new();
         let parsed = parse_args(&request(&["--files", "."], 20).args).unwrap();
@@ -6782,6 +7215,7 @@ mod tests {
                 key.clone(),
                 ReadyEntry {
                     files: Arc::new(vec![root.join("cached.rs")]),
+                    directory_failures: Arc::new(Vec::new()),
                     expires_at: Instant::now() - Duration::from_secs(1),
                     generation: 0,
                     touched_at: Instant::now(),

@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { assert } from './_helpers.mjs';
 import {
+  cacheGet,
+  cacheSet,
   invalidateBuiltinResultCache,
   runRawContentInFlight,
   runReadOnlyStatInFlight,
@@ -77,6 +79,35 @@ test('unrelated invalidation preserves in-flight scoped computes', async () => {
   assert(!computeAborted, 'unrelated invalidation must preserve in-flight scope');
 });
 
+for (const global of [false, true]) {
+  test(`${global ? 'global' : 'related'} invalidation lets the current query finish without stale cache writes`, async () => {
+    const scope = join(tmpdir(), `cache-inflight-related-${process.pid}-${global}`);
+    const key = `related-inflight-${global}-${Date.now()}`;
+    let finish;
+    let computes = 0;
+    let aborted = false;
+    const pending = runResultCacheInFlight(key, async ({ signal }) => {
+      computes++;
+      signal.addEventListener('abort', () => { aborted = true; });
+      await new Promise((resolve) => { finish = resolve; });
+      cacheSet(key, 'old-query-result', { scopes: [scope] });
+      return 'old-query-result';
+    }, { scopes: [scope] });
+    await new Promise((resolve) => setImmediate(resolve));
+    for (let i = 0; i < 5; i++) invalidateBuiltinResultCache(global ? null : [scope]);
+    const newer = await runResultCacheInFlight(key, async () => {
+      cacheSet(key, 'new-query-result', { scopes: [scope] });
+      return 'new-query-result';
+    }, { scopes: [scope] });
+    finish();
+    assert(await pending === 'old-query-result', 'active query must finish its own snapshot');
+    assert(newer === 'new-query-result', 'a later query must use a fresh generation');
+    assert(!aborted && computes === 1, 'invalidation must not restart the current query');
+    assert(cacheGet(key) === 'new-query-result', 'old completion must not overwrite the newer cache');
+    invalidateBuiltinResultCache([scope]);
+  });
+}
+
 test('cross-call stat single-flight computes once', async () => {
   const virtualPath = join(tmpdir(), `tool-contracts-stat-inflight-${process.pid}-${Date.now()}`);
   let computes = 0;
@@ -90,6 +121,27 @@ test('cross-call stat single-flight computes once', async () => {
   )));
   assert(computes === 1, `cross-call stat single-flight should compute once, computed ${computes}`);
   assert(values.every((value) => value.size === 7), 'cross-call stat single-flight should share the result');
+});
+
+test('user cancellation still stops an invalidated in-flight query', async () => {
+  const scope = join(tmpdir(), `cache-cancel-detached-${process.pid}`);
+  const key = `cancel-detached-${Date.now()}`;
+  const controller = new AbortController();
+  let stopped = false;
+  const pending = runResultCacheInFlight(key, ({ signal }) => new Promise((resolve, reject) => {
+    signal.addEventListener('abort', () => {
+      stopped = true;
+      cacheSet(key, 'must-not-cache', { scopes: [scope] });
+      reject(new Error('compute cancelled'));
+    }, { once: true });
+  }), { signal: controller.signal, scopes: [scope] });
+  const observed = pending.catch((error) => error);
+  await new Promise((resolve) => setImmediate(resolve));
+  invalidateBuiltinResultCache([scope]);
+  controller.abort();
+  const error = await observed;
+  assert(error instanceof Error && stopped, 'user cancellation must reach the detached computation');
+  assert(cacheGet(key) === null, 'a cancelled computation must not populate the cache');
 });
 
 test('cross-call read single-flight shares bytes until invalidated', async () => {

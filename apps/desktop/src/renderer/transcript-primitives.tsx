@@ -1,21 +1,27 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { type TranscriptItem } from "./desktop-types";
-import { t } from "./i18n";
+import { t, uiFormatLocale } from "./i18n";
+import { uiTimeUnit } from "./ui-format";
 import { MxIcon } from "./MxIcon";
 import { copyTextToClipboard } from "./text-format";
 
 export const TERMINAL_AGENT_STATUS = /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i;
 
-const compactTokenFormatter = new Intl.NumberFormat("en-US", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-  minimumFractionDigits: 0,
-});
-
+const tokenFormatters = new Map<string, Intl.NumberFormat>();
 export function formatTokenCount(value: number): string {
   const tokens = Math.max(0, Number(value) || 0);
-  if (tokens >= 1000) return compactTokenFormatter.format(tokens).toUpperCase();
-  return String(Math.round(tokens));
+  const locale = uiFormatLocale();
+  const key = `${locale}:${tokens >= 1000}`;
+  let formatter = tokenFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(locale, {
+      notation: tokens >= 1000 ? "compact" : "standard",
+      maximumFractionDigits: tokens >= 1000 ? 1 : 0,
+    });
+    tokenFormatters.set(key, formatter);
+  }
+  const text = formatter.format(tokens);
+  return locale === "en" ? text.toUpperCase() : text;
 }
 
 export function timeMs(value: unknown): number {
@@ -36,10 +42,10 @@ export function formatWorkElapsed(value: unknown): string {
   const hours = Math.floor((elapsed % 86_400_000) / 3_600_000);
   const minutes = Math.floor((elapsed % 3_600_000) / 60_000);
   const seconds = Math.floor((elapsed % 60_000) / 1_000);
-  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
-  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
+  if (days > 0) return `${uiTimeUnit(days, "day")} ${uiTimeUnit(hours, "hour")} ${uiTimeUnit(minutes, "minute")}`;
+  if (hours > 0) return `${uiTimeUnit(hours, "hour")} ${uiTimeUnit(minutes, "minute")} ${uiTimeUnit(seconds, "second")}`;
+  if (minutes > 0) return `${uiTimeUnit(minutes, "minute")} ${uiTimeUnit(seconds, "second")}`;
+  return uiTimeUnit(seconds, "second");
 }
 
 // CSS measures the shimmer in terminal cells, where CJK characters are wide.

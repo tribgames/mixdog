@@ -61,6 +61,22 @@ test('observation-only routing refuses every input family before backend dispatc
   assert.equal(dispatched, 0);
 });
 
+test('switching observation-only on during preparation blocks the pending input', WINDOWS_ONLY, async () => {
+  let observeOnly = false;
+  let dispatched = 0;
+  const router = createCommandRouter({
+    isObserveOnly: () => observeOnly, sessionIdFor: () => 'test',
+    framesBySession: new Map(), elementTargetsBySession: new Map(), observedWindowBySession: new Map(),
+    lastCaptureBySession: new Map(),
+    assertExecutionNotAborted() {}, resolveElementAliases: command => command,
+    resolveInputTarget: async () => ({ allowedWindowIds: [] }), claimComputerTargets: async () => {},
+    readComputerWindows: async () => { observeOnly = true; return []; },
+    callPowerShell: async () => { dispatched++; throw new Error('unexpected input'); },
+  });
+  await assert.rejects(router.runCommand({ action: 'clipboard_write', text: 'fixture' }), /observation_only/);
+  assert.equal(dispatched, 0);
+});
+
 test('authority which expires during preparation never reaches the input backend', WINDOWS_ONLY, async () => {
   let now = 0;
   let dispatched = 0;

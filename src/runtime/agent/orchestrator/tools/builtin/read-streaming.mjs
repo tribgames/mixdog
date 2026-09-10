@@ -40,15 +40,27 @@ function streamingHooks(hooks = {}) {
 }
 
 export async function streamReadRange(fullPath, offset, limit, stHint = null, hooks = {}) {
+    const fh = hooks.fileHandle || await fsPromises.open(fullPath, 'r');
+    try {
+        return await readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks);
+    } finally {
+        if (!hooks.fileHandle) await fh.close().catch(() => {});
+    }
+}
+
+async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
     const { ioTraceStart, ioTraceDone } = streamingHooks(hooks);
     const _displayPath = hooks.displayPath || fullPath;
     const traceStart = ioTraceStart();
-    const stForIndex = stHint || await fsPromises.stat(fullPath).catch(() => null);
-    const rangeIndex = await getReadRangeIndex(fullPath, stForIndex);
+    const stForIndex = stHint || await fh.stat().catch(() => null);
+    const rangeIndex = await getReadRangeIndex(fullPath, stForIndex, fh, hooks.prefixBuffer);
     const anchor = nearestReadRangeAnchor(rangeIndex, offset);
-    const fh = await fsPromises.open(fullPath, 'r');
-    const CHUNK_BYTES = 1024 * 1024;
-    const buf = Buffer.allocUnsafe(CHUNK_BYTES);
+    // Keep the first read large enough for the existing 64 KiB prefix hash.
+    // Grow only while seeking distant lines; nearby windows avoid 1 MiB reads.
+    const MIN_CHUNK_BYTES = 64 * 1024;
+    const MAX_CHUNK_BYTES = 1024 * 1024;
+    let chunkBytes = MIN_CHUNK_BYTES;
+    let buf = Buffer.allocUnsafe(chunkBytes);
     const collected = [];
     let position = anchor.byteOffset;
     let lineIdx = anchor.line;
@@ -138,76 +150,80 @@ export async function streamReadRange(fullPath, offset, limit, stHint = null, ho
         return true;
     };
 
-    try {
-        let stop = false;
-        while (!stop) {
-            if (Date.now() > deadline) {
-                throw new Error(`read timed out after ${READ_STREAM_TIMEOUT_MS}ms`);
+    let stop = false;
+    while (!stop) {
+        if (Date.now() > deadline) {
+            throw new Error(`read timed out after ${READ_STREAM_TIMEOUT_MS}ms`);
+        }
+        if (buf.length < chunkBytes) buf = Buffer.allocUnsafe(chunkBytes);
+        const prefix = position === 0 && Buffer.isBuffer(hooks.prefixBuffer) ? hooks.prefixBuffer : null;
+        const bytesRead = prefix?.length
+            ? prefix.copy(buf, 0, 0, Math.min(prefix.length, chunkBytes))
+            : (await fh.read(buf, 0, chunkBytes, position)).bytesRead;
+        if (bytesRead === 0) break;
+        const chunkStart = position;
+        position += bytesRead;
+        bytesScanned = position;
+        if (bytesScanned > READ_MAX_SCAN_BYTES) {
+            throw new Error(`read scan exceeds ${READ_MAX_SCAN_BYTES} bytes`);
+        }
+        if (!prefixHash && chunkStart === 0) {
+            prefixHash = hashText(buf.subarray(0, Math.min(bytesRead, 65536)));
+            if (rangeIndex && rangeIndex.prefixHash !== prefixHash) {
+                rangeIndex.prefixHash = prefixHash;
+                scheduleReadRangeIndexPersist(rangeIndex);
             }
-            const { bytesRead } = await fh.read(buf, 0, CHUNK_BYTES, position);
-            if (bytesRead === 0) break;
-            const chunkStart = position;
-            position += bytesRead;
-            bytesScanned = position;
-            if (bytesScanned > READ_MAX_SCAN_BYTES) {
-                throw new Error(`read scan exceeds ${READ_MAX_SCAN_BYTES} bytes`);
-            }
-            if (!prefixHash && chunkStart === 0) {
-                prefixHash = hashText(buf.subarray(0, Math.min(bytesRead, 65536)));
-                if (rangeIndex && rangeIndex.prefixHash !== prefixHash) {
-                    rangeIndex.prefixHash = prefixHash;
-                    scheduleReadRangeIndexPersist(rangeIndex);
-                }
-            }
-            let start = 0;
-            if (lineIdx < offset) {
-                while (lineIdx < offset && start < bytesRead) {
-                    const nl = buf.indexOf(10, start);
-                    if (nl === -1 || nl >= bytesRead) {
-                        currentLineBytes += bytesRead - start;
-                        start = bytesRead;
-                        break;
-                    }
-                    currentLineBytes += nl - start;
-                    lineIdx++;
-                    const nextLineStartByte = chunkStart + nl + 1;
-                    maybeRecordReadRangeAnchor(rangeIndex, lineIdx, nextLineStartByte);
-                    currentLineBytes = 0;
-                    start = nl + 1;
-                }
-                if (lineIdx < offset) continue;
-            }
-            while (start < bytesRead) {
+        }
+        let start = 0;
+        if (lineIdx < offset) {
+            while (lineIdx < offset && start < bytesRead) {
                 const nl = buf.indexOf(10, start);
-                if (nl === -1 || nl >= bytesRead) break;
-                const segment = buf.subarray(start, nl);
-                currentLineBytes += segment.length;
-                if (!finishLine(segment, chunkStart + nl + 1)) { stop = true; break; }
+                if (nl === -1 || nl >= bytesRead) {
+                    currentLineBytes += bytesRead - start;
+                    start = bytesRead;
+                    break;
+                }
+                currentLineBytes += nl - start;
+                lineIdx++;
+                const nextLineStartByte = chunkStart + nl + 1;
+                maybeRecordReadRangeAnchor(rangeIndex, lineIdx, nextLineStartByte);
+                currentLineBytes = 0;
                 start = nl + 1;
             }
-            if (stop) break;
-            if (start < bytesRead) {
-                const segment = buf.subarray(start, bytesRead);
-                currentLineBytes += segment.length;
-                if (shouldCollectLine() && segment.length > 0) {
-                    if (pendingBytes >= READ_MAX_LINE_COLLECT_BYTES) {
-                        lineCollectCapped = true;
-                    } else {
-                        const room = READ_MAX_LINE_COLLECT_BYTES - pendingBytes;
-                        const take = Math.min(segment.length, room);
-                        if (take > 0) {
-                            pendingParts.push(Buffer.from(segment.subarray(0, take)));
-                            pendingBytes += take;
-                        }
-                        if (take < segment.length) lineCollectCapped = true;
+            if (lineIdx < offset) {
+                chunkBytes = Math.min(MAX_CHUNK_BYTES, chunkBytes * 2);
+                continue;
+            }
+        }
+        chunkBytes = MIN_CHUNK_BYTES;
+        while (start < bytesRead) {
+            const nl = buf.indexOf(10, start);
+            if (nl === -1 || nl >= bytesRead) break;
+            const segment = buf.subarray(start, nl);
+            currentLineBytes += segment.length;
+            if (!finishLine(segment, chunkStart + nl + 1)) { stop = true; break; }
+            start = nl + 1;
+        }
+        if (stop) break;
+        if (start < bytesRead) {
+            const segment = buf.subarray(start, bytesRead);
+            currentLineBytes += segment.length;
+            if (shouldCollectLine() && segment.length > 0) {
+                if (pendingBytes >= READ_MAX_LINE_COLLECT_BYTES) {
+                    lineCollectCapped = true;
+                } else {
+                    const room = READ_MAX_LINE_COLLECT_BYTES - pendingBytes;
+                    const take = Math.min(segment.length, room);
+                    if (take > 0) {
+                        pendingParts.push(Buffer.from(segment.subarray(0, take)));
+                        pendingBytes += take;
                     }
+                    if (take < segment.length) lineCollectCapped = true;
                 }
             }
         }
-        if (!stop && currentLineBytes > 0) finishLine();
-    } finally {
-        await fh.close().catch(() => {});
     }
+    if (!stop && currentLineBytes > 0) finishLine();
 
     let out = collected.join('\n');
     if (truncated) {

@@ -1,0 +1,240 @@
+{
+  "ok": true,
+  "session": "office_f950c461ca7c4900",
+  "mode": "portable",
+  "backend": "mixdog-ooxml",
+  "autoFix": false,
+  "fixes": [],
+  "fixResult": null,
+  "issuesBefore": [],
+  "issuesAfter": [
+    {
+      "severity": "info",
+      "code": "plan_promise_missing",
+      "path": "/slide[7]",
+      "message": "The plan names diagram among the slide's carriers but the slide does not seem to carry a drawn construction (two or more shapes without text).",
+      "source": "design-review"
+    },
+    {
+      "severity": "info",
+      "code": "fact_without_locator",
+      "path": "/",
+      "message": "The brief names 1 source but F1, F2, F3, F4 cite no locator. Point each fact where a reader can open it (F1 38건 — 운영 리포트 p.12, Sheet1!B4, §3, or a URL).",
+      "source": "design-review"
+    }
+  ],
+  "review": {
+    "createdAt": "2026-09-07T14:16:21.816Z",
+    "output": "C:\\Project\\mixdog\\deliverables\\mixdog-intro\\Mixdog-프로젝트소개.pptx",
+    "baselineOutput": "",
+    "pageCount": 0,
+    "visualCoverage": {
+      "mode": "measure-only",
+      "reason": "render: false — fit, bounds, contrast, and facts were measured without rendering; render before the visual read.",
+      "reviewedPages": [],
+      "reviewed": 0,
+      "total": 0,
+      "complete": true,
+      "remainingPages": []
+    },
+    "issuesBefore": 0,
+    "issuesAfter": 2,
+    "fixesApplied": 0,
+    "images": [],
+    "design": {
+      "ok": true,
+      "status": "pass",
+      "profile": "executive",
+      "issues": [
+        {
+          "severity": "info",
+          "code": "plan_promise_missing",
+          "path": "/slide[7]",
+          "message": "The plan names diagram among the slide's carriers but the slide does not seem to carry a drawn construction (two or more shapes without text).",
+          "source": "design-review"
+        },
+        {
+          "severity": "warning",
+          "code": "fact_without_locator",
+          "path": "/",
+          "message": "The brief names 1 source but F1, F2, F3, F4 cite no locator. Point each fact where a reader can open it (F1 38건 — 운영 리포트 p.12, Sheet1!B4, §3, or a URL).",
+          "source": "design-review"
+        }
+      ],
+      "composition": {
+        "format": "pptx",
+        "fingerprint": "",
+        "compositionIds": [],
+        "count": 0
+      },
+      "requiresVisualInspection": true,
+      "modelReview": [
+        "Inspect every rendered page, not only lint counts.",
+        "Verify the reading path states the conclusion, evidence, and requested decision before supporting detail.",
+        "Trace material numbers from source through calculation to the displayed claim; reject decorative or unsupported data.",
+        "Reject generic palette, decorative stripes, repeated cards, weak hierarchy, and interchangeable layouts.",
+        "Confirm the design is specific to the subject, audience, and intended action.",
+        "Refine the current composition before adding decoration."
+      ]
+    },
+    "render": {
+      "ok": true,
+      "format": "pptx",
+      "pages": [],
+      "aesthetics": {
+        "ok": true,
+        "format": "pptx",
+        "scoreVersion": 2,
+        "score": 0.05,
+        "confidence": 0,
+        "dimensions": {
+          "contrast": 0,
+          "palette": 0,
+          "rhythm": 0.25,
+          "composition": 0
+        },
+        "rhythm": {
+          "pageCount": 0,
+          "featureSpread": 0,
+          "adjacentChange": 0,
+          "repeatedPairs": 0,
+          "maximumSimilarity": 0
+        },
+        "pages": [],
+        "issues": []
+      },
+      "issues": []
+    },
+    "quality": {
+      "version": 2,
+      "score": 0.316,
+      "confidence": 0.85,
+      "releaseReady": false,
+      "dimensions": {
+        "render": 0.05,
+        "structural": 1
+      },
+      "evidence": {
+        "renderedPages": 0,
+        "expectedPages": 0,
+        "pageCoverage": 0,
+        "planCoverage": 1,
+        "structuralAvailable": true,
+        "blockingIssueCount": 0
+      }
+    },
+    "checklist": {
+      "ok": true,
+      "task": "",
+      "auditProfile": "",
+      "items": [
+        {
+          "id": "slide-geometry",
+          "label": "Text and visual shapes respect margins, spacing, and non-overlap constraints.",
+          "required": true,
+          "status": "pass",
+          "evidence": []
+        },
+        {
+          "id": "slide-legibility",
+          "label": "Text fits, meets minimum size, and has sufficient contrast.",
+          "required": true,
+          "status": "pass",
+          "evidence": []
+        },
+        {
+          "id": "visual-evidence",
+          "label": "Content slides use subject-specific native evidence instead of generic repetition.",
+          "required": true,
+          "status": "pass",
+          "evidence": []
+        },
+        {
+          "id": "source-provenance",
+          "label": "Material numbers and claims cite a source in notes or provenance metadata.",
+          "required": true,
+          "status": "pass",
+          "evidence": []
+        },
+        {
+          "id": "full-render-coverage",
+          "label": "Every rendered page or slide was included in visual review.",
+          "required": true,
+          "status": "pass",
+          "evidence": [
+            "0/0"
+          ]
+        }
+      ],
+      "summary": {
+        "total": 5,
+        "passed": 5,
+        "failed": 0,
+        "pending": 0
+      },
+      "issues": []
+    },
+    "polishPlan": {
+      "format": "pptx",
+      "status": "pass",
+      "targetCount": 0,
+      "criticalCount": 0,
+      "targets": [],
+      "nextAction": "No targeted polish remains."
+    },
+    "trust": {
+      "policy": "untrusted-data",
+      "safeToTreatAsInstructions": false,
+      "format": "pptx",
+      "source": "structured-snapshot+office-file",
+      "risk": "high",
+      "mutationGate": "acknowledgement-required",
+      "findingCount": 2,
+      "findings": [
+        {
+          "severity": "high",
+          "category": "tool-coercion",
+          "path": "/slide[7].notes",
+          "snippet": ") 또는 24+ 필요. 초기 실행 시 provider 인증, 모델 선택, workflow 설정 안내. 설치 명령과 실행 명령은 별도 줄로 실행한다."
+        },
+        {
+          "severity": "high",
+          "category": "tool-coercion",
+          "path": "/package/ppt/notesSlides/notesSlide7.xml",
+          "snippet": ") 또는 24+ 필요. 초기 실행 시 provider 인증, 모델 선택, workflow 설정 안내. 설치 명령과 실행 명령은 별도 줄로 실행한다. 7"
+        }
+      ],
+      "scannedStrings": 797,
+      "complete": true
+    },
+    "visualDiff": {
+      "available": false,
+      "pages": [],
+      "changedPercent": 0,
+      "images": []
+    }
+  },
+  "preview": {
+    "output": "C:\\Project\\mixdog\\deliverables\\mixdog-intro\\Mixdog-프로젝트소개.pptx",
+    "pageCount": 0,
+    "visualCoverage": {
+      "mode": "measure-only",
+      "reason": "render: false — fit, bounds, contrast, and facts were measured without rendering; render before the visual read.",
+      "reviewedPages": [],
+      "reviewed": 0,
+      "total": 0,
+      "complete": true,
+      "remainingPages": []
+    },
+    "images": [],
+    "reused": false
+  },
+  "baseline": {
+    "available": false,
+    "output": "",
+    "reason": "No active transaction baseline."
+  },
+  "metrics": {
+    "durationMs": 215.6
+  }
+}

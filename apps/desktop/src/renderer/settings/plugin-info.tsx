@@ -1,4 +1,4 @@
-import { t } from '../i18n';
+import { t, uiFormatLocale } from '../i18n';
 import type { RecordValue } from './capability-data';
 import { ExtensionFacts, ExtensionSection } from './extension-detail';
 
@@ -10,7 +10,7 @@ function formatInstallDate(value: unknown): string {
   const stamp = typeof value === 'number' ? value : Date.parse(text(value));
   if (!Number.isFinite(stamp) || stamp <= 0) return '';
   try {
-    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(stamp));
+    return new Intl.DateTimeFormat(uiFormatLocale(), { dateStyle: 'medium' }).format(new Date(stamp));
   } catch {
     return '';
   }

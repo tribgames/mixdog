@@ -129,6 +129,7 @@ export function _createGlobMtimeTopK(limit) {
 }
 
 export async function executeGlobTool(args, workDir, options = {}) {
+    const runWindowedLines = options.__runRgWindowedLines || runRgWindowedLines;
     args = normalizeGlobArgs(args);
     args.path = coerceReadFamilyPathArg(args.path, workDir);
     if (Array.isArray(args.path)) {
@@ -399,7 +400,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
         }
         try {
             if (canWindowMtime) {
-                const served = await runRgWindowedLines(
+                const served = await runWindowedLines(
                     rgArgs,
                     { cwd: rgCwd, signal: sharedSignal },
                     { offset: 0, limit: offset + headLimit + 1, mtimeTopK: true },
@@ -417,7 +418,7 @@ export async function executeGlobTool(args, workDir, options = {}) {
                 };
             }
             if (canWindowNatural) {
-                const served = await runRgWindowedLines(
+                const served = await runWindowedLines(
                     rgArgs,
                     { cwd: rgCwd, signal: sharedSignal },
                     { offset: 0, limit: offset + headLimit + 1 },
@@ -568,7 +569,11 @@ export async function executeGlobTool(args, workDir, options = {}) {
     const body = capped.length > 0
         ? `${capped.join('\n')}${moreSuffix}${errSuffix}`
         : '';
-    const out = globPatternCapNote + (body || emptyDiag || '(no files found)');
+    // Empty partials are not proof of absence. Preserve diagnostics even when
+    // there is no path body, rather than silently dropping errSuffix.
+    const emptyBody = (emptyDiag || '(no files found)')
+        .replace('(no files found)', rgStdoutPartial || rgWindowIncomplete ? '(no files found yet)' : '(no files found)');
+    const out = globPatternCapNote + (body || `${emptyBody}${moreSuffix}${errSuffix}`);
     if (options?.scopedCacheOutcome && (accumTruncated || rgStdoutTruncated || rgStdoutPartial || rgWindowIncomplete || remaining > 0)) {
         markScopedCacheIncomplete(options.scopedCacheOutcome);
     }

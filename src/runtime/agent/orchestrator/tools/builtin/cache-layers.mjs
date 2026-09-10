@@ -1,11 +1,13 @@
 import { statSync } from 'fs';
 import * as fsPromises from 'fs/promises';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute, resolve, sep } from 'path';
 import { canonicalCachePath, deleteReadRangeIndexForPath } from './read-range-index.mjs';
 import { resolveAgainstCwd } from './path-utils.mjs';
 
 const RESULT_CACHE = new Map(); // key → { ts, value, paths, scopes, readSnapshotMeta, contentPrefixHash, bytes }
 const RESULT_CACHE_INFLIGHT = new Map(); // key → { promise, controller, subscribers, settled }
+const RESULT_CACHE_COMPUTE = new AsyncLocalStorage();
 const RESULT_CACHE_TTL_MS = 30_000;
 const RESULT_CACHE_MAX_ENTRIES = 200;
 const RESULT_CACHE_MAX_BYTES = (() => {
@@ -119,6 +121,10 @@ export function cacheGet(key) {
 }
 
 export function cacheSet(key, value, meta = {}) {
+    // Invalidation affects future reuse, not the active reader's snapshot.
+    // A detached/aborted computation must never repopulate a newer cache.
+    const computation = RESULT_CACHE_COMPUTE.getStore();
+    if (computation?.invalidated || computation?.controller?.signal?.aborted) return;
     // Replace-in-place: clear old entry's byte accounting before write.
     if (RESULT_CACHE.has(key)) resultCacheDelete(key);
     const bytes = estimateResultBytes(value);
@@ -156,7 +162,11 @@ async function subscribeResultCacheInFlight(entry, signal) {
     entry.subscribers.add(subscriber);
     const release = () => {
         if (!entry.subscribers.delete(subscriber)) return;
-        if (!entry.settled && entry.subscribers.size === 0) entry.controller.abort();
+        if (!entry.settled && entry.subscribers.size === 0) {
+            // Abort listeners run in the abort caller's context, not where
+            // they were registered. Keep their cleanup/cache writes guarded.
+            RESULT_CACHE_COMPUTE.run(entry, () => entry.controller.abort());
+        }
     };
     if (!signal) {
         try { return await entry.promise; }
@@ -186,58 +196,39 @@ async function subscribeResultCacheInFlight(entry, signal) {
 
 export async function runResultCacheInFlight(key, compute, options = {}) {
     const subscriberSignal = options?.signal || options?.abortSignal || null;
-    let invalidationRetries = 0;
-    for (;;) {
-        const cached = cacheGet(key);
-        if (cached !== null) return cached;
-        let entry = RESULT_CACHE_INFLIGHT.get(key);
-        if (entry?.controller?.signal?.aborted) {
-            if (RESULT_CACHE_INFLIGHT.get(key) === entry) RESULT_CACHE_INFLIGHT.delete(key);
-            entry = null;
-        }
-        if (!entry) {
-            const controller = new AbortController();
-            entry = {
-                promise: null,
-                controller,
-                subscribers: new Set(),
-                settled: false,
-                invalidated: false,
-                scopes: normalizeCacheMetaPaths(options?.scopes),
-            };
-            const promise = Promise.resolve()
-                .then(() => compute({ signal: controller.signal }))
-                .finally(() => {
-                    entry.settled = true;
-                    if (RESULT_CACHE_INFLIGHT.get(key) === entry) {
-                        RESULT_CACHE_INFLIGHT.delete(key);
-                    }
-                });
-            entry.promise = promise;
-            // An already-aborted first subscriber can release and cancel the
-            // compute before it attaches the normal await handlers below.
-            // Keep the shared promise rejection observed without changing it.
-            promise.catch(() => {});
-            RESULT_CACHE_INFLIGHT.set(key, entry);
-        } else if (Array.isArray(options?.scopes)) {
-            entry.scopes = normalizeCacheMetaPaths([...(entry.scopes || []), ...options.scopes]);
-        }
-        try {
-            return await subscribeResultCacheInFlight(entry, subscriberSignal);
-        } catch (error) {
-            // Watcher/patch invalidation can race an active read. That is a
-            // freshness retry, not a user-visible abort: start a new generation
-            // unless this subscriber itself was cancelled.
-            if (!entry.invalidated || subscriberSignal?.aborted) throw error;
-            // Continuous invalidation (watcher churn, eviction broadcasts)
-            // must not spin forever: after a few generations run the compute
-            // directly — uncached and no longer abortable by invalidation —
-            // mirroring the server-side MAX_WALK_RESTARTS cap.
-            if (++invalidationRetries >= 3) {
-                return await compute({ signal: subscriberSignal });
-            }
-        }
+    subscriberSignal?.throwIfAborted();
+    const cached = cacheGet(key);
+    if (cached !== null) return cached;
+    let entry = RESULT_CACHE_INFLIGHT.get(key);
+    if (entry?.controller?.signal?.aborted) {
+        if (RESULT_CACHE_INFLIGHT.get(key) === entry) RESULT_CACHE_INFLIGHT.delete(key);
+        entry = null;
     }
+    if (!entry) {
+        const controller = new AbortController();
+        entry = {
+            promise: null,
+            controller,
+            subscribers: new Set(),
+            settled: false,
+            invalidated: false,
+            scopes: normalizeCacheMetaPaths(options?.scopes),
+        };
+        const promise = Promise.resolve()
+            .then(() => RESULT_CACHE_COMPUTE.run(entry, () => compute({ signal: controller.signal })))
+            .finally(() => {
+                entry.settled = true;
+                if (RESULT_CACHE_INFLIGHT.get(key) === entry) {
+                    RESULT_CACHE_INFLIGHT.delete(key);
+                }
+            });
+        entry.promise = promise;
+        promise.catch(() => {});
+        RESULT_CACHE_INFLIGHT.set(key, entry);
+    } else if (Array.isArray(options?.scopes)) {
+        entry.scopes = normalizeCacheMetaPaths([...(entry.scopes || []), ...options.scopes]);
+    }
+    return subscribeResultCacheInFlight(entry, subscriberSignal);
 }
 
 export async function runRawContentInFlight(fullPath, loader = fsPromises.readFile) {
@@ -503,7 +494,6 @@ function runExtraInvalidationListeners(affectedPaths = null) {
 function cacheInvalidateAll() {
     for (const entry of RESULT_CACHE_INFLIGHT.values()) {
         entry.invalidated = true;
-        entry.controller?.abort();
     }
     RESULT_CACHE.clear();
     RESULT_CACHE_INFLIGHT.clear();
@@ -527,7 +517,6 @@ function cacheInvalidatePaths(paths) {
         if (scopes.length === 0
             || scopes.some((scope) => affectedPaths.some((affected) => cachePathsOverlap(scope, affected)))) {
             entry.invalidated = true;
-            entry.controller?.abort();
             RESULT_CACHE_INFLIGHT.delete(key);
         }
     }

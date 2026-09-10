@@ -9,6 +9,7 @@ const READ_RANGE_INDEX_MAX_ENTRIES = 64;
 const READ_RANGE_INDEX_DISK_STALE_MS = 14 * 24 * 60 * 60 * 1000;
 const READ_RANGE_INDEX_MAX_PERSISTED_ANCHORS = 8192;
 const READ_RANGE_INDEX_PERSIST_DEBOUNCE_MS = 750;
+const READ_RANGE_INDEX_SWEEP_CONCURRENCY = 8;
 
 const READ_RANGE_INDEX_CACHE = new Map();
 const READ_RANGE_INDEX_PERSIST_PENDING = new Map();
@@ -72,35 +73,42 @@ function readRangeIndexMatches(row, fullPath, st) {
 // convention as the streaming readers (read-streaming.mjs / read-windows.mjs)
 // so a value computed here can be compared byte-for-byte against the
 // `prefixHash` they persist into the anchor index.
-async function computePrefixHashForIndex(fullPath, st) {
+async function computePrefixHashForIndex(fullPath, st, handle = null, prefixBuffer = null) {
     try {
         const cap = Math.min(Number(st?.size) || 0, 65536);
         if (cap <= 0) return '';
-        const fh = await open(fullPath, 'r');
+        if (Buffer.isBuffer(prefixBuffer) && prefixBuffer.length === cap) {
+            return createHash('sha256').update(prefixBuffer).digest('hex');
+        }
+        const fh = handle || await open(fullPath, 'r');
         try {
             const buf = Buffer.allocUnsafe(cap);
             const { bytesRead } = await fh.read(buf, 0, cap, 0);
             if (bytesRead <= 0) return '';
             return createHash('sha256').update(buf.subarray(0, bytesRead)).digest('hex');
         } finally {
-            try { await fh.close(); } catch {}
+            if (!handle) {
+                try { await fh.close(); } catch {}
+            }
         }
     } catch {
         return '';
     }
 }
 
-async function ensureReadRangeIndexDiskSwept() {
+function ensureReadRangeIndexDiskSwept() {
     if (readRangeIndexDiskSwept) return;
     readRangeIndexDiskSwept = true;
-    await sweepStaleReadRangeIndexes();
+    // Maintenance must not delay the first ranged read or hold the process open.
+    const pending = setImmediate(() => { void sweepStaleReadRangeIndexes().catch(() => {}); });
+    pending.unref();
 }
 
-async function loadReadRangeIndexFromDisk(fullPath, st) {
-    await ensureReadRangeIndexDiskSwept();
+async function loadReadRangeIndexFromDisk(fullPath, st, handle, prefixBuffer) {
+    ensureReadRangeIndexDiskSwept();
     const file = readRangeIndexFilePath(fullPath);
     // No existsSync preflight: a missing file surfaces as an ENOENT from
-    // readFileSync below, caught by the same try/catch — one FS pass, not two.
+    // readFile below, caught by the same try/catch — one FS pass, not two.
     if (!file || !st) return null;
     try {
         const row = JSON.parse(await readFile(file, 'utf-8'));
@@ -113,7 +121,7 @@ async function loadReadRangeIndexFromDisk(fullPath, st) {
         // must match; on mismatch drop the on-disk row so the caller
         // rebuilds from scratch.
         if (typeof row.prefixHash === 'string' && row.prefixHash) {
-            const cur = await computePrefixHashForIndex(fullPath, st);
+            const cur = await computePrefixHashForIndex(fullPath, st, handle, prefixBuffer);
             if (!cur || cur !== row.prefixHash) {
                 try { await unlink(file); } catch {}
                 return null;
@@ -196,23 +204,32 @@ export function deleteReadRangeIndexForPath(fullPath) {
     if (file) void unlink(file).catch(() => {});
 }
 
-async function sweepStaleReadRangeIndexes() {
-    if (!READ_RANGE_INDEX_DISK_DIR) return;
+export async function sweepStaleReadRangeIndexes(directory = READ_RANGE_INDEX_DISK_DIR) {
+    if (!directory) return;
     let entries;
-    try { entries = await readdir(READ_RANGE_INDEX_DISK_DIR); }
+    try { entries = await readdir(directory); }
     catch { return; }
     const now = Date.now();
-    await Promise.all(entries.map(async (name) => {
-        if (!name.endsWith('.json')) return;
-        const full = join(READ_RANGE_INDEX_DISK_DIR, name);
-        try {
-            const st = await stat(full);
-            if (now - st.mtimeMs > READ_RANGE_INDEX_DISK_STALE_MS) await unlink(full);
-        } catch {}
-    }));
+    let next = 0;
+    async function worker() {
+        while (next < entries.length) {
+            const name = entries[next++];
+            if (!name.endsWith('.json')) continue;
+            const full = join(directory, name);
+            try {
+                const st = await stat(full);
+                if (now - st.mtimeMs > READ_RANGE_INDEX_DISK_STALE_MS) await unlink(full);
+            } catch {}
+        }
+    }
+    await Promise.all(Array.from(
+        { length: Math.min(READ_RANGE_INDEX_SWEEP_CONCURRENCY, entries.length) },
+        worker,
+    ));
 }
 
-export async function getReadRangeIndex(fullPath, st) {
+// A supplied handle is borrowed; validation never changes its position or closes it.
+export async function getReadRangeIndex(fullPath, st, handle = null, prefixBuffer = null) {
     if (!st) return null;
     const key = canonicalCachePath(fullPath);
     const cached = READ_RANGE_INDEX_CACHE.get(key);
@@ -226,7 +243,7 @@ export async function getReadRangeIndex(fullPath, st) {
         // streaming read has populated yet) keep the prior stat-only
         // behavior so genuinely unchanged files are not re-walked.
         if (cached.prefixHash) {
-            const cur = await computePrefixHashForIndex(fullPath, st);
+            const cur = await computePrefixHashForIndex(fullPath, st, handle, prefixBuffer);
             if (!cur || cur !== cached.prefixHash) {
                 READ_RANGE_INDEX_CACHE.delete(key);
             } else {
@@ -240,7 +257,7 @@ export async function getReadRangeIndex(fullPath, st) {
             return cached;
         }
     }
-    const loaded = await loadReadRangeIndexFromDisk(fullPath, st);
+    const loaded = await loadReadRangeIndexFromDisk(fullPath, st, handle, prefixBuffer);
     if (loaded) {
         READ_RANGE_INDEX_CACHE.set(key, loaded);
         return loaded;

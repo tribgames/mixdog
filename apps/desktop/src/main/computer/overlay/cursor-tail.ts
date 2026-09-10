@@ -4,6 +4,7 @@ import type { ComputerUseCursorPresentation } from './model';
 export function createCursorTail(changed: () => void, holdMs = 1500) {
   const retained = new Map<string, ComputerUseCursorPresentation>();
   const expiry = new Map<string, ReturnType<typeof setTimeout>>();
+  let latestEventId = 0;
   const clear = () => {
     for (const timer of expiry.values()) clearTimeout(timer);
     expiry.clear();
@@ -11,6 +12,15 @@ export function createCursorTail(changed: () => void, holdMs = 1500) {
   };
   return {
     update(current: ComputerUseCursorPresentation[], interrupted: boolean, excluded?: ReadonlySet<string>) {
+      const newest = current.reduce<ComputerUseCursorPresentation | undefined>(
+        (latest, cursor) => !latest || cursor.eventId > latest.eventId ? cursor : latest, undefined);
+      if (newest && newest.eventId > latestEventId) {
+        latestEventId = newest.eventId;
+        // Only one physical pointer exists. A newer session owns its feedback too.
+        if (!retained.has(newest.sessionId)) clear();
+      }
+      current = newest && newest.eventId === latestEventId && !excluded?.has(newest.sessionId)
+        ? [newest] : [];
       if (interrupted) { clear(); return []; }
       for (const id of excluded ?? []) {
         const timer = expiry.get(id);

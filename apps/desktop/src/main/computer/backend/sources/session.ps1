@@ -7,9 +7,9 @@ Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $AccessibilityAssemblyPath = [Accessibility.IAccessible].Assembly.Location
-$MixdogHostSource = @"
+$MixdogHostSource = @'
 @@MIXDOG_HOST_CSHARP@@
-"@
+'@
 $MixdogHostRefs = @('System.dll','System.Core.dll','System.Drawing.dll',$AccessibilityAssemblyPath)
 $MixdogHostCacheDir = [string]$env:MIXDOG_COMPUTER_HOST_CACHE
 $MixdogHostBuild = [string]$env:MIXDOG_COMPUTER_HOST_BUILD

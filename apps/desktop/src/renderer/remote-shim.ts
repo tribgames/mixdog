@@ -26,6 +26,7 @@ import {
   type RelayE2EEPairingMaterial,
 } from '../shared/remote-e2ee';
 import { isRemotePaintProbe } from '../shared/remote-performance';
+import { earlyUiT } from './early-ui-i18n';
 import {
   RELAY_PAYLOAD_TOO_LARGE_CODE,
   RELAY_ROUTING_CAPS_EVENT,
@@ -507,7 +508,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         cleanup();
         const message = event instanceof CustomEvent && typeof event.detail === 'string'
           ? event.detail
-          : 'This device could not complete secure pairing.';
+          : earlyUiT('This device could not complete secure pairing.');
         reject(new Error(message));
       };
       window.addEventListener(REMOTE_CONNECTION_READY_EVENT, ready, { once: true });
@@ -524,7 +525,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     onStatus: (text: string, failed?: boolean) => void,
   ): Promise<void> => {
     if (!deviceId) {
-      onStatus('Open the link from your desktop QR code once to install this app.', true);
+      onStatus(earlyUiT('Open the link from your desktop QR code once to install this app.'), true);
       return;
     }
     const base = serverBase || location.origin;
@@ -558,17 +559,17 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         try {
           claimId = await open();
         } catch {
-          onStatus('This desktop no longer recognises this app. Scan its QR code again.', true);
+          onStatus(earlyUiT('This desktop no longer recognises this app. Scan its QR code again.'), true);
           return;
         }
         if (!claimId) {
-          onStatus('Waiting for your desktop to come online…');
+          onStatus(earlyUiT('Waiting for your desktop to come online…'));
           await wait(5_000);
           continue;
         }
         await savePendingClaim(claimId, keyPair);
       }
-      onStatus('Waiting for approval on your desktop…');
+      onStatus(earlyUiT('Waiting for approval on your desktop…'));
       const deadline = Date.now() + 300_000;
       let outcome = 'expired';
       while (Date.now() < deadline) {
@@ -597,7 +598,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           || !/^[0-9a-f]{32,128}$/u.test(credential)
           || !persistApproval(credential, material)) {
           clearPendingClaim();
-          onStatus('That approval could not be verified.', true);
+          onStatus(earlyUiT('That approval could not be verified.'), true);
           return;
         }
         token = credential;
@@ -606,7 +607,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         clientRegistered = true;
         window.dispatchEvent(new Event(REMOTE_CREDENTIAL_READY_EVENT));
         approvalVerificationInFlight = true;
-        onStatus('Approval received. Verifying the secure connection…');
+        onStatus(earlyUiT('Approval received. Verifying the secure connection…'));
         const verified = waitForApprovedConnection();
         void connect().catch(() => {
           // Transient failures stay on the reconnect loop. Permanent pairing
@@ -623,16 +624,16 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         clearPendingClaim();
         layer.classList.add('mrp-ok');
         const waitTitle = layer.querySelector<HTMLElement>('[data-role="wait-title"]');
-        if (waitTitle) waitTitle.textContent = 'Success';
-        onStatus('Securely connected. Opening Mixdog…');
+        if (waitTitle) waitTitle.textContent = earlyUiT('Success');
+        onStatus(earlyUiT('Securely connected. Opening Mixdog…'));
         try { navigator.vibrate?.([30, 60, 30]); } catch { /* no haptics */ }
         window.setTimeout(() => layer.remove(), 900);
         return;
       }
       clearPendingClaim();
       onStatus(outcome === 'denied'
-        ? 'The request was declined on your desktop.'
-        : 'The request expired.', true);
+        ? earlyUiT('The request was declined on your desktop.')
+        : earlyUiT('The request expired.'), true);
       return;
     }
   };
@@ -685,34 +686,50 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         + '</style>'
         + '<main class="mrp-card">'
         + '<img src="/mixdog.svg" alt="" draggable="false"/>'
-        + `<b>${standalone
-          ? 'Approve this device'
-          : (mobile ? 'Install Mixdog' : 'Install Mixdog on your phone')}</b>`
+        + '<b data-role="heading"></b>'
         + '<p data-role="note"></p>'
         + (standalone
           ? '<div class="mrp-wait"><i aria-hidden="true"></i>'
-            + '<b data-role="wait-title">Waiting for approval</b></div>'
+            + '<b data-role="wait-title"></b></div>'
             + '<p class="mrp-status" data-role="status"></p>'
-            + '<button type="button" data-role="ask" hidden>Ask again</button>'
+            + '<button type="button" data-role="ask" hidden></button>'
           : (!mobile
-            ? '<ol><li><i>1</i>Open this page on your phone or tablet</li>'
-              + '<li><i>2</i>Install Mixdog from the mobile browser</li>'
-              + '<li><i>3</i>Open the installed app and approve it on your desktop</li></ol>'
+            ? '<ol><li><i>1</i><span data-role="step-one"></span></li>'
+              + '<li><i>2</i><span data-role="step-two"></span></li>'
+              + '<li><i>3</i><span data-role="step-three"></span></li></ol>'
             : (ios
-              ? '<ol><li><i>1</i>Tap the Share button</li>'
-                + '<li><i>2</i>Choose Add to Home Screen</li>'
-                + '<li><i>3</i>Open Mixdog and approve it on your desktop</li></ol>'
-              : '<ol><li><i>1</i>Install Mixdog from your browser menu</li>'
-                + '<li><i>2</i>Open it and approve it on your desktop</li></ol>')
-              + '<button type="button" data-role="install" hidden>Install</button>'))
+              ? '<ol><li><i>1</i><span data-role="step-one"></span></li>'
+                + '<li><i>2</i><span data-role="step-two"></span></li>'
+                + '<li><i>3</i><span data-role="step-three"></span></li></ol>'
+              : '<ol><li><i>1</i><span data-role="step-one"></span></li>'
+                + '<li><i>2</i><span data-role="step-two"></span></li></ol>')
+              + '<button type="button" data-role="install" hidden></button>'))
         + '</main>';
+      // Catalog text enters only textContent, never HTML.
+      const labels: Record<string, string> = {
+        heading: standalone ? earlyUiT('Approve this device')
+          : mobile ? earlyUiT('Install Mixdog') : earlyUiT('Install Mixdog on your phone'),
+        'wait-title': earlyUiT('Waiting for approval'),
+        ask: earlyUiT('Ask again'),
+        install: earlyUiT('Install'),
+        'step-one': !mobile ? earlyUiT('Open this page on your phone or tablet')
+          : ios ? earlyUiT('Tap the Share button') : earlyUiT('Install Mixdog from your browser menu'),
+        'step-two': !mobile ? earlyUiT('Install Mixdog from the mobile browser')
+          : ios ? earlyUiT('Choose Add to Home Screen') : earlyUiT('Open it and approve it on your desktop'),
+        'step-three': !mobile ? earlyUiT('Open the installed app and approve it on your desktop')
+          : earlyUiT('Open Mixdog and approve it on your desktop'),
+      };
+      for (const [role, label] of Object.entries(labels)) {
+        const target = layer.querySelector<HTMLElement>(`[data-role="${role}"]`);
+        if (target) target.textContent = label;
+      }
       const note = layer.querySelector<HTMLElement>('[data-role="note"]');
       if (note) {
         note.textContent = standalone
-          ? (message || 'Mixdog needs a one-time approval from the desktop it belongs to.')
+          ? (message || earlyUiT('Mixdog needs a one-time approval from the desktop it belongs to.'))
           : (mobile
-            ? 'Mixdog runs as an installed mobile app. Install it, then approve it once on your desktop.'
-            : 'The Mixdog web app works only when installed on a mobile device.');
+            ? earlyUiT('Mixdog runs as an installed mobile app. Install it, then approve it once on your desktop.')
+            : earlyUiT('The Mixdog web app works only when installed on a mobile device.'));
       }
       const install = layer.querySelector<HTMLButtonElement>('[data-role="install"]');
       if (install && installPrompt) install.removeAttribute('hidden');
@@ -737,12 +754,12 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         ask?.setAttribute('hidden', '');
         setStatus('', false);
         void requestApproval(layer, setStatus).catch(() => {
-          setStatus('Could not reach the relay. Check this device’s connection.', true);
+          setStatus(earlyUiT('Could not reach the relay. Check this device’s connection.'), true);
         });
       };
       ask?.addEventListener('click', start);
       if (autoAsk) start();
-      else setStatus(message || 'Open Settings → Connection, then ask again.', true);
+      else setStatus(message || earlyUiT('Open Settings → Connection, then ask again.'), true);
     };
     if (document.body) mount();
     else window.addEventListener('DOMContentLoaded', mount, { once: true });
@@ -1279,7 +1296,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       if (status === 401 || status === 403 || status === 409) {
         // The status travels into the message on purpose: this is the one
         // failure a user can only report, never inspect.
-        resetApprovalAndAsk(`This device is no longer approved (${status}).`);
+        resetApprovalAndAsk(earlyUiT('This device is no longer approved ({{status}}).', { status }));
       } else {
         scheduleReconnect();
       }
@@ -1512,7 +1529,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         pending.clear();
         if (!opened) reject(failure);
         if (isInvalidRemotePairingClose(event)) {
-          resetApprovalAndAsk(`This device is no longer approved (${event.code}).`);
+          resetApprovalAndAsk(earlyUiT('This device is no longer approved ({{status}}).', { status: event.code }));
           return;
         }
         if (backgroundClosedSockets.delete(ws)) {
@@ -1945,7 +1962,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     return;
   }
   if (!e2eePairing) {
-    resetApprovalAndAsk('This device has incomplete approval data. Ask for approval again.');
+    resetApprovalAndAsk(earlyUiT('This device has incomplete approval data. Ask for approval again.'));
     return;
   }
   setRemoteConnectionState('connecting');

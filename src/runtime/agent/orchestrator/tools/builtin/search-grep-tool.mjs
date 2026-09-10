@@ -468,6 +468,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
         // contract (a wrong deep path usually flags a wrong assumption).
         const rawScope = String(searchPath || '');
         if (!options?._grepRootFallback
+            && (err?.code === 'ENOENT' || err?.code === 'ENOTDIR')
             && rawScope
             && rawScope !== '.'
             && !isAbsolute(rawScope)
@@ -667,8 +668,8 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                         const patternStr = patterns.length === 1 ? JSON.stringify(patterns[0]) : JSON.stringify(patterns);
                         const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
                         const pathInfo = grepStat.isDirectory() ? 'path exists (dir)' : 'path exists (file)';
-                        ctxBody = `(no matches) pattern=${patternStr} path=${searchPath}${globStr}; ${pathInfo}`;
-                        if (offset === 0 && ctx.total === 0) ctxBody += await caseHintSuffix();
+                        ctxBody = `(no matches${ctxTotalKnown ? '' : ' in partial results'}) pattern=${patternStr} path=${searchPath}${globStr}; ${pathInfo}`;
+                        if (ctxTotalKnown && offset === 0 && ctx.total === 0) ctxBody += await caseHintSuffix();
                     }
                     const ctxOut = patternCapNote + ctxBody + ctxPartialSuffix;
                     if (options?.scopedCacheOutcome && (!ctxTotalKnown || ctx.omitted > 0 || !ctx.sourceComplete)) {
@@ -726,8 +727,8 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
                 const patternStr = patterns.length === 1 ? JSON.stringify(patterns[0]) : JSON.stringify(patterns);
                 const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
                 const pathInfo = grepStat.isDirectory() ? 'path exists (dir)' : 'path exists (file)';
-                ctxBody = `(no matches) pattern=${patternStr} path=${searchPath}${globStr}; ${pathInfo}`;
-                if (offset === 0 && ctx.total === 0) ctxBody += await caseHintSuffix();
+                ctxBody = `(no matches${ctxTotalKnown ? '' : ' in partial results'}) pattern=${patternStr} path=${searchPath}${globStr}; ${pathInfo}`;
+                if (ctxTotalKnown && offset === 0 && ctx.total === 0) ctxBody += await caseHintSuffix();
             }
             const ctxOut = patternCapNote + ctxBody + ctxPartialSuffix;
             if (options?.scopedCacheOutcome && (!ctxTotalKnown || ctx.omitted > 0)) {
@@ -829,11 +830,11 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
             const pathInfo = grepStat.isDirectory() ? 'path exists (dir)' : 'path exists (file)';
             const patternStr = patterns.length === 1 ? JSON.stringify(patterns[0]) : JSON.stringify(patterns);
             const globStr = normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
-            body = `(no matches) pattern=${patternStr} path=${searchPath}${globStr}; ${pathInfo}`;
+            body = `(no matches${totalKnown ? '' : ' in partial results'}) pattern=${patternStr} path=${searchPath}${globStr}; ${pathInfo}`;
             // True zero-match only: an empty body with offset>0 (or pre-offset
             // matches) just means the window skipped past real case-sensitive
             // hits, so the hint would be misleading.
-            if (offset === 0 && totalWindowed === 0) {
+            if (totalKnown && offset === 0 && totalWindowed === 0) {
                 body += await caseHintSuffix();
             }
         }

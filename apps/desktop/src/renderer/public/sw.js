@@ -5,6 +5,7 @@
 // failed).
 const ASSET_CACHE = "mixdog-assets-v2";
 importScripts("/sw-shell.js");
+importScripts("/ui-language.js");
 // A few deploys' worth of chunks; the oldest entries are evicted first.
 const MAX_ASSET_ENTRIES = 400;
 // One page boot requests several hashed chunks together. Trimming after every
@@ -63,19 +64,6 @@ const TURN_FINISHED_TEXT = {
   "zh-CN": "工作已完成。",
   "zh-TW": "工作已完成。",
 };
-
-/** Mirrors uiLanguageForLocale in i18n.ts: exact tag, Chinese script/region,
- *  then the bare language prefix. */
-function uiLanguageForLocale(locale) {
-  const lower = String(locale || "").trim().toLowerCase();
-  if (!lower) return "";
-  const tags = Object.keys(TURN_FINISHED_TEXT);
-  const exact = tags.find((tag) => tag.toLowerCase() === lower);
-  if (exact) return exact;
-  const base = lower.split(/[-_]/)[0];
-  if (base === "zh") return /hant|tw|hk|mo/.test(lower) ? "zh-TW" : "zh-CN";
-  return tags.find((tag) => tag.toLowerCase().split("-")[0] === base) || "";
-}
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -199,10 +187,9 @@ function appScopePath(pathname) {
  *  language rather than English. */
 async function notificationLanguage() {
   const stored = await readAppState(UI_LANGUAGE_ENTRY);
-  const chosen = uiLanguageForLocale(stored);
-  if (chosen) return chosen;
-  const system = self.navigator ? self.navigator.language : "";
-  return uiLanguageForLocale(system) || "en";
+  const system = self.navigator?.languages?.length
+    ? self.navigator.languages : [self.navigator?.language || ""];
+  return selectUiLanguage(stored, system);
 }
 
 function shareToken() {

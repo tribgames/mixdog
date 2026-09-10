@@ -3,10 +3,31 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { runInNewContext } from "node:vm";
 import { JSDOM } from "jsdom";
+import { buildSync } from "esbuild";
+import { fileURLToPath } from "node:url";
+import { SUPPORTED_UI_LANGUAGES, UI_LANGUAGE_STORAGE_KEY } from "../shared/ui-language";
+import { generatedCatalogs } from "../../scripts/i18n/native-catalogs.mjs";
 
 const source = readFileSync(new URL("./public/boot.js", import.meta.url), "utf8");
 
-function harness(installed = false) {
+test("inlined recovery catalogs cannot break out of their script element", async () => {
+  const payload = '</script><script>window.translationInjected = true</script>';
+  const state = {
+    catalogs: new Map([["en", { Recovery: payload }]]), nativeKeys: [], bootKeys: ["Recovery"],
+  };
+  const boot = [...generatedCatalogs(state)].find(([url]) => url.pathname.endsWith("/boot.js"))[1];
+  const dom = new JSDOM(`<!doctype html><html><head><script>${boot}</script></head><body><div id="root"><main></main></div></body></html>`, {
+    url: "https://mixdog.test", runScripts: "dangerously",
+  });
+  try {
+    assert.equal(dom.window.translationInjected, undefined);
+    assert.equal(dom.window.bootT("Recovery"), payload);
+    // Let boot observe the mounted root and disconnect before closing its window.
+    await Promise.resolve();
+  } finally { dom.window.close(); }
+});
+
+function harness(installed = false, { language, systemLanguages } = {}) {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     runScripts: "outside-only",
     url: "https://mixdog.test/",
@@ -28,6 +49,11 @@ function harness(installed = false) {
   if (installed) {
     Object.defineProperty(dom.window.navigator, "userAgent", { value: "iPhone" });
     Object.defineProperty(dom.window.navigator, "standalone", { value: true });
+  }
+  if (language) dom.window.localStorage.setItem(UI_LANGUAGE_STORAGE_KEY, language);
+  if (systemLanguages) {
+    Object.defineProperty(dom.window.navigator, "languages", { value: systemLanguages });
+    Object.defineProperty(dom.window.navigator, "language", { value: systemLanguages[0] });
   }
   dom.window.setTimeout = (callback, delay) => {
     timers.push({ callback, delay });
@@ -144,4 +170,59 @@ test("retry requests a page reload and Korean users receive a Korean dialog", ()
     retry.click();
     assert.equal(reloads, 1);
   } finally { dom.window.close(); }
+});
+
+test("recovery works in every selected language before application modules load", () => {
+  for (const { value: language } of SUPPORTED_UI_LANGUAGES) {
+    const catalog = language === "en" ? {} : JSON.parse(readFileSync(new URL(`./locales/${language}.json`, import.meta.url)));
+    const h = harness(false, { language, systemLanguages: ["ko-KR"] });
+    try {
+      h.run(30000);
+      const title = "Connection is taking longer than expected";
+      assert.equal(h.document.documentElement.lang, language);
+      assert.equal(h.document.querySelector("h2").textContent, catalog[title] || title, language);
+      assert.equal(h.document.querySelector("button").textContent, catalog["Try again"] || "Try again", language);
+    } finally { h.dom.window.close(); }
+  }
+});
+
+test("boot ignores invalid saved preferences and honors explicit Chinese scripts", () => {
+  for (const [systemLanguages, language] of [
+    [["xx-ZZ", "ja-JP"], "ja"],
+    [["zh-Hans-HK"], "zh-CN"],
+    [["zh-Hant-CN"], "zh-TW"],
+  ]) {
+    const h = harness(false, { language: "invalid", systemLanguages });
+    try {
+      assert.equal(h.document.documentElement.lang, language);
+    } finally { h.dom.window.close(); }
+  }
+});
+
+test("the real pre-React installation guide uses early catalogs and treats translations as text", () => {
+  const remoteSource = buildSync({
+    entryPoints: [fileURLToPath(new URL("./remote-shim.ts", import.meta.url))],
+    bundle: true, platform: "browser", format: "iife", write: false, logLevel: "silent",
+  }).outputFiles[0].text;
+  for (const { value: language } of SUPPORTED_UI_LANGUAGES) {
+    const catalog = language === "en" ? {} : JSON.parse(readFileSync(new URL(`./locales/${language}.json`, import.meta.url)));
+    const h = harness(false, { language });
+    try {
+      h.dom.window.TextEncoder = TextEncoder;
+      h.dom.window.TextDecoder = TextDecoder;
+      h.dom.window.eval(remoteSource);
+      const heading = h.document.querySelector('[data-role="heading"]');
+      const key = "Install Mixdog on your phone";
+      assert.equal(heading?.textContent, catalog[key] || key, language);
+      assert.equal(h.document.querySelector('[data-role="step-one"]').textContent,
+        catalog["Open this page on your phone or tablet"] || "Open this page on your phone or tablet", language);
+    } finally { h.dom.window.close(); }
+  }
+  const h = harness();
+  try {
+    h.dom.window.bootT = () => '<img src=x onerror="throw 1">';
+    h.dom.window.eval(remoteSource);
+    assert.equal(h.document.querySelector('[data-role="heading"]').textContent, '<img src=x onerror="throw 1">');
+    assert.equal(h.document.querySelector("img[onerror]"), null);
+  } finally { h.dom.window.close(); }
 });

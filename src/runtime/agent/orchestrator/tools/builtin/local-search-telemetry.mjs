@@ -31,6 +31,18 @@ export function recordLocalSearchBackend(backend, durationMs, outcome) {
     addNumber(target, `${name}_ms`, durationMs);
 }
 
+export function recordNativeSearchFailure(error) {
+    const target = current();
+    if (!target) return;
+    if (!Array.isArray(target.native_failures)) target.native_failures = [];
+    if (target.native_failures.length < 3) {
+        target.native_failures.push({
+            code: String(error?.code || ''),
+            message: String(error?.message || error).slice(0, 300),
+        });
+    }
+}
+
 export function recordNativeSearchTiming(served) {
     const target = current();
     if (!target || !served || typeof served !== 'object') return;

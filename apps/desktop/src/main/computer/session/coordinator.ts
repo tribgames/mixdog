@@ -470,6 +470,7 @@ export class ComputerUseCoordinator {
           windowIds: exactWindowIds,
         });
         this.refreshTargetQueueActivities();
+        this.drainTargetQueue();
         this.changed();
       }, waitMs);
       request.timer.unref?.();
@@ -484,14 +485,13 @@ export class ComputerUseCoordinator {
   }
 
   releaseTargets(sessionId: string): void {
-    let changed = false;
     for (const [windowId, lease] of this.targetLeases) {
       if (lease.sessionId !== sessionId) continue;
       this.targetLeases.delete(windowId);
-      changed = true;
     }
     this.cancelPendingRequests(sessionId, 'cancelled');
-    if (changed) this.drainTargetQueue();
+    // Removing a waiter can unblock a free target even if it owned no lease.
+    this.drainTargetQueue();
     this.scheduleLeaseExpiry();
     this.changed();
   }
@@ -681,8 +681,13 @@ export class ComputerUseCoordinator {
     if (this.cleanup.blocked || this.userControlActive) return;
     this.pruneExpiredLeases(false);
     let granted = false;
+    const waitingTargets = new Set<string>();
     for (const request of [...this.pendingTargetLeases]) {
-      if (!this.targetsAvailableTo(request.sessionId, request.windowIds)) continue;
+      if (!this.targetsAvailableTo(request.sessionId, request.windowIds)
+        || request.windowIds.some((windowId) => waitingTargets.has(windowId))) {
+        for (const windowId of request.windowIds) waitingTargets.add(windowId);
+        continue;
+      }
       if (!this.removePendingRequest(request)) continue;
       this.assignTargets(request.sessionId, request.windowIds);
       this.updateActivity(request.sessionId, {

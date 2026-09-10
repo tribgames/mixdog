@@ -2,7 +2,7 @@ import { AlarmClock, ChevronRight, Plus, Search, X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
-import { t } from './i18n';
+import { t, uiFormatLocale } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import { InitialSurface } from './InitialSurface';
 import { filterConfiguredModels } from './model-catalog';
@@ -120,19 +120,21 @@ function describeSchedule(schedule: RecordValue): string {
   if (schedule.whenAt) {
     const at = new Date(String(schedule.whenAt));
     return Number.isNaN(at.getTime())
-      ? 'One-shot'
-      : `Once at ${at.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+      ? t('One-shot')
+      : t('Once at {{time}}', { time: at.toLocaleString(uiFormatLocale(), {
+        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      }) });
   }
   const cron = String(schedule.whenCron || '');
   const parsed = frequencyFromCron(cron);
   if (!parsed.matched) return cron || String(schedule.time || '');
-  if (parsed.kind === 'hourly') return `Hourly at :${parsed.minute.padStart(2, '0')}`;
-  if (parsed.kind === 'weekdays') return `Weekdays at ${parsed.clock}`;
+  if (parsed.kind === 'hourly') return t('Hourly at :{{minute}}', { minute: parsed.minute.padStart(2, '0') });
+  if (parsed.kind === 'weekdays') return t('Weekdays at {{time}}', { time: parsed.clock });
   if (parsed.kind === 'weekly') {
     const day = WEEKDAY_OPTIONS.find((option) => option.value === parsed.weekday)?.label || 'Weekly';
-    return `${day}s at ${parsed.clock}`;
+    return t('Every {{day}} at {{time}}', { day: t(day), time: parsed.clock });
   }
-  return `Daily at ${parsed.clock}`;
+  return t('Daily at {{time}}', { time: parsed.clock });
 }
 
 // Sub-line: schedule first, then model, project, and paused state.

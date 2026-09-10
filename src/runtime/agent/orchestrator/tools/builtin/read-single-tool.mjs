@@ -24,20 +24,6 @@ function snapshotBodyWasReturnedByRead(snapshot) {
         || source.startsWith('apply_patch_');
 }
 
-async function detectReadEncoding(fullPath) {
-    let fh;
-    try {
-        fh = await fsPromises.open(fullPath, 'r');
-        const head = Buffer.alloc(3);
-        const { bytesRead: n } = await fh.read(head, 0, 3, 0);
-        return detectReadEncodingFromBuffer(head.subarray(0, n));
-    } catch {
-        return { encoding: 'utf8', bomLen: 0 };
-    } finally {
-        if (fh !== undefined) { try { await fh.close(); } catch {} }
-    }
-}
-
 // Reactive anti-fragmentation merge: per-session (readStateScope) memory of
 // the last requested window per file. When the next windowed read of the
 // same file starts shortly AFTER the previous window (gap <= 200 lines) and
@@ -476,14 +462,20 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             } catch { _prefetchedRawBuf = null; }
         }
     }
-    const _readEnc = _prefetchedRawBuf
-        ? detectReadEncodingFromBuffer(_prefetchedRawBuf.subarray(0, Math.min(3, _prefetchedRawBuf.length)))
-        : await detectReadEncoding(fullPath);
+    let _readHandle = null;
+    try {
+    // Encoding and binary detection share the same head sample and handle
+    // with ranged reads. All earlier path/device/media guards still run first.
+    let _binaryInspection = null;
+    if (!_prefetchedRawBuf) {
+        _readHandle = await fsPromises.open(fullPath, 'r');
+        _binaryInspection = await inspectBinaryFile(fullPath, st.size, { handle: _readHandle });
+    }
+    const _readEnc = detectReadEncodingFromBuffer(_prefetchedRawBuf || _binaryInspection.head);
     // UTF-16 (LE or BE) reads share one constraint: the streaming/binary
     // paths decode chunks as utf-8, so a BOM-flagged UTF-16 file must route
     // to the bounded in-memory decode below regardless of byte order.
     const _isUtf16 = _readEnc.encoding === 'utf16le' || _readEnc.encoding === 'utf16be';
-    let _binaryInspection = null;
     const _inspectBinary = async () => {
         if (_binaryInspection) return _binaryInspection;
         _binaryInspection = _prefetchedRawBuf
@@ -524,6 +516,8 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             const _streamRes = await streamReadRange(fullPath, offset, limit, st, {
                 displayPath: filePath,
                 maxOutputBytes: _readMaxOutputBytes,
+                fileHandle: _readHandle,
+                prefixBuffer: _binaryInspection?.head,
             });
             const out = _streamRes.text;
             // W1 H: snapshot only emitted line bounds, not the
@@ -630,6 +624,8 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             const _streamRes = await streamReadRange(fullPath, offset, limit, st, {
                 displayPath: filePath,
                 maxOutputBytes: _readMaxOutputBytes,
+                fileHandle: _readHandle,
+                prefixBuffer: _binaryInspection?.head,
             });
             const out = _streamRes.text;
             const _emittedRanges = (_streamRes.firstEmitted && _streamRes.lastEmitted)
@@ -839,5 +835,10 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     }
     catch (err) {
         return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+    }
+    } catch (err) {
+        return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
+    } finally {
+        if (_readHandle) await _readHandle.close().catch(() => {});
     }
 }

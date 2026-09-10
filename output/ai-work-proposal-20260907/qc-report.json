@@ -1,0 +1,122 @@
+{
+  "ok": true,
+  "deck": "C:\\Project\\mixdog\\output\\ai-work-proposal-20260907\\ai-work-proposal.pptx",
+  "route": {
+    "provider": "openai-oauth",
+    "model": "gpt-6-astra",
+    "effort": "high"
+  },
+  "isolation": "pristine-per-page",
+  "total": 8,
+  "pages": [
+    {
+      "page": 1,
+      "vision": true,
+      "before": 0,
+      "after": 0,
+      "edited": false,
+      "kept": true,
+      "reason": "unchanged",
+      "reply": "OK",
+      "errors": [
+        "mixdog: shutdown cleanup failed (result unaffected): EBUSY: resource busy or locked, unlink 'C:\\Users\\tempe\\AppData\\Local\\Temp\\mixdog-headless-pristine-dTVaXV\\data\\pg.log'\n"
+      ]
+    },
+    {
+      "page": 2,
+      "vision": true,
+      "before": 0,
+      "after": 0,
+      "edited": false,
+      "kept": true,
+      "reason": "execution_failed",
+      "reply": "",
+      "errors": [
+        "mixdog: WS pool drained — process exiting\n"
+      ]
+    },
+    {
+      "page": 3,
+      "vision": true,
+      "before": 0,
+      "after": 0,
+      "edited": false,
+      "kept": true,
+      "reason": "execution_failed",
+      "reply": "",
+      "errors": [
+        "mixdog: WS pool drained — process exiting\n"
+      ]
+    },
+    {
+      "page": 4,
+      "vision": true,
+      "before": 0,
+      "after": 0,
+      "edited": false,
+      "kept": true,
+      "reason": "execution_failed",
+      "reply": "",
+      "errors": [
+        "mixdog: WS pool drained — process exiting\n"
+      ]
+    },
+    {
+      "page": 5,
+      "vision": true,
+      "before": 0,
+      "after": 0,
+      "edited": false,
+      "kept": true,
+      "reason": "execution_failed",
+      "reply": "",
+      "errors": [
+        "mixdog: WS pool drained — process exiting\n"
+      ]
+    },
+    {
+      "page": 6,
+      "vision": true,
+      "before": 0,
+      "after": 0,
+      "edited": false,
+      "kept": true,
+      "reason": "execution_failed",
+      "reply": "",
+      "errors": [
+        "mixdog: WS pool drained — process exiting\n"
+      ]
+    },
+    {
+      "page": 7,
+      "vision": true,
+      "before": 0,
+      "after": 0,
+      "edited": false,
+      "kept": true,
+      "reason": "execution_failed",
+      "reply": "",
+      "errors": [
+        "mixdog: WS pool drained — process exiting\n"
+      ]
+    },
+    {
+      "page": 8,
+      "vision": true,
+      "before": 0,
+      "after": 0,
+      "edited": false,
+      "kept": true,
+      "reason": "execution_failed",
+      "reply": "",
+      "errors": [
+        "mixdog: WS pool drained — process exiting\n"
+      ]
+    }
+  ],
+  "skippedPages": [],
+  "fixed": 0,
+  "polished": 0,
+  "discarded": 0,
+  "skipped": 0
+}

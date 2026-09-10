@@ -102,16 +102,20 @@ export function createComputerUseOverlay(
       unregisterInternalWindow();
       if (windows.get(display.id)?.window === next) windows.delete(display.id);
     });
-    await next.loadURL(
-      `data:text/html;base64,${Buffer.from(overlayHtml(locale)).toString('base64')}`,
-    );
-    await next.webContents.executeJavaScript(overlayScript(locale));
-    if (disposed) {
-      next.destroy();
-      throw new Error('Computer Use overlay disposed during creation');
+    try {
+      await next.loadURL(
+        `data:text/html;base64,${Buffer.from(overlayHtml(locale)).toString('base64')}`,
+      );
+      await next.webContents.executeJavaScript(overlayScript(locale));
+      if (disposed || !screen.getAllDisplays().some(current => current.id === display.id)) {
+        throw new Error('Computer Use overlay disposed during creation');
+      }
+      windows.set(display.id, { window: next, lastRenderedPresentation: '' });
+      return next;
+    } catch (error) {
+      if (!next.isDestroyed()) next.destroy();
+      throw error;
     }
-    windows.set(display.id, { window: next, lastRenderedPresentation: '' });
-    return next;
   };
 
   const ensureWindowForDisplay = async (display: Display): Promise<BrowserWindow> => {

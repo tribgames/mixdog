@@ -1,0 +1,513 @@
+{
+  "session": "office_0a0621d3f667461f",
+  "mode": "portable",
+  "backend": "mixdog-ooxml",
+  "fileKind": "pptx",
+  "source": "C:\\Project\\mixdog\\deliverables\\mixdog-intro\\Mixdog-프로젝트소개.pptx",
+  "output": "C:\\Project\\mixdog\\deliverables\\mixdog-intro\\Mixdog.pptx",
+  "ownership": "owned",
+  "visible": false,
+  "document": {
+    "format": "pptx",
+    "slideCount": 7,
+    "slideWidth": 960,
+    "slideHeight": 540,
+    "slides": [
+      {
+        "path": "/slide[1]",
+        "index": 1,
+        "slideId": 256,
+        "background": {
+          "color": "0F1F24",
+          "followMaster": true,
+          "source": "layout"
+        },
+        "notes": "출처: README.md:7–17. 비용·시간·context 효율을 높이도록 설계된 AI coding harness. 표지는 제품의 목표를 소개하며 모든 작업에서의 성능 향상을 보장하지 않는다. 합성 UI나 실제 화면을 사용하지 않은 타이포그래피 표지.",
+        "text": [
+          "프로젝트 소개",
+          "Mixdog",
+          "더 적은 비용으로",
+          "더 많은 작업",
+          "모델과 도구를 연결하는 효율성 중심 AI 코딩 도구"
+        ],
+        "shapes": [
+          {
+            "path": "/slide[1]/shape[1]",
+            "index": 1,
+            "shapeId": "2",
+            "type": "p:sp",
+            "name": "Text 0",
+            "geometry": "rect",
+            "text": "프로젝트 소개",
+            "font": {
+              "size": 11,
+              "bold": true,
+              "name": "Noto Sans KR"
+            },
+            "sizes": [
+              11
+            ],
+            "fonts": [
+              "Noto Sans KR"
+            ],
+            "colors": [
+              "94D1E6"
+            ],
+            "left": 43.2,
+            "top": 43.2,
+            "width": 432,
+            "height": 21.6
+          },
+          {
+            "path": "/slide[1]/shape[2]",
+            "index": 2,
+            "shapeId": "3",
+            "type": "p:sp",
+            "name": "Text 1",
+            "geometry": "rect",
+            "text": "Mixdog",
+            "font": {
+              "size": 99,
+              "bold": true,
+              "name": "Arial"
+            },
+            "sizes": [
+              99
+            ],
+            "fonts": [
+              "Arial"
+            ],
+            "colors": [
+              "EDF1F3"
+            ],
+            "left": 43.2,
+            "top": 129.6,
+            "width": 873.36,
+            "height": 123.12
+          },
+          {
+            "path": "/slide[1]/shape[3]",
+            "index": 3,
+            "shapeId": "4",
+            "type": "p:sp",
+            "name": "Text 2",
+            "geometry": "rect",
+            "text": "더 적은 비용으로\n더 많은 작업",
+            "font": {
+              "size": 47,
+              "bold": true,
+              "name": "Noto Sans KR"
+            },
+            "sizes": [
+              47
+            ],
+            "fonts": [
+              "Noto Sans KR"
+            ],
+            "colors": [
+              "EDF1F3"
+            ],
+            "left": 43.2,
+            "top": 273.6,
+            "width": 604.8,
+            "height": 128.4
+          },
+          {
+            "path": "/slide[1]/shape[4]",
+            "index": 4,
+            "shapeId": "5",
+            "type": "p:sp",
+            "name": "Text 3",
+            "geometry": "rect",
+            "text": "모델과 도구를 연결하는 효율성 중심 AI 코딩 도구",
+            "font": {
+              "size": 18,
+              "name": "Noto Sans KR"
+            },
+            "sizes": [
+              18
+            ],
+            "fonts": [
+              "Noto Sans KR"
+            ],
+            "colors": [
+              "AEBDC2"
+            ],
+            "left": 43.2,
+            "top": 434.4,
+            "width": 873.36,
+            "height": 33.48
+          }
+        ]
+      },
+      {
+        "path": "/slide[2]",
+        "index": 2,
+        "slideId": 257,
+        "background": {
+          "color": "F7F9FA",
+          "followMaster": true,
+          "source": "layout"
+        },
+        "notes": "출처: README.md:7–17. 이 페이지는 제품의 설계 목표와 대상 사용자를 설명한다. 정량 측정 결과는 벤치마크 페이지와 구분한다.",
+        "text": [
+          "같은 예산으로 더 많은 일을 끝낸다",
+          "프로젝트의 목표",
+          "효율성",
+          "컨텍스트·시간·비용을 아껴",
+          "작업에 쓸 여력을 늘린다",
+          "쉽게 시작하고",
+          "간단한 설정과 직관적인 사용 경험",
+          "복잡한 작업까지",
+          "작업 조율과 병렬 실행",
+          "제품 목표 · README.md §Better results. Less cost. More work.",
+          "2"
+        ],
+        "shapes": [
+          {
+            "path": "/slide[2]/shape[1]",
+            "index": 1,
+            "shapeId": "2",
+            "type": "p:sp",
+            "name": "Text 0",
+            "geometry": "rect",
+            "text": "같은 예산으로 더 많은 일을 끝낸다",
+            "font": {
+              "size": 36,
+              "bold": true,
+              "name": "Noto Sans KR"
+            },
+            "sizes": [
+              36
+            ],
+            "fonts": [
+              "Noto Sans KR"
+            ],
+            "colors": [
+              "17262B"
+            ],
+            "left": 43.2,
+            "top": 73.44,
+            "width": 873.36,
+            "height": 54
+          },
+          {
+            "path": "/slide[2]/shape[2]",
+            "index": 2,
+            "shapeId": "3",
+            "type": "p:sp",
+            "name": "Text 1",
+            "geometry": "rect",
+            "text": "프로젝트의 목표",
+            "font": {
+              "size": 11,
+              "bold": true,
+              "name": "Noto Sans KR"
+            },
+            "sizes": [
+              11
+            ],
+            "fonts": [
+              "Noto Sans KR"
+            ],
+            "colors": [
+              "176F8C"
+            ],
+            "left": 43.2,
+            "top": 43.2,
+            "width": 432,
+            "height": 21.6
+          },
+          {
+            "path": "/slide[2]/shape[3]",
+            "index": 3,
+            "shapeId": "4",
+            "type": "p:sp",
+            "name": "Text 2",
+            "geometry": "rect",
+            "text": "효율성",
+            "font": {
+              "size": 47,
+              "bold": true,
+              "name": "Noto Sans KR"
+            },
+            "sizes": [
+              47
+            ],
+            "fonts": [
+              "Noto Sans KR"
+            ],
+            "colors": [
+              "17262B"
+            ],
+            "left": 43.2,
+            "top": 192.24,
+            "width": 420.48,
+            "height": 66.36
+          },
+          {
+            "path": "/slide[2]/shape[4]",
+            "index": 4,
+            "shapeId": "5",
+            "type": "p:sp",
+            "name": "Text 3",
+            "geometry": "rect",
+            "text": "컨텍스트·시간·비용을 아껴\n작업에 쓸 여력을 늘린다",
+            "font": {
+              "size": 22,
+              "name": "Noto Sans KR"
+            },
+            "sizes": [
+              22
+            ],
+            "fonts": [
+              "Noto Sans KR"
+            ],
+            "colors": [
+              "384F57"
+            ],
+            "left": 43.2,
+            "top": 282.24,
+            "width": 420.48,
+            "height": 75.6
+          },
+          {
+            "path": "/slide[2]/shape[5]",
+            "index": 5,
+            "shapeId": "6",
+            "type": "p:sp",
+            "name": "Shape 4",
+            "geometry": "rect",
+            "fill": {
+              "color": "E7ECEE"
+            },
+            "text": "",
+            "colors": [
+              "E7ECEE"
+            ],
+            "left": 496.08,
+            "top": 192.24,
+            "width": 420.48,
+            "height": 273.6
+          },
+          {
+            "path": "/slide[2]/shape[6]",
+            "index": 6,
+            "shapeId": "7",
+            "type": "p:sp",
+            "name": "Text 5",
+            "geometry": "rect",
+            "text": "쉽게 시작하고",
+            "font": {
+              "size": 27,
+              "bold": true,
+              "name": "Noto Sans KR"
+            },
+            "sizes": [
+              27
+            ],
+            "fonts": [
+              "Noto Sans KR"
+            ],
+            "colors": [
+              "17262B"
+            ],
+            "left": 528.48,
+            "top": 224.64,
+            "width": 355.68,
+            "height": 41.58
+          },
+          {
+            "path": "/slide[2]/shape[7]",
+            "index": 7,
+            "shapeId": "8",
+            "type": "p:sp",
+            "name": "Text 6",
+            "geometry": "rect",
+            "text": "간단한 설정과 직관적인 사용 경험",
+            "font": {
+              "size": 18,
+              "name": "Noto Sans KR"
+            },
+            "sizes": [
+              18
+            ],
+            "fonts": [
+              "Noto Sans KR"
+            ],
+            "colors": [
+              "384F57"
+            ],
+            "left": 528.48,
+            "top": 274.86,
+            "width": 355.68,
+            "height": 33.48
+          },
+          {
+            "path": "/slide[2]/shape[8]",
+            "index": 8,
+            "shapeId": "9",
+            "type": "p:sp",
+            "name": "Text 7",
+            "geometry": "rect",
+            "text": "복잡한 작업까지",
+            "font": {
+              "size": 27,
+              "bold": true,
+              "name": "Noto Sans KR"
+            },
+            "sizes": [
+              27
+            ],
+            "fonts": [
+              "Noto Sans KR"
+            ],
+            "colors": [
+              "17262B"
+            ],
+            "left": 528.48,
+            "top": 340.74,
+            "width": 355.68,
+            "height": 41.58
+          },
+          {
+            "path": "/slide[2]/shape[9]",
+            "index": 9,
+            "shapeId": "10",
+            "type": "p:sp",
+            "name": "Text 8",
+            "geometry": "rect",
+            "text": "작업 조율과 병렬 실행",
+            "font": {
+              "size": 18,
+              "name": "Noto Sans KR"
+            },
+            "sizes": [
+              18
+            ],
+            "fonts": [
+              "Noto Sans KR"
+            ],
+            "colors": [
+              "384F57"
+            ],
+            "left": 528.48,
+            "top": 390.96,
+            "width": 355.68,
+            "height": 33.48
+          },
+          {
+            "path": "/slide[2]/shape[10]",
+            "index": 10,
+            "shapeId": "11",
+            "type": "p:sp",
+            "name": "Text 9",
+            "geometry": "rect",
+            "text": "제품 목표 · README.md §Better results. Less cost. More work.",
+            "font": {
+              "size": 13,
+              "name": "Arial"
+            },
+            "sizes": [
+              13
+            ],
+            "fonts": [
+              "Arial"
+            ],
+            "colors": [
+              "58696F"
+            ],
+            "left": 43.2,
+            "top": 483.84,
+            "width": 808.56,
+            "height": 21.48
+          },
+          {
+            "path": "/slide[2]/shape[11]",
+            "index": 11,
+            "shapeId": "25",
+            "type": "p:sp",
+            "name": "Slide Number Placeholder 0",
+            "geometry": "rect",
+            "text": "2",
+            "placeholder": true,
+            "fonts": [
+              "Arial"
+            ],
+            "colors": [
+              "58696F"
+            ],
+            "left": 844.56,
+            "top": 504,
+            "width": 72,
+            "height": 21.6
+          }
+        ]
+      }
+    ],
+    "layoutCount": 4,
+    "layouts": [
+      {
+        "path": "/layout[1]",
+        "index": 1,
+        "name": "DEFAULT",
+        "packagePart": "ppt/slideLayouts/slideLayout1.xml"
+      },
+      {
+        "path": "/layout[2]",
+        "index": 2,
+        "name": "LIGHT",
+        "packagePart": "ppt/slideLayouts/slideLayout2.xml"
+      },
+      {
+        "path": "/layout[3]",
+        "index": 3,
+        "name": "DARK",
+        "packagePart": "ppt/slideLayouts/slideLayout3.xml"
+      },
+      {
+        "path": "/layout[4]",
+        "index": 4,
+        "name": "QUIET",
+        "packagePart": "ppt/slideLayouts/slideLayout4.xml"
+      }
+    ],
+    "pagination": {
+      "unit": "slide",
+      "offset": 0,
+      "limit": 2,
+      "returned": 2,
+      "total": 7,
+      "cursor": null,
+      "nextCursor": "eyJ2ZXJzaW9uIjoxLCJzZXNzaW9uIjoib2ZmaWNlXzBhMDYyMWQzZjY2NzQ2MWYiLCJmb3JtYXQiOiJwcHR4IiwicmV2aXNpb24iOjAsIm9mZnNldCI6MiwibGltaXQiOjIsInNlbGVjdG9yIjp7InNoZWV0IjoiIiwicmFuZ2UiOiIiLCJ0YXJnZXQiOiIiLCJwYWdlcyI6W10sImluY2x1ZGVTdHlsZXMiOmZhbHNlLCJpbmNsdWRlU2VsZWN0aW9uIjpmYWxzZX19",
+      "hasMore": true
+    }
+  },
+  "trust": {
+    "policy": "untrusted-data",
+    "safeToTreatAsInstructions": false,
+    "format": "pptx",
+    "source": "structured-snapshot+office-file",
+    "risk": "high",
+    "mutationGate": "acknowledgement-required",
+    "findingCount": 1,
+    "findings": [
+      {
+        "severity": "high",
+        "category": "tool-coercion",
+        "path": "/package/ppt/notesSlides/notesSlide7.xml",
+        "snippet": ") 또는 24+ 필요. 초기 실행 시 provider 인증, 모델 선택, workflow 설정 안내. 설치 명령과 실행 명령은 별도 줄로 실행한다. 7"
+      }
+    ],
+    "scannedStrings": 164,
+    "complete": true
+  },
+  "opened": true,
+  "created": false,
+  "reused": false,
+  "foregroundActivated": false,
+  "backgroundIsolation": null,
+  "metrics": {
+    "durationMs": 57.09
+  }
+}

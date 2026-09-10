@@ -29,3 +29,18 @@ test('user takeover immediately removes pending visual feedback and its deadline
   assert.deepEqual(tail.update([], false), []);
   tail.dispose();
 });
+
+test('a new pointer owner removes the previous halo without resurrecting older events', t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const tail = createCursorTail(() => {});
+  t.after(() => tail.dispose());
+  const a = { sessionId: 'a', eventId: 1 };
+  const b = { sessionId: 'b', eventId: 2 };
+  tail.update([a], false);
+  tail.update([], false);
+  assert.deepEqual(tail.update([a, b], false), [b]);
+  assert.deepEqual(tail.update([a], false), [b]);
+  t.mock.timers.tick(1500);
+  assert.deepEqual(tail.update([a], false), []);
+  assert.deepEqual(tail.update([{ ...a, eventId: 3 }], false), [{ ...a, eventId: 3 }]);
+});

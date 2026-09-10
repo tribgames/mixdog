@@ -11,6 +11,7 @@ import {
   publishUiLanguage,
 } from "./push-notification-bridge";
 import { WORKER_ORIGIN, loadWorker, memoryCacheStorage } from "./sw-test-harness.mjs";
+import { SUPPORTED_UI_LANGUAGES } from "../shared/ui-language";
 
 /** Drive the worker's real listeners, as a device would. */
 function tap(worker, sessionId) {
@@ -151,4 +152,22 @@ test("what the session actually said is never translated", async () => {
   await push(worker, { title: "Refactor", body: "Applied 3 edits.", data: { sessionId: "s" } });
 
   assert.equal(worker.shown[0].options.body, "Applied 3 edits.");
+});
+
+test("push fallback uses each supported preference and ignores invalid preferences", async () => {
+  for (const { value: language } of SUPPORTED_UI_LANGUAGES) {
+    const caches = memoryCacheStorage();
+    await publishUiLanguage(language, { caches });
+    const worker = loadWorker({ caches, systemLanguage: "ko-KR" });
+    await push(worker, { title: "History", body: "", data: { sessionId: "session-i18n" } });
+    assert.equal(worker.shown[0].title, "History");
+    assert.ok(worker.shown[0].options.body);
+    if (language === "en") assert.equal(worker.shown[0].options.body, "Finished working.");
+    else assert.notEqual(worker.shown[0].options.body, "Finished working.", language);
+  }
+  const caches = memoryCacheStorage();
+  await publishUiLanguage("invalid", { caches });
+  const worker = loadWorker({ caches, systemLanguage: "ja-JP" });
+  await push(worker, { title: "History", body: "", data: { sessionId: "session-i18n" } });
+  assert.equal(worker.shown[0].options.body, "作業が完了しました。");
 });
